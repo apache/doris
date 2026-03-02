@@ -36,6 +36,9 @@ public:
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
 
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
+
     Status from_string_batch(const ColumnString& str, ColumnNullable& column,
                              const FormatOptions& options) const override;
 
@@ -71,6 +74,8 @@ public:
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end, vectorized::Arena& arena,
                                const FormatOptions& options) const override;
+
+    std::string to_olap_string(const vectorized::Field& field) const override;
 
 private:
     const UInt32 _scale = 6;

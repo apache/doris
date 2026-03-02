@@ -26,7 +26,7 @@ suite("test_rowstore_ck", "p0") {
                 `v2` DECIMAL(50, 18) NULL COMMENT ""
               ) ENGINE=OLAP
               UNIQUE KEY(`k1`)
-              CLUSTER BY(`v2`)
+              ORDER BY(`v2`)
               DISTRIBUTED BY HASH(`k1`) BUCKETS 1
               PROPERTIES (
               "replication_allocation" = "tag.location.default: 1",

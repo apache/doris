@@ -20,16 +20,13 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
-#include <cinttypes>
 #include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
-#include <limits>
 #include <memory>
 #include <string>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -44,15 +41,11 @@
 #include "runtime/map_value.h"
 #include "runtime/struct_value.h"
 #include "runtime/type_limit.h"
-#include "util/binary_cast.hpp"
-#include "util/mysql_global.h"
 #include "util/slice.h"
 #include "util/string_parser.hpp"
-#include "util/to_string.h"
 #include "util/types.h"
 #include "vec/common/arena.h"
 #include "vec/core/extended_types.h"
-#include "vec/functions/cast/cast_to_string.h"
 #include "vec/functions/cast/cast_to_timestamptz.h"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
@@ -85,13 +78,8 @@ public:
 
     virtual void direct_copy(void* dest, const void* src) const = 0;
 
-    // Use only in zone map to cut data.
-    virtual void direct_copy_may_cut(void* dest, const void* src) const = 0;
-
     virtual Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
                                const int scale = 0) const = 0;
-
-    virtual std::string to_string(const void* src) const = 0;
 
     virtual void set_to_max(void* buf) const = 0;
     virtual void set_to_min(void* buf) const = 0;
@@ -111,16 +99,10 @@ public:
 
     void direct_copy(void* dest, const void* src) const override { _direct_copy(dest, src); }
 
-    void direct_copy_may_cut(void* dest, const void* src) const override {
-        _direct_copy_may_cut(dest, src);
-    }
-
     Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
                        const int scale = 0) const override {
         return _from_string(buf, scan_key, precision, scale);
     }
-
-    std::string to_string(const void* src) const override { return _to_string(src); }
 
     void set_to_max(void* buf) const override { _set_to_max(buf); }
     void set_to_min(void* buf) const override { _set_to_min(buf); }
@@ -133,9 +115,7 @@ public:
             : _cmp(TypeTraitsClass::cmp),
               _deep_copy(TypeTraitsClass::deep_copy),
               _direct_copy(TypeTraitsClass::direct_copy),
-              _direct_copy_may_cut(TypeTraitsClass::direct_copy_may_cut),
               _from_string(TypeTraitsClass::from_string),
-              _to_string(TypeTraitsClass::to_string),
               _set_to_max(TypeTraitsClass::set_to_max),
               _set_to_min(TypeTraitsClass::set_to_min),
               _size(TypeTraitsClass::size),
@@ -146,11 +126,9 @@ private:
 
     void (*_deep_copy)(void* dest, const void* src, vectorized::Arena& arena);
     void (*_direct_copy)(void* dest, const void* src);
-    void (*_direct_copy_may_cut)(void* dest, const void* src);
 
     Status (*_from_string)(void* buf, const std::string& scan_key, const int precision,
                            const int scale);
-    std::string (*_to_string)(const void* src);
 
     void (*_set_to_max)(void* buf);
     void (*_set_to_min)(void* buf);
@@ -296,28 +274,10 @@ public:
         }
     }
 
-    void direct_copy_may_cut(void* dest, const void* src) const override { direct_copy(dest, src); }
-
     Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
                        const int scale = 0) const override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "ArrayTypeInfo not support from_string");
-    }
-
-    std::string to_string(const void* src) const override {
-        auto src_value = reinterpret_cast<const CollectionValue*>(src);
-        std::string result = "[";
-
-        for (size_t i = 0; i < src_value->length(); ++i) {
-            std::string item =
-                    _item_type_info->to_string((uint8_t*)(src_value->data()) + i * _item_size);
-            result += item;
-            if (i != src_value->length() - 1) {
-                result += ", ";
-            }
-        }
-        result += "]";
-        return result;
     }
 
     void set_to_max(void* buf) const override {
@@ -379,34 +339,10 @@ public:
 
     void direct_copy(uint8_t** base, void* dest, const void* src) const { CHECK(false); }
 
-    void direct_copy_may_cut(void* dest, const void* src) const override { direct_copy(dest, src); }
-
     Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
                        const int scale = 0) const override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "MapTypeInfo not support from_string");
-    }
-
-    std::string to_string(const void* src) const override {
-        auto src_ = reinterpret_cast<const MapValue*>(src);
-        auto src_key = reinterpret_cast<const CollectionValue*>(src_->key_data());
-        auto src_val = reinterpret_cast<const CollectionValue*>(src_->value_data());
-        size_t key_slot_size = _key_type_info->size();
-        size_t val_slot_size = _value_type_info->size();
-        std::string result = "{";
-
-        for (size_t i = 0; i < src_key->length(); ++i) {
-            std::string k_s =
-                    _key_type_info->to_string((uint8_t*)(src_key->data()) + key_slot_size);
-            std::string v_s =
-                    _key_type_info->to_string((uint8_t*)(src_val->data()) + val_slot_size);
-            result += k_s + ":" + v_s;
-            if (i != src_key->length() - 1) {
-                result += ", ";
-            }
-        }
-        result += "}";
-        return result;
     }
 
     void set_to_max(void* buf) const override {
@@ -566,27 +502,10 @@ public:
         }
     }
 
-    void direct_copy_may_cut(void* dest, const void* src) const override { direct_copy(dest, src); }
-
     Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
                        const int scale = 0) const override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "StructTypeInfo not support from_string");
-    }
-
-    std::string to_string(const void* src) const override {
-        auto src_value = reinterpret_cast<const StructValue*>(src);
-        std::string result = "{";
-
-        for (uint32_t i = 0; i < src_value->size(); ++i) {
-            std::string field_value = _type_infos[i]->to_string(src_value->child_value(i));
-            result += field_value;
-            if (i < src_value->size() - 1) {
-                result += ", ";
-            }
-        }
-        result += "}";
-        return result;
     }
 
     void set_to_max(void* buf) const override {
@@ -825,18 +744,12 @@ struct BaseFieldTypeTraits : public CppTypeTraits<field_type> {
         memcpy(dest, src, sizeof(CppType));
     }
 
-    static inline void direct_copy_may_cut(void* dest, const void* src) { direct_copy(dest, src); }
-
     static inline void set_to_max(void* buf) {
         set_cpp_type_value(buf, type_limit<CppType>::max());
     }
 
     static inline void set_to_min(void* buf) {
         set_cpp_type_value(buf, type_limit<CppType>::min());
-    }
-
-    static std::string to_string(const void* src) {
-        return std::to_string(get_cpp_type_value(src));
     }
 
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
@@ -855,10 +768,6 @@ struct BaseFieldTypeTraits : public CppTypeTraits<field_type> {
 template <FieldType fieldType, bool isArithmetic>
 struct NumericFieldTypeTraits : public BaseFieldTypeTraits<fieldType> {
     using CppType = typename CppTypeTraits<fieldType>::CppType;
-
-    static std::string to_string(const void* src) {
-        return std::to_string(*reinterpret_cast<const CppType*>(src));
-    }
 };
 
 template <FieldType fieldType>
@@ -874,11 +783,6 @@ struct FieldTypeTraits
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL>
         : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL> {
-    static std::string to_string(const void* src) {
-        char buf[1024] = {'\0'};
-        snprintf(buf, sizeof(buf), "%d", *reinterpret_cast<const bool*>(src));
-        return std::string(buf);
-    }
     static void set_to_max(void* buf) { (*(uint8_t*)buf) = 1; }
     static void set_to_min(void* buf) { (*(uint8_t*)buf) = 0; }
 };
@@ -926,42 +830,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT>
 
         return Status::OK();
     }
-    static std::string to_string(const void* src) {
-        char buf[1024];
-        int128_t value = reinterpret_cast<const PackedInt128*>(src)->value;
-        if (value >= std::numeric_limits<int64_t>::min() &&
-            value <= std::numeric_limits<int64_t>::max()) {
-            snprintf(buf, sizeof(buf), "%" PRId64, (int64_t)value);
-        } else {
-            char* current = buf;
-            uint128_t abs_value = value;
-            if (value < 0) {
-                *(current++) = '-';
-                abs_value = -value;
-            }
-
-            // the max value of uint64_t is 18446744073709551615UL,
-            // so use Z19_UINT64 to divide uint128_t
-            const static uint64_t Z19_UINT64 = 10000000000000000000ULL;
-            uint64_t suffix = abs_value % Z19_UINT64;
-            uint64_t middle = abs_value / Z19_UINT64 % Z19_UINT64;
-            uint64_t prefix = abs_value / Z19_UINT64 / Z19_UINT64;
-
-            char* end = buf + sizeof(buf);
-            if (prefix > 0) {
-                current += snprintf(current, end - current, "%" PRIu64, prefix);
-                current += snprintf(current, end - current, "%.19" PRIu64, middle);
-                current += snprintf(current, end - current, "%.19" PRIu64, suffix);
-            } else if (LIKELY(middle > 0)) {
-                current += snprintf(current, end - current, "%" PRIu64, middle);
-                current += snprintf(current, end - current, "%.19" PRIu64, suffix);
-            } else {
-                current += snprintf(current, end - current, "%" PRIu64, suffix);
-            }
-        }
-
-        return std::string(buf);
-    }
 
     // GCC7.3 will generate movaps instruction, which will lead to SEGV when buf is
     // not aligned to 16 byte
@@ -971,8 +839,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT>
     static void direct_copy(void* dest, const void* src) {
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
-
-    static inline void direct_copy_may_cut(void* dest, const void* src) { direct_copy(dest, src); }
 
     static void set_to_max(void* buf) {
         *reinterpret_cast<PackedInt128*>(buf) = ~((int128_t)(1) << 127);
@@ -994,12 +860,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4>
         }
         *reinterpret_cast<uint32_t*>(buf) = value;
         return Status::OK();
-    }
-
-    static std::string to_string(const void* src) {
-        uint32_t value = *reinterpret_cast<const uint32_t*>(src);
-        IPv4Value ipv4_value(value);
-        return ipv4_value.to_string();
     }
 
     static void set_to_max(void* buf) {
@@ -1025,12 +885,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6>
         return Status::OK();
     }
 
-    static std::string to_string(const void* src) {
-        uint128_t value = unaligned_load<uint128_t>(src);
-        IPv6Value ipv6_value(value);
-        return ipv6_value.to_string();
-    }
-
     static void set_to_max(void* buf) {
         *reinterpret_cast<int128_t*>(buf) = -1; // ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
     }
@@ -1052,9 +906,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT>
         *reinterpret_cast<CppType*>(buf) = value;
         return Status::OK();
     }
-    static std::string to_string(const void* src) {
-        return vectorized::CastToString::from_number(*reinterpret_cast<const CppType*>(src));
-    }
 };
 
 template <>
@@ -1069,9 +920,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE>
         *reinterpret_cast<CppType*>(buf) = value;
         return Status::OK();
     }
-    static std::string to_string(const void* src) {
-        return vectorized::CastToString::from_number(*reinterpret_cast<const CppType*>(src));
-    }
 };
 
 template <>
@@ -1081,10 +929,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL>
                               const int scale) {
         CppType* data_ptr = reinterpret_cast<CppType*>(buf);
         return data_ptr->from_string(scan_key);
-    }
-    static std::string to_string(const void* src) {
-        const CppType* data_ptr = reinterpret_cast<const CppType*>(src);
-        return data_ptr->to_string();
     }
     static void set_to_max(void* buf) {
         CppType* data = reinterpret_cast<CppType*>(buf);
@@ -1148,12 +992,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>
         *reinterpret_cast<PackedInt128*>(buf) = value;
         return Status::OK();
     }
-    static std::string to_string(const void* src) {
-        int128_t value = reinterpret_cast<const PackedInt128*>(src)->value;
-        fmt::memory_buffer buffer;
-        fmt::format_to(buffer, "{}", value);
-        return std::string(buffer.data(), buffer.size());
-    }
 };
 
 template <>
@@ -1171,10 +1009,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL256>
         }
         *reinterpret_cast<wide::Int256*>(buf) = value;
         return Status::OK();
-    }
-    static std::string to_string(const void* src) {
-        const auto* value = reinterpret_cast<const wide::Int256*>(src);
-        return wide::to_string(*value);
     }
 };
 
@@ -1196,9 +1030,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>
         }
 
         return Status::OK();
-    }
-    static std::string to_string(const void* src) {
-        return reinterpret_cast<const CppType*>(src)->to_string();
     }
 
     static void set_to_max(void* buf) {
@@ -1229,13 +1060,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>
 
         return Status::OK();
     }
-    static std::string to_string(const void* src) {
-        // uint24_t
-        CppType tmp = *reinterpret_cast<const CppType*>(src);
-        DateV2Value<DateV2ValueType> value =
-                binary_cast<CppType, DateV2Value<DateV2ValueType>>(tmp);
-        return value.to_string();
-    }
 
     static void set_to_max(void* buf) {
         // max is 9999 * 16 * 32 + 12 * 32 + 31;
@@ -1263,13 +1087,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
         }
 
         return Status::OK();
-    }
-    // only used in Field so we dont know the scale, use max scale 6 as default
-    static std::string to_string(const void* src) {
-        CppType tmp = *reinterpret_cast<const CppType*>(src);
-        DateV2Value<DateTimeV2ValueType> value =
-                binary_cast<CppType, DateV2Value<DateTimeV2ValueType>>(tmp);
-        return value.to_string(6);
     }
 
     static void set_to_max(void* buf) {
@@ -1303,22 +1120,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>
 
         return Status::OK();
     }
-    static std::string to_string(const void* src) {
-        CppType tmp = *reinterpret_cast<const CppType*>(src);
-        CppType part1 = (tmp / 1000000L);
-        CppType part2 = (tmp - part1 * 1000000L);
-
-        int year = (part1 / 10000L) % 10000;
-        int mon = (part1 / 100) % 100;
-        int mday = part1 % 100;
-
-        int hour = (part2 / 10000L) % 10000;
-        int min = (part2 / 100) % 100;
-        int sec = part2 % 100;
-
-        return fmt::format(FMT_COMPILE("{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}"), year, mon,
-                           mday, hour, min, sec);
-    }
 
     static void set_to_max(void* buf) {
         // 9999-12-31 23:59:59
@@ -1343,12 +1144,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>
         *reinterpret_cast<CppType*>(buf) = value.to_date_int_val();
 
         return Status::OK();
-    }
-    // only used in Field so we dont know the scale, use max scale 6 as default
-    static std::string to_string(const void* src) {
-        CppType tmp = *reinterpret_cast<const CppType*>(src);
-        TimestampTzValue value(tmp);
-        return value.to_string(cctz::utc_time_zone(), 6);
     }
 
     static void set_to_max(void* buf) {
@@ -1393,10 +1188,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR>
         }
         return Status::OK();
     }
-    static std::string to_string(const void* src) {
-        auto slice = reinterpret_cast<const Slice*>(src);
-        return slice->to_string();
-    }
 
     static void deep_copy(void* dest, const void* src, vectorized::Arena& arena) {
         auto l_slice = reinterpret_cast<Slice*>(dest);
@@ -1419,16 +1210,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR>
     static void set_to_min(void* buf) {
         auto slice = reinterpret_cast<Slice*>(buf);
         memset(slice->data, 0, slice->size);
-    }
-
-    static void direct_copy_may_cut(void* dest, const void* src) {
-        auto l_slice = reinterpret_cast<Slice*>(dest);
-        auto r_slice = reinterpret_cast<const Slice*>(src);
-
-        auto min_size =
-                MAX_ZONE_MAP_INDEX_SIZE >= r_slice->size ? r_slice->size : MAX_ZONE_MAP_INDEX_SIZE;
-        memcpy(l_slice->data, r_slice->data, min_size);
-        l_slice->size = min_size;
     }
 };
 

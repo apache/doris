@@ -201,38 +201,28 @@ void ColumnVector<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primit
     auto s = rows;
     DCHECK(s == size());
 
-    if constexpr (is_date_or_datetime(T)) {
-        char buf[64];
-        auto date_convert_do_crc = [&](size_t i) {
-            const auto& date_val = (const VecDateTimeValue&)data[i];
-            auto len = date_val.to_buffer(buf);
-            hashes[i] = HashUtil::zlib_crc_hash(buf, len, hashes[i]);
-        };
-
-        if (null_data == nullptr) {
-            for (size_t i = 0; i < s; i++) {
-                date_convert_do_crc(i);
-            }
-        } else {
-            for (size_t i = 0; i < s; i++) {
-                if (null_data[i] == 0) {
-                    date_convert_do_crc(i);
-                }
-            }
+    if (null_data == nullptr) {
+        for (size_t i = 0; i < s; i++) {
+            hashes[i] = _zlib_crc32_hash(hashes[i], i);
         }
     } else {
-        if (null_data == nullptr) {
-            for (size_t i = 0; i < s; i++) {
-                hashes[i] = HashUtil::zlib_crc_hash(
-                        &data[i], sizeof(typename PrimitiveTypeTraits<T>::CppType), hashes[i]);
-            }
-        } else {
-            for (size_t i = 0; i < s; i++) {
-                if (null_data[i] == 0)
-                    hashes[i] = HashUtil::zlib_crc_hash(
-                            &data[i], sizeof(typename PrimitiveTypeTraits<T>::CppType), hashes[i]);
+        for (size_t i = 0; i < s; i++) {
+            if (null_data[i] == 0) {
+                hashes[i] = _zlib_crc32_hash(hashes[i], i);
             }
         }
+    }
+}
+
+template <PrimitiveType T>
+uint32_t ColumnVector<T>::_zlib_crc32_hash(uint32_t hash, size_t idx) const {
+    if constexpr (is_date_or_datetime(T)) {
+        char buf[64];
+        const auto& date_val = (const VecDateTimeValue&)data[idx];
+        auto len = date_val.to_buffer(buf);
+        return HashUtil::zlib_crc_hash(buf, len, hash);
+    } else {
+        return HashUtil::zlib_crc32_fixed(data[idx], hash);
     }
 }
 

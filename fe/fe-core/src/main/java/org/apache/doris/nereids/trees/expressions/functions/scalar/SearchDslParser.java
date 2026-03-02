@@ -22,6 +22,7 @@ import org.apache.doris.nereids.search.SearchParser;
 import org.apache.doris.nereids.search.SearchParserBaseVisitor;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -61,6 +62,7 @@ import javax.annotation.Nullable;
 public class SearchDslParser {
     private static final Logger LOG = LogManager.getLogger(SearchDslParser.class);
     private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
+    private static final int MAX_FIELD_GROUP_DEPTH = 32;
 
     /**
      * Exception for search DSL syntax errors.
@@ -110,23 +112,30 @@ public class SearchDslParser {
         String defaultField = searchOptions.getDefaultField();
         String defaultOperator = searchOptions.getDefaultOperator();
 
+        QsPlan plan;
         // Use Lucene mode parser if specified
         if (searchOptions.isLuceneMode()) {
             // Multi-field + Lucene mode: first expand DSL, then parse with Lucene semantics
             if (searchOptions.isMultiFieldMode()) {
-                return parseDslMultiFieldLuceneMode(dsl, searchOptions.getFields(),
+                plan = parseDslMultiFieldLuceneMode(dsl, searchOptions.getFields(),
                         defaultOperator, searchOptions);
+            } else {
+                plan = parseDslLuceneMode(dsl, defaultField, defaultOperator, searchOptions);
             }
-            return parseDslLuceneMode(dsl, defaultField, defaultOperator, searchOptions);
+        } else if (searchOptions.isMultiFieldMode()) {
+            // Multi-field mode parsing (standard mode)
+            plan = parseDslMultiFieldMode(dsl, searchOptions.getFields(), defaultOperator, searchOptions);
+        } else {
+            // Standard mode parsing
+            plan = parseDslStandardMode(dsl, defaultField, defaultOperator);
         }
 
-        // Multi-field mode parsing (standard mode)
-        if (searchOptions.isMultiFieldMode()) {
-            return parseDslMultiFieldMode(dsl, searchOptions.getFields(), defaultOperator, searchOptions);
-        }
-
-        // Standard mode parsing
-        return parseDslStandardMode(dsl, defaultField, defaultOperator);
+        // Wrap plan with options for BE serialization
+        // NOTE: Must use normalizeDefaultOperator() here because BE compares
+        // default_operator case-sensitively against lowercase "and"/"or"
+        return new QsPlan(plan.getRoot(), plan.getFieldBindings(),
+                normalizeDefaultOperator(searchOptions.getDefaultOperator()),
+                searchOptions.getMinimumShouldMatch());
     }
 
     /**
@@ -144,22 +153,22 @@ public class SearchDslParser {
 
     /**
      * Standard mode parsing (original behavior)
+     * Now uses single-phase parsing: ANTLR grammar natively supports bare queries (without field prefix),
+     * and the visitor fills in the default field.
      */
     private static QsPlan parseDslStandardMode(String dsl, String defaultField, String defaultOperator) {
         if (dsl == null || dsl.trim().isEmpty()) {
             return new QsPlan(new QsNode(QsClauseType.TERM, "error", "empty_dsl"), new ArrayList<>());
         }
 
-        // Expand simplified DSL if default field is provided
-        String expandedDsl = dsl;
-        if (defaultField != null && !defaultField.trim().isEmpty()) {
-            expandedDsl = expandSimplifiedDsl(dsl.trim(), defaultField.trim(),
-                    normalizeDefaultOperator(defaultOperator));
-        }
+        // Parse original DSL directly - no preprocessing needed
+        // The ANTLR grammar now supports bareQuery (without field prefix)
+        // and QsAstBuilder will use defaultField for bare queries
+        String trimmedDsl = dsl.trim();
 
         try {
             // Create ANTLR lexer and parser
-            SearchLexer lexer = new SearchLexer(CharStreams.fromString(expandedDsl));
+            SearchLexer lexer = new SearchLexer(CharStreams.fromString(trimmedDsl));
             CommonTokenStream tokens = new CommonTokenStream(lexer);
             SearchParser parser = new SearchParser(tokens);
 
@@ -184,9 +193,10 @@ public class SearchDslParser {
                 throw new SearchDslSyntaxException("Invalid search DSL syntax: parsing returned null");
             }
 
-            // Build AST using visitor pattern
-            QsAstBuilder visitor = new QsAstBuilder();
+            // Build AST using visitor pattern with defaultField and defaultOperator for bare queries
+            QsAstBuilder visitor = new QsAstBuilder(defaultField, defaultOperator);
             QsNode root = visitor.visit(tree);
+            validateNestedTopLevelOnly(root);
 
             // Extract field bindings
             Set<String> fieldNames = visitor.getFieldNames();
@@ -200,25 +210,30 @@ public class SearchDslParser {
 
         } catch (SearchDslSyntaxException e) {
             // Syntax error in DSL - user input issue
-            LOG.error("Failed to parse search DSL: '{}' (expanded: '{}')", dsl, expandedDsl, e);
+            LOG.error("Failed to parse search DSL: '{}' (defaultField={}, defaultOperator={})",
+                    dsl, defaultField, defaultOperator, e);
             throw new SearchDslSyntaxException("Invalid search DSL: " + dsl + ". " + e.getMessage(), e);
         } catch (IllegalArgumentException e) {
             // Invalid argument - user input issue
-            LOG.error("Invalid argument in search DSL: '{}' (expanded: '{}')", dsl, expandedDsl, e);
+            LOG.error("Invalid argument in search DSL: '{}' (defaultField={}, defaultOperator={})",
+                    dsl, defaultField, defaultOperator, e);
             throw new IllegalArgumentException("Invalid search DSL argument: " + dsl + ". " + e.getMessage(), e);
         } catch (NullPointerException e) {
             // Internal error - programming bug
-            LOG.error("Internal error (NPE) while parsing search DSL: '{}' (expanded: '{}')", dsl, expandedDsl, e);
+            LOG.error("Internal error (NPE) while parsing search DSL: '{}' (defaultField={}, defaultOperator={})",
+                    dsl, defaultField, defaultOperator, e);
             throw new RuntimeException("Internal error while parsing search DSL: " + dsl
                     + ". This may be a bug. Details: " + e.getMessage(), e);
         } catch (IndexOutOfBoundsException e) {
             // Internal error - programming bug
-            LOG.error("Internal error (IOOB) while parsing search DSL: '{}' (expanded: '{}')", dsl, expandedDsl, e);
+            LOG.error("Internal error (IOOB) while parsing search DSL: '{}' (defaultField={}, defaultOperator={})",
+                    dsl, defaultField, defaultOperator, e);
             throw new RuntimeException("Internal error while parsing search DSL: " + dsl
                     + ". This may be a bug. Details: " + e.getMessage(), e);
         } catch (RuntimeException e) {
             // Other runtime errors
-            LOG.error("Unexpected error while parsing search DSL: '{}' (expanded: '{}')", dsl, expandedDsl, e);
+            LOG.error("Unexpected error while parsing search DSL: '{}' (defaultField={}, defaultOperator={})",
+                    dsl, defaultField, defaultOperator, e);
             throw new RuntimeException("Unexpected error parsing search DSL: " + dsl + ". " + e.getMessage(), e);
         }
     }
@@ -236,283 +251,6 @@ public class SearchDslParser {
         }
         throw new IllegalArgumentException("Invalid default operator: " + operator
                 + ". Must be 'and' or 'or'");
-    }
-
-    /**
-     * Expand simplified DSL to full DSL format
-     * <p>
-     * Examples:
-     * - "foo bar" + field="tags" + operator="and" → "tags:ALL(foo bar)"
-     * - "foo* bar*" + field="tags" + operator="and" → "tags:foo* AND tags:bar*"
-     * - "foo OR bar" + field="tags" → "tags:foo OR tags:bar"
-     * - "EXACT(foo bar)" + field="tags" → "tags:EXACT(foo bar)"
-     *
-     * @param dsl Simple DSL string
-     * @param defaultField Default field name
-     * @param defaultOperator "and" or "or"
-     * @return Expanded full DSL
-     */
-    private static String expandSimplifiedDsl(String dsl, String defaultField, String defaultOperator) {
-        // 1. If DSL already contains field names (colon), return as-is
-        if (containsFieldReference(dsl)) {
-            return dsl;
-        }
-
-        // 2. Check if DSL starts with a function keyword (EXACT, ANY, ALL, IN)
-        if (startsWithFunction(dsl)) {
-            return defaultField + ":" + dsl;
-        }
-
-        // 3. Check for explicit boolean operators in DSL
-        if (containsExplicitOperators(dsl)) {
-            return addFieldPrefixToOperatorExpression(dsl, defaultField);
-        }
-
-        // 4. Tokenize and analyze terms
-        List<String> terms = tokenizeDsl(dsl);
-        if (terms.isEmpty()) {
-            return defaultField + ":" + dsl;
-        }
-
-        // 5. Single term - simple case
-        if (terms.size() == 1) {
-            return defaultField + ":" + terms.get(0);
-        }
-
-        // 6. Multiple terms - check for wildcards
-        boolean hasWildcard = terms.stream().anyMatch(SearchDslParser::containsWildcard);
-
-        if (hasWildcard) {
-            // Wildcards cannot be tokenized - must create separate field queries
-            String operator = "and".equals(defaultOperator) ? " AND " : " OR ";
-            return terms.stream()
-                    .map(term -> defaultField + ":" + term)
-                    .collect(java.util.stream.Collectors.joining(operator));
-        } else {
-            // Regular multi-term query - use ANY/ALL
-            String clauseType = "and".equals(defaultOperator) ? "ALL" : "ANY";
-            return defaultField + ":" + clauseType + "(" + dsl + ")";
-        }
-    }
-
-    /**
-     * Check if DSL contains field references (has colon not in quoted strings or escaped)
-     */
-    private static boolean containsFieldReference(String dsl) {
-        boolean inQuotes = false;
-        boolean inRegex = false;
-        for (int i = 0; i < dsl.length(); i++) {
-            char c = dsl.charAt(i);
-            // Handle escape sequences - skip the escaped character
-            if (c == '\\' && i + 1 < dsl.length()) {
-                i++; // Skip next character (it's escaped)
-                continue;
-            }
-            if (c == '"') {
-                inQuotes = !inQuotes;
-            } else if (c == '/' && !inQuotes) {
-                inRegex = !inRegex;
-            } else if (c == ':' && !inQuotes && !inRegex) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Check if DSL starts with function keywords
-     */
-    private static boolean startsWithFunction(String dsl) {
-        String upper = dsl.toUpperCase();
-        return upper.startsWith("EXACT(")
-                || upper.startsWith("ANY(")
-                || upper.startsWith("ALL(")
-                || upper.startsWith("IN(");
-    }
-
-    /**
-     * Check if DSL contains explicit boolean operators (AND/OR/NOT)
-     */
-    private static boolean containsExplicitOperators(String dsl) {
-        // Look for standalone AND/OR/NOT keywords (not part of field names)
-        String upper = dsl.toUpperCase();
-        return upper.matches(".*\\s+(AND|OR)\\s+.*")
-                || upper.matches("^NOT\\s+.*")
-                || upper.matches(".*\\s+NOT\\s+.*");
-    }
-
-    /**
-     * Add field prefix to expressions with explicit operators
-     * Example: "foo AND bar" → "field:foo AND field:bar"
-     * Handles escape sequences properly (e.g., "First\ Value" stays as single term)
-     */
-    private static String addFieldPrefixToOperatorExpression(String dsl, String defaultField) {
-        StringBuilder result = new StringBuilder();
-        StringBuilder currentTerm = new StringBuilder();
-        int i = 0;
-
-        while (i < dsl.length()) {
-            // Skip whitespace (but not escaped whitespace)
-            while (i < dsl.length() && Character.isWhitespace(dsl.charAt(i))) {
-                i++;
-            }
-            if (i >= dsl.length()) {
-                break;
-            }
-
-            // Handle escape sequences - include both backslash and next char
-            if (dsl.charAt(i) == '\\' && i + 1 < dsl.length()) {
-                currentTerm.append(dsl.charAt(i));
-                currentTerm.append(dsl.charAt(i + 1));
-                i += 2;
-                continue;
-            }
-
-            // Try to match operators
-            String remaining = dsl.substring(i);
-            String upperRemaining = remaining.toUpperCase();
-
-            if (upperRemaining.startsWith("AND ") || upperRemaining.startsWith("AND\t")
-                    || (upperRemaining.equals("AND") && i + 3 >= dsl.length())) {
-                // Found AND operator
-                if (currentTerm.length() > 0) {
-                    if (result.length() > 0) {
-                        result.append(" ");
-                    }
-                    result.append(defaultField).append(":").append(currentTerm.toString().trim());
-                    currentTerm.setLength(0);
-                }
-                if (result.length() > 0) {
-                    result.append(" ");
-                }
-                result.append(dsl.substring(i, i + 3)); // Preserve original case
-                i += 3;
-                continue;
-            } else if (upperRemaining.startsWith("OR ") || upperRemaining.startsWith("OR\t")
-                    || (upperRemaining.equals("OR") && i + 2 >= dsl.length())) {
-                // Found OR operator
-                if (currentTerm.length() > 0) {
-                    if (result.length() > 0) {
-                        result.append(" ");
-                    }
-                    result.append(defaultField).append(":").append(currentTerm.toString().trim());
-                    currentTerm.setLength(0);
-                }
-                if (result.length() > 0) {
-                    result.append(" ");
-                }
-                result.append(dsl.substring(i, i + 2)); // Preserve original case
-                i += 2;
-                continue;
-            } else if (upperRemaining.startsWith("NOT ") || upperRemaining.startsWith("NOT\t")
-                    || (upperRemaining.equals("NOT") && i + 3 >= dsl.length())) {
-                // Found NOT operator
-                if (currentTerm.length() > 0) {
-                    if (result.length() > 0) {
-                        result.append(" ");
-                    }
-                    result.append(defaultField).append(":").append(currentTerm.toString().trim());
-                    currentTerm.setLength(0);
-                }
-                if (result.length() > 0) {
-                    result.append(" ");
-                }
-                result.append(dsl.substring(i, i + 3)); // Preserve original case
-                i += 3;
-                continue;
-            }
-
-            // Not an operator, accumulate term
-            currentTerm.append(dsl.charAt(i));
-            i++;
-        }
-
-        // Add last term
-        if (currentTerm.length() > 0) {
-            if (result.length() > 0) {
-                result.append(" ");
-            }
-            result.append(defaultField).append(":").append(currentTerm.toString().trim());
-        }
-
-        return result.toString().trim();
-    }
-
-    /**
-     * Tokenize DSL into terms (split by whitespace, respecting quotes, escapes, and functions)
-     */
-    private static List<String> tokenizeDsl(String dsl) {
-        List<String> terms = new ArrayList<>();
-        StringBuilder currentTerm = new StringBuilder();
-        boolean inQuotes = false;
-        boolean inParens = false;
-        int parenDepth = 0;
-
-        for (int i = 0; i < dsl.length(); i++) {
-            char c = dsl.charAt(i);
-
-            if (c == '"' && (i == 0 || dsl.charAt(i - 1) != '\\')) {
-                inQuotes = !inQuotes;
-                currentTerm.append(c);
-            } else if (c == '(' && !inQuotes) {
-                parenDepth++;
-                inParens = true;
-                currentTerm.append(c);
-            } else if (c == ')' && !inQuotes) {
-                parenDepth--;
-                if (parenDepth == 0) {
-                    inParens = false;
-                }
-                currentTerm.append(c);
-            } else if (c == '\\' && i + 1 < dsl.length()) {
-                // Escape sequence - include both backslash and next char in term
-                currentTerm.append(c);
-                currentTerm.append(dsl.charAt(i + 1));
-                i++; // Skip next character
-            } else if (Character.isWhitespace(c) && !inQuotes && !inParens) {
-                // End of term (only if not escaped - handled above)
-                if (currentTerm.length() > 0) {
-                    terms.add(currentTerm.toString());
-                    currentTerm.setLength(0);  // Reuse StringBuilder instead of creating new one
-                }
-            } else {
-                currentTerm.append(c);
-            }
-        }
-
-        // Add last term
-        if (currentTerm.length() > 0) {
-            terms.add(currentTerm.toString());
-        }
-
-        return terms;
-    }
-
-    /**
-     * Check if a term contains wildcard characters (* or ?)
-     * Escaped wildcards (\* or \?) are not counted.
-     */
-    private static boolean containsWildcard(String term) {
-        // Ignore wildcards in quoted strings or regex
-        if (term.startsWith("\"") && term.endsWith("\"")) {
-            return false;
-        }
-        if (term.startsWith("/") && term.endsWith("/")) {
-            return false;
-        }
-        // Check for unescaped wildcards
-        for (int i = 0; i < term.length(); i++) {
-            char c = term.charAt(i);
-            if (c == '\\' && i + 1 < term.length()) {
-                // Skip escaped character
-                i++;
-                continue;
-            }
-            if (c == '*' || c == '?') {
-                return true;
-            }
-        }
-        return false;
     }
 
     // ============ Common Helper Methods ============
@@ -540,6 +278,70 @@ public class SearchDslParser {
         if (fields == null || fields.isEmpty()) {
             throw new IllegalArgumentException(
                     "fields list cannot be null or empty for multi-field mode, got: " + fields);
+        }
+    }
+
+    /**
+     * Collect all field names from an AST node recursively.
+     * @param node The AST node to collect from
+     * @return Set of field names
+     */
+    private static Set<String> collectFieldNames(QsNode node) {
+        Set<String> fieldNames = new LinkedHashSet<>();
+        collectFieldNamesRecursive(node, fieldNames);
+        return fieldNames;
+    }
+
+    private static void collectFieldNamesRecursive(QsNode node, Set<String> fieldNames) {
+        if (node == null) {
+            return;
+        }
+        // Add field name if it's a leaf node with a field
+        if (node.getField() != null && !node.getField().isEmpty()) {
+            fieldNames.add(node.getField());
+        }
+        // Recursively collect from children
+        if (node.getChildren() != null) {
+            for (QsNode child : node.getChildren()) {
+                collectFieldNamesRecursive(child, fieldNames);
+            }
+        }
+    }
+
+    /**
+     * Recursively mark leaf nodes with the given field name and set explicitField=true.
+     * Used for field-grouped queries like title:(rock OR jazz) to ensure inner leaf nodes
+     * are bound to the group's field and are not re-expanded by MultiFieldExpander.
+     *
+     * Skips nodes already marked as explicitField to preserve inner explicit bindings,
+     * e.g., title:(content:foo OR bar) keeps content:foo intact and only sets title on bar.
+     *
+     * @param depth current recursion depth to prevent StackOverflow from malicious input
+     */
+    private static void markExplicitFieldRecursive(QsNode node, String field) {
+        markExplicitFieldRecursive(node, field, 0);
+    }
+
+    private static void markExplicitFieldRecursive(QsNode node, String field, int depth) {
+        if (node == null) {
+            return;
+        }
+        if (depth > MAX_FIELD_GROUP_DEPTH) {
+            throw new SearchDslSyntaxException(
+                    "Field group query nesting too deep (max " + MAX_FIELD_GROUP_DEPTH + ")");
+        }
+        // Skip nodes already explicitly bound to a field (e.g., inner field:term inside a group)
+        if (node.isExplicitField()) {
+            return;
+        }
+        if (node.getChildren() != null && !node.getChildren().isEmpty()) {
+            for (QsNode child : node.getChildren()) {
+                markExplicitFieldRecursive(child, field, depth + 1);
+            }
+        } else {
+            // Leaf node - set field and mark as explicit
+            node.setField(field);
+            node.setExplicitField(true);
         }
     }
 
@@ -627,26 +429,6 @@ public class SearchDslParser {
     }
 
     /**
-     * Expand a single item (term or function) across multiple fields with OR.
-     * Example: "hello" + ["title", "content"] -> "(title:hello OR content:hello)"
-     * Example: "EXACT(foo)" + ["title", "content"] -> "(title:EXACT(foo) OR content:EXACT(foo))"
-     *
-     * @param item The term or function to expand
-     * @param fields List of field names
-     * @return Expanded DSL string
-     */
-    private static String expandItemAcrossFields(String item, List<String> fields) {
-        if (fields.size() == 1) {
-            return fields.get(0) + ":" + item;
-        }
-        return fields.stream()
-                .map(field -> field + ":" + item)
-                .collect(Collectors.joining(" OR ", "(", ")"));
-    }
-
-    // ============ Multi-Field Expansion Methods ============
-
-    /**
      * Parse DSL in multi-field mode.
      * Expansion behavior depends on the type option:
      * - best_fields (default): all terms must match within the same field
@@ -665,20 +447,71 @@ public class SearchDslParser {
         }
         validateFieldsList(fields);
 
-        String normalizedOperator = normalizeDefaultOperator(defaultOperator);
-        String expandedDsl;
-        if (options.isCrossFieldsMode()) {
-            // cross_fields: terms can be across different fields
-            expandedDsl = expandMultiFieldDsl(dsl.trim(), fields, normalizedOperator);
-        } else if (options.isBestFieldsMode()) {
-            // best_fields: all terms must be in the same field
-            expandedDsl = expandMultiFieldDslBestFields(dsl.trim(), fields, normalizedOperator);
-        } else {
-            // Should never happen due to setType() validation, but provide fallback
-            throw new IllegalStateException(
-                    "Invalid type value: '" + options.getType() + "'. Expected 'best_fields' or 'cross_fields'");
+        String trimmedDsl = dsl.trim();
+
+        try {
+            // Parse original DSL directly using first field as placeholder for bare queries
+            // The AST will be expanded to all fields in post-processing
+            SearchLexer lexer = new SearchLexer(CharStreams.fromString(trimmedDsl));
+            CommonTokenStream tokens = new CommonTokenStream(lexer);
+            SearchParser parser = new SearchParser(tokens);
+
+            parser.removeErrorListeners();
+            parser.addErrorListener(new org.antlr.v4.runtime.BaseErrorListener() {
+                @Override
+                public void syntaxError(org.antlr.v4.runtime.Recognizer<?, ?> recognizer,
+                        Object offendingSymbol,
+                        int line, int charPositionInLine,
+                        String msg, org.antlr.v4.runtime.RecognitionException e) {
+                    throw new SearchDslSyntaxException("Syntax error at line " + line
+                            + ":" + charPositionInLine + " " + msg);
+                }
+            });
+
+            ParseTree tree = parser.search();
+            if (tree == null) {
+                throw new SearchDslSyntaxException("Invalid search DSL syntax: parsing returned null");
+            }
+
+            // Build AST using first field as placeholder for bare queries, with default operator
+            QsAstBuilder visitor = new QsAstBuilder(fields.get(0), defaultOperator);
+            QsNode root = visitor.visit(tree);
+
+            // Apply multi-field expansion based on type
+            QsNode expandedRoot;
+            if (options.isCrossFieldsMode()) {
+                // cross_fields: each term expands to (field1:term OR field2:term)
+                expandedRoot = MultiFieldExpander.expandCrossFields(root, fields);
+            } else if (options.isBestFieldsMode()) {
+                // best_fields: entire query copied per field, joined with OR
+                expandedRoot = MultiFieldExpander.expandBestFields(root, fields);
+            } else {
+                throw new IllegalStateException(
+                        "Invalid type value: '" + options.getType() + "'. Expected 'best_fields' or 'cross_fields'");
+            }
+
+            // Extract field bindings from expanded AST
+            Set<String> fieldNames = collectFieldNames(expandedRoot);
+            // If no fields were collected (e.g., MATCH_ALL_DOCS query that matches all docs
+            // regardless of field), use the original fields list to ensure proper push-down
+            if (fieldNames.isEmpty()) {
+                fieldNames = new LinkedHashSet<>(fields);
+            }
+            List<QsFieldBinding> bindings = new ArrayList<>();
+            int slotIndex = 0;
+            for (String fieldName : fieldNames) {
+                bindings.add(new QsFieldBinding(fieldName, slotIndex++));
+            }
+
+            return new QsPlan(expandedRoot, bindings);
+
+        } catch (SearchDslSyntaxException e) {
+            LOG.error("Failed to parse search DSL in multi-field mode: '{}'", dsl, e);
+            throw new SearchDslSyntaxException("Invalid search DSL: " + dsl + ". " + e.getMessage(), e);
+        } catch (RuntimeException e) {
+            LOG.error("Unexpected error while parsing search DSL in multi-field mode: '{}'", dsl, e);
+            throw new RuntimeException("Unexpected error parsing search DSL: " + dsl + ". " + e.getMessage(), e);
         }
-        return parseWithVisitor(expandedDsl, parser -> new QsAstBuilder(), dsl, "multi-field mode");
     }
 
     /**
@@ -699,324 +532,74 @@ public class SearchDslParser {
         }
         validateFieldsList(fields);
 
-        String normalizedOperator = normalizeDefaultOperator(defaultOperator);
-        String expandedDsl;
-        if (options.isCrossFieldsMode()) {
-            // cross_fields: terms can be across different fields
-            expandedDsl = expandMultiFieldDsl(dsl.trim(), fields, normalizedOperator);
-        } else if (options.isBestFieldsMode()) {
-            // best_fields: all terms must be in the same field
-            expandedDsl = expandMultiFieldDslBestFields(dsl.trim(), fields, normalizedOperator);
-        } else {
-            // Should never happen due to setType() validation, but provide fallback
-            throw new IllegalStateException(
-                    "Invalid type value: '" + options.getType() + "'. Expected 'best_fields' or 'cross_fields'");
-        }
-        return parseWithVisitor(expandedDsl, parser -> new QsLuceneModeAstBuilder(options),
-                dsl, "multi-field Lucene mode");
-    }
+        // For multi-field mode (fields.size() > 1), ignore minimum_should_match.
+        // The expanded DSL creates complex nested boolean structures where msm
+        // semantics become ambiguous. This is a deliberate design decision.
+        final SearchOptions effectiveOptions = fields.size() > 1
+                ? options.withMinimumShouldMatch(null) : options;
 
-    /**
-     * Expand simplified DSL to multi-field format.
-     * Each term without field prefix is expanded to OR across all fields.
-     *
-     * @param dsl Simple DSL string
-     * @param fields List of field names to search
-     * @param defaultOperator "and" or "or" for joining term groups
-     * @return Expanded full DSL
-     */
-    private static String expandMultiFieldDsl(String dsl, List<String> fields, String defaultOperator) {
-        // Note: fields validation is done by validateFieldsList() before calling this method
-        if (fields.size() == 1) {
-            // Single field - delegate to existing method
-            return expandSimplifiedDsl(dsl, fields.get(0), defaultOperator);
-        }
-
-        // 1. If DSL already contains field names, handle mixed case
-        if (containsFieldReference(dsl)) {
-            return expandOperatorExpressionAcrossFields(dsl, fields);
-        }
-
-        // 2. Check if DSL starts with a function keyword (EXACT, ANY, ALL, IN)
-        if (startsWithFunction(dsl)) {
-            // Expand function across fields: EXACT(foo) -> (f1:EXACT(foo) OR f2:EXACT(foo))
-            return expandFunctionAcrossFields(dsl, fields);
-        }
-
-        // 3. Check for explicit boolean operators in DSL
-        if (containsExplicitOperators(dsl)) {
-            return expandOperatorExpressionAcrossFields(dsl, fields);
-        }
-
-        // 4. Tokenize and analyze terms
-        List<String> terms = tokenizeDsl(dsl);
-        if (terms.isEmpty()) {
-            return expandTermAcrossFields(dsl, fields);
-        }
-
-        // 5. Single term - expand across fields
-        if (terms.size() == 1) {
-            return expandTermAcrossFields(terms.get(0), fields);
-        }
-
-        // 6. Multiple terms - expand each across fields, join with operator
-        String joinOperator = "and".equals(defaultOperator) ? " AND " : " OR ";
-        StringBuilder result = new StringBuilder();
-        for (int i = 0; i < terms.size(); i++) {
-            if (i > 0) {
-                result.append(joinOperator);
-            }
-            result.append(expandTermAcrossFields(terms.get(i), fields));
-        }
-        return result.toString();
-    }
-
-    /**
-     * Expand multi-field DSL using best_fields semantics.
-     * Each field is wrapped with all terms joined by the default operator, then fields are ORed.
-     *
-     * Example: "machine learning" with fields ["title", "content"] and default_operator "and"
-     * Result: (title:machine AND title:learning) OR (content:machine AND content:learning)
-     *
-     * @param dsl Simple DSL string
-     * @param fields List of field names to search
-     * @param defaultOperator "and" or "or" for joining terms within each field
-     * @return Expanded full DSL with best_fields semantics
-     */
-    private static String expandMultiFieldDslBestFields(String dsl, List<String> fields,
-            String defaultOperator) {
-        // Note: fields validation is done by validateFieldsList() before calling this method
-        if (fields.size() == 1) {
-            // Single field - delegate to existing method
-            return expandSimplifiedDsl(dsl, fields.get(0), defaultOperator);
-        }
-
-        // 1. Check for leading NOT - must use cross_fields semantics for correct negation
-        // "NOT hello" should expand to "NOT (title:hello OR content:hello)"
-        // rather than "(NOT title:hello) OR (NOT content:hello)" which has wrong semantics
         String trimmedDsl = dsl.trim();
-        if (trimmedDsl.toUpperCase().startsWith("NOT ")
-                || trimmedDsl.toUpperCase().startsWith("NOT\t")) {
-            // Use cross_fields expansion for leading NOT
-            return expandOperatorExpressionAcrossFields(dsl, fields);
-        }
 
-        // 2. If DSL contains field references or explicit operators, apply best_fields
-        // by expanding the entire expression per field and ORing the results
-        if (containsFieldReference(dsl) || containsExplicitOperators(dsl)) {
-            return expandOperatorExpressionAcrossFieldsBestFields(dsl, fields, defaultOperator);
-        }
+        try {
+            // Parse original DSL directly using first field as placeholder for bare queries
+            SearchLexer lexer = new SearchLexer(CharStreams.fromString(trimmedDsl));
+            CommonTokenStream tokens = new CommonTokenStream(lexer);
+            SearchParser parser = new SearchParser(tokens);
 
-        // 3. Check if DSL starts with a function keyword (EXACT, ANY, ALL, IN)
-        if (startsWithFunction(dsl)) {
-            // For functions, use cross_fields approach (function applied to each field)
-            return expandFunctionAcrossFields(dsl, fields);
-        }
-
-        // 4. Tokenize and analyze terms
-        List<String> terms = tokenizeDsl(dsl);
-        if (terms.isEmpty()) {
-            // Single term case - expand across fields with OR
-            return expandTermAcrossFields(dsl, fields);
-        }
-
-        // 5. Single term - expand across fields with OR
-        if (terms.size() == 1) {
-            return expandTermAcrossFields(terms.get(0), fields);
-        }
-
-        // 6. Multiple terms - best_fields: each field with all terms, then OR across fields
-        String termOperator = "and".equals(defaultOperator) ? " AND " : " OR ";
-
-        StringBuilder result = new StringBuilder();
-        for (int fieldIdx = 0; fieldIdx < fields.size(); fieldIdx++) {
-            if (fieldIdx > 0) {
-                result.append(" OR ");
-            }
-
-            String field = fields.get(fieldIdx);
-            // Build: (field:term1 AND field:term2 AND ...)
-            result.append("(");
-            for (int termIdx = 0; termIdx < terms.size(); termIdx++) {
-                if (termIdx > 0) {
-                    result.append(termOperator);
+            parser.removeErrorListeners();
+            parser.addErrorListener(new org.antlr.v4.runtime.BaseErrorListener() {
+                @Override
+                public void syntaxError(org.antlr.v4.runtime.Recognizer<?, ?> recognizer,
+                        Object offendingSymbol,
+                        int line, int charPositionInLine,
+                        String msg, org.antlr.v4.runtime.RecognitionException e) {
+                    throw new SearchDslSyntaxException("Syntax error at line " + line
+                            + ":" + charPositionInLine + " " + msg);
                 }
-                result.append(field).append(":").append(terms.get(termIdx));
+            });
+
+            ParseTree tree = parser.search();
+            if (tree == null) {
+                throw new SearchDslSyntaxException("Invalid search DSL syntax: parsing returned null");
             }
-            result.append(")");
+
+            // Build AST using Lucene-mode visitor with first field as placeholder for bare queries
+            // Use constructor with override to avoid mutating shared options object (thread-safety)
+            QsLuceneModeAstBuilder visitor = new QsLuceneModeAstBuilder(effectiveOptions, fields.get(0));
+            QsNode root = visitor.visit(tree);
+
+            // In ES query_string, both best_fields and cross_fields use per-clause expansion
+            // (each clause is independently expanded across fields). The difference is only
+            // in scoring (dis_max vs blended analysis), which doesn't apply to Doris since
+            // search() is a boolean filter. So we always use expandCrossFields here.
+            // Type validation already happened in SearchOptions.setType().
+            QsNode expandedRoot = MultiFieldExpander.expandCrossFields(root, fields, true);
+
+            // Extract field bindings from expanded AST
+            Set<String> fieldNames = collectFieldNames(expandedRoot);
+            // If no fields were collected (e.g., MATCH_ALL_DOCS query that matches all docs
+            // regardless of field), use the original fields list to ensure proper push-down
+            if (fieldNames.isEmpty()) {
+                fieldNames = new LinkedHashSet<>(fields);
+            }
+            List<QsFieldBinding> bindings = new ArrayList<>();
+            int slotIndex = 0;
+            for (String fieldName : fieldNames) {
+                bindings.add(new QsFieldBinding(fieldName, slotIndex++));
+            }
+
+            // Include default_operator and minimum_should_match for BE
+            return new QsPlan(expandedRoot, bindings,
+                    normalizeDefaultOperator(effectiveOptions.getDefaultOperator()),
+                    effectiveOptions.getMinimumShouldMatch());
+
+        } catch (SearchDslSyntaxException e) {
+            LOG.error("Failed to parse search DSL in multi-field Lucene mode: '{}'", dsl, e);
+            throw new SearchDslSyntaxException("Invalid search DSL: " + dsl + ". " + e.getMessage(), e);
+        } catch (RuntimeException e) {
+            LOG.error("Unexpected error while parsing search DSL in multi-field Lucene mode: '{}'", dsl, e);
+            throw new RuntimeException("Unexpected error parsing search DSL: " + dsl + ". " + e.getMessage(), e);
         }
-        return result.toString();
-    }
-
-    /**
-     * Handle DSL with explicit operators using best_fields semantics.
-     * For complex expressions, we group by field and OR across fields.
-     */
-    private static String expandOperatorExpressionAcrossFieldsBestFields(String dsl,
-            List<String> fields, String defaultOperator) {
-        // For expressions with explicit operators, we apply the entire expression to each field
-        // and OR the results: (title:expr) OR (content:expr)
-        StringBuilder result = new StringBuilder();
-        for (int i = 0; i < fields.size(); i++) {
-            if (i > 0) {
-                result.append(" OR ");
-            }
-            String field = fields.get(i);
-            // Expand the DSL for this single field
-            String fieldDsl = expandSimplifiedDsl(dsl, field, defaultOperator);
-            result.append("(").append(fieldDsl).append(")");
-        }
-        return result.toString();
-    }
-
-    /**
-     * Expand a single term across multiple fields with OR.
-     * Example: "hello" + ["title", "content"] -> "(title:hello OR content:hello)"
-     * Delegates to expandItemAcrossFields for DRY compliance.
-     */
-    private static String expandTermAcrossFields(String term, List<String> fields) {
-        return expandItemAcrossFields(term, fields);
-    }
-
-    /**
-     * Expand a function call across multiple fields.
-     * Example: "EXACT(foo bar)" + ["title", "content"] -> "(title:EXACT(foo bar) OR content:EXACT(foo bar))"
-     * Delegates to expandItemAcrossFields for DRY compliance.
-     */
-    private static String expandFunctionAcrossFields(String dsl, List<String> fields) {
-        return expandItemAcrossFields(dsl, fields);
-    }
-
-    /**
-     * Handle DSL with explicit operators (AND/OR/NOT).
-     * Each operand without field prefix is expanded across fields.
-     * Example: "hello AND world" + ["title", "content"] ->
-     *          "(title:hello OR content:hello) AND (title:world OR content:world)"
-     */
-    private static String expandOperatorExpressionAcrossFields(String dsl, List<String> fields) {
-        StringBuilder result = new StringBuilder();
-        StringBuilder currentTerm = new StringBuilder();
-        int i = 0;
-
-        while (i < dsl.length()) {
-            // Skip whitespace
-            while (i < dsl.length() && Character.isWhitespace(dsl.charAt(i))) {
-                i++;
-            }
-            if (i >= dsl.length()) {
-                break;
-            }
-
-            // Handle escape sequences
-            if (dsl.charAt(i) == '\\' && i + 1 < dsl.length()) {
-                currentTerm.append(dsl.charAt(i));
-                currentTerm.append(dsl.charAt(i + 1));
-                i += 2;
-                continue;
-            }
-
-            // Handle parentheses - include entire group as a term
-            if (dsl.charAt(i) == '(') {
-                int depth = 1;
-                currentTerm.append('(');
-                i++;
-                while (i < dsl.length() && depth > 0) {
-                    char c = dsl.charAt(i);
-                    if (c == '(') {
-                        depth++;
-                    } else if (c == ')') {
-                        depth--;
-                    }
-                    currentTerm.append(c);
-                    i++;
-                }
-                continue;
-            }
-
-            // Try to match operators
-            String remaining = dsl.substring(i);
-            String upperRemaining = remaining.toUpperCase();
-
-            // Check for AND operator
-            if (matchesOperatorWord(upperRemaining, "AND")) {
-                flushTermAcrossFields(result, currentTerm, fields);
-                appendWithSpace(result, "AND");
-                i += 3;
-                continue;
-            }
-
-            // Check for OR operator
-            if (matchesOperatorWord(upperRemaining, "OR")) {
-                flushTermAcrossFields(result, currentTerm, fields);
-                appendWithSpace(result, "OR");
-                i += 2;
-                continue;
-            }
-
-            // Check for NOT operator
-            if (matchesOperatorWord(upperRemaining, "NOT")) {
-                flushTermAcrossFields(result, currentTerm, fields);
-                appendWithSpace(result, "NOT");
-                i += 3;
-                continue;
-            }
-
-            // Accumulate term character
-            currentTerm.append(dsl.charAt(i));
-            i++;
-        }
-
-        // Flush final term
-        flushTermAcrossFields(result, currentTerm, fields);
-
-        return result.toString().trim();
-    }
-
-    /**
-     * Check if the string starts with an operator word followed by whitespace or end of string.
-     */
-    private static boolean matchesOperatorWord(String upper, String op) {
-        if (!upper.startsWith(op)) {
-            return false;
-        }
-        int opLen = op.length();
-        // Must be followed by whitespace or end of string
-        return upper.length() == opLen || Character.isWhitespace(upper.charAt(opLen));
-    }
-
-    /**
-     * Flush accumulated term, expanding across fields if needed.
-     */
-    private static void flushTermAcrossFields(StringBuilder result, StringBuilder term, List<String> fields) {
-        String trimmed = term.toString().trim();
-        if (!trimmed.isEmpty()) {
-            // Check if term already has a field reference
-            if (containsFieldReference(trimmed)) {
-                appendWithSpace(result, trimmed);
-            } else if (trimmed.startsWith("(") && trimmed.endsWith(")")) {
-                // Parenthesized expression - recursively expand
-                String inner = trimmed.substring(1, trimmed.length() - 1).trim();
-                String expanded = expandOperatorExpressionAcrossFields(inner, fields);
-                appendWithSpace(result, "(" + expanded + ")");
-            } else if (startsWithFunction(trimmed)) {
-                // Function - expand across fields
-                appendWithSpace(result, expandFunctionAcrossFields(trimmed, fields));
-            } else {
-                // Regular term - expand across fields
-                appendWithSpace(result, expandTermAcrossFields(trimmed, fields));
-            }
-            term.setLength(0);
-        }
-    }
-
-    /**
-     * Append text to StringBuilder with a leading space if not empty.
-     */
-    private static void appendWithSpace(StringBuilder sb, String text) {
-        if (sb.length() > 0) {
-            sb.append(" ");
-        }
-        sb.append(text);
     }
 
     /**
@@ -1036,7 +619,9 @@ public class SearchDslParser {
         AND,            // clause1 AND clause2 (standard boolean algebra)
         OR,             // clause1 OR clause2 (standard boolean algebra)
         NOT,            // NOT clause (standard boolean algebra)
-        OCCUR_BOOLEAN   // Lucene-style boolean query with MUST/SHOULD/MUST_NOT
+        OCCUR_BOOLEAN,  // Lucene-style boolean query with MUST/SHOULD/MUST_NOT
+MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
+        NESTED          // NESTED(path, inner_query) - nested field query
     }
 
     /**
@@ -1065,6 +650,50 @@ public class SearchDslParser {
         private final Set<String> fieldNames = new LinkedHashSet<>();
         // Context stack to track current field name during parsing
         private String currentFieldName = null;
+        // Default field for bare queries (without field: prefix)
+        private final String defaultField;
+        // Default operator for implicit conjunction (space-separated terms): "AND" or "OR"
+        private final String defaultOperator;
+
+        /**
+         * Creates a QsAstBuilder with no default field.
+         * Bare queries will throw an error.
+         */
+        public QsAstBuilder() {
+            this.defaultField = null;
+            this.defaultOperator = "OR";
+        }
+
+        /**
+         * Creates a QsAstBuilder with a default field for bare queries.
+         * @param defaultField The field to use for queries without explicit field prefix
+         */
+        public QsAstBuilder(String defaultField) {
+            this.defaultField = defaultField;
+            this.defaultOperator = "OR";
+        }
+
+        /**
+         * Creates a QsAstBuilder with default field and default operator.
+         * @param defaultField The field to use for queries without explicit field prefix
+         * @param defaultOperator The operator to use for implicit conjunction ("AND" or "OR")
+         * @throws IllegalArgumentException if defaultOperator is not null and not "and" or "or"
+         */
+        public QsAstBuilder(String defaultField, String defaultOperator) {
+            this.defaultField = defaultField;
+            // Validate default operator
+            if (defaultOperator != null && !defaultOperator.trim().isEmpty()) {
+                String normalized = defaultOperator.trim().toUpperCase();
+                if (!"AND".equals(normalized) && !"OR".equals(normalized)) {
+                    throw new IllegalArgumentException(
+                            "Invalid default operator: '" + defaultOperator
+                            + "'. Must be 'and' or 'or'");
+                }
+                this.defaultOperator = normalized;
+            } else {
+                this.defaultOperator = "OR";  // Default to OR
+            }
+        }
 
         public Set<String> getFieldNames() {
             return Collections.unmodifiableSet(fieldNames);
@@ -1118,7 +747,22 @@ public class SearchDslParser {
                 }
                 children.add(child);
             }
-            return new QsNode(QsClauseType.AND, children);
+
+            // Check if there are explicit AND tokens
+            // If no explicit AND tokens, use the default operator for implicit conjunction
+            List<org.antlr.v4.runtime.tree.TerminalNode> andTokens = ctx.AND();
+            boolean hasExplicitAnd = andTokens != null && !andTokens.isEmpty();
+
+            QsClauseType clauseType;
+            if (hasExplicitAnd) {
+                // Explicit AND - always use AND
+                clauseType = QsClauseType.AND;
+            } else {
+                // Implicit conjunction - use default operator
+                clauseType = "AND".equalsIgnoreCase(defaultOperator) ? QsClauseType.AND : QsClauseType.OR;
+            }
+
+            return new QsNode(clauseType, children);
         }
 
         @Override
@@ -1149,14 +793,104 @@ public class SearchDslParser {
                 }
                 return result;
             }
-            if (ctx.fieldQuery() == null) {
-                throw new RuntimeException("Invalid atom clause: missing field query");
+            if (ctx.nestedQuery() != null) {
+                QsNode result = visit(ctx.nestedQuery());
+                if (result == null) {
+                    throw new RuntimeException("Invalid nested query");
+                }
+                return result;
             }
-            QsNode result = visit(ctx.fieldQuery());
-            if (result == null) {
-                throw new RuntimeException("Invalid field query");
+            if (ctx.fieldGroupQuery() != null) {
+                QsNode result = visit(ctx.fieldGroupQuery());
+                if (result == null) {
+                    throw new SearchDslSyntaxException("Invalid field group query");
+                }
+                return result;
             }
-            return result;
+            if (ctx.fieldQuery() != null) {
+                QsNode result = visit(ctx.fieldQuery());
+                if (result == null) {
+                    throw new RuntimeException("Invalid field query");
+                }
+                return result;
+            }
+            if (ctx.bareQuery() != null) {
+                QsNode result = visit(ctx.bareQuery());
+                if (result == null) {
+                    throw new RuntimeException("Invalid bare query");
+                }
+                return result;
+            }
+            throw new RuntimeException("Invalid atom clause: missing field or bare query");
+        }
+
+        @Override
+        public QsNode visitBareQuery(SearchParser.BareQueryContext ctx) {
+            // Use currentFieldName if inside a field group context (set by visitFieldGroupQuery),
+            // otherwise fall back to the configured defaultField.
+            String effectiveField = (currentFieldName != null && !currentFieldName.isEmpty())
+                    ? currentFieldName : defaultField;
+            if (effectiveField == null || effectiveField.isEmpty()) {
+                throw new SearchDslSyntaxException(
+                    "No field specified and no default_field configured. "
+                    + "Either use field:value syntax or set default_field in options.");
+            }
+
+            fieldNames.add(effectiveField);
+
+            // Set current field context before visiting search value
+            String previousFieldName = currentFieldName;
+            currentFieldName = effectiveField;
+
+            try {
+                if (ctx.searchValue() == null) {
+                    throw new RuntimeException("Invalid bare query: missing search value");
+                }
+                QsNode result = visit(ctx.searchValue());
+                if (result == null) {
+                    throw new RuntimeException("Invalid search value");
+                }
+                return result;
+            } finally {
+                // Restore previous context
+                currentFieldName = previousFieldName;
+            }
+        }
+
+        @Override
+        public QsNode visitNestedQuery(SearchParser.NestedQueryContext ctx) {
+            if (ctx.NESTED_PATH() == null) {
+                throw new RuntimeException("Invalid NESTED clause: missing path");
+            }
+            String nestedPath = ctx.NESTED_PATH().getText();
+            QsNode innerQuery = visit(ctx.clause());
+            if (innerQuery == null) {
+                throw new RuntimeException("Invalid NESTED clause: missing inner query");
+            }
+
+            validateNestedFieldPaths(innerQuery, nestedPath);
+
+            QsNode node = new QsNode(QsClauseType.NESTED, Collections.singletonList(innerQuery));
+            node.nestedPath = nestedPath;
+            return node;
+        }
+
+        private void validateNestedFieldPaths(QsNode node, String nestedPath) {
+            if (node == null) {
+                return;
+            }
+            if (node.type == QsClauseType.NESTED) {
+                throw new RuntimeException("Nested NESTED() is not supported: " + nestedPath);
+            }
+            if (node.field != null && !node.field.startsWith(nestedPath + ".")) {
+                throw new RuntimeException("Fields in NESTED query must start with nested path: "
+                        + nestedPath + ", but got: " + node.field);
+            }
+            if (node.children != null) {
+                for (QsNode child : node.children) {
+                    validateNestedFieldPaths(child, nestedPath);
+                }
+            }
         }
 
         @Override
@@ -1196,9 +930,55 @@ public class SearchDslParser {
                 if (result == null) {
                     throw new RuntimeException("Invalid search value");
                 }
+                // Mark as explicit field - user wrote "field:term" syntax
+                result.setExplicitField(true);
                 return result;
             } finally {
                 // Restore previous context
+                currentFieldName = previousFieldName;
+            }
+        }
+
+        @Override
+        public QsNode visitFieldGroupQuery(SearchParser.FieldGroupQueryContext ctx) {
+            if (ctx.fieldPath() == null) {
+                throw new SearchDslSyntaxException("Invalid field group query: missing field path");
+            }
+
+            // Build complete field path from segments (support field.subcolumn syntax)
+            StringBuilder fullPath = new StringBuilder();
+            List<SearchParser.FieldSegmentContext> segments = ctx.fieldPath().fieldSegment();
+            for (int i = 0; i < segments.size(); i++) {
+                if (i > 0) {
+                    fullPath.append('.');
+                }
+                String segment = segments.get(i).getText();
+                if (segment.startsWith("\"") && segment.endsWith("\"")) {
+                    segment = segment.substring(1, segment.length() - 1);
+                }
+                fullPath.append(segment);
+            }
+
+            String fieldPath = fullPath.toString();
+            fieldNames.add(fieldPath);
+
+            // Set field group context so bare terms inside use this field
+            String previousFieldName = currentFieldName;
+            currentFieldName = fieldPath;
+
+            try {
+                if (ctx.clause() == null) {
+                    throw new SearchDslSyntaxException("Invalid field group query: missing inner clause");
+                }
+                QsNode result = visit(ctx.clause());
+                if (result == null) {
+                    throw new SearchDslSyntaxException("Invalid field group query: inner clause returned null");
+                }
+                // Mark all leaf nodes as explicitly bound to this field.
+                // This prevents MultiFieldExpander from re-expanding them across other fields.
+                markExplicitFieldRecursive(result, fieldPath);
+                return result;
+            } finally {
                 currentFieldName = previousFieldName;
             }
         }
@@ -1255,6 +1035,10 @@ public class SearchDslParser {
         }
 
         private QsNode createPrefixNode(String fieldName, String value) {
+            // Standalone * → MATCH_ALL_DOCS (matches ES behavior: field:* becomes ExistsQuery)
+            if ("*".equals(value)) {
+                return new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
+            }
             return new QsNode(QsClauseType.PREFIX, fieldName, unescapeTermValue(value));
         }
 
@@ -1340,7 +1124,16 @@ public class SearchDslParser {
 
         private String getCurrentFieldName() {
             // Use the current field name from parsing context
-            return currentFieldName != null ? currentFieldName : "_all";
+            if (currentFieldName != null) {
+                return currentFieldName;
+            }
+            // Fall back to default field if set
+            if (defaultField != null && !defaultField.isEmpty()) {
+                return defaultField;
+            }
+            // This should not happen if visitBareQuery is called correctly
+            throw new SearchDslSyntaxException(
+                "No field name available. This indicates a parsing error.");
         }
 
         private String stripOuterQuotes(String text) {
@@ -1367,11 +1160,28 @@ public class SearchDslParser {
         @JsonProperty("fieldBindings")
         private final List<QsFieldBinding> fieldBindings;
 
+        @JsonProperty("defaultOperator")
+        private final String defaultOperator;
+
+        @JsonProperty("minimumShouldMatch")
+        private final Integer minimumShouldMatch;
+
         @JsonCreator
         public QsPlan(@JsonProperty("root") QsNode root,
                 @JsonProperty("fieldBindings") List<QsFieldBinding> fieldBindings) {
+            this(root, fieldBindings, null, null);
+        }
+
+        public QsPlan(QsNode root, List<QsFieldBinding> fieldBindings, String defaultOperator) {
+            this(root, fieldBindings, defaultOperator, null);
+        }
+
+        public QsPlan(QsNode root, List<QsFieldBinding> fieldBindings, String defaultOperator,
+                Integer minimumShouldMatch) {
             this.root = Objects.requireNonNull(root, "root cannot be null");
             this.fieldBindings = fieldBindings != null ? new ArrayList<>(fieldBindings) : new ArrayList<>();
+            this.defaultOperator = defaultOperator;
+            this.minimumShouldMatch = minimumShouldMatch;
         }
 
         public QsNode getRoot() {
@@ -1380,6 +1190,14 @@ public class SearchDslParser {
 
         public List<QsFieldBinding> getFieldBindings() {
             return Collections.unmodifiableList(fieldBindings);
+        }
+
+        public String getDefaultOperator() {
+            return defaultOperator;
+        }
+
+        public Integer getMinimumShouldMatch() {
+            return minimumShouldMatch;
         }
 
         /**
@@ -1407,7 +1225,7 @@ public class SearchDslParser {
 
         @Override
         public int hashCode() {
-            return Objects.hash(root, fieldBindings);
+            return Objects.hash(root, fieldBindings, defaultOperator, minimumShouldMatch);
         }
 
         @Override
@@ -1420,7 +1238,9 @@ public class SearchDslParser {
             }
             QsPlan qsPlan = (QsPlan) o;
             return Objects.equals(root, qsPlan.getRoot())
-                    && Objects.equals(fieldBindings, qsPlan.getFieldBindings());
+                    && Objects.equals(fieldBindings, qsPlan.getFieldBindings())
+                    && Objects.equals(defaultOperator, qsPlan.getDefaultOperator())
+                    && Objects.equals(minimumShouldMatch, qsPlan.getMinimumShouldMatch());
         }
     }
 
@@ -1452,6 +1272,18 @@ public class SearchDslParser {
         @JsonProperty("minimumShouldMatch")
         private final Integer minimumShouldMatch;
 
+        @JsonProperty("nestedPath")
+        private String nestedPath;
+
+        /**
+         * Whether the field was explicitly specified in the DSL syntax (e.g., title:music)
+         * vs assigned from default field for bare queries (e.g., music).
+         * Used internally by MultiFieldExpander to avoid expanding explicit field prefixes.
+         * Not serialized to JSON since it's only needed during FE-side AST expansion.
+         */
+        @JsonIgnore
+        private boolean explicitField;
+
         /**
          * Constructor for JSON deserialization
          *
@@ -1461,6 +1293,7 @@ public class SearchDslParser {
          * @param children the child nodes
          * @param occur the occurrence type
          * @param minimumShouldMatch the minimum should match value
+         * @param nestedPath the nested path for NESTED clause
          */
         @JsonCreator
         public QsNode(@JsonProperty("type") QsClauseType type,
@@ -1468,13 +1301,15 @@ public class SearchDslParser {
                 @JsonProperty("value") String value,
                 @JsonProperty("children") List<QsNode> children,
                 @JsonProperty("occur") QsOccur occur,
-                @JsonProperty("minimumShouldMatch") Integer minimumShouldMatch) {
+                @JsonProperty("minimumShouldMatch") Integer minimumShouldMatch,
+                @JsonProperty("nestedPath") String nestedPath) {
             this.type = type;
             this.field = field;
             this.value = value;
             this.children = children != null ? new ArrayList<>(children) : new ArrayList<>();
             this.occur = occur;
             this.minimumShouldMatch = minimumShouldMatch;
+            this.nestedPath = nestedPath;
         }
 
         /**
@@ -1491,6 +1326,7 @@ public class SearchDslParser {
             this.children = new ArrayList<>();
             this.occur = null;
             this.minimumShouldMatch = null;
+            this.nestedPath = null;
         }
 
         /**
@@ -1506,6 +1342,7 @@ public class SearchDslParser {
             this.children = children != null ? new ArrayList<>(children) : new ArrayList<>();
             this.occur = null;
             this.minimumShouldMatch = null;
+            this.nestedPath = null;
         }
 
         /**
@@ -1522,6 +1359,7 @@ public class SearchDslParser {
             this.children = children != null ? new ArrayList<>(children) : new ArrayList<>();
             this.occur = null;
             this.minimumShouldMatch = minimumShouldMatch;
+            this.nestedPath = null;
         }
 
         public QsClauseType getType() {
@@ -1556,6 +1394,27 @@ public class SearchDslParser {
             return minimumShouldMatch;
         }
 
+        public String getNestedPath() {
+            return nestedPath;
+        }
+
+        /**
+         * Returns whether the field was explicitly specified in the DSL syntax.
+         */
+        public boolean isExplicitField() {
+            return explicitField;
+        }
+
+        /**
+         * Sets whether the field was explicitly specified in the DSL syntax.
+         * @param explicitField true if field was explicitly specified (e.g., title:music)
+         * @return this node for method chaining
+         */
+        public QsNode setExplicitField(boolean explicitField) {
+            this.explicitField = explicitField;
+            return this;
+        }
+
         /**
          * Sets the occur type for this node.
          * @param occur the occur type (MUST, SHOULD, MUST_NOT)
@@ -1568,7 +1427,7 @@ public class SearchDslParser {
 
         @Override
         public int hashCode() {
-            return Objects.hash(type, field, value, children, occur, minimumShouldMatch);
+            return Objects.hash(type, field, value, children, occur, minimumShouldMatch, nestedPath);
         }
 
         @Override
@@ -1585,7 +1444,8 @@ public class SearchDslParser {
                     && Objects.equals(value, qsNode.getValue())
                     && Objects.equals(children, qsNode.getChildren())
                     && occur == qsNode.getOccur()
-                    && Objects.equals(minimumShouldMatch, qsNode.getMinimumShouldMatch());
+                    && Objects.equals(minimumShouldMatch, qsNode.getMinimumShouldMatch())
+                    && Objects.equals(nestedPath, qsNode.nestedPath);
         }
     }
 
@@ -1639,6 +1499,267 @@ public class SearchDslParser {
             QsFieldBinding that = (QsFieldBinding) o;
             return slotIndex == that.slotIndex
                     && Objects.equals(fieldName, that.fieldName);
+        }
+    }
+
+    /**
+     * Multi-field AST expander.
+     * Transforms AST nodes with bareQuery (using placeholder field) into proper multi-field queries.
+     * Supports two strategies:
+     * - cross_fields: each term expands to (field1:term OR field2:term)
+     * - best_fields: entire query copied per field, joined with OR
+     */
+    private static class MultiFieldExpander {
+
+        /**
+         * Expand AST using cross_fields strategy.
+         * Each leaf node becomes OR of that node across all fields.
+         * Example: "hello AND world" with fields=[title,content] becomes
+         *   (title:hello OR content:hello) AND (title:world OR content:world)
+         *
+         * @param root The AST root node
+         * @param fields List of fields to expand across
+         * @return Expanded AST
+         */
+        public static QsNode expandCrossFields(QsNode root, List<String> fields) {
+            return expandCrossFields(root, fields, false);
+        }
+
+        /**
+         * Expand AST using cross_fields strategy with optional Lucene mode.
+         */
+        public static QsNode expandCrossFields(QsNode root, List<String> fields, boolean luceneMode) {
+            if (fields == null || fields.isEmpty()) {
+                return root;
+            }
+            if (fields.size() == 1) {
+                // Single field - just set the field on all leaf nodes
+                return setFieldOnLeaves(root, fields.get(0), fields);
+            }
+            return expandNodeCrossFields(root, fields, luceneMode);
+        }
+
+        /**
+         * Expand AST using best_fields strategy.
+         * Entire query is copied for each field, joined with OR.
+         * Example: "hello AND world" with fields=[title,content] becomes
+         *   (title:hello AND title:world) OR (content:hello AND content:world)
+         *
+         * @param root The AST root node
+         * @param fields List of fields to expand across
+         * @return Expanded AST
+         */
+        public static QsNode expandBestFields(QsNode root, List<String> fields) {
+            if (fields == null || fields.isEmpty()) {
+                return root;
+            }
+            if (fields.size() == 1) {
+                return setFieldOnLeaves(root, fields.get(0), fields);
+            }
+
+            // Non-lucene mode (used by parseDslMultiFieldMode for multi_match semantics):
+            // Copy entire AST per field, join with OR.
+            // Example: "hello AND world" with fields=[title,content] becomes
+            //   (title:hello AND title:world) OR (content:hello AND content:world)
+            List<QsNode> fieldTrees = new ArrayList<>();
+            for (String field : fields) {
+                QsNode copy = deepCopyWithField(root, field, fields);
+                fieldTrees.add(copy);
+            }
+            return new QsNode(QsClauseType.OR, fieldTrees);
+        }
+
+        /**
+         * Recursively expand a node using cross_fields strategy.
+         * Always returns a new copy or new node structure, never the original node.
+         */
+        private static QsNode expandNodeCrossFields(QsNode node, List<String> fields, boolean luceneMode) {
+            // MATCH_ALL_DOCS matches all documents regardless of field - don't expand
+            if (node.getType() == QsClauseType.MATCH_ALL_DOCS) {
+                QsNode result = new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
+                // Preserve occur attribute (e.g., SHOULD from "X OR *" queries)
+                // Without this, occur defaults to null which BE interprets as MUST,
+                // changing "X OR *" from matching all docs to matching only X.
+                if (node.getOccur() != null) {
+                    result.setOccur(node.getOccur());
+                }
+                return result;
+            }
+
+            // Check if this is a leaf node (no children)
+            if (isLeafNode(node)) {
+                // If the user explicitly wrote "field:term" syntax, respect it - don't expand
+                if (node.isExplicitField()) {
+                    return new QsNode(
+                            node.getType(),
+                            node.getField(),
+                            node.getValue(),
+                            null,
+                            node.getOccur(),
+                            node.getMinimumShouldMatch(),
+                            node.getNestedPath()
+                    );
+                }
+
+                // Expand leaf node across all fields
+                List<QsNode> expandedNodes = new ArrayList<>();
+                for (String field : fields) {
+                    // Create complete copy with new field
+                    QsNode copy = new QsNode(
+                            node.getType(),
+                            field,
+                            node.getValue(),
+                            null,
+                            luceneMode ? QsOccur.SHOULD : null,  // In Lucene mode, set SHOULD
+                            node.getMinimumShouldMatch(),
+                            node.getNestedPath()
+                    );
+                    expandedNodes.add(copy);
+                }
+
+                // In Lucene mode, create OCCUR_BOOLEAN with parent occur
+                // Otherwise create OR node
+                if (luceneMode) {
+                    QsNode result = new QsNode(QsClauseType.OCCUR_BOOLEAN, expandedNodes, null);
+                    if (node.getOccur() != null) {
+                        result.setOccur(node.getOccur());
+                    }
+                    return result;
+                } else {
+                    return new QsNode(QsClauseType.OR, expandedNodes);
+                }
+            }
+
+            // Compound node - recursively expand children
+            List<QsNode> expandedChildren = new ArrayList<>();
+            if (node.getChildren() != null) {
+                for (QsNode child : node.getChildren()) {
+                    expandedChildren.add(expandNodeCrossFields(child, fields, luceneMode));
+                }
+            }
+
+            // Create new compound node with expanded children (always a copy)
+            QsNode result = new QsNode(
+                    node.getType(),
+                    node.getField(),
+                    node.getValue(),
+                    expandedChildren,
+                    node.getOccur(),
+                    node.getMinimumShouldMatch(),
+                    node.getNestedPath()
+            );
+            return result;
+        }
+
+        /**
+         * Check if a node is a leaf node (no children, representing a term/phrase/etc.)
+         * A leaf node has no children or empty children list, regardless of whether it has a value.
+         */
+        private static boolean isLeafNode(QsNode node) {
+            return node.getChildren() == null || node.getChildren().isEmpty();
+        }
+
+        /**
+         * Deep copy an AST node and set the field on leaf nodes.
+         * Preserves explicit fields that are not in the fields list.
+         * Always returns a new copy, never the original node.
+         */
+        private static QsNode deepCopyWithField(QsNode node, String field, List<String> fields) {
+            // MATCH_ALL_DOCS matches all documents regardless of field - don't set field
+            if (node.getType() == QsClauseType.MATCH_ALL_DOCS) {
+                QsNode result = new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
+                if (node.getOccur() != null) {
+                    result.setOccur(node.getOccur());
+                }
+                return result;
+            }
+            if (isLeafNode(node)) {
+                // If the user explicitly wrote "field:term" syntax, preserve original field
+                String targetField = node.isExplicitField() ? node.getField() : field;
+
+                // Create a complete copy of the leaf node
+                QsNode copy = new QsNode(
+                        node.getType(),
+                        targetField,
+                        node.getValue(),
+                        null,  // children
+                        node.getOccur(),
+                        node.getMinimumShouldMatch(),
+                        node.getNestedPath()
+                );
+                copy.setExplicitField(node.isExplicitField());
+                return copy;
+            }
+
+            // Compound node - recursively copy children
+            List<QsNode> copiedChildren = new ArrayList<>();
+            if (node.getChildren() != null) {
+                for (QsNode child : node.getChildren()) {
+                    copiedChildren.add(deepCopyWithField(child, field, fields));
+                }
+            }
+
+            // Create a complete copy of the compound node
+            QsNode result = new QsNode(
+                    node.getType(),
+                    node.getField(),
+                    node.getValue(),
+                    copiedChildren,
+                    node.getOccur(),
+                    node.getMinimumShouldMatch(),
+                    node.getNestedPath()
+            );
+            return result;
+        }
+
+        /**
+         * Set field on leaf nodes (for single-field case).
+         * Preserves explicit fields that are different from the target field.
+         * Always returns a new copy, never the original node.
+         */
+        private static QsNode setFieldOnLeaves(QsNode node, String field, List<String> fields) {
+            // MATCH_ALL_DOCS matches all documents regardless of field - don't set field
+            if (node.getType() == QsClauseType.MATCH_ALL_DOCS) {
+                QsNode result = new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
+                if (node.getOccur() != null) {
+                    result.setOccur(node.getOccur());
+                }
+                return result;
+            }
+            if (isLeafNode(node)) {
+                // If the user explicitly wrote "field:term" syntax, preserve original field
+                String targetField = node.isExplicitField() ? node.getField() : field;
+
+                // Create complete copy
+                return new QsNode(
+                        node.getType(),
+                        targetField,
+                        node.getValue(),
+                        null,
+                        node.getOccur(),
+                        node.getMinimumShouldMatch(),
+                        node.getNestedPath()
+                );
+            }
+
+            // Compound node - recursively process children
+            List<QsNode> updatedChildren = new ArrayList<>();
+            if (node.getChildren() != null) {
+                for (QsNode child : node.getChildren()) {
+                    updatedChildren.add(setFieldOnLeaves(child, field, fields));
+                }
+            }
+
+            // Create complete copy
+            return new QsNode(
+                    node.getType(),
+                    node.getField(),
+                    node.getValue(),
+                    updatedChildren,
+                    node.getOccur(),
+                    node.getMinimumShouldMatch(),
+                    node.getNestedPath()
+            );
         }
     }
 
@@ -1777,14 +1898,39 @@ public class SearchDslParser {
         }
 
         /**
+         * Create a copy of this SearchOptions with a different minimum_should_match value.
+         * Used for ES compatibility in multi-field mode where msm is ignored.
+         */
+        public SearchOptions withMinimumShouldMatch(Integer newMsm) {
+            SearchOptions copy = new SearchOptions();
+            copy.defaultField = this.defaultField;
+            copy.defaultOperator = this.defaultOperator;
+            copy.mode = this.mode;
+            copy.minimumShouldMatch = newMsm;
+            copy.fields = this.fields != null ? new ArrayList<>(this.fields) : null;
+            copy.type = this.type;
+            return copy;
+        }
+
+        /**
          * Validate the options after deserialization.
          * Checks for:
+         * - mode is "standard" or "lucene"
          * - Mutual exclusion between fields and default_field
          * - minimum_should_match is non-negative if specified
          *
          * @throws IllegalArgumentException if validation fails
          */
         public void validate() {
+            // Validation: mode must be "standard" or "lucene"
+            if (mode != null) {
+                String normalizedMode = mode.trim().toLowerCase();
+                if (!"standard".equals(normalizedMode) && !"lucene".equals(normalizedMode)) {
+                    throw new IllegalArgumentException(
+                            "'mode' must be 'standard' or 'lucene', got: " + mode);
+                }
+                this.mode = normalizedMode;
+            }
             // Validation: fields and default_field are mutually exclusive
             if (fields != null && !fields.isEmpty()
                     && defaultField != null && !defaultField.isEmpty()) {
@@ -1851,16 +1997,14 @@ public class SearchDslParser {
             return new QsPlan(new QsNode(QsClauseType.TERM, "error", "empty_dsl"), new ArrayList<>());
         }
 
-        // Expand simplified DSL if default field is provided
-        String expandedDsl = dsl;
-        if (defaultField != null && !defaultField.trim().isEmpty()) {
-            expandedDsl = expandSimplifiedDsl(dsl.trim(), defaultField.trim(),
-                    normalizeDefaultOperator(defaultOperator));
-        }
+        // Parse original DSL directly - no preprocessing needed
+        // The ANTLR grammar now supports bareQuery (without field prefix)
+        // and QsLuceneModeAstBuilder will use defaultField from options for bare queries
+        String trimmedDsl = dsl.trim();
 
         try {
             // Create ANTLR lexer and parser
-            SearchLexer lexer = new SearchLexer(CharStreams.fromString(expandedDsl));
+            SearchLexer lexer = new SearchLexer(CharStreams.fromString(trimmedDsl));
             CommonTokenStream tokens = new CommonTokenStream(lexer);
             SearchParser parser = new SearchParser(tokens);
 
@@ -1886,6 +2030,7 @@ public class SearchDslParser {
             // Build AST using Lucene-mode visitor
             QsLuceneModeAstBuilder visitor = new QsLuceneModeAstBuilder(options);
             QsNode root = visitor.visit(tree);
+            validateNestedTopLevelOnly(root);
 
             // Extract field bindings
             Set<String> fieldNames = visitor.getFieldNames();
@@ -1895,32 +2040,32 @@ public class SearchDslParser {
                 bindings.add(new QsFieldBinding(fieldName, slotIndex++));
             }
 
-            return new QsPlan(root, bindings);
+            // Include default_operator and minimum_should_match for BE
+            return new QsPlan(root, bindings,
+                    normalizeDefaultOperator(defaultOperator),
+                    options.getMinimumShouldMatch());
 
         } catch (SearchDslSyntaxException e) {
             // Syntax error in DSL - user input issue
-            LOG.error("Failed to parse search DSL in Lucene mode: '{}' (expanded: '{}')", dsl, expandedDsl, e);
+            LOG.error("Failed to parse search DSL in Lucene mode: '{}'", dsl, e);
             throw new SearchDslSyntaxException("Invalid search DSL: " + dsl + ". " + e.getMessage(), e);
         } catch (IllegalArgumentException e) {
             // Invalid argument - user input issue
-            LOG.error("Invalid argument in search DSL (Lucene mode): '{}' (expanded: '{}')", dsl, expandedDsl, e);
+            LOG.error("Invalid argument in search DSL (Lucene mode): '{}'", dsl, e);
             throw new IllegalArgumentException("Invalid search DSL argument: " + dsl + ". " + e.getMessage(), e);
         } catch (NullPointerException e) {
             // Internal error - programming bug
-            LOG.error("Internal error (NPE) while parsing search DSL in Lucene mode: '{}' (expanded: '{}')",
-                    dsl, expandedDsl, e);
+            LOG.error("Internal error (NPE) while parsing search DSL in Lucene mode: '{}'", dsl, e);
             throw new RuntimeException("Internal error while parsing search DSL: " + dsl
                     + ". This may be a bug. Details: " + e.getMessage(), e);
         } catch (IndexOutOfBoundsException e) {
             // Internal error - programming bug
-            LOG.error("Internal error (IOOB) while parsing search DSL in Lucene mode: '{}' (expanded: '{}')",
-                    dsl, expandedDsl, e);
+            LOG.error("Internal error (IOOB) while parsing search DSL in Lucene mode: '{}'", dsl, e);
             throw new RuntimeException("Internal error while parsing search DSL: " + dsl
                     + ". This may be a bug. Details: " + e.getMessage(), e);
         } catch (RuntimeException e) {
             // Other runtime errors
-            LOG.error("Unexpected error while parsing search DSL in Lucene mode: '{}' (expanded: '{}')",
-                    dsl, expandedDsl, e);
+            LOG.error("Unexpected error while parsing search DSL in Lucene mode: '{}'", dsl, e);
             throw new RuntimeException("Unexpected error parsing search DSL: " + dsl + ". " + e.getMessage(), e);
         }
     }
@@ -1934,9 +2079,34 @@ public class SearchDslParser {
         private final Set<String> fieldNames = new LinkedHashSet<>();
         private final SearchOptions options;
         private String currentFieldName = null;
+        // Override for default field - used in multi-field mode to avoid mutating options
+        private final String overrideDefaultField;
+        private int nestingLevel = 0;
 
         public QsLuceneModeAstBuilder(SearchOptions options) {
             this.options = options;
+            this.overrideDefaultField = null;
+        }
+
+        /**
+         * Constructor with override default field for multi-field mode.
+         * This avoids mutating the shared SearchOptions object.
+         * @param options Search options
+         * @param overrideDefaultField Field to use as default instead of options.getDefaultField()
+         */
+        public QsLuceneModeAstBuilder(SearchOptions options, String overrideDefaultField) {
+            this.options = options;
+            this.overrideDefaultField = overrideDefaultField;
+        }
+
+        /**
+         * Get the effective default field, considering override.
+         */
+        private String getEffectiveDefaultField() {
+            if (overrideDefaultField != null && !overrideDefaultField.isEmpty()) {
+                return overrideDefaultField;
+            }
+            return options != null ? options.getDefaultField() : null;
         }
 
         public Set<String> getFieldNames() {
@@ -1975,11 +2145,17 @@ public class SearchDslParser {
             if (terms.size() == 1) {
                 TermWithOccur singleTerm = terms.get(0);
                 if (singleTerm.isNegated) {
-                    // Single negated term - must wrap in OCCUR_BOOLEAN for BE to handle MUST_NOT
+                    // Single negated term - rewrite to: SHOULD(MATCH_ALL_DOCS) + MUST_NOT(term)
+                    // This ensures proper Lucene semantics: match all docs EXCEPT those matching the term
                     singleTerm.node.setOccur(QsOccur.MUST_NOT);
+
+                    QsNode matchAllNode = new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
+                    matchAllNode.setOccur(QsOccur.SHOULD);
+
                     List<QsNode> children = new ArrayList<>();
+                    children.add(matchAllNode);
                     children.add(singleTerm.node);
-                    return new QsNode(QsClauseType.OCCUR_BOOLEAN, children, 0);
+                    return new QsNode(QsClauseType.OCCUR_BOOLEAN, children, 1);
                 }
                 // Single non-negated term - return directly without wrapper
                 return singleTerm.node;
@@ -1988,38 +2164,50 @@ public class SearchDslParser {
             // Apply Lucene boolean logic
             applyLuceneBooleanLogic(terms);
 
+            // Check if ALL terms are MUST_NOT (pure negation query).
+            // In Lucene, a BooleanQuery with only MUST_NOT clauses matches nothing,
+            // so we inject a MATCH_ALL_DOCS(SHOULD) node to ensure proper semantics:
+            // match all docs EXCEPT those matching any MUST_NOT term.
+            boolean allMustNot = terms.stream().allMatch(t -> t.occur == QsOccur.MUST_NOT);
+            if (allMustNot) {
+                QsNode matchAllNode = new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
+                matchAllNode.setOccur(QsOccur.SHOULD);
+                List<QsNode> children = new ArrayList<>();
+                children.add(matchAllNode);
+                for (TermWithOccur term : terms) {
+                    term.node.setOccur(term.occur);
+                    children.add(term.node);
+                }
+                return new QsNode(QsClauseType.OCCUR_BOOLEAN, children, 1);
+            }
+
             // Determine minimum_should_match
-            Integer minShouldMatch = options.getMinimumShouldMatch();
+            // Only use explicit option at top level; nested clauses use default logic
+            Integer minShouldMatch = (nestingLevel == 0) ? options.getMinimumShouldMatch() : null;
             if (minShouldMatch == null) {
                 // Default: 0 if there are MUST clauses, 1 if only SHOULD
+                // This matches Lucene BooleanQuery default behavior
                 boolean hasMust = terms.stream().anyMatch(t -> t.occur == QsOccur.MUST);
                 boolean hasMustNot = terms.stream().anyMatch(t -> t.occur == QsOccur.MUST_NOT);
                 minShouldMatch = (hasMust || hasMustNot) ? 0 : 1;
             }
 
-            // Filter out SHOULD clauses if minimum_should_match=0 and there are MUST clauses
             final int finalMinShouldMatch = minShouldMatch;
-            if (minShouldMatch == 0) {
-                boolean hasMust = terms.stream().anyMatch(t -> t.occur == QsOccur.MUST);
-                if (hasMust) {
-                    terms = terms.stream()
-                            .filter(t -> t.occur != QsOccur.SHOULD)
-                            .collect(Collectors.toList());
-                }
-            }
-
-            if (terms.isEmpty()) {
-                throw new RuntimeException("All terms filtered out in Lucene boolean logic");
-            }
 
             if (terms.size() == 1) {
                 TermWithOccur remainingTerm = terms.get(0);
                 if (remainingTerm.occur == QsOccur.MUST_NOT) {
-                    // Single MUST_NOT term - must wrap in OCCUR_BOOLEAN for BE to handle
+                    // Single MUST_NOT term - rewrite to: SHOULD(MATCH_ALL_DOCS) + MUST_NOT(term)
+                    // This ensures proper Lucene semantics: match all docs EXCEPT those matching the term
                     remainingTerm.node.setOccur(QsOccur.MUST_NOT);
+
+                    QsNode matchAllNode = new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
+                    matchAllNode.setOccur(QsOccur.SHOULD);
+
                     List<QsNode> children = new ArrayList<>();
+                    children.add(matchAllNode);
                     children.add(remainingTerm.node);
-                    return new QsNode(QsClauseType.OCCUR_BOOLEAN, children, 0);
+                    return new QsNode(QsClauseType.OCCUR_BOOLEAN, children, 1);
                 }
                 return remainingTerm.node;
             }
@@ -2055,11 +2243,51 @@ public class SearchDslParser {
             List<SearchParser.NotClauseContext> notClauses = ctx.notClause();
 
             for (int i = 0; i < notClauses.size(); i++) {
-                boolean introducedByAnd = (i > 0);
+                boolean introducedByAnd;
+                if (i > 0) {
+                    // Check if there's an explicit AND token before this notClause.
+                    // Implicit conjunction (no AND token) returns false - only explicit AND
+                    // should trigger the "introduced by AND" logic that modifies preceding terms.
+                    introducedByAnd = hasExplicitAndBefore(ctx, notClauses.get(i));
+                } else {
+                    introducedByAnd = false;
+                }
+
                 collectTermsFromNotClause(notClauses.get(i), terms, defaultOccur, introducedByOr, introducedByAnd);
                 // After first term, all subsequent in same AND chain are introducedByOr=false
                 introducedByOr = false;
             }
+        }
+
+        /**
+         * Check if there's an explicit AND token before the target notClause.
+         * Walks ctx.children to find the position of target and checks the preceding token.
+         *
+         * IMPORTANT: Returns false for implicit conjunction (no explicit AND token).
+         * In Lucene's QueryParserBase.addClause(), only explicit CONJ_AND modifies the
+         * preceding term. CONJ_NONE (implicit conjunction) only affects the current term's
+         * occur via the default_operator, without modifying the preceding term.
+         *
+         * @param ctx The AndClauseContext containing the children
+         * @param target The target NotClauseContext to check
+         * @return true only if there's an explicit AND token before target
+         */
+        private boolean hasExplicitAndBefore(SearchParser.AndClauseContext ctx,
+                SearchParser.NotClauseContext target) {
+            for (int j = 0; j < ctx.getChildCount(); j++) {
+                if (ctx.getChild(j) == target) {
+                    // Found the target - check if the preceding sibling is an AND token
+                    if (j > 0 && ctx.getChild(j - 1) instanceof org.antlr.v4.runtime.tree.TerminalNode) {
+                        org.antlr.v4.runtime.tree.TerminalNode terminal =
+                                (org.antlr.v4.runtime.tree.TerminalNode) ctx.getChild(j - 1);
+                        return terminal.getSymbol().getType() == SearchParser.AND;
+                    }
+                    // No explicit AND before this term
+                    return false;
+                }
+            }
+            // Target not found (should not happen)
+            return false;
         }
 
         private void collectTermsFromNotClause(SearchParser.NotClauseContext ctx, List<TermWithOccur> terms,
@@ -2067,36 +2295,56 @@ public class SearchDslParser {
             boolean isNegated = ctx.NOT() != null;
             SearchParser.AtomClauseContext atomCtx = ctx.atomClause();
 
+            QsNode node;
             if (atomCtx.clause() != null) {
-                // Parenthesized clause - visit recursively
-                QsNode subNode = visit(atomCtx.clause());
-                TermWithOccur term = new TermWithOccur(subNode, defaultOccur);
-                term.introducedByOr = introducedByOr;
-                term.introducedByAnd = introducedByAnd;
-                term.isNegated = isNegated;
-                terms.add(term);
+                // Parenthesized clause - visit recursively with incremented nesting level
+                // This ensures nested clauses don't use top-level minimum_should_match
+                nestingLevel++;
+                try {
+                    node = visit(atomCtx.clause());
+                } finally {
+                    nestingLevel--;
+                }
+            } else if (atomCtx.fieldGroupQuery() != null) {
+                // Field group query (e.g., title:(rock OR jazz))
+                node = visit(atomCtx.fieldGroupQuery());
+            } else if (atomCtx.fieldQuery() != null) {
+                // Field query with explicit field prefix
+                node = visit(atomCtx.fieldQuery());
+            } else if (atomCtx.bareQuery() != null) {
+                // Bare query - uses default field
+                node = visit(atomCtx.bareQuery());
             } else {
-                // Field query
-                QsNode node = visit(atomCtx.fieldQuery());
-                TermWithOccur term = new TermWithOccur(node, defaultOccur);
-                term.introducedByOr = introducedByOr;
-                term.introducedByAnd = introducedByAnd;
-                term.isNegated = isNegated;
-                terms.add(term);
+                throw new RuntimeException("Invalid atom clause: missing field or bare query");
             }
+
+            TermWithOccur term = new TermWithOccur(node, defaultOccur);
+            term.introducedByOr = introducedByOr;
+            term.introducedByAnd = introducedByAnd;
+            term.isNegated = isNegated;
+            terms.add(term);
         }
 
         /**
          * Apply Lucene boolean logic to determine final MUST/SHOULD/MUST_NOT for each term.
          * <p>
-         * Rules (processed left-to-right):
-         * 1. First term: MUST (due to default_operator=AND)
-         * 2. AND introduces: marks preceding and current as MUST
-         * 3. OR introduces: marks preceding and current as SHOULD
-         * 4. NOT modifier: marks current as MUST_NOT
-         * 5. AND after MUST_NOT: the MUST_NOT term is not affected, current becomes MUST
+         * Faithfully replicates Lucene QueryParserBase.addClause() semantics:
+         * - Processes terms left-to-right with NO operator precedence (AND/OR are equal)
+         * - Each conjunction affects at most the immediately preceding term
+         * <p>
+         * With OR_OPERATOR (default_operator=OR):
+         *   - First term / no conjunction: SHOULD
+         *   - AND: preceding becomes MUST, current MUST
+         *   - OR: current SHOULD (preceding unchanged)
+         * <p>
+         * With AND_OPERATOR (default_operator=AND):
+         *   - First term / no conjunction: MUST
+         *   - AND: preceding becomes MUST, current MUST
+         *   - OR: preceding becomes SHOULD, current SHOULD
          */
         private void applyLuceneBooleanLogic(List<TermWithOccur> terms) {
+            boolean useAnd = "AND".equalsIgnoreCase(options.getDefaultOperator());
+
             for (int i = 0; i < terms.size(); i++) {
                 TermWithOccur current = terms.get(i);
 
@@ -2104,36 +2352,44 @@ public class SearchDslParser {
                     // NOT modifier - mark as MUST_NOT
                     current.occur = QsOccur.MUST_NOT;
 
-                    // OR + NOT: preceding becomes SHOULD (if not already MUST_NOT)
-                    if (current.introducedByOr && i > 0) {
+                    if (current.introducedByAnd && i > 0) {
+                        // AND + NOT: AND still makes preceding MUST
+                        TermWithOccur prev = terms.get(i - 1);
+                        if (prev.occur != QsOccur.MUST_NOT) {
+                            prev.occur = QsOccur.MUST;
+                        }
+                    } else if (current.introducedByOr && i > 0 && useAnd) {
+                        // OR + NOT with AND_OPERATOR: preceding becomes SHOULD
                         TermWithOccur prev = terms.get(i - 1);
                         if (prev.occur != QsOccur.MUST_NOT) {
                             prev.occur = QsOccur.SHOULD;
                         }
                     }
+                    // OR + NOT with OR_OPERATOR: no change to preceding
                 } else if (current.introducedByAnd) {
-                    // AND introduces: both preceding and current are MUST
+                    // AND: preceding becomes MUST, current MUST
                     current.occur = QsOccur.MUST;
                     if (i > 0) {
                         TermWithOccur prev = terms.get(i - 1);
-                        // Don't change MUST_NOT to MUST
                         if (prev.occur != QsOccur.MUST_NOT) {
                             prev.occur = QsOccur.MUST;
                         }
                     }
                 } else if (current.introducedByOr) {
-                    // OR introduces: both preceding and current are SHOULD
+                    // OR: current is SHOULD
                     current.occur = QsOccur.SHOULD;
-                    if (i > 0) {
+                    // Only change preceding to SHOULD if default_operator=AND
+                    // (Lucene: OR_OPERATOR + CONJ_OR does NOT modify preceding)
+                    if (useAnd && i > 0) {
                         TermWithOccur prev = terms.get(i - 1);
-                        // Don't change MUST_NOT to SHOULD
                         if (prev.occur != QsOccur.MUST_NOT) {
                             prev.occur = QsOccur.SHOULD;
                         }
                     }
                 } else {
-                    // First term: MUST (default_operator=AND)
-                    current.occur = QsOccur.MUST;
+                    // First term or implicit conjunction (no explicit AND/OR)
+                    // Lucene: SHOULD for OR_OPERATOR, MUST for AND_OPERATOR
+                    current.occur = useAnd ? QsOccur.MUST : QsOccur.SHOULD;
                 }
             }
         }
@@ -2158,7 +2414,22 @@ public class SearchDslParser {
                 return children.get(0);
             }
 
-            return new QsNode(QsClauseType.AND, children);
+            // Check if there are explicit AND tokens
+            // If no explicit AND tokens, use the default operator for implicit conjunction
+            List<org.antlr.v4.runtime.tree.TerminalNode> andTokens = ctx.AND();
+            boolean hasExplicitAnd = andTokens != null && !andTokens.isEmpty();
+
+            QsClauseType clauseType;
+            if (hasExplicitAnd) {
+                // Explicit AND - always use AND
+                clauseType = QsClauseType.AND;
+            } else {
+                // Implicit conjunction - use default operator from options
+                String defaultOperator = options.getDefaultOperator();
+                clauseType = "AND".equalsIgnoreCase(defaultOperator) ? QsClauseType.AND : QsClauseType.OR;
+            }
+
+            return new QsNode(clauseType, children);
         }
 
         @Override
@@ -2180,7 +2451,89 @@ public class SearchDslParser {
             if (ctx.clause() != null) {
                 return visit(ctx.clause());
             }
-            return visit(ctx.fieldQuery());
+            if (ctx.nestedQuery() != null) {
+                return visit(ctx.nestedQuery());
+            }
+            if (ctx.fieldGroupQuery() != null) {
+                return visit(ctx.fieldGroupQuery());
+            }
+            if (ctx.fieldQuery() != null) {
+                return visit(ctx.fieldQuery());
+            }
+            if (ctx.bareQuery() != null) {
+                return visit(ctx.bareQuery());
+            }
+            throw new RuntimeException("Invalid atom clause: missing field or bare query");
+        }
+
+        @Override
+        public QsNode visitBareQuery(SearchParser.BareQueryContext ctx) {
+            // Use currentFieldName if inside a field group context (set by visitFieldGroupQuery),
+            // otherwise fall back to the effective default field.
+            String defaultField = getEffectiveDefaultField();
+            String effectiveField = (currentFieldName != null && !currentFieldName.isEmpty())
+                    ? currentFieldName : defaultField;
+            if (effectiveField == null || effectiveField.isEmpty()) {
+                throw new SearchDslSyntaxException(
+                    "No field specified and no default_field configured. "
+                    + "Either use field:value syntax or set default_field in options.");
+            }
+
+            fieldNames.add(effectiveField);
+
+            // Set current field context before visiting search value
+            String previousFieldName = currentFieldName;
+            currentFieldName = effectiveField;
+
+            try {
+                if (ctx.searchValue() == null) {
+                    throw new RuntimeException("Invalid bare query: missing search value");
+                }
+                QsNode result = visit(ctx.searchValue());
+                if (result == null) {
+                    throw new RuntimeException("Invalid search value");
+                }
+                return result;
+            } finally {
+                // Restore previous context
+                currentFieldName = previousFieldName;
+            }
+        }
+
+        @Override
+        public QsNode visitNestedQuery(SearchParser.NestedQueryContext ctx) {
+            if (ctx.NESTED_PATH() == null) {
+                throw new RuntimeException("Invalid NESTED clause: missing path");
+            }
+            String nestedPath = ctx.NESTED_PATH().getText();
+            QsNode innerQuery = visit(ctx.clause());
+            if (innerQuery == null) {
+                throw new RuntimeException("Invalid NESTED clause: missing inner query");
+            }
+
+            validateNestedFieldPaths(innerQuery, nestedPath);
+
+            QsNode node = new QsNode(QsClauseType.NESTED, Collections.singletonList(innerQuery));
+            node.nestedPath = nestedPath;
+            return node;
+        }
+
+        private void validateNestedFieldPaths(QsNode node, String nestedPath) {
+            if (node == null) {
+                return;
+            }
+            if (node.type == QsClauseType.NESTED) {
+                throw new RuntimeException("Nested NESTED() is not supported: " + nestedPath);
+            }
+            if (node.field != null && !node.field.startsWith(nestedPath + ".")) {
+                throw new RuntimeException("Fields in NESTED query must start with nested path: "
+                        + nestedPath + ", but got: " + node.field);
+            }
+            if (node.children != null) {
+                for (QsNode child : node.children) {
+                    validateNestedFieldPaths(child, nestedPath);
+                }
+            }
         }
 
         @Override
@@ -2207,21 +2560,85 @@ public class SearchDslParser {
             currentFieldName = fieldPath;
 
             try {
-                return visit(ctx.searchValue());
+                QsNode result = visit(ctx.searchValue());
+                // Mark as explicit field - user wrote "field:term" syntax
+                result.setExplicitField(true);
+                return result;
             } finally {
                 currentFieldName = previousFieldName;
             }
         }
 
         @Override
+        public QsNode visitFieldGroupQuery(SearchParser.FieldGroupQueryContext ctx) {
+            if (ctx.fieldPath() == null) {
+                throw new SearchDslSyntaxException("Invalid field group query: missing field path");
+            }
+
+            // Build complete field path from segments (support field.subcolumn syntax)
+            StringBuilder fullPath = new StringBuilder();
+            List<SearchParser.FieldSegmentContext> segments = ctx.fieldPath().fieldSegment();
+            for (int i = 0; i < segments.size(); i++) {
+                if (i > 0) {
+                    fullPath.append('.');
+                }
+                String segment = segments.get(i).getText();
+                if (segment.startsWith("\"") && segment.endsWith("\"")) {
+                    segment = segment.substring(1, segment.length() - 1);
+                }
+                fullPath.append(segment);
+            }
+
+            String fieldPath = fullPath.toString();
+            fieldNames.add(fieldPath);
+
+            // Set field group context so bare terms inside use this field
+            String previousFieldName = currentFieldName;
+            currentFieldName = fieldPath;
+            nestingLevel++;
+
+            try {
+                if (ctx.clause() == null) {
+                    throw new SearchDslSyntaxException("Invalid field group query: missing inner clause");
+                }
+                QsNode result = visit(ctx.clause());
+                if (result == null) {
+                    throw new SearchDslSyntaxException("Invalid field group query: inner clause returned null");
+                }
+                // Mark all leaf nodes as explicitly bound to this field.
+                // This prevents MultiFieldExpander from re-expanding them across other fields.
+                markExplicitFieldRecursive(result, fieldPath);
+                return result;
+            } finally {
+                nestingLevel--;
+                currentFieldName = previousFieldName;
+            }
+        }
+
+        @Override
         public QsNode visitSearchValue(SearchParser.SearchValueContext ctx) {
-            String fieldName = currentFieldName != null ? currentFieldName : "_all";
+            String fieldName = currentFieldName;
+            if (fieldName == null) {
+                // Fall back to effective default field (considering override)
+                String defaultField = getEffectiveDefaultField();
+                if (defaultField != null && !defaultField.isEmpty()) {
+                    fieldName = defaultField;
+                } else {
+                    throw new SearchDslSyntaxException(
+                        "No field name available. This indicates a parsing error.");
+                }
+            }
 
             if (ctx.TERM() != null) {
                 return new QsNode(QsClauseType.TERM, fieldName, unescapeTermValue(ctx.TERM().getText()));
             }
             if (ctx.PREFIX() != null) {
-                return new QsNode(QsClauseType.PREFIX, fieldName, unescapeTermValue(ctx.PREFIX().getText()));
+                String prefixText = ctx.PREFIX().getText();
+                // Standalone * → MATCH_ALL_DOCS (matches ES behavior: field:* becomes ExistsQuery)
+                if ("*".equals(prefixText)) {
+                    return new QsNode(QsClauseType.MATCH_ALL_DOCS, (List<QsNode>) null);
+                }
+                return new QsNode(QsClauseType.PREFIX, fieldName, unescapeTermValue(prefixText));
             }
             if (ctx.WILDCARD() != null) {
                 return new QsNode(QsClauseType.WILDCARD, fieldName, unescapeTermValue(ctx.WILDCARD().getText()));
@@ -2299,6 +2716,25 @@ public class SearchDslParser {
                 return text.substring(1, text.length() - 1);
             }
             return text;
+        }
+    }
+
+    private static void validateNestedTopLevelOnly(QsNode root) {
+        validateNestedTopLevelOnly(root, true);
+    }
+
+    private static void validateNestedTopLevelOnly(QsNode node, boolean isRoot) {
+        if (node == null) {
+            return;
+        }
+        if (node.type == QsClauseType.NESTED && !isRoot) {
+            throw new RuntimeException("NESTED clause must be evaluated at top level");
+        }
+        if (node.children == null || node.children.isEmpty()) {
+            return;
+        }
+        for (QsNode child : node.children) {
+            validateNestedTopLevelOnly(child, false);
         }
     }
 

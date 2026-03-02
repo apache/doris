@@ -241,6 +241,30 @@ PathInData PathInData::copy_pop_nfront(size_t n) const {
     return new_path;
 }
 
+bool PathInData::try_strip_prefix(const std::string& name, const std::string& prefix_dot,
+                                  std::string* out) {
+    if (!name.starts_with(prefix_dot)) {
+        return false;
+    }
+    *out = name.substr(prefix_dot.size());
+    return !out->empty();
+}
+
+PathInData PathInData::append(const PathInData& base, std::string_view suffix) {
+    if (suffix.empty()) {
+        return base;
+    }
+    if (base.empty()) {
+        return PathInData(suffix);
+    }
+    std::string new_path;
+    new_path.reserve(base.get_path().size() + 1 + suffix.size());
+    new_path.append(base.get_path());
+    new_path.push_back('.');
+    new_path.append(suffix.data(), suffix.size());
+    return PathInData(new_path);
+}
+
 PathInDataBuilder& PathInDataBuilder::append(std::string_view key, bool is_array) {
     if (parts.empty()) {
         current_anonymous_array_level += is_array;

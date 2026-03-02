@@ -20,6 +20,8 @@ package org.apache.doris.job.cdc.request;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import java.util.Map;
+
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class WriteRecordRequest extends JobBaseRecordRequest {
@@ -28,14 +30,5 @@ public class WriteRecordRequest extends JobBaseRecordRequest {
     private String token;
     private String frontendAddress;
     private String taskId;
-
-    @Override
-    public boolean isReload() {
-        return true;
-    }
-
-    @Override
-    public int getFetchSize() {
-        return Integer.MAX_VALUE;
-    }
+    private Map<String, String> streamLoadProps;
 }

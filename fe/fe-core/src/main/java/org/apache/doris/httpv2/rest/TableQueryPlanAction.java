@@ -232,7 +232,7 @@ public class TableQueryPlanAction extends RestBaseController {
             String dbName = tableQualifier.get(1);
             String tableName = tableQualifier.get(2);
 
-            if (GlobalVariable.lowerCaseTableNames == 0) {
+            if (Env.getLowerCaseTableNames(InternalCatalog.INTERNAL_CATALOG_NAME) == 0) {
                 if (!(dbName.equals(requestDb) && tableName.equals(requestTable))) {
                     throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST,
                             "requested database and table must consistent with sql: request [ "

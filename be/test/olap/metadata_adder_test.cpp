@@ -19,9 +19,12 @@
 
 #include <gtest/gtest.h>
 
+#include "olap/field.h"
 #include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
+#include "runtime/define_primitive_type.h"
+#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 
@@ -121,13 +124,16 @@ TEST_F(MetadataAdderTest, meta_load_with_pb_test) {
         auto fs = io::global_local_filesystem();
         TabletColumnPtr int_column = create_int_key(0);
         Field* int_field = FieldFactory::create(*int_column);
+        auto int_data_type_ptr =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, false);
 
         // 1 load first column
         segment_v2::ColumnIndexMetaPB index_meta1;
         std::string file1 = kTestDir + "/copy_obj1";
         {
             std::unique_ptr<segment_v2::ZoneMapIndexWriter> builder(nullptr);
-            static_cast<void>(segment_v2::ZoneMapIndexWriter::create(int_field, builder));
+            static_cast<void>(
+                    segment_v2::ZoneMapIndexWriter::create(int_data_type_ptr, int_field, builder));
             for (int i = 0; i < 100; i++) {
                 builder->add_values((const uint8_t*)&i, 1);
             }
@@ -157,11 +163,14 @@ TEST_F(MetadataAdderTest, meta_load_with_pb_test) {
         segment_v2::ColumnIndexMetaPB index_meta2;
         TabletColumnPtr varchar_column = create_varchar_key(0);
         Field* str_field = FieldFactory::create(*varchar_column);
+        auto str_data_type_ptr =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, false);
 
         std::string file2 = kTestDir + "/copy_obj2";
         {
             std::unique_ptr<segment_v2::ZoneMapIndexWriter> builder(nullptr);
-            static_cast<void>(segment_v2::ZoneMapIndexWriter::create(str_field, builder));
+            static_cast<void>(
+                    segment_v2::ZoneMapIndexWriter::create(str_data_type_ptr, str_field, builder));
             std::vector<std::string> values1 = {"aaaa", "bbbb", "cccc", "dddd", "eeee", "ffff"};
             for (auto& value : values1) {
                 Slice slice(value);

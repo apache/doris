@@ -82,9 +82,12 @@ suite("iceberg_branch_retention_and_snapshot", "p0,external,doris,external_docke
     // Create tags to protect additional snapshots
     sql """ alter table ${table_name_expire} create tag t_expire_protect AS OF VERSION ${s_expire_1} """
 
-    // Call expire_snapshots via Spark - should not delete snapshots referenced by branch/tag
+    // Call expire_snapshots via Doris - should not delete snapshots referenced by branch/tag
     // Using a timestamp that would expire old snapshots but not those referenced by branch/tag
-    spark_iceberg """CALL demo.system.expire_snapshots(table => 'test_db_retention.${table_name_expire}', older_than => TIMESTAMP '2020-01-01 00:00:00')"""
+    sql """
+        ALTER TABLE ${catalog_name}.test_db_retention.${table_name_expire}
+        EXECUTE expire_snapshots("older_than" = "2020-01-01T00:00:00")
+    """
 
     // Verify snapshots are still accessible after expire_snapshots
     qt_expire_branch_still_accessible """ select count(*) from ${table_name_expire}@branch(b_expire_test) """ // Should still have data
@@ -124,7 +127,10 @@ suite("iceberg_branch_retention_and_snapshot", "p0,external,doris,external_docke
     def snapshot_count_retain_before = sql """ select count(*) from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_retain_count}", "query_type" = "snapshots") """
 
     // Call expire_snapshots - older snapshots beyond retention count may be expired, but branch snapshot should be protected
-    spark_iceberg """CALL demo.system.expire_snapshots(table => 'test_db_retention.${table_name_retain_count}', older_than => TIMESTAMP '2020-01-01 00:00:00')"""
+    sql """
+        ALTER TABLE ${catalog_name}.test_db_retention.${table_name_retain_count}
+        EXECUTE expire_snapshots("older_than" = "2020-01-01T00:00:00")
+    """
 
     // Verify branch is still accessible and has data
     qt_retain_count_branch_accessible """ select count(*) from ${table_name_retain_count}@branch(b_retain_count) """ // Should have data
@@ -160,7 +166,10 @@ suite("iceberg_branch_retention_and_snapshot", "p0,external,doris,external_docke
     logger.info("Snapshot count before expire: ${snapshot_count_unref_before[0][0]}")
 
     // Call expire_snapshots - old unreferenced snapshots should be expired
-    spark_iceberg """CALL demo.system.expire_snapshots(table => 'test_db_retention.${table_name_unref}', retain_last => 1)"""
+    sql """
+        ALTER TABLE ${catalog_name}.test_db_retention.${table_name_unref}
+        EXECUTE expire_snapshots("retain_last" = "1")
+    """
 
     // Count snapshots after expire
     def snapshot_count_unref_after = sql """ select count(*) from iceberg_meta("table" = "${catalog_name}.test_db_retention.${table_name_unref}", "query_type" = "snapshots") """
@@ -180,4 +189,3 @@ suite("iceberg_branch_retention_and_snapshot", "p0,external,doris,external_docke
     assertEquals(tag_ref_unref_after[0][0], 1)
 
 }
-

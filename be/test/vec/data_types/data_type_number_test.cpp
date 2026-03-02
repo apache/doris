@@ -334,12 +334,12 @@ TEST_F(DataTypeNumberTest, ser_deser) {
             }
         }
     };
-    test_func(DataTypeInt8(), *column_int8, USE_CONST_SERDE);
-    test_func(DataTypeInt16(), *column_int16, USE_CONST_SERDE);
-    test_func(DataTypeInt32(), *column_int32, USE_CONST_SERDE);
-    test_func(DataTypeInt64(), *column_int64, USE_CONST_SERDE);
-    test_func(DataTypeInt128(), *column_int128, USE_CONST_SERDE);
-    test_func(DataTypeUInt8(), *column_uint8, USE_CONST_SERDE);
+    test_func(DataTypeInt8(), *column_int8, BeExecVersionManager::max_be_exec_version);
+    test_func(DataTypeInt16(), *column_int16, BeExecVersionManager::max_be_exec_version);
+    test_func(DataTypeInt32(), *column_int32, BeExecVersionManager::max_be_exec_version);
+    test_func(DataTypeInt64(), *column_int64, BeExecVersionManager::max_be_exec_version);
+    test_func(DataTypeInt128(), *column_int128, BeExecVersionManager::max_be_exec_version);
+    test_func(DataTypeUInt8(), *column_uint8, BeExecVersionManager::max_be_exec_version);
 }
 
 TEST_F(DataTypeNumberTest, to_string) {

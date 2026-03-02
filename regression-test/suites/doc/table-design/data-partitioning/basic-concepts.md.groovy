@@ -219,7 +219,8 @@ suite("docs/table-design/data-partitioning/basic-concepts.md") {
     sql """ insert into list_table1 values ("Beijing"), ("XXX"), ("xxx"), ("Beijing"), ("Abc"), (null) """
     sql """ insert into list_table1 values (null), ("") """ // not same partition
 
-    sql """ select * from partitions("catalog"="internal", "database"="partition_basic_concepts", "table"="DAILY_TRADE_VALUE") where PartitionName = auto_partition_name('range', 'year', '2008-02-03'); """
+    sql """ select * from partitions("catalog"="internal","database"="partition_basic_concepts", "table"="DAILY_TRADE_VALUE") where PartitionName = auto_partition_name('range', 'year', '2008-02-03'); """
+    sql """ select * from partitions("database"="partition_basic_concepts", "table"="DAILY_TRADE_VALUE") where PartitionName = auto_partition_name('range', 'year', '2008-02-03'); """
     sql """ select * from information_schema.partitions where TABLE_SCHEMA='partition_basic_concepts' and TABLE_NAME='list_table1' and PARTITION_NAME=auto_partition_name('list', null); """
     sql """ select * from information_schema.partitions where TABLE_NAME='DAILY_TRADE_VALUE' and PARTITION_DESCRIPTION like "[('2012-01-01'),%"; """
 }

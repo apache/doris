@@ -64,7 +64,16 @@ public:
     virtual void finish_impl() {}
     int64_t start_time() const { return start_time_; }
     int64_t finish_time() const { return finish_time_; }
-    int64_t running_time() const { return finish_time() - start_time(); }
+    int64_t running_time() const {
+        if (start_time() == 0) {
+            return 0;
+        }
+        if (is_finished_) {
+            return finish_time() - start_time();
+        } else {
+            return MonotonicMillis() - start_time();
+        }
+    }
 
     /* cancel action
     */

@@ -52,6 +52,8 @@ public:
 
     size_t get_number_of_arguments() const override { return 2; }
 
+    bool use_default_implementation_for_constants() const final { return false; }
+
     DataTypes get_variadic_argument_types_impl() const override {
         return Impl::get_variadic_argument_types();
     }

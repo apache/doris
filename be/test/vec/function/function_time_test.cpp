@@ -1887,4 +1887,672 @@ TEST(VTimestampFunctionsTest, utc_impl_function_name_test) {
     EXPECT_STREQ("utc_time", UtcImpl<PrimitiveType::TYPE_TIMEV2>::name);
 }
 
+TEST(VTimestampFunctionsTest, add_union_interval_parse_test) {
+    {
+        auto interval =
+                AddUnionTypeImpl<YEAR_MONTH, TYPE_DATETIMEV2>::test_get_interval_value(" -1-2");
+        EXPECT_TRUE(interval.is_neg);
+        EXPECT_EQ(1u, interval.year);
+        EXPECT_EQ(2u, interval.month);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(0u, interval.hour);
+        EXPECT_EQ(0u, interval.minute);
+        EXPECT_EQ(0u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    {
+        auto interval =
+                AddUnionTypeImpl<YEAR_MONTH, TYPE_DATETIMEV2>::test_get_interval_value("1--2");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(1u, interval.year);
+        EXPECT_EQ(2u, interval.month);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(0u, interval.hour);
+        EXPECT_EQ(0u, interval.minute);
+        EXPECT_EQ(0u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    {
+        auto interval = AddUnionTypeImpl<YEAR_MONTH, TYPE_DATETIMEV2>::test_get_interval_value("5");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.year);
+        EXPECT_EQ(5u, interval.month);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(0u, interval.hour);
+        EXPECT_EQ(0u, interval.minute);
+        EXPECT_EQ(0u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    EXPECT_THROW((AddUnionTypeImpl<YEAR_MONTH, TYPE_DATETIMEV2>::test_get_interval_value("1-2-3")),
+                 Exception);
+
+    {
+        auto interval = AddUnionTypeImpl<DAY_HOUR, TYPE_DATETIMEV2>::test_get_interval_value("1 2");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(1u, interval.day);
+        EXPECT_EQ(2u, interval.hour);
+        EXPECT_EQ(0u, interval.minute);
+        EXPECT_EQ(0u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    {
+        auto interval =
+                AddUnionTypeImpl<DAY_HOUR, TYPE_DATETIMEV2>::test_get_interval_value("1@@2");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(1u, interval.day);
+        EXPECT_EQ(2u, interval.hour);
+        EXPECT_EQ(0u, interval.minute);
+        EXPECT_EQ(0u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    {
+        auto interval = AddUnionTypeImpl<DAY_HOUR, TYPE_DATETIMEV2>::test_get_interval_value("12");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(12u, interval.hour);
+        EXPECT_EQ(0u, interval.minute);
+        EXPECT_EQ(0u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    EXPECT_THROW((AddUnionTypeImpl<DAY_HOUR, TYPE_DATETIMEV2>::test_get_interval_value("1 2 3")),
+                 Exception);
+
+    {
+        auto interval =
+                AddUnionTypeImpl<DAY_MINUTE, TYPE_DATETIMEV2>::test_get_interval_value("2 3:04");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(2u, interval.day);
+        EXPECT_EQ(3u, interval.hour);
+        EXPECT_EQ(4u, interval.minute);
+        EXPECT_EQ(0u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    {
+        auto interval =
+                AddUnionTypeImpl<DAY_MINUTE, TYPE_DATETIMEV2>::test_get_interval_value("1::02**03");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(1u, interval.day);
+        EXPECT_EQ(2u, interval.hour);
+        EXPECT_EQ(3u, interval.minute);
+        EXPECT_EQ(0u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    {
+        auto interval =
+                AddUnionTypeImpl<DAY_MINUTE, TYPE_DATETIMEV2>::test_get_interval_value("30");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(0u, interval.hour);
+        EXPECT_EQ(30u, interval.minute);
+        EXPECT_EQ(0u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    EXPECT_THROW(
+            (AddUnionTypeImpl<DAY_MINUTE, TYPE_DATETIMEV2>::test_get_interval_value("1 2:3:4")),
+            Exception);
+
+    {
+        auto interval =
+                AddUnionTypeImpl<DAY_SECOND, TYPE_DATETIMEV2>::test_get_interval_value("3 4:5:6");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(3u, interval.day);
+        EXPECT_EQ(4u, interval.hour);
+        EXPECT_EQ(5u, interval.minute);
+        EXPECT_EQ(6u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    {
+        auto interval = AddUnionTypeImpl<DAY_SECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                "1::02**03::04");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(1u, interval.day);
+        EXPECT_EQ(2u, interval.hour);
+        EXPECT_EQ(3u, interval.minute);
+        EXPECT_EQ(4u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    {
+        auto interval =
+                AddUnionTypeImpl<DAY_SECOND, TYPE_DATETIMEV2>::test_get_interval_value("2:3:4");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(2u, interval.hour);
+        EXPECT_EQ(3u, interval.minute);
+        EXPECT_EQ(4u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    EXPECT_THROW(
+            (AddUnionTypeImpl<DAY_SECOND, TYPE_DATETIMEV2>::test_get_interval_value("1 2:3:4:5")),
+            Exception);
+
+    {
+        auto interval = AddUnionTypeImpl<DAY_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                "4 5:06:07.008009");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(4u, interval.day);
+        EXPECT_EQ(5u, interval.hour);
+        EXPECT_EQ(6u, interval.minute);
+        EXPECT_EQ(7u, interval.second);
+        EXPECT_EQ(8009u, interval.microsecond);
+    }
+
+    {
+        auto interval = AddUnionTypeImpl<DAY_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                "7&8:9!?6.123");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(7u, interval.day);
+        EXPECT_EQ(8u, interval.hour);
+        EXPECT_EQ(9u, interval.minute);
+        EXPECT_EQ(6u, interval.second);
+        EXPECT_EQ(123000u, interval.microsecond);
+    }
+
+    {
+        auto interval = AddUnionTypeImpl<DAY_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                "-7!8@9$10^11");
+        EXPECT_TRUE(interval.is_neg);
+        EXPECT_EQ(7u, interval.day);
+        EXPECT_EQ(8u, interval.hour);
+        EXPECT_EQ(9u, interval.minute);
+        EXPECT_EQ(10u, interval.second);
+        EXPECT_EQ(110000u, interval.microsecond);
+    }
+
+    {
+        auto interval = AddUnionTypeImpl<DAY_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                "1::02**03::04..5");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(1u, interval.day);
+        EXPECT_EQ(2u, interval.hour);
+        EXPECT_EQ(3u, interval.minute);
+        EXPECT_EQ(4u, interval.second);
+        EXPECT_EQ(500000u, interval.microsecond);
+    }
+
+    {
+        auto interval = AddUnionTypeImpl<DAY_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                "1 2:3:4");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(1u, interval.hour);
+        EXPECT_EQ(2u, interval.minute);
+        EXPECT_EQ(3u, interval.second);
+        EXPECT_EQ(400000u, interval.microsecond);
+    }
+
+    EXPECT_THROW((AddUnionTypeImpl<DAY_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                         "1 2:3:4:5:6")),
+                 Exception);
+
+    {
+        auto interval =
+                AddUnionTypeImpl<HOUR_MINUTE, TYPE_DATETIMEV2>::test_get_interval_value("10:11");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(10u, interval.hour);
+        EXPECT_EQ(11u, interval.minute);
+        EXPECT_EQ(0u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    {
+        auto interval =
+                AddUnionTypeImpl<HOUR_MINUTE, TYPE_DATETIMEV2>::test_get_interval_value("1::2");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(1u, interval.hour);
+        EXPECT_EQ(2u, interval.minute);
+        EXPECT_EQ(0u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    {
+        auto interval =
+                AddUnionTypeImpl<HOUR_MINUTE, TYPE_DATETIMEV2>::test_get_interval_value("5");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(0u, interval.hour);
+        EXPECT_EQ(5u, interval.minute);
+        EXPECT_EQ(0u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    EXPECT_THROW((AddUnionTypeImpl<HOUR_MINUTE, TYPE_DATETIMEV2>::test_get_interval_value("1:2:3")),
+                 Exception);
+
+    {
+        auto interval =
+                AddUnionTypeImpl<HOUR_SECOND, TYPE_DATETIMEV2>::test_get_interval_value("9:10:11");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(9u, interval.hour);
+        EXPECT_EQ(10u, interval.minute);
+        EXPECT_EQ(11u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    {
+        auto interval =
+                AddUnionTypeImpl<HOUR_SECOND, TYPE_DATETIMEV2>::test_get_interval_value("1::2**3");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(1u, interval.hour);
+        EXPECT_EQ(2u, interval.minute);
+        EXPECT_EQ(3u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    {
+        auto interval =
+                AddUnionTypeImpl<HOUR_SECOND, TYPE_DATETIMEV2>::test_get_interval_value("40");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(0u, interval.hour);
+        EXPECT_EQ(0u, interval.minute);
+        EXPECT_EQ(40u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    EXPECT_THROW(
+            (AddUnionTypeImpl<HOUR_SECOND, TYPE_DATETIMEV2>::test_get_interval_value("1:2:3:4")),
+            Exception);
+
+    {
+        auto interval =
+                AddUnionTypeImpl<HOUR_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                        "8:09:10.000011");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(8u, interval.hour);
+        EXPECT_EQ(9u, interval.minute);
+        EXPECT_EQ(10u, interval.second);
+        EXPECT_EQ(11u, interval.microsecond);
+    }
+
+    {
+        auto interval =
+                AddUnionTypeImpl<HOUR_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                        "1::2**3..4");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(1u, interval.hour);
+        EXPECT_EQ(2u, interval.minute);
+        EXPECT_EQ(3u, interval.second);
+        EXPECT_EQ(400000u, interval.microsecond);
+    }
+
+    {
+        auto interval =
+                AddUnionTypeImpl<HOUR_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value("5.6");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(0u, interval.hour);
+        EXPECT_EQ(0u, interval.minute);
+        EXPECT_EQ(5u, interval.second);
+        EXPECT_EQ(600000u, interval.microsecond);
+    }
+
+    EXPECT_THROW((AddUnionTypeImpl<HOUR_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                         "1:2:3:4:5")),
+                 Exception);
+
+    {
+        auto interval =
+                AddUnionTypeImpl<MINUTE_SECOND, TYPE_DATETIMEV2>::test_get_interval_value("7:08");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(0u, interval.hour);
+        EXPECT_EQ(7u, interval.minute);
+        EXPECT_EQ(8u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    {
+        auto interval =
+                AddUnionTypeImpl<MINUTE_SECOND, TYPE_DATETIMEV2>::test_get_interval_value("1::2");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(0u, interval.hour);
+        EXPECT_EQ(1u, interval.minute);
+        EXPECT_EQ(2u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    {
+        auto interval =
+                AddUnionTypeImpl<MINUTE_SECOND, TYPE_DATETIMEV2>::test_get_interval_value("30");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(0u, interval.hour);
+        EXPECT_EQ(0u, interval.minute);
+        EXPECT_EQ(30u, interval.second);
+        EXPECT_EQ(0u, interval.microsecond);
+    }
+
+    EXPECT_THROW(
+            (AddUnionTypeImpl<MINUTE_SECOND, TYPE_DATETIMEV2>::test_get_interval_value("1:2:3")),
+            Exception);
+
+    {
+        auto interval =
+                AddUnionTypeImpl<MINUTE_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                        "6:07.123456");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(0u, interval.hour);
+        EXPECT_EQ(6u, interval.minute);
+        EXPECT_EQ(7u, interval.second);
+        EXPECT_EQ(123456u, interval.microsecond);
+    }
+
+    {
+        auto interval =
+                AddUnionTypeImpl<MINUTE_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                        "-10@11.000009");
+        EXPECT_TRUE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(0u, interval.hour);
+        EXPECT_EQ(10u, interval.minute);
+        EXPECT_EQ(11u, interval.second);
+        EXPECT_EQ(9u, interval.microsecond);
+    }
+
+    {
+        auto interval =
+                AddUnionTypeImpl<MINUTE_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                        "3:4,56");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(0u, interval.hour);
+        EXPECT_EQ(3u, interval.minute);
+        EXPECT_EQ(4u, interval.second);
+        EXPECT_EQ(560000u, interval.microsecond);
+    }
+
+    {
+        auto interval =
+                AddUnionTypeImpl<MINUTE_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                        "1::2..3");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(0u, interval.hour);
+        EXPECT_EQ(1u, interval.minute);
+        EXPECT_EQ(2u, interval.second);
+        EXPECT_EQ(300000u, interval.microsecond);
+    }
+
+    {
+        auto interval =
+                AddUnionTypeImpl<MINUTE_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                        "9.8");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(0u, interval.hour);
+        EXPECT_EQ(0u, interval.minute);
+        EXPECT_EQ(9u, interval.second);
+        EXPECT_EQ(800000u, interval.microsecond);
+    }
+
+    EXPECT_THROW((AddUnionTypeImpl<MINUTE_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                         "1:2:3:4")),
+                 Exception);
+
+    {
+        auto interval =
+                AddUnionTypeImpl<SECOND_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                        "1,2");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(0u, interval.hour);
+        EXPECT_EQ(0u, interval.minute);
+        EXPECT_EQ(1u, interval.second);
+        EXPECT_EQ(200000u, interval.microsecond);
+    }
+
+    {
+        auto interval =
+                AddUnionTypeImpl<SECOND_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                        "1..2");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(0u, interval.hour);
+        EXPECT_EQ(0u, interval.minute);
+        EXPECT_EQ(1u, interval.second);
+        EXPECT_EQ(200000u, interval.microsecond);
+    }
+
+    {
+        auto interval =
+                AddUnionTypeImpl<SECOND_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value("7");
+        EXPECT_FALSE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(0u, interval.hour);
+        EXPECT_EQ(0u, interval.minute);
+        EXPECT_EQ(0u, interval.second);
+        EXPECT_EQ(700000u, interval.microsecond);
+    }
+
+    EXPECT_THROW((AddUnionTypeImpl<SECOND_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                         "1.2.3")),
+                 Exception);
+
+    {
+        auto interval =
+                AddUnionTypeImpl<SECOND_MICROSECOND, TYPE_DATETIMEV2>::test_get_interval_value(
+                        "-5.654321");
+        EXPECT_TRUE(interval.is_neg);
+        EXPECT_EQ(0u, interval.day);
+        EXPECT_EQ(0u, interval.hour);
+        EXPECT_EQ(0u, interval.minute);
+        EXPECT_EQ(5u, interval.second);
+        EXPECT_EQ(654321u, interval.microsecond);
+    }
+
+    EXPECT_THROW((AddUnionTypeImpl<DAY_SECOND, TYPE_DATETIMEV2>::test_get_interval_value("abc")),
+                 Exception);
+}
+
+TEST(VTimestampFunctionsTest, add_union_functions_cover_all) {
+    const std::string base = "2020-01-02 03:04:05.123456";
+
+    {
+        std::string func_name = "year_month_add";
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6},
+                                    Consted {PrimitiveType::TYPE_STRING}};
+        DataSet data_set = {
+                {{base, std::string("1-2")}, std::string("2021-03-02 03:04:05.123456")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 6));
+
+        DataSet negative_set = {
+                {{base, std::string("-0-1")}, std::string("2019-12-02 03:04:05.123456")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, negative_set, 6));
+    }
+
+    {
+        std::string func_name = "day_hour_add";
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6},
+                                    Consted {PrimitiveType::TYPE_STRING}};
+        DataSet data_set = {
+                {{base, std::string("1 2")}, std::string("2020-01-03 05:04:05.123456")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 6));
+
+        DataSet negative_set = {
+                {{base, std::string("-1 1")}, std::string("2020-01-01 02:04:05.123456")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, negative_set, 6));
+    }
+
+    {
+        std::string func_name = "day_minute_add";
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6},
+                                    Consted {PrimitiveType::TYPE_STRING}};
+        DataSet data_set = {
+                {{base, std::string("2 3:04")}, std::string("2020-01-04 06:08:05.123456")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 6));
+
+        DataSet negative_set = {
+                {{base, std::string("-1 0:05")}, std::string("2020-01-01 02:59:05.123456")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, negative_set, 6));
+    }
+
+    {
+        std::string func_name = "day_second_add";
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6},
+                                    Consted {PrimitiveType::TYPE_STRING}};
+        DataSet data_set = {
+                {{base, std::string("0 0:0:2")}, std::string("2020-01-02 03:04:07.123456")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 6));
+
+        DataSet negative_set = {
+                {{base, std::string("-1 0:0:5")}, std::string("2020-01-01 03:04:00.123456")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, negative_set, 6));
+    }
+
+    {
+        std::string func_name = "day_microsecond_add";
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6},
+                                    Consted {PrimitiveType::TYPE_STRING}};
+        DataSet data_set = {
+                {{base, std::string("0 0:0:0.100000")}, std::string("2020-01-02 03:04:05.223456")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 6));
+
+        DataSet negative_set = {
+                {{base, std::string("-0 0:0:0.000001")}, std::string("2020-01-02 03:04:05.123455")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, negative_set, 6));
+    }
+
+    {
+        std::string func_name = "hour_minute_add";
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6},
+                                    Consted {PrimitiveType::TYPE_STRING}};
+        DataSet data_set = {
+                {{base, std::string("1:30")}, std::string("2020-01-02 04:34:05.123456")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 6));
+
+        DataSet negative_set = {
+                {{base, std::string("-0:05")}, std::string("2020-01-02 02:59:05.123456")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, negative_set, 6));
+    }
+
+    {
+        std::string func_name = "hour_second_add";
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6},
+                                    Consted {PrimitiveType::TYPE_STRING}};
+        DataSet data_set = {
+                {{base, std::string("2:0:3")}, std::string("2020-01-02 05:04:08.123456")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 6));
+
+        DataSet negative_set = {
+                {{base, std::string("-1:00:05")}, std::string("2020-01-02 02:04:00.123456")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, negative_set, 6));
+    }
+
+    {
+        std::string func_name = "hour_microsecond_add";
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6},
+                                    Consted {PrimitiveType::TYPE_STRING}};
+        DataSet data_set = {
+                {{base, std::string("0:1:2.003004")}, std::string("2020-01-02 03:05:07.126460")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 6));
+
+        DataSet negative_set = {
+                {{base, std::string("-0:00:00.000001")}, std::string("2020-01-02 03:04:05.123455")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, negative_set, 6));
+    }
+
+    {
+        std::string func_name = "minute_second_add";
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6},
+                                    Consted {PrimitiveType::TYPE_STRING}};
+        DataSet data_set = {
+                {{base, std::string("5:6")}, std::string("2020-01-02 03:09:11.123456")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 6));
+
+        DataSet negative_set = {
+                {{base, std::string("-0:05")}, std::string("2020-01-02 03:04:00.123456")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, negative_set, 6));
+    }
+
+    {
+        std::string func_name = "minute_microsecond_add";
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6},
+                                    Consted {PrimitiveType::TYPE_STRING}};
+        DataSet data_set = {
+                {{base, std::string("1:2.003004")}, std::string("2020-01-02 03:05:07.126460")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 6));
+
+        DataSet negative_set = {
+                {{base, std::string("-1:00.000001")}, std::string("2020-01-02 03:03:05.123455")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, negative_set, 6));
+    }
+
+    {
+        std::string func_name = "second_microsecond_add";
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6},
+                                    Consted {PrimitiveType::TYPE_STRING}};
+        DataSet data_set = {
+                {{base, std::string("3.004005")}, std::string("2020-01-02 03:04:08.127461")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, data_set, 6));
+
+        DataSet negative_set = {
+                {{base, std::string("-1.000001")}, std::string("2020-01-02 03:04:04.123455")},
+        };
+        static_cast<void>(
+                check_function<DataTypeDateTimeV2, true>(func_name, input_types, negative_set, 6));
+    }
+}
+
 } // namespace doris::vectorized

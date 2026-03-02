@@ -1,0 +1,64 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# how to use Dockerfile_base_slim.
+# this is dockerfile for build doris base image slim (linux base image:jdk, operator_debug ...)
+# run commad: docker build -t xxx/base:xx -f Dockerfile_base_slim --build-arg TARGETARCH=amd64
+
+# we have support buildx for amd64 and arm64 architecture image build.
+# get the binary from doris github and utar into resource, update the directory as apache-`version(example:2.0.1)`-bin-`architecture(amd64/arm64)` mode.
+
+FROM ubuntu:22.04
+
+ARG TARGETARCH
+
+RUN sed -i -e 's/^APT/# APT/' -e 's/^DPkg/# DPkg/' /etc/apt/apt.conf.d/docker-clean && \
+    apt-get update -y && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    # Core runtime (required)
+    ca-certificates \
+    openssl \
+    tzdata \
+    # Database and data tools (used by scripts)
+    mysql-client \
+    jq \
+    # Network tools (used by scripts)
+    curl \
+    wget \
+    iproute2 \
+    iputils-ping \
+    net-tools \
+    # System tools
+    numactl \
+    # Clean up
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /tmp/* \
+    && rm -rf /var/tmp/* \
+    # Create JVM directory
+    && mkdir -p /usr/lib/jvm/
+
+COPY --from=apache/doris:jdk-latest /usr/lib/jvm/jdk-17 /usr/lib/jvm/jdk-17
+COPY --from=apache/doris:jdk-latest /usr/lib/jvm/jdk-8 /usr/lib/jvm/jdk-8
+
+COPY --from=apache/doris:debug-latest /doris-debug /opt/apache-doris/
+COPY --from=apache/doris:debug-latest /dorisctl /opt/apache-doris/
+
+WORKDIR /opt/apache-doris
+
+# The last update at: January 30, 2026.
+# The docker image tag is changed to: base-6.0-slim

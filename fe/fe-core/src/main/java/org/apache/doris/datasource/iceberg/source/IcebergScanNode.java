@@ -192,7 +192,14 @@ public class IcebergScanNode extends FileQueryScanNode {
         icebergTable = source.getIcebergTable();
         partitionMapInfos = new HashMap<>();
         isPartitionedTable = icebergTable.spec().isPartitioned();
-        formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
+        // Metadata tables (system tables) are not BaseTable instances, so we need to handle this case
+        if (icebergTable instanceof BaseTable) {
+            formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
+        } else {
+            // For metadata tables (e.g., snapshots, history), use a default format version
+            // These tables are always readable regardless of format version
+            formatVersion = MIN_DELETE_FILE_SUPPORT_VERSION;
+        }
         preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
                 source.getCatalog().getCatalogProperty().getMetastoreProperties(),
@@ -275,6 +282,46 @@ public class IcebergScanNode extends FileQueryScanNode {
             rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
         }
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
+    }
+
+    @Override
+    protected List<String> getDeleteFiles(TFileRangeDesc rangeDesc) {
+        List<String> deleteFiles = new ArrayList<>();
+        if (rangeDesc == null || !rangeDesc.isSetTableFormatParams()) {
+            return deleteFiles;
+        }
+        TTableFormatFileDesc tableFormatParams = rangeDesc.getTableFormatParams();
+        if (tableFormatParams == null || !tableFormatParams.isSetIcebergParams()) {
+            return deleteFiles;
+        }
+        TIcebergFileDesc icebergParams = tableFormatParams.getIcebergParams();
+        if (icebergParams == null || !icebergParams.isSetDeleteFiles()) {
+            return deleteFiles;
+        }
+        List<TIcebergDeleteFileDesc> icebergDeleteFiles = icebergParams.getDeleteFiles();
+        if (icebergDeleteFiles == null) {
+            return deleteFiles;
+        }
+        for (TIcebergDeleteFileDesc deleteFile : icebergDeleteFiles) {
+            if (deleteFile != null && deleteFile.isSetPath()) {
+                deleteFiles.add(deleteFile.getPath());
+            }
+        }
+        return deleteFiles;
+    }
+
+    private String getDeleteFileContentType(int content) {
+        // Iceberg file type: 0: data, 1: position delete, 2: equality delete, 3: deletion vector
+        switch (content) {
+            case 1:
+                return "position_delete";
+            case 2:
+                return "equality_delete";
+            case 3:
+                return "deletion_vector";
+            default:
+                return "unknown";
+        }
     }
 
     @Override

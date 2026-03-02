@@ -70,7 +70,6 @@ import java.util.stream.Collectors;
 
 @Log4j2
 public class StreamingJobUtils {
-    public static final String TABLE_PROPS_PREFIX = "table.create.properties.";
     public static final String INTERNAL_STREAMING_JOB_META_TABLE_NAME = "streaming_job_meta";
     public static final String FULL_QUALIFIED_META_TBL_NAME = InternalCatalog.INTERNAL_CATALOG_NAME
             + "." + FeConstants.INTERNAL_DB_NAME + "." + INTERNAL_STREAMING_JOB_META_TABLE_NAME;
@@ -411,8 +410,8 @@ public class StreamingJobUtils {
     private static Map<String, String> getTableCreateProperties(Map<String, String> properties) {
         final Map<String, String> tableCreateProps = new HashMap<>();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(TABLE_PROPS_PREFIX)) {
-                String subKey = entry.getKey().substring(TABLE_PROPS_PREFIX.length());
+            if (entry.getKey().startsWith(DataSourceConfigKeys.TABLE_PROPS_PREFIX)) {
+                String subKey = entry.getKey().substring(DataSourceConfigKeys.TABLE_PROPS_PREFIX.length());
                 tableCreateProps.put(subKey, entry.getValue());
             }
         }

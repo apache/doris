@@ -51,6 +51,9 @@ public:
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
 
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
+
     Status from_string_strict_mode(StringRef& str, IColumn& column,
                                    const FormatOptions& options) const override;
 
@@ -112,6 +115,8 @@ public:
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end, vectorized::Arena& arena,
                                const FormatOptions& options) const override;
+
+    std::string to_olap_string(const vectorized::Field& field) const override;
 
 protected:
     template <bool is_date>

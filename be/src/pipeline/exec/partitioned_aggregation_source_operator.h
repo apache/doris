@@ -88,6 +88,12 @@ public:
     bool is_source() const override { return true; }
 
     bool is_serial_operator() const override;
+    void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
+                         bool require_bucket_distribution) override;
+
+    DataDistribution required_data_distribution(RuntimeState* state) const override;
+    bool is_colocated_operator() const override;
+    bool is_shuffled_operator() const override;
 
 private:
     friend class PartitionedAggLocalState;

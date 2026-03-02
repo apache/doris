@@ -21,6 +21,7 @@
 
 #include "common/status.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
@@ -37,7 +38,7 @@ public:
     }
 
     virtual doris::Status execute(VExprContext* context, const doris::vectorized::Block* block,
-                                  size_t count, ColumnPtr& result_column,
+                                  Selector* selector, size_t count, ColumnPtr& result_column,
                                   const DataTypePtr& result_type,
                                   const VExprSPtrs& children) const = 0;
 

@@ -437,6 +437,12 @@ void DataTypeStringSerDeBase<ColumnType>::to_string(const IColumn& column, size_
 }
 
 template <typename ColumnType>
+std::string DataTypeStringSerDeBase<ColumnType>::to_olap_string(
+        const vectorized::Field& field) const {
+    return field.get<TYPE_STRING>();
+}
+
+template <typename ColumnType>
 bool DataTypeStringSerDeBase<ColumnType>::write_column_to_presto_text(
         const IColumn& column, BufferWritable& bw, int64_t row_idx,
         const FormatOptions& options) const {
@@ -452,6 +458,20 @@ Status DataTypeStringSerDeBase<ColumnType>::from_string(StringRef& str, IColumn&
                                                         const FormatOptions& options) const {
     auto slice = str.to_slice();
     return deserialize_one_cell_from_json(column, slice, options);
+}
+
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::from_olap_string(const std::string& str, Field& field,
+                                                             const FormatOptions& options) const {
+    if (cast_set<int>(str.size()) < _len) {
+        DCHECK_EQ(_type, TYPE_CHAR);
+        std::string tmp(_len, '\0');
+        memcpy(tmp.data(), str.data(), str.size());
+        field = Field::create_field<TYPE_CHAR>(std::move(tmp));
+    } else {
+        field = Field::create_field<TYPE_STRING>(str);
+    }
+    return Status::OK();
 }
 
 template class DataTypeStringSerDeBase<ColumnString>;

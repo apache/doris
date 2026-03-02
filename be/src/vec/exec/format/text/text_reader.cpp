@@ -169,7 +169,7 @@ Status TextReader::_deserialize_nullable_string(IColumn& column, Slice& slice) {
         null_column.insert_data(nullptr, 0);
         return Status::OK();
     }
-    static DataTypeStringSerDe stringSerDe;
+    static DataTypeStringSerDe stringSerDe(TYPE_STRING);
     auto st = stringSerDe.deserialize_one_cell_from_hive_text(null_column.get_nested_column(),
                                                               slice, _options);
     if (!st.ok()) {

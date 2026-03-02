@@ -49,7 +49,7 @@
 namespace doris::vectorized {
 static std::string test_data_dir;
 
-static auto serde_str = std::make_shared<DataTypeStringSerDe>();
+static auto serde_str = std::make_shared<DataTypeStringSerDe>(TYPE_STRING);
 
 static ColumnString::MutablePtr column_str32;
 static ColumnString64::MutablePtr column_str64;

@@ -80,6 +80,15 @@ Status VStatisticsIterator::next_batch(Block* block) {
         } else {
             for (int i = 0; i < columns.size(); ++i) {
                 RETURN_IF_ERROR(_column_iterators[i]->next_batch_of_zone_map(&size, columns[i]));
+                if (auto cid = _schema.column_id(i);
+                    _schema.column(cid)->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
+                    auto col = columns[i]->clone_empty();
+                    for (size_t j = 0; j < columns[i]->size(); ++j) {
+                        const auto& ref = columns[i]->get_data_at(j).trim_tail_padding_zero();
+                        col->insert(Field::create_field<TYPE_CHAR>(ref.to_string()));
+                    }
+                    columns[i].swap(col);
+                }
             }
         }
         block->set_columns(std::move(columns));
@@ -89,12 +98,20 @@ Status VStatisticsIterator::next_batch(Block* block) {
     return Status::EndOfFile("End of VStatisticsIterator");
 }
 
+// Build the block using the output schema, which contains only the columns
+// the caller requested (return_columns). Delete predicate columns are excluded
+// because SegmentIterator handles them independently:
+//   - _init_current_block() skips predicate columns (including delete predicates)
+//     via the _is_pred_column[cid] check, so it never accesses the block by those positions.
+//   - _output_non_pred_columns() checks loc < block->columns() before filling any column,
+//     so delete predicate columns (whose loc exceeds block->columns()) are simply skipped.
+//   - Delete predicate evaluation happens entirely through _current_return_columns and
+//     _evaluate_short_circuit_predicate(), which are independent of the block structure.
 Status VMergeIteratorContext::block_reset(const std::shared_ptr<Block>& block) {
     if (!block->columns()) {
-        const Schema& schema = _iter->schema();
-        const auto& column_ids = schema.column_ids();
-        for (size_t i = 0; i < schema.num_column_ids(); ++i) {
-            auto column_desc = schema.column(column_ids[i]);
+        const auto& column_ids = _output_schema->column_ids();
+        for (size_t i = 0; i < _output_schema->num_column_ids(); ++i) {
+            auto column_desc = _output_schema->column(column_ids[i]);
             auto data_type = Schema::get_data_type_ptr(*column_desc);
             if (data_type == nullptr) {
                 return Status::RuntimeError("invalid data type");
@@ -134,9 +151,15 @@ bool VMergeIteratorContext::compare(const VMergeIteratorContext& rhs) const {
     return result;
 }
 
+// Copy rows from the internal _block to the destination block.
+// Both blocks are built with the output schema (return_columns only), so they
+// have the same number of columns. We iterate over _output_schema->num_column_ids()
+// columns to copy from src to dst.
 Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
     Block& src = *_block;
     Block& dst = *block;
+    DCHECK_EQ(src.columns(), _output_schema->num_column_ids());
+    DCHECK_EQ(dst.columns(), _output_schema->num_column_ids());
     if (_cur_batch_num == 0) {
         return Status::OK();
     }
@@ -145,7 +168,7 @@ Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
     size_t start = _index_in_block - _cur_batch_num + 1 - advanced;
 
     RETURN_IF_CATCH_EXCEPTION({
-        for (size_t i = 0; i < _num_columns; ++i) {
+        for (size_t i = 0; i < _output_schema->num_column_ids(); ++i) {
             auto& s_col = src.get_by_position(i);
             auto& d_col = dst.get_by_position(i);
 
@@ -335,13 +358,12 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
     if (_origin_iters.empty()) {
         return Status::OK();
     }
-    _schema = &(_origin_iters[0]->schema());
     _record_rowids = opts.record_rowids;
 
     for (auto& iter : _origin_iters) {
-        auto ctx = std::make_shared<VMergeIteratorContext>(std::move(iter), _sequence_id_idx,
-                                                           _is_unique, _is_reverse,
-                                                           opts.read_orderby_key_columns);
+        auto ctx = std::make_shared<VMergeIteratorContext>(
+                std::move(iter), _sequence_id_idx, _is_unique, _is_reverse,
+                opts.read_orderby_key_columns, _output_schema);
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;
@@ -357,12 +379,18 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
 }
 
 // VUnionIterator will read data from input iterator one by one.
+// Unlike VMergeIterator, VUnionIterator does NOT have its own internal block or copy_rows().
+// It passes the caller's block directly to the underlying SegmentIterator via next_batch(),
+// so there is no input-schema vs output-schema mismatch issue here.
+// The output_schema parameter is accepted only so that schema() can return the output schema
+// consistently with VMergeIterator.
 class VUnionIterator : public RowwiseIterator {
 public:
     // Iterators' ownership it transferred to this class.
     // This class will delete all iterators when destructs
     // Client should not use iterators anymore.
-    VUnionIterator(std::vector<RowwiseIteratorUPtr>&& v) : _origin_iters(std::move(v)) {}
+    VUnionIterator(std::vector<RowwiseIteratorUPtr>&& v, SchemaSPtr output_schema)
+            : _output_schema(std::move(output_schema)), _origin_iters(std::move(v)) {}
 
     ~VUnionIterator() override = default;
 
@@ -370,7 +398,7 @@ public:
 
     Status next_batch(Block* block) override;
 
-    const Schema& schema() const override { return *_schema; }
+    const Schema& schema() const override { return *_output_schema; }
 
     Status current_block_row_locations(std::vector<RowLocation>* locations) override;
 
@@ -381,7 +409,7 @@ public:
     }
 
 private:
-    const Schema* _schema = nullptr;
+    const SchemaSPtr _output_schema;
     RowwiseIteratorUPtr _cur_iter = nullptr;
     StorageReadOptions _read_options;
     std::vector<RowwiseIteratorUPtr> _origin_iters;
@@ -391,7 +419,6 @@ Status VUnionIterator::init(const StorageReadOptions& opts) {
     if (_origin_iters.empty()) {
         return Status::OK();
     }
-
     // we use back() and pop_back() of std::vector to handle each iterator,
     // so reverse the vector here to keep result block of next_batch to be
     // in the same order as the original segments.
@@ -400,7 +427,6 @@ Status VUnionIterator::init(const StorageReadOptions& opts) {
     _read_options = opts;
     _cur_iter = std::move(_origin_iters.back());
     RETURN_IF_ERROR(_cur_iter->init(_read_options));
-    _schema = &_cur_iter->schema();
     return Status::OK();
 }
 
@@ -432,19 +458,20 @@ Status VUnionIterator::current_block_row_locations(std::vector<RowLocation>* loc
 
 RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
                                        int sequence_id_idx, bool is_unique, bool is_reverse,
-                                       uint64_t* merged_rows) {
+                                       uint64_t* merged_rows, SchemaSPtr output_schema) {
     // when the size of inputs is 1, we also need to use VMergeIterator, because the
     // next_block_view function only be implemented in VMergeIterator. The reason why
     // the size of inputs is 1 is that the segment was filtered out by zone map or others.
     return std::make_unique<VMergeIterator>(std::move(inputs), sequence_id_idx, is_unique,
-                                            is_reverse, merged_rows);
+                                            is_reverse, merged_rows, std::move(output_schema));
 }
 
-RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs) {
+RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
+                                       SchemaSPtr output_schema) {
     if (inputs.size() == 1) {
         return std::move(inputs[0]);
     }
-    return std::make_unique<VUnionIterator>(std::move(inputs));
+    return std::make_unique<VUnionIterator>(std::move(inputs), std::move(output_schema));
 }
 
 RowwiseIterator* new_vstatistics_iterator(std::shared_ptr<Segment> segment, const Schema& schema) {

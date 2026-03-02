@@ -77,8 +77,8 @@ public:
 
     std::string get_name() const override { return name; }
 
-    Status execute(VExprContext* context, const vectorized::Block* block, size_t count,
-                   ColumnPtr& result_column, const DataTypePtr& result_type,
+    Status execute(VExprContext* context, const vectorized::Block* block, Selector* expr_selector,
+                   size_t count, ColumnPtr& result_column, const DataTypePtr& result_type,
                    const VExprSPtrs& children) const override {
         LambdaArgs args_info;
         // collect used slot ref in lambda function body
@@ -112,7 +112,8 @@ public:
         ColumnsWithTypeAndName arguments(children.size() - 1);
         for (int i = 1; i < children.size(); ++i) {
             ColumnPtr column;
-            RETURN_IF_ERROR(children[i]->execute_column(context, block, count, column));
+            RETURN_IF_ERROR(
+                    children[i]->execute_column(context, block, expr_selector, count, column));
             arguments[i - 1].column = column;
             arguments[i - 1].type = children[i]->execute_type(block);
             arguments[i - 1].name = children[i]->expr_name();
@@ -284,8 +285,10 @@ public:
             //3. child[0]->execute(new_block)
 
             ColumnPtr res_col;
-            RETURN_IF_ERROR(children[0]->execute_column(context, &lambda_block, lambda_block.rows(),
-                                                        res_col));
+            // lambda body executes on the internal lambda_block, not the original block.
+            // The outer expr_selector is irrelevant here, so pass nullptr.
+            RETURN_IF_ERROR(children[0]->execute_column(context, &lambda_block, nullptr,
+                                                        lambda_block.rows(), res_col));
             res_col = res_col->convert_to_full_column_if_const();
             res_type = children[0]->execute_type(&lambda_block);
 

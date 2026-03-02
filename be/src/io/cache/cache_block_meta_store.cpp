@@ -332,6 +332,33 @@ std::unique_ptr<BlockMetaIterator> CacheBlockMetaStore::get_all() {
     return std::unique_ptr<BlockMetaIterator>(new RocksDBIterator(iter));
 }
 
+size_t CacheBlockMetaStore::approximate_entry_count() const {
+    if (!_db) {
+        LOG(WARNING) << "Database not initialized when counting entries";
+        return 0;
+    }
+
+    rocksdb::ReadOptions read_options;
+    std::unique_ptr<rocksdb::Iterator> iter(
+            _db->NewIterator(read_options, _file_cache_meta_cf_handle.get()));
+    if (!iter) {
+        LOG(WARNING) << "Failed to create iterator when counting entries";
+        return 0;
+    }
+
+    size_t count = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        ++count;
+    }
+
+    if (!iter->status().ok()) {
+        LOG(WARNING) << "Iterator encountered error when counting entries: "
+                     << iter->status().ToString();
+    }
+
+    return count;
+}
+
 void CacheBlockMetaStore::delete_key(const BlockMetaKey& key) {
     std::string key_str = serialize_key(key);
 

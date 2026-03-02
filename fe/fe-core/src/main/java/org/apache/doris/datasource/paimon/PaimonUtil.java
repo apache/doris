@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -50,6 +51,7 @@ import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
+import org.apache.paimon.io.DataOutputViewStreamWrapper;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.predicate.Predicate;
@@ -57,7 +59,9 @@ import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.SpecialFields;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.tag.Tag;
 import org.apache.paimon.types.ArrayType;
@@ -76,6 +80,7 @@ import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.Projection;
 import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 
+import java.io.ByteArrayOutputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.time.DateTimeException;
@@ -97,6 +102,9 @@ public class PaimonUtil {
     private static final Logger LOG = LogManager.getLogger(PaimonUtil.class);
     private static final Base64.Encoder BASE64_ENCODER = java.util.Base64.getUrlEncoder().withoutPadding();
     private static final Pattern DIGITAL_REGEX = Pattern.compile("\\d+");
+    private static final String SYS_TABLE_TYPE_AUDIT_LOG = "audit_log";
+    private static final String SYS_TABLE_TYPE_BINLOG = "binlog";
+    private static final String TABLE_READ_SEQUENCE_NUMBER_ENABLED = "table-read.sequence-number.enabled";
 
     public static boolean isDigitalString(String value) {
         return value != null && DIGITAL_REGEX.matcher(value).matches();
@@ -408,6 +416,71 @@ public class PaimonUtil {
         return tSchema;
     }
 
+    public static TSchema getHistorySchemaInfo(ExternalTable targetTable, TableSchema sourceSchema,
+            boolean enableVarbinaryMapping, boolean enableTimestampTzMapping) {
+        TSchema tSchema = new TSchema();
+        tSchema.setSchemaId(sourceSchema.id());
+        tSchema.setRootField(getSchemaInfo(resolveHistorySchemaFields(targetTable, sourceSchema.fields()),
+                enableVarbinaryMapping, enableTimestampTzMapping));
+        return tSchema;
+    }
+
+    private static List<DataField> resolveHistorySchemaFields(ExternalTable targetTable, List<DataField> sourceFields) {
+        if (!(targetTable instanceof PaimonSysExternalTable)) {
+            return sourceFields;
+        }
+
+        PaimonSysExternalTable sysTable = (PaimonSysExternalTable) targetTable;
+        boolean withSequenceNumber = isTableReadSequenceNumberEnabled(sysTable);
+        switch (sysTable.getSysTableType()) {
+            case SYS_TABLE_TYPE_AUDIT_LOG:
+                return buildAuditLogHistoryFields(sourceFields, withSequenceNumber);
+            case SYS_TABLE_TYPE_BINLOG:
+                return buildBinlogHistoryFields(sourceFields, withSequenceNumber);
+            default:
+                return sourceFields;
+        }
+    }
+
+    private static List<DataField> buildAuditLogHistoryFields(List<DataField> sourceFields,
+            boolean withSequenceNumber) {
+        List<DataField> fields = new ArrayList<>(sourceFields.size() + (withSequenceNumber ? 2 : 1));
+        fields.add(SpecialFields.ROW_KIND);
+        if (withSequenceNumber) {
+            fields.add(SpecialFields.SEQUENCE_NUMBER);
+        }
+        fields.addAll(sourceFields);
+        return fields;
+    }
+
+    private static List<DataField> buildBinlogHistoryFields(List<DataField> sourceFields,
+            boolean withSequenceNumber) {
+        List<DataField> fields = new ArrayList<>(sourceFields.size() + (withSequenceNumber ? 2 : 1));
+        fields.add(SpecialFields.ROW_KIND);
+        if (withSequenceNumber) {
+            fields.add(SpecialFields.SEQUENCE_NUMBER);
+        }
+        for (DataField sourceField : sourceFields) {
+            fields.add(sourceField.newType(new ArrayType(sourceField.type().nullable())));
+        }
+        return fields;
+    }
+
+    private static boolean isTableReadSequenceNumberEnabled(PaimonSysExternalTable sysTable) {
+        if (!SYS_TABLE_TYPE_AUDIT_LOG.equals(sysTable.getSysTableType())
+                && !SYS_TABLE_TYPE_BINLOG.equals(sysTable.getSysTableType())) {
+            return false;
+        }
+        try {
+            String optionValue = sysTable.getTableProperties().get(TABLE_READ_SEQUENCE_NUMBER_ENABLED);
+            return Boolean.parseBoolean(optionValue);
+        } catch (Exception e) {
+            LOG.warn("Failed to parse table-read.sequence-number.enabled for Paimon system table {}: {}",
+                    sysTable.getName(), e.getMessage());
+            return false;
+        }
+    }
+
     public static List<Column> parseSchema(Table table, boolean enableVarbinaryMapping,
             boolean enableTimestampTzMapping) {
         List<String> primaryKeys = table.primaryKeys();
@@ -436,6 +509,23 @@ public class PaimonUtil {
             return new String(BASE64_ENCODER.encode(bytes), java.nio.charset.StandardCharsets.UTF_8);
         } catch (Exception e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Serialize DataSplit using Paimon's native binary format.
+     * This format is compatible with paimon-cpp reader.
+     * Uses standard Base64 encoding (not URL-safe) for BE compatibility.
+     */
+    public static String encodeDataSplitToString(DataSplit split) {
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            DataOutputViewStreamWrapper out = new DataOutputViewStreamWrapper(baos);
+            split.serialize(out);
+            byte[] bytes = baos.toByteArray();
+            return Base64.getEncoder().encodeToString(bytes);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to serialize DataSplit using Paimon native format", e);
         }
     }
 

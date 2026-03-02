@@ -236,7 +236,7 @@ public class CreateDictionaryInfo {
         }
 
         if (properties.containsKey("memory_limit")) {
-            memoryLimit = Long.parseLong(properties.get("data_lifetime"));
+            memoryLimit = Long.parseLong(properties.get("memory_limit"));
         }
     }
 
