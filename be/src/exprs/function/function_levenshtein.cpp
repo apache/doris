@@ -94,18 +94,7 @@ private:
     static void utf8_char_offsets(const StringRef& ref, std::vector<size_t>& offsets) {
         offsets.clear();
         offsets.reserve(ref.size);
-        size_t i = 0;
-        while (i < ref.size) {
-            offsets.push_back(i);
-            uint8_t char_len = doris::get_utf8_byte_length(static_cast<uint8_t>(ref.data[i]));
-            if (char_len == 0) {
-                char_len = 1;
-            }
-            if (i + char_len > ref.size) {
-                char_len = static_cast<uint8_t>(ref.size - i);
-            }
-            i += char_len;
-        }
+        simd::VStringFunctions::get_char_len(ref.data, ref.size, offsets);
     }
 
     static bool utf8_char_equal(const StringRef& left, size_t left_off, size_t left_next,

@@ -49,8 +49,8 @@ struct HammingDistanceImpl {
         const size_t size = loffsets.size();
         res.resize(size);
         for (size_t i = 0; i < size; ++i) {
-            RETURN_IF_ERROR(one_row(string_ref_at(ldata, loffsets, i),
-                                    string_ref_at(rdata, roffsets, i), res[i], i));
+            RETURN_IF_ERROR(hamming_distance(string_ref_at(ldata, loffsets, i),
+                                             string_ref_at(rdata, roffsets, i), res[i], i));
         }
         return Status::OK();
     }
@@ -61,7 +61,7 @@ struct HammingDistanceImpl {
         const size_t size = loffsets.size();
         res.resize(size);
         for (size_t i = 0; i < size; ++i) {
-            RETURN_IF_ERROR(one_row(string_ref_at(ldata, loffsets, i), rdata, res[i], i));
+            RETURN_IF_ERROR(hamming_distance(string_ref_at(ldata, loffsets, i), rdata, res[i], i));
         }
         return Status::OK();
     }
@@ -71,14 +71,9 @@ struct HammingDistanceImpl {
         const size_t size = roffsets.size();
         res.resize(size);
         for (size_t i = 0; i < size; ++i) {
-            RETURN_IF_ERROR(one_row(ldata, string_ref_at(rdata, roffsets, i), res[i], i));
+            RETURN_IF_ERROR(hamming_distance(ldata, string_ref_at(rdata, roffsets, i), res[i], i));
         }
         return Status::OK();
-    }
-
-    static Status one_row(const StringRef& left, const StringRef& right, Int64& result,
-                          size_t row) {
-        return hamming_distance(left, right, result, row);
     }
 
 private:
@@ -101,18 +96,7 @@ private:
     static void utf8_char_offsets(const StringRef& ref, std::vector<size_t>& offsets) {
         offsets.clear();
         offsets.reserve(ref.size);
-        size_t i = 0;
-        while (i < ref.size) {
-            offsets.push_back(i);
-            uint8_t char_len = doris::get_utf8_byte_length(static_cast<uint8_t>(ref.data[i]));
-            if (char_len == 0) {
-                char_len = 1;
-            }
-            if (i + char_len > ref.size) {
-                char_len = static_cast<uint8_t>(ref.size - i);
-            }
-            i += char_len;
-        }
+        simd::VStringFunctions::get_char_len(ref.data, ref.size, offsets);
     }
 
     static bool utf8_char_equal(const StringRef& left, size_t left_off, size_t left_next,
@@ -123,6 +107,7 @@ private:
                std::memcmp(left.data + left_off, right.data + right_off, left_len) == 0;
     }
 
+public:
     static Status hamming_distance(const StringRef& left, const StringRef& right, Int64& result,
                                    size_t row) {
         if (simd::VStringFunctions::is_ascii(left) && simd::VStringFunctions::is_ascii(right)) {
@@ -263,7 +248,7 @@ public:
                 continue;
             }
 
-            auto st = Impl<LeftDataType, RightDataType>::one_row(
+            auto st = Impl<LeftDataType, RightDataType>::hamming_distance(
                     left_str_col->get_data_at(left_idx), right_str_col->get_data_at(right_idx),
                     res_data[i], i);
             RETURN_IF_ERROR(st);
