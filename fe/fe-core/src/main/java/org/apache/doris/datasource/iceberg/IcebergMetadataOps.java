@@ -778,9 +778,18 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         if (!column.getType().isComplexType()) {
             throw new UserException("Modify column type to non-complex type is not supported: " + column.getType());
         }
-        org.apache.doris.catalog.Type oldDorisType = IcebergUtils.icebergTypeToDorisType(
-                currentCol.type(), false, false);
+        Type oldIcebergType = currentCol.type();
+        if (oldIcebergType.isPrimitiveType()) {
+            throw new UserException("Modify column type from non-complex to complex is not supported: "
+                    + column.getName());
+        }
+
+        org.apache.doris.catalog.Type oldDorisType = IcebergUtils.icebergTypeToDorisType(oldIcebergType, false, false);
         org.apache.doris.catalog.Type newDorisType = column.getType();
+        if (!isSameComplexCategory(oldIcebergType, newDorisType)) {
+            throw new UserException("Cannot change complex column type category from "
+                    + oldDorisType.toSql() + " to " + newDorisType.toSql());
+        }
         try {
             ColumnType.checkSupportSchemaChangeForComplexType(oldDorisType, newDorisType, false);
         } catch (DdlException e) {
@@ -791,6 +800,19 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
         if (column.getDefaultValue() != null || column.getDefaultValueExprDef() != null) {
             throw new UserException("Complex type default value only supports NULL");
+        }
+    }
+
+    private boolean isSameComplexCategory(Type oldIcebergType, org.apache.doris.catalog.Type newDorisType) {
+        switch (oldIcebergType.typeId()) {
+            case STRUCT:
+                return newDorisType.isStructType();
+            case LIST:
+                return newDorisType.isArrayType();
+            case MAP:
+                return newDorisType.isMapType();
+            default:
+                return false;
         }
     }
 
