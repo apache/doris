@@ -63,10 +63,8 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
             // When group by cardinality is smaller than number of backend, only some backends always
             // process while other has no data to process.
             // So we shuffle instances to make different backends handle different queries.
-            //
-            // Additionally, when query cache is enabled we may have limited the expected instance
-            // count above; in that case the same shuffling logic applies to spread instances across
-            // distinct workers to avoid cache thrashing and improve load distribution.
+            // Additional: when query cache limits instance count, the shuffling still applies to
+            // spread the reduced set of instances across distinct workers to avoid cache thrashing.
             List<DistributedPlanWorker> shuffleWorkersInBiggestParallelChildFragment
                     = distinctShuffleWorkers(biggestParallelChildFragment);
             Function<Integer, DistributedPlanWorker> workerSelector = instanceIndex -> {
