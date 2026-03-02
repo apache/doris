@@ -91,7 +91,7 @@ public class GroupCommitTableValuedFunction extends ExternalFileTableValuedFunct
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
-        return new GroupCommitScanNode(id, desc, tableId);
+        return new GroupCommitScanNode(id, desc, tableId, sv.resolveCloudClusterName());
     }
 
     @Override

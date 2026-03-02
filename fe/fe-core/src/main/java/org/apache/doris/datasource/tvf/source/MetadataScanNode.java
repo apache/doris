@@ -44,8 +44,9 @@ public class MetadataScanNode extends ExternalScanNode {
     private boolean initedScanRangeLocations = false;
     private final List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
 
-    public MetadataScanNode(PlanNodeId id, TupleDescriptor desc, MetadataTableValuedFunction tvf) {
-        super(id, desc, "METADATA_SCAN_NODE", false);
+    public MetadataScanNode(PlanNodeId id, TupleDescriptor desc, MetadataTableValuedFunction tvf,
+            String clusterName) {
+        super(id, desc, "METADATA_SCAN_NODE", clusterName, false);
         this.tvf = tvf;
     }
 

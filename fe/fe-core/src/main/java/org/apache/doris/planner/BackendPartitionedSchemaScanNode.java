@@ -96,8 +96,9 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
 
     public BackendPartitionedSchemaScanNode(PlanNodeId id, TableIf table, TupleDescriptor desc,
-            String schemaCatalog, String schemaDatabase, String schemaTable, List<Expr> frontendConjuncts) {
-        super(id, desc, schemaCatalog, schemaDatabase, schemaTable, frontendConjuncts);
+            String schemaCatalog, String schemaDatabase, String schemaTable, List<Expr> frontendConjuncts,
+            String clusterName) {
+        super(id, desc, schemaCatalog, schemaDatabase, schemaTable, frontendConjuncts, clusterName);
         this.tableIf = table;
     }
 

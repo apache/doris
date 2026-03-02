@@ -45,7 +45,7 @@ public class TVFScanNodeTest {
         ExternalFileTableValuedFunction tvf = Mockito.mock(ExternalFileTableValuedFunction.class);
         Mockito.when(table.getTvf()).thenReturn(tvf);
         desc.setTable(table);
-        TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv);
+        TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, "");
 
         TBrokerFileStatus status = new TBrokerFileStatus();
         status.setSize(10_000L * MB);

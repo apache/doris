@@ -241,7 +241,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
-        return new TVFScanNode(id, desc, false, sv);
+        return new TVFScanNode(id, desc, false, sv, sv.resolveCloudClusterName());
     }
 
     @Override
@@ -555,4 +555,3 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 }
-

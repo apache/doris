@@ -64,6 +64,6 @@ public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf 
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
-        return new MetadataScanNode(id, desc, this);
+        return new MetadataScanNode(id, desc, this, sv.resolveCloudClusterName());
     }
 }

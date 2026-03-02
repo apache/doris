@@ -76,8 +76,8 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
     private RemoteDorisSource source;
 
     public RemoteDorisScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
-                               SessionVariable sv) {
-        super(id, desc, "REMOTE_DORIS_SCAN_NODE", needCheckColumnPriv, sv);
+                               SessionVariable sv, String clusterName) {
+        super(id, desc, "REMOTE_DORIS_SCAN_NODE", clusterName, needCheckColumnPriv, sv);
     }
 
     @Override

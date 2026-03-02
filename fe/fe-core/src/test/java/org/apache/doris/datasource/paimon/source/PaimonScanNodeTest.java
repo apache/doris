@@ -61,7 +61,7 @@ public class PaimonScanNodeTest {
     public void testSplitWeight() throws UserException {
 
         TupleDescriptor desc = new TupleDescriptor(new TupleId(3));
-        PaimonScanNode paimonScanNode = new PaimonScanNode(new PlanNodeId(1), desc, false, sv);
+        PaimonScanNode paimonScanNode = new PaimonScanNode(new PlanNodeId(1), desc, false, sv, "");
 
         paimonScanNode.setSource(new PaimonSource());
 
@@ -387,7 +387,7 @@ public class PaimonScanNodeTest {
     @Test
     public void testPaimonDataSystemTableForceJniEvenWhenNativeSupported() throws UserException {
         TupleDescriptor desc = new TupleDescriptor(new TupleId(3));
-        PaimonScanNode paimonScanNode = new PaimonScanNode(new PlanNodeId(1), desc, false, sv);
+        PaimonScanNode paimonScanNode = new PaimonScanNode(new PlanNodeId(1), desc, false, sv, "");
         PaimonScanNode spyPaimonScanNode = Mockito.spy(paimonScanNode);
 
         DataFileMeta dfm = DataFileMeta.forAppend("f1.parquet", 64 * 1024 * 1024, 1, SimpleStats.EMPTY_STATS, 1, 1, 1,
@@ -445,7 +445,8 @@ public class PaimonScanNodeTest {
     public void testDetermineTargetFileSplitSizeHonorsMaxFileSplitNum() throws Exception {
         SessionVariable sv = new SessionVariable();
         sv.setMaxFileSplitNum(100);
-        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), false, sv);
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)),
+                false, sv, "");
 
         PaimonSource source = Mockito.mock(PaimonSource.class);
         Mockito.when(source.getFileFormatFromTableProperties()).thenReturn("parquet");

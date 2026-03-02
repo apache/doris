@@ -64,8 +64,8 @@ public class OdbcScanNode extends ExternalScanNode {
     /**
      * Constructs node to scan given data files of table 'tbl'.
      */
-    public OdbcScanNode(PlanNodeId id, TupleDescriptor desc, OdbcTable tbl) {
-        super(id, desc, "SCAN ODBC", false);
+    public OdbcScanNode(PlanNodeId id, TupleDescriptor desc, OdbcTable tbl, String clusterName) {
+        super(id, desc, "SCAN ODBC", clusterName, false);
         connectString = tbl.getConnectString();
         odbcType = tbl.getOdbcTableType();
         tblName = JdbcTable.databaseProperName(odbcType, tbl.getOdbcTableName());
@@ -207,7 +207,11 @@ public class OdbcScanNode extends ExternalScanNode {
 
     @Override
     public int getNumInstances() {
-        return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+        ConnectContext context = ConnectContext.get();
+        if (context == null) {
+            return 1;
+        }
+        return context.getSessionVariable().getParallelExecInstanceNum(clusterName);
     }
 
     public static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {

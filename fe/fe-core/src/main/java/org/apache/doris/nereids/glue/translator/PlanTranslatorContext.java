@@ -26,6 +26,8 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.cloud.qe.ComputeGroupException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -67,6 +69,7 @@ import javax.annotation.Nullable;
 public class PlanTranslatorContext {
     private final ConnectContext connectContext;
     private final StatementContext statementContext;
+    private final String clusterName;
     private final List<PlanFragment> planFragments = Lists.newArrayList();
 
     private DescriptorTable descTable;
@@ -122,6 +125,7 @@ public class PlanTranslatorContext {
     public PlanTranslatorContext(CascadesContext ctx) {
         this.connectContext = ctx.getConnectContext();
         this.statementContext = ctx.getStatementContext();
+        this.clusterName = resolveCloudClusterName(connectContext);
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
         this.runtimeFilterV2Context = ctx.getRuntimeFilterV2Context();
@@ -132,6 +136,7 @@ public class PlanTranslatorContext {
     public PlanTranslatorContext(CascadesContext ctx, DescriptorTable descTable) {
         this.connectContext = ctx.getConnectContext();
         this.statementContext = ctx.getStatementContext();
+        this.clusterName = resolveCloudClusterName(connectContext);
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
         this.runtimeFilterV2Context = ctx.getRuntimeFilterV2Context();
@@ -145,6 +150,7 @@ public class PlanTranslatorContext {
     public PlanTranslatorContext() {
         this.connectContext = null;
         this.statementContext = new StatementContext();
+        this.clusterName = "";
         this.translator = null;
         this.topnFilterContext = new TopnFilterContext();
         IdGenerator<RuntimeFilterId> runtimeFilterIdGen = RuntimeFilterId.createGenerator();
@@ -276,6 +282,22 @@ public class PlanTranslatorContext {
     public void addScanNode(ScanNode scanNode, PhysicalRelation physicalRelation) {
         scanNodes.add(scanNode);
         physicalRelations.add(physicalRelation);
+    }
+
+    public String getClusterName() {
+        return clusterName;
+    }
+
+    private static String resolveCloudClusterName(ConnectContext connectContext) {
+        if (!Config.isCloudMode() || connectContext == null) {
+            return "";
+        }
+        try {
+            String clusterName = connectContext.getCloudCluster(false);
+            return clusterName == null ? "" : clusterName;
+        } catch (ComputeGroupException e) {
+            return "";
+        }
     }
 
     public List<PhysicalRelation> getPhysicalRelations() {

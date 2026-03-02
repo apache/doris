@@ -98,8 +98,8 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
     private Constraint constraint;
 
     public TrinoConnectorScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
-            SessionVariable sv) {
-        super(id, desc, "TRINO_CONNECTOR_SCAN_NODE", needCheckColumnPriv, sv);
+            SessionVariable sv, String clusterName) {
+        super(id, desc, "TRINO_CONNECTOR_SCAN_NODE", clusterName, needCheckColumnPriv, sv);
     }
 
     @Override

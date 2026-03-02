@@ -70,8 +70,9 @@ public abstract class FileScanNode extends ExternalScanNode {
     // For display pushdown agg result
     protected long tableLevelRowCount = -1;
 
-    public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, boolean needCheckColumnPriv) {
-        super(id, desc, planNodeName, needCheckColumnPriv);
+    public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
+            String clusterName, boolean needCheckColumnPriv) {
+        super(id, desc, planNodeName, clusterName, needCheckColumnPriv);
         this.needCheckColumnPriv = needCheckColumnPriv;
     }
 

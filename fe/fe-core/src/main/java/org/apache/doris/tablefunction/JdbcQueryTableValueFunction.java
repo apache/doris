@@ -54,6 +54,6 @@ public class JdbcQueryTableValueFunction extends QueryTableValueFunction {
                 desc.getTable().getFullSchema(), TableType.JDBC);
         catalog.configureJdbcTable(jdbcTable, desc.getTable().getName());
         desc.setTable(jdbcTable);
-        return new JdbcScanNode(id, desc, true, query);
+        return new JdbcScanNode(id, desc, true, query, sv.resolveCloudClusterName());
     }
 }

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.VariableAnnotation;
@@ -4179,6 +4180,10 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public int getParallelExecInstanceNum() {
+        return getParallelExecInstanceNum(null);
+    }
+
+    public int getParallelExecInstanceNum(String clusterName) {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null && connectContext.getEnv() != null && connectContext.getEnv().getAuth() != null) {
             int userParallelExecInstanceNum = connectContext.getEnv().getAuth()
@@ -4187,12 +4192,41 @@ public class SessionVariable implements Serializable, Writable {
                 return userParallelExecInstanceNum;
             }
         }
+        String resolvedClusterName = clusterName;
+        if (Config.isCloudMode() && Strings.isNullOrEmpty(resolvedClusterName)) {
+            resolvedClusterName = resolveCloudClusterName(connectContext);
+        }
         if (parallelPipelineTaskNum == 0) {
-            int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
+            int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize(resolvedClusterName);
             int autoInstance = (size + 1) / 2;
             return Math.min(autoInstance, maxInstanceNum);
         } else {
             return parallelPipelineTaskNum;
+        }
+    }
+
+    public String resolveCloudClusterName() {
+        return resolveCloudClusterName(ConnectContext.get());
+    }
+
+    public String resolveCloudClusterName(ConnectContext connectContext) {
+        if (!Config.isCloudMode()) {
+            return "";
+        }
+        if (!Strings.isNullOrEmpty(cloudCluster)) {
+            return cloudCluster;
+        }
+        if (connectContext == null) {
+            return "";
+        }
+        try {
+            String clusterName = connectContext.getCloudCluster(false);
+            return clusterName == null ? "" : clusterName;
+        } catch (ComputeGroupException e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("failed to resolve cloud cluster for parallel instance num", e);
+            }
+            return "";
         }
     }
 
@@ -5116,7 +5150,8 @@ public class SessionVariable implements Serializable, Writable {
         }
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnableLocalShuffle(enableLocalShuffle);
-        tResult.setParallelInstance(getParallelExecInstanceNum());
+        String clusterName = resolveCloudClusterName();
+        tResult.setParallelInstance(getParallelExecInstanceNum(clusterName));
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);

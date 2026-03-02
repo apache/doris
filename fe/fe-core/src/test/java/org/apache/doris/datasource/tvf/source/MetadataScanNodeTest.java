@@ -63,7 +63,7 @@ public class MetadataScanNodeTest {
      */
     @Test
     public void testInitedScanRangeLocationsInitialState() throws Exception {
-        MetadataScanNode scanNode = new MetadataScanNode(planNodeId, tupleDescriptor, mockTvf);
+        MetadataScanNode scanNode = new MetadataScanNode(planNodeId, tupleDescriptor, mockTvf, "");
 
         // Use reflection to access the private field
         Field field = MetadataScanNode.class.getDeclaredField("initedScanRangeLocations");
@@ -90,7 +90,7 @@ public class MetadataScanNodeTest {
 
         Mockito.when(mockTvf.getMetaScanRange(Mockito.anyList())).thenReturn(metaScanRange);
 
-        MetadataScanNode scanNode = new MetadataScanNode(planNodeId, tupleDescriptor, mockTvf);
+        MetadataScanNode scanNode = new MetadataScanNode(planNodeId, tupleDescriptor, mockTvf, "");
 
         // Mock the backend policy using reflection
         mockBackendPolicy(scanNode);
@@ -128,7 +128,7 @@ public class MetadataScanNodeTest {
 
         Mockito.when(mockTvf.getMetaScanRange(Mockito.anyList())).thenReturn(metaScanRange);
 
-        MetadataScanNode scanNode = new MetadataScanNode(planNodeId, tupleDescriptor, mockTvf);
+        MetadataScanNode scanNode = new MetadataScanNode(planNodeId, tupleDescriptor, mockTvf, "");
         mockBackendPolicy(scanNode);
 
         // Call getScanRangeLocations multiple times

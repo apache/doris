@@ -150,8 +150,9 @@ public class PaimonScanNode extends FileQueryScanNode {
     public PaimonScanNode(PlanNodeId id,
                           TupleDescriptor desc,
                           boolean needCheckColumnPriv,
-                          SessionVariable sv) {
-        super(id, desc, "PAIMON_SCAN_NODE", needCheckColumnPriv, sv);
+                          SessionVariable sv,
+                          String clusterName) {
+        super(id, desc, "PAIMON_SCAN_NODE", clusterName, needCheckColumnPriv, sv);
     }
 
     @Override
@@ -442,7 +443,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         // if applyCountPushdown is true, calcute row count for count pushdown
         if (applyCountPushdown && !pushDownCountSplits.isEmpty()) {
             if (pushDownCountSum > COUNT_WITH_PARALLEL_SPLITS) {
-                int minSplits = sessionVariable.getParallelExecInstanceNum() * numBackends;
+                int minSplits = sessionVariable.getParallelExecInstanceNum(clusterName) * numBackends;
                 pushDownCountSplits = pushDownCountSplits.subList(0, Math.min(pushDownCountSplits.size(), minSplits));
             } else {
                 pushDownCountSplits = Collections.singletonList(pushDownCountSplits.get(0));

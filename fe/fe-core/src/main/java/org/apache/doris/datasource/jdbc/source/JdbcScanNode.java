@@ -69,8 +69,8 @@ public class JdbcScanNode extends ExternalScanNode {
     private JdbcTable tbl;
     private long catalogId;
 
-    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable) {
-        super(id, desc, "JdbcScanNode", false);
+    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable, String clusterName) {
+        super(id, desc, "JdbcScanNode", clusterName, false);
         if (isJdbcExternalTable) {
             JdbcExternalTable jdbcExternalTable = (JdbcExternalTable) (desc.getTable());
             tbl = jdbcExternalTable.getJdbcTable();
@@ -81,8 +81,9 @@ public class JdbcScanNode extends ExternalScanNode {
         tableName = tbl.getProperRemoteFullTableName(jdbcType);
     }
 
-    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isTableValuedFunction, String query) {
-        super(id, desc, "JdbcScanNode", false);
+    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isTableValuedFunction, String query,
+            String clusterName) {
+        super(id, desc, "JdbcScanNode", clusterName, false);
         this.isTableValuedFunction = isTableValuedFunction;
         this.query = query;
         tbl = (JdbcTable) desc.getTable();
@@ -267,7 +268,11 @@ public class JdbcScanNode extends ExternalScanNode {
 
     @Override
     public int getNumInstances() {
-        return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+        ConnectContext context = ConnectContext.get();
+        if (context == null) {
+            return 1;
+        }
+        return context.getSessionVariable().getParallelExecInstanceNum(clusterName);
     }
 
     private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {

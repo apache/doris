@@ -82,8 +82,9 @@ public class LakeSoulScanNode extends FileQueryScanNode {
 
     String readType;
 
-    public LakeSoulScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv) {
-        super(id, desc, "planNodeName", needCheckColumnPriv, sv);
+    public LakeSoulScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv,
+            String clusterName) {
+        super(id, desc, "planNodeName", clusterName, needCheckColumnPriv, sv);
     }
 
     @Override
@@ -284,4 +285,3 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         return splits;
     }
 }
-

@@ -50,8 +50,8 @@ public abstract class ExternalScanNode extends ScanNode {
             : new FederationBackendPolicy();
 
     public ExternalScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            boolean needCheckColumnPriv) {
-        super(id, desc, planNodeName);
+            String clusterName, boolean needCheckColumnPriv) {
+        super(id, desc, planNodeName, clusterName);
         this.needCheckColumnPriv = needCheckColumnPriv;
     }
 

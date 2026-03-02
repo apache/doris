@@ -37,7 +37,7 @@ public class IcebergScanNodeTest {
 
     private static class TestIcebergScanNode extends IcebergScanNode {
         TestIcebergScanNode(SessionVariable sv) {
-            super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), sv);
+            super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), sv, "");
         }
 
         @Override

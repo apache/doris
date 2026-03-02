@@ -151,8 +151,8 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     // for test
     @VisibleForTesting
-    public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
-        super(id, desc, "ICEBERG_SCAN_NODE", false, sv);
+    public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv, String clusterName) {
+        super(id, desc, "ICEBERG_SCAN_NODE", clusterName, false, sv);
     }
 
     /**
@@ -161,8 +161,9 @@ public class IcebergScanNode extends FileQueryScanNode {
      * eg: s3 tvf
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
-    public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv) {
-        super(id, desc, "ICEBERG_SCAN_NODE", needCheckColumnPriv, sv);
+    public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv,
+            String clusterName) {
+        super(id, desc, "ICEBERG_SCAN_NODE", clusterName, needCheckColumnPriv, sv);
 
         ExternalTable table = (ExternalTable) desc.getTable();
         if (table instanceof HMSExternalTable) {
@@ -752,7 +753,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         try (CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan)) {
             if (tableLevelPushDownCount) {
                 int needSplitCnt = countFromSnapshot < COUNT_WITH_PARALLEL_SPLITS
-                        ? 1 : sessionVariable.getParallelExecInstanceNum() * numBackends;
+                        ? 1 : sessionVariable.getParallelExecInstanceNum(clusterName) * numBackends;
                 for (FileScanTask next : fileScanTasks) {
                     splits.add(createIcebergSplit(next));
                     if (splits.size() >= needSplitCnt) {
