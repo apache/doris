@@ -60,8 +60,13 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
         int expectInstanceNum = degreeOfParallelism(biggestParallelChildFragment.size(), inputJobs);
 
         if (expectInstanceNum > 0 && expectInstanceNum < biggestParallelChildFragment.size()) {
-            // Query cache is enabled and limits the instance count below the child fragment size.
-            // Shuffle instances across distinct workers so different backends handle different queries.
+            // When group by cardinality is smaller than number of backend, only some backends always
+            // process while other has no data to process.
+            // So we shuffle instances to make different backends handle different queries.
+            //
+            // Additionally, when query cache is enabled we may have limited the expected instance
+            // count above; in that case the same shuffling logic applies to spread instances across
+            // distinct workers to avoid cache thrashing and improve load distribution.
             List<DistributedPlanWorker> shuffleWorkersInBiggestParallelChildFragment
                     = distinctShuffleWorkers(biggestParallelChildFragment);
             Function<Integer, DistributedPlanWorker> workerSelector = instanceIndex -> {
