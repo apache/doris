@@ -842,7 +842,7 @@ public class StringArithmetic {
         }
     }
 
-        /**
+    /**
      * Executable arithmetic functions hamming_distance
      */
     @ExecFunction(name = "hamming_distance")

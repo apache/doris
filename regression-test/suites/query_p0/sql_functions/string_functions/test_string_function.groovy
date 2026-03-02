@@ -418,6 +418,9 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_hamming_distance3 """ select hamming_distance('你好a', '你坏b'); """
     qt_hamming_distance4 """ select hamming_distance(null, 'abc'); """
     qt_hamming_distance5 """ select hamming_distance('abc', null); """
+    qt_hamming_distance6 """ select hamming_distance('', ''); """
+    qt_hamming_distance7 """ select hamming_distance('abc', 'abc'); """
+    qt_hamming_distance8 """ select hamming_distance(null, null); """
 
     test {
         sql """ select hamming_distance('abc', 'ab'); """
