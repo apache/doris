@@ -149,6 +149,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
     private BalanceTypeEnum globalBalanceTypeEnum = BalanceTypeEnum.getCloudWarmUpForRebalanceTypeEnum();
 
     private Set<Long> activeTabletIds = new HashSet<>();
+    private long lastActiveTabletIdsRefreshMs = 0L;
+    private int consecutiveActiveUnbalancedRounds = 0;
 
     // cache for scheduling order in one daemon run (rebuilt in statRouteInfo)
     // table/partition active count is computed from activeTabletIds
@@ -510,7 +512,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
         LOG.info("cloud tablet rebalance begin");
         long start = System.currentTimeMillis();
-        activeTabletIds = getActiveTabletIds();
+        refreshActiveTabletIdsIfNeeded();
         globalBalanceTypeEnum = BalanceTypeEnum.getCloudWarmUpForRebalanceTypeEnum();
 
         buildClusterToBackendMap();
@@ -519,8 +521,10 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
 
         statRouteInfo();
-        migrateTabletsForSmoothUpgrade();
-        statRouteInfo();
+        boolean migrated = migrateTabletsForSmoothUpgrade();
+        if (migrated) {
+            statRouteInfo();
+        }
 
         indexBalanced = true;
         tableBalanced = true;
@@ -564,18 +568,15 @@ public class CloudTabletRebalancer extends MasterDaemon {
         LOG.info("cluster to backends {}", clusterToBes);
     }
 
-    private void migrateTabletsForSmoothUpgrade() {
+    private boolean migrateTabletsForSmoothUpgrade() {
+        boolean migrated = false;
         Pair<Long, Long> pair;
-        while (!tabletsMigrateTasks.isEmpty()) {
-            try {
-                pair = tabletsMigrateTasks.take();
-                LOG.debug("begin tablets migration from be {} to be {}", pair.first, pair.second);
-                migrateTablets(pair.first, pair.second);
-            } catch (InterruptedException e) {
-                LOG.warn("migrate tablets failed", e);
-                throw new RuntimeException(e);
-            }
+        while ((pair = tabletsMigrateTasks.poll()) != null) {
+            LOG.debug("begin tablets migration from be {} to be {}", pair.first, pair.second);
+            migrateTablets(pair.first, pair.second);
+            migrated = true;
         }
+        return migrated;
     }
 
     private void performBalancing() {
@@ -585,6 +586,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         // to the same table or partition onto the same BE, while `partition` scheduling later requires these tablets
         // to be dispersed across different BEs, resulting in unnecessary scheduling.
         if (!Config.enable_cloud_active_tablet_priority_scheduling) {
+            consecutiveActiveUnbalancedRounds = 0;
             // Legacy scheduling: schedule the full set.
             if (Config.enable_cloud_partition_balance) {
                 balanceAllPartitionsByPhase(ActiveSchedulePhase.ALL);
@@ -621,9 +623,14 @@ public class CloudTabletRebalancer extends MasterDaemon {
                         activeIndexBalanced, activeTableBalanced, activeBalanced, clusterToBes.size());
             }
 
-            if (!activeBalanced) {
+            boolean forceInactivePhase = shouldForceInactivePhase(activeBalanced);
+            if (!activeBalanced && !forceInactivePhase) {
                 // Active objects are not balanced yet; skip phase2 to avoid diluting scheduling budget.
                 return;
+            }
+            if (forceInactivePhase) {
+                LOG.info("active phase is still unbalanced for {} consecutive rounds, force run INACTIVE_ONLY once",
+                        Config.cloud_active_unbalanced_force_inactive_after_rounds);
             }
 
             // Phase 2: inactive (all - active), then global if enabled and ready.
@@ -635,10 +642,28 @@ public class CloudTabletRebalancer extends MasterDaemon {
             if (Config.enable_cloud_table_balance && phase2IndexBalanced) {
                 phase2TableBalanced = balanceAllTablesByPhase(ActiveSchedulePhase.INACTIVE_ONLY);
             }
-            if (Config.enable_cloud_global_balance && phase2IndexBalanced && phase2TableBalanced) {
+            if (Config.enable_cloud_global_balance && activeBalanced && phase2IndexBalanced && phase2TableBalanced) {
                 globalBalance();
             }
         }
+    }
+
+    private boolean shouldForceInactivePhase(boolean activeBalanced) {
+        if (activeBalanced) {
+            consecutiveActiveUnbalancedRounds = 0;
+            return false;
+        }
+        int forceAfterRounds = Config.cloud_active_unbalanced_force_inactive_after_rounds;
+        if (forceAfterRounds <= 0) {
+            consecutiveActiveUnbalancedRounds = 0;
+            return false;
+        }
+        consecutiveActiveUnbalancedRounds++;
+        if (consecutiveActiveUnbalancedRounds < forceAfterRounds) {
+            return false;
+        }
+        consecutiveActiveUnbalancedRounds = 0;
+        return true;
     }
 
     private boolean balanceAllPartitionsByPhase(ActiveSchedulePhase phase) {
@@ -1682,7 +1707,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     maxTabletsNum = tabletNum;
                 }
             } else {
-                LOG.info("backend {} not found", be);
+                LOG.debug("backend {} not found", be);
             }
         }
         return srcBe;
@@ -1937,6 +1962,21 @@ public class CloudTabletRebalancer extends MasterDaemon {
             }
             return Collections.emptySet();
         }
+    }
+
+    private void refreshActiveTabletIdsIfNeeded() {
+        long nowMs = System.currentTimeMillis();
+        if (!shouldRefreshActiveTabletIds(nowMs)) {
+            return;
+        }
+        activeTabletIds = getActiveTabletIds();
+        lastActiveTabletIdsRefreshMs = nowMs;
+    }
+
+    private boolean shouldRefreshActiveTabletIds(long nowMs) {
+        long refreshIntervalSeconds = Math.max(1L, Config.cloud_active_tablet_ids_refresh_interval_second);
+        long refreshIntervalMs = TimeUnit.SECONDS.toMillis(refreshIntervalSeconds);
+        return lastActiveTabletIdsRefreshMs <= 0L || nowMs - lastActiveTabletIdsRefreshMs >= refreshIntervalMs;
     }
 
     // Choose non-active (cold) tablet first to re-balance, to reduce impact on hot tablets.
