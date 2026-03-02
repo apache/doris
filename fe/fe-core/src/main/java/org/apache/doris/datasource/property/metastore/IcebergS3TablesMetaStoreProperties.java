@@ -19,9 +19,12 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.s3tables.CustomAwsCredentialsProvider;
+import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory;
+import org.apache.doris.datasource.property.common.IcebergAwsAssumeRoleProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.catalog.Catalog;
 import software.amazon.s3tables.iceberg.S3TablesCatalog;
@@ -61,23 +64,48 @@ public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergPropertie
             return catalog;
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize S3TablesCatalog for Iceberg. "
-                    + "CatalogName=" + catalogName + ", region=" + s3Properties.getRegion()
-                    + ", msg: " + ExceptionUtils.getRootCauseMessage(e), e);
+                + "CatalogName=" + catalogName + ", region=" + s3Properties.getRegion()
+                + ", msg: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
     private void buildS3CatalogProperties(Map<String, String> props) {
-        props.put("client.credentials-provider", CustomAwsCredentialsProvider.class.getName());
-        props.put("client.credentials-provider.s3.access-key-id", s3Properties.getAccessKey());
-        props.put("client.credentials-provider.s3.secret-access-key", s3Properties.getSecretKey());
-        props.put("client.credentials-provider.s3.session-token", s3Properties.getSessionToken());
         props.put("client.region", s3Properties.getRegion());
+
+        // Priority 1: Use explicit credentials (AK/SK)
+        boolean hasExplicitCredentials = StringUtils.isNotBlank(s3Properties.getAccessKey())
+                && StringUtils.isNotBlank(s3Properties.getSecretKey());
+        if (hasExplicitCredentials) {
+            props.put("client.credentials-provider", CustomAwsCredentialsProvider.class.getName());
+            props.put("client.credentials-provider.s3.access-key-id", s3Properties.getAccessKey());
+            props.put("client.credentials-provider.s3.secret-access-key", s3Properties.getSecretKey());
+            if (StringUtils.isNotBlank(s3Properties.getSessionToken())) {
+                props.put("client.credentials-provider.s3.session-token", s3Properties.getSessionToken());
+            }
+            return;
+        }
+
+        // Priority 2: Use IAM Role (AssumeRole)
+        if (StringUtils.isNotBlank(s3Properties.getS3IAMRole())) {
+            IcebergAwsAssumeRoleProperties.putAssumeRoleProperties(props,
+                    s3Properties.getRegion(), s3Properties.getS3IAMRole(), s3Properties.getS3ExternalId());
+            return;
+        }
+
+        // Priority 3: Use credentials provider chain
+        // S3Properties already has awsCredentialsProviderMode initialized
+        // For S3Tables, use the same provider class name as Iceberg REST
+        if (s3Properties.getAwsCredentialsProviderMode() != null) {
+            String providerClassName = AwsCredentialsProviderFactory
+                    .getV2ClassName(s3Properties.getAwsCredentialsProviderMode());
+            props.put("client.credentials-provider", providerClassName);
+        }
     }
 
     private void checkInitialized() {
         if (s3Properties == null) {
             throw new IllegalStateException("S3Properties not initialized."
-                    + " Please call initNormalizeAndCheckProps() before using.");
+                + " Please call initNormalizeAndCheckProps() before using.");
         }
     }
 }
