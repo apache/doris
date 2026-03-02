@@ -722,10 +722,10 @@ bool StreamingAggLocalState::_emplace_into_hash_table_limit(AggregateDataPtr* pl
                               };
 
                               SCOPED_TIMER(_hash_table_emplace_timer);
-                              for (i = 0; i < num_rows; ++i) {
-                                  places[i] = *agg_method.lazy_emplace(state, i, creator,
-                                                                       creator_for_null_key);
-                              }
+                              lazy_emplace_batch(
+                                      agg_method, state, num_rows, creator, creator_for_null_key,
+                                      [&](uint32_t row) { i = row; },
+                                      [&](uint32_t row, auto& mapped) { places[row] = mapped; });
                               COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                               return true;
                           }
@@ -800,10 +800,9 @@ void StreamingAggLocalState::_emplace_into_hash_table(AggregateDataPtr* places,
                              };
 
                              SCOPED_TIMER(_hash_table_emplace_timer);
-                             for (size_t i = 0; i < num_rows; ++i) {
-                                 places[i] = *agg_method.lazy_emplace(state, i, creator,
-                                                                      creator_for_null_key);
-                             }
+                             lazy_emplace_batch(
+                                     agg_method, state, num_rows, creator, creator_for_null_key,
+                                     [&](uint32_t row, auto& mapped) { places[row] = mapped; });
 
                              COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                          }},
