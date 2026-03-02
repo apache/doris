@@ -278,6 +278,8 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DictFilterRewriteTime", parquet_profile, 1);
         _parquet_profile.bloom_filter_read_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "BloomFilterReadTime", parquet_profile, 1);
+        _parquet_profile.condition_cache_filtered_rows_counter =
+                ADD_COUNTER_WITH_LEVEL(_profile, "ConditionCacheFilteredRows", TUnit::UNIT, 1);
     }
 }
 
@@ -697,6 +699,9 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         _reader_statistics.predicate_filter_time += _current_group_reader->predicate_filter_time();
         _reader_statistics.dict_filter_rewrite_time +=
                 _current_group_reader->dict_filter_rewrite_time();
+        _reader_statistics.condition_cache_filtered_rows +=
+                _current_group_reader->condition_cache_filtered_rows();
+
         if (_current_row_group_index.row_group_id + 1 == _total_groups) {
             *eof = true;
         } else {
@@ -1337,6 +1342,8 @@ void ParquetReader::_collect_profile() {
                    _reader_statistics.dict_filter_rewrite_time);
     COUNTER_UPDATE(_parquet_profile.bloom_filter_read_time,
                    _reader_statistics.bloom_filter_read_time);
+    COUNTER_UPDATE(_parquet_profile.condition_cache_filtered_rows_counter,
+                   _reader_statistics.condition_cache_filtered_rows);
     COUNTER_UPDATE(_parquet_profile.page_index_read_calls,
                    _column_statistics.page_index_read_calls);
     COUNTER_UPDATE(_parquet_profile.decompress_time, _column_statistics.decompress_time);

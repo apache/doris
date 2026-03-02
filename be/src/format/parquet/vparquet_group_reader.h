@@ -176,6 +176,7 @@ public:
     int64_t lazy_read_filtered_rows() const { return _lazy_read_filtered_rows; }
     int64_t predicate_filter_time() const { return _predicate_filter_time; }
     int64_t dict_filter_rewrite_time() const { return _dict_filter_rewrite_time; }
+    int64_t condition_cache_filtered_rows() const { return _condition_cache_filtered_rows; }
 
     ParquetColumnReader::ColumnStatistics merged_column_statistics();
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
@@ -267,6 +268,7 @@ private:
     int64_t _lazy_read_filtered_rows = 0;
     int64_t _predicate_filter_time = 0;
     int64_t _dict_filter_rewrite_time = 0;
+    int64_t _condition_cache_filtered_rows = 0;
     // If continuous batches are skipped, we can cache them to skip a whole page
     size_t _cached_filtered_rows = 0;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;

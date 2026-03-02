@@ -239,8 +239,7 @@ private:
     bool _condition_cache_hit = false;
     std::shared_ptr<std::vector<bool>> _condition_cache;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
-    RuntimeProfile::Counter* _condition_cache_hit_range_counter = nullptr;
-    RuntimeProfile::Counter* _condition_cache_filtered_batch_counter = nullptr;
+    RuntimeProfile::Counter* _condition_cache_hit_counter = nullptr;
 
 private:
     Status _init_expr_ctxes();
@@ -288,7 +287,7 @@ private:
     }
 
     void _init_reader_condition_cache();
-    void _finalize_condition_cache_for_range();
+    void _finalize_reader_condition_cache();
 
     TPushAggOp::type _get_push_down_agg_type() {
         return _local_state == nullptr ? TPushAggOp::type::NONE

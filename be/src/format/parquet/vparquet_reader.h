@@ -96,6 +96,7 @@ public:
         int64_t predicate_filter_time = 0;
         int64_t dict_filter_rewrite_time = 0;
         int64_t bloom_filter_read_time = 0;
+        int64_t condition_cache_filtered_rows = 0;
     };
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
@@ -231,6 +232,7 @@ private:
         RuntimeProfile::Counter* predicate_filter_time = nullptr;
         RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
         RuntimeProfile::Counter* bloom_filter_read_time = nullptr;
+        RuntimeProfile::Counter* condition_cache_filtered_rows_counter = nullptr;
     };
 
     Status _open_file();

@@ -159,10 +159,8 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
                                    "RuntimeFilterPartitionPrunedRangeNum", TUnit::UNIT, 1);
 
-    _condition_cache_hit_range_counter = ADD_COUNTER_WITH_LEVEL(
-            _local_state->scanner_profile(), "ConditionCacheHitRangeNum", TUnit::UNIT, 1);
-    _condition_cache_filtered_batch_counter = ADD_COUNTER_WITH_LEVEL(
-            _local_state->scanner_profile(), "ConditionCacheFilteredBatchNum", TUnit::UNIT, 1);
+    _condition_cache_hit_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
+                                                          "ConditionCacheFileHit", TUnit::UNIT, 1);
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _file_reader_stats.reset(new io::FileReaderStats());
@@ -432,7 +430,7 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
     do {
         RETURN_IF_CANCELLED(state);
         if (_cur_reader == nullptr || _cur_reader_eof) {
-            _finalize_condition_cache_for_range();
+            _finalize_reader_condition_cache();
             // The file may not exist because the file list is got from meta cache,
             // And the file may already be removed from storage.
             // Just ignore not found files.
@@ -1775,7 +1773,7 @@ void FileScanner::_init_reader_condition_cache() {
     _condition_cache_hit = cache->lookup(cache_key, &handle);
     if (_condition_cache_hit) {
         _condition_cache = handle.get_filter_result();
-        COUNTER_UPDATE(_condition_cache_hit_range_counter, 1);
+        COUNTER_UPDATE(_condition_cache_hit_counter, 1);
     } else {
         // Allocate cache pre-sized to total number of granules
         _condition_cache = std::make_shared<std::vector<bool>>();
@@ -1794,7 +1792,7 @@ void FileScanner::_init_reader_condition_cache() {
     _cur_reader->set_condition_cache_context(_condition_cache_ctx);
 }
 
-void FileScanner::_finalize_condition_cache_for_range() {
+void FileScanner::_finalize_reader_condition_cache() {
     if (_condition_cache == nullptr || _condition_cache_hit || _condition_cache_digest == 0 ||
         _is_load) {
         _condition_cache = nullptr;
@@ -1820,7 +1818,7 @@ Status FileScanner::close(RuntimeState* state) {
         return Status::OK();
     }
 
-    _finalize_condition_cache_for_range();
+    _finalize_reader_condition_cache();
 
     if (_cur_reader) {
         RETURN_IF_ERROR(_cur_reader->close());

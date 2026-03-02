@@ -459,9 +459,11 @@ void RowGroupReader::_filter_read_ranges_by_condition_cache() {
         return;
     }
 
+    auto old_row_count = _read_ranges.count();
     _read_ranges =
             filter_ranges_by_cache(_read_ranges, filter_result, _current_row_group_idx.first_row);
     _is_row_group_filtered = _read_ranges.is_empty();
+    _condition_cache_filtered_rows += old_row_count - _read_ranges.count();
     _condition_cache_ctx = nullptr;
 }
 

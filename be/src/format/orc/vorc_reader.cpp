@@ -282,6 +282,8 @@ void OrcReader::_collect_profile_before_close() {
         if (_file_input_stream != nullptr) {
             _file_input_stream->collect_profile_before_close();
         }
+        COUNTER_UPDATE(_orc_profile.condition_cache_filtered_rows_counter,
+                       _statistics.condition_cache_filtered_rows);
     }
 }
 
@@ -321,6 +323,8 @@ void OrcReader::_init_profile() {
                 ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterReadCalls", TUnit::UNIT, 1);
         _orc_profile.file_footer_hit_cache =
                 ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterHitCache", TUnit::UNIT, 1);
+        _orc_profile.condition_cache_filtered_rows_counter =
+                ADD_COUNTER_WITH_LEVEL(_profile, "ConditionCacheFilteredRows", TUnit::UNIT, 1);
     }
 }
 
@@ -2224,6 +2228,31 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     return Status::OK();
 }
 
+void OrcReader::_filter_rows_by_condition_cache(size_t* read_rows, bool* eof) {
+    // Condition cache HIT: skip consecutive false granules before reading
+    if (_condition_cache_ctx && _condition_cache_ctx->is_hit) {
+        auto& cache = *_condition_cache_ctx->filter_result;
+        uint64_t granule = _last_read_row_number / ConditionCacheContext::GRANULE_SIZE;
+        auto max_granule = cache.size();
+        while (granule < max_granule && !cache[granule]) {
+            granule++;
+        }
+        if (granule >= max_granule) {
+            // Cache is pre-allocated with the total number of
+            // granules, so no more surviving rows exist in this file.
+            *eof = true;
+            *read_rows = 0;
+            _statistics.condition_cache_filtered_rows += get_total_rows() - _last_read_row_number;
+            return;
+        }
+        uint64_t target_row = granule * ConditionCacheContext::GRANULE_SIZE;
+        if (target_row > _last_read_row_number) {
+            _row_reader->seekToRow(target_row);
+            _statistics.condition_cache_filtered_rows += target_row - _last_read_row_number;
+        }
+    }
+}
+
 Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eof) {
     if (_io_ctx && _io_ctx->should_stop) {
         *eof = true;
@@ -2268,22 +2297,9 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
             // reset decimal_scale_params_index;
             _decimal_scale_params_index = 0;
             try {
-                // Condition cache HIT: skip consecutive false granules before reading
-                if (_condition_cache_ctx && _condition_cache_ctx->is_hit) {
-                    auto& cache = *_condition_cache_ctx->filter_result;
-                    uint64_t granule = _last_read_row_number / ConditionCacheContext::GRANULE_SIZE;
-                    auto max_granule = cache.size();
-                    while (granule < max_granule && !cache[granule]) {
-                        granule++;
-                    }
-                    if (granule < max_granule) {
-                        uint64_t target_row = granule * ConditionCacheContext::GRANULE_SIZE;
-                        if (target_row > _last_read_row_number) {
-                            _row_reader->seekToRow(target_row);
-                        }
-                    }
-                    // If granule >= max_granule: no more surviving granules in cache,
-                    // but cache may not cover all rows. Let nextBatch determine actual EOF.
+                _filter_rows_by_condition_cache(read_rows, eof);
+                if (*eof) {
+                    return Status::OK();
                 }
                 rr = _row_reader->nextBatch(*_batch, block);
                 if (rr == 0 || _batch->numElements == 0) {
@@ -2384,22 +2400,9 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
             // reset decimal_scale_params_index;
             _decimal_scale_params_index = 0;
             try {
-                // Condition cache HIT: skip consecutive false granules before reading
-                if (_condition_cache_ctx && _condition_cache_ctx->is_hit) {
-                    auto& cache = *_condition_cache_ctx->filter_result;
-                    uint64_t granule = _last_read_row_number / ConditionCacheContext::GRANULE_SIZE;
-                    auto max_granule = cache.size();
-                    while (granule < max_granule && !cache[granule]) {
-                        granule++;
-                    }
-                    if (granule < max_granule) {
-                        uint64_t target_row = granule * ConditionCacheContext::GRANULE_SIZE;
-                        if (target_row > _last_read_row_number) {
-                            _row_reader->seekToRow(target_row);
-                        }
-                    }
-                    // If granule >= max_granule: no more surviving granules in cache,
-                    // but cache may not cover all rows. Let nextBatch determine actual EOF.
+                _filter_rows_by_condition_cache(read_rows, eof);
+                if (*eof) {
+                    return Status::OK();
                 }
                 rr = _row_reader->nextBatch(*_batch, block);
                 if (rr == 0 || _batch->numElements == 0) {
