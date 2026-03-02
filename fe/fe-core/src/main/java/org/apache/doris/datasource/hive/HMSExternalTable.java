@@ -150,6 +150,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat");
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.mapred.TextInputFormat");
+        SUPPORTED_HIVE_FILE_FORMATS.add("com.hadoop.mapred.DeprecatedLzoTextInputFormat");
         // Some hudi table use HoodieParquetInputFormatBase as input format
         // But we can't treat it as hudi table.
         // So add to SUPPORTED_HIVE_FILE_FORMATS and treat is as a hive table.
