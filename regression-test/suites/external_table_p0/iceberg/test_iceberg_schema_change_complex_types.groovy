@@ -102,6 +102,12 @@ suite("test_iceberg_schema_change_complex_types", "p0,external,doris,external_do
         exception "Cannot change MAP key type"
     }
 
+    // Complex type category change is not allowed
+    test {
+        sql """ALTER TABLE ${table_name} MODIFY COLUMN arr_i MAP<INT, INT>"""
+        exception "Cannot change complex column type category"
+    }
+
     // Struct field rename is not allowed
     test {
         sql """

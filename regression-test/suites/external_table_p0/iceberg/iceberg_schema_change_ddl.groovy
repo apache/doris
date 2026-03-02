@@ -310,7 +310,7 @@ suite("iceberg_schema_change_ddl", "p0,external,doris,external_docker,external_d
     
     test {
         sql """ ALTER TABLE ${table_name} MODIFY COLUMN email STRUCT<name: STRING> """
-        exception "Unsupported complex type for modify"
+        exception "Modify column type from non-complex to complex is not supported"
     }
 
     // Test 8: reorder columns

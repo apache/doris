@@ -19,6 +19,7 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
@@ -100,6 +101,23 @@ public class IcebergMetadataOpsValidationTest {
                 Types.ListType.ofOptional(2, Types.IntegerType.get()));
         assertUserException(() -> invokeValidateForModifyComplexColumn(column, currentCol),
                 "Cannot change int to smallint in nested types");
+    }
+
+    @Test
+    public void testValidateForModifyComplexColumnRejectsPrimitiveToComplex() {
+        Column column = new Column("arr_i", ArrayType.create(Type.INT, true), true);
+        NestedField currentCol = Types.NestedField.required(1, "arr_i", Types.IntegerType.get());
+        assertUserException(() -> invokeValidateForModifyComplexColumn(column, currentCol),
+                "Modify column type from non-complex to complex is not supported");
+    }
+
+    @Test
+    public void testValidateForModifyComplexColumnRejectsDifferentComplexCategory() {
+        Column column = new Column("arr_i", new MapType(Type.INT, Type.INT), true);
+        NestedField currentCol = Types.NestedField.required(1, "arr_i",
+                Types.ListType.ofOptional(2, Types.IntegerType.get()));
+        assertUserException(() -> invokeValidateForModifyComplexColumn(column, currentCol),
+                "Cannot change complex column type category");
     }
 
     @Test
