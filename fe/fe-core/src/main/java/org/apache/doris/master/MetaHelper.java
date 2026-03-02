@@ -39,7 +39,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
-import java.util.Map;
 
 public class MetaHelper {
     public static final Logger LOG = LogManager.getLogger(MetaHelper.class);
