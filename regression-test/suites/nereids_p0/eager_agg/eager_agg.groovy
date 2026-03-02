@@ -22,7 +22,7 @@ suite("eager_agg") {
         set runtime_filter_mode=OFF;
         set broadcast_row_count_limit=-1;
         set disable_nereids_rules="SALT_JOIN";
-        set ignore_shape_nodes="PhysicalProject";
+        set ignore_shape_nodes="PhysicalProject, PhysicalDistribute";
         set multi_distinct_strategy=1;
         set enable_bucket_shuffle_join=false;
     """
