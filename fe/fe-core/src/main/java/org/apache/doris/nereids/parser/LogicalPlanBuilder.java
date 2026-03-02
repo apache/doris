@@ -3549,10 +3549,90 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
     }
 
+    private enum UnicodeDecodeState {
+        EMPTY,
+        ESCAPED,
+        UNICODE_SEQUENCE
+    }
+
+    private static boolean isHexDigit(char c) {
+        return ((c >= '0') && (c <= '9')) || ((c >= 'A') && (c <= 'F')) || ((c >= 'a') && (c <= 'f'));
+    }
+
+    private static String decodeUnicodeLiteral(String rawUnicodeString, StringLiteralContext ctx) {
+        char escape = '\\';
+        String rawContent = rawUnicodeString.substring(3, rawUnicodeString.length() - 1).replace("''", "'");
+        StringBuilder unicodeStringBuilder = new StringBuilder();
+        StringBuilder escapedCharacterBuilder = new StringBuilder();
+        int charactersNeeded = 0;
+        UnicodeDecodeState state = UnicodeDecodeState.EMPTY;
+        for (int i = 0; i < rawContent.length(); i++) {
+            char ch = rawContent.charAt(i);
+            switch (state) {
+                case EMPTY:
+                    if (ch == escape) {
+                        state = UnicodeDecodeState.ESCAPED;
+                    } else {
+                        unicodeStringBuilder.append(ch);
+                    }
+                    break;
+                case ESCAPED:
+                    if (ch == escape) {
+                        unicodeStringBuilder.append(escape);
+                        state = UnicodeDecodeState.EMPTY;
+                    } else if (ch == '+') {
+                        state = UnicodeDecodeState.UNICODE_SEQUENCE;
+                        charactersNeeded = 6;
+                    } else if (isHexDigit(ch)) {
+                        state = UnicodeDecodeState.UNICODE_SEQUENCE;
+                        charactersNeeded = 4;
+                        escapedCharacterBuilder.append(ch);
+                    } else {
+                        throw new ParseException("Invalid hexadecimal digit: " + ch,
+                                new Origin(ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine()),
+                                Optional.empty());
+                    }
+                    break;
+                case UNICODE_SEQUENCE:
+                    Preconditions.checkState(isHexDigit(ch), "Incomplete escape sequence: "
+                            + escapedCharacterBuilder);
+                    escapedCharacterBuilder.append(ch);
+                    if (charactersNeeded == escapedCharacterBuilder.length()) {
+                        String currentEscapedCode = escapedCharacterBuilder.toString();
+                        escapedCharacterBuilder.setLength(0);
+                        int codePoint = Integer.parseInt(currentEscapedCode, 16);
+                        Preconditions.checkState(Character.isValidCodePoint(codePoint),
+                                "Invalid escaped character: " + currentEscapedCode);
+                        if (Character.isSupplementaryCodePoint(codePoint)) {
+                            unicodeStringBuilder.appendCodePoint(codePoint);
+                        } else {
+                            char currentCodePoint = (char) codePoint;
+                            Preconditions.checkState(!Character.isSurrogate(currentCodePoint),
+                                    String.format("Invalid escaped character: %s. Escaped character is a surrogate."
+                                        + " Use '\\+123456' instead.", currentEscapedCode));
+                            unicodeStringBuilder.append(currentCodePoint);
+                        }
+                        state = UnicodeDecodeState.EMPTY;
+                        charactersNeeded = -1;
+                    } else {
+                        Preconditions.checkState(charactersNeeded > escapedCharacterBuilder.length(),
+                                "Unexpected escape sequence length: " + escapedCharacterBuilder.length());
+                    }
+                    break;
+                default:
+                    throw new UnsupportedOperationException();
+            }
+        }
+        Preconditions.checkState(state == UnicodeDecodeState.EMPTY,
+                "Incomplete escape sequence: " + escapedCharacterBuilder);
+        return unicodeStringBuilder.toString();
+    }
+
     @Override
     public Literal visitStringLiteral(StringLiteralContext ctx) {
         String txt = ctx.STRING_LITERAL().getText();
-        String s = txt.substring(1, txt.length() - 1);
+        boolean isUnicodeString = txt.startsWith("U&") || txt.startsWith("u&");
+        String s = isUnicodeString ? decodeUnicodeLiteral(txt, ctx) : txt.substring(1, txt.length() - 1);
         if (txt.charAt(0) == '\'') {
             // for single quote string, '' should be converted to '
             s = s.replace("''", "'");
