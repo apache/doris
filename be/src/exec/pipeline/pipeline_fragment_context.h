@@ -99,8 +99,6 @@ public:
 
     [[nodiscard]] int get_finished_instances() const { return _finished_instances_count.load(); }
 
-    RuntimeState* get_runtime_state() { return _runtime_state.get(); }
-
     void decrement_running_task(PipelineId pipeline_id, int instance_idx);
 
     Status send_report(bool);
