@@ -22,7 +22,7 @@ suite("test_cte_exists") {
     
     sql "set enable_left_semi_direct_return_opt = true; "
 
-    sql "set parallel_pipeline_task_number=16;"
+    sql "set parallel_pipeline_task_num=16;"
 
     sql "set runtime_filter_max_in_num=10;"
 
