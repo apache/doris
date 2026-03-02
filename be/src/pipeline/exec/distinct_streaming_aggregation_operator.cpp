@@ -310,9 +310,9 @@ void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
                         auto creator_for_null_key = [&]() { distinct_row.push_back(row); };
 
                         SCOPED_TIMER(_hash_table_emplace_timer);
-                        for (; row < num_rows; ++row) {
-                            agg_method.lazy_emplace(state, row, creator, creator_for_null_key);
-                        }
+                        vectorized::lazy_emplace_batch_void(agg_method, state, num_rows, creator,
+                                                            creator_for_null_key,
+                                                            [&](uint32_t r) { row = r; });
 
                         COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                     }},
