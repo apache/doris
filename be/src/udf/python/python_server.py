@@ -814,28 +814,37 @@ class ModuleUDFLoader(UDFLoader):
 
     # Class-level lock dictionary for thread-safe module imports
     # Using RLock allows the same thread to acquire the lock multiple times
-    _import_locks: Dict[str, threading.RLock] = {}
+    # Key: (location, module_name) tuple to avoid conflicts between different locations
+    _import_locks: Dict[Tuple[str, str], threading.RLock] = {}
     _import_locks_lock = threading.Lock()
+    _module_cache: Dict[Tuple[str, str], Any] = {}
+    _module_cache_lock = threading.Lock()
 
     @classmethod
-    def _get_import_lock(cls, module_name: str) -> threading.RLock:
+    def _get_import_lock(cls, location: str, module_name: str) -> threading.RLock:
         """
-        Get or create a reentrant lock for the given module name.
+        Get or create a reentrant lock for the given location and module name.
 
         Uses double-checked locking pattern for optimal performance:
         - Fast path: return existing lock without acquiring global lock
         - Slow path: create new lock under global lock protection
+
+        Args:
+            location: The directory path where the module is located
+            module_name: The full module name to import
         """
+        cache_key = (location, module_name)
+
         # Fast path: check without lock (read-only, safe for most cases)
-        if module_name in cls._import_locks:
-            return cls._import_locks[module_name]
+        if cache_key in cls._import_locks:
+            return cls._import_locks[cache_key]
 
         # Slow path: create lock under protection
         with cls._import_locks_lock:
             # Double-check: another thread might have created it while we waited
-            if module_name not in cls._import_locks:
-                cls._import_locks[module_name] = threading.RLock()
-            return cls._import_locks[module_name]
+            if cache_key not in cls._import_locks:
+                cls._import_locks[cache_key] = threading.RLock()
+            return cls._import_locks[cache_key]
 
     def load(self) -> AdaptivePythonUDF:
         """
@@ -903,34 +912,50 @@ class ModuleUDFLoader(UDFLoader):
         return package_name, module_name, func_name
 
     def _get_or_import_module(self, location: str, full_module_name: str) -> Any:
-        """Get module from cache or import it (thread-safe)."""
-        # Use a per-module lock to prevent race conditions during import
-        import_lock = ModuleUDFLoader._get_import_lock(full_module_name)
+        """
+        Get module from cache or import it (thread-safe).
+
+        Uses a location-aware cache to prevent conflicts when different locations
+        have modules with the same name.
+        """
+        cache_key = (location, full_module_name)
+
+        # Use a per-(location, module) lock to prevent race conditions during import
+        import_lock = ModuleUDFLoader._get_import_lock(location, full_module_name)
 
         with import_lock:
-            # Double-check pattern: verify module is still not loaded after acquiring lock
-            if full_module_name in sys.modules:
-                cached_module = sys.modules[full_module_name]
-                # Verify the cached module is valid (has __file__ or __path__ attribute)
-                # This prevents using broken/incomplete modules from failed imports
+            # Fast path: check location-aware cache first
+            if cache_key in ModuleUDFLoader._module_cache:
+                cached_module = ModuleUDFLoader._module_cache[cache_key]
                 if cached_module is not None and (
                     hasattr(cached_module, "__file__")
                     or hasattr(cached_module, "__path__")
                 ):
                     return cached_module
                 else:
+                    del ModuleUDFLoader._module_cache[cache_key]
+
+            # Before importing, clear any existing module with the same name in sys.modules
+            # that might have been loaded from a different location
+            if full_module_name in sys.modules:
+                existing_module = sys.modules[full_module_name]
+                existing_file = getattr(existing_module, "__file__", None)
+                # Check if the existing module is from a different location
+                if existing_file and not existing_file.startswith(location):
                     del sys.modules[full_module_name]
 
-            # Import the module (only one thread will reach here per module)
             with temporary_sys_path(location):
                 try:
                     module = importlib.import_module(full_module_name)
+                    # Store in location-aware cache
+                    ModuleUDFLoader._module_cache[cache_key] = module
                     return module
-                except Exception as e:
-                    # Clean up any partially-imported modules from sys.modules
-                    # This prevents broken modules from being cached
+                except Exception:
+                    # Clean up any partially-imported modules
                     if full_module_name in sys.modules:
                         del sys.modules[full_module_name]
+                    if cache_key in ModuleUDFLoader._module_cache:
+                        del ModuleUDFLoader._module_cache[cache_key]
                     raise
 
     def _extract_function(
@@ -2441,6 +2466,105 @@ class FlightServer(flight.FlightServerBase):
             self._handle_exchange_udtf(python_udf_meta, reader, writer)
         else:
             raise ValueError(f"Unsupported client type: {python_udf_meta.client_type}")
+
+    def do_action(
+        self,
+        context: flight.ServerCallContext,
+        action: flight.Action,
+    ):
+        """
+        Handle Flight actions for cache management.
+
+        Supported actions:
+        - "clear_module_cache": Clear Python module cache for a specific location
+          Body: JSON with "location" field (the UDF cache directory path)
+        """
+        action_type = action.type
+
+        if action_type == "clear_module_cache":
+            yield from self._handle_clear_module_cache(action.body.to_pybytes())
+        else:
+            raise flight.FlightUnavailableError(f"Unknown action: {action_type}")
+
+    def _handle_clear_module_cache(self, body: bytes):
+        """
+        Clear Python module cache for a specific UDF location.
+
+        This removes modules from sys.modules that were loaded from the specified
+        location, allowing fresh imports when a new UDF with the same module name
+        is created.
+        """
+        try:
+            params = json.loads(body.decode("utf-8"))
+            location = params.get("location", "")
+
+            if not location:
+                yield flight.Result(b'{"success": false, "error": "empty location"}')
+                return
+
+            cleared_modules = self._clear_modules_from_location(location)
+
+            result = {
+                "success": True,
+                "cleared_modules": cleared_modules,
+                "location": location,
+            }
+            yield flight.Result(json.dumps(result).encode("utf-8"))
+
+        except Exception as e:
+            logging.error("clear_module_cache failed: %s", e)
+            yield flight.Result(json.dumps({
+                "success": False,
+                "error": str(e)
+            }).encode("utf-8"))
+
+    def _clear_modules_from_location(self, location: str) -> list:
+        """
+        Clear module cache for the given location.
+
+        Acquires per-module import locks to ensure no concurrent import is
+        in progress for the modules being cleared, preventing race conditions
+        where sys.modules entries are removed mid-import.
+
+        Returns list of cleared module names.
+        """
+        cleared = []
+
+        with ModuleUDFLoader._module_cache_lock:
+            keys_to_remove = [
+                key for key in ModuleUDFLoader._module_cache
+                if key[0] == location
+            ]
+
+        # For each module, acquire its import lock before clearing.
+        # This ensures no concurrent _get_or_import_module is in progress
+        # for this (location, module_name) pair.
+        for key in keys_to_remove:
+            loc, module_name = key
+            import_lock = ModuleUDFLoader._get_import_lock(loc, module_name)
+
+            with import_lock:
+                with ModuleUDFLoader._module_cache_lock:
+                    if key in ModuleUDFLoader._module_cache:
+                        del ModuleUDFLoader._module_cache[key]
+
+                modules_to_remove = [
+                    name for name, mod in sys.modules.items()
+                    if name == module_name or name.startswith(module_name + ".")
+                    or (
+                        hasattr(mod, "__file__") and mod.__file__ is not None
+                        and mod.__file__.startswith(location)
+                    )
+                ]
+                for mod_name in modules_to_remove:
+                    del sys.modules[mod_name]
+                    if mod_name not in cleared:
+                        cleared.append(mod_name)
+
+                if module_name not in cleared:
+                    cleared.append(module_name)
+
+        return cleared
 
 
 class UDAFOperationType(Enum):
