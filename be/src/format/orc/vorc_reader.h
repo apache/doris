@@ -235,7 +235,9 @@ public:
         _condition_cache_ctx = std::move(ctx);
     }
 
-    int64_t get_total_rows() const override { return _row_reader->getNumberOfRows(); }
+    int64_t get_total_rows() const override {
+        return _row_reader ? _row_reader->getNumberOfRows() : 0;
+    }
 
     bool has_delete_operations() const override {
         return (_position_delete_ordered_rowids != nullptr &&
