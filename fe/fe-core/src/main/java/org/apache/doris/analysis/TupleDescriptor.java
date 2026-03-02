@@ -34,7 +34,6 @@ import java.util.List;
 
 public class TupleDescriptor {
     private final TupleId id;
-    private final String debugName; // debug only
     private final ArrayList<SlotDescriptor> slots;
     private final HashMap<Integer, SlotDescriptor> idToSlotDesc;
 
@@ -49,14 +48,6 @@ public class TupleDescriptor {
         this.id = id;
         this.slots = new ArrayList<SlotDescriptor>();
         this.idToSlotDesc = new HashMap<>();
-        this.debugName = "";
-    }
-
-    public TupleDescriptor(TupleId id, String debugName) {
-        this.id = id;
-        this.slots = new ArrayList<SlotDescriptor>();
-        this.idToSlotDesc = new HashMap<>();
-        this.debugName = debugName;
     }
 
     public void addSlot(SlotDescriptor desc) {
@@ -138,22 +129,6 @@ public class TupleDescriptor {
             slotStrings.add(slot.debugString());
         }
         return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("tbl", tblStr)
-                .add("slots", "[" + Joiner.on(", ").join(slotStrings) + "]")
-                .toString();
-    }
-
-    public String debugString() {
-        // TODO(zc):
-        // String tblStr = (getTable() == null ? "null" : getTable().getFullName());
-        String tblStr = (getTable() == null ? "null" : getTable().getName());
-        List<String> slotStrings = Lists.newArrayList();
-        for (SlotDescriptor slot : slots) {
-            slotStrings.add(slot.debugString());
-        }
-        return MoreObjects.toStringHelper(this)
-                .add("id", id.asInt())
-                .add("name", debugName)
-                .add("tbl", tblStr)
                 .add("slots", "[" + Joiner.on(", ").join(slotStrings) + "]")
                 .toString();
     }
