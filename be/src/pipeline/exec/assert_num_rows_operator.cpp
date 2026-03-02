@@ -120,7 +120,7 @@ Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                 _node_id, to_string_lambda(_assertion), _desired_num_rows, num_rows_returned,
                 _subquery_string);
     }
-    RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block, block->columns()));
+    RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block));
     return Status::OK();
 }
 
