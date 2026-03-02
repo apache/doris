@@ -79,10 +79,21 @@ public class InsertOverwriteUtil {
                 if (!olapTable.writeLockIfExist()) {
                     return;
                 }
+                // Filter out partitions that were deleted between the snapshot time and now.
+                // The write lock is held here, so this check and the subsequent replace are atomic.
+                // The temp partition list is kept as-is so all written data remains visible.
+                List<String> validPartitionNames = new ArrayList<>();
+                for (int i = 0; i < partitionNames.size(); i++) {
+                    if (((OlapTable) olapTable).checkPartitionNameExist(partitionNames.get(i), false)) {
+                        validPartitionNames.add(partitionNames.get(i));
+                    } else {
+                        LOG.warn("partition [{}] has been deleted before replace, skipping", partitionNames.get(i));
+                    }
+                }
                 Map<String, String> properties = Maps.newHashMap();
                 properties.put(PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, "false");
                 ReplacePartitionClause replacePartitionClause = new ReplacePartitionClause(
-                        new PartitionNamesInfo(false, partitionNames),
+                        new PartitionNamesInfo(false, validPartitionNames),
                         new PartitionNamesInfo(true, tempPartitionNames), isForce, properties);
                 if (replacePartitionClause.getTempPartitionNames().isEmpty()) {
                     return;
