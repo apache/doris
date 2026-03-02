@@ -57,7 +57,7 @@ trinoPluginsPath = "/tmp/trino_connector"
 
 // will test <group>/<suite>.groovy
 // empty group will test all group
-testGroups = ""
+testGroups = "external"
 // empty suite will test all suite
 testSuites = ""
 // empty directories will test all directories
