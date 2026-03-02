@@ -311,23 +311,22 @@ bool StreamingAggLocalState::_should_not_do_pre_agg(size_t rows) {
     const auto spill_streaming_agg_mem_limit = p._spill_streaming_agg_mem_limit;
     const bool used_too_much_memory =
             spill_streaming_agg_mem_limit > 0 && _memory_usage() > spill_streaming_agg_mem_limit;
-    std::visit(
-            Overload {
-                    [&](std::monostate& arg) {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                    },
-                    [&](auto& agg_method) {
-                        auto& hash_tbl = *agg_method.hash_table;
-                        /// If too much memory is used during the pre-aggregation stage,
-                        /// it is better to output the data directly without performing further aggregation.
-                        // do not try to do agg, just init and serialize directly return the out_block
-                        if (used_too_much_memory || (hash_tbl.add_elem_size_overflow(rows) &&
-                                                     !_should_expand_preagg_hash_tables())) {
-                            SCOPED_TIMER(_streaming_agg_timer);
-                            ret_flag = true;
-                        }
-                    }},
-            _agg_data->method_variant);
+    std::visit(Overload {[&](std::monostate& arg) {
+                             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                    "uninited hash table");
+                         },
+                         [&](auto& agg_method) {
+                             auto& hash_tbl = *agg_method.hash_table;
+                             /// If too much memory is used during the pre-aggregation stage,
+                             /// it is better to output the data directly without performing further aggregation.
+                             // do not try to do agg, just init and serialize directly return the out_block
+                             if (used_too_much_memory || (hash_tbl.add_elem_size_overflow(rows) &&
+                                                          !_should_expand_preagg_hash_tables())) {
+                                 SCOPED_TIMER(_streaming_agg_timer);
+                                 ret_flag = true;
+                             }
+                         }},
+               _agg_data->method_variant);
 
     return ret_flag;
 }
@@ -722,10 +721,10 @@ bool StreamingAggLocalState::_emplace_into_hash_table_limit(AggregateDataPtr* pl
                               };
 
                               SCOPED_TIMER(_hash_table_emplace_timer);
-                              for (i = 0; i < num_rows; ++i) {
-                                  places[i] = *agg_method.lazy_emplace(state, i, creator,
-                                                                       creator_for_null_key);
-                              }
+                              lazy_emplace_batch(
+                                      agg_method, state, num_rows, creator, creator_for_null_key,
+                                      [&](uint32_t row) { i = row; },
+                                      [&](uint32_t row, auto& mapped) { places[row] = mapped; });
                               COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                               return true;
                           }
@@ -800,10 +799,9 @@ void StreamingAggLocalState::_emplace_into_hash_table(AggregateDataPtr* places,
                              };
 
                              SCOPED_TIMER(_hash_table_emplace_timer);
-                             for (size_t i = 0; i < num_rows; ++i) {
-                                 places[i] = *agg_method.lazy_emplace(state, i, creator,
-                                                                      creator_for_null_key);
-                             }
+                             lazy_emplace_batch(
+                                     agg_method, state, num_rows, creator, creator_for_null_key,
+                                     [&](uint32_t row, auto& mapped) { places[row] = mapped; });
 
                              COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                          }},
