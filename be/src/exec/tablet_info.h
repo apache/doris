@@ -19,6 +19,7 @@
 
 #include <butil/fast_rand.h>
 #include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Types_types.h>
 #include <gen_cpp/descriptors.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
@@ -290,6 +291,8 @@ public:
     bool is_auto_detect_overwrite() const { return _is_auto_detect_overwrite; }
     int64_t get_overwrite_group_id() const { return _overwrite_group_id; }
 
+    std::shared_ptr<TNetworkAddress> get_master_address() const { return _master_address; }
+
     std::vector<uint16_t> get_partition_keys() const { return _partition_slot_locs; }
 
     Status add_partitions(const std::vector<TOlapTablePartition>& partitions);
@@ -346,6 +349,7 @@ private:
     // "insert overwrite partition(*)", detect which partitions by BE
     bool _is_auto_detect_overwrite = false;
     int64_t _overwrite_group_id = 0;
+    std::shared_ptr<TNetworkAddress> _master_address = nullptr;
 };
 
 // indicate where's the tablet and all its replications (node-wise)

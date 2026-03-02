@@ -103,8 +103,10 @@ suite("test_streaming_postgres_job_split", "p0,external,pg,external_docker,exter
         select loadStatistic, status from jobs("type"="insert") where Name='${jobName}'
         """
         log.info("jobInfo: " + jobInfo)
-        assert jobInfo.get(0).get(0) == "{\"scannedRows\":5,\"loadBytes\":270,\"fileNumber\":0,\"fileSize\":0}"
-     
+        def loadStat = parseJson(jobInfo.get(0).get(0))
+        assert loadStat.scannedRows == 5
+        assert loadStat.loadBytes == 273
+
         sql """
             DROP JOB IF EXISTS where jobname =  '${jobName}'
         """

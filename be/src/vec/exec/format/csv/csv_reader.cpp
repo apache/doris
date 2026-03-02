@@ -477,7 +477,7 @@ Status CsvReader::_deserialize_nullable_string(IColumn& column, Slice& slice) {
             return Status::OK();
         }
     }
-    static DataTypeStringSerDe stringSerDe;
+    static DataTypeStringSerDe stringSerDe(TYPE_STRING);
     auto st = stringSerDe.deserialize_one_cell_from_csv(null_column.get_nested_column(), slice,
                                                         _options);
     if (!st.ok()) {

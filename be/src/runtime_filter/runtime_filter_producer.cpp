@@ -86,7 +86,11 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
             RETURN_IF_ERROR(do_merge());
         }
     } else {
-        DCHECK(_is_broadcast_join);
+        if (!_is_broadcast_join) {
+            return Status::InternalError(
+                    "Expected broadcast join for non-build hash table path in publish, filter: {}",
+                    debug_string());
+        }
     }
 
     // wrapper may moved to rf merger, release wrapper here to make sure thread safe
@@ -148,7 +152,10 @@ void RuntimeFilterProducer::latch_dependency(
     if (_rf_state != State::WAITING_FOR_SEND_SIZE) {
         return;
     }
-    DCHECK(dependency != nullptr);
+    if (dependency == nullptr) {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "dependency is nullptr in latch_dependency, filter: {}", debug_string());
+    }
     _dependency = dependency;
     _dependency->add();
 }
@@ -158,7 +165,10 @@ Status RuntimeFilterProducer::send_size(RuntimeState* state, uint64_t local_filt
     if (_rf_state != State::WAITING_FOR_SEND_SIZE) {
         return Status::OK();
     }
-    DCHECK(_dependency != nullptr);
+    if (_dependency == nullptr) {
+        return Status::InternalError("_dependency is nullptr in send_size, filter: {}",
+                                     debug_string());
+    }
     set_state(State::WAITING_FOR_SYNCED_SIZE);
 
     // two case we need do local merge:
@@ -239,7 +249,10 @@ void RuntimeFilterProducer::set_synced_size(uint64_t global_size) {
     }
 
     _synced_size = global_size;
-    DCHECK(_dependency != nullptr);
+    if (_dependency == nullptr) {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "_dependency is nullptr in set_synced_size, filter: {}", debug_string());
+    }
     _dependency->sub();
 }
 

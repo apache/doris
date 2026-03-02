@@ -28,7 +28,6 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h" // IWYU pragma: keep
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
-#include "olap/wrapper_field.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/type_limit.h"
@@ -144,6 +143,13 @@ public:
 
     PredicateType type() const override { return PT; }
 
+    bool could_be_erased() const override {
+        if ((PT == PredicateType::NOT_IN_LIST && !_opposite) ||
+            (PT == PredicateType::IN_LIST && _opposite)) {
+            return false;
+        }
+        return true;
+    }
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
@@ -239,56 +245,24 @@ public:
         _evaluate_bit<false>(column, sel, size, flags);
     }
 
-    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        if (statistic.first->is_null() && statistic.second->is_null()) {
+    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
+        if (!zone_map.has_not_null) {
             return false;
         }
-        using CompareType = typename std::conditional<is_string_type(Type), StringRef, T>::type;
-        CompareType tmp_min_value;
-        CompareType tmp_max_value;
-        if constexpr (is_string_type(Type)) {
-            tmp_min_value = StringRef(_min_value.data(), _min_value.size());
-            tmp_max_value = StringRef(_max_value.data(), _max_value.size());
-        } else {
-            tmp_min_value = _min_value;
-            tmp_max_value = _max_value;
-        }
         if constexpr (PT == PredicateType::IN_LIST) {
-            return Compare::less_equal(
-                           get_zone_map_value<Type, CompareType>(statistic.first->cell_ptr()),
-                           tmp_max_value) &&
-                   Compare::greater_equal(
-                           get_zone_map_value<Type, CompareType>(statistic.second->cell_ptr()),
-                           tmp_min_value);
+            return Compare::less_equal(zone_map.min_value.template get<Type>(), _max_value) &&
+                   Compare::greater_equal(zone_map.max_value.template get<Type>(), _min_value);
         } else {
             return true;
         }
     }
 
     bool camp_field(const vectorized::Field& min_field, const vectorized::Field& max_field) const {
-        using CompareType = typename std::conditional<is_string_type(Type), StringRef, T>::type;
-        CompareType min_value;
-        CompareType max_value;
-        CompareType tmp_min_value;
-        CompareType tmp_max_value;
-        if constexpr (is_string_type(Type)) {
-            tmp_min_value = StringRef(_min_value.data(), _min_value.size());
-            tmp_max_value = StringRef(_max_value.data(), _max_value.size());
-            auto& tmp_min = min_field.template get<Type>();
-            auto& tmp_max = max_field.template get<Type>();
-            min_value = StringRef(tmp_min.data(), tmp_min.size());
-            max_value = StringRef(tmp_max.data(), tmp_max.size());
-        } else {
-            tmp_min_value = _min_value;
-            tmp_max_value = _max_value;
-            min_value = min_field.template get<Type>();
-            max_value = max_field.template get<Type>();
-        }
         if constexpr (PT == PredicateType::IN_LIST) {
-            return (Compare::less_equal(min_value, tmp_max_value) &&
-                    Compare::greater_equal(max_value, tmp_min_value)) ||
-                   (Compare::greater_equal(max_value, tmp_min_value) &&
-                    Compare::less_equal(min_value, tmp_max_value));
+            return (Compare::less_equal(min_field.template get<Type>(), _max_value) &&
+                    Compare::greater_equal(max_field.template get<Type>(), _min_value)) ||
+                   (Compare::greater_equal(max_field.template get<Type>(), _min_value) &&
+                    Compare::less_equal(min_field.template get<Type>(), _max_value));
         } else {
             return true;
         }
@@ -366,27 +340,13 @@ public:
         return false;
     }
 
-    bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        if (statistic.first->is_null() || statistic.second->is_null()) {
+    bool evaluate_del(const segment_v2::ZoneMap& zone_map) const override {
+        if (zone_map.has_null) {
             return false;
         }
         if constexpr (PT == PredicateType::NOT_IN_LIST) {
-            using CompareType = typename std::conditional<is_string_type(Type), StringRef, T>::type;
-            CompareType tmp_min_value;
-            CompareType tmp_max_value;
-            if constexpr (is_string_type(Type)) {
-                tmp_min_value = StringRef(_min_value.data(), _min_value.size());
-                tmp_max_value = StringRef(_max_value.data(), _max_value.size());
-            } else {
-                tmp_min_value = _min_value;
-                tmp_max_value = _max_value;
-            }
-            return Compare::greater(
-                           get_zone_map_value<Type, CompareType>(statistic.first->cell_ptr()),
-                           tmp_max_value) ||
-                   Compare::less(
-                           get_zone_map_value<Type, CompareType>(statistic.second->cell_ptr()),
-                           tmp_min_value);
+            return Compare::greater(zone_map.min_value.template get<Type>(), _max_value) ||
+                   Compare::less(zone_map.max_value.template get<Type>(), _min_value);
         } else {
             return false;
         }

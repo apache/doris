@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser.QsPlan;
@@ -33,7 +34,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.IntStream;
 
 /**
@@ -45,11 +48,18 @@ public class SearchPredicate extends Predicate {
 
     private final String dslString;
     private final QsPlan qsPlan;
+    private final List<Index> fieldIndexes;
 
     public SearchPredicate(String dslString, QsPlan qsPlan, List<Expr> children, boolean nullable) {
+        this(dslString, qsPlan, children, Collections.emptyList(), nullable);
+    }
+
+    public SearchPredicate(String dslString, QsPlan qsPlan, List<Expr> children,
+            List<Index> fieldIndexes, boolean nullable) {
         super();
         this.dslString = dslString;
         this.qsPlan = qsPlan;
+        this.fieldIndexes = fieldIndexes != null ? fieldIndexes : Collections.emptyList();
         this.type = Type.BOOLEAN;
 
         // Add children (SlotReferences)
@@ -63,6 +73,7 @@ public class SearchPredicate extends Predicate {
         super(other);
         this.dslString = other.dslString;
         this.qsPlan = other.qsPlan;
+        this.fieldIndexes = other.fieldIndexes;
     }
 
     @Override
@@ -152,7 +163,6 @@ public class SearchPredicate extends Predicate {
             String fieldPath = binding.getFieldName();
             thriftBinding.setFieldName(fieldPath);
 
-            // Check if this is a variant subcolumn (contains dot)
             if (fieldPath.contains(".")) {
                 // Parse variant subcolumn path
                 int firstDotPos = fieldPath.indexOf('.');
@@ -183,9 +193,29 @@ public class SearchPredicate extends Predicate {
                 thriftBinding.setSlotIndex(i); // fallback to position
             }
 
+            // Set index properties from FE Index lookup (needed for variant subcolumn analyzer)
+            if (i < fieldIndexes.size() && fieldIndexes.get(i) != null) {
+                Map<String, String> properties = fieldIndexes.get(i).getProperties();
+                if (properties != null && !properties.isEmpty()) {
+                    thriftBinding.setIndexProperties(properties);
+                    LOG.debug("buildThriftParam: field='{}' index_properties={}",
+                            fieldPath, properties);
+                }
+            }
+
             bindings.add(thriftBinding);
         }
         param.setFieldBindings(bindings);
+
+        // Set default_operator for BE to use when tokenizing TERM queries
+        if (qsPlan.getDefaultOperator() != null) {
+            param.setDefaultOperator(qsPlan.getDefaultOperator());
+        }
+
+        // Set minimum_should_match for BE to use when tokenizing TERM queries in Lucene mode
+        if (qsPlan.getMinimumShouldMatch() != null) {
+            param.setMinimumShouldMatch(qsPlan.getMinimumShouldMatch());
+        }
 
         return param;
     }
@@ -242,6 +272,9 @@ public class SearchPredicate extends Predicate {
     private void appendClauseExplain(TSearchClause clause, List<String> lines, int depth) {
         StringBuilder line = new StringBuilder();
         line.append(indent(depth)).append("- clause_type=").append(clause.getClauseType());
+        if (clause.isSetNestedPath()) {
+            line.append(", nested_path=").append('\"').append(escapeText(clause.getNestedPath())).append('\"');
+        }
         if (clause.isSetFieldName()) {
             line.append(", field=").append('\"').append(escapeText(clause.getFieldName())).append('\"');
         }
@@ -309,6 +342,10 @@ public class SearchPredicate extends Predicate {
 
         if (node.getField() != null) {
             clause.setFieldName(node.getField());
+        }
+
+        if (node.getType() == SearchDslParser.QsClauseType.NESTED && node.getNestedPath() != null) {
+            clause.setNestedPath(node.getNestedPath());
         }
 
         if (node.getValue() != null) {

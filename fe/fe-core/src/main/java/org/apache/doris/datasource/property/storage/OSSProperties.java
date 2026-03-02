@@ -52,15 +52,16 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     protected String endpoint = "";
 
     @Getter
-    @ConnectorProperty(names = {"oss.access_key", "s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY",
-            "dlf.access_key", "dlf.catalog.accessKeyId", "fs.oss.accessKeyId"},
+    @ConnectorProperty(names = {"oss.access_key", "s3.access_key", "s3.access-key-id", "AWS_ACCESS_KEY", "access_key",
+        "ACCESS_KEY", "dlf.access_key", "dlf.catalog.accessKeyId", "fs.oss.accessKeyId"},
             required = false,
             sensitive = true,
             description = "The access key of OSS.")
     protected String accessKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"oss.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY",
+    @ConnectorProperty(names = {"oss.secret_key", "s3.secret_key", "s3.secret-access-key", "AWS_SECRET_KEY",
+        "secret_key", "SECRET_KEY",
             "dlf.secret_key", "dlf.catalog.secret_key", "fs.oss.accessKeySecret"},
             required = false,
             sensitive = true,
@@ -80,7 +81,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     protected String dlfAccessPublic = "false";
 
     @Getter
-    @ConnectorProperty(names = {"oss.session_token", "s3.session_token", "session_token",
+    @ConnectorProperty(names = {"oss.session_token", "s3.session_token", "s3.session-token", "session_token",
             "fs.oss.securityToken", "AWS_TOKEN"},
             required = false,
             sensitive = true,

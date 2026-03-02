@@ -49,10 +49,7 @@ public class CheckMatchExpression extends OneRewriteRuleFactory {
         for (Expression expr : expressions) {
             if (expr instanceof Match) {
                 Match matchExpression = (Match) expr;
-                boolean isSlotReference = matchExpression.left() instanceof SlotReference;
-                boolean isCastChildWithSlotReference = (matchExpression.left() instanceof Cast
-                            && matchExpression.left().child(0) instanceof SlotReference);
-                if (!(isSlotReference || isCastChildWithSlotReference)
+                if (!isSlotOrCastChainOnSlot(matchExpression.left())
                         || !(matchExpression.right() instanceof Literal)) {
                     throw new AnalysisException(String.format("Only support match left operand is SlotRef,"
                             + " right operand is Literal. But meet expression %s", matchExpression));
@@ -60,5 +57,13 @@ public class CheckMatchExpression extends OneRewriteRuleFactory {
             }
         }
         return filter;
+    }
+
+    private boolean isSlotOrCastChainOnSlot(Expression expression) {
+        Expression current = expression;
+        while (current instanceof Cast) {
+            current = current.child(0);
+        }
+        return current instanceof SlotReference;
     }
 }

@@ -52,6 +52,8 @@ public class ElementAt extends ScalarFunction
                     .args(ArrayType.of(new AnyDataType(0)), BigIntType.INSTANCE),
             FunctionSignature.ret(VariantType.INSTANCE)
                     .args(VariantType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(VariantType.INSTANCE)
+                    .args(VariantType.INSTANCE, BigIntType.INSTANCE),
             FunctionSignature.ret(new FollowToAnyDataType(1))
                     .args(MapType.of(new AnyDataType(0), new AnyDataType(1)), new FollowToAnyDataType(0))
     );
@@ -104,10 +106,10 @@ public class ElementAt extends ScalarFunction
         DataType expressionType = arguments.get(0).getDataType();
         DataType sigType = signature.argumentsTypes.get(0);
         if (expressionType instanceof VariantType && sigType instanceof VariantType) {
-            // only keep the variant max subcolumns count
-            VariantType variantType = new VariantType(((VariantType) expressionType).getVariantMaxSubcolumnsCount());
-            signature = signature.withArgumentType(0, variantType);
-            signature = signature.withReturnType(variantType);
+            // Preserve predefinedFields for schema template matching
+            VariantType originalType = (VariantType) expressionType;
+            signature = signature.withArgumentType(0, originalType);
+            signature = signature.withReturnType(originalType);
         }
         return super.computeSignature(signature);
     }

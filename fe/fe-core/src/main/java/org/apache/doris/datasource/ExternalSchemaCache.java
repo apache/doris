@@ -19,6 +19,7 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricLabel;
@@ -26,7 +27,6 @@ import org.apache.doris.metric.MetricRepo;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import lombok.Data;
-import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -49,13 +49,14 @@ public class ExternalSchemaCache {
     }
 
     private void init(ExecutorService executor) {
-        long schemaCacheTtlSecond = NumberUtils.toLong(
-                (catalog.getProperties().get(ExternalCatalog.SCHEMA_CACHE_TTL_SECOND)), ExternalCatalog.CACHE_NO_TTL);
+        CacheSpec cacheSpec = CacheSpec.fromTtlValue(
+                catalog.getProperties().get(ExternalCatalog.SCHEMA_CACHE_TTL_SECOND),
+                Config.external_cache_expire_time_seconds_after_access,
+                Config.max_external_schema_cache_num);
         CacheFactory schemaCacheFactory = new CacheFactory(
-                OptionalLong.of(schemaCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
-                        ? schemaCacheTtlSecond : Config.external_cache_expire_time_seconds_after_access),
+                CacheSpec.toExpireAfterAccess(cacheSpec.getTtlSecond()),
                 OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
-                Config.max_external_schema_cache_num,
+                cacheSpec.getCapacity(),
                 false,
                 null);
         schemaCache = schemaCacheFactory.buildCache(this::loadSchema, executor);

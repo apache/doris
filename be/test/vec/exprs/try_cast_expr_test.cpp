@@ -26,6 +26,7 @@
 #include "vec/core/types.h"
 #include "vec/exprs/function_context.h"
 #include "vec/exprs/vcast_expr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 

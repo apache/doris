@@ -203,6 +203,10 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     case FieldType::OLAP_FIELD_TYPE_BIGINT: {
         return std::make_unique<OlapColumnDataConvertorSimple<TYPE_BIGINT>>();
     }
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT: {
+        // used by internal length/offset columns (e.g. ColumnOffset64).
+        return std::make_unique<OlapColumnDataConvertorSimple<TYPE_UINT64>>();
+    }
     case FieldType::OLAP_FIELD_TYPE_LARGEINT: {
         return std::make_unique<OlapColumnDataConvertorSimple<TYPE_LARGEINT>>();
     }

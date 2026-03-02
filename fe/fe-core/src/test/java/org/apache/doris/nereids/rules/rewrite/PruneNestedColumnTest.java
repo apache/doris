@@ -95,6 +95,11 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 + ">)\n"
                 + "properties ('replication_num'='1')");
 
+        createTable("create table variant_tbl(\n"
+                + "  id int,\n"
+                + "  v variant\n"
+                + ") properties ('replication_num'='1')");
+
         connectContext.getSessionVariable().setDisableNereidsRules(RuleType.PRUNE_EMPTY_PARTITION.name());
         connectContext.getSessionVariable().enableNereidsTimeout = false;
     }
@@ -119,6 +124,115 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         assertColumn("select MAP_VALUES(struct_element(s, 'data')[0])[1] from tbl",
                 "struct<data:array<map<int,struct<a:int,b:double>>>>",
                 ImmutableList.of(path("s", "data", "*", "VALUES")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testVariantAccessPath() throws Exception {
+        assertColumn("select v['a']['B'] from variant_tbl",
+                "variant",
+                ImmutableList.of(path("v", "a", "B")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testVariantMultiProjectionAccessPaths() throws Exception {
+        assertVariantSubColumnSlots("select v['a'], v['b']['c'] from variant_tbl",
+                ImmutableList.of(
+                        ImmutableList.of("a"),
+                        ImmutableList.of("b", "c")
+                ));
+    }
+
+    @Test
+    public void testVariantPredicateAccessPath() throws Exception {
+        assertColumn("select 1 from variant_tbl where v['k'] is not null",
+                "variant",
+                ImmutableList.of(path("v", "k")),
+                ImmutableList.of(path("v", "k"))
+        );
+    }
+
+    @Test
+    public void testVariantProjectAndPredicateAccessPaths() throws Exception {
+        assertVariantSubColumnSlots("select v['a'] from variant_tbl where v['b']['c'] = 1",
+                ImmutableList.of(
+                        ImmutableList.of("a"),
+                        ImmutableList.of("b", "c")
+                ));
+    }
+
+    @Test
+    public void testVariantAliasAccessPathPropagation() throws Exception {
+        assertColumn("select x['b'] from (select v['a'] as x from variant_tbl) t",
+                "variant",
+                ImmutableList.of(path("v", "a", "b")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testVariantCteAccessPathPropagation() throws Exception {
+        assertColumn("with t as (select id, v from variant_tbl) select t.v['k'] from t",
+                "variant",
+                ImmutableList.of(path("v", "k")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testVariantJoinAccessPathPropagation() throws Exception {
+        assertVariantSubColumnSlotCount(
+                "select 1 from variant_tbl t1 join variant_tbl t2 on t1.id=t2.id "
+                        + "where t1.v['k'] is not null and t2.v['k'] is not null",
+                ImmutableList.of("k"),
+                2
+        );
+    }
+
+    @Test
+    public void testExplodeVariantAccessPath() throws Exception {
+        assertColumn("select x['k'] from variant_tbl lateral view explode(v) tmp as x",
+                "variant",
+                ImmutableList.of(path("v", "k")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testExplodeVariantProjectAndFilterAccessPath() throws Exception {
+        assertColumn("select x['x'] from variant_tbl lateral view explode(v['arr']) tmp as x where x['y'] is not null",
+                "variant",
+                ImmutableList.of(path("v", "arr", "x"), path("v", "arr", "y")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testExplodeVariantMultiLevelFieldAccessPath() throws Exception {
+        assertColumn("select x['a']['b'] from variant_tbl lateral view explode(v['arr']) tmp as x",
+                "variant",
+                ImmutableList.of(path("v", "arr", "a", "b")),
+                ImmutableList.of()
+        );
+    }
+
+    @Test
+    public void testExplodeVariantWithOuterPredicateAccessPath() throws Exception {
+        assertAllAccessPathsContain("select x['x'] from variant_tbl lateral view explode(v['arr']) tmp as x "
+                        + "where v['filter']['k'] = 1 and x['y'] is not null",
+                ImmutableList.of(path("v", "arr", "x"), path("v", "arr", "y"), path("v", "filter", "k")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testExplodeVariantAliasPropagationAccessPath() throws Exception {
+        assertColumn("select x['m'] from (select v as a from variant_tbl) t lateral view explode(a['arr']) tmp as x "
+                        + "where x['n'] is not null",
+                "variant",
+                ImmutableList.of(path("v", "arr", "m"), path("v", "arr", "n")),
                 ImmutableList.of()
         );
     }
@@ -971,6 +1085,21 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         assertColumns(sql, expectType == null ? null : ImmutableList.of(Triple.of(expectType, expectAllAccessPaths, expectPredicateAccessPaths)));
     }
 
+    private void assertAllAccessPathsContain(String sql, List<TColumnAccessPath> expectContainAllAccessPaths,
+            List<TColumnAccessPath> expectNotContainAllAccessPaths) throws Exception {
+        Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(sql);
+        TreeSet<TColumnAccessPath> allAccessPaths = new TreeSet<>();
+        for (SlotDescriptor slotDescriptor : result.second) {
+            allAccessPaths.addAll(slotDescriptor.getAllAccessPaths());
+        }
+        for (TColumnAccessPath accessPath : expectContainAllAccessPaths) {
+            Assertions.assertTrue(allAccessPaths.contains(accessPath));
+        }
+        for (TColumnAccessPath accessPath : expectNotContainAllAccessPaths) {
+            Assertions.assertFalse(allAccessPaths.contains(accessPath));
+        }
+    }
+
     private void assertColumns(String sql,
             List<Triple<String, List<TColumnAccessPath>, List<TColumnAccessPath>>> expectResults) throws Exception {
         Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(sql);
@@ -1076,5 +1205,52 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         TColumnAccessPath accessPath = new TColumnAccessPath(TAccessPathType.META);
         accessPath.meta_access_path = new TMetaAccessPath(ImmutableList.copyOf(path));
         return accessPath;
+    }
+
+    private void assertVariantSubColumnSlots(String sql, List<List<String>> expectedSubColPaths) throws Exception {
+        Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(sql);
+        List<SlotDescriptor> slotDescriptors = result.second;
+
+        TreeSet<String> actualSubColPaths = new TreeSet<>();
+        for (SlotDescriptor slotDescriptor : slotDescriptors) {
+            if (!slotDescriptor.getType().isVariantType()) {
+                continue;
+            }
+            List<String> subColPath = slotDescriptor.getSubColLables();
+            if (subColPath == null || subColPath.isEmpty()) {
+                continue;
+            }
+            actualSubColPaths.add(String.join(".", subColPath));
+        }
+
+        TreeSet<String> expectedSubColPathSet = new TreeSet<>();
+        for (List<String> expected : expectedSubColPaths) {
+            expectedSubColPathSet.add(String.join(".", expected));
+        }
+
+        Assertions.assertEquals(expectedSubColPathSet, actualSubColPaths);
+    }
+
+    private void assertVariantSubColumnSlotCount(String sql, List<String> expectedSubColPath, int expectedCount)
+            throws Exception {
+        Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(sql);
+        List<SlotDescriptor> slotDescriptors = result.second;
+
+        String expected = String.join(".", expectedSubColPath);
+        int actualCount = 0;
+        for (SlotDescriptor slotDescriptor : slotDescriptors) {
+            if (!slotDescriptor.getType().isVariantType()) {
+                continue;
+            }
+            List<String> subColPath = slotDescriptor.getSubColLables();
+            if (subColPath == null || subColPath.isEmpty()) {
+                continue;
+            }
+            if (expected.equals(String.join(".", subColPath))) {
+                actualCount++;
+            }
+        }
+
+        Assertions.assertEquals(expectedCount, actualCount);
     }
 }

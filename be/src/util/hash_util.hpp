@@ -34,20 +34,93 @@
 #include "util/hash/city.h"
 #include "util/murmur_hash3.h"
 #include "util/sse_util.hpp"
+#include "vec/common/endian.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
+namespace detail {
+// Slicing-by-4 table: t[0] is the standard byte-at-a-time table,
+// t[1..3] are extended tables for parallel 4-byte processing.
+struct CRC32SliceBy4Table {
+    uint32_t t[4][256] {};
+    constexpr CRC32SliceBy4Table() {
+        // t[0]: standard CRC32 lookup table
+        for (uint32_t i = 0; i < 256; i++) {
+            uint32_t c = i;
+            for (int j = 0; j < 8; j++) {
+                c = (c & 1) ? ((c >> 1) ^ 0xEDB88320U) : (c >> 1);
+            }
+            t[0][i] = c;
+        }
+        // t[1..3]: each entry is one additional CRC byte-step applied to t[k-1]
+        for (uint32_t i = 0; i < 256; i++) {
+            uint32_t c = t[0][i];
+            for (int k = 1; k < 4; k++) {
+                c = t[0][c & 0xFF] ^ (c >> 8);
+                t[k][i] = c;
+            }
+        }
+    }
+};
+} // namespace detail
+
 // Utility class to compute hash values.
 class HashUtil {
+private:
+    static inline constexpr detail::CRC32SliceBy4Table CRC32_TABLE {};
+
 public:
     static uint32_t zlib_crc_hash(const void* data, uint32_t bytes, uint32_t hash) {
         return (uint32_t)crc32(hash, (const unsigned char*)data, bytes);
     }
 
+    // Inline CRC32 (zlib-compatible, standard CRC32 polynomial) for fixed-size types.
+    // Uses Slicing-by-4 technique for 4/8-byte types: processes 4 bytes at a time using
+    // 4 precomputed lookup tables, reducing serial table lookups from 4 to 1 per 4-byte chunk.
+    // Polynomial: 0xEDB88320 (reflected form of 0x04C11DB7).
+    // Endian note: CRC32 reflected algorithm processes bytes in address order (byte[0] first).
+    // Slicing-by-4 requires byte[0] at LSB of the loaded uint32_t, which is little-endian layout.
+    // LittleEndian::Load32 provides this on ALL platforms: noop on LE, bswap on BE.
+    template <typename T>
+    static uint32_t zlib_crc32_fixed(const T& value, uint32_t hash) {
+        const auto* p = reinterpret_cast<const uint8_t*>(&value);
+        // zlib convention: pre/post XOR with 0xFFFFFFFF
+        uint32_t crc = hash ^ 0xFFFFFFFFU;
+
+        if constexpr (sizeof(T) == 1) {
+            // 1 byte: single table lookup
+            crc = CRC32_TABLE.t[0][(crc ^ p[0]) & 0xFF] ^ (crc >> 8);
+        } else if constexpr (sizeof(T) == 2) {
+            // 2 bytes: two sequential table lookups (slicing doesn't help below 4 bytes)
+            crc = CRC32_TABLE.t[0][(crc ^ p[0]) & 0xFF] ^ (crc >> 8);
+            crc = CRC32_TABLE.t[0][(crc ^ p[1]) & 0xFF] ^ (crc >> 8);
+        } else if constexpr (sizeof(T) == 4) {
+            // 4 bytes: one Slicing-by-4 step — 4 independent lookups in parallel
+            // LittleEndian::Load32 handles unaligned load + byte-swap on big-endian,
+            // ensuring byte[0] is always at LSB for correct CRC byte processing order.
+            uint32_t word = LittleEndian::Load32(p) ^ crc;
+            crc = CRC32_TABLE.t[3][(word)&0xFF] ^ CRC32_TABLE.t[2][(word >> 8) & 0xFF] ^
+                  CRC32_TABLE.t[1][(word >> 16) & 0xFF] ^ CRC32_TABLE.t[0][(word >> 24) & 0xFF];
+        } else if constexpr (sizeof(T) == 8) {
+            // 8 bytes: two Slicing-by-4 steps
+            uint32_t word = LittleEndian::Load32(p) ^ crc;
+            crc = CRC32_TABLE.t[3][(word)&0xFF] ^ CRC32_TABLE.t[2][(word >> 8) & 0xFF] ^
+                  CRC32_TABLE.t[1][(word >> 16) & 0xFF] ^ CRC32_TABLE.t[0][(word >> 24) & 0xFF];
+
+            word = LittleEndian::Load32(p + 4) ^ crc;
+            crc = CRC32_TABLE.t[3][(word)&0xFF] ^ CRC32_TABLE.t[2][(word >> 8) & 0xFF] ^
+                  CRC32_TABLE.t[1][(word >> 16) & 0xFF] ^ CRC32_TABLE.t[0][(word >> 24) & 0xFF];
+        } else {
+            // Fallback to zlib for larger/unusual types
+            return (uint32_t)crc32(hash, (const unsigned char*)&value, sizeof(T));
+        }
+        return crc ^ 0xFFFFFFFFU;
+    }
+
     static uint32_t zlib_crc_hash_null(uint32_t hash) {
         // null is treat as 0 when hash
         static const int INT_VALUE = 0;
-        return (uint32_t)crc32(hash, (const unsigned char*)(&INT_VALUE), 4);
+        return zlib_crc32_fixed(INT_VALUE, hash);
     }
 
     template <typename T>

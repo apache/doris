@@ -205,20 +205,17 @@ std::vector<TermInfo> FunctionMatchBase::analyse_query_str_token(
     // - PARSER_NONE: no tokenization (keyword/exact match)
     // - Other parsers: tokenize using the analyzer
     if (!analyzer_ctx->should_tokenize()) {
-        // Keyword index or no tokenization needed
-        // Don't add empty string as token - empty query should match nothing
-        if (!match_query_str.empty()) {
-            query_tokens.emplace_back(match_query_str);
-        }
+        // Keyword index: all strings (including empty) are valid tokens for exact match.
+        // Empty string is a valid value in keyword index and should be matchable.
+        query_tokens.emplace_back(match_query_str);
         return query_tokens;
     }
 
     // Safety check: if analyzer is nullptr but tokenization is expected, fall back to no tokenization
     if (analyzer_ctx->analyzer == nullptr) {
         VLOG_DEBUG << "Analyzer is nullptr, falling back to no tokenization";
-        if (!match_query_str.empty()) {
-            query_tokens.emplace_back(match_query_str);
-        }
+        // For fallback case, also allow empty strings to be matched
+        query_tokens.emplace_back(match_query_str);
         return query_tokens;
     }
 

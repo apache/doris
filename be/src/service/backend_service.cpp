@@ -71,6 +71,7 @@
 #include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_recorder.h"
+#include "udf/python/python_env.h"
 #include "util/arrow/row_batch.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
@@ -1309,6 +1310,21 @@ void BaseBackendService::test_storage_connectivity(TTestStorageConnectivityRespo
                                                    const TTestStorageConnectivityRequest& request) {
     Status status = io::StorageConnectivityTester::test(request.type, request.properties);
     response.__set_status(status.to_thrift());
+}
+
+void BaseBackendService::get_python_envs(std::vector<TPythonEnvInfo>& result) {
+    result = PythonVersionManager::instance().env_infos_to_thrift();
+}
+
+void BaseBackendService::get_python_packages(std::vector<TPythonPackageInfo>& result,
+                                             const std::string& python_version) {
+    PythonVersion version;
+    auto& manager = PythonVersionManager::instance();
+    THROW_IF_ERROR(manager.get_version(python_version, &version));
+
+    std::vector<std::pair<std::string, std::string>> packages;
+    THROW_IF_ERROR(list_installed_packages(version, &packages));
+    result = manager.package_infos_to_thrift(packages);
 }
 
 #include "common/compile_check_end.h"

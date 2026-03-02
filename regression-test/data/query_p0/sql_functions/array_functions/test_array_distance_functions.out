@@ -29,3 +29,61 @@
 -- !sql --
 0.0
 
+-- !cosine_sim_identical --
+1.0
+
+-- !cosine_sim_orthogonal --
+0.0
+
+-- !cosine_sim_opposite --
+-1.0
+
+-- !cosine_sim_float --
+0.9746318
+
+-- !cosine_sim_known --
+0.9974149
+
+-- !cosine_sim_single --
+1.0
+
+-- !cosine_sim_2d --
+0.96
+
+-- !cosine_sim_negative --
+-1.0
+
+-- !cosine_sim_zero_first --
+0.0
+
+-- !cosine_sim_zero_second --
+0.0
+
+-- !cosine_sim_both_zero --
+0.0
+
+-- !cosine_sim_single_zero --
+0.0
+
+-- !cosine_sim_mixed --
+-1.0
+
+-- !cosine_sim_distance_relation --
+1.0
+
+-- !cosine_sim_empty --
+0.0
+
+-- !cosine_sim_large --
+0.98387
+
+-- !cosine_sim_small --
+0.9838699
+
+-- !cosine_sim_table --
+1	1.0
+2	0.0
+3	0.9746318
+4	-1.0
+5	0.96
+

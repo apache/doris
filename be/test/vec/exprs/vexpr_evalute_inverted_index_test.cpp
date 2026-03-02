@@ -158,11 +158,13 @@ TEST(TExprInvertedIndexTest, test_expr_evaluate_inverted_index) {
 
     std::unordered_map<doris::ColumnId, std::unordered_map<const doris::vectorized::VExpr*, bool>>
             common_expr_inverted_index_status;
+    std::vector<doris::ColumnId> col_ids;
+    std::vector<std::unique_ptr<doris::segment_v2::IndexIterator>> index_iterators;
+    std::vector<doris::vectorized::IndexFieldNameAndTypePair> storage_types;
+    doris::segment_v2::ColumnIteratorOptions column_iter_opts;
     auto inverted_index_context = std::make_shared<doris::vectorized::IndexExecContext>(
-            std::vector<doris::ColumnId>(),
-            std::vector<std::unique_ptr<doris::segment_v2::IndexIterator>>(),
-            std::vector<doris::vectorized::IndexFieldNameAndTypePair>(),
-            common_expr_inverted_index_status, nullptr);
+            col_ids, index_iterators, storage_types, common_expr_inverted_index_status, nullptr,
+            nullptr, column_iter_opts);
     expr_ctx.set_index_context(inverted_index_context);
     doris::RuntimeState state;
     doris::RowDescriptor row_desc;

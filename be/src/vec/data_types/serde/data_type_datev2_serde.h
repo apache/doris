@@ -40,6 +40,9 @@ public:
     Status from_string_batch(const ColumnString& str, ColumnNullable& column,
                              const FormatOptions& options) const final;
 
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
+
     Status from_string_strict_mode_batch(const ColumnString& str, IColumn& column,
                                          const FormatOptions& options,
                                          const NullMap::value_type* null_map = nullptr) const final;
@@ -103,5 +106,7 @@ public:
 
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
+
+    std::string to_olap_string(const vectorized::Field& field) const override;
 };
 } // namespace doris::vectorized

@@ -47,6 +47,7 @@ import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Strings;
@@ -234,6 +235,8 @@ public class AuditLogHelper {
         }
         String cluster = Config.isCloudMode() ? cloudCluster : "";
         String stmtType = getStmtType(parsedStmt);
+        long queueTimeMs = getQueueTimeMs(ctx);
+
 
         AuditEventBuilder auditEventBuilder = ctx.getAuditEventBuilder();
         // ATTN: MUST reset, otherwise, the same AuditEventBuilder instance will be used in the next query.
@@ -252,6 +255,7 @@ public class AuditLogHelper {
                 .setErrorMessage((ctx.getState().getErrorMessage() == null ? "" :
                         ctx.getState().getErrorMessage().replace("\n", " ").replace("\t", " ")))
                 .setQueryTime(elapseMs)
+                .setQueueTimeMs(queueTimeMs)
                 .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
                 .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
                 .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
@@ -445,6 +449,14 @@ public class AuditLogHelper {
         if (LOG.isDebugEnabled()) {
             LOG.debug("submit audit event: {}", event.queryId);
         }
+    }
+
+    private static long getQueueTimeMs(ConnectContext ctx) {
+        QueueToken queueToken = null;
+        if (ctx.getExecutor() != null && ctx.getExecutor().getCoord() != null) {
+            queueToken = ctx.getExecutor().getCoord().getQueueToken();
+        }
+        return queueToken == null ? -1 : queueToken.getQueueEndTime() - queueToken.getQueueStartTime();
     }
 
     private static String getStmtType(StatementBase stmt) {

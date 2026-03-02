@@ -56,6 +56,25 @@
     static RegisterConfValidator reg_validator_##FIELD_NAME( \
             #FIELD_NAME, []() -> bool { return validator_##FIELD_NAME(FIELD_NAME); });
 
+// DEFINE_ON_UPDATE macro is used to register a callback function that will be called
+// when the config field is updated at runtime.
+// The callback function signature is: void callback(T old_value, T new_value)
+// where T is the type of the config field.
+// Example:
+//   DEFINE_ON_UPDATE(my_config, [](int64_t old_val, int64_t new_val) {
+//       LOG(INFO) << "my_config changed from " << old_val << " to " << new_val;
+//   });
+#define DEFINE_ON_UPDATE_IMPL(FIELD_NAME, CALLBACK)                               \
+    static auto on_update_callback_##FIELD_NAME = CALLBACK;                       \
+    static RegisterConfUpdateCallback reg_update_callback_##FIELD_NAME(           \
+            #FIELD_NAME, [](const void* old_ptr, const void* new_ptr) {           \
+                on_update_callback_##FIELD_NAME(                                  \
+                        *reinterpret_cast<const decltype(FIELD_NAME)*>(old_ptr),  \
+                        *reinterpret_cast<const decltype(FIELD_NAME)*>(new_ptr)); \
+            });
+
+#define DEFINE_ON_UPDATE(name, callback) DEFINE_ON_UPDATE_IMPL(name, callback)
+
 #define DEFINE_Int16(name, defaultstr) DEFINE_FIELD(int16_t, name, defaultstr, false)
 #define DEFINE_Bools(name, defaultstr) DEFINE_FIELD(std::vector<bool>, name, defaultstr, false)
 #define DEFINE_Doubles(name, defaultstr) DEFINE_FIELD(std::vector<double>, name, defaultstr, false)
@@ -851,12 +870,12 @@ DECLARE_mInt32(storage_flood_stage_usage_percent); // 90%
 // The min bytes that should be left of a data dir
 DECLARE_mInt64(storage_flood_stage_left_capacity_bytes); // 1GB
 // number of thread for flushing memtable per store
-DECLARE_Int32(flush_thread_num_per_store);
+DECLARE_mInt32(flush_thread_num_per_store);
 // number of thread for flushing memtable per store, for high priority load task
-DECLARE_Int32(high_priority_flush_thread_num_per_store);
+DECLARE_mInt32(high_priority_flush_thread_num_per_store);
 // number of threads = min(flush_thread_num_per_store * num_store,
 //                         max_flush_thread_num_per_cpu * num_cpu)
-DECLARE_Int32(max_flush_thread_num_per_cpu);
+DECLARE_mInt32(max_flush_thread_num_per_cpu);
 
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
@@ -1171,6 +1190,8 @@ DECLARE_String(python_venv_root_path);
 DECLARE_String(python_venv_interpreter_paths);
 // max python processes in global shared pool, each version can have up to this many processes
 DECLARE_mInt32(max_python_process_num);
+// Memory limit in bytes for all Python UDF processes; warning is logged when exceeded
+DECLARE_mInt64(python_udf_processes_memory_limit_bytes);
 
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
@@ -1230,6 +1251,11 @@ DECLARE_mBool(enable_file_cache_adaptive_write);
 DECLARE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio);
 DECLARE_mDouble(file_cache_meta_store_vs_file_system_diff_num_threshold);
 DECLARE_mDouble(file_cache_keep_schema_change_output_min_hit_ratio);
+DECLARE_mDouble(file_cache_leak_fs_to_meta_ratio_threshold);
+DECLARE_mInt64(file_cache_leak_scan_interval_seconds);
+DECLARE_mInt32(file_cache_leak_scan_batch_files);
+DECLARE_mInt32(file_cache_leak_scan_pause_ms);
+DECLARE_mInt64(file_cache_leak_grace_seconds);
 DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_block_lru_update_interval_ms);
@@ -1388,6 +1414,10 @@ DECLARE_mInt32(variant_max_json_key_length);
 DECLARE_mBool(variant_throw_exeception_on_invalid_json);
 // Enable vertical compact subcolumns of variant column
 DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
+DECLARE_mBool(enable_variant_doc_sparse_write_subcolumns);
+// Maximum depth of nested arrays to track with NestedGroup
+// Reserved for future use when NestedGroup expansion moves to storage layer
+DECLARE_mInt32(variant_nested_group_max_depth);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // USED FOR DEBUGING
@@ -1595,6 +1625,21 @@ DECLARE_mInt64(string_overflow_size);
 DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_min_thread);
 // The max thread num for BufferedReaderPrefetchThreadPool
 DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread);
+
+DECLARE_mBool(enable_segment_prefetch_verbose_log);
+// The thread num for SegmentPrefetchThreadPool
+DECLARE_Int64(segment_prefetch_thread_pool_thread_num_min);
+DECLARE_Int64(segment_prefetch_thread_pool_thread_num_max);
+
+DECLARE_mInt32(segment_file_cache_consume_rowids_batch_size);
+// Enable segment file cache block prefetch for query
+DECLARE_mBool(enable_query_segment_file_cache_prefetch);
+// Number of blocks to prefetch ahead in segment iterator for query
+DECLARE_mInt32(query_segment_file_cache_prefetch_block_size);
+// Enable segment file cache block prefetch for compaction
+DECLARE_mBool(enable_compaction_segment_file_cache_prefetch);
+// Number of blocks to prefetch ahead in segment iterator for compaction
+DECLARE_mInt32(compaction_segment_file_cache_prefetch_block_size);
 // The min thread num for S3FileUploadThreadPool
 DECLARE_Int64(num_s3_file_upload_thread_pool_min_thread);
 // The max thread num for S3FileUploadThreadPool
@@ -1739,6 +1784,10 @@ DECLARE_mBool(read_cluster_cache_opt_verbose_log);
 
 DECLARE_mString(aws_credentials_provider_version);
 
+// Concurrency stats dump configuration
+DECLARE_mBool(enable_concurrency_stats_dump);
+DECLARE_mInt32(concurrency_stats_dump_interval_ms);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
@@ -1798,6 +1847,26 @@ public:
         }
         // register validator to _s_field_validator
         _s_field_validator->insert(std::make_pair(std::string(fname), validator));
+    }
+};
+
+// RegisterConfUpdateCallback class is used to store callback functions that will be called
+// when a config field is updated at runtime.
+// The callback function takes two void pointers: old_value and new_value.
+// The actual type casting is done in the DEFINE_ON_UPDATE macro.
+class RegisterConfUpdateCallback {
+public:
+    using CallbackFunc = std::function<void(const void* old_ptr, const void* new_ptr)>;
+    // Callback map for each config name.
+    static std::map<std::string, CallbackFunc>* _s_field_update_callback;
+
+public:
+    RegisterConfUpdateCallback(const char* fname, const CallbackFunc& callback) {
+        if (_s_field_update_callback == nullptr) {
+            _s_field_update_callback = new std::map<std::string, CallbackFunc>();
+        }
+        // register callback to _s_field_update_callback
+        _s_field_update_callback->insert(std::make_pair(std::string(fname), callback));
     }
 };
 

@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
@@ -54,7 +54,7 @@ import java.util.Optional;
  */
 public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTableSink<CHILD_TYPE> implements Sink {
 
-    private final Database database;
+    private final DatabaseIf database;
     private final OlapTable targetTable;
     private final List<Column> cols;
     private final List<Long> partitionIds;
@@ -69,7 +69,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
     /**
      * Constructor
      */
-    public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols,
+    public PhysicalOlapTableSink(DatabaseIf database, OlapTable targetTable, List<Column> cols,
             List<Long> partitionIds, List<NamedExpression> outputExprs, boolean singleReplicaLoad,
             boolean isPartialUpdate, TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
             DMLCommandType dmlCommandType, List<Expression> partitionExprList,
@@ -84,7 +84,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
     /**
      * Constructor
      */
-    public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols,
+    public PhysicalOlapTableSink(DatabaseIf database, OlapTable targetTable, List<Column> cols,
             List<Long> partitionIds, List<NamedExpression> outputExprs, boolean singleReplicaLoad,
             boolean isPartialUpdate, TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
             DMLCommandType dmlCommandType, List<Expression> partitionExprList,
@@ -107,7 +107,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalTabl
         this.targetTableSlots = targetTableSlots;
     }
 
-    public Database getDatabase() {
+    public DatabaseIf getDatabase() {
         return database;
     }
 

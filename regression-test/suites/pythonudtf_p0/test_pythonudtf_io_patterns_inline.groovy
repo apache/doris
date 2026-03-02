@@ -342,9 +342,9 @@ def conditional(value):
 \$\$;
         """
         
-        sql """ DROP TABLE IF EXISTS test_conditional; """
+        sql """ DROP TABLE IF EXISTS test_conditional_io; """
         sql """
-        CREATE TABLE test_conditional (
+        CREATE TABLE test_conditional_io (
             id INT,
             value INT
         ) ENGINE=OLAP
@@ -354,13 +354,13 @@ def conditional(value):
         """
         
         sql """
-        INSERT INTO test_conditional VALUES (1, 10), (2, -5), (3, 0), (4, 7);
+        INSERT INTO test_conditional_io VALUES (1, 10), (2, -5), (3, 0), (4, 7);
         """
         sql """ sync """
         
         qt_conditional """
             SELECT tmp.value, tmp.type
-            FROM test_conditional
+            FROM test_conditional_io
             LATERAL VIEW udtf_conditional(value) tmp AS value, type
             ORDER BY tmp.value, tmp.type;
         """
@@ -523,7 +523,7 @@ def batch_process(value):
         try_sql("DROP TABLE IF EXISTS test_one_to_variable;")
         try_sql("DROP TABLE IF EXISTS test_aggregate_pattern;")
         try_sql("DROP TABLE IF EXISTS test_explosive;")
-        try_sql("DROP TABLE IF EXISTS test_conditional;")
+        try_sql("DROP TABLE IF EXISTS test_conditional_io;")
         try_sql("DROP TABLE IF EXISTS test_all_or_nothing;")
         try_sql("DROP TABLE IF EXISTS test_empty_input;")
         try_sql("DROP TABLE IF EXISTS test_batch_process;")

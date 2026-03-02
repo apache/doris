@@ -18,40 +18,74 @@
 package org.apache.doris.datasource.systable;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.info.TableValuedFunctionRefInfo;
-import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 
+/**
+ * Base class defining a system table type and its metadata.
+ *
+ * <p>System table types describe what system tables are available for a given table type.
+ * For example, Paimon tables support "snapshots", "binlog", "audit_log" system tables,
+ * while Iceberg tables support "snapshots", "history", "manifests" system tables.
+ *
+ * <p>This class provides:
+ * <ul>
+ *   <li>System table name and suffix (e.g., "snapshots" → "$snapshots")</li>
+ *   <li>Methods to check if a table name matches this system table type</li>
+ * </ul>
+ *
+ * <p>Subclasses should extend one of the specialized abstract classes:
+ * <ul>
+ *   <li>{@link NativeSysTable} - for tables using native execution path (FileQueryScanNode)</li>
+ *   <li>{@link TvfSysTable} - for tables using TVF execution path (MetadataScanNode)</li>
+ * </ul>
+ *
+ * @see NativeSysTable
+ * @see TvfSysTable
+ */
 public abstract class SysTable {
     // eg. table$partitions
     //  sysTableName => partitions
-    //  tvfName => partition_values;
     //  suffix => $partitions
     protected final String sysTableName;
-    protected final String tvfName;
     protected final String suffix;
 
-    protected SysTable(String sysTableName, String tvfName) {
+    protected SysTable(String sysTableName) {
         this.sysTableName = sysTableName;
         this.suffix = "$" + sysTableName.toLowerCase();
-        this.tvfName = tvfName;
     }
 
     public String getSysTableName() {
         return sysTableName;
     }
 
-    public boolean containsMetaTable(String tableName) {
-        return tableName.endsWith(suffix) && (tableName.length() > suffix.length());
+    public String getSuffix() {
+        return suffix;
     }
 
     public String getSourceTableName(String tableName) {
         return tableName.substring(0, tableName.length() - suffix.length());
     }
 
-    public abstract TableValuedFunction createFunction(String ctlName, String dbName, String sourceNameWithMetaName);
+    /**
+     * Returns true if this system table reads actual data files (ORC/Parquet).
+     * Data-oriented system tables (e.g., binlog, audit_log, ro) benefit from
+     * native vectorized readers.
+     *
+     * Metadata-oriented system tables (e.g., snapshots, partitions) return false
+     * and use JNI readers to access metadata.
+     *
+     * @return true for data-oriented system tables, false for metadata-oriented
+     */
+    public boolean isDataTable() {
+        return false;
+    }
 
-    public abstract TableValuedFunctionRefInfo createFunctionRef(String ctlName, String dbName,
-                                                                 String sourceNameWithMetaName);
+    /**
+     * Returns true if this system table uses native table execution path
+     * (FileQueryScanNode) instead of TVF path (MetadataScanNode).
+     *
+     * @return true for NativeSysTable, false for TvfSysTable
+     */
+    public abstract boolean useNativeTablePath();
 
     // table$partition => <table, partition>
     // table$xx$partition => <table$xx, partition>

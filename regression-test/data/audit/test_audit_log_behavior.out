@@ -11,6 +11,7 @@ state	varchar(128)	Yes	false	\N	NONE
 error_code	int	Yes	false	\N	NONE
 error_message	text	Yes	false	\N	NONE
 query_time	bigint	Yes	false	\N	NONE
+queue_time_ms	bigint	Yes	false	\N	NONE
 cpu_time_ms	bigint	Yes	false	\N	NONE
 peak_memory_bytes	bigint	Yes	false	\N	NONE
 scan_bytes	bigint	Yes	false	\N	NONE

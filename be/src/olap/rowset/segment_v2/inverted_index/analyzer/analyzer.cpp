@@ -187,10 +187,10 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
 std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
         const std::string& search_str, const std::map<std::string, std::string>& properties) {
     if (!should_analyzer(properties)) {
+        // Keyword index: all strings (including empty) are valid tokens for exact match.
+        // Empty string is a valid value in keyword index and should be matchable.
         std::vector<TermInfo> result;
-        if (!search_str.empty()) {
-            result.emplace_back(search_str);
-        }
+        result.emplace_back(search_str);
         return result;
     }
     InvertedIndexAnalyzerConfig config;

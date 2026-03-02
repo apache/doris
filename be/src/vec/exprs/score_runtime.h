@@ -17,6 +17,10 @@
 
 #pragma once
 
+#include <gen_cpp/Exprs_types.h>
+
+#include <optional>
+
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/virtual_slot_ref.h"
 
@@ -27,6 +31,12 @@ class ScoreRuntime {
     ENABLE_FACTORY_CREATOR(ScoreRuntime);
 
 public:
+    // Score range filtering info for predicates like score() > 0.5
+    struct ScoreRangeInfo {
+        TExprOpcode::type op;
+        double threshold;
+    };
+
     ScoreRuntime(VExprContextSPtr order_by_expr_ctx, bool asc, size_t limit)
             : _order_by_expr_ctx(std::move(order_by_expr_ctx)), _asc(asc), _limit(limit) {};
 
@@ -50,6 +60,15 @@ public:
     bool is_asc() const { return _asc; }
     size_t get_limit() const { return _limit; }
 
+    // Score range filtering methods
+    void set_score_range_info(TExprOpcode::type op, double threshold) {
+        _score_range_info = ScoreRangeInfo {.op = op, .threshold = threshold};
+    }
+
+    const std::optional<ScoreRangeInfo>& get_score_range_info() const { return _score_range_info; }
+
+    bool has_score_range_filter() const { return _score_range_info.has_value(); }
+
 private:
     VExprContextSPtr _order_by_expr_ctx;
     const bool _asc = false;
@@ -57,6 +76,9 @@ private:
 
     std::string _name = "score_runtime";
     size_t _dest_column_idx = -1;
+
+    // Score range filtering info (e.g., score() > 0.5)
+    std::optional<ScoreRangeInfo> _score_range_info;
 };
 using ScoreRuntimeSPtr = std::shared_ptr<ScoreRuntime>;
 

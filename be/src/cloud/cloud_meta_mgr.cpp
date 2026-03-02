@@ -352,7 +352,7 @@ static std::string debug_info(const Request& req) {
     } else if constexpr (is_any_v<Request, GetTabletRequest>) {
         return fmt::format(" tablet_id={}", req.tablet_id());
     } else if constexpr (is_any_v<Request, GetObjStoreInfoRequest, ListSnapshotRequest,
-                                  GetInstanceRequest>) {
+                                  GetInstanceRequest, GetClusterStatusRequest>) {
         return "";
     } else if constexpr (is_any_v<Request, CreateRowsetRequest>) {
         return fmt::format(" tablet_id={}", req.rowset_meta().tablet_id());
@@ -775,6 +775,12 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             tablet->set_cumulative_layer_point(stats.cumulative_point());
             tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                             stats.num_rows(), stats.data_size());
+
+            // Sync last active cluster info for compaction read-write separation
+            if (config::enable_compaction_rw_separation && stats.has_last_active_cluster_id()) {
+                tablet->set_last_active_cluster_info(stats.last_active_cluster_id(),
+                                                     stats.last_active_time_ms());
+            }
         }
         return Status::OK();
     }
@@ -2258,6 +2264,37 @@ Status CloudMetaMgr::update_packed_file_info(const std::string& packed_file_path
     // Make RPC call using retry pattern
     return retry_rpc("update packed file info", req, &resp,
                      &cloud::MetaService_Stub::update_packed_file_info);
+}
+
+Status CloudMetaMgr::get_cluster_status(
+        std::unordered_map<std::string, std::pair<int32_t, int64_t>>* result,
+        std::string* my_cluster_id) {
+    GetClusterStatusRequest req;
+    GetClusterStatusResponse resp;
+    req.add_cloud_unique_ids(config::cloud_unique_id);
+
+    Status s = retry_rpc("get cluster status", req, &resp, &MetaService_Stub::get_cluster_status);
+    if (!s.ok()) {
+        return s;
+    }
+
+    result->clear();
+    for (const auto& detail : resp.details()) {
+        for (const auto& cluster : detail.clusters()) {
+            // Store cluster status and mtime (mtime is in seconds from MS, convert to ms).
+            // If mtime is not set, use current time as a conservative default
+            // to avoid immediate takeover due to elapsed being huge.
+            int64_t mtime_ms = cluster.has_mtime() ? cluster.mtime() * 1000 : UnixMillis();
+            (*result)[cluster.cluster_id()] = {static_cast<int32_t>(cluster.cluster_status()),
+                                               mtime_ms};
+        }
+    }
+
+    if (my_cluster_id && resp.has_requester_cluster_id()) {
+        *my_cluster_id = resp.requester_cluster_id();
+    }
+
+    return Status::OK();
 }
 
 #include "common/compile_check_end.h"

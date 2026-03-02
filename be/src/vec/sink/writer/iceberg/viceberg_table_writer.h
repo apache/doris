@@ -19,11 +19,8 @@
 
 #include <gen_cpp/DataSinks_types.h>
 
-#include <optional>
-
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
-#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/table/iceberg/partition_spec_parser.h"
 #include "vec/exec/format/table/iceberg/schema_parser.h"
@@ -40,7 +37,8 @@ class RuntimeState;
 namespace vectorized {
 
 class IColumn;
-class VIcebergPartitionWriter;
+class IPartitionWriterBase;
+class VIcebergSortWriter;
 struct ColumnWithTypeAndName;
 
 class VIcebergTableWriter final : public AsyncResultWriter {
@@ -51,13 +49,18 @@ public:
 
     ~VIcebergTableWriter() = default;
 
-    Status init_properties(ObjectPool* pool);
+    Status init_properties(ObjectPool* pool, const RowDescriptor& row_desc) {
+        _row_desc = &row_desc;
+        return Status::OK();
+    }
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
     Status write(RuntimeState* state, vectorized::Block& block) override;
 
     Status close(Status) override;
+
+    std::shared_ptr<IPartitionWriterBase> _current_writer;
 
 private:
     class IcebergPartitionColumn {
@@ -102,7 +105,7 @@ private:
     // Build static partition path from static partition values
     std::string _build_static_partition_path();
 
-    std::shared_ptr<VIcebergPartitionWriter> _create_partition_writer(
+    std::shared_ptr<IPartitionWriterBase> _create_partition_writer(
             vectorized::Block* transformed_block, int position,
             const std::string* file_name = nullptr, int file_name_index = 0);
 
@@ -146,12 +149,10 @@ private:
     // Pre-computed static partition value list (for full static mode only)
     std::vector<std::string> _static_partition_value_list;
 
-    std::unordered_map<std::string, std::shared_ptr<VIcebergPartitionWriter>>
-            _partitions_to_writers;
-
+    std::unordered_map<std::string, std::shared_ptr<IPartitionWriterBase>> _partitions_to_writers;
     VExprContextSPtrs _write_output_vexpr_ctxs;
-
     size_t _row_count = 0;
+    const RowDescriptor* _row_desc = nullptr;
 
     // profile counters
     int64_t _send_data_ns = 0;

@@ -77,8 +77,14 @@ Status ScanLocalStateBase::update_late_arrival_runtime_filter(RuntimeState* stat
                                                               int& arrived_rf_num) {
     // Lock needed because _conjuncts can be accessed concurrently by multiple scanner threads
     std::unique_lock lock(_conjuncts_lock);
-    return _helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
-                                                          arrived_rf_num, _conjuncts);
+    RETURN_IF_ERROR(_helper.try_append_late_arrival_runtime_filter(state, _parent->row_descriptor(),
+                                                                   arrived_rf_num, _conjuncts));
+    if (state->enable_adjust_conjunct_order_by_cost()) {
+        std::ranges::sort(_conjuncts, [](const auto& a, const auto& b) {
+            return a->execute_cost() < b->execute_cost();
+        });
+    };
+    return Status::OK();
 }
 
 Status ScanLocalStateBase::clone_conjunct_ctxs(vectorized::VExprContextSPtrs& scanner_conjuncts) {
@@ -314,7 +320,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
                 message += conjunct->root()->debug_string();
             }
         }
-        custom_profile()->add_info_string("RemainedDownPredicates", message);
+        custom_profile()->add_info_string("RemainedPredicates", message);
     }
 
     for (auto& it : _slot_id_to_value_range) {
@@ -373,7 +379,8 @@ Status ScanLocalState<Derived>::_normalize_predicate(vectorized::VExprContext* c
                                         rf_expr->filter_id(),
                                         rf_expr->predicate_filtered_rows_counter(),
                                         rf_expr->predicate_input_rows_counter(),
-                                        rf_expr->predicate_always_true_rows_counter());
+                                        rf_expr->predicate_always_true_rows_counter(),
+                                        context->get_runtime_filter_selectivity());
                             }
                         };
                         switch (expr->node_type()) {
@@ -565,16 +572,28 @@ Status ScanLocalState<Derived>::_normalize_function_filters(vectorized::VExprCon
     return Status::OK();
 }
 
+// only one level cast expr could push down for variant type
+// check if expr is cast and it's children is slot
+static bool is_valid_push_down_cast(const vectorized::VExprSPtrs& children) {
+    auto slot_expr = vectorized::VExpr::expr_without_cast(children[0]);
+    return slot_expr->data_type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT &&
+           children[0]->node_type() == TExprNodeType::CAST_EXPR &&
+           children[0]->children().at(0)->is_slot_ref();
+}
+
 template <typename Derived>
 bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(const vectorized::VExprSPtrs& children,
                                                            SlotDescriptor** slot_desc,
                                                            ColumnValueRangeType** range) {
-    if (children.empty() || children[0]->node_type() != TExprNodeType::SLOT_REF) {
+    // children[0] must be slot ref or cast(slot(variant) as type)
+    if (children.empty() || (children[0]->node_type() != TExprNodeType::SLOT_REF &&
+                             !is_valid_push_down_cast(children))) {
         // not a slot ref(column)
         return false;
     }
     std::shared_ptr<vectorized::VSlotRef> slot_ref =
-            std::dynamic_pointer_cast<vectorized::VSlotRef>(children[0]);
+            std::dynamic_pointer_cast<vectorized::VSlotRef>(
+                    vectorized::VExpr::expr_without_cast(children[0]));
     *slot_desc =
             _parent->cast<typename Derived::Parent>()._slot_id_to_slot_desc[slot_ref->slot_id()];
     auto entry = _slot_id_to_predicates.find(slot_ref->slot_id());

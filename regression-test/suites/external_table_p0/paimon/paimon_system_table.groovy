@@ -23,23 +23,6 @@ suite("paimon_system_table", "p0,external,doris,external_docker,external_docker_
         return
     }
 
-    def validateQueryResults = { List<List<Object>> result1, List<List<Object>> result2, String tableType ->
-        logger.info("${tableType} - Direct query result size: ${result1.size()}")
-        logger.info("${tableType} - Meta query result size: ${result2.size()}")
-        assertEquals(result1.size(), result2.size(), tableType + " query size mismatch")
-
-        for (int i = 0; i < result1.size(); i++) {
-            List<Object> row1 = result1.get(i)
-            List<Object> row2 = result2.get(i)
-
-            for (int j = 0; j < row1.size(); j++) {
-                assertEquals(row1.get(j), row2.get(j),
-                        String.format("%s data mismatch at [%d][%d]", tableType, i, j))
-            }
-        }
-
-        logger.info(tableType + " validation passed: " + result1.size() + " rows verified")
-    }
     String catalog_name = "paimon_timestamp_types"
     try {
 
@@ -77,30 +60,18 @@ suite("paimon_system_table", "p0,external,doris,external_docker,external_docker_
                 "partitions", "buckets", "files", "tags", "branches", "consumers", "aggregation_fields",
                 "statistics", "table_indexes"))
 
-
-        // Iterate through all system tables for consistency testing
+        // Iterate through all system tables and verify queryability via $ syntax
         for (String systemTable : paimonSystemTableList) {
             logger.info("Testing system table: " + systemTable)
 
-            // Direct query on system table
-            List<List<Object>> directQuery = sql """select * from ${tableName}\$${systemTable}"""
-
-            // // Query through paimon_meta function
-            List<List<Object>> metaQuery = sql """select * from paimon_meta(
-                    "table" = "${catalog_name}.${db_name}.${tableName}",
-                    "query_type" = "${systemTable}");
-                """
-
-            validateQueryResults(directQuery, metaQuery, systemTable)
+            List<List<Object>> systemTableQueryResult = sql """select * from ${tableName}\$${systemTable}"""
+            assertNotNull(systemTableQueryResult, "System table '${systemTable}' result should not be null")
+            logger.info("System table ${systemTable} query passed, result size: ${systemTableQueryResult.size()}")
         }
 
         // 2 Verify system table projection and predicate functionality
         // 2.1 Column projection tests
         qt_direct_query__snapshots_result """select * from ${tableName}\$snapshots order by snapshot_id"""
-        qt_meta_query__snapshots_result """select * from paimon_meta(
-            "table" = "${catalog_name}.${db_name}.${tableName}",
-            "query_type" = "snapshots") order by snapshot_id;
-        """
         // column name
         qt_paimon_snapshots_core_fields_direct_query """
             select snapshot_id,
@@ -115,22 +86,6 @@ suite("paimon_system_table", "p0,external,doris,external_docker,external_docker_
                        delta_record_count,
                        changelog_record_count from ${tableName}\$snapshots
                        order by snapshot_id;
-        """
-        qt_paimon_snapshots_core_fields_meta_query """
-            select snapshot_id,
-                              schema_id,
-                              commit_user,
-                              commit_identifier,
-                              commit_kind,
-                              base_manifest_list,
-                              delta_manifest_list,
-                              changelog_manifest_list,
-                              total_record_count,
-                              delta_record_count,
-                              changelog_record_count  from paimon_meta(
-                        "table" = "${catalog_name}.${db_name}.${tableName}",
-                        "query_type" = "snapshots")
-                        order by snapshot_id;
         """
 
         qt_paimon_snapshots_reordered_filed_direct_query """
@@ -147,44 +102,14 @@ suite("paimon_system_table", "p0,external,doris,external_docker,external_docker_
                                changelog_record_count from ${tableName}\$snapshots
                                order by snapshot_id;
                 """
-
-        qt_paimon_snapshots_reordered_filed_meta_query """
-                            select  schema_id,
-                                       snapshot_id,
-                                       commit_user,
-                                       commit_identifier,
-                                       commit_kind,
-                                       base_manifest_list,
-                                       delta_manifest_list,
-                                       changelog_manifest_list,
-                                       total_record_count,
-                                       delta_record_count,
-                                       changelog_record_count from paimon_meta(
-                                       "table" = "${catalog_name}.${db_name}.${tableName}",
-                                       "query_type" = "snapshots")
-                                       order by snapshot_id;
-                        """
         // 2.2 Predicate filtering tests
         List<List<Object>> res1 = sql """ select snapshot_id from ${tableName}\$snapshots order by snapshot_id;"""
-        List<List<Object>> res2 = sql """ select snapshot_id from paimon_meta(
-                                                        "table" = "${catalog_name}.${db_name}.${tableName}",
-                                                        "query_type" = "snapshots")
-                                                        order by snapshot_id;
-                                     """
 
         qt_snapshot_id_direct_query """select snapshot_id from ${tableName}\$snapshots order by snapshot_id;
                                     """
-        qt_snapshot_id_meta_query """
-                select snapshot_id from paimon_meta(
-                                        "table" = "${catalog_name}.${db_name}.${tableName}",
-                                        "query_type" = "snapshots")
-                                        order by snapshot_id;
-                """
 
         assertTrue(res1.size() > 0, "Direct query should return data")
-        assertTrue(res2.size() > 0, "Meta query should return data")
         String direct_query_snapshot_id = String.valueOf(res1[0][0]);
-        String meta_query_snapshot_id = String.valueOf(res1[0][0]);
         logger.info("snapshot_id=" + direct_query_snapshot_id)
         qt_direct_query_snapshot_id_predicate """select  schema_id,
                                                 snapshot_id,
@@ -202,34 +127,10 @@ suite("paimon_system_table", "p0,external,doris,external_docker,external_docker_
 
         """
 
-        qt_meta_query_snapshot_id_predicate """select  schema_id,
-                                            snapshot_id,
-                                            commit_user,
-                                            commit_identifier,
-                                            commit_kind,
-                                            base_manifest_list,
-                                            delta_manifest_list,
-                                            changelog_manifest_list,
-                                            total_record_count,
-                                            delta_record_count,
-                                            changelog_record_count from paimon_meta(
-                                            "table" = "${catalog_name}.${db_name}.${tableName}",
-                                            "query_type" = "snapshots")
-                                            where snapshot_id=${meta_query_snapshot_id}
-                                            order by snapshot_id;
-
-        """
-
         //2.3  Aggregation functions
         qt_direct_query_snapshot_id_count """
         select count(*) from ${tableName}\$snapshots
                             where snapshot_id=${direct_query_snapshot_id}
-        """
-        qt_meta_query_snapshot_id_count """
-        select count(*) from paimon_meta(
-                             "table" = "${catalog_name}.${db_name}.${tableName}",
-                             "query_type" = "snapshots")
-                             where snapshot_id=${meta_query_snapshot_id}
         """
         //2.4 Join operations between system tables
         qt_direct_query_snapshots_join """
@@ -249,6 +150,20 @@ suite("paimon_system_table", "p0,external,doris,external_docker,external_docker_
         qt_desc_direct_query_table """
                         desc ${tableName}\$snapshots
                         """
+
+        // 2.6 system table does not support time travel
+        test {
+            sql """select * from ${tableName}\$snapshots FOR VERSION AS OF 1"""
+            exception "Paimon system tables do not support time travel"
+        }
+        test {
+            sql """select * from ${tableName}\$snapshots FOR TIME AS OF "2024-07-11 16:01:57.425" """
+            exception "Paimon system tables do not support time travel"
+        }
+        test {
+            sql """select * from ${tableName}\$snapshots@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
+            exception "Paimon system tables do not support scan params"
+        }
 
     } catch (Exception e) {
         logger.error("Paimon system table test failed: " + e.getMessage())

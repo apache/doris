@@ -35,7 +35,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.hive.HiveDlaTable;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
-import org.apache.doris.datasource.systable.SupportedSysTables;
+import org.apache.doris.datasource.systable.PartitionsSysTable;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
@@ -174,7 +174,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Mockito.when(tbl2.getType()).thenReturn(TableIf.TableType.HMS_EXTERNAL_TABLE);
         Mockito.when(tbl2.getDlaType()).thenReturn(DLAType.HIVE);
         Mockito.when(tbl2.getDatabase()).thenReturn(db);
-        Mockito.when(tbl2.getSupportedSysTables()).thenReturn(SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES);
+        Mockito.when(tbl2.getSupportedSysTables()).thenReturn(PartitionsSysTable.HIVE_SUPPORTED_SYS_TABLES);
         Mockito.when(tbl2.getUpdateTime()).thenReturn(NOW);
         Mockito.when(tbl2.getUpdateTime()).thenReturn(NOW);
         // mock initSchemaAndUpdateTime and do nothing
@@ -196,7 +196,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Mockito.when(view1.getDlaType()).thenReturn(DLAType.HIVE);
         Mockito.when(view1.getUpdateTime()).thenReturn(NOW);
         Mockito.when(view1.getDatabase()).thenReturn(db);
-        Mockito.when(view1.getSupportedSysTables()).thenReturn(SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES);
+        Mockito.when(view1.getSupportedSysTables()).thenReturn(PartitionsSysTable.HIVE_SUPPORTED_SYS_TABLES);
 
         setField(view2, "objectCreated", true);
 
@@ -212,7 +212,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Mockito.when(view2.getDlaType()).thenReturn(DLAType.HIVE);
         Mockito.when(view2.getUpdateTime()).thenReturn(NOW);
         Mockito.when(view2.getDatabase()).thenReturn(db);
-        Mockito.when(view2.getSupportedSysTables()).thenReturn(SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES);
+        Mockito.when(view2.getSupportedSysTables()).thenReturn(PartitionsSysTable.HIVE_SUPPORTED_SYS_TABLES);
 
         db.addTableForTest(tbl);
         db.addTableForTest(tbl2);

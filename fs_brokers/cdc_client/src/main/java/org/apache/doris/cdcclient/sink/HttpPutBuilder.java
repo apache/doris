@@ -20,6 +20,7 @@ package org.apache.doris.cdcclient.sink;
 import org.apache.doris.cdcclient.common.Constants;
 
 import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.collections.MapUtils;
 import org.apache.flink.util.Preconditions;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpHeaders;
@@ -29,7 +30,6 @@ import org.apache.http.entity.StringEntity;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Properties;
 
 /** Builder for HttpPut. */
 public class HttpPutBuilder {
@@ -116,9 +116,10 @@ public class HttpPutBuilder {
         return this;
     }
 
-    public HttpPutBuilder addProperties(Properties properties) {
-        // TODO: check duplicate key.
-        properties.forEach((key, value) -> header.put(String.valueOf(key), String.valueOf(value)));
+    public HttpPutBuilder addProperties(Map<String, String> properties) {
+        if (MapUtils.isNotEmpty(properties)) {
+            header.putAll(properties);
+        }
         return this;
     }
 

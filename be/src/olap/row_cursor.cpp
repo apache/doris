@@ -137,47 +137,17 @@ Status RowCursor::_init_scan_key(TabletSchemaSPtr schema,
     return Status::OK();
 }
 
-Status RowCursor::init(TabletSchemaSPtr schema) {
-    return init(schema->columns(), cast_set<uint32_t>(schema->num_columns()));
-}
-
-Status RowCursor::init(const std::vector<TabletColumnPtr>& schema) {
-    return init(schema, cast_set<uint32_t>(schema.size()));
-}
-
-Status RowCursor::init(TabletSchemaSPtr schema, uint32_t column_count) {
+Status RowCursor::_init(TabletSchemaSPtr schema, uint32_t column_count) {
     if (column_count > schema->num_columns()) {
         return Status::Error<INVALID_ARGUMENT>(
                 "Input param are invalid. Column count is bigger than num_columns of schema. "
                 "column_count={}, schema.num_columns={}",
                 column_count, schema->num_columns());
     }
-
     std::vector<uint32_t> columns;
     for (auto i = 0; i < column_count; ++i) {
         columns.push_back(i);
     }
-    RETURN_IF_ERROR(_init(schema->columns(), columns));
-    return Status::OK();
-}
-
-Status RowCursor::init(const std::vector<TabletColumnPtr>& schema, uint32_t column_count) {
-    if (column_count > schema.size()) {
-        return Status::Error<INVALID_ARGUMENT>(
-                "Input param are invalid. Column count is bigger than num_columns of schema. "
-                "column_count={}, schema.num_columns={}",
-                column_count, schema.size());
-    }
-
-    std::vector<uint32_t> columns;
-    for (auto i = 0; i < column_count; ++i) {
-        columns.push_back(i);
-    }
-    RETURN_IF_ERROR(_init(schema, columns));
-    return Status::OK();
-}
-
-Status RowCursor::init(TabletSchemaSPtr schema, const std::vector<uint32_t>& columns) {
     RETURN_IF_ERROR(_init(schema->columns(), columns));
     return Status::OK();
 }
@@ -214,43 +184,24 @@ Status RowCursor::init_scan_key(TabletSchemaSPtr schema, const std::vector<std::
     return _init_scan_key(schema, scan_keys);
 }
 
-Status RowCursor::build_max_key() {
-    for (auto cid : _schema->column_ids()) {
-        const Field* field = column_schema(cid);
-        char* dest = cell_ptr(cid);
-        field->set_to_max(dest);
-        set_not_null(cid);
-    }
-    return Status::OK();
-}
-
-Status RowCursor::build_min_key() {
-    for (auto cid : _schema->column_ids()) {
-        const Field* field = column_schema(cid);
-        char* dest = cell_ptr(cid);
-        field->set_to_min(dest);
-        set_null(cid);
-    }
-
-    return Status::OK();
-}
-
 Status RowCursor::from_tuple(const OlapTuple& tuple) {
     if (tuple.size() != _schema->num_column_ids()) {
         return Status::Error<INVALID_ARGUMENT>(
                 "column count does not match. tuple_size={}, field_count={}", tuple.size(),
                 _schema->num_column_ids());
     }
+    _row_string.resize(tuple.size());
 
     for (size_t i = 0; i < tuple.size(); ++i) {
         auto cid = _schema->column_ids()[i];
         const Field* field = column_schema(cid);
         if (tuple.is_null(i)) {
-            set_null(cid);
+            _set_null(cid);
             continue;
         }
-        set_not_null(cid);
-        char* buf = cell_ptr(cid);
+        _set_not_null(cid);
+        _row_string[i] = tuple.get_value(i);
+        char* buf = _cell_ptr(cid);
         Status res = field->from_string(buf, tuple.get_value(i), field->get_precision(),
                                         field->get_scale());
         if (!res.ok()) {
@@ -263,43 +214,22 @@ Status RowCursor::from_tuple(const OlapTuple& tuple) {
     return Status::OK();
 }
 
-OlapTuple RowCursor::to_tuple() const {
-    OlapTuple tuple;
-
-    for (auto cid : _schema->column_ids()) {
-        if (_schema->column(cid) != nullptr) {
-            const Field* field = column_schema(cid);
-            char* src = cell_ptr(cid);
-            if (is_null(cid)) {
-                tuple.add_null();
-            } else {
-                tuple.add_value(field->to_string(src));
-            }
-        } else {
-            tuple.add_value("");
-        }
-    }
-
-    return tuple;
-}
-
 std::string RowCursor::to_string() const {
     std::string result;
     size_t i = 0;
     for (auto cid : _schema->column_ids()) {
-        if (i++ > 0) {
+        if (i > 0) {
             result.append("|");
         }
 
-        const Field* field = column_schema(cid);
-        result.append(std::to_string(is_null(cid)));
+        result.append(std::to_string(_is_null(cid)));
         result.append("&");
-        if (is_null(cid)) {
+        if (_is_null(cid)) {
             result.append("NULL");
         } else {
-            char* src = cell_ptr(cid);
-            result.append(field->to_string(src));
+            result.append(_row_string[i]);
         }
+        ++i;
     }
 
     return result;

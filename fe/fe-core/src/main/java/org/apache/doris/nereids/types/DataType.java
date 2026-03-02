@@ -443,7 +443,8 @@ public abstract class DataType {
                 org.apache.doris.catalog.AggStateType catalogType = ((org.apache.doris.catalog.AggStateType) type);
                 List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)
                         .collect(Collectors.toList());
-                return new AggStateType(catalogType.getFunctionName(), types, catalogType.getSubTypeNullables());
+                return new AggStateType(catalogType.getFunctionName(), types,
+                        catalogType.getSubTypeNullables(), catalogType.getResultIsNullable());
             }
             case DECIMALV2: {
                 ScalarType scalarType = (ScalarType) type;

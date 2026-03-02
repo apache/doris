@@ -131,7 +131,7 @@ suite("test_iceberg_hms_case_sensibility", "p0,external,doris,external_docker,ex
             sql """create table case_tbl13 (k1 int);"""
             sql """create table CASE_TBL14 (k1 int);"""
 
-            qt_sql8 """show tables like "%CASE_TBL14%"""" // empty
+            qt_sql8 """show tables like "%CASE_TBL14%"""" // not empty, because lower=1
             qt_sql9 """show tables like "%case_tbl14%""""
             qt_sql10 """show tables like "%case_tbl13%""""
 

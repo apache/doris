@@ -76,7 +76,7 @@ suite("test_streaming_mysql_job_create_alter", "p0,external,mysql,external_docke
                   "table.create.properties1.replication_num" = "1"
                 )
             """
-            exception "Only support target properties with prefix table.create.properties"
+            exception "Not support target properties key table.create.properties1.replication_num"
         }
 
         //error jdbc url format
