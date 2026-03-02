@@ -56,6 +56,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TAccessPathType;
 
@@ -107,6 +108,19 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
     @Override
     public Void visitSlotReference(SlotReference slotReference, CollectorContext context) {
         DataType dataType = slotReference.getDataType();
+        if (dataType instanceof VariantType
+                && (slotReference.hasSubColPath() || !context.accessPathBuilder.isEmpty())) {
+            List<String> path = new ArrayList<>();
+            path.add(slotReference.getName());
+            if (slotReference.hasSubColPath()) {
+                path.addAll(slotReference.getSubPath());
+            }
+            path.addAll(context.accessPathBuilder.getPathList());
+            int slotId = slotReference.getExprId().asInt();
+            slotToAccessPaths.put(slotId, new CollectAccessPathResult(
+                    path, context.bottomFilter, TAccessPathType.DATA));
+            return null;
+        }
         if (dataType instanceof NestedColumnPrunable) {
             context.accessPathBuilder.addPrefix(slotReference.getName().toLowerCase());
             ImmutableList<String> path = Utils.fastToImmutableList(context.accessPathBuilder.accessPath);
@@ -169,6 +183,19 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                 visit(arguments.get(i), context);
             }
             return null;
+        } else if (first.getDataType().isVariantType() && arguments.size() >= 2
+                && arguments.get(1).isLiteral()) {
+            Expression keyExpr = arguments.get(1);
+            DataType keyType = keyExpr.getDataType();
+            if (keyType.isIntegerLikeType()) {
+                String key = String.valueOf(((Number) ((Literal) keyExpr).getValue()).intValue());
+                context.accessPathBuilder.addPrefix(key);
+                return continueCollectAccessPath(first, context);
+            } else if (keyType.isStringLikeType()) {
+                context.accessPathBuilder.addPrefix(((Literal) keyExpr).getStringValue());
+                return continueCollectAccessPath(first, context);
+            }
+            return visit(elementAt, context);
         } else {
             return visit(elementAt, context);
         }

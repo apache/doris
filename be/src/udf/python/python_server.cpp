@@ -28,6 +28,7 @@
 #include <boost/process.hpp>
 #include <fstream>
 
+#include "arrow/flight/client.h"
 #include "common/config.h"
 #include "udf/python/python_udaf_client.h"
 #include "udf/python/python_udf_client.h"
@@ -331,6 +332,78 @@ void PythonServerManager::_refresh_memory_stats() {
         LOG(WARNING) << "Python UDF process memory usage exceeds limit: rss_bytes=" << total_rss
                      << ", limit_bytes=" << config::python_udf_processes_memory_limit_bytes;
     }
+}
+
+Status PythonServerManager::clear_module_cache(const std::string& location) {
+    if (location.empty()) {
+        return Status::InvalidArgument("Empty location for clear_module_cache");
+    }
+
+    std::lock_guard<std::mutex> lock(_pools_mutex);
+
+    std::string body = fmt::format(R"({{"location": "{}"}})", location);
+
+    int success_count = 0;
+    int fail_count = 0;
+    bool has_active_process = false;
+
+    for (auto& [version, pool] : _process_pools) {
+        for (auto& process : pool) {
+            if (!process || !process->is_alive()) {
+                continue;
+            }
+            has_active_process = true;
+            try {
+                auto loc_result = arrow::flight::Location::Parse(process->get_uri());
+                if (!loc_result.ok()) [[unlikely]] {
+                    fail_count++;
+                    continue;
+                }
+
+                auto client_result = arrow::flight::FlightClient::Connect(*loc_result);
+                if (!client_result.ok()) [[unlikely]] {
+                    fail_count++;
+                    continue;
+                }
+                auto client = std::move(*client_result);
+
+                arrow::flight::Action action;
+                action.type = "clear_module_cache";
+                action.body = arrow::Buffer::FromString(body);
+
+                auto result_stream = client->DoAction(action);
+                if (!result_stream.ok()) {
+                    fail_count++;
+                    continue;
+                }
+
+                auto result = (*result_stream)->Next();
+                if (result.ok() && *result) {
+                    success_count++;
+                } else {
+                    fail_count++;
+                }
+
+            } catch (...) {
+                fail_count++;
+            }
+        }
+    }
+
+    if (!has_active_process) {
+        return Status::OK();
+    }
+
+    LOG(INFO) << "clear_module_cache completed for location=" << location
+              << ", success=" << success_count << ", failed=" << fail_count;
+
+    if (fail_count > 0) {
+        return Status::InternalError(
+                "clear_module_cache failed for location={}, success={}, failed={}", location,
+                success_count, fail_count);
+    }
+
+    return Status::OK();
 }
 
 // Explicit template instantiation for UDF, UDAF and UDTF clients

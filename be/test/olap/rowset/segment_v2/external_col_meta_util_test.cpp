@@ -46,7 +46,6 @@ constexpr std::string_view kTestDir = "./ut_dir/external_col_meta_util_test";
 // Helper to create a clean local test directory and return absolute path + filename.
 std::string make_test_file_path(const std::string& file_name) {
     auto fs = io::global_local_filesystem();
-    // english only in comments
     static_cast<void>(fs->delete_directory(kTestDir));
     CHECK(fs->create_directory(kTestDir).ok());
     return std::string(kTestDir) + "/" + file_name;

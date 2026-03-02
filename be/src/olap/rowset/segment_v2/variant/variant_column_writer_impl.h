@@ -19,12 +19,14 @@
 
 #include <gen_cpp/segment_v2.pb.h>
 
+#include <functional>
 #include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
+#include "olap/rowset/segment_v2/variant/nested_group_provider.h"
 #include "olap/rowset/segment_v2/variant/variant_statistics.h"
 #include "olap/tablet_schema.h"
 #include "vec/columns/column.h"
@@ -59,6 +61,7 @@ public:
     virtual Status write_inverted_index() = 0;
     virtual Status write_bloom_filter_index() = 0;
     virtual uint64_t estimate_buffer_size() const = 0;
+    virtual void merge_stats_to(VariantStatistics* stats) const = 0;
 };
 
 class VariantDocWriter : public VariantBinaryWriter {
@@ -75,6 +78,7 @@ public:
     Status write_inverted_index() override;
     Status write_bloom_filter_index() override;
     uint64_t estimate_buffer_size() const override;
+    void merge_stats_to(VariantStatistics* stats) const override;
 
 private:
     Status _write_materialized_subcolumn(const TabletColumn& parent_column, std::string_view path,
@@ -96,6 +100,7 @@ private:
     std::vector<std::unique_ptr<ColumnWriter>> _subcolumn_writers;
     std::vector<TabletIndexes> _subcolumns_indexes;
     std::vector<ColumnWriterOptions> _subcolumn_opts;
+    VariantStatistics _stats;
 };
 
 // Unifies writing of Variant sparse data in two modes:
@@ -129,6 +134,7 @@ public:
     Status write_zone_map() override;
     Status write_inverted_index() override;
     Status write_bloom_filter_index() override;
+    void merge_stats_to(VariantStatistics* stats) const override;
 
 private:
     // Initialize single sparse column writer and consume one column_id.
@@ -156,6 +162,7 @@ private:
     // remember assigned column ids for conversion
     int _first_column_id = -1;
     int _bucket_num = 0;
+    VariantStatistics _stats;
 };
 
 class VariantColumnWriterImpl {
@@ -177,12 +184,10 @@ public:
     Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
 
 private:
+    Status _for_each_column_writer(const std::function<Status(ColumnWriter*)>& func);
     Status _process_root_column(vectorized::ColumnVariant* ptr,
                                 vectorized::OlapBlockDataConvertor* converter, size_t num_rows,
                                 int& column_id);
-    Status _process_sparse_column(vectorized::ColumnVariant* ptr,
-                                  vectorized::OlapBlockDataConvertor* converter, size_t num_rows,
-                                  int& column_id);
     Status _process_subcolumns(vectorized::ColumnVariant* ptr,
                                vectorized::OlapBlockDataConvertor* converter, size_t num_rows,
                                int& column_id);
@@ -209,6 +214,8 @@ private:
 
     // hold the references of subcolumns info
     std::unordered_map<std::string, TabletSchema::SubColumnInfo> _subcolumns_info;
+    std::unique_ptr<NestedGroupWriteProvider> _nested_group_provider;
+    VariantStatistics _statistics;
 };
 
 class VariantDocCompactWriter : public ColumnWriter {

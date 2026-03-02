@@ -1490,10 +1490,19 @@ Status SegmentIterator::_init_index_iterators() {
                     column_reader == nullptr) {
                     continue;
                 }
+                auto* variant_reader = assert_cast<VariantColumnReader*>(column_reader.get());
+                vectorized::DataTypePtr data_type = _storage_name_and_type[cid].second;
+                if (data_type != nullptr &&
+                    data_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
+                    vectorized::DataTypePtr inferred_type;
+                    Status st = variant_reader->infer_data_type_for_path(
+                            &inferred_type, column, _opts, _segment->_column_reader_cache.get());
+                    if (st.ok() && inferred_type != nullptr) {
+                        data_type = inferred_type;
+                    }
+                }
                 inverted_indexs_holder =
-                        assert_cast<VariantColumnReader*>(column_reader.get())
-                                ->find_subcolumn_tablet_indexes(column,
-                                                                _storage_name_and_type[cid].second);
+                        variant_reader->find_subcolumn_tablet_indexes(column, data_type);
                 // Extract raw pointers from shared_ptr for iteration
                 for (const auto& index_ptr : inverted_indexs_holder) {
                     inverted_indexs.push_back(index_ptr.get());
@@ -2929,9 +2938,15 @@ Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* bl
 }
 
 Status SegmentIterator::_construct_compound_expr_context() {
+    ColumnIteratorOptions iter_opts {
+            .use_page_cache = _opts.use_page_cache,
+            .file_reader = _file_reader.get(),
+            .stats = _opts.stats,
+            .io_ctx = _opts.io_ctx,
+    };
     auto inverted_index_context = std::make_shared<vectorized::IndexExecContext>(
             _schema->column_ids(), _index_iterators, _storage_name_and_type,
-            _common_expr_index_exec_status, _score_runtime);
+            _common_expr_index_exec_status, _score_runtime, _segment.get(), iter_opts);
     for (const auto& expr_ctx : _opts.common_expr_ctxs_push_down) {
         vectorized::VExprContextSPtr context;
         // _ann_range_search_runtime will do deep copy.

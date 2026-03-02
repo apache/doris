@@ -71,6 +71,7 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
@@ -78,8 +79,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
-import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -337,7 +336,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     }
                     outerScope.get().getCorrelatedSlots().add((Slot) firstBound);
                 }
-                if (firstBound.getDataType() instanceof NestedColumnPrunable) {
+                if (firstBound.getDataType() instanceof NestedColumnPrunable
+                        || firstBound.getDataType().isVariantType()) {
                     context.cascadesContext.getStatementContext().setHasNestedColumns(true);
                 } else if (firstBound.containsType(ElementAt.class, StructElement.class)) {
                     context.cascadesContext.getStatementContext().setHasNestedColumns(true);
@@ -364,7 +364,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                             .filter(bound -> unboundSlot.getNameParts().size() == bound.getQualifier().size() + 1)
                             .collect(Collectors.toList());
                     if (exactMatch.size() == 1) {
-                        if (exactMatch.get(0).getDataType() instanceof NestedColumnPrunable) {
+                        if (exactMatch.get(0).getDataType() instanceof NestedColumnPrunable
+                                || exactMatch.get(0).getDataType().isVariantType()) {
                             context.cascadesContext.getStatementContext().setHasNestedColumns(true);
                         }
                         return exactMatch.get(0);
@@ -586,7 +587,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         if (wantToParseSqlFromSqlCache) {
             sqlCacheContext = context.cascadesContext.getStatementContext().getSqlCacheContext();
             if (builder instanceof AliasUdfBuilder
-                    || buildResult.second instanceof JavaUdf || buildResult.second instanceof JavaUdaf) {
+                    || buildResult.second instanceof Udf) {
                 if (sqlCacheContext.isPresent()) {
                     sqlCacheContext.get().setCannotProcessExpression(true);
                 }

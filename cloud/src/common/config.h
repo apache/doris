@@ -245,6 +245,10 @@ CONF_Int32(txn_store_retry_base_intervals_ms, "500");
 CONF_Bool(enable_retry_txn_conflict, "true");
 
 CONF_mBool(enable_s3_rate_limiter, "false");
+// Fault injection: randomly return rate limit error for PUT (delete) operations, for testing recycler.
+// s3_rate_limit_inject_probility is the probability (0-100) of injecting a rate limit error.
+CONF_mBool(enable_s3_rate_limit_inject, "false");
+CONF_mInt32(s3_rate_limit_inject_probility, "30");
 CONF_mInt64(s3_get_bucket_tokens, "1000000000000000000");
 CONF_Validator(s3_get_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
 

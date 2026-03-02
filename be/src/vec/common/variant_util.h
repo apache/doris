@@ -81,6 +81,7 @@ struct VariantExtendedInfo {
     std::unordered_set<vectorized::PathInData, vectorized::PathInData::Hash>
             nested_paths;               // nested paths in this variant column
     PathToDataTypes path_to_data_types; // key: path, value: data types
+    bool has_nested_group = false;      // whether this variant column has nested group
 };
 
 /// Returns number of dimensions in Array type. 0 if type is not array.

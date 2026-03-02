@@ -104,7 +104,6 @@ public class IcebergUnityCatalogRestCatalogTest {
         return CatalogUtil.buildIcebergCatalog("databricks_test", options, conf);
     }
 
-
     @Test
     public void rawTest() {
         Map<String, String> options = Maps.newHashMap();

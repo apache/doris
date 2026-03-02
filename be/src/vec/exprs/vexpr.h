@@ -48,7 +48,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_ipv6.h"
 #include "vec/exprs/function_context.h"
-#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/functions/cast/cast_to_string.h"
 #include "vec/functions/function.h"
@@ -237,10 +236,7 @@ public:
     static Status clone_if_not_exists(const VExprContextSPtrs& ctxs, RuntimeState* state,
                                       VExprContextSPtrs& new_ctxs);
 
-    static bool contains_blockable_function(const VExprContextSPtrs& ctxs) {
-        return std::any_of(ctxs.begin(), ctxs.end(),
-                           [](const VExprContextSPtr& ctx) { return ctx->root()->is_blockable(); });
-    }
+    static bool contains_blockable_function(const VExprContextSPtrs& ctxs);
 
     bool is_nullable() const { return _data_type->is_nullable(); }
 

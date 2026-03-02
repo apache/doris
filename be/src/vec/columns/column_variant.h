@@ -39,6 +39,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/cow.h"
 #include "vec/common/string_ref.h"

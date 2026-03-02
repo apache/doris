@@ -18,6 +18,7 @@
 package org.apache.doris.fs.obj;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
@@ -584,6 +585,28 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             }
 
             bucket = uri.getBucket();
+
+            // Optimization: For deterministic paths (no wildcards like *, ?),
+            // use HEAD requests instead of listing to avoid requiring ListBucket permission.
+            // This is useful when only GetObject permission is granted.
+            // Controlled by config: s3_skip_list_for_deterministic_path
+            // Note: Skip when using path style because path-style parsing of virtual-host URLs
+            // can produce accidental HEAD successes where LIST would correctly fail.
+            // (e.g., http://bucket.endpoint/key with path_style=true: HEAD URL coincidentally
+            // matches the correct virtual-host URL, while LIST URL format is different and fails)
+            String keyPattern = uri.getKey();
+            if (Config.s3_skip_list_for_deterministic_path
+                    && !isUsePathStyle
+                    && S3Util.isDeterministicPattern(keyPattern)
+                    && !hasLimits && startFile == null) {
+                GlobListResult headResult = globListByHeadRequests(
+                        bucket, keyPattern, result, fileNameOnly, startTime);
+                if (headResult != null) {
+                    return headResult;
+                }
+                // If headResult is null, fall through to use listing
+            }
+
             String globPath = S3Util.extendGlobs(uri.getKey());
 
             if (LOG.isDebugEnabled()) {
@@ -702,6 +725,91 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         elementCnt, remotePath, roundCnt, matchCnt,
                         duration / 1000 / 1000);
             }
+        }
+    }
+
+    /**
+     * Get file metadata using HEAD requests for deterministic paths.
+     * This avoids requiring ListBucket permission when only GetObject permission is granted.
+     *
+     * @param bucket       S3 bucket name
+     * @param keyPattern   The key pattern (may contain {..} brace or [...] bracket patterns but no wildcards)
+     * @param result       List to store matching RemoteFile objects
+     * @param fileNameOnly If true, only store file names; otherwise store full S3 paths
+     * @param startTime    Start time for logging duration
+     * @return GlobListResult if successful, null if should fall back to listing
+     */
+    private GlobListResult globListByHeadRequests(String bucket, String keyPattern,
+            List<RemoteFile> result, boolean fileNameOnly, long startTime) {
+        try {
+            // First expand [...] brackets to {...} braces, then expand {..} ranges, then expand braces
+            String expandedPattern = S3Util.expandBracketPatterns(keyPattern);
+            expandedPattern = S3Util.extendGlobs(expandedPattern);
+            List<String> expandedPaths = S3Util.expandBracePatterns(expandedPattern);
+
+            // Fall back to listing if too many paths to avoid overwhelming S3 with HEAD requests
+            // Controlled by config: s3_head_request_max_paths
+            if (expandedPaths.size() > Config.s3_head_request_max_paths) {
+                LOG.info("Expanded path count {} exceeds limit {}, falling back to LIST",
+                        expandedPaths.size(), Config.s3_head_request_max_paths);
+                return null;
+            }
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Using HEAD requests for deterministic path pattern, expanded to {} paths",
+                        expandedPaths.size());
+            }
+
+            long matchCnt = 0;
+            for (String key : expandedPaths) {
+                String fullPath = "s3://" + bucket + "/" + key;
+                try {
+                    HeadObjectResponse headResponse = getClient()
+                            .headObject(HeadObjectRequest.builder()
+                                    .bucket(bucket)
+                                    .key(key)
+                                    .build());
+
+                    matchCnt++;
+                    RemoteFile remoteFile = new RemoteFile(
+                            fileNameOnly ? Paths.get(key).getFileName().toString() : fullPath,
+                            true, // isFile
+                            headResponse.contentLength(),
+                            headResponse.contentLength(),
+                            headResponse.lastModified() != null
+                                    ? headResponse.lastModified().toEpochMilli() : 0
+                    );
+                    result.add(remoteFile);
+
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("HEAD success for {}: size={}", fullPath, headResponse.contentLength());
+                    }
+                } catch (NoSuchKeyException e) {
+                    // File does not exist, skip it (this is expected for some expanded patterns)
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("File does not exist (skipped): {}", fullPath);
+                    }
+                } catch (S3Exception e) {
+                    if (e.statusCode() == HttpStatus.SC_NOT_FOUND) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("File does not exist (skipped): {}", fullPath);
+                        }
+                    } else {
+                        throw e;
+                    }
+                }
+            }
+
+            if (LOG.isDebugEnabled()) {
+                long duration = System.nanoTime() - startTime;
+                LOG.debug("Deterministic path HEAD requests: checked {} paths, found {} files, took {} ms",
+                        expandedPaths.size(), matchCnt, duration / 1000 / 1000);
+            }
+
+            return new GlobListResult(Status.OK, "", bucket, "");
+        } catch (Exception e) {
+            LOG.warn("Failed to use HEAD requests, falling back to listing: {}", e.getMessage());
+            return null;
         }
     }
 
