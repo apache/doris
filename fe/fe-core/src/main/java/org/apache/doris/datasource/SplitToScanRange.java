@@ -30,5 +30,6 @@ public interface SplitToScanRange {
             Backend backend,
             Map<String, String> locationProperties,
             Split split,
-            List<String> pathPartitionKeys) throws UserException;
+            List<String> pathPartitionKeys,
+            Boolean fileCacheAdmission) throws UserException;
 }

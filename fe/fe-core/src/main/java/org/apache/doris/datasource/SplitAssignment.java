@@ -53,6 +53,7 @@ public class SplitAssignment {
     private final SplitToScanRange splitToScanRange;
     private final Map<String, String> locationProperties;
     private final List<String> pathPartitionKeys;
+    private final Boolean fileCacheAdmission;
     private final Object assignLock = new Object();
     private Split sampleSplit = null;
     private final AtomicBoolean isStopped = new AtomicBoolean(false);
@@ -66,12 +67,14 @@ public class SplitAssignment {
             SplitGenerator splitGenerator,
             SplitToScanRange splitToScanRange,
             Map<String, String> locationProperties,
-            List<String> pathPartitionKeys) {
+            List<String> pathPartitionKeys,
+            Boolean fileCacheAdmission) {
         this.backendPolicy = backendPolicy;
         this.splitGenerator = splitGenerator;
         this.splitToScanRange = splitToScanRange;
         this.locationProperties = locationProperties;
         this.pathPartitionKeys = pathPartitionKeys;
+        this.fileCacheAdmission = fileCacheAdmission;
     }
 
     public void init() throws UserException {
@@ -107,7 +110,8 @@ public class SplitAssignment {
             Collection<Split> splits = batch.get(backend);
             List<TScanRangeLocations> locations = new ArrayList<>(splits.size());
             for (Split split : splits) {
-                locations.add(splitToScanRange.getScanRange(backend, locationProperties, split, pathPartitionKeys));
+                locations.add(splitToScanRange.getScanRange(backend, locationProperties, split, pathPartitionKeys,
+                        fileCacheAdmission));
             }
             while (needMoreSplit()) {
                 BlockingQueue<Collection<TScanRangeLocations>> queue =
