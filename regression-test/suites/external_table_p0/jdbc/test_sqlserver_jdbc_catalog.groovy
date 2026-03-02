@@ -20,8 +20,8 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
-    // String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mssql-jdbc-11.2.3.jre8.jar"
-    String driver_url = "mssql-jdbc-11.2.3.jre8.jar"
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mssql-jdbc-11.2.3.jre8.jar"
+    // String driver_url = "mssql-jdbc-11.2.3.jre8.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "sqlserver_catalog";
         String internal_db_name = "sqlserver_jdbc_catalog_p0";
