@@ -81,7 +81,12 @@ public class ConnectContextUtil {
                 return Optional.empty();
             }
         }
+        return initCatalogAndDb(ctx, catalogName, dbName);
+    }
 
+    public static Optional<Pair<ErrorCode, String>> initCatalogAndDb(ConnectContext ctx,
+                                                                     String catalogName,
+                                                                     String dbName) {
         try {
             if (catalogName != null) {
                 ctx.getEnv().changeCatalog(ctx, catalogName);

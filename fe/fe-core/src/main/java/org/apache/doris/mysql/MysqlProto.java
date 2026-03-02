@@ -23,10 +23,12 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.AESUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
+import org.apache.doris.thrift.TBDPUserInfo;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -202,9 +204,34 @@ public class MysqlProto {
             return false;
         }
 
+        TBDPUserInfo bdpUserInfo = null;
+        if (qualifiedUser.contains("$")) {
+            try {
+                String[] bdpAuthInfo = qualifiedUser.split("\\$");
+                if (bdpAuthInfo.length != 2) {
+                    context.getState().setError("invalid bdp auth user name format " + qualifiedUser);
+                    return false;
+                }
+                qualifiedUser = bdpAuthInfo[0];
+                String serviceName = bdpAuthInfo[1];
+                bdpUserInfo = AESUtil.decrypt(serviceName, authPacket.getDb());
+                if (!serviceName.equals(bdpUserInfo.getSource())) {
+                    context.getState().setError("the service name " + serviceName
+                            + " not be equal with decrypted service: " + bdpUserInfo.getSource());
+                    return false;
+                }
+                LOG.info("doris username {}, service {}, erp {}, source {}, hadoop_user_name {}, user_token {}",
+                        qualifiedUser, serviceName, bdpUserInfo.getErp(), bdpUserInfo.getSource(),
+                        bdpUserInfo.getHadoopUserName(), bdpUserInfo.getUserToken());
+            } catch (Exception e) {
+                context.getState().setError("decrypt bdp user info failed: " + e.getMessage());
+                LOG.warn("decrypt bdp user info failed", e);
+                return false;
+            }
+        }
         //  authenticate
         if (!Env.getCurrentEnv().getAuthenticatorManager()
-                .authenticate(context, qualifiedUser, channel, serializer, authPacket, handshakePacket)) {
+                .authenticate(context, qualifiedUser, channel, serializer, authPacket, handshakePacket, bdpUserInfo)) {
             return false;
         }
         context.setConnectAttributes(authPacket.getConnectAttributes());
@@ -224,17 +251,38 @@ public class MysqlProto {
             return false;
         }
 
-        // set database
-        String db = authPacket.getDb();
-        if (!Strings.isNullOrEmpty(db)) {
-            Optional<Pair<ErrorCode, String>> res = ConnectContextUtil.initCatalogAndDb(context, db);
+        if (bdpUserInfo != null) {
+            String catalogName = null;
+            String dbName = null;
+            context.setErp(bdpUserInfo.getErp());
+            context.setSource(bdpUserInfo.getSource());
+            context.setHadoopUserName(bdpUserInfo.getHadoopUserName());
+            context.setUserToken(bdpUserInfo.getUserToken());
+
+            if (bdpUserInfo.isSetCatalog()) {
+                catalogName = bdpUserInfo.getCatalog();
+            }
+            if (bdpUserInfo.isSetDb()) {
+                dbName = bdpUserInfo.getDb();
+            }
+            Optional<Pair<ErrorCode, String>> res = ConnectContextUtil.initCatalogAndDb(context, catalogName, dbName);
             if (res.isPresent()) {
                 context.getState().setError(res.get().first, res.get().second);
                 sendResponsePacket(context);
                 return false;
             }
+        } else {
+            // set database
+            String db = authPacket.getDb();
+            if (!Strings.isNullOrEmpty(db)) {
+                Optional<Pair<ErrorCode, String>> res = ConnectContextUtil.initCatalogAndDb(context, db);
+                if (res.isPresent()) {
+                    context.getState().setError(res.get().first, res.get().second);
+                    sendResponsePacket(context);
+                    return false;
+                }
+            }
         }
-
         // set resource tag if has
         context.setComputeGroup(Env.getCurrentEnv().getAuth().getComputeGroup(qualifiedUser));
         return true;

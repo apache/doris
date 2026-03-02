@@ -107,7 +107,7 @@ public class MysqlProtoTest {
                 result = authenticatorManager;
 
                 authenticatorManager.authenticate((ConnectContext) any, anyString, (MysqlChannel) any,
-                        (MysqlSerializer) any, (MysqlAuthPacket) any, (MysqlHandshakePacket) any);
+                        (MysqlSerializer) any, (MysqlAuthPacket) any, (MysqlHandshakePacket) any, null);
                 minTimes = 0;
                 result = true;
 

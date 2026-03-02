@@ -28,6 +28,7 @@ import org.apache.doris.common.LogUtils;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.lock.DeadlockMonitor;
+import org.apache.doris.common.util.AESUtil;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
@@ -170,6 +171,8 @@ public class DorisFE {
 
                 LogManager.shutdown();
             }));
+
+            AESUtil.init(dorisHomeDir + "/conf/lakehouse_auth.conf");
 
             // set dns cache ttl
             java.security.Security.setProperty("networkaddress.cache.ttl", "60");
