@@ -62,9 +62,7 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
     //                                "nested_column must be nullable, but got {}", data->get_name());
     //     }
     // #endif
-
-    data = data->convert_to_full_column_if_const();
-    offsets = offsets->convert_to_full_column_if_const();
+    check_const_only_in_top_level();
     const auto* offsets_concrete = typeid_cast<const ColumnOffsets*>(offsets.get());
 
     if (!offsets_concrete) {
