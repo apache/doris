@@ -49,6 +49,7 @@ public class AggregateUtils {
     public static final double MID_CARDINALITY_THRESHOLD = 0.01;
     public static final double HIGH_CARDINALITY_THRESHOLD = 0.1;
     public static final int LOW_NDV_THRESHOLD = 1024;
+    public static final int NDV_INSTANCE_BALANCE_MULTIPLIER = 512;
 
     public static AggregateFunction tryConvertToMultiDistinct(AggregateFunction function) {
         if (function instanceof SupportMultiDistinct && function.isDistinct()) {
