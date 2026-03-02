@@ -46,7 +46,7 @@ public class HiveScanNodeTest {
         Mockito.when(table.getCatalog()).thenReturn(catalog);
         Mockito.when(catalog.bindBrokerName()).thenReturn("");
         desc.setTable(table);
-        HiveScanNode node = new HiveScanNode(new PlanNodeId(0), desc, false, sv, null);
+        HiveScanNode node = new HiveScanNode(new PlanNodeId(0), desc, false, sv, null, "");
 
         HiveMetaStoreCache.FileCacheValue fileCacheValue = new HiveMetaStoreCache.FileCacheValue();
         HiveMetaStoreCache.HiveFileStatus status = new HiveMetaStoreCache.HiveFileStatus();
@@ -71,7 +71,7 @@ public class HiveScanNodeTest {
         Mockito.when(table.getCatalog()).thenReturn(catalog);
         Mockito.when(catalog.bindBrokerName()).thenReturn("");
         desc.setTable(table);
-        HiveScanNode node = new HiveScanNode(new PlanNodeId(0), desc, false, sv, null);
+        HiveScanNode node = new HiveScanNode(new PlanNodeId(0), desc, false, sv, null, "");
 
         HiveMetaStoreCache.FileCacheValue fileCacheValue = new HiveMetaStoreCache.FileCacheValue();
         HiveMetaStoreCache.HiveFileStatus status = new HiveMetaStoreCache.HiveFileStatus();

@@ -32,8 +32,8 @@ import java.util.List;
 public class CTEScanNode extends ScanNode {
     private static final PlanNodeId UNINITIAL_PLANNODEID = new PlanNodeId(-1);
 
-    public CTEScanNode(TupleDescriptor desc) {
-        super(UNINITIAL_PLANNODEID, desc, "CTEScanNode", StatisticalType.CTE_SCAN_NODE);
+    public CTEScanNode(TupleDescriptor desc, String clusterName) {
+        super(UNINITIAL_PLANNODEID, desc, "CTEScanNode", clusterName);
     }
 
     public void setPlanNodeId(PlanNodeId id) {

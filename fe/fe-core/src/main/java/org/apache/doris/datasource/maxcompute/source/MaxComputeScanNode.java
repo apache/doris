@@ -111,15 +111,14 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     // For new planner
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc,
             SelectedPartitions selectedPartitions, boolean needCheckColumnPriv,
-            SessionVariable sv) {
-        this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE,
-                selectedPartitions, needCheckColumnPriv, sv);
+            SessionVariable sv, String clusterName) {
+        this(id, desc, "MCScanNode", selectedPartitions, needCheckColumnPriv, sv, clusterName);
     }
 
     private MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            StatisticalType statisticalType, SelectedPartitions selectedPartitions,
-            boolean needCheckColumnPriv, SessionVariable sv) {
-        super(id, desc, planNodeName, statisticalType, needCheckColumnPriv, sv);
+            SelectedPartitions selectedPartitions, boolean needCheckColumnPriv, SessionVariable sv,
+            String clusterName) {
+        super(id, desc, planNodeName, clusterName, needCheckColumnPriv, sv);
         table = (MaxComputeExternalTable) desc.getTable();
         this.selectedPartitions = selectedPartitions;
     }

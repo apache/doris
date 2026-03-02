@@ -66,8 +66,9 @@ public class SchemaScanNode extends ScanNode {
      * Constructs node to scan given data files of table 'tbl'.
      */
     public SchemaScanNode(PlanNodeId id, TupleDescriptor desc,
-            String schemaCatalog, String schemaDb, String schemaTable, List<Expr> frontendConjuncts) {
-        super(id, desc, "SCAN SCHEMA", StatisticalType.SCHEMA_SCAN_NODE);
+            String schemaCatalog, String schemaDb, String schemaTable, List<Expr> frontendConjuncts,
+            String clusterName) {
+        super(id, desc, "SCAN SCHEMA", clusterName);
         this.tableName = desc.getTable().getName();
         this.schemaCatalog = schemaCatalog;
         this.schemaDb = schemaDb;

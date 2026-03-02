@@ -60,7 +60,7 @@ public class PaimonScanNodeTest {
     public void testSplitWeight() throws UserException {
 
         TupleDescriptor desc = new TupleDescriptor(new TupleId(3));
-        PaimonScanNode paimonScanNode = new PaimonScanNode(new PlanNodeId(1), desc, false, sv);
+        PaimonScanNode paimonScanNode = new PaimonScanNode(new PlanNodeId(1), desc, false, sv, "");
 
         paimonScanNode.setSource(new PaimonSource());
 
@@ -384,10 +384,68 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testPaimonDataSystemTableForceJniEvenWhenNativeSupported() throws UserException {
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(3));
+        PaimonScanNode paimonScanNode = new PaimonScanNode(new PlanNodeId(1), desc, false, sv, "");
+        PaimonScanNode spyPaimonScanNode = Mockito.spy(paimonScanNode);
+
+        DataFileMeta dfm = DataFileMeta.forAppend("f1.parquet", 64 * 1024 * 1024, 1, SimpleStats.EMPTY_STATS, 1, 1, 1,
+                Collections.emptyList(), null, null, null, null);
+        BinaryRow binaryRow = BinaryRow.singleColumn(1);
+        DataSplit dataSplit = DataSplit.builder()
+                .rawConvertible(true)
+                .withPartition(binaryRow)
+                .withBucket(1)
+                .withBucketPath("file://b1")
+                .withDataFiles(Collections.singletonList(dfm))
+                .build();
+
+        Mockito.doReturn(Collections.singletonList(dataSplit)).when(spyPaimonScanNode).getPaimonSplitFromAPI();
+        mockNativeReader(spyPaimonScanNode);
+
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonSysExternalTable binlogTable = Mockito.mock(PaimonSysExternalTable.class);
+        Mockito.when(binlogTable.getSysTableType()).thenReturn("binlog");
+        Mockito.when(source.getExternalTable()).thenReturn(binlogTable);
+        spyPaimonScanNode.setSource(source);
+
+        long maxInitialSplitSize = 32L * 1024L * 1024L;
+        long maxSplitSize = 64L * 1024L * 1024L;
+        FileSplitter fileSplitter = new FileSplitter(maxInitialSplitSize, maxSplitSize, 0);
+        try {
+            java.lang.reflect.Field field = FileQueryScanNode.class.getDeclaredField("fileSplitter");
+            field.setAccessible(true);
+            field.set(spyPaimonScanNode, fileSplitter);
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            throw new RuntimeException("Failed to inject FileSplitter into PaimonScanNode test", e);
+        }
+
+        Mockito.when(sv.isForceJniScanner()).thenReturn(false);
+        Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");
+        Mockito.when(sv.isEnableRuntimeFilterPartitionPrune()).thenReturn(false);
+        Mockito.when(sv.getMaxSplitSize()).thenReturn(maxSplitSize);
+
+        Assert.assertTrue(spyPaimonScanNode.shouldForceJniForSystemTable());
+        List<org.apache.doris.spi.Split> splits = spyPaimonScanNode.getSplits(1);
+        Assert.assertEquals(1, splits.size());
+        Assert.assertNotNull(((PaimonSplit) splits.get(0)).getSplit());
+
+        PaimonSysExternalTable auditLogTable = Mockito.mock(PaimonSysExternalTable.class);
+        Mockito.when(auditLogTable.getSysTableType()).thenReturn("audit_log");
+        Mockito.when(source.getExternalTable()).thenReturn(auditLogTable);
+
+        Assert.assertTrue(spyPaimonScanNode.shouldForceJniForSystemTable());
+        List<org.apache.doris.spi.Split> auditLogSplits = spyPaimonScanNode.getSplits(1);
+        Assert.assertEquals(1, auditLogSplits.size());
+        Assert.assertNotNull(((PaimonSplit) auditLogSplits.get(0)).getSplit());
+    }
+
+    @Test
     public void testDetermineTargetFileSplitSizeHonorsMaxFileSplitNum() throws Exception {
         SessionVariable sv = new SessionVariable();
         sv.setMaxFileSplitNum(100);
-        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), false, sv);
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)),
+                false, sv, "");
 
         PaimonSource source = Mockito.mock(PaimonSource.class);
         Mockito.when(source.getFileFormatFromTableProperties()).thenReturn("parquet");

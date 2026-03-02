@@ -34,6 +34,6 @@ public abstract class DataGenTableValuedFunction extends TableValuedFunctionIf {
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
-        return new DataGenScanNode(id, desc, this);
+        return new DataGenScanNode(id, desc, this, sv.resolveCloudClusterName());
     }
 }

@@ -38,8 +38,7 @@ public class FileQueryScanNodeTest {
 
     private static class TestFileQueryScanNode extends FileQueryScanNode {
         TestFileQueryScanNode(SessionVariable sv) {
-            super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), "test",
-                    StatisticalType.TEST_EXTERNAL_TABLE, false, sv);
+            super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), "test", "", false, sv);
         }
 
         @Override

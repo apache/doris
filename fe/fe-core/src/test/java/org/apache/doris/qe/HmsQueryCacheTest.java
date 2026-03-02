@@ -227,7 +227,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
 
         TupleDescriptor desc = new TupleDescriptor(new TupleId(1));
         desc.setTable(mgr.getInternalCatalog().getDbNullable("test").getTableNullable("tbl1"));
-        olapScanNode = new OlapScanNode(new PlanNodeId(1), desc, "tb1ScanNode");
+        olapScanNode = new OlapScanNode(new PlanNodeId(1), desc, "tb1ScanNode", "");
     }
 
     @Test

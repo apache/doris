@@ -378,7 +378,7 @@ public class OlapQueryCacheTest {
         OlapTable table = createProfileTable();
         TupleDescriptor desc = new TupleDescriptor(new TupleId(20004));
         desc.setTable(table);
-        OlapScanNode node = new OlapScanNode(new PlanNodeId(20008), desc, "userprofilenode");
+        OlapScanNode node = new OlapScanNode(new PlanNodeId(20008), desc, "userprofilenode", "");
         node.setSelectedPartitionIds(selectedPartitionIds);
         return node;
     }
@@ -491,7 +491,7 @@ public class OlapQueryCacheTest {
         OlapTable table = createEventTable();
         TupleDescriptor desc = new TupleDescriptor(new TupleId(30002));
         desc.setTable(table);
-        OlapScanNode node = new OlapScanNode(new PlanNodeId(30004), desc, "appeventnode");
+        OlapScanNode node = new OlapScanNode(new PlanNodeId(30004), desc, "appeventnode", "");
         node.setSelectedPartitionIds(selectedPartitionIds);
         return node;
     }

@@ -105,9 +105,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
     public FileQueryScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            StatisticalType statisticalType, boolean needCheckColumnPriv,
-            SessionVariable sv) {
-        super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
+            String clusterName, boolean needCheckColumnPriv, SessionVariable sv) {
+        super(id, desc, planNodeName, clusterName, needCheckColumnPriv);
         this.sessionVariable = sv;
     }
 
@@ -539,7 +538,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     @Override
     public int getNumInstances() {
         if (sessionVariable.isIgnoreStorageDataDistribution()) {
-            return sessionVariable.getParallelExecInstanceNum();
+            return sessionVariable.getParallelExecInstanceNum(clusterName);
         }
         return scanRangeLocations.size();
     }

@@ -112,14 +112,14 @@ public class HiveScanNode extends FileQueryScanNode {
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
     public HiveScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv,
-            DirectoryLister directoryLister) {
-        this(id, desc, "HIVE_SCAN_NODE", StatisticalType.HIVE_SCAN_NODE, needCheckColumnPriv, sv, directoryLister);
+            DirectoryLister directoryLister, String clusterName) {
+        this(id, desc, "HIVE_SCAN_NODE", needCheckColumnPriv, sv, directoryLister, clusterName);
     }
 
     public HiveScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            StatisticalType statisticalType, boolean needCheckColumnPriv, SessionVariable sv,
-            DirectoryLister directoryLister) {
-        super(id, desc, planNodeName, statisticalType, needCheckColumnPriv, sv);
+            boolean needCheckColumnPriv, SessionVariable sv,
+            DirectoryLister directoryLister, String clusterName) {
+        super(id, desc, planNodeName, clusterName, needCheckColumnPriv, sv);
         hmsTable = (HMSExternalTable) desc.getTable();
         brokerName = hmsTable.getCatalog().bindBrokerName();
         this.directoryLister = directoryLister;
@@ -321,7 +321,7 @@ public class HiveScanNode extends FileQueryScanNode {
                     totalFileNum += fileCacheValue.getFiles().size();
                 }
             }
-            int parallelNum = sessionVariable.getParallelExecInstanceNum();
+            int parallelNum = sessionVariable.getParallelExecInstanceNum(clusterName);
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
         }
 
@@ -638,4 +638,3 @@ public class HiveScanNode extends FileQueryScanNode {
         return compressType;
     }
 }
-

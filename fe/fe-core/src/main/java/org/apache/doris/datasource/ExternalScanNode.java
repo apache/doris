@@ -50,9 +50,9 @@ public abstract class ExternalScanNode extends ScanNode {
             ? new FederationBackendPolicy(NodeSelectionStrategy.CONSISTENT_HASHING)
             : new FederationBackendPolicy();
 
-    public ExternalScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
-            boolean needCheckColumnPriv) {
-        super(id, desc, planNodeName, statisticalType);
+    public ExternalScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
+            String clusterName, boolean needCheckColumnPriv) {
+        super(id, desc, planNodeName, clusterName);
         this.needCheckColumnPriv = needCheckColumnPriv;
     }
 
