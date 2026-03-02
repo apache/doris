@@ -70,7 +70,8 @@ public:
     CloudMetaMgr(const CloudMetaMgr&) = delete;
     CloudMetaMgr& operator=(const CloudMetaMgr&) = delete;
 
-    Status get_tablet_meta(int64_t tablet_id, std::shared_ptr<TabletMeta>* tablet_meta);
+    Status get_tablet_meta(int64_t table_id, int64_t index_id, int64_t partition_id,
+                           int64_t tablet_id, TabletMetaSharedPtr* tablet_meta);
 
     Status sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions& options = {},
                                SyncRowsetStats* sync_stats = nullptr);

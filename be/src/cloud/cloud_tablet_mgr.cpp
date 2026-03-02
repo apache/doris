@@ -216,7 +216,7 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
                                    int64_t tablet_id) -> Result<std::shared_ptr<CloudTablet>> {
             TabletMetaSharedPtr tablet_meta;
             auto start = std::chrono::steady_clock::now();
-            auto st = _engine.meta_mgr().get_tablet_meta(tablet_id, &tablet_meta);
+            auto st = _engine.meta_mgr().get_tablet_meta(-1, -1, -1, tablet_id, &tablet_meta);
             auto end = std::chrono::steady_clock::now();
             if (sync_stats) {
                 sync_stats->get_remote_tablet_meta_rpc_ns +=

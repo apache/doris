@@ -1117,6 +1117,41 @@ Status TabletMeta::set_partition_id(int64_t partition_id) {
     return Status::OK();
 }
 
+Status TabletMeta::set_index_id(int64_t index_id) {
+    if ((index_id > 0 && _index_id != index_id) || index_id < 1) {
+        LOG(WARNING) << "cur index id=" << _index_id << " new index id=" << index_id
+                     << " not equal";
+    }
+    _index_id = index_id;
+    return Status::OK();
+}
+
+Status TabletMeta::set_table_id(int64_t table_id) {
+    if ((table_id > 0 && _table_id != table_id) || table_id < 1) {
+        LOG(WARNING) << "cur table id=" << _table_id << " new table id=" << table_id
+                     << " not equal";
+    }
+    _table_id = table_id;
+    return Status::OK();
+}
+
+Status TabletMeta::set_tablet_id(int64_t tablet_id) {
+    if ((tablet_id > 0 && _tablet_id != tablet_id) || tablet_id < 1) {
+        LOG(WARNING) << "cur tablet id=" << _tablet_id << " new tablet id=" << tablet_id
+                     << " not equal";
+    }
+    _tablet_id = tablet_id;
+    return Status::OK();
+}
+
+Status TabletMeta::set_db_id(int64_t db_id) {
+    if ((db_id > 0 && _db_id != db_id) || db_id < 1) {
+        LOG(WARNING) << "cur db id=" << _db_id << " new db id=" << db_id << " not equal";
+    }
+    _db_id = db_id;
+    return Status::OK();
+}
+
 void TabletMeta::clear_stale_rowset() {
     _stale_rs_metas.clear();
     if (_enable_unique_key_merge_on_write) {

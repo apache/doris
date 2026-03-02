@@ -453,13 +453,17 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
 
 } // namespace
 
-Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta) {
+Status CloudMetaMgr::get_tablet_meta(int64_t table_id, int64_t index_id, int64_t partition_id,
+                                     int64_t tablet_id, TabletMetaSharedPtr* tablet_meta) {
     VLOG_DEBUG << "send GetTabletRequest, tablet_id: " << tablet_id;
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::get_tablet_meta", Status::OK(), tablet_id,
                                       tablet_meta);
     GetTabletRequest req;
     GetTabletResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_table_id(table_id);
+    req.set_index_id(index_id);
+    req.set_partition_id(partition_id);
     req.set_tablet_id(tablet_id);
     Status st = retry_rpc("get tablet meta", req, &resp, &MetaService_Stub::get_tablet);
     if (!st.ok()) {
@@ -583,12 +587,14 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         int64_t tablet_id = tablet->tablet_id();
         int64_t table_id = tablet->table_id();
         int64_t index_id = tablet->index_id();
+        int64_t db_id = tablet->db_id();
         req.set_cloud_unique_id(config::cloud_unique_id);
         auto* idx = req.mutable_idx();
         idx->set_tablet_id(tablet_id);
         idx->set_table_id(table_id);
         idx->set_index_id(index_id);
         idx->set_partition_id(tablet->partition_id());
+        idx->set_db_id(db_id);
         {
             std::shared_lock rlock(tablet->get_header_lock());
             if (options.full_sync) {

@@ -177,7 +177,7 @@ Status DeleteBitmapAction::_handle_show_ms_delete_bitmap_count(HttpRequest* req,
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &verbose), "check param failed");
 
     TabletMetaSharedPtr tablet_meta;
-    auto st = _engine.to_cloud().meta_mgr().get_tablet_meta(tablet_id, &tablet_meta);
+    auto st = _engine.to_cloud().meta_mgr().get_tablet_meta(-1, -1, -1, tablet_id, &tablet_meta);
     if (!st.ok()) {
         LOG(WARNING) << "failed to get_tablet_meta for tablet=" << tablet_id
                      << ", st=" << st.to_string();

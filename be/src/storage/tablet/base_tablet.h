@@ -69,6 +69,7 @@ public:
     Status set_tablet_state(TabletState state);
     int64_t table_id() const { return _tablet_meta->table_id(); }
     size_t row_size() const { return _tablet_meta->tablet_schema()->row_size(); }
+    int64_t db_id() const { return _tablet_meta->db_id(); }
     int64_t index_id() const { return _tablet_meta->index_id(); }
     int64_t partition_id() const { return _tablet_meta->partition_id(); }
     int64_t tablet_id() const { return _tablet_meta->tablet_id(); }

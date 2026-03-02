@@ -277,14 +277,27 @@ void convert_tmp_rowsets(
         }
 
         if (!tablet_ids.contains(tmp_rowset_pb.tablet_id())) {
-            TabletIndexPB tablet_idx_pb;
-            std::tie(code, msg) =
-                    get_tablet_index(meta_reader, txn.get(), instance_id, txn_id,
-                                     tmp_rowset_pb.tablet_id(), &tablet_idx_pb, is_versioned_read);
-            if (code != MetaServiceCode::OK) {
-                return;
+            if (tmp_rowset_pb.has_table_id() && tmp_rowset_pb.table_id() > 0 &&
+                tmp_rowset_pb.has_index_id() && tmp_rowset_pb.index_id() > 0 &&
+                tmp_rowset_pb.has_partition_id() && tmp_rowset_pb.partition_id() > 0) {
+                // Construct TabletIndexPB from rowset meta directly, skip FDB read
+                TabletIndexPB tablet_idx_pb;
+                tablet_idx_pb.set_table_id(tmp_rowset_pb.table_id());
+                tablet_idx_pb.set_index_id(tmp_rowset_pb.index_id());
+                tablet_idx_pb.set_partition_id(tmp_rowset_pb.partition_id());
+                tablet_idx_pb.set_tablet_id(tmp_rowset_pb.tablet_id());
+                tablet_ids.emplace(tmp_rowset_pb.tablet_id(), tablet_idx_pb);
+            } else {
+                // Fallback for old BEs that don't set table_id
+                TabletIndexPB tablet_idx_pb;
+                std::tie(code, msg) = get_tablet_index(meta_reader, txn.get(), instance_id, txn_id,
+                                                       tmp_rowset_pb.tablet_id(), &tablet_idx_pb,
+                                                       is_versioned_read);
+                if (code != MetaServiceCode::OK) {
+                    return;
+                }
+                tablet_ids.emplace(tmp_rowset_pb.tablet_id(), tablet_idx_pb);
             }
-            tablet_ids.emplace(tmp_rowset_pb.tablet_id(), tablet_idx_pb);
         }
         const TabletIndexPB& tablet_idx_pb = tablet_ids[tmp_rowset_pb.tablet_id()];
 
@@ -789,16 +802,31 @@ std::pair<MetaServiceCode, std::string> TxnLazyCommitTask::commit_partition(
     int64_t table_id = -1;
     {
         DCHECK(tmp_rowset_metas.size() > 0);
-        int64_t first_tablet_id = tmp_rowset_metas.begin()->second.tablet_id();
-        TabletIndexPB first_tablet_index;
-        std::tie(code, msg) =
-                get_tablet_index(meta_reader, txn_kv_.get(), instance_id_, txn_id_, first_tablet_id,
-                                 &first_tablet_index, is_versioned_read);
-        if (code != MetaServiceCode::OK) {
-            return {code, msg};
+        const auto& first_rowset = tmp_rowset_metas.begin()->second;
+        int64_t first_tablet_id = first_rowset.tablet_id();
+        if (first_rowset.has_table_id() && first_rowset.table_id() > 0 &&
+            first_rowset.has_index_id() && first_rowset.index_id() > 0 &&
+            first_rowset.has_partition_id() && first_rowset.partition_id() > 0) {
+            // Use table_id from rowset meta directly, skip FDB read
+            table_id = first_rowset.table_id();
+            TabletIndexPB first_tablet_index;
+            first_tablet_index.set_table_id(first_rowset.table_id());
+            first_tablet_index.set_index_id(first_rowset.index_id());
+            first_tablet_index.set_partition_id(first_rowset.partition_id());
+            first_tablet_index.set_tablet_id(first_tablet_id);
+            tablet_ids.emplace(first_tablet_id, first_tablet_index);
+        } else {
+            // Fallback for old BEs that don't set table_id
+            TabletIndexPB first_tablet_index;
+            std::tie(code, msg) =
+                    get_tablet_index(meta_reader, txn_kv_.get(), instance_id_, txn_id_,
+                                     first_tablet_id, &first_tablet_index, is_versioned_read);
+            if (code != MetaServiceCode::OK) {
+                return {code, msg};
+            }
+            table_id = first_tablet_index.table_id();
+            tablet_ids.emplace(first_tablet_id, first_tablet_index);
         }
-        table_id = first_tablet_index.table_id();
-        tablet_ids.emplace(first_tablet_id, first_tablet_index);
     }
 
     // The partition version key is constructed during the txn commit process, so the versionstamp

@@ -100,6 +100,10 @@ public:
 
     void set_index_id(int64_t index_id) { _rowset_meta_pb.set_index_id(index_id); }
 
+    int64_t table_id() const { return _rowset_meta_pb.table_id(); }
+
+    void set_table_id(int64_t table_id) { _rowset_meta_pb.set_table_id(table_id); }
+
     TabletUid tablet_uid() const { return _rowset_meta_pb.tablet_uid(); }
 
     void set_tablet_uid(TabletUid tablet_uid) {

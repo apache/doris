@@ -1485,6 +1485,8 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
         rowset.set_txn_id(txn_id + i);
         output_rowsets.push_back(rowset);
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), output_rowsets.back(), res, txn_id + i);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         commit_rowset(meta_service.get(), output_rowsets.back(), res, txn_id + i);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }

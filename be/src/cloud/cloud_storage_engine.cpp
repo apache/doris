@@ -316,7 +316,7 @@ Status CloudStorageEngine::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPt
         return Status::InternalError("cloud meta manager is not initialized");
     }
 
-    return _meta_mgr->get_tablet_meta(tablet_id, tablet_meta);
+    return _meta_mgr->get_tablet_meta(-1, -1, -1, tablet_id, tablet_meta);
 }
 
 Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {

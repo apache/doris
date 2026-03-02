@@ -1314,6 +1314,9 @@ message GetTabletRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 tablet_id = 2;
     optional string request_ip = 3;
+    optional int64 table_id = 4;
+    optional int64 index_id = 5;
+    optional int64 partition_id = 6;
     // TODO: There are more fields TBD
 }
 
