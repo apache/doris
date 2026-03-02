@@ -242,4 +242,44 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
             connectContext.getSessionVariable().setDisableJoinReorder(false);
         }
     }
+
+    @Test
+    void testNotPushCountCaseWhenWithElseToNullableSideViaProject() {
+        // When CASE WHEN has an ELSE clause (e.g. CASE WHEN cond THEN -121 ELSE 2 END),
+        // NormalizeAggregate extracts if(cond, -121, 2) into a Project as a slot,
+        // so the aggregate becomes count(#slot). At the agg level, hasCaseWhen=false
+        // because count(#slot) contains no If/CaseWhen.
+        //
+        // EagerAggRewriter must recheck hasCaseWhen after substituting through the
+        // Project (in createContextFromProject), otherwise count(if(cond, -121, 2))
+        // is incorrectly pushed to the nullable side of an outer join.
+        //
+        // On null-extended rows: if(NULL_cond, -121, 2) = 2 (ELSE branch), count(2) = 1.
+        // But pre-agg doesn't include null-extended rows → ifnull(sum(NULL), 0) = 0 (wrong!).
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            // RIGHT JOIN: t1 is the nullable side
+            // count(case when t1.id1 > 5 then -121 else 2 end) must NOT be pushed to t1
+            String sql = "select count(case when t1.id1 > 5 then -121 else 2 end), t2.id2"
+                    + " from t1 right join t2 on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(logicalAggregate(), any()))
+                    .printlnTree();
+
+            // LEFT JOIN: t2 is the nullable side
+            String sql2 = "select count(case when t2.id2 > 5 then -121 else 2 end), t1.id1"
+                    + " from t1 left join t2 on t1.id1 = t2.id2 group by t1.id1";
+            PlanChecker.from(connectContext)
+                    .analyze(sql2)
+                    .rewrite()
+                    .nonMatch(logicalJoin(any(), logicalAggregate()))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
 }

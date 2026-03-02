@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -258,9 +260,22 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             aliasMap.put(newAggFunc, (Alias) alias.withChildren(newAggFunc));
             aggFunctions.add(newAggFunc);
         }
+        // After pushing expressions past the project, the agg functions may now
+        // contain If/CaseWhen that were hidden behind slot references before.
+        // e.g. count(#slot) where #slot = if(cond, a, b) in the project.
+        // We must re-check and update hasCaseWhen accordingly.
+        boolean newHasCaseWhen = context.hasCaseWhen;
+        if (!newHasCaseWhen) {
+            for (AggregateFunction aggFunc : aggFunctions) {
+                if (aggFunc.anyMatch(e -> e instanceof CaseWhen || e instanceof If)) {
+                    newHasCaseWhen = true;
+                    break;
+                }
+            }
+        }
         return new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
                 context.getCascadesContext(), context.isPassThroughBigJoin(),
-                context.hasDecomposedAggIf, context.hasCaseWhen);
+                context.hasDecomposedAggIf, newHasCaseWhen);
     }
 
     private boolean canPushThroughProject(LogicalProject<? extends Plan> project, PushDownAggContext context) {
