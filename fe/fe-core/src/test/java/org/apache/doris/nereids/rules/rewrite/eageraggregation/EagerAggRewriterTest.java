@@ -205,4 +205,41 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
             connectContext.getSessionVariable().setDisableJoinReorder(false);
         }
     }
+
+    @Test
+    void testNotPushCountIfIsNullToNullableSideOfOuterJoin() {
+        // count(if(col IS NULL, value, NULL)) must NOT be pushed to the nullable side
+        // of an outer join. The If expression (normalized from CASE WHEN) with an IS NULL
+        // condition produces wrong results when pushed:
+        //   - Original: for null-extended rows, col IS NULL = TRUE, count returns 1
+        //   - Pushed: pre-agg count slot becomes NULL after null-extension,
+        //             ifnull(sum(NULL), 0) = 0 (wrong!)
+        // This test ensures If expressions get the same protection as CaseWhen.
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            // RIGHT JOIN: t1 is the nullable side (left side of RIGHT JOIN)
+            // count(case when t1.name IS NULL then 'x' end) should NOT be pushed to t1
+            String sql = "select count(case when t1.name is null then 'x' end), t2.id2"
+                    + " from t1 right join t2 on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(logicalAggregate(), any()))
+                    .printlnTree();
+
+            // LEFT JOIN: t2 is the nullable side (right side of LEFT JOIN)
+            // count(case when t2.name IS NULL then 'y' end) should NOT be pushed to t2
+            sql = "select count(case when t2.name is null then 'y' end), t1.id1"
+                    + " from t1 left join t2 on t1.id1 = t2.id2 group by t1.id1";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(any(), logicalAggregate()))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
 }

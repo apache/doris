@@ -158,7 +158,13 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                     return agg;
                 }
                 if (pushDownAggFunctionSet.contains(aggFunction.getClass())) {
-                    if (!hasCaseWhen && aggFunction.anyMatch(e -> e instanceof CaseWhen)) {
+                    // CaseWhen and If (which CASE WHEN is normalized into) must both be checked.
+                    // When an agg function contains an If/CaseWhen whose condition tests IS NULL
+                    // (e.g. count(if(col IS NULL, value, NULL))), pushing it to the nullable side
+                    // of an outer join produces wrong results: null-extended rows make "col IS NULL"
+                    // TRUE at the top level, but the pre-aggregated count slot becomes NULL after
+                    // null-extension, and ifnull(sum(NULL), 0) = 0 instead of the correct 1.
+                    if (!hasCaseWhen && aggFunction.anyMatch(e -> e instanceof CaseWhen || e instanceof If)) {
                         hasCaseWhen = true;
                     }
                     if (aggFunction.arity() > 0 && aggFunction.child(0) instanceof If
