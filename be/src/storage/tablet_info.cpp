@@ -750,6 +750,14 @@ Status VOlapTablePartitionParam::generate_partition_from(const TOlapTablePartiti
     if (t_part.__isset.load_required_replica_num) {
         part_result->load_required_replica_num = t_part.load_required_replica_num;
     }
+    if (t_part.__isset.tablet_version_gap_backends) {
+        for (const auto& [tablet_id, backend_ids] : t_part.tablet_version_gap_backends) {
+            auto& gap_set = part_result->tablet_version_gap_backends[tablet_id];
+            for (auto backend_id : backend_ids) {
+                gap_set.insert(backend_id);
+            }
+        }
+    }
     return Status::OK();
 }
 

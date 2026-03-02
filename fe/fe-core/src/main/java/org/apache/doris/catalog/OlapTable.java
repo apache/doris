@@ -2527,6 +2527,28 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum();
     }
 
+    public Map<Long, List<Long>> getPartitionVersionGapBackends(long partitionId) {
+        Map<Long, List<Long>> result = new HashMap<>();
+        Partition partition = getPartition(partitionId);
+        if (partition == null) {
+            return result;
+        }
+        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+            for (Tablet tablet : index.getTablets()) {
+                List<Long> gapBackends = new ArrayList<>();
+                for (Replica replica : tablet.getReplicas()) {
+                    if (replica.getLastFailedVersion() >= 0) {
+                        gapBackends.add(replica.getBackendIdWithoutException());
+                    }
+                }
+                if (!gapBackends.isEmpty()) {
+                    result.put(tablet.getId(), gapBackends);
+                }
+            }
+        }
+        return result;
+    }
+
     public int getLoadRequiredReplicaNum(long partitionId) {
         int totalReplicaNum = getPartitionTotalReplicasNum(partitionId);
         int minLoadReplicaNum = getMinLoadReplicaNum();

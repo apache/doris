@@ -168,6 +168,8 @@ struct VOlapTablePartition {
     int64_t load_tablet_idx = -1;
     int total_replica_num = 0;
     int load_required_replica_num = 0;
+    // tablet_id -> set of backend_ids that have version gaps
+    std::unordered_map<int64_t, std::unordered_set<int64_t>> tablet_version_gap_backends;
 
     VOlapTablePartition(vectorized::Block* partition_block)
             // the default value of partition bound is -1.

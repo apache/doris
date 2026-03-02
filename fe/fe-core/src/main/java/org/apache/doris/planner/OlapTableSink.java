@@ -226,6 +226,10 @@ public class OlapTableSink extends DataSink {
         for (TOlapTablePartition partition : tOlapTablePartitionParam.getPartitions()) {
             partition.setTotalReplicaNum(dstTable.getPartitionTotalReplicasNum(partition.getId()));
             partition.setLoadRequiredReplicaNum(dstTable.getLoadRequiredReplicaNum(partition.getId()));
+            Map<Long, List<Long>> gapBackends = dstTable.getPartitionVersionGapBackends(partition.getId());
+            if (!gapBackends.isEmpty()) {
+                partition.setTabletVersionGapBackends(gapBackends);
+            }
         }
         tOlapTableLocationParams = createLocation(tSink.getDbId(), dstTable);
 
@@ -280,6 +284,10 @@ public class OlapTableSink extends DataSink {
         for (TOlapTablePartition partition : tOlapTablePartitionParam.getPartitions()) {
             partition.setTotalReplicaNum(dstTable.getPartitionTotalReplicasNum(partition.getId()));
             partition.setLoadRequiredReplicaNum(dstTable.getLoadRequiredReplicaNum(partition.getId()));
+            Map<Long, List<Long>> gapBackends = dstTable.getPartitionVersionGapBackends(partition.getId());
+            if (!gapBackends.isEmpty()) {
+                partition.setTabletVersionGapBackends(gapBackends);
+            }
         }
         tOlapTableLocationParams = createLocation(tSink.getDbId(), dstTable);
 

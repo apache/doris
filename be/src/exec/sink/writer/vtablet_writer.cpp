@@ -425,7 +425,13 @@ bool IndexChannel::_quorum_success(const std::unordered_set<int64_t>& unfinished
             continue;
         }
         for (const auto& tablet_id : _tablets_by_channel[node_id]) {
-            finished_tablets_replica[tablet_id]++;
+            // Only count non-gap backends for quorum success.
+            // Gap backends' success doesn't count toward majority write.
+            auto gap_it = _parent->_tablet_version_gap_backends.find(tablet_id);
+            if (gap_it == _parent->_tablet_version_gap_backends.end() ||
+                gap_it->second.find(node_id) == gap_it->second.end()) {
+                finished_tablets_replica[tablet_id]++;
+            }
         }
     }
 
@@ -1727,6 +1733,11 @@ void VTabletWriter::_build_tablet_replica_info(const int64_t tablet_id,
                                                  : partition->load_required_replica_num;
         _tablet_replica_info.emplace(
                 tablet_id, std::make_pair(total_replicas_num, load_required_replicas_num));
+        // Copy version gap backends info for this tablet
+        if (auto it = partition->tablet_version_gap_backends.find(tablet_id);
+            it != partition->tablet_version_gap_backends.end()) {
+            _tablet_version_gap_backends[tablet_id] = it->second;
+        }
     } else {
         _tablet_replica_info.emplace(tablet_id,
                                      std::make_pair(_num_replicas, (_num_replicas + 1) / 2));
