@@ -19,7 +19,6 @@ package org.apache.doris.common.jni.utils;
 
 import org.apache.log4j.Logger;
 
-import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -74,17 +73,12 @@ public class ExpiringMap<K, V> {
         expirationMap.remove(key);
         ttlMap.remove(key);
 
-        // Clean up resources if the value is UdfClassCache
-        if (value instanceof UdfClassCache) {
-            UdfClassCache cache = (UdfClassCache) value;
-            if (cache.classLoader != null) {
-                try {
-                    cache.classLoader.close();
-                    LOG.info("Closed ClassLoader for cached UDF: " + key);
-                } catch (IOException e) {
-                    LOG.warn("Failed to close ClassLoader for cached UDF: " + key, e);
-                }
-                cache.classLoader = null;
+        // Uniformly release resources for any AutoCloseable value,
+        if (value instanceof AutoCloseable) {
+            try {
+                ((AutoCloseable) value).close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close cached resource: " + key, e);
             }
         }
     }

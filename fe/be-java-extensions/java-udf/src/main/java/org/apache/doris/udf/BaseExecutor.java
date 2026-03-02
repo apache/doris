@@ -40,7 +40,6 @@ import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
 import java.io.FileNotFoundException;
-import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.net.MalformedURLException;
 import java.net.URLClassLoader;
@@ -181,17 +180,11 @@ public abstract class BaseExecutor {
             outputTable.close();
         }
         if (!isStaticLoad) {
+            // close classLoader via UdfClassCache.close() if not in static load mode.
+            // In static load mode, the classLoader is cached and should not be closed here.
+            objCache.close();
             objCache.methodAccess = null;
-            // close classLoader if it's not in static load mode
-            // In static load mode, the classLoader is cached and should not be closed here
-            if (classLoader != null) {
-                try {
-                    classLoader.close();
-                } catch (IOException e) {
-                    LOG.warn("Error closing the URLClassloader.", e);
-                }
-                classLoader = null;
-            }
+            classLoader = null;
         }
     }
 
