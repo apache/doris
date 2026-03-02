@@ -3535,8 +3535,6 @@ int InstanceRecycler::delete_rowset_data(
                                       metrics_context.total_recycled_num++;
                                   }
                               });
-                segment_metrics_context_.report();
-                metrics_context.report();
             }
             return ret;
         });
@@ -3554,8 +3552,6 @@ int InstanceRecycler::delete_rowset_data(
                 metrics_context.total_recycled_num++;
                 segment_metrics_context_.total_recycled_data_size += rs.total_disk_size();
                 segment_metrics_context_.total_recycled_num += rs.num_segments();
-                metrics_context.report();
-                segment_metrics_context_.report();
             }
             return ret;
         });
@@ -3991,8 +3987,6 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
         concurrent_delete_executor.add(
                 [&, rs_id = resource_id,
                  accessor_ptr = accessor_map_[resource_id]]() -> decltype(auto) {
-                    std::unique_ptr<int, std::function<void(int*)>> defer(
-                            (int*)0x01, [&](int*) { metrics_context.report(); });
                     int res = accessor_ptr->delete_directory(tablet_path_prefix(tablet_id));
                     if (res != 0) {
                         LOG(WARNING) << "failed to delete rowset data of tablet " << tablet_id
@@ -4596,8 +4590,6 @@ int InstanceRecycler::recycle_rowsets() {
             segment_metrics_context_.total_recycled_data_size +=
                     rowset.rowset_meta().total_disk_size();
             segment_metrics_context_.total_recycled_num += rowset.rowset_meta().num_segments();
-            segment_metrics_context_.report();
-            metrics_context.report();
             return 0;
         }
 
@@ -4721,6 +4713,11 @@ int InstanceRecycler::recycle_rowsets() {
             num_recycled.fetch_add(async_recycled_rowset_keys.size(), std::memory_order_relaxed);
         }
     }
+
+    // Report final metrics after all concurrent tasks completed
+    segment_metrics_context_.report();
+    metrics_context.report();
+
     return ret;
 }
 
@@ -5125,6 +5122,11 @@ int InstanceRecycler::recycle_versioned_rowsets() {
             num_recycled.fetch_add(async_recycled_rowset_keys.size(), std::memory_order_relaxed);
         }
     }
+
+    // Report final metrics after all concurrent tasks completed
+    segment_metrics_context_.report();
+    metrics_context.report();
+
     return ret;
 }
 
@@ -5468,6 +5470,11 @@ int InstanceRecycler::recycle_tmp_rowsets() {
                                std::move(loop_done));
 
     worker_pool->stop();
+
+    // Report final metrics after all concurrent tasks completed
+    segment_metrics_context_.report();
+    metrics_context.report();
+
     return ret;
 }
 
@@ -5681,7 +5688,7 @@ int InstanceRecycler::recycle_expired_txn_label() {
     const std::string task_name = "recycle_expired_txn_label";
     int64_t num_scanned = 0;
     int64_t num_expired = 0;
-    int64_t num_recycled = 0;
+    std::atomic_long num_recycled = 0;
     RecyclerMetricsContext metrics_context(instance_id_, task_name);
     int ret = 0;
 
@@ -5833,8 +5840,7 @@ int InstanceRecycler::recycle_expired_txn_label() {
             LOG(WARNING) << "failed to delete expired txn, err=" << err << " key=" << hex(k);
             return -1;
         }
-        metrics_context.total_recycled_num = ++num_recycled;
-        metrics_context.report();
+        ++num_recycled;
 
         LOG(INFO) << "recycle expired txn, key=" << hex(k);
         return 0;
@@ -5884,6 +5890,10 @@ int InstanceRecycler::recycle_expired_txn_label() {
         }
 
         ret = finished ? ret : -1;
+
+        // Update metrics after all concurrent tasks completed
+        metrics_context.total_recycled_num = num_recycled.load();
+        metrics_context.report();
 
         TEST_SYNC_POINT_CALLBACK("InstanceRecycler::recycle_expired_txn_label.failure", &ret);
 
