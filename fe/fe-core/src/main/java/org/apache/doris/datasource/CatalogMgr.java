@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
@@ -369,7 +368,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     matcher = PatternMatcherWrapper.createMysqlPattern(pattern,
                         CaseSensibility.CATALOG.getCaseSensibility());
                 }
-                for (CatalogIf catalog : listCatalogsWithCheckPriv(ConnectContext.get().getCurrentUserIdentity())) {
+                for (CatalogIf catalog : listCatalogsWithCheckPriv(
+                        PrivilegeContext.of(
+                                ConnectContext.get().getCurrentUserIdentity(),
+                                ConnectContext.get().getCurrentRoles()))) {
                     String name = catalog.getName();
                     // Filter catalog name
                     if (matcher != null && !matcher.match(name)) {
@@ -540,10 +542,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return nameToCatalog.values().stream().collect(Collectors.toList());
     }
 
-    public List<CatalogIf> listCatalogsWithCheckPriv(UserIdentity userIdentity) {
+    public List<CatalogIf> listCatalogsWithCheckPriv(PrivilegeContext privilegeContext) {
         return nameToCatalog.values().stream().filter(
                 catalog -> Env.getCurrentEnv().getAccessManager()
-                        .checkCtlPriv(PrivilegeContext.of(userIdentity), catalog.getName(), PrivPredicate.SHOW)
+                        .checkCtlPriv(privilegeContext, catalog.getName(), PrivPredicate.SHOW)
         ).collect(Collectors.toList());
     }
 

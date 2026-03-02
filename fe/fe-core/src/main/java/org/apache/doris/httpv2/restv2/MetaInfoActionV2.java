@@ -34,6 +34,7 @@ import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.BadRequestException;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -87,8 +88,9 @@ public class MetaInfoActionV2 extends RestBaseController {
         checkWithCookie(request, response, false);
 
         // 1. get all catalogs with privilege
-        List<CatalogIf> ctls = Env.getCurrentEnv().getCatalogMgr()
-                .listCatalogsWithCheckPriv(ConnectContext.get().getCurrentUserIdentity());
+        ConnectContext currentCtx = ConnectContext.get();
+        List<CatalogIf> ctls = Env.getCurrentEnv().getCatalogMgr().listCatalogsWithCheckPriv(
+                PrivilegeContext.of(currentCtx.getCurrentUserIdentity(), currentCtx.getCurrentRoles()));
         List<String> ctlsNames = ctls.stream().map(CatalogIf::getName).collect(Collectors.toList());
         // always set internal catalog at the first position
         ctlsNames.remove(InternalCatalog.INTERNAL_CATALOG_NAME);
