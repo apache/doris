@@ -3546,16 +3546,6 @@ public class Config extends ConfigBase {
             + "This prevents patterns like {1..100}/{1..100} from triggering too many HEAD requests."
     })
     public static int s3_head_request_max_paths = 100;
-
-    @ConfField(mutable = true, description = {
-            "此参数控制是否强制使用 Azure global endpoint。默认值为 false，系统将使用用户指定的 endpoint。"
-            + "如果设置为 true，系统将强制使用 {account}.blob.core.windows.net。",
-            "This parameter controls whether to force the use of the Azure global endpoint. "
-            + "The default is false, meaning the system will use the user-specified endpoint. "
-            + "If set to true, the system will force the use of {account}.blob.core.windows.net."
-    })
-    public static boolean force_azure_blob_global_endpoint = false;
-
     @ConfField(mutable = true, description = {
             "指定 Azure endpoint 域名后缀白名单（包含 blob 与 dfs），多个值使用逗号分隔。"
                     + "默认值为 .blob.core.windows.net,.dfs.core.windows.net,"

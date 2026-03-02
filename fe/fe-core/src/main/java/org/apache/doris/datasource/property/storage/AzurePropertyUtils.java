@@ -30,8 +30,6 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 public class AzurePropertyUtils {
-    private static final String AZURE_GLOBAL_BLOB_HOST_SUFFIX = ".blob.core.windows.net";
-
     /**
      * Validates and normalizes an Azure Blob Storage URI into a unified {@code s3://}-style format.
      * <p>
@@ -85,9 +83,6 @@ public class AzurePropertyUtils {
             return false;
         }
         String normalizedHost = host.toLowerCase(Locale.ROOT);
-        if (Config.force_azure_blob_global_endpoint) {
-            return normalizedHost.endsWith(AZURE_GLOBAL_BLOB_HOST_SUFFIX);
-        }
         return matchesAnySuffix(normalizedHost, Config.azure_blob_host_suffixes);
     }
 
@@ -196,12 +191,6 @@ public class AzurePropertyUtils {
 
                 if (StringUtils.isBlank(host)) {
                     throw new StoragePropertiesException("Invalid Azure HTTPS URI, missing host: " + uri);
-                }
-
-                // When force_azure_blob_global_endpoint is enabled, only global Azure Blob host is accepted.
-                // Otherwise we allow custom domains because Azure can be accessed through endpoint aliases.
-                if (Config.force_azure_blob_global_endpoint && !isAzureBlobEndpoint(host)) {
-                    throw new StoragePropertiesException("Not an Azure Blob URL: " + uri);
                 }
 
                 // Path usually looks like: /<container>/<path>

@@ -217,48 +217,41 @@ public class AzurePropertiesTest {
 
     @Test
     public void testGuessIsMeChinaEndpoint() {
-        boolean originalConfig = Config.force_azure_blob_global_endpoint;
-        try {
-            Config.force_azure_blob_global_endpoint = false;
-            origProps.put("s3.endpoint", "https://mystorageaccount.blob.core.chinacloudapi.cn");
-            Assertions.assertTrue(AzureProperties.guessIsMe(origProps));
-            origProps.put("s3.endpoint", "mystorageaccount.blob.core.chinacloudapi.cn");
-            Assertions.assertTrue(AzureProperties.guessIsMe(origProps));
-        } finally {
-            Config.force_azure_blob_global_endpoint = originalConfig;
-        }
+        origProps.put("s3.endpoint", "https://mystorageaccount.blob.core.chinacloudapi.cn");
+        Assertions.assertTrue(AzureProperties.guessIsMe(origProps));
+        origProps.put("s3.endpoint", "mystorageaccount.blob.core.chinacloudapi.cn");
+        Assertions.assertTrue(AzureProperties.guessIsMe(origProps));
     }
 
     @Test
-    public void testGuessIsMeChinaEndpointWhenForceGlobalEndpoint() {
-        boolean originalConfig = Config.force_azure_blob_global_endpoint;
-        try {
-            Config.force_azure_blob_global_endpoint = true;
-            origProps.put("s3.endpoint", "https://mystorageaccount.blob.core.chinacloudapi.cn");
-            Assertions.assertFalse(AzureProperties.guessIsMe(origProps));
-            origProps.put("provider", "azure");
-            Assertions.assertTrue(AzureProperties.guessIsMe(origProps));
-        } finally {
-            Config.force_azure_blob_global_endpoint = originalConfig;
-        }
+    public void testGuessIsMeByProviderWhenEndpointIsUnknown() {
+        origProps.put("s3.endpoint", "https://mystorageaccount.invalid.test");
+        Assertions.assertFalse(AzureProperties.guessIsMe(origProps));
+        origProps.put("provider", "azure");
+        Assertions.assertTrue(AzureProperties.guessIsMe(origProps));
     }
 
     @Test
-    public void testFormatAzureEndpointHonorsForceGlobalEndpointConfig() {
-        boolean originalConfig = Config.force_azure_blob_global_endpoint;
-        try {
-            Config.force_azure_blob_global_endpoint = false;
-            Assertions.assertEquals("https://mystorageaccount.blob.core.chinacloudapi.cn",
-                    AzureProperties.formatAzureEndpoint("mystorageaccount.blob.core.chinacloudapi.cn",
-                            "mystorageaccount"));
+    public void testFormatAzureEndpointUsesInputOrDefault() {
+        Assertions.assertEquals("https://mystorageaccount.blob.core.chinacloudapi.cn",
+                AzureProperties.formatAzureEndpoint("mystorageaccount.blob.core.chinacloudapi.cn",
+                        "mystorageaccount"));
+        Assertions.assertEquals("https://mystorageaccount.blob.core.chinacloudapi.cn",
+                AzureProperties.formatAzureEndpoint("https://mystorageaccount.blob.core.chinacloudapi.cn",
+                        "mystorageaccount"));
+        Assertions.assertEquals("https://mystorageaccount.blob.core.windows.net",
+                AzureProperties.formatAzureEndpoint("", "mystorageaccount"));
+        Assertions.assertEquals("", AzureProperties.formatAzureEndpoint("", ""));
+    }
 
-            Config.force_azure_blob_global_endpoint = true;
-            Assertions.assertEquals("https://mystorageaccount.blob.core.windows.net",
-                    AzureProperties.formatAzureEndpoint("mystorageaccount.blob.core.chinacloudapi.cn",
-                            "mystorageaccount"));
-        } finally {
-            Config.force_azure_blob_global_endpoint = originalConfig;
-        }
+    @Test
+    public void testDefaultEndpointWhenEndpointNotSet() throws UserException {
+        origProps.put("s3.access_key", "myAzureAccessKey");
+        origProps.put("s3.secret_key", "myAzureSecretKey");
+        origProps.put("provider", "azure");
+
+        AzureProperties azureProperties = (AzureProperties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("https://myAzureAccessKey.blob.core.windows.net", azureProperties.getEndpoint());
     }
 
     @Test

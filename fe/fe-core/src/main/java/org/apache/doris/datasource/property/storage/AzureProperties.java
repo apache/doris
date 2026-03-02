@@ -66,6 +66,7 @@ import java.util.stream.Stream;
 public class AzureProperties extends StorageProperties {
     @Getter
     @ConnectorProperty(names = {"azure.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"},
+            required = false,
             description = "The endpoint of S3.")
     protected String endpoint = "";
 
@@ -191,9 +192,12 @@ public class AzureProperties extends StorageProperties {
 
     public static final String AZURE_ENDPOINT_TEMPLATE = "https://%s.blob.core.windows.net";
 
-    public static String formatAzureEndpoint(String endpoint, String accessKey) {
-        if (Config.force_azure_blob_global_endpoint) {
-            return String.format(AZURE_ENDPOINT_TEMPLATE, accessKey);
+    public static String formatAzureEndpoint(String endpoint, String accountName) {
+        if (Strings.isNullOrEmpty(endpoint)) {
+            if (Strings.isNullOrEmpty(accountName)) {
+                return "";
+            }
+            return String.format(AZURE_ENDPOINT_TEMPLATE, accountName);
         }
         if (endpoint.contains("://")) {
             return endpoint;
