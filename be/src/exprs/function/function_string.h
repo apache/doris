@@ -2250,6 +2250,7 @@ struct SplitByStringThreeArgImpl {
         DCHECK_EQ(arguments.size(), 3);
         const auto& [limit_column, limit_is_const] =
                 unpack_if_const(block.get_by_position(arguments[2]).column);
+        DCHECK(limit_is_const) << "limit argument of split_by_string must be a constant";
         auto limit_value = assert_cast<const ColumnInt32&>(*limit_column).get_element(0);
         return SplitByStringExecutor::execute_core(block, arguments, result, input_rows_count,
                                                    limit_value);

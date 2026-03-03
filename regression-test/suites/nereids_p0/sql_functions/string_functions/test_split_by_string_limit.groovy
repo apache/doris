@@ -16,9 +16,6 @@
 // under the License.
 
 suite("test_split_by_string_limit") {
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
-
     // === Constant expression tests with limit ===
 
     // Basic limit functionality
@@ -58,11 +55,9 @@ suite("test_split_by_string_limit") {
     qt_limit18 "select split_by_string(',,a,b,c,', ',', 3);"
 
     // === Table data tests ===
-    def tableName = "test_split_limit"
-
-    sql """DROP TABLE IF EXISTS ${tableName}"""
+    sql """DROP TABLE IF EXISTS test_split_limit"""
     sql """
-        CREATE TABLE IF NOT EXISTS ${tableName} (
+        CREATE TABLE IF NOT EXISTS test_split_limit (
             `k1` int(11) NULL COMMENT "",
             `v1` varchar(50) NULL COMMENT "",
             `v2` varchar(10) NOT NULL COMMENT ""
@@ -74,14 +69,14 @@ suite("test_split_by_string_limit") {
         "storage_format" = "V2"
         )
     """
-    sql """ INSERT INTO ${tableName} VALUES(1, 'a,b,c,d', ',') """
-    sql """ INSERT INTO ${tableName} VALUES(2, 'x::y::z', '::') """
-    sql """ INSERT INTO ${tableName} VALUES(3, 'hello', ',') """
-    sql """ INSERT INTO ${tableName} VALUES(4, null, ',') """
-    sql """ INSERT INTO ${tableName} VALUES(5, 'a,b,c,d,e', ',') """
+    sql """ INSERT INTO test_split_limit VALUES(1, 'a,b,c,d', ',') """
+    sql """ INSERT INTO test_split_limit VALUES(2, 'x::y::z', '::') """
+    sql """ INSERT INTO test_split_limit VALUES(3, 'hello', ',') """
+    sql """ INSERT INTO test_split_limit VALUES(4, null, ',') """
+    sql """ INSERT INTO test_split_limit VALUES(5, 'a,b,c,d,e', ',') """
 
-    qt_table1 "SELECT k1, split_by_string(v1, v2, 2) FROM ${tableName} ORDER BY k1"
-    qt_table2 "SELECT k1, split_by_string(v1, v2, 3) FROM ${tableName} ORDER BY k1"
+    qt_table1 "SELECT k1, split_by_string(v1, v2, 2) FROM test_split_limit ORDER BY k1"
+    qt_table2 "SELECT k1, split_by_string(v1, v2, 3) FROM test_split_limit ORDER BY k1"
 
     // === split alias + limit ===
     qt_alias1 "select split('one,two,three', ',', 2);"
