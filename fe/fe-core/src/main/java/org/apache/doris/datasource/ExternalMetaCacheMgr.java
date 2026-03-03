@@ -251,6 +251,7 @@ public class ExternalMetaCacheMgr {
         maxComputeMetadataCacheMgr.removeCache(catalogId);
         paimonMetadataCacheMgr.removeCache(catalogId);
         dorisExternalMetaCacheMgr.removeCache(catalogId);
+        rowCountCache.invalidateCatalog(catalogId);
     }
 
     public void invalidateTableCache(ExternalTable dorisTable) {
@@ -317,6 +318,7 @@ public class ExternalMetaCacheMgr {
         maxComputeMetadataCacheMgr.invalidateCatalogCache(catalogId);
         paimonMetadataCacheMgr.invalidateCatalogCache(catalogId);
         dorisExternalMetaCacheMgr.invalidateCatalogCache(catalogId);
+        rowCountCache.invalidateCatalog(catalogId);
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalid catalog cache for {}", catalogId);
         }
