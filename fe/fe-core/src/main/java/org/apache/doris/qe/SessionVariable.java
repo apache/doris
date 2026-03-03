@@ -3979,8 +3979,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public int getParallelExecInstanceNum() {
-        String clusterName = resolveCloudClusterName(ConnectContext.get());
-        return getParallelExecInstanceNum(clusterName);
+        return getParallelExecInstanceNum(null);
     }
 
     public int getParallelExecInstanceNum(String clusterName) {
@@ -4944,7 +4943,8 @@ public class SessionVariable implements Serializable, Writable {
         }
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnableLocalShuffle(enableLocalShuffle);
-        tResult.setParallelInstance(getParallelExecInstanceNum());
+        String clusterName = resolveCloudClusterName();
+        tResult.setParallelInstance(getParallelExecInstanceNum(clusterName));
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
