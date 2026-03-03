@@ -22,6 +22,7 @@ import org.apache.doris.cdcclient.exception.CdcClientException;
 import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.cdcclient.source.reader.JdbcIncrementalSourceReader;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
+import org.apache.doris.cdcclient.utils.SmallFileMgr;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
@@ -214,6 +215,18 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         Properties dbzProps = ConfigUtil.getDefaultDebeziumProps();
         dbzProps.put("interval.handling.mode", "string");
         configFactory.debeziumProperties(dbzProps);
+
+        // setting ssl
+        if (cdcConfig.containsKey(DataSourceConfigKeys.SSL_MODE)) {
+            dbzProps.put("database.sslmode", cdcConfig.get(DataSourceConfigKeys.SSL_MODE));
+        }
+
+        if (cdcConfig.containsKey(DataSourceConfigKeys.SSL_ROOTCERT)) {
+            String fileName = cdcConfig.get(DataSourceConfigKeys.SSL_ROOTCERT);
+            String filePath = SmallFileMgr.getFilePath(fileName);
+            LOG.info("Using SSL root cert file path: {}", filePath);
+            dbzProps.put("database.sslrootcert", filePath);
+        }
 
         configFactory.serverTimeZone(
                 ConfigUtil.getPostgresServerTimeZoneFromProps(props).toString());

@@ -24,12 +24,15 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.SmallFileMgr;
+import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
@@ -77,7 +80,6 @@ import org.apache.doris.thrift.TRow;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeCallback;
-
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
@@ -85,7 +87,6 @@ import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -102,6 +103,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 @Log4j2
 public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, Map<Object, Object>> implements
         TxnStateChangeCallback, GsonPostProcessable {
+    public static final String JOB_FILE_CATALOG = "streaming_job";
     private long dbId;
     // Streaming job statistics, all persisted in txn attachment
     private StreamingJobStatistic jobStatistic = new StreamingJobStatistic();
@@ -459,7 +461,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return newTasks;
     }
 
-    protected AbstractStreamingTask createStreamingTask() {
+    protected AbstractStreamingTask createStreamingTask() throws JobException {
         if (tvfType != null) {
             this.runningStreamTask = createStreamingInsertTask();
         } else {
@@ -477,9 +479,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      * for From MySQL TO Database
      * @return
      */
-    private AbstractStreamingTask createStreamingMultiTblTask() {
+    private AbstractStreamingTask createStreamingMultiTblTask() throws JobException {
+        Map<String, String> convertSourceProps = convertCertFile(sourceProperties);
         return new StreamingMultiTblTask(getJobId(), Env.getCurrentEnv().getNextId(), dataSourceType,
-                offsetProvider, sourceProperties, targetDb, targetProperties, jobProperties, getCreateUser());
+                offsetProvider, convertSourceProps, targetDb, targetProperties, jobProperties, getCreateUser());
     }
 
     protected AbstractStreamingTask createStreamingInsertTask() {
@@ -599,7 +602,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         updateJobStatus(JobStatus.PAUSED);
     }
 
-    public void onStreamTaskSuccess(AbstractStreamingTask task) {
+    public void onStreamTaskSuccess(AbstractStreamingTask task) throws JobException {
         try {
             resetFailureInfo(null);
             succeedTaskCount.incrementAndGet();
@@ -1260,5 +1263,28 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             // jdbc clean chunk meta table
             ((JdbcSourceOffsetProvider) this.offsetProvider).cleanMeta(getJobId());
         }
+    }
+
+    /**
+     * When enabling SSL, you need to convert FILE:ca.perm to FILE:ca.pem:md5.
+     */
+    private Map<String, String> convertCertFile(Map<String, String> sourceProperties) throws JobException {
+        SmallFileMgr smallFileMgr = Env.getCurrentEnv().getSmallFileMgr();
+        Map<String, String> newProps = new HashMap<>(sourceProperties);
+        if (sourceProperties.containsKey(DataSourceConfigKeys.SSL_ROOTCERT)) {
+            String certFile = sourceProperties.get(DataSourceConfigKeys.SSL_ROOTCERT);
+            if (certFile.startsWith("FILE:")) {
+                String file = certFile.substring(certFile.indexOf(":") + 1);
+                try {
+                    SmallFile smallFile = smallFileMgr.getSmallFile(getDbId(), StreamingInsertJob.JOB_FILE_CATALOG, file, true);
+                    newProps.put(DataSourceConfigKeys.SSL_ROOTCERT, "FILE:" + smallFile.id + ":" + smallFile.md5);
+                } catch (DdlException ex) {
+                    throw new JobException("ssl root cert file not found: " + certFile);
+                }
+            } else {
+                throw new JobException("ssl root cert is not in expected format, should start with FILE:" + certFile);
+            }
+        }
+        return newProps;
     }
 }
