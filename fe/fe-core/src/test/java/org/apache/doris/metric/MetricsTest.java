@@ -84,7 +84,7 @@ public class MetricsTest {
         boolean foundProcsRunning = false;
         boolean foundProcsBlocked = false;
 
-        for (Metric metric : cpuMetrics) {
+        for (Metric<?> metric : cpuMetrics) {
             String metricName = metric.getLabels().get(0).getValue();
             switch (metricName) {
                 case "cpu_usage_percent":
