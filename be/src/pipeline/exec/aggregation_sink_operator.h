@@ -86,6 +86,9 @@ protected:
                              vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
     void _emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                   vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
+
+    void _emplace_into_hash_table_inline_count(vectorized::ColumnRawPtrs& key_columns,
+                                               uint32_t num_rows);
     bool _emplace_into_hash_table_limit(vectorized::AggregateDataPtr* places,
                                         vectorized::Block* block, const std::vector<int>& key_locs,
                                         vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
@@ -96,6 +99,8 @@ protected:
 
     Status _destroy_agg_status(vectorized::AggregateDataPtr data);
     Status _create_agg_status(vectorized::AggregateDataPtr data);
+
+    void _create_agg_status_inline_count(vectorized::AggregateDataPtr data);
     size_t _memory_usage() const;
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) const;
@@ -226,6 +231,8 @@ protected:
     std::vector<TExpr> _partition_exprs;
     const bool _is_colocate;
     RowDescriptor _agg_fn_output_row_descriptor;
+
+    bool _is_simple_count = false;
 };
 
 } // namespace doris::pipeline
