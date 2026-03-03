@@ -227,6 +227,7 @@ public class ExternalMetaCacheMgr {
             paimonMetadataCache.invalidateCatalogCache(catalogId);
         }
         dorisExternalMetaCacheMgr.removeCache(catalogId);
+        rowCountCache.invalidateCatalog(catalogId);
     }
 
     public void invalidateTableCache(ExternalTable dorisTable) {
@@ -296,6 +297,7 @@ public class ExternalMetaCacheMgr {
             paimonMetadataCache.invalidateCatalogCache(catalogId);
         }
         dorisExternalMetaCacheMgr.invalidateCatalogCache(catalogId);
+        rowCountCache.invalidateCatalog(catalogId);
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalid catalog cache for {}", catalogId);
         }
