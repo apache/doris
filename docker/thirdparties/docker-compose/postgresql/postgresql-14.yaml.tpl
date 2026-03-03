@@ -25,6 +25,16 @@ services:
       POSTGRES_PASSWORD: 123456
     ports:
       - ${DOCKER_PG_14_EXTERNAL_PORT}:5432
+    entrypoint:
+      - bash
+      - -c
+      - |
+        chmod 600 /var/lib/postgresql/certs/server.key
+        chmod 644 /var/lib/postgresql/certs/server.crt
+        chmod 644 /var/lib/postgresql/certs/root.crt
+        chown postgres:postgres /var/lib/postgresql/certs/*
+        exec docker-entrypoint.sh "$@"
+      - --      
     command:
       - "postgres"
       - "-c"

@@ -66,7 +66,7 @@ suite("test_streaming_postgres_job_ssl", "p0,external,pg,external_docker,externa
             IN ${currentDb}
             PROPERTIES
             (
-                "url" = "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem",
+                "url" = "https://qa-build.oss-cn-beijing.aliyuncs.com/jianxu/root.crt",
                 "catalog" = "streaming_job"
             )
         """
