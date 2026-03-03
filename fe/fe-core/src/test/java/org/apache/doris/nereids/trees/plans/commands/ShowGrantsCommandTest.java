@@ -32,11 +32,13 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public class ShowGrantsCommandTest extends TestWithFeService {
     private Auth auth;
@@ -102,5 +104,58 @@ public class ShowGrantsCommandTest extends TestWithFeService {
             ShowGrantsCommand sg = new ShowGrantsCommand(null, false);
             sg.doRun(ctx, null);
         });
+    }
+
+    @Test
+    void testShowGrantsUseCurrentRolesForSelf() throws Exception {
+        String user = "su_show_grants_user_" + System.currentTimeMillis();
+        auth = Env.getCurrentEnv().getAuth();
+        UserIdentity userIdentity = new UserIdentity(user, "%");
+        UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
+        CreateUserCommand createUserCommand = new CreateUserCommand(new CreateUserInfo(userDesc));
+        createUserCommand.getInfo().validate();
+        auth.createUser(createUserCommand.getInfo());
+
+        ConnectContext ctx = ConnectContext.get();
+        UserIdentity currentUserIdentity = ctx.getCurrentUserIdentity();
+        Set<String> currentRoles = ctx.getCurrentRoles() == null ? null : Sets.newHashSet(ctx.getCurrentRoles());
+        try {
+            ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(user, "%"));
+            ctx.setCurrentRoles(Sets.newHashSet("admin"));
+
+            ShowGrantsCommand sg = new ShowGrantsCommand(null, false);
+            ShowResultSet sr = sg.doRun(ctx, null);
+            List<List<String>> results = sr.getResultRows();
+            Assertions.assertEquals(1, results.size());
+            Assertions.assertEquals("admin", results.get(0).get(4));
+            Assertions.assertNotEquals("NULL", results.get(0).get(5));
+        } finally {
+            ctx.setCurrentUserIdentity(currentUserIdentity);
+            ctx.setCurrentRoles(currentRoles);
+        }
+    }
+
+    @Test
+    void testShowGrantsUseCurrentRolesForTempSelf() throws Exception {
+        ConnectContext ctx = ConnectContext.get();
+        UserIdentity currentUserIdentity = ctx.getCurrentUserIdentity();
+        Set<String> currentRoles = ctx.getCurrentRoles() == null ? null : Sets.newHashSet(ctx.getCurrentRoles());
+        boolean isTempUser = ctx.getIsTempUser();
+        try {
+            ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("su_temp_user", "%"));
+            ctx.setCurrentRoles(Sets.newHashSet("admin"));
+            ctx.setIsTempUser(true);
+
+            ShowGrantsCommand sg = new ShowGrantsCommand(null, false);
+            ShowResultSet sr = sg.doRun(ctx, null);
+            List<List<String>> results = sr.getResultRows();
+            Assertions.assertEquals(1, results.size());
+            Assertions.assertEquals("admin", results.get(0).get(4));
+            Assertions.assertNotEquals("NULL", results.get(0).get(5));
+        } finally {
+            ctx.setCurrentUserIdentity(currentUserIdentity);
+            ctx.setCurrentRoles(currentRoles);
+            ctx.setIsTempUser(isTempUser);
+        }
     }
 }

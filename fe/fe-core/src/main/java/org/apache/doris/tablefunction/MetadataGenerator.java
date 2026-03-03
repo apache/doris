@@ -579,7 +579,8 @@ public class MetadataGenerator {
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
 
         UserIdentity currentUserIdentity = UserIdentity.fromThrift(params.getCurrentUserIdent());
-        List<CatalogIf> info = Env.getCurrentEnv().getCatalogMgr().listCatalogsWithCheckPriv(currentUserIdentity);
+        List<CatalogIf> info = Env.getCurrentEnv().getCatalogMgr()
+                .listCatalogsWithCheckPriv(PrivilegeContext.of(currentUserIdentity));
         List<TRow> dataBatch = Lists.newArrayList();
         for (CatalogIf catalog : info) {
             TRow trow = new TRow();

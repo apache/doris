@@ -276,9 +276,15 @@ public class Auth implements Writable {
     }
 
     public Set<String> getRoleNamesByUserWithLdap(UserIdentity user, boolean showUserDefaultRole) {
-        Set<Role> rolesByUserWithLdap = getRolesByUserWithLdap(user);
-        Set<String> res = Sets.newHashSetWithExpectedSize(rolesByUserWithLdap.size());
-        for (Role role : rolesByUserWithLdap) {
+        return getRoleNamesByRoles(getRolesByUserWithLdap(user), showUserDefaultRole);
+    }
+
+    private Set<String> getRoleNamesByRoles(Set<Role> roles, boolean showUserDefaultRole) {
+        Set<String> res = Sets.newHashSetWithExpectedSize(roles.size());
+        for (Role role : roles) {
+            if (role == null) {
+                continue;
+            }
             String roleName = role.getRoleName();
             if (showUserDefaultRole || !roleName.startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {
                 res.add(roleName);
@@ -1364,6 +1370,10 @@ public class Auth implements Writable {
     // the specified user identity should be the identity created by CREATE USER, same as result of
     // SELECT CURRENT_USER();
     public List<List<String>> getAuthInfo(UserIdentity specifiedUserIdent) {
+        return getAuthInfo(specifiedUserIdent, null);
+    }
+
+    public List<List<String>> getAuthInfo(UserIdentity specifiedUserIdent, Set<String> currentRoles) {
         List<List<String>> userAuthInfos = Lists.newArrayList();
         readLock();
         try {
@@ -1373,12 +1383,12 @@ public class Auth implements Writable {
                 for (List<User> users : nameToUsers.values()) {
                     for (User user : users) {
                         if (!user.isSetByDomainResolver()) {
-                            getUserAuthInfo(userAuthInfos, user.getUserIdentity());
+                            getUserAuthInfo(userAuthInfos, user.getUserIdentity(), null);
                         }
                     }
                 }
             } else {
-                getUserAuthInfo(userAuthInfos, specifiedUserIdent);
+                getUserAuthInfo(userAuthInfos, specifiedUserIdent, currentRoles);
             }
         } finally {
             readUnlock();
@@ -1386,9 +1396,13 @@ public class Auth implements Writable {
         return userAuthInfos;
     }
 
-    private void getUserAuthInfo(List<List<String>> userAuthInfos, UserIdentity userIdent) {
+    private void getUserAuthInfo(List<List<String>> userAuthInfos, UserIdentity userIdent, Set<String> currentRoles) {
         // AuthProcDir.TITLE_NAMES
         List<String> userAuthInfo = Lists.newArrayList();
+        Set<Role> rolesForAuthInfo = getRolesByUserWithLdap(userIdent, currentRoles);
+        String roleNames = Joiner.on(",").join(
+                getRoleNamesByRoles(rolesForAuthInfo, ConnectContext.get().getSessionVariable().showUserDefaultRole));
+        String roleNamesForDisplay = Strings.isNullOrEmpty(roleNames) ? FeConstants.null_string : roleNames;
         // ================= UserIdentity =======================
         userAuthInfo.add(userIdent.toString());
         String requireSan = Strings.isNullOrEmpty(userIdent.getSan())
@@ -1403,15 +1417,14 @@ public class Auth implements Writable {
             // ============== RequireSan ==============
             userAuthInfo.add(requireSan);
             // ============== Roles ==============
-            userAuthInfo.add(Joiner.on(",").join(getRoleNamesByUserWithLdap(userIdent,
-                    ConnectContext.get().getSessionVariable().showUserDefaultRole)));
+            userAuthInfo.add(roleNamesForDisplay);
         } else {
             User user = userManager.getUserByUserIdentity(userIdent);
             if (user == null) {
                 userAuthInfo.add(FeConstants.null_string);
                 userAuthInfo.add(FeConstants.null_string);
                 userAuthInfo.add(FeConstants.null_string);
-                userAuthInfo.add(FeConstants.null_string);
+                userAuthInfo.add(roleNamesForDisplay);
             } else {
                 // ============== Comment ==============
                 userAuthInfo.add(user.getComment());
@@ -1420,19 +1433,18 @@ public class Auth implements Writable {
                 // ============== RequireSan ==============
                 userAuthInfo.add(requireSan);
                 // ============== Roles ==============
-                userAuthInfo.add(Joiner.on(",").join(userRoleManager
-                        .getRolesByUser(userIdent, ConnectContext.get().getSessionVariable().showUserDefaultRole)));
+                userAuthInfo.add(roleNamesForDisplay);
             }
         }
         // ==============GlobalPrivs==============
         PrivBitSet globalPrivs = new PrivBitSet();
-        List<PrivEntry> globalEntries = getUserGlobalPrivTable(userIdent).entries;
+        List<PrivEntry> globalEntries = getUserGlobalPrivTable(rolesForAuthInfo).entries;
         if (!CollectionUtils.isEmpty(globalEntries)) {
             globalPrivs.or(globalEntries.get(0).privSet);
         }
         userAuthInfo.add(globalPrivs.isEmpty() ? FeConstants.null_string : globalPrivs.toString());
         // ============== CatalogPrivs ========================
-        String ctlPrivs = getUserCtlPrivTable(userIdent).entries.stream()
+        String ctlPrivs = getUserCtlPrivTable(rolesForAuthInfo).entries.stream()
                 .map(entry -> String.format("%s: %s",
                         ((CatalogPrivEntry) entry).getOrigCtl(), entry.privSet))
                 .collect(Collectors.joining("; "));
@@ -1442,7 +1454,7 @@ public class Auth implements Writable {
         userAuthInfo.add(ctlPrivs);
         // ============== DatabasePrivs ==============
         List<String> dbPrivs = Lists.newArrayList();
-        for (PrivEntry entry : getUserDbPrivTable(userIdent).entries) {
+        for (PrivEntry entry : getUserDbPrivTable(rolesForAuthInfo).entries) {
             DbPrivEntry dEntry = (DbPrivEntry) entry;
             PrivBitSet savedPrivs = dEntry.getPrivSet().copy();
             dbPrivs.add(String.format("%s.%s: %s", dEntry.getOrigCtl(), dEntry.getOrigDb(),
@@ -1457,7 +1469,7 @@ public class Auth implements Writable {
 
         // tbl
         List<String> tblPrivs = Lists.newArrayList();
-        for (PrivEntry entry : getUserTblPrivTable(userIdent).entries) {
+        for (PrivEntry entry : getUserTblPrivTable(rolesForAuthInfo).entries) {
             TablePrivEntry tEntry = (TablePrivEntry) entry;
             PrivBitSet savedPrivs = tEntry.getPrivSet().copy();
             tblPrivs.add(String.format("%s.%s.%s: %s", tEntry.getOrigCtl(), tEntry.getOrigDb(),
@@ -1472,7 +1484,7 @@ public class Auth implements Writable {
 
         // col
         List<String> colPrivs = Lists.newArrayList();
-        for (Entry<ColPrivilegeKey, Set<String>> entry : getUserColPrivMap(userIdent).entrySet()) {
+        for (Entry<ColPrivilegeKey, Set<String>> entry : getUserColPrivMap(rolesForAuthInfo).entrySet()) {
             colPrivs.add(String.format("%s.%s.%s: %s%s", entry.getKey().getCtl(), entry.getKey().getDb(),
                     entry.getKey().getTbl(), entry.getKey().getPrivilege(), entry.getValue()));
         }
@@ -1485,7 +1497,7 @@ public class Auth implements Writable {
 
         // resource
         List<String> resourcePrivs = Lists.newArrayList();
-        for (PrivEntry entry : getUserResourcePrivTable(userIdent).entries) {
+        for (PrivEntry entry : getUserResourcePrivTable(rolesForAuthInfo).entries) {
             ResourcePrivEntry rEntry = (ResourcePrivEntry) entry;
             PrivBitSet savedPrivs = rEntry.getPrivSet().copy();
             resourcePrivs.add(rEntry.getOrigResource() + ": " + savedPrivs.toString());
@@ -1499,7 +1511,7 @@ public class Auth implements Writable {
 
         // cloudCluster
         List<String> cloudClusterPrivs = Lists.newArrayList();
-        for (PrivEntry entry : getUserCloudClusterPrivTable(userIdent).entries) {
+        for (PrivEntry entry : getUserCloudClusterPrivTable(rolesForAuthInfo).entries) {
             ResourcePrivEntry rEntry = (ResourcePrivEntry) entry;
             PrivBitSet savedPrivs = rEntry.getPrivSet().copy();
             cloudClusterPrivs.add(rEntry.getOrigResource() + ": " + savedPrivs.toString());
@@ -1513,7 +1525,7 @@ public class Auth implements Writable {
 
         // cloudStage
         List<String> cloudStagePrivs = Lists.newArrayList();
-        for (PrivEntry entry : getUserCloudStagePrivTable(userIdent).entries) {
+        for (PrivEntry entry : getUserCloudStagePrivTable(rolesForAuthInfo).entries) {
             ResourcePrivEntry rEntry = (ResourcePrivEntry) entry;
             PrivBitSet savedPrivs = rEntry.getPrivSet().copy();
             cloudStagePrivs.add(rEntry.getOrigResource() + ": " + savedPrivs.toString());
@@ -1527,7 +1539,7 @@ public class Auth implements Writable {
 
         // storage vault
         List<String> storageVaultPrivs = Lists.newArrayList();
-        for (PrivEntry entry : getUserStorageVaultPrivTable(userIdent).entries) {
+        for (PrivEntry entry : getUserStorageVaultPrivTable(rolesForAuthInfo).entries) {
             ResourcePrivEntry rEntry = (ResourcePrivEntry) entry;
             PrivBitSet savedPrivs = rEntry.getPrivSet().copy();
             storageVaultPrivs.add(rEntry.getOrigResource() + ": " + savedPrivs.toString());
@@ -1541,7 +1553,7 @@ public class Auth implements Writable {
 
         // workload group
         List<String> workloadGroupPrivs = Lists.newArrayList();
-        for (PrivEntry entry : getUserWorkloadGroupPrivTable(userIdent).entries) {
+        for (PrivEntry entry : getUserWorkloadGroupPrivTable(rolesForAuthInfo).entries) {
             WorkloadGroupPrivEntry workloadGroupPrivEntry = (WorkloadGroupPrivEntry) entry;
             PrivBitSet savedPrivs = workloadGroupPrivEntry.getPrivSet().copy();
             workloadGroupPrivs.add(workloadGroupPrivEntry.getOrigWorkloadGroupName() + ": " + savedPrivs);
@@ -1605,11 +1617,27 @@ public class Auth implements Writable {
         }
     }
 
+    private ResourcePrivTable getUserCloudClusterPrivTable(Set<Role> roles) {
+        ResourcePrivTable table = new ResourcePrivTable();
+        for (Role role : roles) {
+            table.merge(role.getCloudClusterPrivTable());
+        }
+        return table;
+    }
+
     private ResourcePrivTable getUserCloudClusterPrivTable(UserIdentity userIdentity) {
         ResourcePrivTable table = new ResourcePrivTable();
         Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
         for (String roleName : roles) {
             table.merge(roleManager.getRole(roleName).getCloudClusterPrivTable());
+        }
+        return table;
+    }
+
+    private ResourcePrivTable getUserCloudStagePrivTable(Set<Role> roles) {
+        ResourcePrivTable table = new ResourcePrivTable();
+        for (Role role : roles) {
+            table.merge(role.getCloudStagePrivTable());
         }
         return table;
     }
@@ -1623,6 +1651,14 @@ public class Auth implements Writable {
         return table;
     }
 
+    private ResourcePrivTable getUserStorageVaultPrivTable(Set<Role> roles) {
+        ResourcePrivTable table = new ResourcePrivTable();
+        for (Role role : roles) {
+            table.merge(role.getStorageVaultPrivTable());
+        }
+        return table;
+    }
+
     private ResourcePrivTable getUserStorageVaultPrivTable(UserIdentity userIdentity) {
         ResourcePrivTable table = new ResourcePrivTable();
         Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
@@ -1632,68 +1668,89 @@ public class Auth implements Writable {
         return table;
     }
 
-    private GlobalPrivTable getUserGlobalPrivTable(UserIdentity userIdentity) {
+    private GlobalPrivTable getUserGlobalPrivTable(Set<Role> roles) {
         GlobalPrivTable table = new GlobalPrivTable();
-        Set<Role> roles = getRolesByUserWithLdap(userIdentity);
         for (Role role : roles) {
             table.merge(role.getGlobalPrivTable());
         }
         return table;
     }
 
-    private CatalogPrivTable getUserCtlPrivTable(UserIdentity userIdentity) {
+    private GlobalPrivTable getUserGlobalPrivTable(UserIdentity userIdentity) {
+        return getUserGlobalPrivTable(getRolesByUserWithLdap(userIdentity));
+    }
+
+    private CatalogPrivTable getUserCtlPrivTable(Set<Role> roles) {
         CatalogPrivTable table = new CatalogPrivTable();
-        Set<Role> roles = getRolesByUserWithLdap(userIdentity);
         for (Role role : roles) {
             table.merge(role.getCatalogPrivTable());
         }
         return table;
     }
 
-    private DbPrivTable getUserDbPrivTable(UserIdentity userIdentity) {
+    private CatalogPrivTable getUserCtlPrivTable(UserIdentity userIdentity) {
+        return getUserCtlPrivTable(getRolesByUserWithLdap(userIdentity));
+    }
+
+    private DbPrivTable getUserDbPrivTable(Set<Role> roles) {
         DbPrivTable table = new DbPrivTable();
-        Set<Role> roles = getRolesByUserWithLdap(userIdentity);
         for (Role role : roles) {
             table.merge(role.getDbPrivTable());
         }
         return table;
     }
 
-    private TablePrivTable getUserTblPrivTable(UserIdentity userIdentity) {
+    private DbPrivTable getUserDbPrivTable(UserIdentity userIdentity) {
+        return getUserDbPrivTable(getRolesByUserWithLdap(userIdentity));
+    }
+
+    private TablePrivTable getUserTblPrivTable(Set<Role> roles) {
         TablePrivTable table = new TablePrivTable();
-        Set<Role> roles = getRolesByUserWithLdap(userIdentity);
         for (Role role : roles) {
             table.merge(role.getTablePrivTable());
         }
         return table;
     }
 
-    private Map<ColPrivilegeKey, Set<String>> getUserColPrivMap(UserIdentity userIdentity) {
+    private TablePrivTable getUserTblPrivTable(UserIdentity userIdentity) {
+        return getUserTblPrivTable(getRolesByUserWithLdap(userIdentity));
+    }
+
+    private Map<ColPrivilegeKey, Set<String>> getUserColPrivMap(Set<Role> roles) {
         Map<ColPrivilegeKey, Set<String>> colPrivMap = Maps.newHashMap();
-        Set<Role> roles = getRolesByUserWithLdap(userIdentity);
         for (Role role : roles) {
             Role.mergeColPrivMap(colPrivMap, role.getColPrivMap());
         }
         return colPrivMap;
     }
 
+    private Map<ColPrivilegeKey, Set<String>> getUserColPrivMap(UserIdentity userIdentity) {
+        return getUserColPrivMap(getRolesByUserWithLdap(userIdentity));
+    }
 
-    private ResourcePrivTable getUserResourcePrivTable(UserIdentity userIdentity) {
+
+    private ResourcePrivTable getUserResourcePrivTable(Set<Role> roles) {
         ResourcePrivTable table = new ResourcePrivTable();
-        Set<Role> roles = getRolesByUserWithLdap(userIdentity);
         for (Role role : roles) {
             table.merge(role.getResourcePrivTable());
         }
         return table;
     }
 
-    private WorkloadGroupPrivTable getUserWorkloadGroupPrivTable(UserIdentity userIdentity) {
+    private ResourcePrivTable getUserResourcePrivTable(UserIdentity userIdentity) {
+        return getUserResourcePrivTable(getRolesByUserWithLdap(userIdentity));
+    }
+
+    private WorkloadGroupPrivTable getUserWorkloadGroupPrivTable(Set<Role> roles) {
         WorkloadGroupPrivTable table = new WorkloadGroupPrivTable();
-        Set<Role> roles = getRolesByUserWithLdap(userIdentity);
         for (Role role : roles) {
             table.merge(role.getWorkloadGroupPrivTable());
         }
         return table;
+    }
+
+    private WorkloadGroupPrivTable getUserWorkloadGroupPrivTable(UserIdentity userIdentity) {
+        return getUserWorkloadGroupPrivTable(getRolesByUserWithLdap(userIdentity));
     }
 
     public List<List<String>> getUserProperties(String qualifiedUser) {
