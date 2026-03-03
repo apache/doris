@@ -180,7 +180,8 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
         _hybrid_set->insert(other->_hybrid_set.get());
         if (_max_in_num >= 0 && _hybrid_set->size() > _max_in_num) {
             _hybrid_set->clear();
-            set_state(State::DISABLED, fmt::format("reach max in num: {}", _max_in_num));
+            set_state(State::DISABLED,
+                      fmt::format("merge reached max IN num threshold: {}", _max_in_num));
         }
         break;
     }
