@@ -219,7 +219,7 @@ public class EnvTest {
             }
         };
 
-        env.onEraseOlapTable(1L, olapTable, false);
+        env.onEraseOlapTable(olapTable, false);
 
         Assert.assertEquals(1, mvJobs.size());
         Assert.assertTrue(mvJobs.containsValue(mvOtherJob));
@@ -231,7 +231,7 @@ public class EnvTest {
 
         new Verifications() {
             {
-                internalCatalog.eraseTableDropBackendReplicas(1L, olapTable, false);
+                internalCatalog.eraseTableDropBackendReplicas(olapTable, false);
                 times = 1;
                 colocateTableIndex.removeTable(erasedTableId);
                 times = 1;
