@@ -790,8 +790,17 @@ public class AnalysisManager implements Writable {
     }
 
     public void dropCachedStats(long catalogId, long dbId, long tableId) {
-        TableIf table = StatisticsUtil.findTable(catalogId, dbId, tableId);
         StatisticsCache statsCache = Env.getCurrentEnv().getStatisticsCache();
+        TableIf table;
+        try {
+            table = StatisticsUtil.findTable(catalogId, dbId, tableId);
+        } catch (RuntimeException e) {
+            // Table already dropped, fall back to bulk invalidation by scanning cache keys.
+            LOG.info("Table {}.{}.{} already dropped, invalidating all cached stats for it.",
+                    catalogId, dbId, tableId);
+            statsCache.invalidateAllCacheForTable(catalogId, dbId, tableId);
+            return;
+        }
         Set<String> columns = table.getSchemaAllIndexes(false)
                 .stream().map(Column::getName).collect(Collectors.toSet());
         for (String column : columns) {
@@ -812,8 +821,17 @@ public class AnalysisManager implements Writable {
 
     public void invalidateLocalStats(long catalogId, long dbId, long tableId, Set<String> columns,
                                      TableStatsMeta tableStats, PartitionNamesInfo partitionNames) {
-        TableIf table = StatisticsUtil.findTable(catalogId, dbId, tableId);
         StatisticsCache statsCache = Env.getCurrentEnv().getStatisticsCache();
+        TableIf table;
+        try {
+            table = StatisticsUtil.findTable(catalogId, dbId, tableId);
+        } catch (RuntimeException e) {
+            // Table already dropped, fall back to bulk invalidation by scanning cache keys.
+            LOG.info("Table {}.{}.{} already dropped, invalidating all cached stats for it.",
+                    catalogId, dbId, tableId);
+            statsCache.invalidateAllCacheForTable(catalogId, dbId, tableId);
+            return;
+        }
         if (columns == null || columns.isEmpty()) {
             columns = table.getSchemaAllIndexes(false)
                 .stream().map(Column::getName).collect(Collectors.toSet());
