@@ -469,38 +469,44 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             fileScanRangeParams.setHdfsParams(tHdfsParams);
         }
 
-        // get first file, used to parse table schema
-        TBrokerFileStatus firstFile = null;
+        // Collect candidate files for schema inference. BE will try them in order,
+        // skipping files whose content is effectively empty (e.g. files with only newlines
+        // in csv_with_names format). Limit to a small number to avoid sending too many ranges.
+        final int maxSchemaCandidates = 5;
+        List<TBrokerFileStatus> candidateFiles = new ArrayList<>();
         for (TBrokerFileStatus fileStatus : fileStatuses) {
             if (isFileContentEmpty(fileStatus)) {
                 continue;
             }
-            firstFile = fileStatus;
-            break;
+            candidateFiles.add(fileStatus);
+            if (candidateFiles.size() >= maxSchemaCandidates) {
+                break;
+            }
         }
 
-        // `firstFile == null` means:
+        // `candidateFiles` is empty means:
         // 1. No matching file path exists
         // 2. All matched files have a size of 0
         // For these two situations, we don't need to get schema from BE
-        if (firstFile == null) {
+        if (candidateFiles.isEmpty()) {
             return null;
         }
 
-        // set TFileRangeDesc
-        TFileRangeDesc fileRangeDesc = new TFileRangeDesc();
-        fileRangeDesc.setLoadId(ctx.queryId());
-        fileRangeDesc.setFileType(getTFileType());
-        fileRangeDesc.setCompressType(Util.getOrInferCompressType(
-                fileFormatProperties.getCompressionType(), firstFile.getPath()));
-        fileRangeDesc.setPath(firstFile.getPath());
-        fileRangeDesc.setStartOffset(0);
-        fileRangeDesc.setSize(firstFile.getSize());
-        fileRangeDesc.setFileSize(firstFile.getSize());
-        fileRangeDesc.setModificationTime(firstFile.getModificationTime());
-        // set TFileScanRange
+        // set TFileScanRange with all candidate files as ranges so BE can try each one
         TFileScanRange fileScanRange = new TFileScanRange();
-        fileScanRange.addToRanges(fileRangeDesc);
+        for (TBrokerFileStatus candidateFile : candidateFiles) {
+            TFileRangeDesc fileRangeDesc = new TFileRangeDesc();
+            fileRangeDesc.setLoadId(ctx.queryId());
+            fileRangeDesc.setFileType(getTFileType());
+            fileRangeDesc.setCompressType(Util.getOrInferCompressType(
+                    fileFormatProperties.getCompressionType(), candidateFile.getPath()));
+            fileRangeDesc.setPath(candidateFile.getPath());
+            fileRangeDesc.setStartOffset(0);
+            fileRangeDesc.setSize(candidateFile.getSize());
+            fileRangeDesc.setFileSize(candidateFile.getSize());
+            fileRangeDesc.setModificationTime(candidateFile.getModificationTime());
+            fileScanRange.addToRanges(fileRangeDesc);
+        }
         fileScanRange.setParams(fileScanRangeParams);
         return InternalService.PFetchTableSchemaRequest.newBuilder()
                 .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
