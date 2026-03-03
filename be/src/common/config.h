@@ -1410,6 +1410,9 @@ DECLARE_mBool(variant_use_cloud_schema_dict_cache);
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 // Max json key length in bytes when parsing json into variant subcolumns/jsonb.
 DECLARE_mInt32(variant_max_json_key_length);
+// Runtime limit for variant subcolumns during compaction phase.
+// <= 0 means disabled.
+DECLARE_mInt32(variant_compaction_max_subcolumns_count);
 // Treat invalid json format str as string, instead of throwing exception if false
 DECLARE_mBool(variant_throw_exeception_on_invalid_json);
 // Enable vertical compact subcolumns of variant column
