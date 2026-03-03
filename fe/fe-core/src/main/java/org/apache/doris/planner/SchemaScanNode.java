@@ -29,7 +29,6 @@ import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNetworkAddress;
