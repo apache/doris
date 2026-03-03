@@ -71,6 +71,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -112,7 +113,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, ScanContext scanContext) {
         super(id, desc.getId().asList(), planNodeName);
         this.desc = desc;
-        this.scanContext = scanContext == null ? ScanContext.EMPTY : scanContext;
+        this.scanContext = Objects.requireNonNull(scanContext, "scanContext can not be null");
     }
 
     protected List<Column> getColumns() {
