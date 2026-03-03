@@ -69,5 +69,25 @@ suite("test_tvf_empty_file", "p0") {
 
        // test tvf with setting csv_with_names should skip the empty file
        // load_with_empty_0.csv is an empty file, 
-       // load_with_empty_1.csv have data
+       // load_with_empty_1.csv has data:
+       //   id,name
+       //   1,Refrain
+       // schema inference should skip the empty file and infer schema from load_with_empty_1.csv
+       order_qt_select3 """ SELECT * FROM S3 (
+                                   "uri" = "http://${bucket}.${s3_endpoint}/load/tvf_data/load_with_empty_{0,1}.csv",
+                                   "ACCESS_KEY"= "${ak}",
+                                   "SECRET_KEY" = "${sk}",
+                                   "format" = "csv_with_names",
+                                   "region" = "${region}"
+                                   );
+                            """
+
+       order_qt_desc3 """ desc function S3 (
+                                   "uri" = "http://${bucket}.${s3_endpoint}/load/tvf_data/load_with_empty_{0,1}.csv",
+                                   "ACCESS_KEY"= "${ak}",
+                                   "SECRET_KEY" = "${sk}",
+                                   "format" = "csv_with_names",
+                                   "region" = "${region}"
+                                   );
+                            """
 }
