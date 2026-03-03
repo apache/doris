@@ -593,14 +593,13 @@ Status CsvReader::_create_line_reader() {
     } else {
         // in load task, the _file_slot_descs is empty vector, so we need to set col_sep_num to 0
         size_t col_sep_num = _file_slot_descs.size() > 1 ? _file_slot_descs.size() - 1 : 0;
-        text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderCtx>(
+        _enclose_reader_ctx = std::make_shared<EncloseCsvLineReaderCtx>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
                 col_sep_num, _enclose, _escape, _keep_cr);
+        text_line_reader_ctx = _enclose_reader_ctx;
 
         _fields_splitter = std::make_unique<EncloseCsvTextFieldSplitter>(
-                _trim_tailing_spaces, true,
-                std::static_pointer_cast<EncloseCsvLineReaderCtx>(text_line_reader_ctx),
-                _value_separator_length, _enclose);
+                _trim_tailing_spaces, true, _enclose_reader_ctx, _value_separator_length, _enclose);
     }
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
@@ -820,8 +819,15 @@ Status CsvReader::_parse_col_types(size_t col_nums, std::vector<DataTypePtr>* co
 const uint8_t* CsvReader::_remove_bom(const uint8_t* ptr, size_t& size) {
     if (size >= 3 && ptr[0] == 0xEF && ptr[1] == 0xBB && ptr[2] == 0xBF) {
         LOG(INFO) << "remove bom";
-        size -= 3;
-        return ptr + 3;
+        constexpr size_t bom_size = 3;
+        size -= bom_size;
+        // In enclose mode, column_sep_positions were computed on the original line
+        // (including BOM). After shifting the pointer, we must adjust those positions
+        // so they remain correct relative to the new start.
+        if (_enclose_reader_ctx) {
+            _enclose_reader_ctx->adjust_column_sep_positions(bom_size);
+        }
+        return ptr + bom_size;
     }
     return ptr;
 }
