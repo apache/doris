@@ -53,7 +53,7 @@ public:
     std::string get_name() const override { return name; }
 
     doris::Status execute(VExprContext* context, const doris::vectorized::Block* block,
-                          size_t output_count, ColumnPtr& result_column,
+                          Selector* expr_selector, size_t output_count, ColumnPtr& result_column,
                           const DataTypePtr& result_type,
                           const VExprSPtrs& children) const override {
         ///* array_filter(array, array<boolean>) *///
@@ -62,9 +62,11 @@ public:
 
         DCHECK_EQ(children.size(), 2);
         ColumnPtr column_ptr_0;
-        RETURN_IF_ERROR(children[0]->execute_column(context, block, output_count, column_ptr_0));
+        RETURN_IF_ERROR(children[0]->execute_column(context, block, expr_selector, output_count,
+                                                    column_ptr_0));
         ColumnPtr column_ptr_1;
-        RETURN_IF_ERROR(children[1]->execute_column(context, block, output_count, column_ptr_1));
+        RETURN_IF_ERROR(children[1]->execute_column(context, block, expr_selector, output_count,
+                                                    column_ptr_1));
 
         //2. get first and second array column
         auto first_column = column_ptr_0->convert_to_full_column_if_const();

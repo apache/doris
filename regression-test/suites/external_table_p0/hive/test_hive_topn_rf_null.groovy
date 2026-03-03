@@ -44,10 +44,59 @@ suite("test_hive_topn_rf_null", "p0,external,hive,external_docker,external_docke
         }
     }
 
+    def runTestTopRfPredicate = {
+
+        for (String table_name in ["test_topn_rf_null_orc", "test_topn_rf_null_parquet"])  {
+            order_qt_sql_test_19 """
+                SELECT * FROM ${table_name} ORDER BY abs(id) ASC LIMIT 5;
+            """
+        
+            order_qt_sql_test_20 """
+                SELECT * FROM ${table_name} ORDER BY abs(id) desc LIMIT 5;
+            """
+
+            order_qt_sql_test_21 """
+                SELECT * FROM ${table_name} ORDER BY abs(value) ASC LIMIT 5;
+            """
+
+            order_qt_sql_test_22 """
+                SELECT * FROM ${table_name} ORDER BY abs(value) desc LIMIT 5;
+            """
+            order_qt_sql_test_23 """
+                SELECT subq1.id AS pk1 FROM (
+                ( SELECT t1.id  FROM ${table_name} AS t1 )
+                UNION ALL
+                ( SELECT t1.id  FROM ${table_name} AS t1  ORDER BY t1.id )) subq1
+                where 
+                    subq1.id <=> (SELECT t1.id FROM ${table_name} AS t1  ORDER BY t1.id LIMIT 1) ORDER BY 1 LIMIT 1 ;
+            """ 
 
 
 
-    for (String hivePrefix : ["hive3"]) {
+            order_qt_sql_test_24 """
+                SELECT subq1.id AS pk1 FROM (
+                ( SELECT t1.id  FROM ${table_name} AS t1 where abs(t1.id) < 10)
+                UNION ALL
+                ( SELECT t1.id  FROM ${table_name} AS t1  ORDER BY t1.id limit 10)) subq1
+                where 
+                    subq1.id <=> (SELECT t1.id FROM ${table_name} AS t1  ORDER BY t1.id LIMIT 1) ORDER BY 1 LIMIT 1 ;
+            """ 
+
+            order_qt_sql_test_24 """
+                SELECT subq1.id AS pk1 FROM (
+                ( SELECT t1.id  FROM ${table_name} AS t1 where t1.id < 1000)
+                UNION ALL
+                ( SELECT t1.id  FROM ${table_name} AS t1  ORDER BY t1.id desc )) subq1
+                where 
+                    subq1.id <=> (SELECT t1.id FROM ${table_name} AS t1  ORDER BY t1.id LIMIT 1) ORDER BY 1 LIMIT 1 ;
+            """ 
+        }
+    }
+
+
+
+
+    for (String hivePrefix : ["hive2"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String catalog = "test_hive_topn_rf_null_${hivePrefix}"
@@ -66,13 +115,12 @@ suite("test_hive_topn_rf_null", "p0,external,hive,external_docker,external_docke
 
         sql """ set topn_filter_ratio=1"""
         runTopnRfNullTest();
-
+        runTestTopRfPredicate();
 
 
         sql """ set topn_filter_ratio=0 """
         runTopnRfNullTest();
-
-
+        runTestTopRfPredicate();
 
     }
 }

@@ -18,12 +18,22 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.aws.AwsClientProperties;
+import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
 
 import java.util.HashMap;
@@ -81,6 +91,14 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
     protected String ioManifestCacheMaxContentLength;
 
     @Getter
+    @ConnectorProperty(
+            names = {CatalogProperties.FILE_IO_IMPL},
+            required = false,
+            description = "Custom io impl for iceberg"
+    )
+    protected String ioImpl;
+
+    @Getter
     protected ExecutionAuthenticator executionAuthenticator = new ExecutionAuthenticator(){};
 
     public abstract String getIcebergCatalogType();
@@ -112,7 +130,7 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
      * and deleting Iceberg tables.
      */
     public final Catalog initializeCatalog(String catalogName,
-                                                        List<StorageProperties> storagePropertiesList) {
+                                           List<StorageProperties> storagePropertiesList) {
         Map<String, String> catalogProps = new HashMap<>(getOrigProps());
         if (StringUtils.isNotBlank(warehouse)) {
             catalogProps.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
@@ -136,6 +154,8 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
      * @param catalogProps the catalog properties map to add manifest cache properties to
      */
     protected void addManifestCacheProperties(Map<String, String> catalogProps) {
+        boolean hasIoManifestCacheEnabled = StringUtils.isNotBlank(ioManifestCacheEnabled)
+                || StringUtils.isNotBlank(catalogProps.get(CatalogProperties.IO_MANIFEST_CACHE_ENABLED));
         if (StringUtils.isNotBlank(ioManifestCacheEnabled)) {
             catalogProps.put(CatalogProperties.IO_MANIFEST_CACHE_ENABLED, ioManifestCacheEnabled);
         }
@@ -149,6 +169,22 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
         if (StringUtils.isNotBlank(ioManifestCacheMaxContentLength)) {
             catalogProps.put(CatalogProperties.IO_MANIFEST_CACHE_MAX_CONTENT_LENGTH, ioManifestCacheMaxContentLength);
         }
+
+        // default enable io manifest cache if the meta.cache.manifest is enabled
+        if (!hasIoManifestCacheEnabled) {
+            CacheSpec manifestCacheSpec = CacheSpec.fromProperties(catalogProps,
+                    IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE,
+                    IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE,
+                    IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_TTL_SECOND,
+                    IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND,
+                    IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_CAPACITY,
+                    IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY);
+            if (CacheSpec.isCacheEnabled(manifestCacheSpec.isEnable(),
+                    manifestCacheSpec.getTtlSecond(),
+                    manifestCacheSpec.getCapacity())) {
+                catalogProps.put(CatalogProperties.IO_MANIFEST_CACHE_ENABLED, "true");
+            }
+        }
     }
 
     /**
@@ -159,4 +195,85 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
             Map<String, String> catalogProps,
             List<StorageProperties> storagePropertiesList
     );
+
+    /**
+     * Unified method to configure FileIO properties for Iceberg catalog.
+     * This method handles all storage types (HDFS, S3, MinIO, etc.) by:
+     * 1. Adding all storage properties to Hadoop Configuration (for HadoopFileIO / S3A access).
+     * 2. Extracting S3-compatible properties into fileIOProperties map (for Iceberg S3FileIO).
+     *
+     * @param storagePropertiesList list of storage properties
+     * @param fileIOProperties options map to be populated with S3 FileIO properties
+     * @return Hadoop Configuration populated with all storage properties
+     */
+    public void toFileIOProperties(List<StorageProperties> storagePropertiesList,
+            Map<String, String> fileIOProperties, Configuration conf) {
+        // We only support one S3-compatible storage property for FileIO configuration.
+        // When multiple AbstractS3CompatibleProperties exist, prefer the first non-S3Properties one,
+        // because a non-S3 type (e.g. OSSProperties, COSProperties) indicates the user has explicitly
+        // specified a concrete S3-compatible storage, which should take priority over the generic S3Properties.
+        AbstractS3CompatibleProperties s3Fallback = null;
+        AbstractS3CompatibleProperties s3Target = null;
+        for (StorageProperties storageProperties : storagePropertiesList) {
+            if (conf != null && storageProperties.getHadoopStorageConfig() != null) {
+                conf.addResource(storageProperties.getHadoopStorageConfig());
+            }
+            if (storageProperties instanceof AbstractS3CompatibleProperties) {
+                if (s3Fallback == null) {
+                    s3Fallback = (AbstractS3CompatibleProperties) storageProperties;
+                }
+                if (s3Target == null && !(storageProperties instanceof S3Properties)) {
+                    s3Target = (AbstractS3CompatibleProperties) storageProperties;
+                }
+            }
+        }
+        AbstractS3CompatibleProperties chosen = s3Target != null ? s3Target : s3Fallback;
+        if (chosen != null) {
+            toS3FileIOProperties(chosen, fileIOProperties);
+        } else {
+            String region = AbstractS3CompatibleProperties.getRegionFromProperties(fileIOProperties);
+            if (!Strings.isNullOrEmpty(region)) {
+                fileIOProperties.put(AwsClientProperties.CLIENT_REGION, region);
+            }
+        }
+    }
+
+    /**
+     * Configure S3 FileIO properties for all S3-compatible storage types (S3, MinIO, etc.)
+     * This method provides a unified way to convert S3-compatible properties to Iceberg S3FileIO format.
+     *
+     * @param s3Properties S3-compatible properties
+     * @param options Options map to be populated with S3 FileIO properties
+     */
+    private void toS3FileIOProperties(AbstractS3CompatibleProperties s3Properties, Map<String, String> options) {
+        // Common properties - only set if not blank
+        if (StringUtils.isNotBlank(s3Properties.getEndpoint())) {
+            options.put(S3FileIOProperties.ENDPOINT, s3Properties.getEndpoint());
+        }
+        if (StringUtils.isNotBlank(s3Properties.getUsePathStyle())) {
+            options.put(S3FileIOProperties.PATH_STYLE_ACCESS, s3Properties.getUsePathStyle());
+        }
+        if (StringUtils.isNotBlank(s3Properties.getRegion())) {
+            options.put(AwsClientProperties.CLIENT_REGION, s3Properties.getRegion());
+        }
+        if (StringUtils.isNotBlank(s3Properties.getAccessKey())) {
+            options.put(S3FileIOProperties.ACCESS_KEY_ID, s3Properties.getAccessKey());
+        }
+        if (StringUtils.isNotBlank(s3Properties.getSecretKey())) {
+            options.put(S3FileIOProperties.SECRET_ACCESS_KEY, s3Properties.getSecretKey());
+        }
+        if (StringUtils.isNotBlank(s3Properties.getSessionToken())) {
+            options.put(S3FileIOProperties.SESSION_TOKEN, s3Properties.getSessionToken());
+        }
+    }
+
+    protected Catalog buildIcebergCatalog(String catalogName, Map<String, String> options, Configuration conf) {
+        // For Iceberg SDK, "type" means catalog type, such as hive, jdbc, rest.
+        // But in Doris, "type" is "iceberg".
+        // And Iceberg SDK does not allow with both "type" and "catalog-impl" properties,
+        // So here we remove "type" and make sure "catalog-impl" is set.
+        options.remove(CatalogUtil.ICEBERG_CATALOG_TYPE);
+        Preconditions.checkArgument(options.containsKey(CatalogProperties.CATALOG_IMPL));
+        return CatalogUtil.buildIcebergCatalog(catalogName, options, conf);
+    }
 }

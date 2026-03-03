@@ -180,7 +180,8 @@ TEST_F(DateBloomFilterTest, query_index_test) {
         auto test = [&](const std::string& query_string, bool result) {
             auto date = timestamp_from_date(query_string);
             std::unique_ptr<ComparisonPredicateBase<TYPE_DATE, PredicateType::EQ>> date_pred(
-                    new ComparisonPredicateBase<TYPE_DATE, PredicateType::EQ>(0, "", date));
+                    new ComparisonPredicateBase<TYPE_DATE, PredicateType::EQ>(
+                            0, "", vectorized::Field::create_field<TYPE_DATE>(date)));
             EXPECT_EQ(date_pred->evaluate_and(bf.get()), result);
         };
         test("2024-11-08", true);
@@ -202,7 +203,8 @@ TEST_F(DateBloomFilterTest, query_index_test) {
         auto test = [&](const std::string& query_string, bool result) {
             auto datetime = timestamp_from_datetime(query_string);
             std::unique_ptr<ComparisonPredicateBase<TYPE_DATETIME, PredicateType::EQ>> date_pred(
-                    new ComparisonPredicateBase<TYPE_DATETIME, PredicateType::EQ>(0, "", datetime));
+                    new ComparisonPredicateBase<TYPE_DATETIME, PredicateType::EQ>(
+                            0, "", vectorized::Field::create_field<TYPE_DATETIME>(datetime)));
             EXPECT_EQ(date_pred->evaluate_and(bf.get()), result);
         };
         test("2024-11-08 09:00:00", true);

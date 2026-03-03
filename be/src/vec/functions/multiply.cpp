@@ -568,6 +568,8 @@ public:
         return Impl::need_replace_null_data_to_default;
     }
 
+    bool use_default_implementation_for_constants() const final { return false; }
+
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypes get_variadic_argument_types_impl() const override {

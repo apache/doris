@@ -64,17 +64,19 @@ public abstract class DistributionInfo {
     }
 
     public int getBucketNum() {
-        // should override in sub class
-        throw new NotImplementedException("not implemented");
+        return bucketNum;
     }
 
     public void setBucketNum(int bucketNum) {
-        // should override in sub class
-        throw new NotImplementedException("not implemented");
+        this.bucketNum = bucketNum;
     }
 
     public void markAutoBucket() {
         autoBucket = true;
+    }
+
+    public void setAutoBucket(boolean autoBucket) {
+        this.autoBucket = autoBucket;
     }
 
     public DistributionDesc toDistributionDesc() {

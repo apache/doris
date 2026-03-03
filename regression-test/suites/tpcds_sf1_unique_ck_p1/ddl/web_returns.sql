@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS web_returns (
     wr_net_loss decimal(7,2)
 )
 UNIQUE KEY(wr_item_sk, wr_order_number)
-CLUSTER BY(wr_net_loss)
+ORDER BY(wr_net_loss)
 DISTRIBUTED BY HASH(wr_item_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

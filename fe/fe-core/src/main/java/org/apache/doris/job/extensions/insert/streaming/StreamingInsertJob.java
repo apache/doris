@@ -32,11 +32,11 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.httpv2.rest.StreamingJobAction.CommitOffsetRequest;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.request.CommitOffsetRequest;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.IntervalUnit;
@@ -54,12 +54,14 @@ import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
 import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertUtils;
@@ -156,6 +158,14 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Getter
     @SerializedName("tprops")
     private Map<String, String> targetProperties;
+
+    // The sampling window starts at the beginning of the sampling window.
+    // If the error rate exceeds `max_filter_ratio` within the window, the sampling fails.
+    @Setter
+    private long sampleStartTime;
+    private long sampleWindowMs;
+    private long sampleWindowScannedRows;
+    private long sampleWindowFilteredRows;
 
     public StreamingInsertJob(String jobName,
             JobStatus jobStatus,
@@ -260,6 +270,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             this.jobProperties = new StreamingJobProperties(properties);
             jobProperties.validate();
+            this.sampleWindowMs = jobProperties.getMaxIntervalSecond() * 10 * 1000;
             // build time definition
             JobExecutionConfiguration execConfig = getJobConfig();
             TimerDefinition timerDefinition = new TimerDefinition();
@@ -373,7 +384,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
         // update target properties
         if (!alterJobCommand.getTargetProperties().isEmpty()) {
-            this.sourceProperties.putAll(alterJobCommand.getTargetProperties());
+            this.targetProperties.putAll(alterJobCommand.getTargetProperties());
             logParts.add("target properties: " + alterJobCommand.getTargetProperties());
         }
         log.info("Alter streaming job {}, {}", getJobId(), String.join(", ", logParts));
@@ -506,6 +517,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     protected void fetchMeta() throws JobException {
+        long start = System.currentTimeMillis();
         try {
             if (tvfType != null) {
                 if (originTvfProps == null) {
@@ -527,7 +539,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 // If fetching meta fails, the job is paused
                 // and auto resume will automatically wake it up.
                 this.updateJobStatus(JobStatus.PAUSED);
+
+                MetricRepo.COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT.increase(1L);
             }
+        } finally {
+            long end = System.currentTimeMillis();
+            MetricRepo.COUNTER_STREAMING_JOB_GET_META_LANTENCY.increase(end - start);
+            MetricRepo.COUNTER_STREAMING_JOB_GET_META_COUNT.increase(1L);
         }
     }
 
@@ -574,6 +592,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             failedTaskCount.incrementAndGet();
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
             this.failureReason = new FailureReason(task.getErrMsg());
+            MetricRepo.COUNTER_STREAMING_JOB_TASK_FAILED_COUNT.increase(1L);
         } finally {
             writeUnlock();
         }
@@ -584,6 +603,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             resetFailureInfo(null);
             succeedTaskCount.incrementAndGet();
+            //update metric
+            MetricRepo.COUNTER_STREAMING_JOB_TASK_EXECUTE_COUNT.increase(1L);
+            MetricRepo.COUNTER_STREAMING_JOB_TASK_EXECUTE_TIME.increase(task.getFinishTimeMs() - task.getStartTimeMs());
+
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
             AbstractStreamingTask nextTask = createStreamingTask();
             this.runningStreamTask = nextTask;
@@ -603,6 +626,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.jobStatistic.setFileNumber(this.jobStatistic.getFileNumber() + attachment.getNumFiles());
         this.jobStatistic.setFileSize(this.jobStatistic.getFileSize() + attachment.getFileBytes());
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(attachment.getOffset()));
+
+        //update metric
+        MetricRepo.COUNTER_STREAMING_JOB_TOTAL_ROWS.increase(attachment.getScannedRows());
+        MetricRepo.COUNTER_STREAMING_JOB_LOAD_BYTES.increase(attachment.getLoadBytes());
     }
 
     private void updateCloudJobStatisticAndOffset(StreamingTaskTxnCommitAttachment attachment) {
@@ -614,6 +641,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.jobStatistic.setFileNumber(attachment.getNumFiles());
         this.jobStatistic.setFileSize(attachment.getFileBytes());
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(attachment.getOffset()));
+
+        //update metric
+        MetricRepo.COUNTER_STREAMING_JOB_TOTAL_ROWS.update(attachment.getScannedRows());
+        MetricRepo.COUNTER_STREAMING_JOB_LOAD_BYTES.update(attachment.getLoadBytes());
     }
 
     private void updateJobStatisticAndOffset(CommitOffsetRequest offsetRequest) {
@@ -621,7 +652,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.jobStatistic = new StreamingJobStatistic();
         }
         this.jobStatistic.setScannedRows(this.jobStatistic.getScannedRows() + offsetRequest.getScannedRows());
-        this.jobStatistic.setLoadBytes(this.jobStatistic.getLoadBytes() + offsetRequest.getScannedBytes());
+        this.jobStatistic.setLoadBytes(this.jobStatistic.getLoadBytes() + offsetRequest.getLoadBytes());
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(offsetRequest.getOffset()));
     }
 
@@ -631,8 +662,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
         this.nonTxnJobStatistic
                 .setScannedRows(this.nonTxnJobStatistic.getScannedRows() + offsetRequest.getScannedRows());
-        this.nonTxnJobStatistic.setLoadBytes(this.nonTxnJobStatistic.getLoadBytes() + offsetRequest.getScannedBytes());
+        this.nonTxnJobStatistic
+                .setFilteredRows(this.nonTxnJobStatistic.getFilteredRows() + offsetRequest.getFilteredRows());
+        this.nonTxnJobStatistic.setLoadBytes(this.nonTxnJobStatistic.getLoadBytes() + offsetRequest.getLoadBytes());
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(offsetRequest.getOffset()));
+
+        //update metric
+        MetricRepo.COUNTER_STREAMING_JOB_TOTAL_ROWS.increase(offsetRequest.getScannedRows());
+        MetricRepo.COUNTER_STREAMING_JOB_FILTER_ROWS.increase(offsetRequest.getFilteredRows());
+        MetricRepo.COUNTER_STREAMING_JOB_LOAD_BYTES.increase(offsetRequest.getLoadBytes());
     }
 
     @Override
@@ -645,7 +683,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         onRegister();
         super.onReplayCreate();
     }
-
 
     /**
      * Because the offset statistics of the streamingInsertJob are all stored in txn,
@@ -785,6 +822,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             sb.append("FROM ").append(dataSourceType.name());
             sb.append("(");
             for (Map.Entry<String, String> entry : sourceProperties.entrySet()) {
+                if (entry.getKey().equalsIgnoreCase("password")) {
+                    continue;
+                }
                 sb.append("'").append(entry.getKey())
                         .append("'='").append(entry.getValue()).append("',");
             }
@@ -1101,6 +1141,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             throw new JobException("Unsupported commit offset for offset provider type: "
                     + offsetProvider.getClass().getSimpleName());
         }
+
         writeLock();
         try {
             if (this.runningStreamTask != null
@@ -1109,18 +1150,69 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     throw new JobException("Task id mismatch when commit offset. expected: "
                             + this.runningStreamTask.getTaskId() + ", actual: " + offsetRequest.getTaskId());
                 }
+                checkDataQuality(offsetRequest);
                 updateNoTxnJobStatisticAndOffset(offsetRequest);
-                if (offsetRequest.getScannedRows() == 0 && offsetRequest.getScannedBytes() == 0) {
+                if (offsetRequest.getScannedRows() == 0 && offsetRequest.getLoadBytes() == 0) {
                     JdbcSourceOffsetProvider op = (JdbcSourceOffsetProvider) offsetProvider;
                     op.setHasMoreData(false);
                 }
-
                 persistOffsetProviderIfNeed();
+                log.info("Streaming multi table job {} task {} commit offset successfully, offset: {}",
+                        getJobId(), offsetRequest.getTaskId(), offsetRequest.getOffset());
                 ((StreamingMultiTblTask) this.runningStreamTask).successCallback(offsetRequest);
             }
 
         } finally {
             writeUnlock();
+        }
+    }
+
+    /**
+     * Check data quality before commit offset
+     */
+    private void checkDataQuality(CommitOffsetRequest offsetRequest) throws JobException {
+        String maxFilterRatioStr =
+                targetProperties.get(DataSourceConfigKeys.LOAD_PROPERTIES + LoadCommand.MAX_FILTER_RATIO_PROPERTY);
+        if (maxFilterRatioStr == null) {
+            return;
+        }
+        Double maxFilterRatio = Double.parseDouble(maxFilterRatioStr.trim());
+        if (maxFilterRatio < 0 || maxFilterRatio > 1) {
+            log.warn("invalid max filter ratio {}, skip data quality check", maxFilterRatio);
+            return;
+        }
+
+        this.sampleWindowScannedRows += offsetRequest.getScannedRows();
+        this.sampleWindowFilteredRows += offsetRequest.getFilteredRows();
+
+        if (sampleWindowScannedRows <= 0) {
+            return;
+        }
+
+        double ratio = (double) sampleWindowFilteredRows / (double) sampleWindowScannedRows;
+
+        if (ratio > maxFilterRatio) {
+            String msg = String.format(
+                    "data quality check failed for streaming multi table job %d (within sample window): "
+                            + "window filtered/scanned=%.6f > maxFilterRatio=%.6f "
+                            + "(windowFiltered=%d, windowScanned=%d)",
+                    getJobId(), ratio, maxFilterRatio, sampleWindowFilteredRows, sampleWindowScannedRows);
+            log.error(msg);
+            FailureReason failureReason = new FailureReason(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR,
+                    "too many filtered rows exceeded max_filter_ratio " + maxFilterRatio);
+            this.setFailureReason(failureReason);
+            this.updateJobStatus(JobStatus.PAUSED);
+            throw new JobException(failureReason.getMsg());
+        }
+
+        long now = System.currentTimeMillis();
+
+        if ((now - sampleStartTime) > sampleWindowMs) {
+            this.sampleStartTime = now;
+            this.sampleWindowScannedRows = 0L;
+            this.sampleWindowFilteredRows = 0L;
+            log.info("streaming multi table job {} enter next sample window, startTime={}",
+                    getJobId(), TimeUtils.longToTimeString(sampleStartTime));
         }
     }
 

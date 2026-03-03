@@ -278,13 +278,6 @@ private:
         auto val_arr =
                 ColumnArray::create(map_column.get_values_ptr(), map_column.get_offsets_ptr());
 
-        const auto& offsets = map_column.get_offsets();
-        const size_t rows = offsets.size();
-        if (rows <= 0) {
-            return nullptr;
-        }
-        if (key_arr->is_nullable()) {
-        }
         ColumnPtr matched_indices = _get_mapped_idx(*key_arr, arguments[1]);
         if (!matched_indices) {
             return nullptr;

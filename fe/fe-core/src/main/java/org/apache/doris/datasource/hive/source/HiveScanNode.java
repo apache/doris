@@ -357,18 +357,22 @@ public class HiveScanNode extends FileQueryScanNode {
         }
         long result = sessionVariable.getMaxInitialSplitSize();
         long totalFileSize = 0;
+        boolean exceedInitialThreshold = false;
         for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
             if (fileCacheValue.getFiles() == null) {
                 continue;
             }
             for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
                 totalFileSize += status.getLength();
-                if (totalFileSize >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
-                    result = sessionVariable.getMaxSplitSize();
-                    break;
+                if (!exceedInitialThreshold
+                        && totalFileSize >= sessionVariable.getMaxSplitSize()
+                                * sessionVariable.getMaxInitialSplitNum()) {
+                    exceedInitialThreshold = true;
                 }
             }
         }
+        result = exceedInitialThreshold ? sessionVariable.getMaxSplitSize() : result;
+        result = applyMaxFileSplitNumLimit(result, totalFileSize);
         return result;
     }
 
@@ -487,6 +491,37 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     @Override
+    protected List<String> getDeleteFiles(TFileRangeDesc rangeDesc) {
+        List<String> deleteFiles = new ArrayList<>();
+        if (rangeDesc == null || !rangeDesc.isSetTableFormatParams()) {
+            return deleteFiles;
+        }
+        TTableFormatFileDesc tableFormatParams = rangeDesc.getTableFormatParams();
+        if (tableFormatParams == null || !tableFormatParams.isSetTransactionalHiveParams()) {
+            return deleteFiles;
+        }
+        TTransactionalHiveDesc hiveParams = tableFormatParams.getTransactionalHiveParams();
+        if (hiveParams == null || !hiveParams.isSetDeleteDeltas()) {
+            return deleteFiles;
+        }
+        List<TTransactionalHiveDeleteDeltaDesc> deleteDeltas = hiveParams.getDeleteDeltas();
+        if (deleteDeltas == null) {
+            return deleteFiles;
+        }
+        // Format: {directory_location}/{file_name}
+        for (TTransactionalHiveDeleteDeltaDesc deleteDelta : deleteDeltas) {
+            if (deleteDelta != null && deleteDelta.isSetDirectoryLocation()
+                    && deleteDelta.isSetFileNames() && deleteDelta.getFileNames() != null) {
+                String directoryLocation = deleteDelta.getDirectoryLocation();
+                for (String fileName : deleteDelta.getFileNames()) {
+                    deleteFiles.add(directoryLocation + "/" + fileName);
+                }
+            }
+        }
+        return deleteFiles;
+    }
+
+    @Override
     protected Map<String, String> getLocationProperties() {
         return hmsTable.getBackendStorageProperties();
     }
@@ -602,5 +637,4 @@ public class HiveScanNode extends FileQueryScanNode {
         return compressType;
     }
 }
-
 

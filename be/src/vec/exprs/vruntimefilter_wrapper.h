@@ -53,8 +53,8 @@ public:
     VRuntimeFilterWrapper(const TExprNode& node, VExprSPtr impl, double ignore_thredhold,
                           bool null_aware, int filter_id);
     ~VRuntimeFilterWrapper() override = default;
-    Status execute_column(VExprContext* context, const Block* block, size_t count,
-                          ColumnPtr& result_column) const override;
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -63,6 +63,8 @@ public:
     const std::string& expr_name() const override;
     const VExprSPtrs& children() const override { return _impl->children(); }
     TExprNodeType::type node_type() const override { return _impl->node_type(); }
+
+    double execute_cost() const override { return _impl->execute_cost(); }
 
     Status execute_filter(VExprContext* context, const Block* block,
                           uint8_t* __restrict result_filter_data, size_t rows, bool accept_null,

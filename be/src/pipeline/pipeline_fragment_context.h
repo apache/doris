@@ -144,17 +144,18 @@ private:
     Status _create_tree_helper(ObjectPool* pool, const std::vector<TPlanNode>& tnodes,
                                const DescriptorTbl& descs, OperatorPtr parent, int* node_idx,
                                OperatorPtr* root, PipelinePtr& cur_pipe, int child_idx,
-                               const bool followed_by_shuffled_join);
+                               const bool followed_by_shuffled_join,
+                               const bool require_bucket_distribution);
 
     Status _create_operator(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
                             OperatorPtr& op, PipelinePtr& cur_pipe, int parent_idx, int child_idx,
-                            const bool followed_by_shuffled_join);
+                            const bool followed_by_shuffled_join,
+                            const bool require_bucket_distribution);
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ObjectPool* pool, const TPlanNode& tnode,
                                                    const DescriptorTbl& descs, OperatorPtr& op,
-                                                   PipelinePtr& cur_pipe, int parent_idx,
-                                                   int child_idx,
-                                                   bool followed_by_shuffled_operator);
+                                                   PipelinePtr& cur_pipe,
+                                                   std::vector<DataSinkOperatorPtr>& sink_ops);
 
     Status _create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                              const std::vector<TExpr>& output_exprs,
@@ -181,6 +182,9 @@ private:
                                     const std::map<int, int>& shuffle_idx_to_instance_idx);
 
     Status _build_pipeline_tasks(ThreadPool* thread_pool);
+    Status _build_pipeline_tasks_for_instance(
+            int instance_idx,
+            const std::vector<std::shared_ptr<RuntimeProfile>>& pipeline_id_to_profile);
     void _close_fragment_instance();
     void _init_next_report_time();
 
@@ -333,7 +337,6 @@ private:
 
     // Total instance num running on all BEs
     int _total_instances = -1;
-    bool _require_bucket_distribution = false;
 
     TPipelineFragmentParams _params;
     int32_t _parallel_instances = 0;

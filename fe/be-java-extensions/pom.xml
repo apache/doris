@@ -27,13 +27,14 @@ under the License.
         <module>java-udf</module>
         <module>jdbc-scanner</module>
         <module>paimon-scanner</module>
-        <module>max-compute-scanner</module>
+        <module>max-compute-connector</module>
         <module>avro-scanner</module>
         <!-- lakesoul-scanner module has been deprecated -->
         <!-- <module>lakesoul-scanner</module> -->
         <module>preload-extensions</module>
         <module>trino-connector-scanner</module>
         <module>hadoop-deps</module>
+        <module>java-writer</module>
     </modules>
 
     <parent>

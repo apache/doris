@@ -84,8 +84,6 @@ inline int compare_row_key(const RowCursor& lhs, const RowCursor& rhs) {
 
 class TabletReader {
     struct KeysParam {
-        std::string to_string() const;
-
         std::vector<RowCursor> start_keys;
         std::vector<RowCursor> end_keys;
         bool start_key_include = false;
@@ -184,6 +182,10 @@ public:
         // for vertical compaction
         bool is_key_column_group = false;
         std::vector<uint32_t> key_group_cluster_key_idxes;
+
+        // For sparse column compaction optimization
+        // When true, use optimized path for sparse wide tables
+        bool enable_sparse_optimization = false;
 
         bool is_segcompaction = false;
 

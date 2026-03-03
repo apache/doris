@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -207,6 +208,16 @@ public interface CatalogIf<T extends DatabaseIf> {
     void truncateTable(String dbName, String tableName, PartitionNamesInfo partitionNamesInfo, boolean forceDrop,
                        String rawTruncateSql)
             throws DdlException;
+
+    /** 0=case-sensitive, 1=stored lowercase, 2=case-insensitive comparison */
+    default int getLowerCaseTableNames() {
+        return GlobalVariable.lowerCaseTableNames;
+    }
+
+    /** For InternalCatalog, DB names are always case-sensitive (return 0). */
+    default int getLowerCaseDatabaseNames() {
+        return 0;
+    }
 
     // Convert from remote database name to local database name, overridden by subclass if necessary
     default String fromRemoteDatabaseName(String remoteDatabaseName) {

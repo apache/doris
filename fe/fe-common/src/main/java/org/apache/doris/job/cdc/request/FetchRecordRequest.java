@@ -23,16 +23,4 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class FetchRecordRequest extends JobBaseRecordRequest {
-    private boolean reload = true;
-    private int fetchSize;
-
-    @Override
-    public boolean isReload() {
-        return reload;
-    }
-
-    @Override
-    public int getFetchSize() {
-        return fetchSize;
-    }
 }

@@ -319,13 +319,8 @@ public class ExpressionUtils {
         }
     }
 
-    public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan, BitSet tableBitSet) {
+    public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan) {
         return shuttleExpressionWithLineage(Lists.newArrayList(expression), plan).get(0);
-    }
-
-    public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
-            Plan plan, BitSet tableBitSet) {
-        return shuttleExpressionWithLineage(expressions, plan);
     }
 
     /**
@@ -335,7 +330,6 @@ public class ExpressionUtils {
      * select b - 5 as a, d from table
      * );
      * op expression before is: a + 10 as a1, d. after is: b - 5 + 10, d
-     * todo to get from plan struct info
      */
     public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
             Plan plan) {

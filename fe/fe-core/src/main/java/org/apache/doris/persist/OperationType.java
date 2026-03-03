@@ -426,6 +426,7 @@ public class OperationType {
     public static final short OP_MODIFY_CLOUD_WARM_UP_JOB = 1002;
 
     public static final short OP_BEGIN_SNAPSHOT = 1100;
+    public static final short OP_META_SYNC_POINT = 1101;
 
     /**
      * Get opcode name by op code.

@@ -24,7 +24,6 @@ class Roaring;
 } // namespace roaring
 
 namespace doris {
-class WrapperField;
 namespace segment_v2 {
 class InvertedIndexIterator;
 } // namespace segment_v2
@@ -43,9 +42,8 @@ void SingleColumnBlockPredicate::evaluate_and(vectorized::MutableColumns& block,
     _predicate->evaluate_and(*column, sel, selected_size, flags);
 }
 
-bool SingleColumnBlockPredicate::evaluate_and(
-        const std::pair<WrapperField*, WrapperField*>& statistic) const {
-    return _predicate->evaluate_and(statistic);
+bool SingleColumnBlockPredicate::evaluate_and(const segment_v2::ZoneMap& zone_map) const {
+    return _predicate->evaluate_and(zone_map);
 }
 
 bool SingleColumnBlockPredicate::evaluate_and(const segment_v2::BloomFilter* bf) const {
@@ -174,10 +172,9 @@ void AndBlockColumnPredicate::evaluate_and(vectorized::MutableColumns& block, ui
     }
 }
 
-bool AndBlockColumnPredicate::evaluate_and(
-        const std::pair<WrapperField*, WrapperField*>& statistic) const {
+bool AndBlockColumnPredicate::evaluate_and(const segment_v2::ZoneMap& zone_map) const {
     for (auto& block_column_predicate : _block_column_predicate_vec) {
-        if (!block_column_predicate->evaluate_and(statistic)) {
+        if (!block_column_predicate->evaluate_and(zone_map)) {
             return false;
         }
     }

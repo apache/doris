@@ -39,7 +39,7 @@ TEST(ToStringMethodTest, DataTypeToStringTest) {
     // prepare field
     DataTypeTestCases cases;
     DataTypes data_types;
-    std::vector<PrimitiveType> type_ids = {PrimitiveType::TYPE_SMALLINT, PrimitiveType::TYPE_STRING,
+    std::vector<PrimitiveType> type_ids = {PrimitiveType::TYPE_BIGINT, PrimitiveType::TYPE_STRING,
                                            PrimitiveType::TYPE_DECIMAL32};
     Array a1, a2;
     a1.push_back(Field::create_field<TYPE_BIGINT>(Int64(123)));

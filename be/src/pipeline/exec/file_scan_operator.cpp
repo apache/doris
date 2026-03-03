@@ -34,11 +34,10 @@ namespace doris::pipeline {
 
 PushDownType FileScanLocalState::_should_push_down_binary_predicate(
         vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
-        StringRef* constant_val, const std::set<std::string> fn_name) const {
+        vectorized::Field& constant_val, const std::set<std::string> fn_name) const {
     if (!fn_name.contains(fn_call->fn().name.function_name)) {
         return PushDownType::UNACCEPTABLE;
     }
-    DCHECK(constant_val->data == nullptr) << "constant_val should not have a value";
     const auto& children = fn_call->children();
     DCHECK(children.size() == 2);
     DCHECK_EQ(children[0]->node_type(), TExprNodeType::SLOT_REF);
@@ -47,7 +46,7 @@ PushDownType FileScanLocalState::_should_push_down_binary_predicate(
         THROW_IF_ERROR(children[1]->get_const_col(expr_ctx, &const_col_wrapper));
         const auto* const_column =
                 assert_cast<const vectorized::ColumnConst*>(const_col_wrapper->column_ptr.get());
-        *constant_val = const_column->get_data_at(0);
+        constant_val = const_column->operator[](0);
         return PushDownType::PARTIAL_ACCEPTABLE;
     } else {
         // only handle constant value

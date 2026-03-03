@@ -90,7 +90,7 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
                 ImmutableList.of(), Optional.empty(), t1Properties, Optional.empty(),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(),
-                ImmutableList.of(), Optional.empty());
+                Optional.empty(), ImmutableList.of(), Optional.empty());
         Literal t1FilterRight = new IntegerLiteral(1);
         Expression t1FilterExpr = new GreaterThan(col1, t1FilterRight);
         PhysicalFilter<PhysicalOlapScan> filter =

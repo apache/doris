@@ -58,6 +58,9 @@ public:
     Status from_string_batch(const ColumnString& str, ColumnNullable& column,
                              const FormatOptions& options) const override;
 
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
+
     Status from_string_strict_mode_batch(
             const ColumnString& str, IColumn& column, const FormatOptions& options,
             const NullMap::value_type* null_map = nullptr) const override;
@@ -129,6 +132,8 @@ public:
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                    const FormatOptions& options) const override;
+
+    std::string to_olap_string(const vectorized::Field& field) const override;
 
     void to_string_batch(const IColumn& column, ColumnString& column_to,
                          const FormatOptions& options) const override;

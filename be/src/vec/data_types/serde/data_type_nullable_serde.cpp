@@ -476,6 +476,10 @@ void DataTypeNullableSerDe::to_string(const IColumn& column, size_t row_num, Buf
     }
 }
 
+std::string DataTypeNullableSerDe::to_olap_string(const vectorized::Field& field) const {
+    return nested_serde->to_olap_string(field);
+}
+
 // In non-strict mode, from string will handle errors by inserting a null value.
 Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
                                           const FormatOptions& options) const {
@@ -488,6 +492,16 @@ Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
     }
     // fill not null if success
     null_column.get_null_map_data().push_back(0);
+    return Status::OK();
+}
+
+Status DataTypeNullableSerDe::from_olap_string(const std::string& str, Field& field,
+                                               const FormatOptions& options) const {
+    if (!nested_serde->from_olap_string(str, field, options).ok()) {
+        // fill null if fail
+        field = Field();
+        return Status::OK();
+    }
     return Status::OK();
 }
 

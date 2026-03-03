@@ -144,7 +144,7 @@ SpillSortTestHelper::create_operators() {
     auto source_operator =
             std::make_shared<SpillSortSourceOperatorX>(obj_pool.get(), tnode, 0, desc_tbl);
     auto sink_operator =
-            std::make_shared<SpillSortSinkOperatorX>(obj_pool.get(), 0, 0, tnode, desc_tbl, false);
+            std::make_shared<SpillSortSinkOperatorX>(obj_pool.get(), 0, 0, tnode, desc_tbl);
 
     auto child_operator = std::make_shared<MockChildOperator>();
     auto probe_side_source_operator = std::make_shared<MockChildOperator>();

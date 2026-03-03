@@ -67,7 +67,9 @@
 #include "vec/exec/format/table/iceberg_reader.h"
 #include "vec/exec/format/table/lakesoul_jni_reader.h"
 #include "vec/exec/format/table/max_compute_jni_reader.h"
+#include "vec/exec/format/table/paimon_cpp_reader.h"
 #include "vec/exec/format/table/paimon_jni_reader.h"
+#include "vec/exec/format/table/paimon_predicate_converter.h"
 #include "vec/exec/format/table/paimon_reader.h"
 #include "vec/exec/format/table/remote_doris_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
@@ -352,15 +354,11 @@ Status FileScanner::_process_conjuncts() {
     return Status::OK();
 }
 
-Status FileScanner::_process_late_arrival_conjuncts(bool* changed,
-                                                    VExprContextSPtrs& new_push_down_conjuncts) {
-    *changed = false;
+Status FileScanner::_process_late_arrival_conjuncts() {
     if (_push_down_conjuncts.size() < _conjuncts.size()) {
-        *changed = true;
         _push_down_conjuncts = _conjuncts;
         _conjuncts.clear();
         RETURN_IF_ERROR(_process_conjuncts());
-        new_push_down_conjuncts = _push_down_conjuncts;
     }
     if (_applied_rf_num == _total_rf_num) {
         _local_state->scanner_profile()->add_info_string("ApplyAllRuntimeFilters", "True");
@@ -993,9 +991,25 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = std::move(mc_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
-                _cur_reader = PaimonJniReader::create_unique(_file_slot_descs, _state, _profile,
-                                                             range, _params);
-                init_status = ((PaimonJniReader*)(_cur_reader.get()))->init_reader();
+                if (_state->query_options().__isset.enable_paimon_cpp_reader &&
+                    _state->query_options().enable_paimon_cpp_reader) {
+                    auto cpp_reader = PaimonCppReader::create_unique(_file_slot_descs, _state,
+                                                                     _profile, range, _params);
+                    cpp_reader->set_push_down_agg_type(_get_push_down_agg_type());
+                    if (!_is_load && !_push_down_conjuncts.empty()) {
+                        PaimonPredicateConverter predicate_converter(_file_slot_descs, _state);
+                        auto predicate = predicate_converter.build(_push_down_conjuncts);
+                        if (predicate) {
+                            cpp_reader->set_predicate(std::move(predicate));
+                        }
+                    }
+                    init_status = cpp_reader->init_reader();
+                    _cur_reader = std::move(cpp_reader);
+                } else {
+                    _cur_reader = PaimonJniReader::create_unique(_file_slot_descs, _state, _profile,
+                                                                 range, _params);
+                    init_status = ((PaimonJniReader*)(_cur_reader.get()))->init_reader();
+                }
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "hudi") {
                 _cur_reader = HudiJniReader::create_unique(*_params,
@@ -1016,8 +1030,9 @@ Status FileScanner::_get_next_reader() {
             }
             // Set col_name_to_block_idx for JNI readers to avoid repeated map creation
             if (_cur_reader) {
-                static_cast<JniReader*>(_cur_reader.get())
-                        ->set_col_name_to_block_idx(&_src_block_name_to_idx);
+                if (auto* jni_reader = dynamic_cast<JniReader*>(_cur_reader.get())) {
+                    jni_reader->set_col_name_to_block_idx(&_src_block_name_to_idx);
+                }
             }
             break;
         }
@@ -1038,7 +1053,9 @@ Status FileScanner::_get_next_reader() {
             // ATTN: the push down agg type may be set back to NONE,
             // see IcebergTableReader::init_row_filters for example.
             parquet_reader->set_push_down_agg_type(_get_push_down_agg_type());
-
+            if (push_down_predicates) {
+                RETURN_IF_ERROR(_process_late_arrival_conjuncts());
+            }
             RETURN_IF_ERROR(_init_parquet_reader(std::move(parquet_reader), file_meta_cache_ptr));
 
             need_to_get_parsed_schema = true;
@@ -1059,9 +1076,7 @@ Status FileScanner::_get_next_reader() {
 
             orc_reader->set_push_down_agg_type(_get_push_down_agg_type());
             if (push_down_predicates) {
-                bool changed = false;
-                VExprContextSPtrs new_push_down_conjuncts;
-                RETURN_IF_ERROR(_process_late_arrival_conjuncts(&changed, new_push_down_conjuncts));
+                RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
             RETURN_IF_ERROR(_init_orc_reader(std::move(orc_reader), file_meta_cache_ptr));
 

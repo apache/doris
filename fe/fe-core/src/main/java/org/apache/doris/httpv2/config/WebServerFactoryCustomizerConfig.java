@@ -19,6 +19,10 @@ package org.apache.doris.httpv2.config;
 
 import org.apache.doris.common.Config;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.eclipse.jetty.ee10.webapp.WebAppContext;
+import org.eclipse.jetty.ee10.websocket.server.config.JettyWebSocketServletContainerInitializer;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.ServerConnector;
@@ -31,26 +35,40 @@ import java.util.Collections;
 
 @Configuration
 public class WebServerFactoryCustomizerConfig implements WebServerFactoryCustomizer<ConfigurableJettyWebServerFactory> {
+    private static final Logger LOG = LogManager.getLogger(WebServerFactoryCustomizerConfig.class);
+
     @Override
     public void customize(ConfigurableJettyWebServerFactory factory) {
+
+        ((JettyServletWebServerFactory) factory).addServerCustomizers(server -> {
+            WebAppContext context = server.getDescendant(WebAppContext.class);
+            if (context != null) {
+                try {
+                    JettyWebSocketServletContainerInitializer.configure(context, null);
+                } catch (Exception e) {
+                    LOG.error("Failed to initialize WebSocket support", e);
+                    throw new RuntimeException("Failed to initialize WebSocket support", e);
+                }
+            }
+        });
+
         if (Config.enable_https) {
             ((JettyServletWebServerFactory) factory).setConfigurations(
                     Collections.singletonList(new HttpToHttpsJettyConfig())
             );
 
-            factory.addServerCustomizers(
-                    server -> {
-                        HttpConfiguration httpConfiguration = new HttpConfiguration();
-                        httpConfiguration.setSecurePort(Config.https_port);
-                        httpConfiguration.setSecureScheme("https");
-
-                        ServerConnector connector = new ServerConnector(server);
-                        connector.addConnectionFactory(new HttpConnectionFactory(httpConfiguration));
-                        connector.setPort(Config.http_port);
-
-                        server.addConnector(connector);
+            factory.addServerCustomizers(server -> {
+                if (server.getConnectors() != null && server.getConnectors().length > 0) {
+                    ServerConnector existingConnector = (ServerConnector) server.getConnectors()[0];
+                    HttpConnectionFactory httpFactory =
+                            existingConnector.getConnectionFactory(HttpConnectionFactory.class);
+                    if (httpFactory != null) {
+                        HttpConfiguration httpConfig = httpFactory.getHttpConfiguration();
+                        httpConfig.setSecurePort(Config.https_port);
+                        httpConfig.setSecureScheme("https");
                     }
-            );
+                }
+            });
         }
     }
 }

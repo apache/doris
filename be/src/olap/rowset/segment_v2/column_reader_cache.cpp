@@ -20,7 +20,6 @@
 #include "olap/rowset/segment_v2/column_meta_accessor.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/variant/variant_column_reader.h"
-#
 
 bvar::Adder<int64_t> g_segment_column_reader_cache_count("segment_column_cache_count");
 bvar::Adder<int64_t> g_segment_column_cache_hit_count("segment_column_cache_hit_count");

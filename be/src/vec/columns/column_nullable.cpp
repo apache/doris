@@ -32,9 +32,7 @@ namespace doris::vectorized {
 
 ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnPtr&& null_map_)
         : _nested_column(std::move(nested_column_)), _null_map(std::move(null_map_)) {
-    /// ColumnNullable cannot have constant nested column. But constant argument could be passed. Materialize it.
-    _nested_column = get_nested_column().convert_to_full_column_if_const();
-
+    check_const_only_in_top_level();
     // after convert const column to full column, it may be a nullable column
     if (_nested_column->is_nullable()) {
         assert_cast<ColumnNullable&>(*_nested_column)
@@ -115,8 +113,7 @@ void ColumnNullable::update_crcs_with_value(uint32_t* __restrict hashes, doris::
 }
 
 void ColumnNullable::update_crc32c_batch(uint32_t* __restrict hashes,
-                                         const uint8_t* __restrict null_map) const {
-    DCHECK(null_map == nullptr);
+                                         const uint8_t* __restrict /* null_map */) const {
     const auto* __restrict real_null_data =
             assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
     if (_nested_column->support_replace_column_null_data()) {
@@ -135,13 +132,11 @@ void ColumnNullable::update_crc32c_batch(uint32_t* __restrict hashes,
 }
 
 void ColumnNullable::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
-                                          const uint8_t* __restrict null_map) const {
-    DCHECK(null_map == nullptr);
+                                          const uint8_t* __restrict /* null_map */) const {
     const auto* __restrict real_null_data =
             assert_cast<const ColumnUInt8&>(get_null_map_column()).get_data().data();
     constexpr int NULL_VALUE = 0;
-    auto s = size();
-    for (int i = 0; i < s; ++i) {
+    for (size_t i = start; i < end; ++i) {
         if (real_null_data[i] != 0) {
             hash = HashUtil::crc32c_fixed(NULL_VALUE, hash);
         }
@@ -331,6 +326,16 @@ void ColumnNullable::insert(const Field& x) {
     } else {
         get_nested_column().insert(x);
         push_false_to_nullmap(1);
+    }
+}
+
+void ColumnNullable::insert_duplicate_fields(const Field& x, const size_t n) {
+    if (x.is_null()) {
+        get_nested_column().insert_many_defaults(n);
+        get_null_map_column().insert_many_vals(1, n);
+    } else {
+        get_nested_column().insert_duplicate_fields(x, n);
+        get_null_map_column().insert_many_vals(0, n);
     }
 }
 

@@ -62,16 +62,21 @@ public class FrontendsTableValuedFunction extends MetadataTableValuedFunction {
             new Column("IsHelper", ScalarType.createStringType()),
             new Column("ErrMsg", ScalarType.createStringType()),
             new Column("Version", ScalarType.createStringType()),
-            new Column("CurrentConnected", ScalarType.createStringType()));
-
+            new Column("CurrentConnected", ScalarType.createStringType()),
+            new Column("LiveSince", ScalarType.createStringType())
+    );
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
+    private static final ImmutableList<String> TITLE_NAMES;
 
     static {
         ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
+        ImmutableList.Builder<String> immutableListBuilder = ImmutableList.builder();
         for (int i = 0; i < SCHEMA.size(); i++) {
             builder.put(SCHEMA.get(i).getName().toLowerCase(), i);
+            immutableListBuilder.add(SCHEMA.get(i).getName());
         }
         COLUMN_TO_INDEX = builder.build();
+        TITLE_NAMES = immutableListBuilder.build();
     }
 
     public static Integer getColumnIndexFromColumnName(String columnName) {
@@ -113,5 +118,12 @@ public class FrontendsTableValuedFunction extends MetadataTableValuedFunction {
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
         return SCHEMA;
+    }
+
+    /**
+     * unify title names for frontends function and show frontends command
+     */
+    public static ImmutableList<String> getFrontendsTitleNames() {
+        return TITLE_NAMES;
     }
 }

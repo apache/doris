@@ -221,6 +221,11 @@ public class MetaServiceClient {
                 .getCurrentMaxTxnId(request);
     }
 
+    public Cloud.CreateMetaSyncPointResponse createMetaSyncPoint(Cloud.CreateMetaSyncPointRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .createMetaSyncPoint(request);
+    }
+
     public Cloud.BeginSubTxnResponse beginSubTxn(Cloud.BeginSubTxnRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.BeginSubTxnRequest.Builder builder = Cloud.BeginSubTxnRequest.newBuilder();

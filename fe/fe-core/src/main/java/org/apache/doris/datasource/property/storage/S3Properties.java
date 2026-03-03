@@ -81,6 +81,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @ConnectorProperty(names = {"s3.region", "AWS_REGION", "region", "REGION", "aws.region", "glue.region",
             "aws.glue.region", "iceberg.rest.signing-region", "client.region"},
             required = false,
+            isRegionField = true,
             description = "The region of S3.")
     protected String region = "";
 
@@ -291,11 +292,12 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (StringUtils.isNotBlank(s3ExternalId)) {
             backendProperties.put("AWS_EXTERNAL_ID", s3ExternalId);
         }
-        // Pass credentials provider type to BE
-        if (awsCredentialsProviderMode != null) {
-            backendProperties.put("AWS_CREDENTIALS_PROVIDER_TYPE", awsCredentialsProviderMode.getMode());
-        }
         return backendProperties;
+    }
+
+    @Override
+    protected String getAwsCredentialsProviderTypeForBackend() {
+        return awsCredentialsProviderMode == null ? null : awsCredentialsProviderMode.getMode();
     }
 
     private void convertGlueToS3EndpointIfNeeded() {
@@ -671,4 +673,3 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     }
 
 }
-

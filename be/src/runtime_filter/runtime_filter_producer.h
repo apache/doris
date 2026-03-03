@@ -131,6 +131,17 @@ public:
         _wrapper = wrapper;
     }
 
+    std::shared_ptr<RuntimeFilterWrapper> detect_in_filter() {
+        if (_has_remote_target) {
+            return nullptr;
+        }
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
+        if (_wrapper->is_ready_in_filter()) {
+            return _wrapper;
+        }
+        return nullptr;
+    }
+
 private:
     RuntimeFilterProducer(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc)
             : RuntimeFilter(desc), _is_broadcast_join(desc->is_broadcast_join) {}

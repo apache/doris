@@ -415,6 +415,7 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
     String oss_endpoint = context.config.otherConfigs.get("aliYunEndpoint")
     String oss_bucket = context.config.otherConfigs.get("aliYunBucket")
     String oss_parent_path = "${oss_bucket}/refactor-test"
+    String oss_bucket_endpoint_parent_path="${oss_bucket}.${oss_endpoint}/refactor-test"
     String oss_region = context.config.otherConfigs.get("aliYunRegion")
     String oss_region_param = """
               'oss.region' = '${oss_region}',
@@ -510,11 +511,13 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERREALM.COM)s/@.*//
                                    DEFAULT",
+                "hive.metastore.sasl.enabled " = "true",
                 "hive.metastore.kerberos.principal" = "hive/hadoop-master@LABS.TERADATA.COM",
      """
 
     String hms_kerberos_old_prop_not_include_kerberos_prop = """
                 "hive.metastore.uris" = "thrift://${externalEnvIp}:9583",
+                "hive.metastore.sasl.enabled " = "true",
                 "hive.metastore.kerberos.principal" = "hive/hadoop-master@LABS.TERADATA.COM",
      """
 
@@ -523,6 +526,7 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
                 "hive.metastore.client.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hive.metastore.client.keytab" = "${keytab_root_dir}/hive-presto-master.keytab",
                 "hive.metastore.service.principal" = "hive/hadoop-master@LABS.TERADATA.COM",
+                "hive.metastore.sasl.enabled " = "true",
                 "hive.metastore.authentication.type"="kerberos",
                 "hadoop.security.auth_to_local" = "RULE:[2:\\\$1@\\\$0](.*@LABS.TERADATA.COM)s/@.*//
                                    RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
@@ -549,6 +553,10 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
     hmsTestQueryAndInsert(hms_kerberos_old_prop + warehouse + oss_storage_properties, "iceberg_hms_on_oss_kerberos_old")
     //new kerberos
     hmsTestQueryAndInsert(hms_kerberos_new_prop + warehouse + oss_storage_properties, "iceberg_hms_on_oss_kerberos_new")
+    warehouse  """
+                  'warehouse' = 'oss://${oss_bucket_endpoint_parent_path}/iceberg-hms-warehouse',
+    """
+    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + oss_region_param + oss_storage_properties, "iceberg_hms_on_oss")
 
     /*--------HMS on OBS-----------*/
     warehouse = """
@@ -678,6 +686,12 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
         """
     testQueryAndInsert(iceberg_file_system_catalog_properties + warehouse + oss_storage_properties, "iceberg_fs_on_oss")
     testQueryAndInsert(iceberg_file_system_catalog_properties + warehouse + oss_region_param + oss_storage_properties, "iceberg_fs_on_oss_region")
+
+    warehouse = """
+        'warehouse' = 'oss://${oss_bucket_endpoint_parent_path}/iceberg-fs-oss-warehouse',
+        """
+    testQueryAndInsert(iceberg_file_system_catalog_properties + warehouse + oss_region_param + oss_storage_properties, "iceberg_fs_on_oss_region")
+
     /**  HDFS **/
     warehouse = """
         'warehouse' = '${hdfs_parent_path}/iceberg-fs-hdfs-warehouse',

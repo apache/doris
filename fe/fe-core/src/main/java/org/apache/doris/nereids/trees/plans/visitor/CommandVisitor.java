@@ -174,6 +174,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBuildIndexCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowBuiltinFunctionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
@@ -230,6 +231,8 @@ import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcessListCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowPythonPackagesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowPythonVersionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueryStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueuedAnalyzeJobsCommand;
@@ -716,6 +719,14 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showPluginsCommand, context);
     }
 
+    default R visitShowPythonVersionsCommand(ShowPythonVersionsCommand showPythonVersionsCommand, C context) {
+        return visitCommand(showPythonVersionsCommand, context);
+    }
+
+    default R visitShowPythonPackagesCommand(ShowPythonPackagesCommand showPythonPackagesCommand, C context) {
+        return visitCommand(showPythonPackagesCommand, context);
+    }
+
     default R visitShowTrashCommand(ShowTrashCommand showTrashCommand, C context) {
         return visitCommand(showTrashCommand, context);
     }
@@ -823,6 +834,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowFunctionsCommand(ShowFunctionsCommand showFunctionsCommand, C context) {
         return visitCommand(showFunctionsCommand, context);
+    }
+
+    default R visitShowBuiltinFunctionsCommand(ShowBuiltinFunctionsCommand showBuiltinFunctionsCommand, C context) {
+        return visitCommand(showBuiltinFunctionsCommand, context);
     }
 
     default R visitAdminRebalanceDiskCommand(AdminRebalanceDiskCommand adminRebalanceDiskCommand, C context) {

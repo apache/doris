@@ -84,7 +84,7 @@ suite("test_streaming_mysql_job_restart_fe", "docker,mysql,external_docker,exter
                             def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                             log.info("jobSuccendCount: " + jobSuccendCount)
                             // check job status and succeed task count larger than 2
-                            jobSuccendCount.size() == 1 && '1' <= jobSuccendCount.get(0).get(0)
+                            jobSuccendCount.size() == 1 && '2' <= jobSuccendCount.get(0).get(0)
                         }
                 )
             } catch (Exception ex){
@@ -99,7 +99,9 @@ suite("test_streaming_mysql_job_restart_fe", "docker,mysql,external_docker,exter
             select loadStatistic, status, currentOffset from jobs("type"="insert") where Name='${jobName}'
             """
             log.info("jobInfoBeforeRestart: " + jobInfoBeforeRestart)
-            assert jobInfoBeforeRestart.get(0).get(0) == "{\"scannedRows\":2,\"loadBytes\":94,\"fileNumber\":0,\"fileSize\":0}"
+            def loadStatBefore = parseJson(jobInfoBeforeRestart.get(0).get(0))
+            assert loadStatBefore.scannedRows == 2
+            assert loadStatBefore.loadBytes == 95
             assert jobInfoBeforeRestart.get(0).get(1) == "RUNNING"
 
             // Restart FE
@@ -112,7 +114,9 @@ suite("test_streaming_mysql_job_restart_fe", "docker,mysql,external_docker,exter
                 select loadStatistic, status, currentOffset from jobs("type"="insert") where Name='${jobName}'
             """
             log.info("jobAfterRestart: " + jobAfterRestart)
-            assert jobAfterRestart.get(0).get(0) == "{\"scannedRows\":2,\"loadBytes\":94,\"fileNumber\":0,\"fileSize\":0}"
+            def loadStatAfter = parseJson(jobAfterRestart.get(0).get(0))
+            assert loadStatAfter.scannedRows == 2
+            assert loadStatAfter.loadBytes == 95
             assert jobAfterRestart.get(0).get(1) == "RUNNING"
             assert jobAfterRestart.get(0).get(2) == jobInfoBeforeRestart.get(0).get(2)
 

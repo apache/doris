@@ -21,7 +21,6 @@ import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
@@ -32,8 +31,6 @@ import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -49,7 +46,6 @@ import java.util.Map;
 //   "password" = "password0"
 // )
 public class BrokerDesc extends StorageDesc implements Writable {
-    private static final Logger LOG = LogManager.getLogger(BrokerDesc.class);
 
     // just for multi load
     public static final String MULTI_LOAD_BROKER = "__DORIS_MULTI_LOAD_BROKER__";
@@ -164,19 +160,5 @@ public class BrokerDesc extends StorageDesc implements Writable {
 
     public static BrokerDesc read(DataInput in) throws IOException {
         return GsonUtils.GSON.fromJson(Text.readString(in), BrokerDesc.class);
-    }
-
-    public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        if (storageType == StorageBackend.StorageType.BROKER) {
-            sb.append("WITH BROKER ").append(name);
-        } else {
-            sb.append("WITH ").append(storageType.name());
-        }
-        if (properties != null && !properties.isEmpty()) {
-            PrintableMap<String, String> printableMap = new PrintableMap<>(properties, " = ", true, false, true);
-            sb.append(" (").append(printableMap.toString()).append(")");
-        }
-        return sb.toString();
     }
 }

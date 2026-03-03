@@ -26,6 +26,7 @@ import org.apache.doris.system.Frontend;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
 import com.sleepycat.je.Durability;
@@ -124,6 +125,13 @@ public class BDBEnvironmentTest {
         return byteArray;
     }
 
+    private static DatabaseEntry longToEntry(long value) {
+        DatabaseEntry key = new DatabaseEntry();
+        TupleBinding<Long> idBinding = TupleBinding.getPrimitiveBinding(Long.class);
+        idBinding.objectToEntry(value, key);
+        return key;
+    }
+
     // @Test
     @RepeatedTest(1)
     public void testSetup() throws Exception {
@@ -145,7 +153,7 @@ public class BDBEnvironmentTest {
         Assertions.assertEquals(OperationStatus.SUCCESS, db.put(null, key, value));
 
         DatabaseEntry readValue = new DatabaseEntry();
-        Assertions.assertEquals(OperationStatus.SUCCESS, db.get(null, key, readValue, LockMode.READ_COMMITTED));
+        Assertions.assertEquals(OperationStatus.SUCCESS, db.get(null, key, readValue, LockMode.DEFAULT));
         Assertions.assertEquals(new String(value.getData()), new String(readValue.getData()));
 
         // Remove database
@@ -166,7 +174,7 @@ public class BDBEnvironmentTest {
         Database epochDb = bdbEnvironment.getEpochDB();
         Assertions.assertEquals(OperationStatus.SUCCESS, epochDb.put(null, key, value));
         DatabaseEntry readValue2 = new DatabaseEntry();
-        Assertions.assertEquals(OperationStatus.SUCCESS, epochDb.get(null, key, readValue2, LockMode.READ_COMMITTED));
+        Assertions.assertEquals(OperationStatus.SUCCESS, epochDb.get(null, key, readValue2, LockMode.DEFAULT));
         Assertions.assertEquals(new String(value.getData()), new String(readValue2.getData()));
 
         new MockUp<Env>() {
@@ -236,7 +244,7 @@ public class BDBEnvironmentTest {
         Assertions.assertEquals(OperationStatus.SUCCESS, db.put(null, key, value));
 
         DatabaseEntry readValue = new DatabaseEntry();
-        Assertions.assertEquals(OperationStatus.SUCCESS, db.get(null, key, readValue, LockMode.READ_COMMITTED));
+        Assertions.assertEquals(OperationStatus.SUCCESS, db.get(null, key, readValue, LockMode.DEFAULT));
         Assertions.assertEquals(new String(value.getData()), new String(readValue.getData()));
         bdbEnvironment.close();
 
@@ -246,7 +254,7 @@ public class BDBEnvironmentTest {
         Database db2 = bdbEnvironment2.openDatabase(dbName);
 
         DatabaseEntry readValue2 = new DatabaseEntry();
-        Assertions.assertEquals(OperationStatus.SUCCESS, db2.get(null, key, readValue2, LockMode.READ_COMMITTED));
+        Assertions.assertEquals(OperationStatus.SUCCESS, db2.get(null, key, readValue2, LockMode.DEFAULT));
         Assertions.assertEquals(new String(value.getData()), new String(readValue2.getData()));
         bdbEnvironment2.close();
     }
@@ -270,7 +278,7 @@ public class BDBEnvironmentTest {
         Assertions.assertEquals(OperationStatus.SUCCESS, db.put(null, key, value));
 
         DatabaseEntry readValue = new DatabaseEntry();
-        Assertions.assertEquals(OperationStatus.SUCCESS, db.get(null, key, readValue, LockMode.READ_COMMITTED));
+        Assertions.assertEquals(OperationStatus.SUCCESS, db.get(null, key, readValue, LockMode.DEFAULT));
         Assertions.assertEquals(new String(value.getData()), new String(readValue.getData()));
         bdbEnvironment.close();
 
@@ -278,8 +286,66 @@ public class BDBEnvironmentTest {
         bdbEnvironment.openReplicatedEnvironment(homeFile);
         Database db2 = bdbEnvironment.openDatabase(dbName);
         DatabaseEntry readValue2 = new DatabaseEntry();
-        Assertions.assertEquals(OperationStatus.SUCCESS, db2.get(null, key, readValue2, LockMode.READ_COMMITTED));
+        Assertions.assertEquals(OperationStatus.SUCCESS, db2.get(null, key, readValue2, LockMode.DEFAULT));
         Assertions.assertEquals(new String(value.getData()), new String(readValue2.getData()));
+        bdbEnvironment.close();
+    }
+
+    @RepeatedTest(1)
+    public void testTruncateJournalsGreaterThan() throws Exception {
+        int port = findValidPort();
+        String selfNodeName = Env.genFeNodeName("127.0.0.1", port, false);
+        String selfNodeHostPort = "127.0.0.1:" + port;
+
+        File homeFile = new File(createTmpDir());
+        BDBEnvironment bdbEnvironment = new BDBEnvironment(true, false);
+        bdbEnvironment.setup(homeFile, selfNodeName, selfNodeHostPort, selfNodeHostPort);
+
+        Database db1 = bdbEnvironment.openDatabase("1");
+        Database db11 = bdbEnvironment.openDatabase("11");
+        Database db21 = bdbEnvironment.openDatabase("21");
+        for (long i = 1; i <= 10; i++) {
+            Assertions.assertEquals(OperationStatus.SUCCESS, db1.put(null, longToEntry(i), new DatabaseEntry(randomBytes())));
+        }
+        for (long i = 11; i <= 20; i++) {
+            Assertions.assertEquals(OperationStatus.SUCCESS, db11.put(null, longToEntry(i), new DatabaseEntry(randomBytes())));
+        }
+        for (long i = 21; i <= 30; i++) {
+            Assertions.assertEquals(OperationStatus.SUCCESS, db21.put(null, longToEntry(i), new DatabaseEntry(randomBytes())));
+        }
+
+        bdbEnvironment.truncateJournalsGreaterThan(17);
+
+        List<Long> dbNames = bdbEnvironment.getDatabaseNames();
+        Assertions.assertEquals(2, dbNames.size());
+        Assertions.assertEquals(1L, dbNames.get(0));
+        Assertions.assertEquals(11L, dbNames.get(1));
+
+        Database db11AfterTruncate = bdbEnvironment.openDatabase("11");
+        Assertions.assertEquals(7, db11AfterTruncate.count());
+        Assertions.assertEquals(OperationStatus.NOTFOUND,
+                db11AfterTruncate.get(null, longToEntry(18), new DatabaseEntry(), LockMode.DEFAULT));
+        Assertions.assertEquals(OperationStatus.SUCCESS,
+                db11AfterTruncate.get(null, longToEntry(17), new DatabaseEntry(), LockMode.DEFAULT));
+        bdbEnvironment.close();
+    }
+
+    @RepeatedTest(1)
+    public void testTruncateJournalsGreaterThanInvalidBound() throws Exception {
+        int port = findValidPort();
+        String selfNodeName = Env.genFeNodeName("127.0.0.1", port, false);
+        String selfNodeHostPort = "127.0.0.1:" + port;
+
+        File homeFile = new File(createTmpDir());
+        BDBEnvironment bdbEnvironment = new BDBEnvironment(true, false);
+        bdbEnvironment.setup(homeFile, selfNodeName, selfNodeHostPort, selfNodeHostPort);
+
+        Database db1 = bdbEnvironment.openDatabase("1");
+        Assertions.assertEquals(OperationStatus.SUCCESS, db1.put(null, longToEntry(1), new DatabaseEntry(randomBytes())));
+
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> bdbEnvironment.truncateJournalsGreaterThan(0));
+        Assertions.assertTrue(exception.getMessage().contains("smaller than min journal id"));
         bdbEnvironment.close();
     }
 
@@ -339,14 +405,14 @@ public class BDBEnvironmentTest {
             Assertions.assertEquals(1, followerEnvironment.getDatabaseNames().size());
             Database followerDb = followerEnvironment.openDatabase(dbName);
             DatabaseEntry readValue = new DatabaseEntry();
-            Assertions.assertEquals(OperationStatus.SUCCESS, followerDb.get(null, key, readValue, LockMode.READ_COMMITTED));
+            Assertions.assertEquals(OperationStatus.SUCCESS, followerDb.get(null, key, readValue, LockMode.DEFAULT));
             Assertions.assertEquals(new String(value.getData()), new String(readValue.getData()));
         }
 
         Assertions.assertEquals(1, observerEnvironment.getDatabaseNames().size());
         Database observerDb = observerEnvironment.openDatabase(dbName);
         DatabaseEntry readValue = new DatabaseEntry();
-        Assertions.assertEquals(OperationStatus.SUCCESS, observerDb.get(null, key, readValue, LockMode.READ_COMMITTED));
+        Assertions.assertEquals(OperationStatus.SUCCESS, observerDb.get(null, key, readValue, LockMode.DEFAULT));
         Assertions.assertEquals(new String(value.getData()), new String(readValue.getData()));
 
         observerEnvironment.close();
@@ -453,7 +519,7 @@ public class BDBEnvironmentTest {
             Assertions.assertEquals(1, entryPair.first.getDatabaseNames().size());
             Database followerDb = entryPair.first.openDatabase(beginDbName);
             DatabaseEntry readValue = new DatabaseEntry();
-            Assertions.assertEquals(OperationStatus.SUCCESS, followerDb.get(null, key, readValue, LockMode.READ_COMMITTED));
+            Assertions.assertEquals(OperationStatus.SUCCESS, followerDb.get(null, key, readValue, LockMode.DEFAULT));
             Assertions.assertEquals(new String(value.getData()), new String(readValue.getData()));
             followerDb.close();
         }
@@ -622,7 +688,7 @@ public class BDBEnvironmentTest {
             Assertions.assertEquals(1, entryPair.first.getDatabaseNames().size());
             Database followerDb = entryPair.first.openDatabase(beginDbName);
             DatabaseEntry readValue = new DatabaseEntry();
-            Assertions.assertEquals(OperationStatus.SUCCESS, followerDb.get(null, key, readValue, LockMode.READ_COMMITTED));
+            Assertions.assertEquals(OperationStatus.SUCCESS, followerDb.get(null, key, readValue, LockMode.DEFAULT));
             Assertions.assertEquals(new String(value.getData()), new String(readValue.getData()));
         }
 
@@ -671,6 +737,6 @@ public class BDBEnvironmentTest {
 
         key = new DatabaseEntry(new byte[]{1, 2, 3});
         DatabaseEntry readValue = new DatabaseEntry();
-        Assertions.assertEquals(OperationStatus.SUCCESS, masterDb.get(null, key, readValue, LockMode.READ_COMMITTED));
+        Assertions.assertEquals(OperationStatus.SUCCESS, masterDb.get(null, key, readValue, LockMode.DEFAULT));
     }
 }

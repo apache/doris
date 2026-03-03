@@ -26,6 +26,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/cache_block_meta_store.h"
 #include "io/cache/file_block.h"
@@ -37,6 +38,8 @@ namespace doris::io {
 
 BlockFileCacheTtlMgr::BlockFileCacheTtlMgr(BlockFileCache* mgr, CacheBlockMetaStore* meta_store)
         : _mgr(mgr), _meta_store(meta_store), _stop_background(false) {
+    _tablet_id_set_size_metrics = std::make_shared<bvar::Status<size_t>>(
+            _mgr->get_base_path().c_str(), "file_cache_ttl_mgr_tablet_id_set_size", 0);
     // Start background threads
     _update_ttl_thread =
             std::thread(&BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map, this);
@@ -79,6 +82,9 @@ void BlockFileCacheTtlMgr::run_background_tablet_id_flush() {
         }
         std::lock_guard<std::mutex> lock(_tablet_id_mutex);
         _tablet_id_set.insert(items->begin(), items->end());
+        if (_tablet_id_set_size_metrics) {
+            _tablet_id_set_size_metrics->set_value(_tablet_id_set.size());
+        }
         items->clear();
     };
 
@@ -166,8 +172,22 @@ void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
                 TabletMetaSharedPtr tablet_meta;
                 auto meta_status = ExecEnv::get_tablet_meta(tablet_id, &tablet_meta, false);
                 if (!meta_status.ok()) {
-                    LOG(WARNING) << "Failed to get tablet meta for tablet_id: " << tablet_id
-                                 << ", err: " << meta_status;
+                    if (meta_status.is<ErrorCode::NOT_FOUND>()) {
+                        {
+                            std::lock_guard<std::mutex> lock(_tablet_id_mutex);
+                            if (_tablet_id_set.erase(tablet_id) > 0 &&
+                                _tablet_id_set_size_metrics) {
+                                _tablet_id_set_size_metrics->set_value(_tablet_id_set.size());
+                            }
+                        }
+                        {
+                            std::lock_guard<std::mutex> lock(_ttl_info_mutex);
+                            _ttl_info_map.erase(tablet_id);
+                        }
+                    } else {
+                        LOG(WARNING) << "Failed to get tablet meta for tablet_id: " << tablet_id
+                                     << ", err: " << meta_status;
+                    }
                     continue;
                 }
 
@@ -180,6 +200,7 @@ void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
                 }
 
                 // Update TTL info map
+                bool need_convert_from_ttl = false;
                 {
                     std::lock_guard<std::mutex> lock(_ttl_info_mutex);
                     if (ttl > 0) {
@@ -204,6 +225,19 @@ void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
                     } else {
                         // Remove from TTL map if TTL is 0
                         _ttl_info_map.erase(tablet_id);
+                        need_convert_from_ttl = true;
+                    }
+                }
+
+                if (need_convert_from_ttl) {
+                    FileBlocks blocks = get_file_blocks_from_tablet_id(tablet_id);
+                    for (auto& block : blocks) {
+                        if (block->cache_type() == FileCacheType::TTL) {
+                            auto st = block->change_cache_type(FileCacheType::NORMAL);
+                            if (!st.ok()) {
+                                LOG(WARNING) << "Failed to convert block back to NORMAL cache_type";
+                            }
+                        }
                     }
                 }
             }

@@ -208,6 +208,19 @@ private:
                                     QuerySource query_type,
                                     std::shared_ptr<QueryContext>& query_ctx);
 
+    void _collect_timeout_queries_and_brpc_items(
+            std::vector<TUniqueId>& queries_timeout,
+            std::unordered_map<std::shared_ptr<PBackendService_Stub>, BrpcItem>&
+                    brpc_stub_with_queries,
+            timespec now);
+
+    void _collect_invalid_queries(
+            std::vector<TUniqueId>& queries_lost_coordinator,
+            std::vector<TUniqueId>& queries_pipeline_task_leak,
+            const std::map<int64_t, std::unordered_set<TUniqueId>>& running_queries_on_all_fes,
+            const std::map<TNetworkAddress, FrontendInfo>& running_fes,
+            timespec check_invalid_query_last_timestamp);
+
     void _check_brpc_available(const std::shared_ptr<PBackendService_Stub>& brpc_stub,
                                const BrpcItem& brpc_item);
 

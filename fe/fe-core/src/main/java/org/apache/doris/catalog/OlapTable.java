@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.DataSortInfo;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -40,6 +41,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.GlobRegexUtil;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
@@ -126,6 +128,8 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
@@ -194,6 +198,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     private DistributionInfo defaultDistributionInfo;
 
     // all info about temporary partitions are save in "tempPartitions"
+    @Setter
     @Getter
     @SerializedName(value = "tps", alternate = {"tempPartitions"})
     private TempPartitions tempPartitions = new TempPartitions();
@@ -239,6 +244,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     // This value is set when get the table version from meta-service, 0 means version is not cached yet
     private volatile long lastTableVersionCachedTimeMs = 0;
     private volatile long cachedTableVersion = -1;
+
+    private ReadWriteLock versionLock = Config.isCloudMode() ? new ReentrantReadWriteLock(true) : null;
 
     public OlapTable() {
         // for persist
@@ -3330,8 +3337,15 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return System.currentTimeMillis() - lastTableVersionCachedTimeMs > cacheExpirationMs;
     }
 
-    @VisibleForTesting
-    protected void setCachedTableVersion(long version) {
+    public boolean isCachedTableVersionExpired(long expirationMs) {
+        // -1 means no cache yet, need to fetch from MS
+        if (cachedTableVersion == -1 || expirationMs <= 0) {
+            return true;
+        }
+        return System.currentTimeMillis() - lastTableVersionCachedTimeMs > expirationMs;
+    }
+
+    public void setCachedTableVersion(long version) {
         if (version >= cachedTableVersion) {
             cachedTableVersion = version;
             lastTableVersionCachedTimeMs = System.currentTimeMillis();
@@ -3397,6 +3411,49 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                     .collect(Collectors.toList());
         }
 
+        ConnectContext ctx = ConnectContext.get();
+        long cloudTableVersionCacheTtlMs = ctx == null
+                ? VariableMgr.getDefaultSessionVariable().cloudTableVersionCacheTtlMs
+                : ctx.getSessionVariable().cloudTableVersionCacheTtlMs;
+        if (cloudTableVersionCacheTtlMs <= 0) { // No cached versions will be used
+            return getVisibleVersionInBatchFromMs(tables);
+        }
+
+        // tableId -> cachedVersion, 0 means to be fetched from meta-service
+        List<Pair<Long, Long>> allVersions = new ArrayList<>(tables.size());
+        List<OlapTable> expiredTables = new ArrayList<>(tables.size());
+        for (OlapTable table : tables) {
+            long ver = table.getCachedTableVersion();
+            if (table.isCachedTableVersionExpired()) {
+                expiredTables.add(table);
+                ver = 0L; // 0 means to be fetched from meta-service
+            }
+            allVersions.add(Pair.of(table.getId(), ver));
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("cloudTableVersionCacheTtlMs={}, numTables={}, numExpiredTables={}",
+                    cloudTableVersionCacheTtlMs, tables.size(), expiredTables.size());
+        }
+
+        List<Long> msVersions = null;
+        if (!expiredTables.isEmpty()) { // Not all table versions are from cache
+            msVersions = getVisibleVersionInBatchFromMs(expiredTables);
+        }
+        int msIdx = 0;
+        for (Pair<Long, Long> v : allVersions) { // ATTN: keep the assigning order!!!
+            if (v.second == 0L && msVersions != null) {
+                v.second = msVersions.get(msIdx++);
+            }
+        }
+        if (!expiredTables.isEmpty()) { // Not all table versions are from cache
+            assert msIdx == msVersions.size() : "size not match, idx=" + msIdx + " verSize=" + msVersions.size();
+        }
+
+        return allVersions.stream().map(i -> i.second).collect(Collectors.toList());
+    }
+
+    // Get the table versions in batch from meta-service, and update cache.
+    private static List<Long> getVisibleVersionInBatchFromMs(List<OlapTable> tables) {
         List<Long> dbIds = new ArrayList<>(tables.size());
         List<Long> tableIds = new ArrayList<>(tables.size());
         for (OlapTable table : tables) {
@@ -3414,7 +3471,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return versions;
     }
 
-    private static List<Long> getVisibleVersionFromMeta(List<Long> dbIds, List<Long> tableIds) {
+    public static List<Long> getVisibleVersionFromMeta(List<Long> dbIds, List<Long> tableIds) {
         // get version rpc
         Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached())
@@ -3720,6 +3777,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public Index getInvertedIndex(Column column, List<String> subPath) {
+        return getInvertedIndex(column, subPath, null);
+    }
+
+    public Index getInvertedIndex(Column column, List<String> subPath, String analyzer) {
         List<Index> invertedIndexes = new ArrayList<>();
         for (Index index : indexes.getIndexes()) {
             if (index.getIndexType() == IndexDefinition.IndexType.INVERTED) {
@@ -3730,9 +3791,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             }
         }
 
+        List<Index> filteredInvertedIndexes = filterIndexesByAnalyzer(invertedIndexes, analyzer);
+
         if (subPath == null || subPath.isEmpty()) {
-            return invertedIndexes.size() == 1 ? invertedIndexes.get(0)
-                    : invertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
+            return filteredInvertedIndexes.size() == 1 ? filteredInvertedIndexes.get(0)
+                : filteredInvertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         }
 
         // subPath is not empty, means it is a variant column, find the field pattern from children
@@ -3743,12 +3806,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 String childName = child.getName();
                 if (child.getFieldPatternType() == TPatternType.MATCH_NAME_GLOB) {
                     try {
-                        java.nio.file.PathMatcher matcher = java.nio.file.FileSystems.getDefault()
-                                .getPathMatcher("glob:" + childName);
-                        if (matcher.matches(java.nio.file.Paths.get(subPathString))) {
+                        com.google.re2j.Pattern compiled = GlobRegexUtil.getOrCompilePattern(childName);
+                        if (compiled.matcher(subPathString).matches()) {
                             fieldPattern = childName;
                         }
-                    } catch (Exception e) {
+                    } catch (com.google.re2j.PatternSyntaxException | IllegalArgumentException e) {
                         continue;
                     }
                 } else if (child.getFieldPatternType() == TPatternType.MATCH_NAME) {
@@ -3769,12 +3831,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 }
             }
         }
-        if (invertedIndexesWithFieldPattern.isEmpty()) {
-            return invertedIndexes.size() == 1 ? invertedIndexes.get(0)
-                    : invertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
+        List<Index> filteredFieldPatternIndexes = filterIndexesByAnalyzer(invertedIndexesWithFieldPattern, analyzer);
+        if (filteredFieldPatternIndexes.isEmpty()) {
+            return filteredInvertedIndexes.size() == 1 ? filteredInvertedIndexes.get(0)
+                : filteredInvertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         } else {
-            return invertedIndexesWithFieldPattern.size() == 1 ? invertedIndexesWithFieldPattern.get(0)
-                                        : invertedIndexesWithFieldPattern.stream()
+            return filteredFieldPatternIndexes.size() == 1 ? filteredFieldPatternIndexes.get(0)
+                                        : filteredFieldPatternIndexes.stream()
                                         .filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         }
     }
@@ -3845,5 +3908,35 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public String getSeqMappingKey(String column) {
         return getOrCreatTableProperty().getSeqMappingKey(column);
+
+    }
+
+    private List<Index> filterIndexesByAnalyzer(List<Index> original, String analyzer) {
+        if (analyzer == null || analyzer.trim().isEmpty()) {
+            return original;
+        }
+        List<Index> matched = new ArrayList<>();
+        for (Index index : original) {
+            if (InvertedIndexUtil.isAnalyzerMatched(index.getProperties(), analyzer)) {
+                matched.add(index);
+            }
+        }
+        return matched;
+    }
+
+    public void versionReadLock() {
+        versionLock.readLock().lock();
+    }
+
+    public void versionReadUnlock() {
+        versionLock.readLock().unlock();
+    }
+
+    public void versionWriteLock() {
+        versionLock.writeLock().lock();
+    }
+
+    public void versionWriteUnlock() {
+        versionLock.writeLock().unlock();
     }
 }

@@ -26,6 +26,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.loadv2.InsertLoadJob;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
@@ -180,11 +181,15 @@ public abstract class AbstractInsertExecutor {
         QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), queryInfo);
         executor.updateProfile(false);
         coordinator.exec();
+        executor.getSummaryProfile().setQueryScheduleFinishTime(TimeUtils.getStartTimeMs());
+        executor.getSummaryProfile().setTempStartTime();
         int execTimeout = ctx.getExecTimeoutS();
         if (LOG.isDebugEnabled()) {
             LOG.debug("insert [{}] with query id {} execution timeout is {}", labelName, queryId, execTimeout);
         }
         boolean notTimeout = coordinator.join(execTimeout);
+        executor.getSummaryProfile().freshFetchResultConsumeTime();
+        executor.getSummaryProfile().setQueryFetchResultFinishTime(TimeUtils.getStartTimeMs());
         if (!coordinator.isDone()) {
             coordinator.cancel(new Status(TStatusCode.CANCELLED, "insert timeout"));
             if (notTimeout) {

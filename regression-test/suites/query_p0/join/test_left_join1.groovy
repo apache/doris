@@ -39,4 +39,23 @@ suite("test_left_join1", "query,p0,arrow_flight_sql") {
                   ORDER BY
                   a.f_key; 
              """
+
+    sql "set runtime_filter_type=1,runtime_filter_max_in_num=0;"
+
+    qt_select """ SELECT
+                          *
+                          FROM
+                  ( SELECT f_key, f_value FROM ${tableName} ) a
+                  LEFT JOIN ( SELECT f_key, f_value FROM ${tableName} ) b ON a.f_key = b.f_key
+                  LEFT JOIN (
+                          SELECT
+                  *
+                  FROM
+                  ${tableName}
+                  WHERE
+                  f_key IN ( SELECT f_key FROM ${tableName} WHERE f_key IN ( SELECT f_key FROM ${tableName} WHERE f_value > 123 ) )
+                  ) c ON a.f_key = c.f_key
+                  ORDER BY
+                  a.f_key; 
+             """
 }

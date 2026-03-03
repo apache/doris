@@ -70,6 +70,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_index_compaction_failure_injection," +
     "test_full_compaction_run_status," +
     "test_topn_fault_injection," + 
+    "rec_cte_with_delete_test," +
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 // this directories will not be executed

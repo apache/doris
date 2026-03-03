@@ -53,6 +53,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.trees.plans.ScoreRangeInfo;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
 import org.apache.doris.qe.ConnectContext;
@@ -187,6 +188,7 @@ public class OlapScanNode extends ScanNode {
 
     private SortInfo scoreSortInfo = null;
     private long scoreSortLimit = -1;
+    private ScoreRangeInfo scoreRangeInfo = null;
 
     // cached for prepared statement to quickly prune partition
     // only used in short circuit plan at present
@@ -270,6 +272,10 @@ public class OlapScanNode extends ScanNode {
 
     public void setScoreSortLimit(long scoreSortLimit) {
         this.scoreSortLimit = scoreSortLimit;
+    }
+
+    public void setScoreRangeInfo(ScoreRangeInfo scoreRangeInfo) {
+        this.scoreRangeInfo = scoreRangeInfo;
     }
 
     public void setAnnSortInfo(SortInfo annSortInfo) {
@@ -436,7 +442,6 @@ public class OlapScanNode extends ScanNode {
         return maxVersion;
     }
 
-    // for non-cloud mode. for cloud mode see `updateScanRangeVersions`
     private void addScanRangeLocations(Partition partition,
             List<Tablet> tablets, Map<Long, Set<Long>> backendAlivePathHashs) throws UserException {
         long visibleVersion = Partition.PARTITION_INIT_VERSION;
@@ -446,6 +451,7 @@ public class OlapScanNode extends ScanNode {
         if (!(Config.isCloudMode() && Config.enable_cloud_snapshot_version)) {
             visibleVersion = partition.getVisibleVersion();
         }
+        // for non-cloud mode. for cloud mode see `updateScanRangeVersions`
         maxVersion = Math.max(maxVersion, visibleVersion);
 
         int useFixReplica = -1;
@@ -541,7 +547,7 @@ public class OlapScanNode extends ScanNode {
                 Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
                 if (context.getSessionVariable().fallbackOtherReplicaWhenFixedCorrupt) {
                     long beId = replica.getBackendId();
-                    Backend backend = allBackends.get(replica.getBackendId());
+                    Backend backend = allBackends.get(beId);
                     // If the fixed replica is bad, then not clear the replicas using random replica
                     if (backend == null || !backend.isAlive()) {
                         if (LOG.isDebugEnabled()) {
@@ -1158,6 +1164,9 @@ public class OlapScanNode extends ScanNode {
         }
         if (scoreSortLimit != -1) {
             msg.olap_scan_node.setScoreSortLimit(scoreSortLimit);
+        }
+        if (scoreRangeInfo != null) {
+            msg.olap_scan_node.setScoreRangeInfo(scoreRangeInfo.toThrift());
         }
         if (annSortInfo != null) {
             TSortInfo tAnnSortInfo = new TSortInfo(

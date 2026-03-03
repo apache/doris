@@ -86,14 +86,15 @@ Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column
     return Status::OK();
 }
 
-Status VSlotRef::execute_column(VExprContext* context, const Block* block, size_t count,
-                                ColumnPtr& result_column) const {
+Status VSlotRef::execute_column(VExprContext* context, const Block* block, Selector* selector,
+                                size_t count, ColumnPtr& result_column) const {
     if (_column_id >= 0 && _column_id >= block->columns()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "input block not contain slot column {}, column_id={}, block={}", *_column_name,
                 _column_id, block->dump_structure());
     }
-    result_column = block->get_by_position(_column_id).column;
+    result_column =
+            filter_column_with_selector(block->get_by_position(_column_id).column, selector, count);
     DCHECK_EQ(result_column->size(), count);
     return Status::OK();
 }
@@ -137,9 +138,6 @@ bool VSlotRef::equals(const VExpr& other) {
 }
 
 uint64_t VSlotRef::get_digest(uint64_t seed) const {
-    if (_data_type->get_primitive_type() == TYPE_VARIANT) {
-        return 0;
-    }
     seed = HashUtil::hash64(&_column_uniq_id, sizeof(int), seed);
     return HashUtil::hash64(_column_name->c_str(), _column_name->size(), seed);
 }

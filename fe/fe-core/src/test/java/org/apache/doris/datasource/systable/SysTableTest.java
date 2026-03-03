@@ -19,19 +19,20 @@ package org.apache.doris.datasource.systable;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.info.TableValuedFunctionRefInfo;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 
 import org.junit.Assert;
 import org.junit.Test;
 
 public class SysTableTest {
-    // Mock implementation of SysTable for testing
-    private static class MockSysTable extends SysTable {
-        public MockSysTable(String sysTableName, String tvfName) {
+    // Mock implementation of TvfSysTable for testing
+    private static class MockTvfSysTable extends TvfSysTable {
+        public MockTvfSysTable(String sysTableName, String tvfName) {
             super(sysTableName, tvfName);
         }
 
         @Override
-        public org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction createFunction(
+        public TableValuedFunction createFunction(
                 String ctlName, String dbName, String sourceNameWithMetaName) {
             return null;
         }
@@ -45,30 +46,16 @@ public class SysTableTest {
 
     @Test
     public void testBasicProperties() {
-        MockSysTable sysTable = new MockSysTable("test_table", "test_tvf");
+        MockTvfSysTable sysTable = new MockTvfSysTable("test_table", "test_tvf");
         Assert.assertEquals("test_table", sysTable.getSysTableName());
-        Assert.assertEquals("$test_table", sysTable.suffix);
-        Assert.assertEquals("test_tvf", sysTable.tvfName);
-    }
-
-    @Test
-    public void testContainsMetaTable() {
-        MockSysTable sysTable = new MockSysTable("partitions", "partition_values");
-
-        // Positive cases
-        Assert.assertTrue(sysTable.containsMetaTable("mytable$partitions"));
-        Assert.assertTrue(sysTable.containsMetaTable("my_complex_table$partitions"));
-
-        // Negative cases
-        Assert.assertFalse(sysTable.containsMetaTable("mytable"));
-        Assert.assertFalse(sysTable.containsMetaTable("$partitions")); // No table name
-        Assert.assertFalse(sysTable.containsMetaTable("mytable$other"));
-        Assert.assertFalse(sysTable.containsMetaTable(""));
+        Assert.assertEquals("$test_table", sysTable.getSuffix());
+        Assert.assertEquals("test_tvf", sysTable.getTvfName());
+        Assert.assertFalse(sysTable.useNativeTablePath());
     }
 
     @Test
     public void testGetSourceTableName() {
-        MockSysTable sysTable = new MockSysTable("partitions", "partition_values");
+        MockTvfSysTable sysTable = new MockTvfSysTable("partitions", "partition_values");
 
         Assert.assertEquals("mytable", sysTable.getSourceTableName("mytable$partitions"));
         Assert.assertEquals("complex_table", sysTable.getSourceTableName("complex_table$partitions"));

@@ -22,6 +22,8 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 
+#include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <random>
@@ -34,10 +36,12 @@
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "pipeline/pipeline_fragment_context.h"
+#include "pipeline/shuffle/exchange_writer.h"
 #include "util/runtime_profile.h"
 #include "util/uid_util.h"
 #include "vec/columns/column_const.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/sink/scale_writer_partitioning_exchanger.hpp"
 #include "vec/sink/tablet_sink_hash_partitioner.h"
 
 namespace doris::pipeline {
@@ -65,6 +69,8 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _distribute_rows_into_channels_timer =
             ADD_TIMER(custom_profile(), "DistributeRowsIntoChannelsTime");
     _send_new_partition_timer = ADD_TIMER(custom_profile(), "SendNewPartitionTime");
+    _add_partition_request_timer =
+            ADD_CHILD_TIMER(custom_profile(), "AddPartitionRequestTime", "SendNewPartitionTime");
     _blocks_sent_counter =
             ADD_COUNTER_WITH_LEVEL(custom_profile(), "BlocksProduced", TUnit::UNIT, 1);
     _overall_throughput = custom_profile()->add_derived_counter(
@@ -141,11 +147,12 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         custom_profile()->add_info_string(
                 "Partitioner", fmt::format("Crc32HashPartitioner({})", _partition_count));
     } else if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
+        // in ExchangeOlapWriter we rely on type of _partitioner here
         _partition_count = channels.size();
         custom_profile()->add_info_string(
                 "Partitioner", fmt::format("TabletSinkHashPartitioner({})", _partition_count));
         _partitioner = std::make_unique<vectorized::TabletSinkHashPartitioner>(
-                _partition_count, p._tablet_sink_txn_id, p._tablet_sink_schema,
+                cast_set<uint32_t>(_partition_count), p._tablet_sink_txn_id, p._tablet_sink_schema,
                 p._tablet_sink_partition, p._tablet_sink_location, p._tablet_sink_tuple_id, this);
         RETURN_IF_ERROR(_partitioner->init({}));
         RETURN_IF_ERROR(_partitioner->prepare(state, {}));
@@ -217,7 +224,11 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
-    _writer = std::make_unique<Writer>();
+    if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
+        _writer = std::make_unique<ExchangeOlapWriter>(*this);
+    } else {
+        _writer = std::make_unique<ExchangeTrivialWriter>(*this);
+    }
 
     for (auto& channel : channels) {
         RETURN_IF_ERROR(channel->open(state));
@@ -365,7 +376,8 @@ Status ExchangeSinkOperatorX::_handle_eof_channel(RuntimeState* state, ChannelPt
 
 Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block, bool eos) {
     auto& local_state = get_local_state(state);
-    COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
+    COUNTER_UPDATE(local_state.rows_input_counter(),
+                   (int64_t)block->rows()); // for auto-partition, may decease when do_partitioning
     SCOPED_TIMER(local_state.exec_time_counter());
     bool all_receiver_eof = true;
     for (auto& channel : local_state.channels) {
@@ -488,7 +500,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         if (!local_state.local_channel_ids.empty()) {
             const auto& ids = local_state.local_channel_ids;
             // Find the first channel ID >= current_channel_idx
-            auto it = std::lower_bound(ids.begin(), ids.end(), local_state.current_channel_idx);
+            auto it = std::ranges::lower_bound(ids, local_state.current_channel_idx);
             if (it != ids.end()) {
                 local_state.current_channel_idx = *it;
             } else {
@@ -501,9 +513,9 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 (local_state.current_channel_idx + 1) % local_state.channels.size();
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
-               _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED ||
-               _part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED) {
-        RETURN_IF_ERROR(local_state._writer->write(&local_state, state, block, eos));
+               _part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED ||
+               _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
+        RETURN_IF_ERROR(local_state._writer->write(state, block, eos));
     } else if (_part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED) {
         // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
         RETURN_IF_ERROR(send_to_current_channel());

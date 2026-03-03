@@ -31,6 +31,7 @@
 #include "common/object_pool.h"
 #include "vec/aggregate_functions/aggregate_function_ai_agg.h"
 #include "vec/aggregate_functions/aggregate_function_java_udaf.h"
+#include "vec/aggregate_functions/aggregate_function_python_udaf.h"
 #include "vec/aggregate_functions/aggregate_function_rpc.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_sort.h"
@@ -161,6 +162,18 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                     "Java UDAF is not enabled, you can change be config enable_java_support to "
                     "true and restart be.");
         }
+    } else if (_fn.binary_type == TFunctionBinaryType::PYTHON_UDF) {
+        if (config::enable_python_udf_support) {
+            _function = AggregatePythonUDAF::create(_fn, argument_types, _data_type);
+            RETURN_IF_ERROR(static_cast<AggregatePythonUDAF*>(_function.get())->open());
+            LOG(INFO) << fmt::format(
+                    "Created Python UDAF: {}, runtime_version: {}, function_code: {}",
+                    _fn.name.function_name, _fn.runtime_version, _fn.function_code);
+        } else {
+            return Status::InternalError(
+                    "Python UDAF is not enabled, you can change be config "
+                    "enable_python_udf_support to true and restart be.");
+        }
     } else if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = AggregateRpcUdaf::create(_fn, argument_types, _data_type);
     } else if (_fn.binary_type == TFunctionBinaryType::AGG_STATE) {
@@ -217,6 +230,8 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                     state->be_exec_version(),
                     {.is_window_function = _is_window_function,
                      .is_foreach = is_foreach,
+                     .enable_aggregate_function_null_v2 =
+                             state->enable_aggregate_function_null_v2(),
                      .column_names = std::move(column_names)});
         } else {
             _function = AggregateFunctionSimpleFactory::instance().get(
@@ -224,6 +239,8 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                     state->be_exec_version(),
                     {.is_window_function = _is_window_function,
                      .is_foreach = is_foreach,
+                     .enable_aggregate_function_null_v2 =
+                             state->enable_aggregate_function_null_v2(),
                      .column_names = std::move(column_names)});
         }
     }
@@ -282,13 +299,6 @@ Status AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
                                                   AggregateDataPtr* places, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
     _function->add_batch_selected(block->rows(), places, offset, _agg_columns.data(), arena);
-    return Status::OK();
-}
-
-Status AggFnEvaluator::streaming_agg_serialize(Block* block, BufferWritable& buf,
-                                               const size_t num_rows, Arena& arena) {
-    RETURN_IF_ERROR(_calc_argument_columns(block));
-    _function->streaming_agg_serialize(_agg_columns.data(), buf, num_rows, arena);
     return Status::OK();
 }
 
