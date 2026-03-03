@@ -25,10 +25,11 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import lombok.Getter;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.hive.HiveCatalog;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -66,26 +67,11 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
     @Override
     public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
                                List<StorageProperties> storagePropertiesList) {
-        checkInitialized();
-        Configuration conf = buildHiveConfiguration(storagePropertiesList);
-        HiveCatalog hiveCatalog = new HiveCatalog();
-        hiveCatalog.setConf(conf);
-        storagePropertiesList.forEach(sp -> {
-            // NOTE: Custom FileIO implementation (KerberizedHadoopFileIO) is commented out by default.
-            // Using FileIO for Kerberos authentication may cause serialization issues when accessing
-            // Iceberg system tables (e.g., history, snapshots, manifests).
-            /*if (sp instanceof HdfsProperties) {
-                HdfsProperties hdfsProps = (HdfsProperties) sp;
-                if (hdfsProps.isKerberos()) {
-                    catalogProps.put(CatalogProperties.FILE_IO_IMPL,
-                            "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO");
-                }
-            }*/
-        });
-        buildCatalogProperties(catalogProps);
         try {
-            this.executionAuthenticator.execute(() -> hiveCatalog.initialize(catalogName, catalogProps));
-            return hiveCatalog;
+            catalogProps.put(CatalogProperties.CATALOG_IMPL, CatalogUtil.ICEBERG_CATALOG_HIVE);
+            Configuration conf = buildHiveConfiguration(storagePropertiesList);
+            return this.executionAuthenticator.execute(() ->
+                    buildIcebergCatalog(catalogName, catalogProps, conf));
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize HiveCatalog for Iceberg. "
                     + "CatalogName=" + catalogName + ", msg :" + ExceptionUtils.getRootCauseMessage(e), e);
@@ -104,21 +90,5 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
             }
         }
         return conf;
-    }
-
-    /**
-     * Constructs HiveCatalog's property map.
-     */
-    private void buildCatalogProperties(Map<String, String> catalogProps) {
-        Map<String, String> props = new HashMap<>();
-        catalogProps.put(HiveCatalog.LIST_ALL_TABLES, String.valueOf(listAllTables));
-        props.put("uri", hmsBaseProperties.getHiveMetastoreUri());
-    }
-
-    private void checkInitialized() {
-        if (hmsBaseProperties == null) {
-            throw new IllegalStateException("HMS properties not initialized."
-                    + " You must call initNormalizeAndCheckProps() first.");
-        }
     }
 }

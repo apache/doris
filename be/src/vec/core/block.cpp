@@ -750,10 +750,15 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
             continue;
         }
         if (count == 0) {
-            block->get_by_position(col).column->assume_mutable()->clear();
+            if (column->is_exclusive()) {
+                column->assume_mutable()->clear();
+            } else {
+                column = column->clone_empty();
+            }
             continue;
         }
         if (column->is_exclusive()) {
+            // COW: safe to mutate in-place since we have exclusive ownership
             const auto result_size = column->assume_mutable()->filter(filter);
             if (result_size != count) [[unlikely]] {
                 throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -762,6 +767,7 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
                                 result_size, count);
             }
         } else {
+            // COW: must create a copy since column is shared
             column = column->filter(filter, count);
         }
     }
@@ -829,7 +835,12 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
         bool ret = const_column->get_bool(0);
         if (!ret) {
             for (const auto& col : columns_to_filter) {
-                std::move(*block->get_by_position(col).column).assume_mutable()->clear();
+                auto& column = block->get_by_position(col).column;
+                if (column->is_exclusive()) {
+                    column->assume_mutable()->clear();
+                } else {
+                    column = column->clone_empty();
+                }
             }
         }
     } else {

@@ -1090,6 +1090,10 @@ build_arrow() {
         -DARROW_BUILD_STATIC=ON -DARROW_WITH_BROTLI=ON -DARROW_WITH_LZ4=ON -DARROW_USE_GLOG=ON \
         -DARROW_WITH_SNAPPY=ON -DARROW_WITH_ZLIB=ON -DARROW_WITH_ZSTD=ON -DARROW_JSON=ON \
         -DARROW_WITH_UTF8PROC=OFF -DARROW_WITH_RE2=ON -DARROW_ORC=ON \
+        -DARROW_COMPUTE=ON \
+        -DARROW_FILESYSTEM=ON \
+        -DARROW_DATASET=ON \
+        -DARROW_ACERO=ON \
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_INSTALL_LIBDIR=lib64 \
         -DARROW_BOOST_USE_SHARED=OFF \
@@ -1137,6 +1141,8 @@ build_arrow() {
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${TP_INSTALL_DIR}/lib64/libbrotlicommon.a"
     strip_lib libarrow.a
     strip_lib libparquet.a
+    strip_lib libarrow_dataset.a
+    strip_lib libarrow_acero.a
 }
 
 # abseil
@@ -2028,20 +2034,26 @@ build_paimon_cpp() {
     # These libraries are built but not installed by default
     echo "Installing paimon-cpp internal dependencies..."
 
-    # Install paimon-cpp Arrow deps used by paimon parquet static libs.
-    # Keep them in an isolated directory to avoid clashing with Doris Arrow.
+    # Arrow deps: When PAIMON_USE_EXTERNAL_ARROW=ON (Plan B), paimon-cpp
+    # reuses Doris's Arrow and does NOT build arrow_ep, so the paimon_deps
+    # directory is not needed.  When building its own Arrow (legacy), copy
+    # arrow artefacts into an isolated directory to avoid clashing with Doris.
     local paimon_deps_dir="${TP_INSTALL_DIR}/paimon-cpp/lib64/paimon_deps"
-    mkdir -p "${paimon_deps_dir}"
-    for paimon_arrow_dep in \
-        libarrow.a \
-        libarrow_filesystem.a \
-        libarrow_dataset.a \
-        libarrow_acero.a \
-        libparquet.a; do
-        if [ -f "arrow_ep-install/lib/${paimon_arrow_dep}" ]; then
-            cp -v "arrow_ep-install/lib/${paimon_arrow_dep}" "${paimon_deps_dir}/${paimon_arrow_dep}"
-        fi
-    done
+    if [ -d "arrow_ep-install/lib" ]; then
+        mkdir -p "${paimon_deps_dir}"
+        for paimon_arrow_dep in \
+            libarrow.a \
+            libarrow_filesystem.a \
+            libarrow_dataset.a \
+            libarrow_acero.a \
+            libparquet.a; do
+            if [ -f "arrow_ep-install/lib/${paimon_arrow_dep}" ]; then
+                cp -v "arrow_ep-install/lib/${paimon_arrow_dep}" "${paimon_deps_dir}/${paimon_arrow_dep}"
+            fi
+        done
+    else
+        echo "  arrow_ep-install not found (PAIMON_USE_EXTERNAL_ARROW=ON?) – skipping paimon_deps Arrow copy"
+    fi
 
     # Install roaring_bitmap, renamed to avoid conflict with Doris's croaringbitmap
     if [ -f "release/libroaring_bitmap.a" ]; then

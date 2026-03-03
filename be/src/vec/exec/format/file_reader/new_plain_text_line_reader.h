@@ -184,6 +184,15 @@ public:
         return _column_sep_positions;
     }
 
+    // Adjust column separator positions by subtracting the given offset.
+    // Used when BOM bytes are removed from the beginning of a line,
+    // shifting all positions by the BOM size.
+    void adjust_column_sep_positions(size_t offset) {
+        for (auto& pos : _column_sep_positions) {
+            pos -= offset;
+        }
+    }
+
     const uint8_t* read_line_impl(const uint8_t* start, size_t length);
 
 private:

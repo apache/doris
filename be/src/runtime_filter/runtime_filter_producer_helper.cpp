@@ -186,7 +186,7 @@ std::shared_ptr<RuntimeFilterWrapper> RuntimeFilterProducerHelper::detect_local_
     // If any runtime filter is local in filter, return true.
     // Local in filter is used to LEFT_SEMI_DIRECT_RETURN_OPT
     for (const auto& filter : _producers) {
-        if (auto wrapper = filter->detect_in_filter(); wrapper != nullptr) {
+        if (auto wrapper = filter->detect_local_in_filter(state); wrapper != nullptr) {
             return wrapper;
         }
     }

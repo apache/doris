@@ -18,10 +18,13 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.credentials.AbstractVendedCredentialsProvider;
+import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.MapUtils;
@@ -174,9 +177,20 @@ public class CatalogProperty {
             synchronized (this) {
                 if (storagePropertiesMap == null) {
                     try {
-                        this.orderedStoragePropertiesList = StorageProperties.createAll(getProperties());
-                        this.storagePropertiesMap = orderedStoragePropertiesList.stream()
-                                .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
+                        boolean checkStorageProperties = true;
+                        AbstractVendedCredentialsProvider provider =
+                                VendedCredentialsFactory.getProviderType(getMetastoreProperties());
+                        if (provider != null) {
+                            checkStorageProperties = !provider.isVendedCredentialsEnabled(getMetastoreProperties());
+                        }
+                        if (checkStorageProperties) {
+                            this.orderedStoragePropertiesList = StorageProperties.createAll(getProperties());
+                            this.storagePropertiesMap = orderedStoragePropertiesList.stream()
+                                    .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
+                        } else {
+                            this.orderedStoragePropertiesList = Lists.newArrayList();
+                            this.storagePropertiesMap = Maps.newHashMap();
+                        }
                     } catch (UserException e) {
                         LOG.warn("Failed to initialize catalog storage properties", e);
                         throw new RuntimeException("Failed to initialize storage properties, error: "
@@ -199,16 +213,13 @@ public class CatalogProperty {
 
     public void checkMetaStoreAndStorageProperties(Class msClass) {
         MetastoreProperties msProperties;
-        List<StorageProperties> storageProperties;
         try {
             msProperties = MetastoreProperties.create(getProperties());
-            storageProperties = StorageProperties.createAll(getProperties());
+            initStorageProperties();
         } catch (UserException e) {
             throw new RuntimeException("Failed to initialize Catalog properties, error: "
                     + ExceptionUtils.getRootCauseMessage(e), e);
         }
-        Preconditions.checkNotNull(storageProperties,
-                "Storage properties are not configured properly");
         Preconditions.checkNotNull(msProperties, "Metastore properties are not configured properly");
         Preconditions.checkArgument(
                 msClass.isInstance(msProperties),

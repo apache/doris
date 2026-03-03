@@ -612,60 +612,57 @@ TEST_F(ColumnArrayTest, ShrinkPaddingCharsTest) {
 
 //////////////////////// special function from column_array.h ////////////////////////
 TEST_F(ColumnArrayTest, CreateArrayTest) {
-    // test create_array : nested_column && offsets_column should not be const, and convert_to_full_column_if_const should not impl in array
-    // in some situation,
-    //  like join_probe_operator.cpp::_build_output_block,
-    //  we call column.convert_to_full_column_if_const,
-    //  then we may call clear_column_data() to clear the column (eg. in HashJoinProbeOperatorX::pull() which call local_state._probe_block.clear_column_data after filter_data_and_build_output())
-    //  in clear_column_data() if use_count() == 1, we will call column->clear() to clear the column data
-    //
-    //  however in array impl for convert_to_full_column_if_const: ``` ColumnArray::create(data->convert_to_full_column_if_const(), offsets);```
-    //  may make the nested_column use_count() more than 1 which means it is shared with other block, but return ColumnArray is new which use_count() is 1,
-    //  then in clear_column_data() if we will call array_column->use_count() == 1 will be true to clear the column with nested_column, and shared nested_column block will meet undefined behavior cause maybe core
-    //
-    //  so actually according to the semantics of the function, it should not impl in array,
-    //  but we should make sure in creation of array, the nested_column && offsets_column should not be const
+    // Test ColumnArray constructor constraints: nested_column and offsets_column must not be ColumnConst.
+    // The constructor enforces this via check_const_only_in_top_level(), preventing COW-related issues:
+    // - ColumnConst is immutable and meant for repeated values across rows
+    // - ColumnArray requires mutable nested data for operations like insert/filter/clear
+    // - Wrapping shared ColumnConst in ColumnArray violates use_count() assumptions in clear_column_data()
     for (auto& array_column : array_columns) {
         const auto* column = check_and_get_column<ColumnArray>(
                 remove_nullable(array_column->assume_mutable()).get());
         auto column_size = column->size();
         LOG(INFO) << "column_type: " << column->get_name();
-        // test create_array
-        // test create expect exception case
-        // 1.offsets is not ColumnOffset64
-        auto tmp_data_col = column->get_data_ptr()->clone_resized(1);
-        MutableColumnPtr tmp_offsets_col =
-                assert_cast<const ColumnArray::ColumnOffsets&>(column->get_offsets_column())
-                        .clone_resized(1);
-        // 2.offsets size is not equal to data size
+
+        // Test expected exception cases
+        // 1. nested_column is ColumnConst (violates check_const_only_in_top_level)
+        auto tmp_data_col = column->get_data_ptr()->clone_empty();
+        tmp_data_col->insert_default(); // ColumnConst requires nested column size = 1
+        auto const_data = ColumnConst::create(std::move(tmp_data_col), column_size);
+        EXPECT_ANY_THROW({
+            auto new_array_column =
+                    ColumnArray::create(const_data->assume_mutable(), column->get_offsets_ptr());
+        });
+
+        // 2. offsets_column is ColumnConst (violates check_const_only_in_top_level)
+        auto tmp_offsets_col = column->get_offsets_ptr()->clone_empty();
+        tmp_offsets_col->insert_default(); // ColumnConst requires nested column size = 1
+        auto const_offsets = ColumnConst::create(std::move(tmp_offsets_col), column_size);
+        EXPECT_ANY_THROW({
+            auto new_array_column =
+                    ColumnArray::create(column->get_data_ptr(), const_offsets->assume_mutable());
+        });
+
+        // 3. offsets size does not match data size
         auto tmp_data_col1 = column->get_data_ptr()->clone_resized(2);
         EXPECT_ANY_THROW({
             auto new_array_column = ColumnArray::create(
                     tmp_data_col1->assume_mutable(),
                     column->get_offsets_column().clone_resized(1)->assume_mutable());
         });
-        // 3.data is const
-        auto last_offset = column->get_offsets().back();
-        EXPECT_ANY_THROW(
-                { auto const_col = ColumnConst::create(column->get_data_ptr(), last_offset); });
-        Field assert_field;
-        column->get(0, assert_field);
-        auto const_col = ColumnConst::create(tmp_data_col->assume_mutable(), last_offset);
-        EXPECT_ANY_THROW({
-            // const_col is not empty
-            auto new_array_column = ColumnArray::create(const_col->assume_mutable());
-        });
+
+        // Test successful creation with normal columns
         auto new_array_column =
-                ColumnArray::create(const_col->assume_mutable(), column->get_offsets_ptr());
-        EXPECT_EQ(new_array_column->size(), column_size)
-                << "array_column size is not equal to column size";
+                ColumnArray::create(column->get_data_ptr(), column->get_offsets_ptr());
+        EXPECT_EQ(new_array_column->size(), column_size);
         EXPECT_EQ(new_array_column->get_data_ptr()->size(), column->get_data_ptr()->size());
         EXPECT_EQ(new_array_column->get_offsets_ptr()->size(), column->get_offsets_ptr()->size());
-        // check column data
+
+        // Verify data integrity
         for (size_t j = 0; j < column_size; j++) {
-            Field f1;
+            Field f1, f2;
             new_array_column->get(j, f1);
-            EXPECT_EQ(f1, assert_field) << "array_column data is not equal to column data";
+            column->get(j, f2);
+            EXPECT_EQ(f1, f2);
         }
     }
 }
