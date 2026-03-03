@@ -93,6 +93,9 @@ static void insert_value_as_json(const JsonbValue* value, MutableColumnPtr& col,
 template <bool TEXT_MODE>
 void VJsonEachTableFunction<TEXT_MODE>::process_row(size_t row_idx) {
     TableFunction::process_row(row_idx);
+    if (_is_const && _cur_size > 0) {
+        return;
+    }
 
     StringRef text;
     const size_t idx = _is_const ? 0 : row_idx;

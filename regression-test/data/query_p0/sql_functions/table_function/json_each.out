@@ -69,3 +69,49 @@ version	3
 
 -- !json_each_text_non_object_arr --
 
+-- !json_each_outer_null_input --
+4	\N	\N
+
+-- !json_each_outer_empty --
+3	\N	\N
+
+-- !json_each_outer_basic --
+1	a	"foo"
+1	b	"bar"
+
+-- !json_each_outer_non_object --
+7	\N	\N
+8	\N	\N
+
+-- !json_each_outer_all --
+1	a	"foo"
+1	b	"bar"
+2	x	1
+2	y	true
+2	z	\N
+3	\N	\N
+4	\N	\N
+
+-- !json_each_text_outer_null_input --
+4	\N	\N
+
+-- !json_each_text_outer_empty --
+3	\N	\N
+
+-- !json_each_text_outer_basic --
+1	a	foo
+1	b	bar
+
+-- !json_each_text_outer_non_object --
+7	\N	\N
+8	\N	\N
+
+-- !json_each_text_outer_all --
+1	a	foo
+1	b	bar
+2	x	1
+2	y	true
+2	z	\N
+3	\N	\N
+4	\N	\N
+

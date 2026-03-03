@@ -237,4 +237,98 @@ suite('json_each') {
         WHERE id = 9
         ORDER BY id, k
     '''
+
+    // ---------- json_each_outer ----------
+
+    // outer: NULL input → 1 row with NULL k, NULL v (original row preserved)
+    qt_json_each_outer_null_input '''
+        SELECT id, k, v
+        FROM jdata
+        LATERAL VIEW json_each_outer(jval) t AS k, v
+        WHERE id = 4
+        ORDER BY id, k
+    '''
+
+    // outer: empty object → 1 row with NULL k, NULL v
+    qt_json_each_outer_empty '''
+        SELECT id, k, v
+        FROM jdata
+        LATERAL VIEW json_each_outer(jval) t AS k, v
+        WHERE id = 3
+        ORDER BY id, k
+    '''
+
+    // outer: normal object → same result as non-outer json_each
+    qt_json_each_outer_basic '''
+        SELECT id, k, v
+        FROM jdata
+        LATERAL VIEW json_each_outer(jval) t AS k, v
+        WHERE id = 1
+        ORDER BY id, k
+    '''
+
+    // outer: non-object inputs (string / array) → 1 row each with NULL k, NULL v
+    qt_json_each_outer_non_object '''
+        SELECT id, k, v
+        FROM jdata
+        LATERAL VIEW json_each_outer(jval) t AS k, v
+        WHERE id IN (7, 8)
+        ORDER BY id, k
+    '''
+
+    // outer: mixed ids 1-4: id=3 (empty) and id=4 (NULL) each emit one NULL-padded row
+    qt_json_each_outer_all '''
+        SELECT id, k, v
+        FROM jdata
+        LATERAL VIEW json_each_outer(jval) t AS k, v
+        WHERE id IN (1, 2, 3, 4)
+        ORDER BY id, k
+    '''
+
+    // ---------- json_each_text_outer ----------
+
+    // outer: NULL input → 1 row with NULL k, NULL v
+    qt_json_each_text_outer_null_input '''
+        SELECT id, k, v
+        FROM jdata
+        LATERAL VIEW json_each_text_outer(jval) t AS k, v
+        WHERE id = 4
+        ORDER BY id, k
+    '''
+
+    // outer: empty object → 1 row with NULL k, NULL v
+    qt_json_each_text_outer_empty '''
+        SELECT id, k, v
+        FROM jdata
+        LATERAL VIEW json_each_text_outer(jval) t AS k, v
+        WHERE id = 3
+        ORDER BY id, k
+    '''
+
+    // outer: normal object → same as json_each_text (strings unquoted)
+    qt_json_each_text_outer_basic '''
+        SELECT id, k, v
+        FROM jdata
+        LATERAL VIEW json_each_text_outer(jval) t AS k, v
+        WHERE id = 1
+        ORDER BY id, k
+    '''
+
+    // outer: non-object inputs → 1 row each with NULL k, NULL v
+    qt_json_each_text_outer_non_object '''
+        SELECT id, k, v
+        FROM jdata
+        LATERAL VIEW json_each_text_outer(jval) t AS k, v
+        WHERE id IN (7, 8)
+        ORDER BY id, k
+    '''
+
+    // outer: mixed ids 1-4
+    qt_json_each_text_outer_all '''
+        SELECT id, k, v
+        FROM jdata
+        LATERAL VIEW json_each_text_outer(jval) t AS k, v
+        WHERE id IN (1, 2, 3, 4)
+        ORDER BY id, k
+    '''
 }

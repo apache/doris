@@ -601,4 +601,99 @@ TEST_F(TableFunctionTest, vjson_each_get_same_many_values) {
         fn.process_close();
     }
 }
+
+TEST_F(TableFunctionTest, vjson_each_outer) {
+    init_expr_context(1);
+    VJsonEachTableFn fn;
+    fn.set_expr_context(_ctx);
+
+    // set_outer() correctly sets the is_outer flag
+    EXPECT_FALSE(fn.is_outer());
+    fn.set_outer();
+    EXPECT_TRUE(fn.is_outer());
+
+    // Normal object: outer flag does not affect KV expansion
+    {
+        auto block = build_jsonb_input_block({{R"({"a":"foo","b":123})"}});
+        auto rows = run_json_each_fn(&fn, block.get(), true);
+        ASSERT_EQ(2u, rows.size());
+        EXPECT_EQ("a", rows[0].first);
+        EXPECT_EQ("\"foo\"", rows[0].second);
+        EXPECT_EQ("b", rows[1].first);
+        EXPECT_EQ("123", rows[1].second);
+    }
+
+    // For NULL / empty-object / non-object inputs: current_empty() is true.
+    // The operator calls get_value() unconditionally when is_outer() — verify that
+    // get_value() inserts exactly one default (NULL) struct row in each case.
+    DataTypePtr key_dt = make_nullable(DataTypeFactory::instance().create_data_type(
+            doris::PrimitiveType::TYPE_VARCHAR, false));
+    DataTypePtr val_dt = make_nullable(
+            DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_JSONB, false));
+    DataTypePtr struct_dt =
+            make_nullable(std::make_shared<DataTypeStruct>(DataTypes {key_dt, val_dt}));
+
+    TQueryOptions q_opts;
+    TQueryGlobals q_globals;
+    RuntimeState rs(q_opts, q_globals);
+
+    for (const char* input : {"", "{}", "[1,2,3]"}) {
+        auto block = build_jsonb_input_block({{input}});
+        ASSERT_TRUE(fn.process_init(block.get(), &rs).ok()) << "input: " << input;
+        fn.process_row(0);
+        EXPECT_TRUE(fn.current_empty()) << "input: " << input;
+
+        auto out_col = struct_dt->create_column();
+        fn.get_value(out_col, 1);
+        ASSERT_EQ(1u, out_col->size()) << "input: " << input;
+        EXPECT_TRUE(out_col->is_null_at(0)) << "input: " << input;
+        fn.process_close();
+    }
+}
+
+TEST_F(TableFunctionTest, vjson_each_text_outer) {
+    init_expr_context(1);
+    VJsonEachTextTableFn fn;
+    fn.set_expr_context(_ctx);
+
+    EXPECT_FALSE(fn.is_outer());
+    fn.set_outer();
+    EXPECT_TRUE(fn.is_outer());
+
+    // Normal object: text mode (strings unquoted), outer flag does not affect expansion
+    {
+        auto block = build_jsonb_input_block({{R"({"a":"foo","b":123})"}});
+        auto rows = run_json_each_fn(&fn, block.get(), false);
+        ASSERT_EQ(2u, rows.size());
+        EXPECT_EQ("a", rows[0].first);
+        EXPECT_EQ("foo", rows[0].second);
+        EXPECT_EQ("b", rows[1].first);
+        EXPECT_EQ("123", rows[1].second);
+    }
+
+    // NULL / empty-object / non-object → current_empty(), get_value() inserts one default row
+    DataTypePtr key_dt = make_nullable(DataTypeFactory::instance().create_data_type(
+            doris::PrimitiveType::TYPE_VARCHAR, false));
+    DataTypePtr val_dt = make_nullable(DataTypeFactory::instance().create_data_type(
+            doris::PrimitiveType::TYPE_VARCHAR, false));
+    DataTypePtr struct_dt =
+            make_nullable(std::make_shared<DataTypeStruct>(DataTypes {key_dt, val_dt}));
+
+    TQueryOptions q_opts;
+    TQueryGlobals q_globals;
+    RuntimeState rs(q_opts, q_globals);
+
+    for (const char* input : {"", "{}", "[1,2,3]"}) {
+        auto block = build_jsonb_input_block({{input}});
+        ASSERT_TRUE(fn.process_init(block.get(), &rs).ok()) << "input: " << input;
+        fn.process_row(0);
+        EXPECT_TRUE(fn.current_empty()) << "input: " << input;
+
+        auto out_col = struct_dt->create_column();
+        fn.get_value(out_col, 1);
+        ASSERT_EQ(1u, out_col->size()) << "input: " << input;
+        EXPECT_TRUE(out_col->is_null_at(0)) << "input: " << input;
+        fn.process_close();
+    }
+}
 } // namespace doris
