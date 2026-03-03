@@ -240,6 +240,13 @@ private:
     std::shared_ptr<std::vector<bool>> _condition_cache;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     RuntimeProfile::Counter* _condition_cache_hit_counter = nullptr;
+    // Tracks the cumulative number of rows read from the current file.
+    // Used for non-native condition cache readers (CSV, JSON, Text, etc.)
+    // to map batch rows to global file-level granule indices.
+    int64_t _file_rows_read = 0;
+    // True if the current reader handles condition cache natively (Parquet, ORC).
+    // When true, FileScanner skips its own generic condition cache logic.
+    bool _reader_handles_condition_cache = false;
 
 private:
     Status _init_expr_ctxes();
@@ -288,6 +295,13 @@ private:
 
     void _init_reader_condition_cache();
     void _finalize_reader_condition_cache();
+
+    // Generic condition cache methods for non-native readers (CSV, JSON, Text, etc.)
+    // On HIT: filter out rows in false granules from the block after reading.
+    // Returns the number of rows filtered out.
+    size_t _condition_cache_filter_block_on_hit(Block* block, size_t read_rows);
+    // On MISS: evaluate conjuncts to determine surviving rows and mark cache granules.
+    void _condition_cache_mark_granules_on_miss(Block* block, size_t read_rows);
 
     TPushAggOp::type _get_push_down_agg_type() {
         return _local_state == nullptr ? TPushAggOp::type::NONE

@@ -469,6 +469,17 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
         // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.
         if (read_rows > 0) {
+            // Condition cache HIT (non-native readers): filter out rows in false granules.
+            // Must be done before _fill_columns_from_path/_fill_missing_columns which use read_rows.
+            size_t cache_filtered = _condition_cache_filter_block_on_hit(_src_block_ptr, read_rows);
+            if (cache_filtered > 0) {
+                read_rows -= cache_filtered;
+                if (read_rows == 0) {
+                    // All rows in this batch were in false granules — skip to next batch.
+                    continue;
+                }
+            }
+
             if ((!_cur_reader->count_read_rows()) && _io_ctx) {
                 _io_ctx->file_reader_stats->read_rows += read_rows;
             }
@@ -486,6 +497,14 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
                 }
                 // Apply _pre_conjunct_ctxs to filter src block.
                 RETURN_IF_ERROR(_pre_filter_src_block());
+
+                // Condition cache MISS (non-native readers): evaluate conjuncts to mark
+                // which granules have surviving rows. The block is NOT modified here —
+                // Scanner::_filter_output_block will apply the actual filter later.
+                // This must be done after partition/missing columns are filled so
+                // conjuncts referencing those columns can be evaluated.
+                _condition_cache_mark_granules_on_miss(_src_block_ptr, read_rows);
+
                 // Convert src block to output block (dest block), string to dest data type and apply filters.
                 RETURN_IF_ERROR(_convert_to_output_block(block));
                 // Truncate char columns or varchar columns if size is smaller than file columns
@@ -1751,6 +1770,8 @@ void FileScanner::_init_reader_condition_cache() {
     _condition_cache_hit = false;
     _condition_cache = nullptr;
     _condition_cache_ctx = nullptr;
+    _file_rows_read = 0;
+    _reader_handles_condition_cache = false;
 
     if (_condition_cache_digest == 0 || _is_load || _conjuncts.empty() || !_cur_reader) {
         return;
@@ -1765,8 +1786,9 @@ void FileScanner::_init_reader_condition_cache() {
 
     auto* cache = segment_v2::ConditionCache::instance();
     segment_v2::ConditionCache::ExternalCacheKey cache_key(
-            _current_range.path, _current_range.__isset.file_size ? _current_range.file_size : -1,
+            _current_range.path,
             _current_range.__isset.modification_time ? _current_range.modification_time : 0,
+            _current_range.__isset.file_size ? _current_range.file_size : -1,
             _condition_cache_digest);
 
     segment_v2::ConditionCacheHandle handle;
@@ -1783,13 +1805,136 @@ void FileScanner::_init_reader_condition_cache() {
                                   ConditionCacheContext::GRANULE_SIZE;
             _condition_cache->resize(num_granules, false);
         }
+        // For readers that don't know total_rows (CSV, JSON, etc.), the cache
+        // starts empty and will be grown dynamically in _condition_cache_mark_granules_on_miss().
     }
 
-    // Create context to pass to readers
-    _condition_cache_ctx = std::make_shared<ConditionCacheContext>();
-    _condition_cache_ctx->is_hit = _condition_cache_hit;
-    _condition_cache_ctx->filter_result = _condition_cache;
-    _cur_reader->set_condition_cache_context(_condition_cache_ctx);
+    // Check if the reader handles condition cache natively (Parquet, ORC, and table format readers
+    // wrapping them). Native readers implement their own seeking/skipping logic with finer
+    // granularity. For non-native readers, FileScanner handles cache at the block level.
+    _reader_handles_condition_cache = (_cur_reader->get_total_rows() > 0);
+
+    // Create context to pass to readers (native readers use it; non-native readers ignore it)
+    if (!_condition_cache->empty()) {
+        _condition_cache_ctx = std::make_shared<ConditionCacheContext>();
+        _condition_cache_ctx->is_hit = _condition_cache_hit;
+        _condition_cache_ctx->filter_result = _condition_cache;
+        _cur_reader->set_condition_cache_context(_condition_cache_ctx);
+    }
+}
+
+size_t FileScanner::_condition_cache_filter_block_on_hit(Block* block, size_t read_rows) {
+    // For non-native readers on HIT: filter out rows belonging to false granules.
+    // We cannot skip I/O for sequential readers (CSV, JSON, etc.), but we CAN
+    // skip the downstream conjunct evaluation for these rows. By removing them
+    // from the block here, Scanner::_filter_output_block never sees them.
+    if (!_condition_cache || !_condition_cache_hit || _reader_handles_condition_cache ||
+        read_rows == 0) {
+        _file_rows_read += read_rows;
+        return 0;
+    }
+
+    auto& cache = *_condition_cache;
+    if (cache.empty()) {
+        _file_rows_read += read_rows;
+        return 0;
+    }
+
+    // Build a filter: true = keep the row, false = discard it.
+    IColumn::Filter filter(read_rows, 1);
+    size_t filtered_count = 0;
+    for (size_t i = 0; i < read_rows; i++) {
+        size_t granule = (_file_rows_read + i) / ConditionCacheContext::GRANULE_SIZE;
+        if (granule < cache.size() && !cache[granule]) {
+            filter[i] = 0;
+            filtered_count++;
+        }
+        // Granules beyond cache.size() are kept conservatively (assumed true).
+    }
+
+    _file_rows_read += read_rows;
+
+    if (filtered_count == 0) {
+        return 0;
+    }
+
+    if (filtered_count == read_rows) {
+        // All rows filtered — clear all columns in the block.
+        for (size_t col = 0; col < block->columns(); col++) {
+            block->get_by_position(col).column->assume_mutable()->clear();
+        }
+        return filtered_count;
+    }
+
+    // Apply the filter to shrink the block.
+    Block::filter_block_internal(block, filter, block->columns());
+    return filtered_count;
+}
+
+void FileScanner::_condition_cache_mark_granules_on_miss(Block* block, size_t read_rows) {
+    // For non-native readers on MISS: evaluate conjuncts to determine which rows
+    // would survive filtering, then mark the corresponding cache granules as true.
+    // The block is NOT modified — Scanner::_filter_output_block will apply the actual filter.
+    if (!_condition_cache || _condition_cache_hit || _reader_handles_condition_cache ||
+        read_rows == 0 || _is_load) {
+        return;
+    }
+
+    auto& cache = *_condition_cache;
+    int64_t base_row = _file_rows_read - read_rows; // _file_rows_read already advanced
+
+    // Dynamically grow the cache if needed (for readers with unknown total rows).
+    size_t max_granule_needed = (_file_rows_read + ConditionCacheContext::GRANULE_SIZE - 1) /
+                                ConditionCacheContext::GRANULE_SIZE;
+    if (cache.size() < max_granule_needed) {
+        cache.resize(max_granule_needed, false);
+    }
+
+    // Evaluate conjuncts to build a result filter (without modifying the block).
+    // We use _conjuncts from Scanner base class — these are the same conjuncts that
+    // Scanner::_filter_output_block will apply later.
+    if (_conjuncts.empty()) {
+        // No conjuncts to evaluate — mark all granules as true (all rows survive).
+        for (size_t i = 0; i < read_rows; i++) {
+            size_t granule = (base_row + i) / ConditionCacheContext::GRANULE_SIZE;
+            if (granule < cache.size()) {
+                cache[granule] = true;
+            }
+        }
+        return;
+    }
+
+    // Execute conjuncts on a shallow copy to get the filter without modifying the block.
+    IColumn::Filter result_filter(read_rows, 1);
+    bool can_filter_all = false;
+    // Use execute_conjuncts to evaluate, but on the original block columns.
+    auto st = VExprContext::execute_conjuncts(_conjuncts, nullptr, block, &result_filter,
+                                              &can_filter_all);
+    if (!st.ok()) {
+        // If evaluation fails, conservatively mark all granules as true.
+        for (size_t i = 0; i < read_rows; i++) {
+            size_t granule = (base_row + i) / ConditionCacheContext::GRANULE_SIZE;
+            if (granule < cache.size()) {
+                cache[granule] = true;
+            }
+        }
+        return;
+    }
+
+    if (can_filter_all) {
+        // All rows filtered — no granules to mark (they stay false).
+        return;
+    }
+
+    auto* filter_data = result_filter.data();
+    for (size_t i = 0; i < read_rows; i++) {
+        if (filter_data[i]) {
+            size_t granule = (base_row + i) / ConditionCacheContext::GRANULE_SIZE;
+            if (granule < cache.size()) {
+                cache[granule] = true;
+            }
+        }
+    }
 }
 
 void FileScanner::_finalize_reader_condition_cache() {
@@ -1812,8 +1957,9 @@ void FileScanner::_finalize_reader_condition_cache() {
 
     auto* cache = segment_v2::ConditionCache::instance();
     segment_v2::ConditionCache::ExternalCacheKey cache_key(
-            _current_range.path, _current_range.__isset.file_size ? _current_range.file_size : -1,
+            _current_range.path,
             _current_range.__isset.modification_time ? _current_range.modification_time : 0,
+            _current_range.__isset.file_size ? _current_range.file_size : -1,
             _condition_cache_digest);
 
     cache->insert(cache_key, std::move(_condition_cache));
