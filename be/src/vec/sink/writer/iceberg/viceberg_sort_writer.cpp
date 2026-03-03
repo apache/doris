@@ -39,9 +39,9 @@ Status VIcebergSortWriter::open(RuntimeState* state, RuntimeProfile* profile,
 
     // Create FullSorter for in-memory sorting with spill support enabled.
     // Parameters: limit=-1 (no limit), offset=0 (no offset)
-    _sorter = vectorized::FullSorter::create_unique(
-            _vsort_exec_exprs, -1, 0, &_pool, _sort_info.is_asc_order, _sort_info.nulls_first,
-            *row_desc, state, _profile);
+    _sorter = vectorized::FullSorter::create_unique(_vsort_exec_exprs, -1, 0, &_pool,
+                                                    _sort_info.is_asc_order, _sort_info.nulls_first,
+                                                    *row_desc, state, _profile);
     _sorter->init_profile(_profile);
     // Enable spill support so the sorter can be used with the spill framework
     _sorter->set_enable_spill();
@@ -83,8 +83,8 @@ Status VIcebergSortWriter::close(const Status& status) {
     Defer defer {[&]() {
         // If any intermediate operation failed, pass that error to the partition writer;
         // otherwise, pass the original status from the caller.
-        Status st = _iceberg_partition_writer->close(
-                internal_status.ok() ? status : internal_status);
+        Status st =
+                _iceberg_partition_writer->close(internal_status.ok() ? status : internal_status);
         if (!st.ok()) {
             LOG(WARNING) << fmt::format("_iceberg_partition_writer close failed, reason: {}",
                                         st.to_string());
@@ -148,8 +148,7 @@ void VIcebergSortWriter::_update_spill_block_batch_row_count(const vectorized::B
         _avg_row_bytes = std::max(1UL, block.bytes() / rows);
         int64_t spill_batch_bytes = _runtime_state->spill_sort_batch_bytes(); // default 8MB
         // Calculate how many rows fit in one spill batch (ceiling division)
-        _spill_block_batch_row_count =
-                (spill_batch_bytes + _avg_row_bytes - 1) / _avg_row_bytes;
+        _spill_block_batch_row_count = (spill_batch_bytes + _avg_row_bytes - 1) / _avg_row_bytes;
     }
 }
 
@@ -188,8 +187,7 @@ Status VIcebergSortWriter::_close_current_writer_and_open_next() {
     RETURN_IF_ERROR(_iceberg_partition_writer->close(Status::OK()));
 
     // Use the lambda to create a new partition writer with the next file index
-    _iceberg_partition_writer =
-            _create_writer_lambda(&current_file_name, current_file_index + 1);
+    _iceberg_partition_writer = _create_writer_lambda(&current_file_name, current_file_index + 1);
     if (!_iceberg_partition_writer) {
         return Status::InternalError("Failed to create new partition writer");
     }
@@ -224,9 +222,8 @@ Status VIcebergSortWriter::_do_spill() {
     // Register a new spill stream to store the sorted data on disk
     SpillStreamSPtr spilling_stream;
     RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
-            _runtime_state, spilling_stream, print_id(_runtime_state->query_id()),
-            "iceberg-sort", 1 /* node_id */, batch_size,
-            _runtime_state->spill_sort_batch_bytes(), _profile));
+            _runtime_state, spilling_stream, print_id(_runtime_state->query_id()), "iceberg-sort",
+            1 /* node_id */, batch_size, _runtime_state->spill_sort_batch_bytes(), _profile));
     _sorted_streams.emplace_back(spilling_stream);
 
     // Read sorted data from the sorter in batches and write to the spill stream
@@ -284,9 +281,8 @@ Status VIcebergSortWriter::_do_intermediate_merge() {
     int32_t batch_size = _get_spill_batch_size();
     SpillStreamSPtr tmp_stream;
     RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
-            _runtime_state, tmp_stream, print_id(_runtime_state->query_id()),
-            "iceberg-sort-merge", 1 /* node_id */, batch_size,
-            _runtime_state->spill_sort_batch_bytes(), _profile));
+            _runtime_state, tmp_stream, print_id(_runtime_state->query_id()), "iceberg-sort-merge",
+            1 /* node_id */, batch_size, _runtime_state->spill_sort_batch_bytes(), _profile));
 
     _sorted_streams.emplace_back(tmp_stream);
 
@@ -310,8 +306,7 @@ Status VIcebergSortWriter::_do_intermediate_merge() {
 int VIcebergSortWriter::_calc_max_merge_streams() const {
     // Calculate the maximum number of streams that can be merged simultaneously
     // based on the available memory limit and per-stream batch size
-    auto count =
-            _runtime_state->spill_sort_mem_limit() / _runtime_state->spill_sort_batch_bytes();
+    auto count = _runtime_state->spill_sort_mem_limit() / _runtime_state->spill_sort_batch_bytes();
     if (count > std::numeric_limits<int>::max()) {
         return std::numeric_limits<int>::max();
     }
@@ -319,8 +314,7 @@ int VIcebergSortWriter::_calc_max_merge_streams() const {
     return std::max(2, static_cast<int>(count));
 }
 
-Status VIcebergSortWriter::_create_merger(bool is_final_merge, size_t batch_size,
-                                           int num_streams) {
+Status VIcebergSortWriter::_create_merger(bool is_final_merge, size_t batch_size, int num_streams) {
     // Create a multi-way merge sorter that reads from multiple sorted spill streams
     std::vector<vectorized::BlockSupplier> child_block_suppliers;
     _merger = std::make_unique<vectorized::VSortedRunMerger>(_sorter->get_sort_description(),
