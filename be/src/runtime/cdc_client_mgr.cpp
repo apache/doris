@@ -160,8 +160,7 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
             "--server.port=" + std::to_string(doris::config::cdc_client_port);
     const std::string backend_http_port =
             "--backend.http.port=" + std::to_string(config::webserver_port);
-    const std::string cluster_token =
-            "--cluster.token=" + ExecEnv::GetInstance()->token();
+    const std::string cluster_token = "--cluster.token=" + ExecEnv::GetInstance()->token();
     const std::string java_opts = "-Dlog.path=" + std::string(log_dir);
 
     // check cdc jar exists
