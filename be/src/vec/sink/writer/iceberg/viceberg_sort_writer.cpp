@@ -241,8 +241,8 @@ Status VIcebergSortWriter::_do_spill() {
     while (!eos && !_runtime_state->is_cancelled()) {
         // Use _get_spill_batch_size() for safe narrowing conversion from size_t to int32_t
         // instead of C-style cast, which includes bounds checking
-        RETURN_IF_ERROR(_sorter->merge_sort_read_for_spill(
-                _runtime_state, &block, _get_spill_batch_size(), &eos));
+        RETURN_IF_ERROR(_sorter->merge_sort_read_for_spill(_runtime_state, &block,
+                                                           _get_spill_batch_size(), &eos));
         RETURN_IF_ERROR(spilling_stream->spill_block(_runtime_state, block, eos));
         block.clear_column_data();
     }
