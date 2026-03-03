@@ -101,7 +101,8 @@ public class AESUtil {
             decryptCipher.init(Cipher.DECRYPT_MODE, getSecretKey(serviceName));
             localDecryptCipherMap.put(serviceName, decryptCipher);
         }
-        byte[] decryptedBytes = decryptCipher.doFinal(Base64.getDecoder().decode(encryptedText));
+        byte[] decryptedBytes = decryptCipher.doFinal(Base64.getDecoder().decode(
+            encryptedText.replace(" ", "+")));
         TDeserializer deserializer = new TDeserializer(new TCompactProtocol.Factory());
         TBDPUserInfo userInfo = new TBDPUserInfo();
         deserializer.deserialize(userInfo, decryptedBytes);

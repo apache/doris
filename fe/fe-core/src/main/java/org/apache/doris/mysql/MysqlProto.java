@@ -226,6 +226,7 @@ public class MysqlProto {
             } catch (Exception e) {
                 context.getState().setError("decrypt bdp user info failed: " + e.getMessage());
                 LOG.warn("decrypt bdp user info failed", e);
+                sendResponsePacket(context);
                 return false;
             }
         }
