@@ -73,7 +73,7 @@ public class JdbcScanNode extends ExternalScanNode {
     private long catalogId;
 
     public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable, ScanContext scanContext) {
-        super(id, desc, "JdbcScanNode", scanContext, false);
+        super(id, desc, "JdbcScanNode", StatisticalType.JDBC_SCAN_NODE, scanContext, false);
         if (isJdbcExternalTable) {
             JdbcExternalTable jdbcExternalTable = (JdbcExternalTable) (desc.getTable());
             tbl = jdbcExternalTable.getJdbcTable();
@@ -86,7 +86,7 @@ public class JdbcScanNode extends ExternalScanNode {
 
     public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isTableValuedFunction, String query,
             ScanContext scanContext) {
-        super(id, desc, "JdbcScanNode", scanContext, false);
+        super(id, desc, "JdbcScanNode", StatisticalType.JDBC_SCAN_NODE, scanContext, false);
         this.isTableValuedFunction = isTableValuedFunction;
         this.query = query;
         tbl = (JdbcTable) desc.getTable();

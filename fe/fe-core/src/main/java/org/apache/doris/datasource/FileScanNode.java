@@ -36,6 +36,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -73,7 +74,12 @@ public abstract class FileScanNode extends ExternalScanNode {
 
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
             ScanContext scanContext, boolean needCheckColumnPriv) {
-        super(id, desc, planNodeName, scanContext, needCheckColumnPriv);
+        this(id, desc, planNodeName, StatisticalType.DEFAULT, scanContext, needCheckColumnPriv);
+    }
+
+    public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
+            StatisticalType statisticalType, ScanContext scanContext, boolean needCheckColumnPriv) {
+        super(id, desc, planNodeName, statisticalType, scanContext, needCheckColumnPriv);
         this.needCheckColumnPriv = needCheckColumnPriv;
     }
 

@@ -151,7 +151,8 @@ public class PaimonScanNode extends FileQueryScanNode {
                           boolean needCheckColumnPriv,
                           SessionVariable sv,
                           ScanContext scanContext) {
-        super(id, desc, "PAIMON_SCAN_NODE", scanContext, needCheckColumnPriv, sv);
+        super(id, desc, "PAIMON_SCAN_NODE", StatisticalType.PAIMON_SCAN_NODE,
+                scanContext, needCheckColumnPriv, sv);
     }
 
     @Override

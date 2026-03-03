@@ -71,7 +71,7 @@ public class TVFScanNode extends FileQueryScanNode {
      */
     public TVFScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv,
             ScanContext scanContext) {
-        super(id, desc, "TVF_SCAN_NODE", scanContext, needCheckColumnPriv, sv);
+        super(id, desc, "TVF_SCAN_NODE", StatisticalType.TVF_SCAN_NODE, scanContext, needCheckColumnPriv, sv);
         table = (FunctionGenTable) this.desc.getTable();
         tableValuedFunction = (ExternalFileTableValuedFunction) table.getTvf();
     }

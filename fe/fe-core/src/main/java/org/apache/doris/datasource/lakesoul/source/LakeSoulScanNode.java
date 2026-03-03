@@ -86,7 +86,7 @@ public class LakeSoulScanNode extends FileQueryScanNode {
 
     public LakeSoulScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv,
             ScanContext scanContext) {
-        super(id, desc, "planNodeName", scanContext, needCheckColumnPriv, sv);
+        super(id, desc, "planNodeName", StatisticalType.LAKESOUL_SCAN_NODE, scanContext, needCheckColumnPriv, sv);
     }
 
     @Override

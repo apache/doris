@@ -213,7 +213,7 @@ public class OlapScanNode extends ScanNode {
 
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, ScanContext scanContext) {
-        super(id, desc, planNodeName, scanContext);
+        super(id, desc, planNodeName, scanContext, StatisticalType.OLAP_SCAN_NODE);
         olapTable = (OlapTable) desc.getTable();
         distributionColumnIds = Sets.newTreeSet();
 

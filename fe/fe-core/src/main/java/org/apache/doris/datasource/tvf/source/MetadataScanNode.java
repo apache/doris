@@ -48,7 +48,7 @@ public class MetadataScanNode extends ExternalScanNode {
 
     public MetadataScanNode(PlanNodeId id, TupleDescriptor desc, MetadataTableValuedFunction tvf,
             ScanContext scanContext) {
-        super(id, desc, "METADATA_SCAN_NODE", scanContext, false);
+        super(id, desc, "METADATA_SCAN_NODE", StatisticalType.METADATA_SCAN_NODE, scanContext, false);
         this.tvf = tvf;
     }
 

@@ -47,7 +47,7 @@ public class DataGenScanNode extends ExternalScanNode {
 
     public DataGenScanNode(PlanNodeId id, TupleDescriptor desc, DataGenTableValuedFunction tvf,
             ScanContext scanContext) {
-        super(id, desc, "DataGenScanNode", scanContext, false);
+        super(id, desc, "DataGenScanNode", StatisticalType.TABLE_VALUED_FUNCTION_NODE, scanContext, false);
         this.tvf = tvf;
     }
 

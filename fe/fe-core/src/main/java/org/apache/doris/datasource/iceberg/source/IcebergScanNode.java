@@ -155,7 +155,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     // for test
     @VisibleForTesting
     public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv, ScanContext scanContext) {
-        super(id, desc, "ICEBERG_SCAN_NODE", scanContext, false, sv);
+        super(id, desc, "ICEBERG_SCAN_NODE", StatisticalType.ICEBERG_SCAN_NODE, scanContext, false, sv);
     }
 
     /**
@@ -166,7 +166,8 @@ public class IcebergScanNode extends FileQueryScanNode {
      */
     public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv,
             ScanContext scanContext) {
-        super(id, desc, "ICEBERG_SCAN_NODE", scanContext, needCheckColumnPriv, sv);
+        super(id, desc, "ICEBERG_SCAN_NODE", StatisticalType.ICEBERG_SCAN_NODE,
+                scanContext, needCheckColumnPriv, sv);
 
         ExternalTable table = (ExternalTable) desc.getTable();
         if (table instanceof HMSExternalTable) {

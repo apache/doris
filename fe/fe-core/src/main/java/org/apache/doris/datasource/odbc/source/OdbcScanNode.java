@@ -68,7 +68,7 @@ public class OdbcScanNode extends ExternalScanNode {
      * Constructs node to scan given data files of table 'tbl'.
      */
     public OdbcScanNode(PlanNodeId id, TupleDescriptor desc, OdbcTable tbl, ScanContext scanContext) {
-        super(id, desc, "SCAN ODBC", scanContext, false);
+        super(id, desc, "SCAN ODBC", StatisticalType.ODBC_SCAN_NODE, scanContext, false);
         connectString = tbl.getConnectString();
         odbcType = tbl.getOdbcTableType();
         tblName = JdbcTable.databaseProperName(odbcType, tbl.getOdbcTableName());

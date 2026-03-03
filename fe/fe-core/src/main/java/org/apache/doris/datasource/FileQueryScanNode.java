@@ -107,7 +107,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
      */
     public FileQueryScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
             ScanContext scanContext, boolean needCheckColumnPriv, SessionVariable sv) {
-        super(id, desc, planNodeName, scanContext, needCheckColumnPriv);
+        this(id, desc, planNodeName, StatisticalType.DEFAULT, scanContext, needCheckColumnPriv, sv);
+    }
+
+    public FileQueryScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
+            StatisticalType statisticalType, ScanContext scanContext, boolean needCheckColumnPriv, SessionVariable sv) {
+        super(id, desc, planNodeName, statisticalType, scanContext, needCheckColumnPriv);
         this.sessionVariable = sv;
     }
 

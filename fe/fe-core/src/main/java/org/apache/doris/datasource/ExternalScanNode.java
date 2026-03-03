@@ -53,7 +53,12 @@ public abstract class ExternalScanNode extends ScanNode {
 
     public ExternalScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
             ScanContext scanContext, boolean needCheckColumnPriv) {
-        super(id, desc, planNodeName, scanContext);
+        this(id, desc, planNodeName, StatisticalType.DEFAULT, scanContext, needCheckColumnPriv);
+    }
+
+    public ExternalScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
+            StatisticalType statisticalType, ScanContext scanContext, boolean needCheckColumnPriv) {
+        super(id, desc, planNodeName, scanContext, statisticalType);
         this.needCheckColumnPriv = needCheckColumnPriv;
     }
 

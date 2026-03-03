@@ -133,7 +133,8 @@ public class HudiScanNode extends HiveScanNode {
     public HudiScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
             Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation,
             SessionVariable sv, DirectoryLister directoryLister, ScanContext scanContext) {
-        super(id, desc, "HUDI_SCAN_NODE", needCheckColumnPriv, sv, directoryLister, scanContext);
+        super(id, desc, "HUDI_SCAN_NODE", StatisticalType.HUDI_SCAN_NODE,
+                needCheckColumnPriv, sv, directoryLister, scanContext);
         isCowTable = hmsTable.isHoodieCowTable();
         if (LOG.isDebugEnabled()) {
             if (isCowTable) {

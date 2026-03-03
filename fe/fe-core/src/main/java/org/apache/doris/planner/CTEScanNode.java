@@ -33,7 +33,7 @@ public class CTEScanNode extends ScanNode {
     private static final PlanNodeId UNINITIAL_PLANNODEID = new PlanNodeId(-1);
 
     public CTEScanNode(TupleDescriptor desc, ScanContext scanContext) {
-        super(UNINITIAL_PLANNODEID, desc, "CTEScanNode", scanContext);
+        super(UNINITIAL_PLANNODEID, desc, "CTEScanNode", scanContext, StatisticalType.CTE_SCAN_NODE);
     }
 
     public void setPlanNodeId(PlanNodeId id) {

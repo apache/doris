@@ -117,7 +117,12 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected final ScanContext scanContext;
 
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, ScanContext scanContext) {
-        super(id, desc.getId().asList(), planNodeName);
+        this(id, desc, planNodeName, scanContext, StatisticalType.DEFAULT);
+    }
+
+    public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, ScanContext scanContext,
+            StatisticalType statisticalType) {
+        super(id, desc.getId().asList(), planNodeName, statisticalType);
         this.desc = desc;
         this.scanContext = Objects.requireNonNull(scanContext, "scanContext can not be null");
     }

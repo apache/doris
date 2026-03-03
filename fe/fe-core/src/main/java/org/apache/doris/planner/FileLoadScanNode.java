@@ -60,7 +60,7 @@ public class FileLoadScanNode extends FileScanNode {
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
     public FileLoadScanNode(PlanNodeId id, TupleDescriptor desc, ScanContext scanContext) {
-        super(id, desc, "FILE_LOAD_SCAN_NODE", scanContext, false);
+        super(id, desc, "FILE_LOAD_SCAN_NODE", StatisticalType.FILE_SCAN_NODE, scanContext, false);
     }
 
     public void finalizeForNereids(TUniqueId loadId, List<NereidsFileGroupInfo> fileGroupInfos,

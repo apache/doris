@@ -114,13 +114,14 @@ public class HiveScanNode extends FileQueryScanNode {
      */
     public HiveScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv,
             DirectoryLister directoryLister, ScanContext scanContext) {
-        this(id, desc, "HIVE_SCAN_NODE", needCheckColumnPriv, sv, directoryLister, scanContext);
+        this(id, desc, "HIVE_SCAN_NODE", StatisticalType.HIVE_SCAN_NODE,
+                needCheckColumnPriv, sv, directoryLister, scanContext);
     }
 
     public HiveScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            boolean needCheckColumnPriv, SessionVariable sv,
+            StatisticalType statisticalType, boolean needCheckColumnPriv, SessionVariable sv,
             DirectoryLister directoryLister, ScanContext scanContext) {
-        super(id, desc, planNodeName, scanContext, needCheckColumnPriv, sv);
+        super(id, desc, planNodeName, statisticalType, scanContext, needCheckColumnPriv, sv);
         hmsTable = (HMSExternalTable) desc.getTable();
         brokerName = hmsTable.getCatalog().bindBrokerName();
         this.directoryLister = directoryLister;

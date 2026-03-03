@@ -101,7 +101,8 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
 
     public TrinoConnectorScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
             SessionVariable sv, ScanContext scanContext) {
-        super(id, desc, "TRINO_CONNECTOR_SCAN_NODE", scanContext, needCheckColumnPriv, sv);
+        super(id, desc, "TRINO_CONNECTOR_SCAN_NODE", StatisticalType.TRINO_CONNECTOR_SCAN_NODE,
+                scanContext, needCheckColumnPriv, sv);
     }
 
     @Override
