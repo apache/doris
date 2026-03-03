@@ -32,6 +32,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.datasource.kinesis.KinesisUtil;
 import org.apache.doris.load.routineload.kinesis.KinesisConfiguration;
 import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 import org.apache.doris.nereids.load.NereidsImportColumnDesc;
@@ -87,58 +88,34 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
 
     public static final String KINESIS_FILE_CATALOG = "kinesis";
 
-    /**
-     * AWS region where the Kinesis stream is located.
-     */
     @SerializedName("rg")
     private String region;
-
-    /**
-     * Name of the Kinesis stream to consume from.
-     */
     @SerializedName("stm")
     private String stream;
-
-    /**
-     * Optional custom endpoint URL.
-     */
     @SerializedName("ep")
     private String endpoint;
 
-    /**
-     * User-specified shards to consume from.
-     * If empty, all shards will be discovered and consumed.
-     */
+    // optional, user want to load shards(Kafka's cskp).
     @SerializedName("csks")
     private List<String> customKinesisShards = Lists.newArrayList();
 
-    /**
-     * Current shards being consumed.
-     * Updated periodically as shards may split or merge.
-     */
+    // current shards being consumed.
+    // updated periodically because shards may split or merge.
     private List<String> currentKinesisShards = Lists.newArrayList();
 
-    /**
-     * Default starting position for new shards.
-     * Values: TRIM_HORIZON, LATEST, or a timestamp string.
-     */
+    // Default starting position for new shards.
+    // Values: TRIM_HORIZON, LATEST, or a timestamp string.
     private String kinesisDefaultPosition = "";
 
-    /**
-     * Custom Kinesis properties including AWS credentials and client settings.
-     */
+    // custom Kinesis properties including AWS credentials and client settings.
     @SerializedName("prop")
     private Map<String, String> customProperties = Maps.newHashMap();
     private Map<String, String> convertedCustomProperties = Maps.newHashMap();
 
-    /**
-     * Cache of shard lag information (milliseconds behind latest).
-     */
+    // cache of shard lag information (milliseconds behind latest).
     private Map<String, Long> cachedShardWithMillsBehindLatest = Maps.newConcurrentMap();
 
-    /**
-     * Newly discovered shards from Kinesis.
-     */
+    // newly discovered shards from Kinesis.
     private List<String> newCurrentKinesisShards = Lists.newArrayList();
 
     public KinesisRoutineLoadJob() {
@@ -182,6 +159,8 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     public void prepare() throws UserException {
+        // should reset converted properties each time the job being prepared.
+        // because the file info can be changed anytime.
         convertCustomProperties(true);
     }
 
@@ -286,23 +265,23 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         return false;
     }
 
-    private void updateProgressAndCache(RLTaskTxnCommitAttachment attachment) {
+    private void updateProgressAndOffsetsCache(RLTaskTxnCommitAttachment attachment) {
         ((KinesisProgress) attachment.getProgress()).getShardIdToSequenceNumber().forEach((shardId, seqNum) -> {
-            // Update cached shard info if needed
+            // (TODO) Update cached shard info
         });
         this.progress.update(attachment);
     }
 
     @Override
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) throws UserException {
-        updateProgressAndCache(attachment);
+        updateProgressAndOffsetsCache(attachment);
         super.updateProgress(attachment);
     }
 
     @Override
     protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment) {
         super.replayUpdateProgress(attachment);
-        updateProgressAndCache(attachment);
+        updateProgressAndOffsetsCache(attachment);
     }
 
     @Override
@@ -425,19 +404,14 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
 
     /**
      * Get all shard IDs from the Kinesis stream.
-     * This method should call Kinesis API to list shards.
+     * Delegates to a BE node via gRPC, which calls AWS ListShards API using the SDK.
      */
     private List<String> getAllKinesisShards() throws UserException {
         convertCustomProperties(false);
-        // TODO: Implement Kinesis API call to list shards
-        // For now, return the current shards or custom shards
         if (!customKinesisShards.isEmpty()) {
             return customKinesisShards;
         }
-        // Placeholder: In actual implementation, this would call KinesisUtil.getAllKinesisShards()
-        // return KinesisUtil.getAllKinesisShards(region, stream, endpoint, convertedCustomProperties);
-        throw new UserException("Kinesis shard discovery not implemented yet. "
-                + "Please specify shards explicitly using kinesis_shards property.");
+        return KinesisUtil.getAllKinesisShards(region, stream, endpoint, convertedCustomProperties);
     }
 
     /**

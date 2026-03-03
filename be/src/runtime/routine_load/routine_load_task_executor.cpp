@@ -208,6 +208,49 @@ Status RoutineLoadTaskExecutor::get_kafka_real_offsets_for_partitions(
     return st;
 }
 
+Status RoutineLoadTaskExecutor::_prepare_ctx(const PKinesisMetaProxyRequest& request,
+                                             std::shared_ptr<StreamLoadContext> ctx) {
+    ctx->load_type = TLoadType::ROUTINE_LOAD;
+    ctx->load_src_type = TLoadSourceType::KINESIS;
+    ctx->label = "NaN";
+
+    // convert PKinesisLoadInfo to TKinesisLoadInfo
+    TKinesisLoadInfo t_info;
+    t_info.region = request.kinesis_info().region();
+    t_info.stream = request.kinesis_info().stream();
+    if (request.kinesis_info().has_endpoint()) {
+        t_info.__set_endpoint(request.kinesis_info().endpoint());
+    }
+    std::map<std::string, std::string> properties;
+    for (int i = 0; i < request.kinesis_info().properties_size(); ++i) {
+        const PStringPair& pair = request.kinesis_info().properties(i);
+        properties.emplace(pair.key(), pair.val());
+    }
+    t_info.__set_properties(std::move(properties));
+
+    ctx->kinesis_info.reset(new KinesisLoadInfo(t_info));
+    ctx->need_rollback = false;
+    return Status::OK();
+}
+
+Status RoutineLoadTaskExecutor::get_kinesis_shard_meta(const PKinesisMetaProxyRequest& request,
+                                                        std::vector<std::string>* shard_ids) {
+    CHECK(request.has_kinesis_info());
+
+    // This context is meaningless, just for unifying the interface
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
+    RETURN_IF_ERROR(_prepare_ctx(request, ctx));
+
+    std::shared_ptr<DataConsumer> consumer;
+    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(ctx, &consumer));
+
+    Status st = std::static_pointer_cast<KinesisDataConsumer>(consumer)->get_shard_list(shard_ids);
+    if (st.ok()) {
+        _data_consumer_pool.return_consumer(consumer);
+    }
+    return st;
+}
+
 Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     std::unique_lock<std::mutex> l(_lock);
     // check if already submitted

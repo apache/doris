@@ -483,9 +483,25 @@ message PKafkaMetaProxyRequest {
     repeated PIntegerPair offset_flags = 5;
 };
 
+message PKinesisLoadInfo {
+    required string region = 1;
+    required string stream = 2;
+    optional string endpoint = 3;
+    repeated PStringPair properties = 4;
+};
+
+message PKinesisMetaProxyRequest {
+    optional PKinesisLoadInfo kinesis_info = 1;
+};
+
+message PKinesisMetaProxyResult {
+    repeated string shard_ids = 1;
+};
+
 message PProxyRequest {
     optional PKafkaMetaProxyRequest kafka_meta_request = 1;
     optional int64 timeout_secs = 2;
+    optional PKinesisMetaProxyRequest kinesis_meta_request = 3;
 };
 
 message PKafkaMetaProxyResult {
@@ -500,6 +516,7 @@ message PProxyResult {
     required PStatus status = 1;
     optional PKafkaMetaProxyResult kafka_meta_result = 2;
 	optional PKafkaPartitionOffsets partition_offsets = 3;
+    optional PKinesisMetaProxyResult kinesis_meta_result = 4;
 };
 
 message PDataColumn {
