@@ -1022,13 +1022,9 @@ public class Alter {
             if (properties.containsKey(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE)) {
                 String mediumAllocationModeValue = properties.get(
                         PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE);
-                try {
-                    DataProperty.MediumAllocationMode mediumAllocationMode
-                            = DataProperty.MediumAllocationMode.fromString(mediumAllocationModeValue);
-                    dataProperty.setMediumAllocationMode(mediumAllocationMode);
-                } catch (IllegalArgumentException e) {
-                    throw new AnalysisException(e.getMessage());
-                }
+                DataProperty.MediumAllocationMode mediumAllocationMode
+                        = DataProperty.MediumAllocationMode.fromString(mediumAllocationModeValue);
+                dataProperty.setMediumAllocationMode(mediumAllocationMode);
             }
 
             // 4.3 modify partition storage policy

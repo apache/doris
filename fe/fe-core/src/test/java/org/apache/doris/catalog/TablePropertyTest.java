@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.DataProperty.MediumAllocationMode;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.persist.OperationType;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -185,6 +186,17 @@ public class TablePropertyTest {
 
         Assert.assertTrue(tableProperty.getProperties()
                 .containsKey(DynamicPartitionProperty.REPLICATION_NUM));
+    }
+
+    @Test
+    public void testBuildPropertyModifyTableProperties() {
+        HashMap<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "HDD");
+        properties.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE, "strict");
+        TableProperty tableProperty = new TableProperty(properties);
+        tableProperty.buildProperty(OperationType.OP_MODIFY_TABLE_PROPERTIES);
+        Assert.assertEquals(org.apache.doris.thrift.TStorageMedium.HDD, tableProperty.getStorageMedium());
+        Assert.assertEquals(MediumAllocationMode.STRICT, tableProperty.getMediumAllocationMode());
     }
 
     @Test

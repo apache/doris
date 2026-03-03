@@ -1137,8 +1137,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             throw new TException("unknown ConnectType: " + context.getConnectType());
         }
-        Runnable clearCallback = () -> {
-        };
+        Runnable clearCallback = () -> {};
         if (params.isSetQueryId()) {
             proxyQueryIdToConnCtx.put(params.getQueryId(), context);
             clearCallback = () -> proxyQueryIdToConnCtx.remove(params.getQueryId());
@@ -2837,14 +2836,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         multiTableFragmentInstanceIdIndexMap.putIfAbsent(request.getTxnId(), new AtomicInteger(1));
         AtomicInteger index = multiTableFragmentInstanceIdIndexMap.get(request.getTxnId());
         StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, index, null,
-                getClientAddrAsString());
+                                                                    getClientAddrAsString());
         try {
             streamLoadHandler.generatePlan();
             planFragmentParamsList.addAll(streamLoadHandler.getFragmentParams());
             if (LOG.isDebugEnabled()) {
                 LOG.debug("receive stream load multi table put request result: {}", result);
             }
-        } catch (UserException exception) {
+        }  catch (UserException exception) {
             LOG.warn("failed to get stream load plan: {}", exception.getMessage());
             status = new TStatus(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(exception.getMessage());
@@ -2853,7 +2852,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 RoutineLoadJob routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager()
                         .getRoutineLoadJobByMultiLoadTaskTxnId(request.getTxnId());
                 routineLoadJob.updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.INTERNAL_ERR,
-                        "failed to get stream load plan, " + exception.getMessage()), false);
+                            "failed to get stream load plan, " + exception.getMessage()), false);
             } catch (Throwable e) {
                 LOG.warn("catch update routine load job error.", e);
             }
@@ -3973,12 +3972,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         restoreCommand.setMeta(backupMeta);
         restoreCommand.setJobInfo(backupJobInfo);
         restoreCommand.setIsBeingSynced();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("restore snapshot info, restoreCommand: {}", restoreCommand);
-            LOG.debug("RPC: created RestoreCommand with storage_medium={}, medium_allocation_mode={}, isBeingSynced={}",
-                    restoreCommand.getStorageMedium(), restoreCommand.getMediumAllocationMode(),
-                    restoreCommand.isBeingSynced());
-        }
+        LOG.debug("restore snapshot info, restoreCommand: {}", restoreCommand);
         try {
             ConnectContext ctx = new ConnectContext();
             String fullUserName = request.getUser();
