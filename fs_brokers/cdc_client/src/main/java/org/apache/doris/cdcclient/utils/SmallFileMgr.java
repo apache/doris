@@ -29,8 +29,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URISyntaxException;
-import java.security.CodeSource;
+import java.net.URL;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -81,11 +80,23 @@ public class SmallFileMgr {
      */
     static String getLocalDir() {
         try {
-            CodeSource codeSource = SmallFileMgr.class.getProtectionDomain().getCodeSource();
-            File jarFile = new File(codeSource.getLocation().toURI());
-            String jarDir = jarFile.getParentFile().getAbsolutePath();
-            return jarDir;
-        } catch (URISyntaxException ex) {
+            URL url = SmallFileMgr.class.getProtectionDomain().getCodeSource().getLocation();
+            LOG.info("Get code source URL: {}", url);
+            // Spring Boot fat jar: jar:file:/path/to/app.jar!/BOOT-INF/classes!/
+            if ("jar".equals(url.getProtocol())) {
+                String path = url.getPath(); // file:/path/to/app.jar!/BOOT-INF/classes!/
+                int separator = path.indexOf("!");
+                if (separator > 0) {
+                    path = path.substring(0, separator); // file:/path/to/app.jar
+                }
+                url = new URL(path);
+            }
+            File file = new File(url.toURI());
+            // When running a JAR file, `file` refers to the JAR file itself, taking its parent
+            // directory.
+            // When running an IDE file, `file` refers to the classes directory, returning directly.
+            return file.isFile() ? file.getParentFile().getAbsolutePath() : file.getAbsolutePath();
+        } catch (Exception ex) {
             throw new RuntimeException(ex);
         }
     }

@@ -33,6 +33,14 @@ services:
       - "max_wal_senders=30"
       - "-c"
       - "max_replication_slots=30"
+      - "-c"
+      - "ssl=on"
+      - "-c"
+      - "ssl_cert_file=/var/lib/postgresql/certs/server.crt"
+      - "-c"
+      - "ssl_key_file=/var/lib/postgresql/certs/server.key"
+      - "-c"
+      - "ssl_ca_file=/var/lib/postgresql/certs/root.crt"
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U postgres && psql -U postgres -c 'SELECT 1 FROM doris_test.deadline;'" ]
       interval: 5s
@@ -41,6 +49,7 @@ services:
     volumes:
       - ./data/data/:/var/lib/postgresql/data/
       - ./init:/docker-entrypoint-initdb.d
+      - ./certs:/var/lib/postgresql/certs
     networks:
       - doris--postgres
 

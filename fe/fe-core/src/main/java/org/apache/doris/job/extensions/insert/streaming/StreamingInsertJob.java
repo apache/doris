@@ -24,15 +24,12 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.SmallFileMgr;
-import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
@@ -226,7 +223,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 String includeTables = String.join(",", createTbls);
                 sourceProperties.put(DataSourceConfigKeys.INCLUDE_TABLES, includeTables);
             }
-            this.offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType, sourceProperties);
+            this.offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType,
+                    StreamingJobUtils.convertCertFile(getDbId(), sourceProperties));
             JdbcSourceOffsetProvider rdsOffsetProvider = (JdbcSourceOffsetProvider) this.offsetProvider;
             rdsOffsetProvider.splitChunks(createTbls);
         } catch (Exception ex) {
@@ -480,7 +478,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      * @return
      */
     private AbstractStreamingTask createStreamingMultiTblTask() throws JobException {
-        Map<String, String> convertSourceProps = convertCertFile(sourceProperties);
+        Map<String, String> convertSourceProps = StreamingJobUtils.convertCertFile(getDbId(), sourceProperties);
         return new StreamingMultiTblTask(getJobId(), Env.getCurrentEnv().getNextId(), dataSourceType,
                 offsetProvider, convertSourceProps, targetDb, targetProperties, jobProperties, getCreateUser());
     }
@@ -1263,28 +1261,5 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             // jdbc clean chunk meta table
             ((JdbcSourceOffsetProvider) this.offsetProvider).cleanMeta(getJobId());
         }
-    }
-
-    /**
-     * When enabling SSL, you need to convert FILE:ca.perm to FILE:ca.pem:md5.
-     */
-    private Map<String, String> convertCertFile(Map<String, String> sourceProperties) throws JobException {
-        SmallFileMgr smallFileMgr = Env.getCurrentEnv().getSmallFileMgr();
-        Map<String, String> newProps = new HashMap<>(sourceProperties);
-        if (sourceProperties.containsKey(DataSourceConfigKeys.SSL_ROOTCERT)) {
-            String certFile = sourceProperties.get(DataSourceConfigKeys.SSL_ROOTCERT);
-            if (certFile.startsWith("FILE:")) {
-                String file = certFile.substring(certFile.indexOf(":") + 1);
-                try {
-                    SmallFile smallFile = smallFileMgr.getSmallFile(getDbId(), StreamingInsertJob.JOB_FILE_CATALOG, file, true);
-                    newProps.put(DataSourceConfigKeys.SSL_ROOTCERT, "FILE:" + smallFile.id + ":" + smallFile.md5);
-                } catch (DdlException ex) {
-                    throw new JobException("ssl root cert file not found: " + certFile);
-                }
-            } else {
-                throw new JobException("ssl root cert is not in expected format, should start with FILE:" + certFile);
-            }
-        }
-        return newProps;
     }
 }
