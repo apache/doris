@@ -355,6 +355,8 @@ public class NereidsCoordinator extends Coordinator {
         return coordinatorContext.asLoadProcessor().loadContext.getErrorTabletInfos();
     }
 
+    // 1. Get the total number of fragment instances for Nereids engine.
+    // 2. Overrides base class to use Nereids-specific CoordinatorContext if primary path fails.
     @Override
     public long getFragmentInstanceCount() {
         Pair<Long, Long> stats = getInstancesNumFromWorkloadRuntimeStatusMgr();
@@ -364,6 +366,8 @@ public class NereidsCoordinator extends Coordinator {
         return coordinatorContext.instanceNum.get();
     }
 
+    // 1. Primary path: Use aggregated stats from periodic BE reports (Audit Log path).
+    // 2. Fallback path: Traverse the execution task tree in FE memory to count completed tasks.
     @Override
     public long getFragmentInstanceFinishedCount() {
         Pair<Long, Long> stats = getInstancesNumFromWorkloadRuntimeStatusMgr();
@@ -371,18 +375,13 @@ public class NereidsCoordinator extends Coordinator {
             return stats.second;
         }
 
-        String queryid = DebugUtil.printId(coordinatorContext.queryId);
-        LOG.info("getFragmentInstanceFinishedCount {} ", queryid);
-
         if (executionTask == null) {
             return 0;
         }
         long finishedInstances = 0;
+        // Deep traverse the execution task tree to sum up finished instances
         for (MultiFragmentsPipelineTask multiTask : executionTask.getChildrenTasks().values()) {
-            LOG.info("getFragmentInstanceFinishedCount {} first loop", queryid);
             for (SingleFragmentPipelineTask singleTask : multiTask.getChildrenTasks().values()) {
-                LOG.info("getFragmentInstanceFinishedCount {}: isDone={}, instanceNum={}", queryid,
-                        singleTask.isDone(), singleTask.getInstanceNum());
                 if (singleTask.isDone()) {
                     finishedInstances += singleTask.getInstanceNum();
                 }

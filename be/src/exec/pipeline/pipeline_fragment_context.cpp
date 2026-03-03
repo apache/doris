@@ -1871,7 +1871,9 @@ void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id, int
             }
         }
     }
+    // Increment closed task count for the specific instance
     if (++_instance_closed_tasks_count[instance_idx] == _instance_tasks_count[instance_idx]) {
+        // If all tasks in this instance are closed, the instance is finished
         ++_finished_instances_count;
     }
     std::lock_guard<std::mutex> l(_task_mutex);

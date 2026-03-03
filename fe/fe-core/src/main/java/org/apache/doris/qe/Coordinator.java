@@ -296,6 +296,8 @@ public class Coordinator implements CoordInterface {
     // fragmentid -> backendid
     private MarkedCountDownLatch<Integer, Long> fragmentsDoneLatch = null;
 
+    // 1. Primary path: Get aggregated stats from WorkloadRuntimeStatusMgr (based on BE periodic reports).
+    // 2. Fallback path: Use local Latch information if BE reports are not yet available.
     public long getFragmentInstanceCount() {
         long countFromWorkloadMgr = getInstancesNumFromWorkloadRuntimeStatusMgr().first;
         if (countFromWorkloadMgr > 0) {
@@ -309,6 +311,8 @@ public class Coordinator implements CoordInterface {
         return 0;
     }
 
+    // 1. Primary path: Get aggregated stats from WorkloadRuntimeStatusMgr (based on BE periodic reports).
+    // 2. Fallback path: Calculate based on Latch countdown (Total - Remaining).
     public long getFragmentInstanceFinishedCount() {
         long countFromWorkloadMgr = getInstancesNumFromWorkloadRuntimeStatusMgr().second;
         if (countFromWorkloadMgr > 0) {
@@ -322,6 +326,8 @@ public class Coordinator implements CoordInterface {
         return 0;
     }
 
+    // Aggregates real-time instance statistics from all involved Backends.
+    // This data is populated by periodic BE reports (Audit Log path) and cached in WorkloadRuntimeStatusMgr.
     protected Pair<Long, Long> getInstancesNumFromWorkloadRuntimeStatusMgr() {
         if (Env.getCurrentEnv() == null || Env.getCurrentEnv().getWorkloadRuntimeStatusMgr() == null) {
             return Pair.of(0L, 0L);
