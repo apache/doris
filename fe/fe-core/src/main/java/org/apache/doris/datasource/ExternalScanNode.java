@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
@@ -51,8 +52,8 @@ public abstract class ExternalScanNode extends ScanNode {
             : new FederationBackendPolicy();
 
     public ExternalScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            String clusterName, boolean needCheckColumnPriv) {
-        super(id, desc, planNodeName, clusterName);
+            ScanContext scanContext, boolean needCheckColumnPriv) {
+        super(id, desc, planNodeName, scanContext);
         this.needCheckColumnPriv = needCheckColumnPriv;
     }
 

@@ -59,8 +59,8 @@ public class FileLoadScanNode extends FileScanNode {
      * External file scan node for load from file
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
-    public FileLoadScanNode(PlanNodeId id, TupleDescriptor desc, String clusterName) {
-        super(id, desc, "FILE_LOAD_SCAN_NODE", clusterName, false);
+    public FileLoadScanNode(PlanNodeId id, TupleDescriptor desc, ScanContext scanContext) {
+        super(id, desc, "FILE_LOAD_SCAN_NODE", scanContext, false);
     }
 
     public void finalizeForNereids(TUniqueId loadId, List<NereidsFileGroupInfo> fileGroupInfos,

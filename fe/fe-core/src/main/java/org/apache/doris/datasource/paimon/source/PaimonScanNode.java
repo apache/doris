@@ -37,6 +37,7 @@ import org.apache.doris.datasource.paimon.profile.PaimonMetricRegistry;
 import org.apache.doris.datasource.paimon.profile.PaimonScanMetricsReporter;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -149,8 +150,8 @@ public class PaimonScanNode extends FileQueryScanNode {
                           TupleDescriptor desc,
                           boolean needCheckColumnPriv,
                           SessionVariable sv,
-                          String clusterName) {
-        super(id, desc, "PAIMON_SCAN_NODE", clusterName, needCheckColumnPriv, sv);
+                          ScanContext scanContext) {
+        super(id, desc, "PAIMON_SCAN_NODE", scanContext, needCheckColumnPriv, sv);
     }
 
     @Override

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -45,7 +46,7 @@ public class TVFScanNodeTest {
         ExternalFileTableValuedFunction tvf = Mockito.mock(ExternalFileTableValuedFunction.class);
         Mockito.when(table.getTvf()).thenReturn(tvf);
         desc.setTable(table);
-        TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, "");
+        TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, ScanContext.EMPTY);
 
         TBrokerFileStatus status = new TBrokerFileStatus();
         status.setSize(10_000L * MB);

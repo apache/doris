@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.tvf.source.MetadataScanNode;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TMetaScanRange;
@@ -64,6 +65,7 @@ public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf 
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
-        return new MetadataScanNode(id, desc, this, sv.resolveCloudClusterName());
+        return new MetadataScanNode(id, desc, this,
+                ScanContext.builder().clusterName(sv.resolveCloudClusterName()).build());
     }
 }

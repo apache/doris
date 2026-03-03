@@ -35,6 +35,7 @@ import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
@@ -105,8 +106,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
     public FileQueryScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            String clusterName, boolean needCheckColumnPriv, SessionVariable sv) {
-        super(id, desc, planNodeName, clusterName, needCheckColumnPriv);
+            ScanContext scanContext, boolean needCheckColumnPriv, SessionVariable sv) {
+        super(id, desc, planNodeName, scanContext, needCheckColumnPriv);
         this.sessionVariable = sv;
     }
 

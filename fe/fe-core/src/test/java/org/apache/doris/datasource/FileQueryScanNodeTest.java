@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -38,7 +39,7 @@ public class FileQueryScanNodeTest {
 
     private static class TestFileQueryScanNode extends FileQueryScanNode {
         TestFileQueryScanNode(SessionVariable sv) {
-            super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), "test", "", false, sv);
+            super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), "test", ScanContext.EMPTY, false, sv);
         }
 
         @Override

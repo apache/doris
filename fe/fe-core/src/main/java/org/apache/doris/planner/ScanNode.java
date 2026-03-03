@@ -114,14 +114,11 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected HashSet<Long> scanBackendIds = new HashSet<>();
     // Immutable scan context used for evolving scan-related metadata.
     protected final ScanContext scanContext;
-    // Cluster name resolved in planning and injected when this scan node is created.
-    protected final String clusterName;
 
-    public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, String clusterName) {
+    public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, ScanContext scanContext) {
         super(id, desc.getId().asList(), planNodeName);
         this.desc = desc;
-        this.scanContext = ScanContext.ofClusterName(clusterName);
-        this.clusterName = this.scanContext.getClusterName();
+        this.scanContext = scanContext == null ? ScanContext.EMPTY : scanContext;
     }
 
     protected List<Column> getColumns() {
@@ -706,10 +703,6 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     public long getSelectedSplitNum() {
         return selectedSplitNum;
-    }
-
-    public String getClusterName() {
-        return clusterName;
     }
 
     public ScanContext getScanContext() {

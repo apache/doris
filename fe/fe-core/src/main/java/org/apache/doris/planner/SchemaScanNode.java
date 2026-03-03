@@ -67,8 +67,8 @@ public class SchemaScanNode extends ScanNode {
      */
     public SchemaScanNode(PlanNodeId id, TupleDescriptor desc,
             String schemaCatalog, String schemaDb, String schemaTable, List<Expr> frontendConjuncts,
-            String clusterName) {
-        super(id, desc, "SCAN SCHEMA", clusterName);
+            ScanContext scanContext) {
+        super(id, desc, "SCAN SCHEMA", scanContext);
         this.tableName = desc.getTable().getName();
         this.schemaCatalog = schemaCatalog;
         this.schemaDb = schemaDb;

@@ -212,8 +212,8 @@ public class OlapScanNode extends ScanNode {
     private Column globalRowIdColumn;
 
     // Constructs node to scan given data files of table 'tbl'.
-    public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, String clusterName) {
-        super(id, desc, planNodeName, clusterName);
+    public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, ScanContext scanContext) {
+        super(id, desc, planNodeName, scanContext);
         olapTable = (OlapTable) desc.getTable();
         distributionColumnIds = Sets.newTreeSet();
 
