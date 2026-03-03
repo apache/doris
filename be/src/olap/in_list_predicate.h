@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <roaring/roaring.hh>
 
+#include "common/compiler_util.h"
 #include "common/exception.h"
 #include "decimal12.h"
 #include "exprs/hybrid_set.h"
@@ -259,10 +260,8 @@ public:
 
     bool camp_field(const vectorized::Field& min_field, const vectorized::Field& max_field) const {
         if constexpr (PT == PredicateType::IN_LIST) {
-            return (Compare::less_equal(min_field.template get<Type>(), _max_value) &&
-                    Compare::greater_equal(max_field.template get<Type>(), _min_value)) ||
-                   (Compare::greater_equal(max_field.template get<Type>(), _min_value) &&
-                    Compare::less_equal(min_field.template get<Type>(), _max_value));
+            return Compare::less_equal(min_field.template get<Type>(), _max_value) &&
+                   Compare::greater_equal(max_field.template get<Type>(), _min_value);
         } else {
             return true;
         }
@@ -271,18 +270,19 @@ public:
     bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
         bool result = true;
         if ((*statistic->get_stat_func)(statistic, column_id())) {
-            vectorized::Field min_field;
-            vectorized::Field max_field;
             if (statistic->is_all_null) {
                 result = false;
-            } else if (!vectorized::ParquetPredicate::parse_min_max_value(
-                                statistic->col_schema, statistic->encoded_min_value,
-                                statistic->encoded_max_value, *statistic->ctz, &min_field,
-                                &max_field)
-                                .ok()) [[unlikely]] {
-                result = true;
             } else {
-                result = camp_field(min_field, max_field);
+                vectorized::Field min_field;
+                vectorized::Field max_field;
+                auto st = vectorized::ParquetPredicate::parse_min_max_value(
+                        statistic->col_schema, statistic->encoded_min_value,
+                        statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field);
+                if (LIKELY(st.ok())) {
+                    result = camp_field(min_field, max_field);
+                } else { // status is not ok, return true directly
+                    result = true;
+                }
             }
         }
 
