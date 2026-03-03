@@ -89,6 +89,11 @@ under the License.
             <artifactId>paimon-oss</artifactId>
             <version>${paimon.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-obs</artifactId>
+            <version>${paimon.version}</version>
+        </dependency>
         <!-- For Avro and Hudi Scanner PreLoad -->
         <dependency>
             <groupId>org.apache.hadoop</groupId>
