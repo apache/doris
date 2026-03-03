@@ -736,7 +736,7 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_block_load_counter, stats.blocks_load);
     COUNTER_UPDATE(local_state->_block_fetch_timer, stats.block_fetch_ns);
     COUNTER_UPDATE(local_state->_delete_bitmap_get_agg_timer, stats.delete_bitmap_get_agg_ns);
-    COUNTER_UPDATE(local_state->_scan_rows, stats.raw_rows_read);
+    COUNTER_SET(local_state->_scan_rows, stats.raw_rows_read);
     COUNTER_UPDATE(local_state->_vec_cond_timer, stats.vec_cond_ns);
     COUNTER_UPDATE(local_state->_short_cond_timer, stats.short_cond_ns);
     COUNTER_UPDATE(local_state->_expr_filter_timer, stats.expr_filter_ns);
