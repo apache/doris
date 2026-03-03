@@ -28,6 +28,7 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.THashJoinNode;

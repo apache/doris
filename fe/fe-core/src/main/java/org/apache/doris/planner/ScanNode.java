@@ -50,6 +50,7 @@ import org.apache.doris.datasource.SplitGenerator;
 import org.apache.doris.datasource.SplitSource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
