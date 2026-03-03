@@ -22,7 +22,6 @@ import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.DataGenTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionTask;
 import org.apache.doris.thrift.TDataGenScanNode;
@@ -45,8 +44,9 @@ public class DataGenScanNode extends ExternalScanNode {
 
     private DataGenTableValuedFunction tvf;
 
-    public DataGenScanNode(PlanNodeId id, TupleDescriptor desc, DataGenTableValuedFunction tvf) {
-        super(id, desc, "DataGenScanNode", StatisticalType.TABLE_VALUED_FUNCTION_NODE, false);
+    public DataGenScanNode(PlanNodeId id, TupleDescriptor desc, DataGenTableValuedFunction tvf,
+            ScanContext scanContext) {
+        super(id, desc, "DataGenScanNode", scanContext, false);
         this.tvf = tvf;
     }
 
@@ -95,8 +95,9 @@ public class DataGenScanNode extends ExternalScanNode {
     // by multi-processes or multi-threads. So we assign instance number to 1.
     @Override
     public int getNumInstances() {
-        if (ConnectContext.get().getSessionVariable().isIgnoreStorageDataDistribution()) {
-            return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+        ConnectContext context = ConnectContext.get();
+        if (context != null && context.getSessionVariable().isIgnoreStorageDataDistribution()) {
+            return context.getSessionVariable().getParallelExecInstanceNum(scanContext.getClusterName());
         }
         return 1;
     }

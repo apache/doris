@@ -22,7 +22,6 @@ import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.statistics.StatisticalType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;

@@ -1128,7 +1128,9 @@ public class SystemInfoService {
         return idToBackendRef;
     }
 
-    public int getMinPipelineExecutorSize() {
+    // CloudSystemInfoService override.
+    // Non-cloud ignores clusterName and calculates from all backends.
+    public int getMinPipelineExecutorSize(String clusterName) {
         List<Backend> currentBackends = null;
         try {
             currentBackends = getAllBackendsByAllCluster().values().asList();
@@ -1147,12 +1149,6 @@ public class SystemInfoService {
                 .filter(size -> size > 0)
                 .min()
                 .orElse(1);
-    }
-
-    // CloudSystemInfoService override.
-    // Non-cloud ignores clusterName and calculates from all backends.
-    public int getMinPipelineExecutorSize(String clusterName) {
-        return getMinPipelineExecutorSize();
     }
 
     // CloudSystemInfoService override
