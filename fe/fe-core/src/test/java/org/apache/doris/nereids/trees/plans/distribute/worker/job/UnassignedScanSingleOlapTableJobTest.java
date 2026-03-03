@@ -183,7 +183,6 @@ public class UnassignedScanSingleOlapTableJobTest {
         connectContext.setStatementContext(statementContext);
 
         long partitionOne = 100L;
-        long partitionTwo = 200L;
         long selectedIndexId = 10L;
 
         OlapScanNode olapScanNode = Mockito.mock(OlapScanNode.class);
