@@ -86,7 +86,15 @@ Status MaterializationSharedState::merge_multi_response() {
                                         backend_id));
                 }
                 auto& source_block_rows = block_maps[backend_id];
-                DCHECK(source_block_rows.second < source_block_rows.first.rows());
+                // Ensure we do not read past the source block's rows. In production builds
+                // DCHECK may be disabled, so turn this into an explicit error to avoid
+                // undefined behaviour when a backend returns fewer rows than expected.
+                if (UNLIKELY(source_block_rows.second >= source_block_rows.first.rows())) {
+                    return Status::InternalError(fmt::format(
+                            "MaterializationSharedState::merge_multi_response, backend_id {} has "
+                            "insufficient rows: current index {} >= total rows {}",
+                            backend_id, source_block_rows.second, source_block_rows.first.rows()));
+                }
                 for (int k = 0; k < response_blocks[i].columns(); ++k) {
                     response_blocks[i].get_column_by_position(k)->insert_from(
                             *source_block_rows.first.get_by_position(k).column,
