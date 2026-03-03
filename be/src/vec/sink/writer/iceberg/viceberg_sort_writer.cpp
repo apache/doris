@@ -23,6 +23,7 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 Status VIcebergSortWriter::open(RuntimeState* state, RuntimeProfile* profile,
                                 const RowDescriptor* row_desc) {
@@ -76,6 +77,10 @@ Status VIcebergSortWriter::close(const Status& status) {
     // we need to propagate the actual error status to the underlying partition writer's
     // close() call, rather than the original status parameter which could be OK.
     Status internal_status = Status::OK();
+    // Track the close status of the underlying partition writer.
+    // If _iceberg_partition_writer->close() fails (e.g., Parquet file flush error),
+    // we must propagate this error to the caller to avoid silent data loss.
+    Status close_status = Status::OK();
 
     // Defer ensures the underlying partition writer is always closed and
     // spill streams are cleaned up, regardless of whether intermediate operations succeed.
@@ -83,11 +88,11 @@ Status VIcebergSortWriter::close(const Status& status) {
     Defer defer {[&]() {
         // If any intermediate operation failed, pass that error to the partition writer;
         // otherwise, pass the original status from the caller.
-        Status st =
+        close_status =
                 _iceberg_partition_writer->close(internal_status.ok() ? status : internal_status);
-        if (!st.ok()) {
+        if (!close_status.ok()) {
             LOG(WARNING) << fmt::format("_iceberg_partition_writer close failed, reason: {}",
-                                        st.to_string());
+                                        close_status.to_string());
         }
         _cleanup_spill_streams();
     }};
@@ -137,7 +142,11 @@ Status VIcebergSortWriter::close(const Status& status) {
         }
     }
 
-    return Status::OK();
+    // Return close_status if internal operations succeeded but the underlying
+    // partition writer's close() failed (e.g., file flush error).
+    // This prevents silent data loss where the caller thinks the write succeeded
+    // but the file was not properly closed.
+    return close_status;
 }
 
 void VIcebergSortWriter::_update_spill_block_batch_row_count(const vectorized::Block& block) {
@@ -230,8 +239,10 @@ Status VIcebergSortWriter::_do_spill() {
     bool eos = false;
     Block block;
     while (!eos && !_runtime_state->is_cancelled()) {
+        // Use _get_spill_batch_size() for safe narrowing conversion from size_t to int32_t
+        // instead of C-style cast, which includes bounds checking
         RETURN_IF_ERROR(_sorter->merge_sort_read_for_spill(
-                _runtime_state, &block, (int)_spill_block_batch_row_count, &eos));
+                _runtime_state, &block, _get_spill_batch_size(), &eos));
         RETURN_IF_ERROR(spilling_stream->spill_block(_runtime_state, block, eos));
         block.clear_column_data();
     }
@@ -359,4 +370,5 @@ void VIcebergSortWriter::_cleanup_spill_streams() {
     _current_merging_streams.clear();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
