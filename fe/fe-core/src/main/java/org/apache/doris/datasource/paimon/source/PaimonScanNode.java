@@ -443,7 +443,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         // if applyCountPushdown is true, calcute row count for count pushdown
         if (applyCountPushdown && !pushDownCountSplits.isEmpty()) {
             if (pushDownCountSum > COUNT_WITH_PARALLEL_SPLITS) {
-                int minSplits = sessionVariable.getParallelExecInstanceNum(clusterName) * numBackends;
+                int minSplits = sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName())
+                        * numBackends;
                 pushDownCountSplits = pushDownCountSplits.subList(0, Math.min(pushDownCountSplits.size(), minSplits));
             } else {
                 pushDownCountSplits = Collections.singletonList(pushDownCountSplits.get(0));

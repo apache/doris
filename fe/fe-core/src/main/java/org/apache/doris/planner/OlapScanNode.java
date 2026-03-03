@@ -1067,7 +1067,7 @@ public class OlapScanNode extends ScanNode {
         // so here we need count distinct be_num to do the work. make sure get right instance
         ConnectContext context = ConnectContext.get();
         if (context != null && context.getSessionVariable().isIgnoreStorageDataDistribution()) {
-            return context.getSessionVariable().getParallelExecInstanceNum(clusterName);
+            return context.getSessionVariable().getParallelExecInstanceNum(scanContext.getClusterName());
         }
         return scanRangeLocations.size();
     }

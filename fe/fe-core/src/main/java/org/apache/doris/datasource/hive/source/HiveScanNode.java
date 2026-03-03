@@ -320,7 +320,7 @@ public class HiveScanNode extends FileQueryScanNode {
                     totalFileNum += fileCacheValue.getFiles().size();
                 }
             }
-            int parallelNum = sessionVariable.getParallelExecInstanceNum(clusterName);
+            int parallelNum = sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName());
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
         }
 

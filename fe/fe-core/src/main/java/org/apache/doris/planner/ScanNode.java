@@ -106,13 +106,16 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     // This is also important for local shuffle logic.
     // Now only OlapScanNode and FileQueryScanNode implement this.
     protected HashSet<Long> scanBackendIds = new HashSet<>();
+    // Immutable scan context used for evolving scan-related metadata.
+    protected final ScanContext scanContext;
     // Cluster name resolved in planning and injected when this scan node is created.
     protected final String clusterName;
 
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, String clusterName) {
         super(id, desc.getId().asList(), planNodeName);
         this.desc = desc;
-        this.clusterName = clusterName == null ? "" : clusterName;
+        this.scanContext = ScanContext.ofClusterName(clusterName);
+        this.clusterName = this.scanContext.getClusterName();
     }
 
     protected List<Column> getColumns() {
@@ -699,13 +702,18 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return clusterName;
     }
 
+    public ScanContext getScanContext() {
+        return scanContext;
+    }
+
     @Override
     public boolean isSerialOperator() {
         ConnectContext context = ConnectContext.get();
         if (context == null) {
             return numScanBackends() <= 0;
         }
-        int parallelExecInstanceNum = context.getSessionVariable().getParallelExecInstanceNum(clusterName);
+        int parallelExecInstanceNum = context.getSessionVariable()
+                .getParallelExecInstanceNum(scanContext.getClusterName());
         return numScanBackends() <= 0
                 || getScanRangeNum() < parallelExecInstanceNum * numScanBackends()
                 || context.getSessionVariable().isForceToLocalShuffle();

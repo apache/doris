@@ -272,7 +272,7 @@ public class JdbcScanNode extends ExternalScanNode {
         if (context == null) {
             return 1;
         }
-        return context.getSessionVariable().getParallelExecInstanceNum(clusterName);
+        return context.getSessionVariable().getParallelExecInstanceNum(scanContext.getClusterName());
     }
 
     private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
