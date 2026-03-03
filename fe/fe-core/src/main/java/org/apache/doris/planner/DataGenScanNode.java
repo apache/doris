@@ -45,8 +45,8 @@ public class DataGenScanNode extends ExternalScanNode {
     private DataGenTableValuedFunction tvf;
 
     public DataGenScanNode(PlanNodeId id, TupleDescriptor desc, DataGenTableValuedFunction tvf,
-            String clusterName) {
-        super(id, desc, "DataGenScanNode", clusterName, false);
+            ScanContext scanContext) {
+        super(id, desc, "DataGenScanNode", scanContext, false);
         this.tvf = tvf;
     }
 

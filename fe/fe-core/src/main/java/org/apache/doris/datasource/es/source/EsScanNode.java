@@ -40,6 +40,7 @@ import org.apache.doris.datasource.es.QueryBuilders.QueryBuilder;
 import org.apache.doris.planner.PartitionPruner;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.RangePartitionPrunerV2;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
@@ -82,8 +83,8 @@ public class EsScanNode extends ExternalScanNode {
     /**
      * For multicatalog es.
      **/
-    public EsScanNode(PlanNodeId id, TupleDescriptor desc, boolean esExternalTable, String clusterName) {
-        super(id, desc, "EsScanNode", clusterName, false);
+    public EsScanNode(PlanNodeId id, TupleDescriptor desc, boolean esExternalTable, ScanContext scanContext) {
+        super(id, desc, "EsScanNode", scanContext, false);
         if (esExternalTable) {
             EsExternalTable externalTable = (EsExternalTable) (desc.getTable());
             table = externalTable.getEsTable();

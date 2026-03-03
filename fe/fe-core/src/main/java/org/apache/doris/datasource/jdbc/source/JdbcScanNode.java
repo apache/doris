@@ -40,6 +40,7 @@ import org.apache.doris.datasource.ExternalFunctionRules;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TJdbcScanNode;
@@ -69,8 +70,8 @@ public class JdbcScanNode extends ExternalScanNode {
     private JdbcTable tbl;
     private long catalogId;
 
-    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable, String clusterName) {
-        super(id, desc, "JdbcScanNode", clusterName, false);
+    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable, ScanContext scanContext) {
+        super(id, desc, "JdbcScanNode", scanContext, false);
         if (isJdbcExternalTable) {
             JdbcExternalTable jdbcExternalTable = (JdbcExternalTable) (desc.getTable());
             tbl = jdbcExternalTable.getJdbcTable();
@@ -82,8 +83,8 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isTableValuedFunction, String query,
-            String clusterName) {
-        super(id, desc, "JdbcScanNode", clusterName, false);
+            ScanContext scanContext) {
+        super(id, desc, "JdbcScanNode", scanContext, false);
         this.isTableValuedFunction = isTableValuedFunction;
         this.query = query;
         tbl = (JdbcTable) desc.getTable();

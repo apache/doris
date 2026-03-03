@@ -28,6 +28,7 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorPluginLoader;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TFileAttributes;
@@ -98,8 +99,8 @@ public class TrinoConnectorScanNode extends FileQueryScanNode {
     private Constraint constraint;
 
     public TrinoConnectorScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
-            SessionVariable sv, String clusterName) {
-        super(id, desc, "TRINO_CONNECTOR_SCAN_NODE", clusterName, needCheckColumnPriv, sv);
+            SessionVariable sv, ScanContext scanContext) {
+        super(id, desc, "TRINO_CONNECTOR_SCAN_NODE", scanContext, needCheckColumnPriv, sv);
     }
 
     @Override

@@ -20,6 +20,7 @@ package org.apache.doris.datasource.tvf.source;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.MetadataTableValuedFunction;
 import org.apache.doris.thrift.TMetaScanRange;
@@ -63,7 +64,7 @@ public class MetadataScanNodeTest {
      */
     @Test
     public void testInitedScanRangeLocationsInitialState() throws Exception {
-        MetadataScanNode scanNode = new MetadataScanNode(planNodeId, tupleDescriptor, mockTvf, "");
+        MetadataScanNode scanNode = new MetadataScanNode(planNodeId, tupleDescriptor, mockTvf, ScanContext.EMPTY);
 
         // Use reflection to access the private field
         Field field = MetadataScanNode.class.getDeclaredField("initedScanRangeLocations");
@@ -90,7 +91,7 @@ public class MetadataScanNodeTest {
 
         Mockito.when(mockTvf.getMetaScanRange(Mockito.anyList())).thenReturn(metaScanRange);
 
-        MetadataScanNode scanNode = new MetadataScanNode(planNodeId, tupleDescriptor, mockTvf, "");
+        MetadataScanNode scanNode = new MetadataScanNode(planNodeId, tupleDescriptor, mockTvf, ScanContext.EMPTY);
 
         // Mock the backend policy using reflection
         mockBackendPolicy(scanNode);
@@ -128,7 +129,7 @@ public class MetadataScanNodeTest {
 
         Mockito.when(mockTvf.getMetaScanRange(Mockito.anyList())).thenReturn(metaScanRange);
 
-        MetadataScanNode scanNode = new MetadataScanNode(planNodeId, tupleDescriptor, mockTvf, "");
+        MetadataScanNode scanNode = new MetadataScanNode(planNodeId, tupleDescriptor, mockTvf, ScanContext.EMPTY);
         mockBackendPolicy(scanNode);
 
         // Call getScanRangeLocations multiple times

@@ -43,6 +43,7 @@ import org.apache.doris.datasource.maxcompute.source.MaxComputeSplit.SplitType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TFileFormatType;
@@ -110,14 +111,14 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     // For new planner
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc,
             SelectedPartitions selectedPartitions, boolean needCheckColumnPriv,
-            SessionVariable sv, String clusterName) {
-        this(id, desc, "MCScanNode", selectedPartitions, needCheckColumnPriv, sv, clusterName);
+            SessionVariable sv, ScanContext scanContext) {
+        this(id, desc, "MCScanNode", selectedPartitions, needCheckColumnPriv, sv, scanContext);
     }
 
     private MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
             SelectedPartitions selectedPartitions, boolean needCheckColumnPriv, SessionVariable sv,
-            String clusterName) {
-        super(id, desc, planNodeName, clusterName, needCheckColumnPriv, sv);
+            ScanContext scanContext) {
+        super(id, desc, planNodeName, scanContext, needCheckColumnPriv, sv);
         table = (MaxComputeExternalTable) desc.getTable();
         this.selectedPartitions = selectedPartitions;
     }

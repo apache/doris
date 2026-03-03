@@ -32,13 +32,6 @@ public final class ScanContext {
         this.clusterName = clusterName == null ? "" : clusterName;
     }
 
-    public static ScanContext ofClusterName(String clusterName) {
-        if (clusterName == null || clusterName.isEmpty()) {
-            return EMPTY;
-        }
-        return new ScanContext(clusterName);
-    }
-
     public static Builder builder() {
         return new Builder();
     }
@@ -56,7 +49,10 @@ public final class ScanContext {
         }
 
         public ScanContext build() {
-            return ScanContext.ofClusterName(clusterName);
+            if (clusterName == null || clusterName.isEmpty()) {
+                return ScanContext.EMPTY;
+            }
+            return new ScanContext(clusterName);
         }
     }
 }

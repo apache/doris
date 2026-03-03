@@ -47,6 +47,7 @@ import org.apache.doris.datasource.iceberg.source.IcebergDeleteFileFilter.Equali
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
@@ -151,8 +152,8 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     // for test
     @VisibleForTesting
-    public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv, String clusterName) {
-        super(id, desc, "ICEBERG_SCAN_NODE", clusterName, false, sv);
+    public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv, ScanContext scanContext) {
+        super(id, desc, "ICEBERG_SCAN_NODE", scanContext, false, sv);
     }
 
     /**
@@ -162,8 +163,8 @@ public class IcebergScanNode extends FileQueryScanNode {
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
     public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv,
-            String clusterName) {
-        super(id, desc, "ICEBERG_SCAN_NODE", clusterName, needCheckColumnPriv, sv);
+            ScanContext scanContext) {
+        super(id, desc, "ICEBERG_SCAN_NODE", scanContext, needCheckColumnPriv, sv);
 
         ExternalTable table = (ExternalTable) desc.getTable();
         if (table instanceof HMSExternalTable) {
