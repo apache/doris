@@ -288,50 +288,31 @@ public class PlanReceiver extends AbstractReceiver {
     }
 
     private LogicalPlan proposeProject(LogicalPlan join, List<Edge> edges, long left, long right) {
-        List<Slot> outputs = join.getOutput();
         Set<Slot> outputSet = join.getOutputSet();
-        // calculate required columns by all parents
-        Set<Slot> requireSlots = calculateRequiredSlots(left, right, edges);
-        List<NamedExpression> allProjects = new ArrayList<>(outputs.size());
-        for (Slot slot : outputs) {
-            if (requireSlots.contains(slot)) {
-                allProjects.add(slot);
-            }
-        }
-
-        // propose logical project
-        if (allProjects.isEmpty()) {
-            long fullKey = LongBitmap.newBitmapUnion(left, right);
-            if (planTable.containsKey(fullKey)) {
-                Group group = planTable.get(fullKey);
-                allProjects.addAll(group.getLogicalProperties().getOutput());
-            } else {
-                allProjects.add(new Alias(new ExprId(-1), new TinyIntLiteral((byte) 1)));
-            }
-        }
-
         if (LongBitmap.newBitmapUnion(left, right) == allNodeBitmap
                 && !outputSet.equals(new HashSet<>(finalProjects))) {
             // add final project for the join cluster
             return new LogicalProject<>(finalProjects, join);
         } else {
-//            return join;
-            if (outputSet.equals(new HashSet<>(allProjects))) {
-                return join;
+            // calculate required columns by all parents
+            Set<Slot> requireSlots = calculateRequiredSlots(left, right, edges);
+            List<NamedExpression> allProjects = new ArrayList<>(outputSet.size());
+            for (Slot slot : outputSet) {
+                if (requireSlots.contains(slot)) {
+                    allProjects.add(slot);
+                }
             }
 
-            Set<Slot> childOutputSet = join.getOutputSet();
-            // TODO maybe need better way to see if it's 1 literal instead of checking expr id
-            List<NamedExpression> projects = allProjects.stream()
-                    .filter(expr -> childOutputSet.containsAll(expr.getInputSlots()) || expr.getExprId().asInt() == -1)
-                    .collect(Collectors.toList());
-            LogicalPlan project = join;
-            if (!outputSet.equals(new HashSet<>(projects))) {
-                project = new LogicalProject<>(projects, join);
+            // propose logical project
+            if (allProjects.isEmpty()) {
+                allProjects.add(new Alias(new ExprId(-1), new TinyIntLiteral((byte) 1)));
             }
-            Preconditions.checkState(!projects.isEmpty() && projects.size() == allProjects.size(),
-                    " there are some projects left %s %s", projects, allProjects);
-            return project;
+
+            if (outputSet.equals(new HashSet<>(allProjects))) {
+                return join;
+            } else {
+                return new LogicalProject<>(allProjects, join);
+            }
         }
     }
 }
