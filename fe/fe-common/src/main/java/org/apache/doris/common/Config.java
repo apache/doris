@@ -3497,6 +3497,21 @@ public class Config extends ConfigBase {
                     + "Default 10000. <=0 disables TopN segmentation."})
     public static int cloud_active_partition_scheduling_topn = 10000;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "活跃 tablet 优先调度开启时，active 集合刷新间隔（秒）。默认 60 秒，"
+                    + "表示 60 秒内复用同一批 active tablet，避免每轮重算。",
+            "Refresh interval in seconds for the active-tablet snapshot when active priority scheduling is enabled. "
+                    + "Default 60 seconds. Reuses the same active-tablet set within the interval."})
+    public static long cloud_active_tablet_ids_refresh_interval_second = 60L;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "活跃 tablet 优先调度开启时，若 active 阶段连续 N 轮未达均衡，"
+                    + "则强制执行一轮 inactive 阶段以避免长期饥饿。默认 10，<=0 表示关闭该强制机制。",
+            "When active priority scheduling is enabled and the active phase remains unbalanced for N consecutive "
+                    + "rounds, force one inactive phase round to avoid long-term starvation. "
+                    + "Default 10. <=0 disables this forced mechanism."})
+    public static int cloud_active_unbalanced_force_inactive_after_rounds = 10;
+
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
 
@@ -3895,6 +3910,9 @@ public class Config extends ConfigBase {
             "agent tasks health check interval, default is five minutes, no health check when less than or equal to 0"
     })
     public static long agent_task_health_check_intervals_ms = 5 * 60 * 1000L; // 5 min
+    @ConfField(description = {"是否跳过 catalog 层级的鉴权",
+            "Whether to skip catalog level privilege check"})
+    public static boolean skip_catalog_priv_check = false;
 
     @ConfField(mutable = true, description = {
             "存算分离模式下，计算删除位图时，是否批量获取分区版本信息，默认开启",

@@ -29,4 +29,6 @@ public @interface ConnectorProperty {
     boolean supported() default true;
 
     boolean sensitive() default false;
+
+    boolean isRegionField() default false;
 }

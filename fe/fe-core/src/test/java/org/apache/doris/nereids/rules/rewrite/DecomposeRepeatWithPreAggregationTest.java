@@ -572,7 +572,7 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
     }
 
     /** Helper: build Statistics with column ndv for given expressions. */
-    private static Statistics statsWithNdv(Map<Expression, Double> exprToNdv) {
+    private static Statistics statsWithNdv(Map<Expression, Double> exprToNdv, int rows) {
         Map<Expression, ColumnStatistic> map = new HashMap<>();
         for (Map.Entry<Expression, Double> e : exprToNdv.entrySet()) {
             ColumnStatistic col = new ColumnStatisticBuilder(1)
@@ -586,7 +586,7 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
                     .build();
             map.put(e.getKey(), col);
         }
-        return new Statistics(100, map);
+        return new Statistics(rows, map);
     }
 
     @Test
@@ -609,10 +609,10 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
         );
 
         Map<Expression, Double> exprToNdv = new HashMap<>();
-        exprToNdv.put(a, 400.0);
-        exprToNdv.put(b, 6000.0);
-        exprToNdv.put(c, 2000.0);
-        Statistics stats = statsWithNdv(exprToNdv);
+        exprToNdv.put(a, 4000.0);
+        exprToNdv.put(b, 60000.0);
+        exprToNdv.put(c, 20000.0);
+        Statistics stats = statsWithNdv(exprToNdv, 60000);
 
         @SuppressWarnings("unchecked")
         Optional<Expression> chosen = (Optional<Expression>) method.invoke(
@@ -628,14 +628,14 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
 
         @SuppressWarnings("unchecked")
         Optional<Expression> chosen2 = (Optional<Expression>) method.invoke(
-                rule, groupingSets, -1, candidates, stats, 1000);
+                rule, groupingSets, -1, candidates, stats, 50);
         Assertions.assertTrue(chosen2.isPresent());
         Assertions.assertEquals(b, chosen2.get());
 
         // inputStats null -> chooseByNdv returns empty for every group -> empty
         @SuppressWarnings("unchecked")
         Optional<Expression> emptyNullStats = (Optional<Expression>) method.invoke(
-                rule, groupingSets, -1, candidates, null, 1000);
+                rule, groupingSets, -1, candidates, null, 50);
         Assertions.assertFalse(emptyNullStats.isPresent());
     }
 }

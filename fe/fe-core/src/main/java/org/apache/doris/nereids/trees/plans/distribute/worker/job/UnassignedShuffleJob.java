@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
@@ -55,13 +56,15 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
         useSerialSource = fragment.useSerialSource(
                 distributeContext.isLoadJob ? null : statementContext.getConnectContext());
 
-        int expectInstanceNum = degreeOfParallelism();
         List<AssignedJob> biggestParallelChildFragment = getInstancesOfBiggestParallelChildFragment(inputJobs);
+        int expectInstanceNum = degreeOfParallelism(biggestParallelChildFragment.size(), inputJobs);
 
         if (expectInstanceNum > 0 && expectInstanceNum < biggestParallelChildFragment.size()) {
             // When group by cardinality is smaller than number of backend, only some backends always
             // process while other has no data to process.
             // So we shuffle instances to make different backends handle different queries.
+            // Additional: when query cache limits instance count, the shuffling still applies to
+            // spread the reduced set of instances across distinct workers to avoid cache thrashing.
             List<DistributedPlanWorker> shuffleWorkersInBiggestParallelChildFragment
                     = distinctShuffleWorkers(biggestParallelChildFragment);
             Function<Integer, DistributedPlanWorker> workerSelector = instanceIndex -> {
@@ -79,13 +82,25 @@ public class UnassignedShuffleJob extends AbstractUnassignedJob {
         }
     }
 
-    protected int degreeOfParallelism() {
+    protected int degreeOfParallelism(int childInstanceNum, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
         // TODO: check we use nested loop join do right outer / semi / anti join,
         //       we should add an exchange node with gather distribute under the nested loop join
         int expectInstanceNum = -1;
         ConnectContext connectContext = statementContext.getConnectContext();
         if (connectContext != null && connectContext.getSessionVariable() != null) {
             expectInstanceNum = connectContext.getSessionVariable().getExchangeInstanceParallel();
+        }
+        // If child fragment uses query cache, limit instance num to avoid too many instances
+        if (childInstanceNum > 0 && connectContext != null) {
+            boolean childHasQueryCacheParam = inputJobs.values().stream()
+                    .anyMatch(job -> job.unassignedJob().getFragment().queryCacheParam != null);
+            if (childHasQueryCacheParam) {
+                int maxInstanceNum = connectContext.getSessionVariable().getParallelExecInstanceNum()
+                        * Env.getCurrentSystemInfo().getBackendsNumber(false);
+                expectInstanceNum = expectInstanceNum > 0
+                        ? Math.min(expectInstanceNum, Math.min(childInstanceNum, maxInstanceNum))
+                        : Math.min(childInstanceNum, maxInstanceNum);
+            }
         }
         return expectInstanceNum;
     }

@@ -75,9 +75,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected void initCatalog() {
         try {
             msProperties = (AbstractIcebergProperties) catalogProperty.getMetastoreProperties();
-            this.catalog = msProperties.initializeCatalog(getName(), catalogProperty
-                    .getOrderedStoragePropertiesList());
-
+            this.catalog = msProperties.initializeCatalog(getName(), catalogProperty.getOrderedStoragePropertiesList());
             this.icebergCatalogType = msProperties.getIcebergCatalogType();
         } catch (ClassCastException e) {
             throw new RuntimeException("Invalid properties for Iceberg catalog: " + getProperties(), e);

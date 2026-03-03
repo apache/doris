@@ -381,6 +381,8 @@ message PTabletKeyLookupRequest {
     optional int64 version = 7;
     // serilized from TQueryOptions 
     optional bytes query_options = 8;
+    // timezone string, e.g. "America/Mexico_City"
+    optional string time_zone = 9;
 }
 
 message PTabletKeyLookupResponse {

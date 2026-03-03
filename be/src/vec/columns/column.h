@@ -750,6 +750,11 @@ protected:
             static_cast<Derived&>(*this).insert_from(*srcs[i], positions[i]);
         }
     }
+
+    // Used to check nested const occurrences; const is only allowed at the top level.
+    // e.g. const(nullable(...)) is allowed.
+    // const(array(const(...))) is not allowed.
+    void check_const_only_in_top_level() const;
 };
 
 using ColumnPtr = IColumn::Ptr;

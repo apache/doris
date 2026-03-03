@@ -856,7 +856,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
     public static final String AGG_SHUFFLE_USE_PARENT_KEY = "agg_shuffle_use_parent_key";
-    public static final String DECOMPOSE_REPEAT_THRESHOLD = "decompose_repeat_threshold";
     public static final String DECOMPOSE_REPEAT_SHUFFLE_INDEX_IN_MAX_GROUP
             = "decompose_repeat_shuffle_index_in_max_group";
 
@@ -2788,12 +2787,25 @@ public class SessionVariable implements Serializable, Writable {
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
     public static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
+
+    public static final String ENABLE_MC_LIMIT_SPLIT_OPTIMIZATION = "enable_mc_limit_split_optimization";
     @VariableMgr.VarAttr(
             name = ENABLE_EXTERNAL_TABLE_BATCH_MODE,
             fuzzy = true,
             description = {"使能外表的 batch mode 功能", "Enable the batch mode function of the external table."},
             needForward = true)
     public boolean enableExternalTableBatchMode = true;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_MC_LIMIT_SPLIT_OPTIMIZATION,
+            fuzzy = true,
+            description = {"开启 MaxCompute 表 LIMIT 查询的 split 优化。当查询仅包含分区等值条件且带有 LIMIT 时，"
+                    + "使用 row_offset 策略减少 split 数量以加速查询。",
+                    "Enable split optimization for LIMIT queries on MaxCompute tables. "
+                    + "When the query contains only partition equality predicates with LIMIT, "
+                    + "use row_offset strategy to reduce split count for faster query execution."},
+            needForward = true)
+    public boolean enableMcLimitSplitOptimization = false;
 
     @VariableMgr.VarAttr(name = SKEW_REWRITE_AGG_BUCKET_NUM, needForward = true,
             description = {"bucketNum 参数控制 count(distinct) 倾斜优化的数据分布。决定不同值在 worker 间的分配方式，"
@@ -3440,8 +3452,6 @@ public class SessionVariable implements Serializable, Writable {
     )
     public boolean useV3StorageFormat = false;
 
-    @VariableMgr.VarAttr(name = DECOMPOSE_REPEAT_THRESHOLD)
-    public int decomposeRepeatThreshold = 3;
     @VariableMgr.VarAttr(name = DECOMPOSE_REPEAT_SHUFFLE_INDEX_IN_MAX_GROUP)
     public int decomposeRepeatShuffleIndexInMaxGroup = -1;
 
