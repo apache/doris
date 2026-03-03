@@ -563,7 +563,8 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     }
 
     if (auto it = properties.find(S3_ROLE_ARN); it != properties.end()) {
-        s3_conf->client_conf.cred_provider_type = CredProviderType::InstanceProfile;
+        // Keep provider type as Default unless explicitly configured by
+        // AWS_CREDENTIALS_PROVIDER_TYPE, consistent with FE behavior.
         s3_conf->client_conf.role_arn = it->second;
     }
 
