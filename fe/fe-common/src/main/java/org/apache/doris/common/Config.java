@@ -3910,6 +3910,9 @@ public class Config extends ConfigBase {
             "agent tasks health check interval, default is five minutes, no health check when less than or equal to 0"
     })
     public static long agent_task_health_check_intervals_ms = 5 * 60 * 1000L; // 5 min
+    @ConfField(description = {"是否跳过 catalog 层级的鉴权",
+            "Whether to skip catalog level privilege check"})
+    public static boolean skip_catalog_priv_check = false;
 
     @ConfField(mutable = true, description = {
             "存算分离模式下，计算删除位图时，是否批量获取分区版本信息，默认开启",
