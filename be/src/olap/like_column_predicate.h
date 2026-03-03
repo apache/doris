@@ -82,11 +82,21 @@ public:
     void set_page_ng_bf(std::unique_ptr<segment_v2::BloomFilter> src) override {
         _page_ng_bf = std::move(src);
     }
-    bool evaluate_and(const BloomFilter* bf) const override {
+    bool evaluate_and(BloomFilterInfo& bloom_filter_info) const override {
         // like predicate can not use normal bf, just return true to accept
-        if (!bf->is_ngram_bf()) return true;
+        if ((*bloom_filter_info.get_bloom_filter_func)(bloom_filter_info.bloom_filter,
+                                                       column_id())) {
+            if (!bloom_filter_info.bloom_filter) {
+                // Read bloom filter failed, return true to accept this page.
+                return true;
+            }
+        } else {
+            // Read bloom filter failed, return true to accept this page.
+            return true;
+        }
+        if (!bloom_filter_info.bloom_filter->is_ngram_bf()) return true;
         if (_page_ng_bf) {
-            return bf->contains(*_page_ng_bf);
+            return bloom_filter_info.bloom_filter->contains(*_page_ng_bf);
         }
         return true;
     }

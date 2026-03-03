@@ -103,7 +103,7 @@ public:
         DCHECK(false) << "should not reach here";
     }
 
-    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
+    bool evaluate_and(segment_v2::ZoneMap& zone_map) const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
             return ColumnPredicate::evaluate_and(zone_map);
@@ -111,7 +111,7 @@ public:
         return _nested->evaluate_and(zone_map);
     }
 
-    bool evaluate_del(const segment_v2::ZoneMap& zone_map) const override {
+    bool evaluate_del(segment_v2::ZoneMap& zone_map) const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
             return ColumnPredicate::evaluate_del(zone_map);
@@ -119,12 +119,12 @@ public:
         return _nested->evaluate_del(zone_map);
     }
 
-    bool evaluate_and(const BloomFilter* bf) const override {
+    bool evaluate_and(BloomFilterInfo& bloom_filter_info) const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
-            return ColumnPredicate::evaluate_and(bf);
+            return ColumnPredicate::evaluate_and(bloom_filter_info);
         }
-        return _nested->evaluate_and(bf);
+        return _nested->evaluate_and(bloom_filter_info);
     }
 
     bool can_do_bloom_filter(bool ngram) const override {
@@ -162,15 +162,6 @@ public:
             DCHECK(false) << "should not reach here";
         }
         return _nested->get_search_str();
-    }
-
-    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
-        std::shared_lock<std::shared_mutex> lock(*_mtx);
-        if (!_nested) {
-            // at the begining _nested will be null, so return true.
-            return true;
-        }
-        return _nested->evaluate_and(statistic);
     }
 
     bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,

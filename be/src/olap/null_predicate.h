@@ -74,22 +74,14 @@ public:
     void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                       bool* flags) const override;
 
-    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
+    bool evaluate_and(segment_v2::ZoneMap& zone_map) const override {
+        if (!(*zone_map.get_stat_func)(&zone_map, column_id()).ok()) {
+            return true;
+        }
         if (_is_null) {
             return zone_map.has_null;
         } else {
             return zone_map.has_not_null;
-        }
-    }
-
-    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
-        if (!(*statistic->get_stat_func)(statistic, column_id())) {
-            return true;
-        }
-        if (_is_null) {
-            return true;
-        } else {
-            return !statistic->is_all_null;
         }
     }
 
@@ -108,7 +100,10 @@ public:
         return row_ranges->count() > 0;
     }
 
-    bool evaluate_del(const segment_v2::ZoneMap& zone_map) const override {
+    bool evaluate_del(segment_v2::ZoneMap& zone_map) const override {
+        if (!(*zone_map.get_stat_func)(&zone_map, column_id()).ok()) {
+            return false;
+        }
         // evaluate_del only use for delete condition to filter page, need use delete condition origin value,
         // when opposite==true, origin value 'is null'->'is not null' and 'is not null'->'is null',
         // so when _is_null==true, need check 'is not null' and _is_null==false, need check 'is null'
@@ -119,11 +114,21 @@ public:
         }
     }
 
-    bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
+    bool evaluate_and(BloomFilterInfo& bloom_filter_info) const override {
+        if ((*bloom_filter_info.get_bloom_filter_func)(bloom_filter_info.bloom_filter,
+                                                       column_id())) {
+            if (!bloom_filter_info.bloom_filter) {
+                // Read bloom filter failed, return true to accept this page.
+                return true;
+            }
+        } else {
+            // Read bloom filter failed, return true to accept this page.
+            return true;
+        }
         // null predicate can not use ngram bf, just return true to accept
-        if (bf->is_ngram_bf()) return true;
+        if (bloom_filter_info.bloom_filter->is_ngram_bf()) return true;
         if (_is_null) {
-            return bf->test_bytes(nullptr, 0);
+            return bloom_filter_info.bloom_filter->test_bytes(nullptr, 0);
         } else {
             throw Exception(Status::FatalError(
                     "Bloom filter is not supported by predicate type: is_null="));

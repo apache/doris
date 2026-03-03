@@ -36,6 +36,12 @@
 #include "vec/exec/format/parquet/parquet_column_convert.h"
 #include "vec/exec/format/parquet/schema_desc.h"
 
+namespace doris {
+struct BloomFilterInfo;
+namespace segment_v2 {
+struct ZoneMap;
+}
+} // namespace doris
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 class ParquetPredicate {
@@ -155,18 +161,6 @@ private:
 
 public:
     static constexpr int BLOOM_FILTER_MAX_HEADER_LENGTH = 64;
-    struct ColumnStat {
-        std::string encoded_min_value;
-        std::string encoded_max_value;
-        bool has_null;
-        bool is_all_null;
-        const FieldSchema* col_schema;
-        const cctz::time_zone* ctz;
-        std::unique_ptr<vectorized::ParquetBlockSplitBloomFilter> bloom_filter;
-        std::function<bool(ParquetPredicate::ColumnStat*, const int)>* get_stat_func = nullptr;
-        std::function<bool(ParquetPredicate::ColumnStat*, const int)>* get_bloom_filter_func =
-                nullptr;
-    };
 
     static bool bloom_filter_supported(PrimitiveType type) {
         // Only support types where physical type == logical type (no conversion needed)
@@ -361,128 +355,12 @@ public:
     static Status read_column_stats(const FieldSchema* col_schema,
                                     const tparquet::ColumnMetaData& column_meta_data,
                                     std::unordered_map<tparquet::Type::type, bool>* ignored_stats,
-                                    const std::string& file_created_by, ColumnStat* ans_stat) {
-        auto& statistic = column_meta_data.statistics;
-
-        if (!statistic.__isset.null_count) [[unlikely]] {
-            return Status::DataQualityError("This parquet Column meta no set null_count.");
-        }
-        ans_stat->has_null = statistic.null_count > 0;
-        ans_stat->is_all_null = statistic.null_count == column_meta_data.num_values;
-        if (ans_stat->is_all_null) {
-            return Status::OK();
-        }
-        auto prim_type = remove_nullable(col_schema->data_type)->get_primitive_type();
-
-        // Min-max of statistic is plain-encoded value
-        if (statistic.__isset.min_value && statistic.__isset.max_value) {
-            ColumnOrderName column_order =
-                    col_schema->physical_type == tparquet::Type::INT96 ||
-                                    col_schema->parquet_schema.logicalType.__isset.UNKNOWN
-                            ? ColumnOrderName::UNDEFINED
-                            : ColumnOrderName::TYPE_DEFINED_ORDER;
-            if ((statistic.min_value != statistic.max_value) &&
-                (column_order != ColumnOrderName::TYPE_DEFINED_ORDER)) {
-                return Status::DataQualityError("Can not use this parquet min/max value.");
-            }
-            ans_stat->encoded_min_value = statistic.min_value;
-            ans_stat->encoded_max_value = statistic.max_value;
-
-            if (prim_type == TYPE_VARCHAR || prim_type == TYPE_CHAR || prim_type == TYPE_STRING) {
-                auto encoded_min_copy = ans_stat->encoded_min_value;
-                auto encoded_max_copy = ans_stat->encoded_max_value;
-                if (!_try_read_old_utf8_stats(encoded_min_copy, encoded_max_copy)) {
-                    return Status::DataQualityError("Can not use this parquet min/max value.");
-                }
-                ans_stat->encoded_min_value = encoded_min_copy;
-                ans_stat->encoded_max_value = encoded_max_copy;
-            }
-
-        } else if (statistic.__isset.min && statistic.__isset.max) {
-            bool max_equals_min = statistic.min == statistic.max;
-
-            SortOrder sort_order = _determine_sort_order(col_schema->parquet_schema);
-            bool sort_orders_match = SortOrder::SIGNED == sort_order;
-            if (!sort_orders_match && !max_equals_min) {
-                return Status::NotSupported("Can not use this parquet min/max value.");
-            }
-
-            bool should_ignore_corrupted_stats = false;
-            if (ignored_stats != nullptr) {
-                if (ignored_stats->count(col_schema->physical_type) == 0) {
-                    if (CorruptStatistics::should_ignore_statistics(file_created_by,
-                                                                    col_schema->physical_type)) {
-                        ignored_stats->emplace(col_schema->physical_type, true);
-                        should_ignore_corrupted_stats = true;
-                    } else {
-                        ignored_stats->emplace(col_schema->physical_type, false);
-                    }
-                } else if (ignored_stats->at(col_schema->physical_type)) {
-                    should_ignore_corrupted_stats = true;
-                }
-            } else if (CorruptStatistics::should_ignore_statistics(file_created_by,
-                                                                   col_schema->physical_type)) {
-                should_ignore_corrupted_stats = true;
-            }
-
-            if (should_ignore_corrupted_stats) {
-                return Status::DataQualityError("Error statistics, should ignore.");
-            }
-
-            ans_stat->encoded_min_value = statistic.min;
-            ans_stat->encoded_max_value = statistic.max;
-        } else {
-            return Status::DataQualityError("This parquet file not set min/max value");
-        }
-
-        return Status::OK();
-    }
+                                    const std::string& file_created_by,
+                                    segment_v2::ZoneMap* ans_stat);
 
     static Status read_bloom_filter(const tparquet::ColumnMetaData& column_meta_data,
                                     io::FileReaderSPtr file_reader, io::IOContext* io_ctx,
-                                    ColumnStat* ans_stat) {
-        size_t size;
-        if (!column_meta_data.__isset.bloom_filter_offset) {
-            return Status::NotSupported("Can not use this parquet bloom filter.");
-        }
-
-        if (column_meta_data.__isset.bloom_filter_length &&
-            column_meta_data.bloom_filter_length > 0) {
-            size = column_meta_data.bloom_filter_length;
-        } else {
-            size = BLOOM_FILTER_MAX_HEADER_LENGTH;
-        }
-        size_t bytes_read = 0;
-        std::vector<uint8_t> header_buffer(size);
-        RETURN_IF_ERROR(file_reader->read_at(column_meta_data.bloom_filter_offset,
-                                             Slice(header_buffer.data(), size), &bytes_read,
-                                             io_ctx));
-
-        tparquet::BloomFilterHeader t_bloom_filter_header;
-        uint32_t t_bloom_filter_header_size = static_cast<uint32_t>(bytes_read);
-        RETURN_IF_ERROR(deserialize_thrift_msg(header_buffer.data(), &t_bloom_filter_header_size,
-                                               true, &t_bloom_filter_header));
-
-        // TODO the bloom filter could be encrypted, too, so need to double check that this is NOT the case
-        if (!t_bloom_filter_header.algorithm.__isset.BLOCK ||
-            !t_bloom_filter_header.compression.__isset.UNCOMPRESSED ||
-            !t_bloom_filter_header.hash.__isset.XXHASH) {
-            return Status::NotSupported("Can not use this parquet bloom filter.");
-        }
-
-        ans_stat->bloom_filter = std::make_unique<ParquetBlockSplitBloomFilter>();
-
-        std::vector<uint8_t> data_buffer(t_bloom_filter_header.numBytes);
-        RETURN_IF_ERROR(file_reader->read_at(
-                column_meta_data.bloom_filter_offset + t_bloom_filter_header_size,
-                Slice(data_buffer.data(), t_bloom_filter_header.numBytes), &bytes_read, io_ctx));
-
-        RETURN_IF_ERROR(ans_stat->bloom_filter->init(
-                reinterpret_cast<const char*>(data_buffer.data()), t_bloom_filter_header.numBytes,
-                segment_v2::HashStrategyPB::XX_HASH_64));
-
-        return Status::OK();
-    }
+                                    std::unique_ptr<segment_v2::BloomFilter>& bf);
 };
 #include "common/compile_check_end.h"
 

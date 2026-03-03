@@ -41,6 +41,10 @@ namespace io {
 class FileWriter;
 } // namespace io
 
+namespace vectorized {
+struct FieldSchema;
+} // namespace vectorized
+
 namespace segment_v2 {
 
 struct ZoneMap {
@@ -66,6 +70,10 @@ struct ZoneMap {
 
     bool has_nan = false;
 
+    const vectorized::FieldSchema* col_schema = nullptr;
+    const cctz::time_zone* ctz = nullptr;
+    std::function<Status(ZoneMap*, const int)>* get_stat_func = nullptr;
+
     void to_proto(ZoneMapPB* dst, const vectorized::DataTypePtr& data_type) const {
         if (pass_all || !has_not_null) {
             dst->set_min("");
@@ -83,7 +91,7 @@ struct ZoneMap {
     }
 
     static Status from_proto(const ZoneMapPB& zone_map, const vectorized::DataTypePtr& data_type,
-                             ZoneMap& zone_map_info);
+                             ZoneMap* zone_map_info);
 };
 
 class ZoneMapIndexWriter {

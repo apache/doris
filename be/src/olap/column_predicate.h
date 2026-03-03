@@ -197,6 +197,13 @@ struct PredicateTypeTraits {
         }                                                                                 \
     }
 
+struct BloomFilterInfo {
+    std::unique_ptr<segment_v2::BloomFilter> bloom_filter = nullptr;
+    std::function<bool(std::unique_ptr<segment_v2::BloomFilter>&, const int)>*
+            get_bloom_filter_func = nullptr;
+    bool is_parquet = false;
+};
+
 class ColumnPredicate : public std::enable_shared_from_this<ColumnPredicate> {
 public:
     explicit ColumnPredicate(uint32_t column_id, std::string col_name, PrimitiveType primitive_type,
@@ -263,32 +270,19 @@ public:
 
     virtual bool support_zonemap() const { return true; }
 
-    virtual bool evaluate_and(const segment_v2::ZoneMap& zone_map) const { return true; }
+    virtual bool evaluate_and(segment_v2::ZoneMap& zone_map) const { return true; }
 
-    virtual bool is_always_true(const segment_v2::ZoneMap& zone_map) const { return false; }
+    virtual bool is_always_true(segment_v2::ZoneMap& zone_map) const { return false; }
 
-    virtual bool evaluate_del(const segment_v2::ZoneMap& zone_map) const { return false; }
+    virtual bool evaluate_del(segment_v2::ZoneMap& zone_map) const { return false; }
 
-    virtual bool evaluate_and(const vectorized::ParquetBlockSplitBloomFilter* bf) const {
-        return true;
-    }
-
-    virtual bool evaluate_and(const BloomFilter* bf) const { return true; }
+    virtual bool evaluate_and(BloomFilterInfo& bloom_filter_info) const { return true; }
 
     virtual bool evaluate_and(const StringRef* dict_words, const size_t dict_count) const {
         return true;
     }
 
     virtual bool can_do_bloom_filter(bool ngram) const { return false; }
-
-    /**
-     * Figure out whether this page is matched partially or completely.
-     */
-    virtual bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const {
-        throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "ParquetPredicate is not supported by this predicate!");
-        return true;
-    }
 
     virtual bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
                               RowRanges* row_ranges) const {

@@ -1000,11 +1000,14 @@ Status ParquetReader::_process_page_index_filter(
     // Construct a cacheable page index structure to avoid repeatedly reading the page index of the same column.
     ParquetPredicate::CachedPageIndexStat cached_page_index;
     cached_page_index.ctz = _ctz;
-    std::function<bool(ParquetPredicate::PageIndexStat**, int)> get_stat_func =
-            [&](ParquetPredicate::PageIndexStat** ans, const int cid) -> bool {
+    std::function<Status(ParquetPredicate::PageIndexStat**, int)> get_stat_func =
+            [&](ParquetPredicate::PageIndexStat** ans, const int cid) -> Status {
         if (cached_page_index.stats.contains(cid)) {
             *ans = &cached_page_index.stats[cid];
-            return (*ans)->available;
+            return (*ans)->available ? Status::OK()
+                                     : Status::NotSupported(
+                                               "No page index for column '" +
+                                               _tuple_descriptor->slots()[cid]->col_name() + "'");
         }
         cached_page_index.stats.emplace(cid, ParquetPredicate::PageIndexStat {});
         auto& sig_stat = cached_page_index.stats[cid];
@@ -1012,7 +1015,7 @@ Status ParquetReader::_process_page_index_filter(
         auto* slot = _tuple_descriptor->slots()[cid];
         if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
             // table column not exist in file, may be schema change.
-            return false;
+            return Status::DataQualityError("Column '" + slot->col_name() + "' not exists");
         }
 
         const auto& file_col_name =
@@ -1022,18 +1025,18 @@ Status ParquetReader::_process_page_index_filter(
 
         if (parquet_col_id < 0) {
             // complex type, not support page index yet.
-            return false;
+            return Status::NotSupported("Complext tyoe is not supported for page index filter");
         }
         if (!_col_offsets.contains(parquet_col_id)) {
             // If the file contains partition columns and the query applies filters on those
             // partition columns, then reading the page index is unnecessary.
-            return false;
+            return Status::InvalidArgument("");
         }
 
         auto& column_chunk = row_group.columns[parquet_col_id];
         if (column_chunk.column_index_length == 0 || column_chunk.offset_index_length == 0) {
             // column no page index.
-            return false;
+            return Status::NotSupported("No page index for column '" + slot->col_name() + "'");
         }
 
         tparquet::ColumnIndex column_index;
@@ -1045,12 +1048,13 @@ Status ParquetReader::_process_page_index_filter(
         const int64_t num_of_pages = column_index.null_pages.size();
         if (num_of_pages <= 0) [[unlikely]] {
             // no page. (maybe this row group no data.)
-            return false;
+            return Status::NotSupported("No page found");
         }
         DCHECK_EQ(column_index.min_values.size(), column_index.max_values.size());
         if (!column_index.__isset.null_counts) {
             // not set null or null counts;
-            return false;
+            return Status::NotSupported("No null counts in column index for column '" +
+                                        slot->col_name() + "'");
         }
 
         auto& offset_index = _col_offsets[parquet_col_id];
@@ -1080,7 +1084,7 @@ Status ParquetReader::_process_page_index_filter(
 
         sig_stat.available = true;
         *ans = &sig_stat;
-        return true;
+        return Status::OK();
     };
     cached_page_index.row_group_range = {0, row_group.num_rows};
     cached_page_index.get_stat_func = get_stat_func;
@@ -1162,38 +1166,34 @@ Status ParquetReader::_process_column_stat_filter(
 
     // Cache bloom filters for each column to avoid reading the same bloom filter multiple times
     // when there are multiple predicates on the same column
-    std::unordered_map<int, std::unique_ptr<vectorized::ParquetBlockSplitBloomFilter>>
-            bloom_filter_cache;
+    std::unordered_map<int, std::unique_ptr<segment_v2::BloomFilter>> bloom_filter_cache;
 
     // Initialize output parameters
     *filtered_by_min_max = false;
     *filtered_by_bloom_filter = false;
 
     for (const auto& predicate : _push_down_predicates) {
-        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
-                [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-                    // Check if min-max filter is enabled
-                    if (!_enable_filter_by_min_max) {
-                        return false;
-                    }
-                    auto* slot = _tuple_descriptor->slots()[cid];
-                    if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
-                        return false;
-                    }
-                    const auto& file_col_name =
-                            _table_info_node_ptr->children_file_column_name(slot->col_name());
-                    const FieldSchema* col_schema =
-                            _file_metadata->schema().get_column(file_col_name);
-                    int parquet_col_id = col_schema->physical_column_index;
-                    auto meta_data = row_group.columns[parquet_col_id].meta_data;
-                    stat->col_schema = col_schema;
-                    return ParquetPredicate::read_column_stats(col_schema, meta_data,
-                                                               &_ignored_stats,
-                                                               _t_metadata->created_by, stat)
-                            .ok();
-                };
-        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
-                [&](ParquetPredicate::ColumnStat* stat, const int cid) {
+        std::function<Status(segment_v2::ZoneMap*, const int)> get_stat_func =
+                [&](segment_v2::ZoneMap* stat, const int cid) -> Status {
+            // Check if min-max filter is enabled
+            if (!_enable_filter_by_min_max) {
+                return Status::NotSupported("Min/Max filtering is disabled");
+            }
+            auto* slot = _tuple_descriptor->slots()[cid];
+            if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
+                return Status::DataQualityError("Column '" + slot->col_name() + "' not exists");
+            }
+            const auto& file_col_name =
+                    _table_info_node_ptr->children_file_column_name(slot->col_name());
+            const FieldSchema* col_schema = _file_metadata->schema().get_column(file_col_name);
+            int parquet_col_id = col_schema->physical_column_index;
+            auto meta_data = row_group.columns[parquet_col_id].meta_data;
+            stat->col_schema = col_schema;
+            return ParquetPredicate::read_column_stats(col_schema, meta_data, &_ignored_stats,
+                                                       _t_metadata->created_by, stat);
+        };
+        std::function<bool(std::unique_ptr<segment_v2::BloomFilter>&, int)> get_bloom_filter_func =
+                [&](std::unique_ptr<segment_v2::BloomFilter>& bloom_filter, const int cid) {
                     auto* slot = _tuple_descriptor->slots()[cid];
                     if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
                         return false;
@@ -1222,48 +1222,45 @@ Status ParquetReader::_process_column_stat_filter(
                     auto cache_iter = bloom_filter_cache.find(parquet_col_id);
                     if (cache_iter != bloom_filter_cache.end()) {
                         // Bloom filter already loaded for this column, reuse it
-                        stat->bloom_filter = std::move(cache_iter->second);
+                        bloom_filter = std::move(cache_iter->second);
                         bloom_filter_cache.erase(cache_iter);
-                        return stat->bloom_filter != nullptr;
+                        return bloom_filter != nullptr;
                     }
 
-                    if (!stat->bloom_filter) {
+                    if (!bloom_filter) {
                         SCOPED_RAW_TIMER(&_reader_statistics.bloom_filter_read_time);
                         auto st = ParquetPredicate::read_bloom_filter(
-                                meta_data, _tracing_file_reader, _io_ctx, stat);
+                                meta_data, _tracing_file_reader, _io_ctx, bloom_filter);
                         if (!st.ok()) {
                             LOG(WARNING) << "Failed to read bloom filter for column "
                                          << col_schema->name << " in file " << _scan_range.path
                                          << ", status: " << st.to_string();
-                            stat->bloom_filter.reset();
+                            bloom_filter.reset();
                             return false;
                         }
                     }
-                    return stat->bloom_filter != nullptr;
+                    return bloom_filter != nullptr;
                 };
-        ParquetPredicate::ColumnStat stat;
-        stat.ctz = _ctz;
-        stat.get_stat_func = &get_stat_func;
-        stat.get_bloom_filter_func = &get_bloom_filter_func;
+        segment_v2::ZoneMap info;
+        info.ctz = _ctz;
+        info.get_stat_func = &get_stat_func;
 
-        if (!predicate->evaluate_and(&stat)) {
+        BloomFilterInfo bloom_filter_info;
+        bloom_filter_info.get_bloom_filter_func = &get_bloom_filter_func;
+        bloom_filter_info.is_parquet = true;
+
+        if (!predicate->evaluate_and(info)) {
             *filter_group = true;
-
-            // Track which filter was used for filtering
-            // If bloom filter was loaded, it means bloom filter was used
-            if (stat.bloom_filter) {
-                *filtered_by_bloom_filter = true;
-            }
-            // If col_schema was set but no bloom filter, it means min-max stats were used
-            if (stat.col_schema && !stat.bloom_filter) {
-                *filtered_by_min_max = true;
-            }
-
+            *filtered_by_min_max = true;
+            return Status::OK();
+        } else if (!predicate->evaluate_and(bloom_filter_info)) {
+            *filter_group = true;
+            *filtered_by_bloom_filter = true;
             return Status::OK();
         }
 
         // After evaluating, if the bloom filter was used, cache it for subsequent predicates
-        if (stat.bloom_filter) {
+        if (bloom_filter_info.bloom_filter) {
             // Find the column id for caching
             for (auto* slot : _tuple_descriptor->slots()) {
                 if (_table_info_node_ptr->children_column_exists(slot->col_name())) {
@@ -1272,8 +1269,9 @@ Status ParquetReader::_process_column_stat_filter(
                     const FieldSchema* col_schema =
                             _file_metadata->schema().get_column(file_col_name);
                     int parquet_col_id = col_schema->physical_column_index;
-                    if (stat.col_schema == col_schema) {
-                        bloom_filter_cache[parquet_col_id] = std::move(stat.bloom_filter);
+                    if (info.col_schema == col_schema) {
+                        bloom_filter_cache[parquet_col_id] =
+                                std::move(bloom_filter_info.bloom_filter);
                         break;
                     }
                 }

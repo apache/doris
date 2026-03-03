@@ -331,7 +331,7 @@ void ColumnReader::check_data_by_zone_map_for_test(const vectorized::MutableColu
     }
 
     ZoneMap zone_map;
-    THROW_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
+    THROW_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, &zone_map));
 
     if (zone_map.has_null) {
         return;
@@ -451,7 +451,7 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
     }
     // TODO: this work to get min/max value seems should only do once
     ZoneMap zone_map;
-    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
+    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, &zone_map));
 
     dst->reserve(*n);
     if (!zone_map.has_not_null) {
@@ -472,7 +472,11 @@ Status ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicat
         return Status::OK();
     }
     ZoneMap zone_map;
-    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
+    std::function<Status(ZoneMap*, int)> get_stat_func = [&](ZoneMap* stat,
+                                                             const int cid) -> Status {
+        return ZoneMap::from_proto(*_segment_zone_map, _data_type, stat);
+    };
+    zone_map.get_stat_func = &get_stat_func;
 
     *matched = _zone_map_match_condition(zone_map, col_predicates);
     return Status::OK();
@@ -487,10 +491,13 @@ Status ColumnReader::prune_predicates_by_zone_map(
     }
 
     ZoneMap zone_map;
-    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
+    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, &zone_map));
     if (zone_map.pass_all) {
         return Status::OK();
     }
+    std::function<Status(ZoneMap*, int)> get_stat_func =
+            [&](ZoneMap* stat, const int cid) -> Status { return Status::OK(); };
+    zone_map.get_stat_func = &get_stat_func;
 
     for (auto it = predicates.begin(); it != predicates.end();) {
         auto predicate = *it;
@@ -504,7 +511,7 @@ Status ColumnReader::prune_predicates_by_zone_map(
     return Status::OK();
 }
 
-bool ColumnReader::_zone_map_match_condition(const ZoneMap& zone_map,
+bool ColumnReader::_zone_map_match_condition(ZoneMap& zone_map,
                                              const AndBlockColumnPredicate* col_predicates) const {
     if (zone_map.pass_all) {
         return true;
@@ -525,8 +532,12 @@ Status ColumnReader::_get_filtered_pages(
         if (zone_maps[i].pass_all()) {
             page_indexes->push_back(cast_set<uint32_t>(i));
         } else {
-            segment_v2::ZoneMap zone_map;
-            RETURN_IF_ERROR(ZoneMap::from_proto(zone_maps[i], _data_type, zone_map));
+            ZoneMap zone_map;
+            std::function<Status(ZoneMap*, int)> get_stat_func = [&](ZoneMap* stat,
+                                                                     const int cid) -> Status {
+                return ZoneMap::from_proto(zone_maps[i], _data_type, stat);
+            };
+            zone_map.get_stat_func = &get_stat_func;
             if (_zone_map_match_condition(zone_map, col_predicates)) {
                 bool should_read = true;
                 if (delete_predicates != nullptr) {
@@ -590,9 +601,15 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicat
         }
     }
     for (auto& pid : page_ids) {
-        std::unique_ptr<BloomFilter> bf;
-        RETURN_IF_ERROR(bf_iter->read_bloom_filter(pid, &bf));
-        if (col_predicates->evaluate_and(bf.get())) {
+        std::function<bool(std::unique_ptr<segment_v2::BloomFilter>&, int)> get_bloom_filter_func =
+                [&](std::unique_ptr<segment_v2::BloomFilter>& bloom_filter, const int cid) {
+                    THROW_IF_ERROR(bf_iter->read_bloom_filter(pid, &bloom_filter));
+                    return Status::OK();
+                };
+        BloomFilterInfo bloom_filter_info;
+        bloom_filter_info.get_bloom_filter_func = &get_bloom_filter_func;
+        bloom_filter_info.is_parquet = false;
+        if (col_predicates->evaluate_and(bloom_filter_info)) {
             bf_row_ranges.add(RowRange(_ordinal_index->get_first_ordinal(pid),
                                        _ordinal_index->get_last_ordinal(pid) + 1));
         }

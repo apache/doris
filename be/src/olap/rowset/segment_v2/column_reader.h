@@ -253,7 +253,7 @@ private:
     [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
                                                   const ColumnIteratorOptions& iter_opts);
 
-    bool _zone_map_match_condition(const segment_v2::ZoneMap& zone_map,
+    bool _zone_map_match_condition(segment_v2::ZoneMap& zone_map,
                                    const AndBlockColumnPredicate* col_predicates) const;
 
     Status _get_filtered_pages(

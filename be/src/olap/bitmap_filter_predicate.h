@@ -55,11 +55,13 @@ public:
 
     PredicateType type() const override { return PredicateType::BITMAP_FILTER; }
 
-    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
+    bool evaluate_and(segment_v2::ZoneMap& zone_map) const override {
         if (_specific_filter->is_not_in()) {
             return true;
         }
-
+        if (!(*zone_map.get_stat_func)(&zone_map, column_id())) {
+            return true;
+        }
         CppType max_value;
         if (!zone_map.has_not_null) {
             // no non-null values

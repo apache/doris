@@ -42,12 +42,12 @@ void SingleColumnBlockPredicate::evaluate_and(vectorized::MutableColumns& block,
     _predicate->evaluate_and(*column, sel, selected_size, flags);
 }
 
-bool SingleColumnBlockPredicate::evaluate_and(const segment_v2::ZoneMap& zone_map) const {
+bool SingleColumnBlockPredicate::evaluate_and(segment_v2::ZoneMap& zone_map) const {
     return _predicate->evaluate_and(zone_map);
 }
 
-bool SingleColumnBlockPredicate::evaluate_and(const segment_v2::BloomFilter* bf) const {
-    return _predicate->evaluate_and(bf);
+bool SingleColumnBlockPredicate::evaluate_and(BloomFilterInfo& bloom_filter_info) const {
+    return _predicate->evaluate_and(bloom_filter_info);
 }
 
 bool SingleColumnBlockPredicate::evaluate_and(const StringRef* dict_words,
@@ -172,7 +172,7 @@ void AndBlockColumnPredicate::evaluate_and(vectorized::MutableColumns& block, ui
     }
 }
 
-bool AndBlockColumnPredicate::evaluate_and(const segment_v2::ZoneMap& zone_map) const {
+bool AndBlockColumnPredicate::evaluate_and(segment_v2::ZoneMap& zone_map) const {
     for (auto& block_column_predicate : _block_column_predicate_vec) {
         if (!block_column_predicate->evaluate_and(zone_map)) {
             return false;
@@ -181,13 +181,22 @@ bool AndBlockColumnPredicate::evaluate_and(const segment_v2::ZoneMap& zone_map) 
     return true;
 }
 
-bool AndBlockColumnPredicate::evaluate_and(const segment_v2::BloomFilter* bf) const {
+bool AndBlockColumnPredicate::evaluate_and(BloomFilterInfo& bloom_filter_info) const {
     for (auto& block_column_predicate : _block_column_predicate_vec) {
-        if (!block_column_predicate->evaluate_and(bf)) {
+        if (!block_column_predicate->evaluate_and(bloom_filter_info)) {
             return false;
         }
     }
     return true;
+}
+
+bool OrBlockColumnPredicate::evaluate_and(BloomFilterInfo& bloom_filter_info) const {
+    for (auto& block_column_predicate : _block_column_predicate_vec) {
+        if (block_column_predicate->evaluate_and(bloom_filter_info)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool AndBlockColumnPredicate::evaluate_and(const StringRef* dict_words,
