@@ -29,7 +29,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.GroupCommitScanNode;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -92,8 +91,7 @@ public class GroupCommitTableValuedFunction extends ExternalFileTableValuedFunct
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
-        return new GroupCommitScanNode(id, desc, tableId,
-                ScanContext.builder().clusterName(sv.resolveCloudClusterName()).build());
+        return new GroupCommitScanNode(id, desc, tableId);
     }
 
     @Override

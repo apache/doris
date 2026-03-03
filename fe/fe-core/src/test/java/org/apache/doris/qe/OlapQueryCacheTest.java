@@ -56,7 +56,6 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.cache.Cache;
@@ -379,7 +378,7 @@ public class OlapQueryCacheTest {
         OlapTable table = createProfileTable();
         TupleDescriptor desc = new TupleDescriptor(new TupleId(20004));
         desc.setTable(table);
-        OlapScanNode node = new OlapScanNode(new PlanNodeId(20008), desc, "userprofilenode", ScanContext.EMPTY);
+        OlapScanNode node = new OlapScanNode(new PlanNodeId(20008), desc, "userprofilenode");
         node.setSelectedPartitionIds(selectedPartitionIds);
         return node;
     }
@@ -492,7 +491,7 @@ public class OlapQueryCacheTest {
         OlapTable table = createEventTable();
         TupleDescriptor desc = new TupleDescriptor(new TupleId(30002));
         desc.setTable(table);
-        OlapScanNode node = new OlapScanNode(new PlanNodeId(30004), desc, "appeventnode", ScanContext.EMPTY);
+        OlapScanNode node = new OlapScanNode(new PlanNodeId(30004), desc, "appeventnode");
         node.setSelectedPartitionIds(selectedPartitionIds);
         return node;
     }

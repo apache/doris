@@ -772,6 +772,22 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     @Override
+    public int getMinPipelineExecutorSize() {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            return 1;
+        }
+        String clusterName = "";
+        try {
+            clusterName = ctx.getCloudCluster(false);
+        } catch (ComputeGroupException e) {
+            LOG.warn("failed to get cluster name", e);
+            return 1;
+        }
+        return getMinPipelineExecutorSize(clusterName);
+    }
+
+    @Override
     public int getMinPipelineExecutorSize(String clusterName) {
         if (Strings.isNullOrEmpty(clusterName)) {
             return 1;

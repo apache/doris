@@ -311,10 +311,9 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 int prunedPartNum = candidate.getSelectedPartitionIds().size();
                 int bucketNum = candidate.getTable().getDefaultDistributionInfo().getBucketNum();
                 int totalBucketNum = prunedPartNum * bucketNum;
-                ConnectContext connectContext = ConnectContext.get();
-                int backEndNum = Math.max(1, connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
-                String clusterName = connectContext.getSessionVariable().resolveCloudClusterName(connectContext);
-                int paraNum = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum(clusterName));
+                int backEndNum = Math.max(1, ConnectContext.get().getEnv().getClusterInfo()
+                        .getBackendsNumber(true));
+                int paraNum = Math.max(1, ConnectContext.get().getSessionVariable().getParallelExecInstanceNum());
                 return totalBucketNum < backEndNum * paraNum * 0.8;
             }
         }

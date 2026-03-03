@@ -288,8 +288,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
                 "availableBeCount must be greater than 0 for rewrite task");
 
         // 3. Get default parallelism from session variable (pipeline task num)
-        String clusterName = connectContext.getSessionVariable().resolveCloudClusterName(connectContext);
-        int defaultParallelism = connectContext.getSessionVariable().getParallelExecInstanceNum(clusterName);
+        int defaultParallelism = connectContext.getSessionVariable().getParallelExecInstanceNum();
 
         // 4. Determine strategy based on expected file count
         boolean useGather = false;

@@ -29,6 +29,7 @@ import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -65,9 +66,8 @@ public class SchemaScanNode extends ScanNode {
      * Constructs node to scan given data files of table 'tbl'.
      */
     public SchemaScanNode(PlanNodeId id, TupleDescriptor desc,
-            String schemaCatalog, String schemaDb, String schemaTable, List<Expr> frontendConjuncts,
-            ScanContext scanContext) {
-        super(id, desc, "SCAN SCHEMA", scanContext);
+            String schemaCatalog, String schemaDb, String schemaTable, List<Expr> frontendConjuncts) {
+        super(id, desc, "SCAN SCHEMA", StatisticalType.SCHEMA_SCAN_NODE);
         this.tableName = desc.getTable().getName();
         this.schemaCatalog = schemaCatalog;
         this.schemaDb = schemaDb;

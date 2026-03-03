@@ -27,6 +27,7 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.nereids.load.NereidsFileGroupInfo;
 import org.apache.doris.nereids.load.NereidsLoadPlanInfoCollector;
 import org.apache.doris.nereids.load.NereidsParamCreateContext;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -58,8 +59,8 @@ public class FileLoadScanNode extends FileScanNode {
      * External file scan node for load from file
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
-    public FileLoadScanNode(PlanNodeId id, TupleDescriptor desc, ScanContext scanContext) {
-        super(id, desc, "FILE_LOAD_SCAN_NODE", scanContext, false);
+    public FileLoadScanNode(PlanNodeId id, TupleDescriptor desc) {
+        super(id, desc, "FILE_LOAD_SCAN_NODE", StatisticalType.FILE_SCAN_NODE, false);
     }
 
     public void finalizeForNereids(TUniqueId loadId, List<NereidsFileGroupInfo> fileGroupInfos,

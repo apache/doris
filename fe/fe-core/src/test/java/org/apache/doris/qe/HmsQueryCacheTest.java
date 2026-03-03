@@ -42,7 +42,6 @@ import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
@@ -228,7 +227,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
 
         TupleDescriptor desc = new TupleDescriptor(new TupleId(1));
         desc.setTable(mgr.getInternalCatalog().getDbNullable("test").getTableNullable("tbl1"));
-        olapScanNode = new OlapScanNode(new PlanNodeId(1), desc, "tb1ScanNode", ScanContext.EMPTY);
+        olapScanNode = new OlapScanNode(new PlanNodeId(1), desc, "tb1ScanNode");
     }
 
     @Test

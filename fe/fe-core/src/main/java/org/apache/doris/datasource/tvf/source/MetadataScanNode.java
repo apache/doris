@@ -21,8 +21,8 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.MetadataTableValuedFunction;
 import org.apache.doris.thrift.TMetaScanNode;
@@ -45,9 +45,8 @@ public class MetadataScanNode extends ExternalScanNode {
     private boolean initedScanRangeLocations = false;
     private final List<TScanRangeLocations> scanRangeLocations = Lists.newArrayList();
 
-    public MetadataScanNode(PlanNodeId id, TupleDescriptor desc, MetadataTableValuedFunction tvf,
-            ScanContext scanContext) {
-        super(id, desc, "METADATA_SCAN_NODE", scanContext, false);
+    public MetadataScanNode(PlanNodeId id, TupleDescriptor desc, MetadataTableValuedFunction tvf) {
+        super(id, desc, "METADATA_SCAN_NODE", StatisticalType.METADATA_SCAN_NODE, false);
         this.tvf = tvf;
     }
 

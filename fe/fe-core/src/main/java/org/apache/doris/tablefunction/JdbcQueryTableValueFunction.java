@@ -25,7 +25,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.datasource.jdbc.source.JdbcScanNode;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.SessionVariable;
 
@@ -55,7 +54,6 @@ public class JdbcQueryTableValueFunction extends QueryTableValueFunction {
                 desc.getTable().getFullSchema(), TableType.JDBC);
         catalog.configureJdbcTable(jdbcTable, desc.getTable().getName());
         desc.setTable(jdbcTable);
-        return new JdbcScanNode(id, desc, true, query,
-                ScanContext.builder().clusterName(sv.resolveCloudClusterName()).build());
+        return new JdbcScanNode(id, desc, true, query);
     }
 }
