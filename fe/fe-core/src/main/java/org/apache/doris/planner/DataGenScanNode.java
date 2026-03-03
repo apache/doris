@@ -98,7 +98,7 @@ public class DataGenScanNode extends ExternalScanNode {
     public int getNumInstances() {
         ConnectContext context = ConnectContext.get();
         if (context != null && context.getSessionVariable().isIgnoreStorageDataDistribution()) {
-            return context.getSessionVariable().getParallelExecInstanceNum(clusterName);
+            return context.getSessionVariable().getParallelExecInstanceNum(scanContext.getClusterName());
         }
         return 1;
     }

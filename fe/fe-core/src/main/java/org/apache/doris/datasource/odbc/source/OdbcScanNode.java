@@ -219,7 +219,7 @@ public class OdbcScanNode extends ExternalScanNode {
         if (context == null) {
             return 1;
         }
-        return context.getSessionVariable().getParallelExecInstanceNum(clusterName);
+        return context.getSessionVariable().getParallelExecInstanceNum(scanContext.getClusterName());
     }
 
     public static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
