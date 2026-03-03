@@ -673,15 +673,6 @@ public:
     const_iterator cend() const { return end(); }
     iterator end() { return iterator(this, true); }
 
-    /// Public accessors for sub-tables, enabling direct batch operations
-    /// that bypass dispatch() for better performance (no per-row branching).
-    T0& get_submap_m0() { return m0; }
-    T1& get_submap_m1() { return m1; }
-    T2& get_submap_m2() { return m2; }
-    T3& get_submap_m3() { return m3; }
-    T4& get_submap_m4() { return m4; }
-    Ts& get_submap_ms() { return ms; }
-
     /// Visit each (group_index, submap) pair with a generic callable.
     /// Func signature: func(std::integral_constant<int, GroupIdx>, Submap&)
     /// The integral_constant enables compile-time group dispatch in the lambda.

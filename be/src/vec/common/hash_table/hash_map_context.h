@@ -503,19 +503,20 @@ void process_submap_emplace(Submap& submap, const uint32_t* indices, size_t coun
                 continue;
             }
         }
-        const auto& origin = agg_method.keys[row];
+        auto origin = agg_method.keys[row];
         auto converted_key = convert_key_for_submap<GroupIdx>(origin);
         typename Submap::LookupResult result;
         if constexpr (GroupIdx == 0 || GroupIdx == 5) {
             // Groups 0,5: key and origin are the same StringRef
             submap.lazy_emplace_with_origin(converted_key, converted_key, result,
                                             hash_for_group<GroupIdx>(agg_method.hash_values, row),
-                                            std::forward<F>(creator));
+                                            creator);
         } else {
-            // Groups 1-4: converted_key differs from origin
+            // Groups 1-4: converted_key differs from origin; origin must be
+            // a non-const copy so try_presis_key_and_origin can persist it
             submap.lazy_emplace_with_origin(converted_key, origin, result,
                                             hash_for_group<GroupIdx>(agg_method.hash_values, row),
-                                            std::forward<F>(creator));
+                                            creator);
         }
         result_handler(row, result->get_second());
     }
@@ -547,17 +548,18 @@ void process_submap_emplace_void(Submap& submap, const uint32_t* indices, size_t
                 continue;
             }
         }
-        const auto& origin = agg_method.keys[row];
+        auto origin = agg_method.keys[row];
         auto converted_key = convert_key_for_submap<GroupIdx>(origin);
         typename Submap::LookupResult result;
         if constexpr (GroupIdx == 0 || GroupIdx == 5) {
             submap.lazy_emplace_with_origin(converted_key, converted_key, result,
                                             hash_for_group<GroupIdx>(agg_method.hash_values, row),
-                                            std::forward<F>(creator));
+                                            creator);
         } else {
+            // origin must be a non-const copy so try_presis_key_and_origin can persist it
             submap.lazy_emplace_with_origin(converted_key, origin, result,
                                             hash_for_group<GroupIdx>(agg_method.hash_values, row),
-                                            std::forward<F>(creator));
+                                            creator);
         }
     }
 }
