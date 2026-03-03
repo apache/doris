@@ -22,6 +22,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.CollectAccessPathResult;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TAccessPathType;
 import org.apache.doris.thrift.TColumnAccessPath;
@@ -53,6 +55,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * <li> 1. prune the data type of struct/map
@@ -76,7 +79,8 @@ public class NestedColumnPruning implements CustomRewriter {
         try {
             StatementContext statementContext = jobContext.getCascadesContext().getStatementContext();
             SessionVariable sessionVariable = statementContext.getConnectContext().getSessionVariable();
-            if (!sessionVariable.enablePruneNestedColumns || !statementContext.hasNestedColumns()) {
+            if (!sessionVariable.enablePruneNestedColumns
+                    || (!statementContext.hasNestedColumns() && !containsVariant(plan))) {
                 return plan;
             }
 
@@ -100,11 +104,31 @@ public class NestedColumnPruning implements CustomRewriter {
         }
     }
 
+    private static boolean containsVariant(Plan plan) {
+        AtomicBoolean hasVariant = new AtomicBoolean(false);
+        plan.foreachUp(node -> {
+            if (hasVariant.get()) {
+                return;
+            }
+            Plan current = (Plan) node;
+            for (Expression expression : current.getExpressions()) {
+                if (expression.getDataType().isVariantType()
+                        || expression.getInputSlots().stream()
+                                .anyMatch(slot -> slot.getDataType().isVariantType())) {
+                    hasVariant.set(true);
+                    return;
+                }
+            }
+        });
+        return hasVariant.get();
+    }
+
     private static Map<Integer, AccessPathInfo> pruneDataType(
             Map<Slot, List<CollectAccessPathResult>> slotToAccessPaths) {
         Map<Integer, AccessPathInfo> result = new LinkedHashMap<>();
         Map<Slot, DataTypeAccessTree> slotIdToAllAccessTree = new LinkedHashMap<>();
         Map<Slot, DataTypeAccessTree> slotIdToPredicateAccessTree = new LinkedHashMap<>();
+        Map<Slot, DataType> variantSlots = new LinkedHashMap<>();
 
         Comparator<Pair<TAccessPathType, List<String>>> pathComparator = Comparator.comparing(
                 l -> StringUtils.join(l.second, "."));
@@ -118,6 +142,20 @@ public class NestedColumnPruning implements CustomRewriter {
         for (Entry<Slot, List<CollectAccessPathResult>> kv : slotToAccessPaths.entrySet()) {
             Slot slot = kv.getKey();
             List<CollectAccessPathResult> collectAccessPathResults = kv.getValue();
+            if (slot.getDataType() instanceof VariantType) {
+                variantSlots.put(slot, slot.getDataType());
+                for (CollectAccessPathResult collectAccessPathResult : collectAccessPathResults) {
+                    List<String> path = collectAccessPathResult.getPath();
+                    TAccessPathType pathType = collectAccessPathResult.getType();
+                    allAccessPaths.put(slot.getExprId().asInt(), Pair.of(pathType, path));
+                    if (collectAccessPathResult.isPredicate()) {
+                        predicateAccessPaths.put(
+                                slot.getExprId().asInt(), Pair.of(pathType, path)
+                        );
+                    }
+                }
+                continue;
+            }
             for (CollectAccessPathResult collectAccessPathResult : collectAccessPathResults) {
                 List<String> path = collectAccessPathResult.getPath();
                 TAccessPathType pathType = collectAccessPathResult.getType();
@@ -145,100 +183,83 @@ public class NestedColumnPruning implements CustomRewriter {
             DataTypeAccessTree accessTree = kv.getValue();
             DataType prunedDataType = accessTree.pruneDataType().orElse(slot.getDataType());
 
-            List<TColumnAccessPath> allPaths = new ArrayList<>();
-            boolean accessWholeColumn = false;
-            TAccessPathType accessWholeColumnType = TAccessPathType.META;
-            for (Pair<TAccessPathType, List<String>> pathInfo : allAccessPaths.get(slot.getExprId().asInt())) {
-                if (pathInfo.first == TAccessPathType.DATA) {
-                    TDataAccessPath dataAccessPath = new TDataAccessPath();
-                    dataAccessPath.setPath(new ArrayList<>(pathInfo.second));
-                    TColumnAccessPath accessPath = new TColumnAccessPath(TAccessPathType.DATA);
-                    accessPath.setDataAccessPath(dataAccessPath);
-                    allPaths.add(accessPath);
-                } else {
-                    TMetaAccessPath dataAccessPath = new TMetaAccessPath();
-                    dataAccessPath.setPath(new ArrayList<>(pathInfo.second));
-                    TColumnAccessPath accessPath = new TColumnAccessPath(TAccessPathType.META);
-                    accessPath.setMetaAccessPath(dataAccessPath);
-                    allPaths.add(accessPath);
-                }
-                // only retain access the whole root
-                if (pathInfo.second.size() == 1) {
-                    accessWholeColumn = true;
-                    if (pathInfo.first == TAccessPathType.DATA) {
-                        accessWholeColumnType = TAccessPathType.DATA;
-                    }
-                } else {
-                    accessWholeColumnType = TAccessPathType.DATA;
-                }
-            }
-            if (accessWholeColumn) {
-                TColumnAccessPath accessPath = new TColumnAccessPath(accessWholeColumnType);
-                SlotReference slotReference = (SlotReference) kv.getKey();
-                String wholeColumnName = slotReference.getOriginalColumn().get().getName();
-                if (accessWholeColumnType == TAccessPathType.DATA) {
-                    accessPath.setDataAccessPath(new TDataAccessPath(ImmutableList.of(wholeColumnName)));
-                } else {
-                    accessPath.setMetaAccessPath(new TMetaAccessPath(ImmutableList.of(wholeColumnName)));
-                }
-                allPaths = ImmutableList.of(accessPath);
-            }
-            result.put(slot.getExprId().asInt(), new AccessPathInfo(prunedDataType, allPaths, new ArrayList<>()));
+            List<TColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
+            result.put(slot.getExprId().asInt(),
+                    new AccessPathInfo(prunedDataType, allPaths, new ArrayList<>()));
+        }
+
+        for (Entry<Slot, DataType> kv : variantSlots.entrySet()) {
+            Slot slot = kv.getKey();
+            List<TColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
+            result.put(slot.getExprId().asInt(),
+                    new AccessPathInfo(slot.getDataType(), allPaths, new ArrayList<>()));
         }
 
         // third: build predicate access path
         for (Entry<Slot, DataTypeAccessTree> kv : slotIdToPredicateAccessTree.entrySet()) {
             Slot slot = kv.getKey();
 
-            List<TColumnAccessPath> predicatePaths = new ArrayList<>();
-            boolean accessWholeColumn = false;
-            TAccessPathType accessWholeColumnType = TAccessPathType.META;
-            for (Pair<TAccessPathType, List<String>> pathInfo : predicateAccessPaths.get(slot.getExprId().asInt())) {
-                if (pathInfo == null) {
-                    throw new AnalysisException("This is a bug, please report this");
-                }
+            List<TColumnAccessPath> predicatePaths =
+                    buildColumnAccessPaths(slot, predicateAccessPaths);
+            AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
+            accessPathInfo.getPredicateAccessPaths().addAll(predicatePaths);
+        }
 
-                if (pathInfo.first == TAccessPathType.DATA) {
-                    TDataAccessPath dataAccessPath = new TDataAccessPath();
-                    dataAccessPath.setPath(new ArrayList<>(pathInfo.second));
-                    TColumnAccessPath accessPath = new TColumnAccessPath(TAccessPathType.DATA);
-                    accessPath.setDataAccessPath(dataAccessPath);
-                    predicatePaths.add(accessPath);
-                } else {
-                    TMetaAccessPath dataAccessPath = new TMetaAccessPath();
-                    dataAccessPath.setPath(new ArrayList<>(pathInfo.second));
-                    TColumnAccessPath accessPath = new TColumnAccessPath(TAccessPathType.META);
-                    accessPath.setMetaAccessPath(dataAccessPath);
-                    predicatePaths.add(accessPath);
-                }
-                // only retain access the whole root
-                if (pathInfo.second.size() == 1) {
-                    accessWholeColumn = true;
-                    if (pathInfo.first == TAccessPathType.DATA) {
-                        accessWholeColumnType = TAccessPathType.DATA;
-                    }
-                } else {
-                    accessWholeColumnType = TAccessPathType.DATA;
-                }
-            }
-
-            if (accessWholeColumn) {
-                TColumnAccessPath accessPath = new TColumnAccessPath(accessWholeColumnType);
-                SlotReference slotReference = (SlotReference) kv.getKey();
-                String wholeColumnName = slotReference.getOriginalColumn().get().getName();
-                if (accessWholeColumnType == TAccessPathType.DATA) {
-                    accessPath.setDataAccessPath(new TDataAccessPath(ImmutableList.of(wholeColumnName)));
-                } else {
-                    accessPath.setMetaAccessPath(new TMetaAccessPath(ImmutableList.of(wholeColumnName)));
-                }
-                predicatePaths = ImmutableList.of(accessPath);
-            }
-
+        for (Entry<Slot, DataType> kv : variantSlots.entrySet()) {
+            Slot slot = kv.getKey();
+            List<TColumnAccessPath> predicatePaths =
+                    buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
             accessPathInfo.getPredicateAccessPaths().addAll(predicatePaths);
         }
 
         return result;
+    }
+
+    private static List<TColumnAccessPath> buildColumnAccessPaths(
+            Slot slot, Multimap<Integer, Pair<TAccessPathType, List<String>>> accessPaths) {
+        List<TColumnAccessPath> paths = new ArrayList<>();
+        boolean accessWholeColumn = false;
+        TAccessPathType accessWholeColumnType = TAccessPathType.META;
+        for (Pair<TAccessPathType, List<String>> pathInfo : accessPaths.get(slot.getExprId().asInt())) {
+            if (pathInfo == null) {
+                throw new AnalysisException("This is a bug, please report this");
+            }
+            if (pathInfo.first == TAccessPathType.DATA) {
+                TDataAccessPath dataAccessPath = new TDataAccessPath();
+                dataAccessPath.setPath(new ArrayList<>(pathInfo.second));
+                TColumnAccessPath accessPath = new TColumnAccessPath(TAccessPathType.DATA);
+                accessPath.setDataAccessPath(dataAccessPath);
+                paths.add(accessPath);
+            } else {
+                TMetaAccessPath dataAccessPath = new TMetaAccessPath();
+                dataAccessPath.setPath(new ArrayList<>(pathInfo.second));
+                TColumnAccessPath accessPath = new TColumnAccessPath(TAccessPathType.META);
+                accessPath.setMetaAccessPath(dataAccessPath);
+                paths.add(accessPath);
+            }
+            // only retain access the whole root
+            if (pathInfo.second.size() == 1) {
+                accessWholeColumn = true;
+                if (pathInfo.first == TAccessPathType.DATA) {
+                    accessWholeColumnType = TAccessPathType.DATA;
+                }
+            } else {
+                accessWholeColumnType = TAccessPathType.DATA;
+            }
+        }
+        if (accessWholeColumn) {
+            TColumnAccessPath accessPath = new TColumnAccessPath(accessWholeColumnType);
+            SlotReference slotReference = (SlotReference) slot;
+            String wholeColumnName = slotReference.getOriginalColumn().get().getName();
+            if (accessWholeColumnType == TAccessPathType.DATA) {
+                accessPath.setDataAccessPath(new TDataAccessPath(ImmutableList.of(wholeColumnName)));
+            } else {
+                accessPath.setMetaAccessPath(new TMetaAccessPath(ImmutableList.of(wholeColumnName)));
+            }
+            return ImmutableList.of(accessPath);
+        }
+        return paths;
     }
 
     /** DataTypeAccessTree */

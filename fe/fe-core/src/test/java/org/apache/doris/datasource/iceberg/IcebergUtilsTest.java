@@ -74,6 +74,8 @@ public class IcebergUtilsTest {
                     new IcebergHMSExternalCatalog(1, "name", null,
                             new HashMap<String, String>() {{
                                     put("list-all-tables", "true");
+                                    put("type", "hms");
+                                    put("hive.metastore.uris", "http://127.1.1.0:9000");
                                 }},
                             "");
             HiveCatalog i2 = IcebergUtils.createIcebergHiveCatalog(c2, "i1");
@@ -83,11 +85,14 @@ public class IcebergUtilsTest {
                     new IcebergHMSExternalCatalog(1, "name", null,
                             new HashMap<String, String>() {{
                                     put("list-all-tables", "false");
+                                    put("type", "hms");
+                                    put("hive.metastore.uris", "http://127.1.1.0:9000");
                                 }},
                         "");
             HiveCatalog i3 = IcebergUtils.createIcebergHiveCatalog(c3, "i1");
             Assert.assertFalse(getListAllTables(i3));
         } catch (Exception e) {
+            e.printStackTrace();
             Assert.fail();
         }
     }

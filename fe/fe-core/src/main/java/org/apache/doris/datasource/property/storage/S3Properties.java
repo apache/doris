@@ -81,6 +81,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @ConnectorProperty(names = {"s3.region", "AWS_REGION", "region", "REGION", "aws.region", "glue.region",
             "aws.glue.region", "iceberg.rest.signing-region", "client.region"},
             required = false,
+            isRegionField = true,
             description = "The region of S3.")
     protected String region = "";
 

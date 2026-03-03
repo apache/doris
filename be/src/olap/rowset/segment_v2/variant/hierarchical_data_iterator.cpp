@@ -24,6 +24,7 @@
 #include "io/io_common.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_reader_cache.h"
+#include "olap/rowset/segment_v2/variant/nested_group_path.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_map.h"
@@ -58,6 +59,14 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
         for (size_t i = 0; i < leaves_paths.size(); ++i) {
             if (leaves_paths[i].empty()) {
                 // use set_root to share instead
+                continue;
+            }
+            // Skip NestedGroup subcolumns (columns with ___DOR_ng___. prefix in path).
+            // NestedGroup columns only contain rows that have the nested array, not all rows.
+            // They need special handling via NestedGroupWholeIterator, not regular hierarchical merge.
+            const auto& leaf_path = leaves_paths[i].get_path();
+            if (contains_nested_group_marker(leaf_path)) {
+                VLOG_DEBUG << "Skipping NestedGroup subcolumn: " << leaf_path;
                 continue;
             }
             RETURN_IF_ERROR(
@@ -306,7 +315,13 @@ Status HierarchicalDataIterator::_init_container(vectorized::MutableColumnPtr& c
     RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
         MutableColumnPtr column = node.data.column->get_ptr();
         PathInData relative_path = node.path.copy_pop_nfront(_path.get_parts().size());
-        DCHECK(column->size() == nrows);
+        VLOG_DEBUG << "HierarchicalDataIterator::_init_container: node.path="
+                   << node.path.get_path() << ", relative_path=" << relative_path.get_path()
+                   << ", column_size=" << column->size() << ", nrows=" << nrows
+                   << ", has_nested_part=" << node.path.has_nested_part()
+                   << ", type=" << (node.data.type ? node.data.type->get_name() : "null");
+        CHECK(column->size() == nrows) << "column->size()=" << column->size() << ", nrows=" << nrows
+                                       << ", path=" << node.path.get_path();
         if (node.path.has_nested_part()) {
             if (node.data.type->get_primitive_type() != PrimitiveType::TYPE_ARRAY) {
                 return Status::InternalError(

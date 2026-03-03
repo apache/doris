@@ -29,6 +29,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/multi_phrase_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/multi_phrase_weight.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/phrase_query.h"
+#include "olap/rowset/segment_v2/variant/nested_group_provider.h"
 #include "vec/core/block.h"
 
 namespace doris::vectorized {
@@ -95,6 +96,8 @@ TEST_F(FunctionSearchTest, TestClauseTypeCategory) {
               function_search->get_clause_type_category("OR"));
     EXPECT_EQ(FunctionSearch::ClauseTypeCategory::COMPOUND,
               function_search->get_clause_type_category("NOT"));
+    EXPECT_EQ(FunctionSearch::ClauseTypeCategory::COMPOUND,
+              function_search->get_clause_type_category("NESTED"));
 
     // Test unknown type - should default to NON_TOKENIZED
     EXPECT_EQ(FunctionSearch::ClauseTypeCategory::NON_TOKENIZED,
@@ -417,6 +420,8 @@ TEST_F(FunctionSearchTest, TestClauseTypeToQueryType) {
               function_search->clause_type_to_query_type("OR"));
     EXPECT_EQ(segment_v2::InvertedIndexQueryType::BOOLEAN_QUERY,
               function_search->clause_type_to_query_type("NOT"));
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::BOOLEAN_QUERY,
+              function_search->clause_type_to_query_type("NESTED"));
 
     // Test unknown clause type
     EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY,
@@ -498,6 +503,8 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamEmptyInputs) 
             search_param, empty_data_types, non_empty_iterators, num_rows, bitmap_result);
     EXPECT_TRUE(status.ok()); // Should return OK due to empty data_types check
 }
+
+// NESTED clause tests moved to function_search_nested_test.cpp
 
 TEST_F(FunctionSearchTest, TestNestedBooleanQueries) {
     // Test deeply nested boolean queries
@@ -2115,5 +2122,6 @@ TEST_F(FunctionSearchTest, TestSearcherCacheHandlesLifetime) {
     EXPECT_TRUE(resolver.binding_cache().empty());
     EXPECT_TRUE(resolver.readers().empty());
 }
+// NESTED clause tests moved to function_search_nested_test.cpp
 
 } // namespace doris::vectorized

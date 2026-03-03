@@ -379,6 +379,8 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
             _bloom_filter_index.reset(
                     new BloomFilterIndexReader(_file_reader, index_meta.bloom_filter_index()));
             break;
+        case NESTED_OFFSETS_INDEX:
+            break;
         default:
             return Status::Corruption("Bad file {}: invalid column index type {}",
                                       _file_reader->path().native(), index_meta.type());

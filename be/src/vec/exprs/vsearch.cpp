@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "glog/logging.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column_const.h"
 #include "vec/exprs/vexpr_context.h"
@@ -39,6 +40,7 @@ namespace {
 struct SearchInputBundle {
     std::unordered_map<std::string, IndexIterator*> iterators;
     std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> field_types;
+    std::unordered_map<std::string, int> field_name_to_column_id;
     std::vector<int> column_ids;
     vectorized::ColumnsWithTypeAndName literal_args;
 };
@@ -57,28 +59,113 @@ Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
     const auto& search_param = expr.get_search_param();
     const auto& field_bindings = search_param.field_bindings;
 
+    std::unordered_map<std::string, ColumnId> parent_to_base_column_id;
+    std::unordered_map<std::string, std::string> parent_to_storage_field_prefix;
+
+    // Resolve and cache the base (parent) column id for a variant field binding.
+    // This avoids repeated schema lookups when multiple subcolumns share the same parent column.
+    auto resolve_parent_column_id = [&](const std::string& parent_field, ColumnId* column_id) {
+        // Guard against invalid inputs: variant bindings may miss parent_field, and callers must
+        // provide a valid output pointer to receive the resolved id.
+        if (parent_field.empty() || column_id == nullptr) {
+            return false;
+        }
+        auto it = parent_to_base_column_id.find(parent_field);
+        if (it != parent_to_base_column_id.end()) {
+            *column_id = it->second;
+            return true;
+        }
+        if (index_context == nullptr || index_context->segment() == nullptr) {
+            return false;
+        }
+        const int32_t ordinal =
+                index_context->segment()->tablet_schema()->field_index(parent_field);
+        if (ordinal < 0) {
+            return false;
+        }
+        ColumnId resolved_id = static_cast<ColumnId>(ordinal);
+        parent_to_base_column_id.emplace(parent_field, resolved_id);
+        if (auto* storage_name_type = index_context->get_storage_name_and_type_by_id(resolved_id);
+            storage_name_type != nullptr) {
+            parent_to_storage_field_prefix[parent_field] = storage_name_type->first;
+        }
+        *column_id = resolved_id;
+        return true;
+    };
+
     int child_index = 0; // Index for iterating through children
     for (const auto& child : expr.children()) {
         if (child->is_slot_ref()) {
             auto* column_slot_ref = assert_cast<VSlotRef*>(child.get());
             int column_id = column_slot_ref->column_id();
-            auto* iterator = index_context->get_inverted_index_iterator_by_column_id(column_id);
 
             // Determine the field_name from field_bindings (for variant subcolumns)
             // field_bindings and children should have the same order
             std::string field_name;
+            const TSearchFieldBinding* binding = nullptr;
             if (child_index < field_bindings.size()) {
                 // Use field_name from binding (may include "parent.subcolumn" for variant)
-                field_name = field_bindings[child_index].field_name;
+                binding = &field_bindings[child_index];
+                field_name = binding->field_name;
             } else {
                 // Fallback to column_name if binding not found
                 field_name = column_slot_ref->column_name();
             }
 
+            bundle->field_name_to_column_id[field_name] = column_id;
+
+            auto* iterator = index_context->get_inverted_index_iterator_by_column_id(column_id);
+            const auto* storage_name_type =
+                    index_context->get_storage_name_and_type_by_column_id(column_id);
+            bool field_added = false;
+            // For variant subcolumns, slot_ref might not map to a real indexed column in the scan schema.
+            // Fall back to the parent variant column's iterator and synthesize lucene field name.
+            if (iterator == nullptr && binding != nullptr &&
+                binding->__isset.is_variant_subcolumn && binding->is_variant_subcolumn &&
+                binding->__isset.parent_field_name && !binding->parent_field_name.empty()) {
+                ColumnId base_column_id = 0;
+                if (resolve_parent_column_id(binding->parent_field_name, &base_column_id)) {
+                    iterator = index_context->get_inverted_index_iterator_by_id(base_column_id);
+                    const auto* base_storage_name_type =
+                            index_context->get_storage_name_and_type_by_id(base_column_id);
+                    if (iterator != nullptr && base_storage_name_type != nullptr) {
+                        std::string prefix = base_storage_name_type->first;
+                        if (auto pit =
+                                    parent_to_storage_field_prefix.find(binding->parent_field_name);
+                            pit != parent_to_storage_field_prefix.end() && !pit->second.empty()) {
+                            prefix = pit->second;
+                        } else {
+                            parent_to_storage_field_prefix[binding->parent_field_name] = prefix;
+                        }
+
+                        std::string sub_path;
+                        if (binding->__isset.subcolumn_path) {
+                            sub_path = binding->subcolumn_path;
+                        }
+                        if (sub_path.empty()) {
+                            // Fallback: strip "parent." prefix from logical field name
+                            std::string pfx = binding->parent_field_name + ".";
+                            if (field_name.starts_with(pfx)) {
+                                sub_path = field_name.substr(pfx.size());
+                            }
+                        }
+                        if (!sub_path.empty()) {
+                            bundle->iterators[field_name] = iterator;
+                            bundle->field_types[field_name] =
+                                    std::make_pair(prefix + "." + sub_path, nullptr);
+                            int base_column_index =
+                                    index_context->column_index_by_id(base_column_id);
+                            if (base_column_index >= 0) {
+                                bundle->column_ids.emplace_back(base_column_index);
+                            }
+                            field_added = true;
+                        }
+                    }
+                }
+            }
+
             // Only collect fields that have iterators (materialized columns with indexes)
-            if (iterator != nullptr) {
-                const auto* storage_name_type =
-                        index_context->get_storage_name_and_type_by_column_id(column_id);
+            if (!field_added && iterator != nullptr) {
                 if (storage_name_type == nullptr) {
                     return Status::InternalError("storage_name_type not found for column {} in {}",
                                                  column_id, expr.expr_name());
@@ -146,8 +233,6 @@ Status VSearchExpr::execute_column(VExprContext* context, const Block* block, Se
 }
 
 Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
-    LOG(INFO) << "VSearchExpr::evaluate_inverted_index called, DSL: " << _search_param.original_dsl;
-
     if (_search_param.original_dsl.empty()) {
         return Status::InvalidArgument("search DSL is empty");
     }
@@ -163,7 +248,8 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
 
     VLOG_DEBUG << "VSearchExpr: bundle.iterators.size()=" << bundle.iterators.size();
 
-    if (bundle.iterators.empty()) {
+    const bool is_nested_query = _search_param.root.clause_type == "NESTED";
+    if (bundle.iterators.empty() && !is_nested_query) {
         LOG(WARNING) << "VSearchExpr: No indexed columns available for evaluation, DSL: "
                      << _original_dsl;
         auto empty_bitmap = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
@@ -176,7 +262,7 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
     auto result_bitmap = InvertedIndexResultBitmap();
     auto status = function->evaluate_inverted_index_with_search_param(
             _search_param, bundle.field_types, bundle.iterators, segment_num_rows, result_bitmap,
-            _enable_cache);
+            _enable_cache, index_context.get(), bundle.field_name_to_column_id);
 
     if (!status.ok()) {
         LOG(WARNING) << "VSearchExpr: Function evaluation failed: " << status.to_string();

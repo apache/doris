@@ -25,6 +25,7 @@
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/rowset/segment_v2/index_iterator.h"
+#include "olap/rowset/segment_v2/variant/nested_group_provider.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_number.h"
@@ -97,8 +98,9 @@ std::shared_ptr<IndexExecContext> make_inverted_context(
         std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
         std::vector<IndexFieldNameAndTypePair>& storage_types,
         std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>& status_map) {
+    segment_v2::ColumnIteratorOptions column_iter_opts;
     return std::make_shared<IndexExecContext>(col_ids, index_iterators, storage_types, status_map,
-                                              nullptr);
+                                              nullptr, nullptr, column_iter_opts);
 }
 
 } // namespace
@@ -1368,6 +1370,48 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexHandlesMissingIterators) {
     auto status = expr->evaluate_inverted_index(context.get(), 32);
     EXPECT_TRUE(status.ok());
     EXPECT_FALSE(status_map[0][expr.get()]);
+}
+
+TEST_F(VSearchExprTest, EvaluateInvertedIndexNestedFallbackReturnsNotSupportedInCE) {
+    TExprNode nested_node = test_node;
+    nested_node.num_children = 0;
+
+    TSearchParam nested_param;
+    nested_param.original_dsl = "NESTED(data.items, msg=hello)";
+    TSearchClause inner_clause;
+    inner_clause.clause_type = "TERM";
+    inner_clause.__set_field_name("data.items.msg");
+    inner_clause.__set_value("hello");
+    TSearchClause nested_clause;
+    nested_clause.clause_type = "NESTED";
+    nested_clause.__set_nested_path("data.items");
+    nested_clause.__set_children({inner_clause});
+    nested_param.root = nested_clause;
+    nested_param.field_bindings.clear();
+    nested_node.search_param = nested_param;
+    nested_node.__isset.search_param = true;
+
+    auto expr = VSearchExpr::create_shared(nested_node);
+    std::vector<ColumnId> col_ids;
+    std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
+    std::vector<IndexFieldNameAndTypePair> storage_types;
+    std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
+    auto inverted_ctx = make_inverted_context(col_ids, index_iterators, storage_types, status_map);
+    auto context = std::make_shared<VExprContext>(expr);
+    context->set_index_context(inverted_ctx);
+
+    auto status = expr->evaluate_inverted_index(context.get(), 32);
+
+    auto provider = segment_v2::create_nested_group_read_provider();
+    ASSERT_TRUE(provider != nullptr);
+    if (!provider->should_enable_nested_group_read_path()) {
+        EXPECT_FALSE(status.ok());
+        EXPECT_EQ(ErrorCode::NOT_IMPLEMENTED_ERROR, status.code());
+        EXPECT_TRUE(status.to_string().find("NestedGroup support") != std::string::npos);
+    } else {
+        EXPECT_FALSE(status.ok());
+        EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
+    }
 }
 
 TEST_F(VSearchExprTest, EvaluateInvertedIndexPropagatesFunctionFailure) {

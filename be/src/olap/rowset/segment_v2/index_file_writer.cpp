@@ -19,7 +19,7 @@
 
 #include <glog/logging.h>
 
-#include <algorithm>
+#include <atomic>
 #include <filesystem>
 
 #include "common/status.h"

@@ -28,7 +28,10 @@ notClause  : NOT atomClause | atomClause ;
 // Note: fieldGroupQuery is listed before fieldQuery so ANTLR prioritizes field:(group) over field:value.
 // fieldQuery is listed before bareQuery so ANTLR prioritizes field:value over bare value.
 // This ensures "field:term" is parsed as fieldQuery, not bareQuery with "field" as term.
-atomClause : LPAREN clause RPAREN | fieldGroupQuery | fieldQuery | bareQuery ;
+atomClause : LPAREN clause RPAREN | nestedQuery | fieldGroupQuery | fieldQuery | bareQuery ;
+
+// ES-style nested query: NESTED(path, inner_query)
+nestedQuery : NESTED_LPAREN NESTED_PATH NESTED_COMMA clause RPAREN ;
 
 // Support for field:(grouped query) syntax, e.g., title:(rock OR jazz)
 // All terms inside the parentheses inherit the field prefix.
