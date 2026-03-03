@@ -809,6 +809,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             st.to_protobuf(result->mutable_status());
             return;
         }
+        const TFileRangeDesc& range = file_scan_range.ranges.at(0);
         const TFileScanRangeParams& params = file_scan_range.params;
 
         std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
@@ -821,6 +822,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         // might asynchronouslly access the profile
         std::unique_ptr<RuntimeProfile> profile =
                 std::make_unique<RuntimeProfile>("FetchTableSchema");
+        std::unique_ptr<vectorized::GenericReader> reader(nullptr);
         auto io_ctx = std::make_shared<io::IOContext>();
         auto file_cache_statis = std::make_shared<io::FileCacheStatistics>();
         auto file_reader_stats = std::make_shared<io::FileReaderStats>();
@@ -828,94 +830,69 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         io_ctx->file_reader_stats = file_reader_stats.get();
         // file_slots is no use, but the lifetime should be longer than reader
         std::vector<SlotDescriptor*> file_slots;
-        std::vector<std::string> col_names;
-        std::vector<vectorized::DataTypePtr> col_types;
-        bool schema_found = false;
-        // Iterate candidate ranges in order. Skip files whose content is effectively
-        // empty (e.g. files containing only newlines with csv_with_names format).
-        for (const auto& range : file_scan_range.ranges) {
-            std::unique_ptr<vectorized::GenericReader> reader(nullptr);
-            switch (params.format_type) {
-            case TFileFormatType::FORMAT_CSV_PLAIN:
-            case TFileFormatType::FORMAT_CSV_GZ:
-            case TFileFormatType::FORMAT_CSV_BZ2:
-            case TFileFormatType::FORMAT_CSV_LZ4FRAME:
-            case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
-            case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
-            case TFileFormatType::FORMAT_CSV_LZOP:
-            case TFileFormatType::FORMAT_CSV_DEFLATE: {
-                reader = vectorized::CsvReader::create_unique(nullptr, profile.get(), nullptr,
-                                                              params, range, file_slots,
-                                                              io_ctx.get(), io_ctx);
-                break;
-            }
-            case TFileFormatType::FORMAT_TEXT: {
-                reader = vectorized::TextReader::create_unique(nullptr, profile.get(), nullptr,
-                                                               params, range, file_slots,
-                                                               io_ctx.get());
-                break;
-            }
-            case TFileFormatType::FORMAT_PARQUET: {
-                reader = vectorized::ParquetReader::create_unique(params, range, io_ctx, nullptr);
-                break;
-            }
-            case TFileFormatType::FORMAT_ORC: {
-                reader = vectorized::OrcReader::create_unique(params, range, "", io_ctx);
-                break;
-            }
-            case TFileFormatType::FORMAT_NATIVE: {
-                reader = vectorized::NativeReader::create_unique(profile.get(), params, range,
-                                                                 io_ctx.get(), nullptr);
-                break;
-            }
-            case TFileFormatType::FORMAT_JSON: {
-                reader = vectorized::NewJsonReader::create_unique(profile.get(), params, range,
-                                                                  file_slots, io_ctx.get(),
-                                                                  io_ctx);
-                break;
-            }
-            case TFileFormatType::FORMAT_AVRO: {
-                reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
-                                                                  file_slots);
-                break;
-            }
-            default:
-                st = Status::InternalError("Not supported file format in fetch table schema: {}",
-                                           params.format_type);
-                st.to_protobuf(result->mutable_status());
-                return;
-            }
-
-            st = reader->init_schema_reader();
-            if (st.is<ErrorCode::END_OF_FILE>()) {
-                LOG(INFO) << "skip empty file for schema inference: " << range.path;
-                continue;
-            }
-            if (!st.ok()) {
-                LOG(WARNING) << "failed to init reader, errmsg=" << st;
-                st.to_protobuf(result->mutable_status());
-                return;
-            }
-
-            col_names.clear();
-            col_types.clear();
-            st = reader->get_parsed_schema(&col_names, &col_types);
-            if (st.is<ErrorCode::END_OF_FILE>()) {
-                LOG(INFO) << "skip file with empty content for schema inference: " << range.path;
-                continue;
-            }
-            if (!st.ok()) {
-                LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
-                st.to_protobuf(result->mutable_status());
-                return;
-            }
-            schema_found = true;
+        switch (params.format_type) {
+        case TFileFormatType::FORMAT_CSV_PLAIN:
+        case TFileFormatType::FORMAT_CSV_GZ:
+        case TFileFormatType::FORMAT_CSV_BZ2:
+        case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+        case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+        case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+        case TFileFormatType::FORMAT_CSV_LZOP:
+        case TFileFormatType::FORMAT_CSV_DEFLATE: {
+            reader = vectorized::CsvReader::create_unique(nullptr, profile.get(), nullptr, params,
+                                                          range, file_slots, io_ctx.get(), io_ctx);
             break;
         }
-        if (!schema_found) {
-            st = Status::InternalError(
-                    "All candidate files are empty, cannot determine the schema. "
-                    "Please ensure that at least one non-empty file exists.");
+        case TFileFormatType::FORMAT_TEXT: {
+            reader = vectorized::TextReader::create_unique(nullptr, profile.get(), nullptr, params,
+                                                           range, file_slots, io_ctx.get());
+            break;
+        }
+        case TFileFormatType::FORMAT_PARQUET: {
+            reader = vectorized::ParquetReader::create_unique(params, range, io_ctx, nullptr);
+            break;
+        }
+        case TFileFormatType::FORMAT_ORC: {
+            reader = vectorized::OrcReader::create_unique(params, range, "", io_ctx);
+            break;
+        }
+        case TFileFormatType::FORMAT_NATIVE: {
+            reader = vectorized::NativeReader::create_unique(profile.get(), params, range,
+                                                             io_ctx.get(), nullptr);
+            break;
+        }
+        case TFileFormatType::FORMAT_JSON: {
+            reader = vectorized::NewJsonReader::create_unique(profile.get(), params, range,
+                                                              file_slots, io_ctx.get(), io_ctx);
+            break;
+        }
+        case TFileFormatType::FORMAT_AVRO: {
+            reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
+                                                              file_slots);
+            break;
+        }
+        default:
+            st = Status::InternalError("Not supported file format in fetch table schema: {}",
+                                       params.format_type);
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to create reader, errmsg=" << st;
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        st = reader->init_schema_reader();
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to init reader, errmsg=" << st;
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        std::vector<std::string> col_names;
+        std::vector<vectorized::DataTypePtr> col_types;
+        st = reader->get_parsed_schema(&col_names, &col_types);
+        if (!st.ok()) {
+            LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;
         }

@@ -66,4 +66,8 @@ suite("test_tvf_empty_file", "p0") {
                                    "region" = "${region}"
                                    );
                             """
+
+       // test tvf with setting csv_with_names should skip the empty file
+       // load_with_empty_0.csv is an empty file, 
+       // load_with_empty_1.csv have data
 }
