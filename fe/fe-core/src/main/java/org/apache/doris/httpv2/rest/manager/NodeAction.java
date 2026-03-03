@@ -239,8 +239,9 @@ public class NodeAction extends RestBaseController {
     }
 
     private static List<String> getFeList() {
+        int port = Config.enable_https ? Config.https_port : Config.http_port;
         return Env.getCurrentEnv().getFrontends(null).stream()
-                .map(fe -> NetUtils.getHostPortInAccessibleFormat(fe.getHost(), Config.http_port))
+                .map(fe -> NetUtils.getHostPortInAccessibleFormat(fe.getHost(), port))
                 .collect(Collectors.toList());
     }
 
@@ -496,7 +497,8 @@ public class NodeAction extends RestBaseController {
         List<Map<String, String>> failedTotal = Lists.newArrayList();
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
         List<Pair<String, Integer>> aliveFe = Env.getCurrentEnv().getFrontends(null).stream().filter(Frontend::isAlive)
-                .map(fe -> Pair.of(fe.getHost(), Config.http_port)).collect(Collectors.toList());
+                .map(fe -> Pair.of(fe.getHost(),
+                        Config.enable_https ? Config.https_port : Config.http_port)).collect(Collectors.toList());
         checkNodeIsAlive(nodeConfigList, aliveFe, failedTotal);
 
         Map<String, String> header = Maps.newHashMap();
@@ -568,7 +570,8 @@ public class NodeAction extends RestBaseController {
     private String concatFeSetConfigUrl(NodeConfigs nodeConfigs, boolean isPersist) {
         StringBuilder sb = new StringBuilder();
         Pair<String, Integer> hostPort = nodeConfigs.getHostPort();
-        sb.append("http://").append(hostPort.first).append(":").append(hostPort.second).append("/api/_set_config");
+        sb.append(Config.enable_https ? "https://" : "http://")
+                .append(hostPort.first).append(":").append(hostPort.second).append("/api/_set_config");
         Map<String, String> configs = nodeConfigs.getConfigs(isPersist);
         boolean addAnd = false;
         for (Map.Entry<String, String> entry : configs.entrySet()) {

@@ -54,7 +54,13 @@ public class WebServerFactoryCustomizerConfig implements WebServerFactoryCustomi
         });
 
         if (Config.enable_https) {
-            ((JettyServletWebServerFactory) factory).setConfigurations(
+            if (!(factory instanceof JettyServletWebServerFactory)) {
+                LOG.warn("Unexpected WebServerFactory type {}, skipping HTTPS configuration",
+                        factory.getClass().getName());
+                return;
+            }
+            JettyServletWebServerFactory jettyFactory = (JettyServletWebServerFactory) factory;
+            jettyFactory.setConfigurations(
                     Collections.singletonList(new HttpToHttpsJettyConfig())
             );
 

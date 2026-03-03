@@ -23,11 +23,13 @@ import org.apache.doris.common.Config;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.collect.Maps;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
 
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Map;
+import javax.net.ssl.HttpsURLConnection;
 
 public class HttpURLUtil {
 
@@ -35,12 +37,16 @@ public class HttpURLUtil {
         try {
             SecurityChecker.getInstance().startSSRFChecking(request);
             URL url = new URL(request);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 
-            if (url.getProtocol().equalsIgnoreCase("https") && Config.enable_https) {
-                InternalHttpsUtils.installTrustManagerForUrlConnection();
+            if (conn instanceof HttpsURLConnection && Config.enable_https) {
+                HttpsURLConnection httpsConn = (HttpsURLConnection) conn;
+                httpsConn.setSSLSocketFactory(InternalHttpsUtils.getSslContext().getSocketFactory());
+                httpsConn.setHostnameVerifier(NoopHostnameVerifier.INSTANCE);
             }
 
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            // Must use Env.getServingEnv() instead of getCurrentEnv(),
+            // because here we need to obtain selfNode through the official service catalog.
             HostInfo selfNode = Env.getServingEnv().getSelfNode();
             conn.setRequestProperty(Env.CLIENT_NODE_HOST_KEY, selfNode.getHost());
             conn.setRequestProperty(Env.CLIENT_NODE_PORT_KEY, selfNode.getPort() + "");
@@ -54,6 +60,8 @@ public class HttpURLUtil {
 
     public static Map<String, String> getNodeIdentHeaders() throws IOException {
         Map<String, String> headers = Maps.newHashMap();
+        // Must use Env.getServingEnv() instead of getCurrentEnv(),
+        // because here we need to obtain selfNode through the official service catalog.
         HostInfo selfNode = Env.getServingEnv().getSelfNode();
         headers.put(Env.CLIENT_NODE_HOST_KEY, selfNode.getHost());
         headers.put(Env.CLIENT_NODE_PORT_KEY, selfNode.getPort() + "");
