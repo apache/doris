@@ -252,7 +252,8 @@ public class StreamingJobUtils {
     /**
      * When enabling SSL, you need to convert FILE:ca.perm to FILE:ca.pem:md5.
      */
-    public static Map<String, String> convertCertFile(long dbId, Map<String, String> sourceProperties) throws JobException {
+    public static Map<String, String> convertCertFile(long dbId, Map<String, String> sourceProperties)
+            throws JobException {
         SmallFileMgr smallFileMgr = Env.getCurrentEnv().getSmallFileMgr();
         Map<String, String> newProps = new HashMap<>(sourceProperties);
         if (sourceProperties.containsKey(DataSourceConfigKeys.SSL_ROOTCERT)) {
@@ -260,7 +261,8 @@ public class StreamingJobUtils {
             if (certFile.startsWith("FILE:")) {
                 String file = certFile.substring(certFile.indexOf(":") + 1);
                 try {
-                    SmallFile smallFile = smallFileMgr.getSmallFile(dbId, StreamingInsertJob.JOB_FILE_CATALOG, file, true);
+                    SmallFile smallFile =
+                            smallFileMgr.getSmallFile(dbId, StreamingInsertJob.JOB_FILE_CATALOG, file, true);
                     newProps.put(DataSourceConfigKeys.SSL_ROOTCERT, "FILE:" + smallFile.id + ":" + smallFile.md5);
                 } catch (DdlException ex) {
                     throw new JobException("ssl root cert file not found: " + certFile);

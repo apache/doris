@@ -45,6 +45,7 @@ import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatusCode;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -53,6 +54,7 @@ import com.google.gson.Gson;
 import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
