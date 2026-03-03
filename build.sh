@@ -974,6 +974,7 @@ EOF
                 echo "WARN: lib directory missing (likely due to Maven cache). Regenerating..."
                 pushd "${DORIS_HOME}/fe/be-java-extensions/${HADOOP_DEPS_NAME}"
                 "${MVN_CMD}" dependency:copy-dependencies -DskipTests -Dcheckstyle.skip=true
+                mv target/dependency target/lib
                 popd
             fi
             if [[ -f "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" ]]; then
