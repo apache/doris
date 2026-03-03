@@ -136,9 +136,9 @@ void AnnIndexTopnResultCache::insert(const std::string& rowset_id, uint32_t segm
     if (lru_handle != nullptr) {
         LRUCachePolicy::release(lru_handle);
         VLOG_DEBUG << fmt::format(
-            "AnnIndexTopnResultCache released insert handle to make entry evictable, "
-            "rowset_id={}, segment_id={}, limit={}",
-            rowset_id, segment_id, param.limit);
+                "AnnIndexTopnResultCache released insert handle to make entry evictable, "
+                "rowset_id={}, segment_id={}, limit={}",
+                rowset_id, segment_id, param.limit);
     }
     VLOG_DEBUG << fmt::format(
             "AnnIndexTopnResultCache insert with rowset_id={}, segment_id={}, limit={}, charge={}",
