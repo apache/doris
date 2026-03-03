@@ -127,6 +127,8 @@ public:
     std::map<std::string, std::string> begin_sequence_number;
     // shard_id -> committed sequence number (last consumed)
     std::map<std::string, std::string> cmt_sequence_number;
+    // shard_id -> millisBehindLatest from the last GetRecords call
+    std::map<std::string, int64_t> millis_behind_latest;
     // AWS credentials and custom Kinesis properties
     std::map<std::string, std::string> properties;
 };

@@ -438,6 +438,23 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
         }
         return true;
     }
+    case TLoadSourceType::KINESIS: {
+        TRLTaskTxnCommitAttachment& rl_attach = attach->rlTaskTxnCommitAttachment;
+        rl_attach.loadSourceType = TLoadSourceType::KINESIS;
+
+        TKinesisRLTaskProgress kinesis_progress;
+        kinesis_progress.shardCmtSeqNum = ctx->kinesis_info->cmt_sequence_number;
+        if (!ctx->kinesis_info->millis_behind_latest.empty()) {
+            kinesis_progress.__set_shardMillsBehindLatest(ctx->kinesis_info->millis_behind_latest);
+        }
+
+        rl_attach.kinesisRLTaskProgress = kinesis_progress;
+        rl_attach.__isset.kinesisRLTaskProgress = true;
+        if (!ctx->error_url.empty()) {
+            rl_attach.__set_errorLogUrl(ctx->error_url);
+        }
+        return true;
+    }
     default:
         return true;
     }

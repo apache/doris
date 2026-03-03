@@ -72,6 +72,10 @@ public class KinesisProgress extends RoutineLoadProgress {
     @SerializedName(value = "shardToSeqNum")
     private ConcurrentMap<String, String> shardIdToSequenceNumber = Maps.newConcurrentMap();
 
+    // MillisBehindLatest per shard, reported by BE from GetRecords response.
+    // Not persisted — refreshed every task commit. Used only for lag display and scheduling.
+    private ConcurrentMap<String, Long> shardIdToMillsBehindLatest = Maps.newConcurrentMap();
+
     private ReentrantLock lock = new ReentrantLock(true);
 
     public KinesisProgress() {
@@ -83,6 +87,10 @@ public class KinesisProgress extends RoutineLoadProgress {
         this.shardIdToSequenceNumber = new ConcurrentHashMap<>();
         if (tKinesisRLTaskProgress.getShardCmtSeqNum() != null) {
             shardIdToSequenceNumber.putAll(tKinesisRLTaskProgress.getShardCmtSeqNum());
+        }
+        if (tKinesisRLTaskProgress.isSetShardMillsBehindLatest()) {
+            this.shardIdToMillsBehindLatest = new ConcurrentHashMap<>(
+                    tKinesisRLTaskProgress.getShardMillsBehindLatest());
         }
     }
 
@@ -131,6 +139,13 @@ public class KinesisProgress extends RoutineLoadProgress {
      */
     public ConcurrentMap<String, String> getShardIdToSequenceNumber() {
         return shardIdToSequenceNumber;
+    }
+
+    /**
+     * Get all shard to MillisBehindLatest mappings (from the last task commit).
+     */
+    public ConcurrentMap<String, Long> getShardIdToMillsBehindLatest() {
+        return shardIdToMillsBehindLatest;
     }
 
     /**

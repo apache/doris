@@ -224,6 +224,18 @@ private:
     // shard_id -> current shard iterator
     std::map<std::string, std::string> _shard_iterators;
 
+    // Tracks the MillisBehindLatest value per shard from the last GetRecords call.
+    // Updated during group_consume; read by the task executor to populate ctx after consumption.
+    std::map<std::string, int64_t> _millis_behind_latest;
+
+public:
+    // Returns the MillisBehindLatest snapshot collected during group_consume.
+    const std::map<std::string, int64_t>& get_millis_behind_latest() const {
+        return _millis_behind_latest;
+    }
+
+private:
+
     // Helper methods
     // Create and configure AWS Kinesis client with credentials
     Status _create_kinesis_client(std::shared_ptr<StreamLoadContext> ctx);

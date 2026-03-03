@@ -605,6 +605,10 @@ struct TKafkaRLTaskProgress {
 // Maps shard ID to the last committed sequence number
 struct TKinesisRLTaskProgress {
     1: required map<string,string> shardCmtSeqNum
+    // MillisBehindLatest per shard, returned by GetRecords API.
+    // Indicates how far behind the consumer is from the tip of the stream.
+    // 0 means the consumer has caught up; absent means unknown.
+    2: optional map<string,i64> shardMillsBehindLatest
 }
 
 struct TRLTaskTxnCommitAttachment {

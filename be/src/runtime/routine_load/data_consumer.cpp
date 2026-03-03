@@ -852,6 +852,9 @@ Status KinesisDataConsumer::group_consume(
             auto& result = outcome.GetResult();
             RETURN_IF_ERROR(_process_records(result, queue, &received_rows, &put_rows));
 
+            // Track MillisBehindLatest for this shard (used by FE for lag monitoring & scheduling)
+            _millis_behind_latest[shard_id] = result.GetMillisBehindLatest();
+
             // Update shard iterator for next call
             std::string next_iterator = result.GetNextShardIterator();
             if (next_iterator.empty()) {

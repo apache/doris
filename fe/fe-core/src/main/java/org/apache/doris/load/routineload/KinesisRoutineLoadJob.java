@@ -112,7 +112,8 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     private Map<String, String> customProperties = Maps.newHashMap();
     private Map<String, String> convertedCustomProperties = Maps.newHashMap();
 
-    // cache of shard lag information (milliseconds behind latest).
+    // The latest offset of each partition fetched from kinesis server.
+    // Will be updated periodically by calling hasMoreDataToConsume()
     private Map<String, Long> cachedShardWithMillsBehindLatest = Maps.newConcurrentMap();
 
     // newly discovered shards from Kinesis.
@@ -266,9 +267,14 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     }
 
     private void updateProgressAndOffsetsCache(RLTaskTxnCommitAttachment attachment) {
-        ((KinesisProgress) attachment.getProgress()).getShardIdToSequenceNumber().forEach((shardId, seqNum) -> {
-            // (TODO) Update cached shard info
-        });
+        KinesisProgress taskProgress = (KinesisProgress) attachment.getProgress();
+
+        // Update cachedShardWithMillsBehindLatest from the MillisBehindLatest values
+        // reported by BE's GetRecords response. Keep the maximum value across concurrent tasks
+        // to avoid a stale (lower) value from one task overwriting a fresher value from another.
+        taskProgress.getShardIdToMillsBehindLatest().forEach((shardId, millis) ->
+                cachedShardWithMillsBehindLatest.merge(shardId, millis, Math::max));
+
         this.progress.update(attachment);
     }
 
@@ -721,14 +727,23 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
      */
     public boolean hasMoreDataToConsume(UUID taskId, Map<String, String> shardIdToSequenceNumber)
             throws UserException {
-        // For Kinesis, we optimistically return true and let the BE handle
-        // the actual data availability check during consumption.
-        // The BE will use GetRecords API which returns MillisBehindLatest
-        // to determine if there's more data.
-        //
-        // A more sophisticated implementation could call DescribeStream
-        // or GetShardIterator to check shard status, but this adds latency.
-        return true;
+        // If the cache is empty (no task has committed yet), consume optimistically.
+        if (cachedShardWithMillsBehindLatest.isEmpty()) {
+            return true;
+        }
+        // If any shard's MillisBehindLatest is unknown or > 0, there is data to consume.
+        for (String shardId : shardIdToSequenceNumber.keySet()) {
+            Long millis = cachedShardWithMillsBehindLatest.get(shardId);
+            if (millis == null || millis > 0) {
+                return true;
+            }
+        }
+        // All shards report MillisBehindLatest == 0: consumer has caught up.
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("All shards caught up (MillisBehindLatest=0), skip scheduling. job {}, task {}",
+                    id, taskId);
+        }
+        return false;
     }
 
     @Override

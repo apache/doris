@@ -592,9 +592,12 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         break;
     }
     case TLoadSourceType::KINESIS: {
-        // For Kinesis, sequence numbers are already tracked in ctx->kinesis_info->cmt_sequence_number
-        // They will be sent back to FE via TRLTaskTxnCommitAttachment for progress tracking
-        // Kinesis doesn't require explicit commit like Kafka (no consumer group coordination)
+        // Copy MillisBehindLatest from the consumer into ctx so that stream_load_executor
+        // can include it in TKinesisRLTaskProgress and report it back to FE.
+        auto kinesis_consumer = std::static_pointer_cast<KinesisDataConsumer>(
+                consumer_grp->consumers()[0]);
+        ctx->kinesis_info->millis_behind_latest = kinesis_consumer->get_millis_behind_latest();
+
         LOG(INFO) << "Kinesis routine load task completed. Committed sequence numbers for "
                   << ctx->kinesis_info->cmt_sequence_number.size() << " shards. Task: "
                   << ctx->brief();
