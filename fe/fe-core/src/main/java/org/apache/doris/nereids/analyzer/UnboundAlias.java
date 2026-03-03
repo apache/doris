@@ -105,6 +105,16 @@ public class UnboundAlias extends NamedExpression implements UnaryExpression, Un
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(child().toDigest());
+        if (alias.isPresent()) {
+            sb.append(" AS " + alias.get());
+        }
+        return sb.toString();
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitUnboundAlias(this, context);
     }

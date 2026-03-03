@@ -341,8 +341,12 @@ suite("test_stream_load_2pc", "p0") {
     def do_streamload_2pc_commit_by_label = { label, tbl ->
         def command = "curl -X PUT --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}" +
                 " -H label:${label}" +
-                " -H txn_operation:commit" +
-                " http://${context.config.feHttpAddress}/api/${db}/${tbl}/_stream_load_2pc"
+                " -H txn_operation:commit"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            command = command + " https://${context.config.feHttpAddress}/api/${db}/${tbl}/_stream_load_2pc" + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        } else {
+            command = command + " http://${context.config.feHttpAddress}/api/${db}/${tbl}/_stream_load_2pc"
+        }
         log.info("http_stream execute 2pc: ${command}")
 
         def process = command.execute()
@@ -356,8 +360,12 @@ suite("test_stream_load_2pc", "p0") {
     def do_streamload_2pc_commit_by_txn_id = { txnId, tbl ->
         def command = "curl -X PUT --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}" +
                 " -H txn_id:${txnId}" +
-                " -H txn_operation:commit" +
-                " http://${context.config.feHttpAddress}/api/${db}/${tbl}/_stream_load_2pc"
+                " -H txn_operation:commit"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            command = command + " https://${context.config.feHttpAddress}/api/${db}/${tbl}/_stream_load_2pc" + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        } else {
+            command = command + " http://${context.config.feHttpAddress}/api/${db}/${tbl}/_stream_load_2pc"
+        }
         log.info("http_stream execute 2pc: ${command}")
 
         def process = command.execute()

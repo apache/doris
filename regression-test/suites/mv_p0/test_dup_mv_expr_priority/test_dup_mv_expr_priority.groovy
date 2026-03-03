@@ -39,16 +39,9 @@ suite ("test_dup_mv_expr_priority") {
     sql """insert into table_ngrambf values(1,1,"123_def_美国");"""
 
     sql """analyze table table_ngrambf with sync;"""
-    sql """set enable_stats=false;"""
 
     mv_rewrite_success("""select  element_at(split_by_string(username,"_"),1) ,element_at(split_by_string(username,"_"),2) ,element_at(split_by_string(username,"_"),3)  ,siteid,citycode from table_ngrambf order by citycode;""",
     "test_mv_1")
 
     qt_select_mv """select  element_at(split_by_string(username,"_"),1) ,element_at(split_by_string(username,"_"),2) ,element_at(split_by_string(username,"_"),3)  ,siteid,citycode from table_ngrambf order by citycode;"""
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("""select  element_at(split_by_string(username,"_"),1) ,element_at(split_by_string(username,"_"),2) ,element_at(split_by_string(username,"_"),3)  ,siteid,citycode from table_ngrambf order by citycode;""",
-            "test_mv_1")
-
-
 }

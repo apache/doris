@@ -31,6 +31,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlBlockUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -53,7 +54,7 @@ import java.util.stream.Collectors;
 /**
  * Manage SqlBlockRule.
  **/
-public class SqlBlockRuleMgr implements Writable {
+public class SqlBlockRuleMgr implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(SqlBlockRuleMgr.class);
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
@@ -327,5 +328,14 @@ public class SqlBlockRuleMgr implements Writable {
     public static SqlBlockRuleMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, SqlBlockRuleMgr.class);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        Map<String, SqlBlockRule> nameToSqlBlockRuleMapNew = Maps.newConcurrentMap();
+        if (this.nameToSqlBlockRuleMap != null) {
+            nameToSqlBlockRuleMapNew.putAll(this.nameToSqlBlockRuleMap);
+        }
+        this.nameToSqlBlockRuleMap = nameToSqlBlockRuleMapNew;
     }
 }

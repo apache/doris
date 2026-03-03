@@ -94,6 +94,13 @@ public class ArrayLiteral extends Literal {
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("[?]");
+        return sb.toString();
+    }
+
+    @Override
     public String computeToSql() {
         String items = this.items.stream()
                 .map(Literal::toSql)

@@ -2261,9 +2261,13 @@ bool BlockFileCache::try_reserve_during_async_load(size_t size,
 }
 
 void BlockFileCache::clear_need_update_lru_blocks() {
-    std::vector<FileBlockSPtr> buffer;
-    buffer.reserve(1024);
-    while (_need_update_lru_blocks.try_dequeue_bulk(buffer.data(), buffer.capacity())) {
+    constexpr size_t kBatchSize = 1024;
+    std::vector<FileBlockSPtr> buffer(kBatchSize);
+    size_t drained = 0;
+    while ((drained = _need_update_lru_blocks.try_dequeue_bulk(buffer.data(), buffer.size())) > 0) {
+        for (size_t i = 0; i < drained; ++i) {
+            buffer[i].reset();
+        }
     }
 }
 
@@ -2375,6 +2379,18 @@ void BlockFileCache::run_background_lru_log_replay() {
     }
 }
 
+void BlockFileCache::dump_lru_queues(bool force) {
+    std::unique_lock dump_lock(_dump_lru_queues_mtx);
+    if (config::file_cache_background_lru_dump_tail_record_num > 0 &&
+        !ExecEnv::GetInstance()->get_is_upgrading()) {
+        _lru_dumper->dump_queue("disposable", force);
+        _lru_dumper->dump_queue("normal", force);
+        _lru_dumper->dump_queue("index", force);
+        _lru_dumper->dump_queue("ttl", force);
+        _lru_dumper->set_first_dump_done();
+    }
+}
+
 void BlockFileCache::run_background_lru_dump() {
     Thread::set_self_name("run_background_lru_dump");
     while (!_close) {
@@ -2386,14 +2402,7 @@ void BlockFileCache::run_background_lru_dump() {
                 break;
             }
         }
-
-        if (config::file_cache_background_lru_dump_tail_record_num > 0 &&
-            !ExecEnv::GetInstance()->get_is_upgrading()) {
-            _lru_dumper->dump_queue("disposable");
-            _lru_dumper->dump_queue("normal");
-            _lru_dumper->dump_queue("index");
-            _lru_dumper->dump_queue("ttl");
-        }
+        dump_lru_queues(false);
     }
 }
 

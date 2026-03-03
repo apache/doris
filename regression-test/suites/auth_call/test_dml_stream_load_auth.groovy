@@ -58,7 +58,13 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
 
     def path_file = "${context.file.parent}/../../data/auth_call/stream_load_data.csv"
     def load_path = "${context.file.parent}/../../data/auth_call/stream_load_cm.sh"
-    def cm = """curl --location-trusted -u ${user}:${pwd} -H "column_separator:," -T ${path_file} http://${sql_ip}:${http_port}/api/${dbName}/${tableName}/_stream_load"""
+    def tlsInfo = null
+    def protocol = "http"
+    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+        tlsInfo = " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        protocol = "https"
+    }
+    def cm = """curl --location-trusted -u ${user}:${pwd} -H "column_separator:," -T ${path_file} ${protocol}://${sql_ip}:${http_port}/api/${dbName}/${tableName}/_stream_load ${tlsInfo}"""
     logger.info("cm: " + cm)
     write_to_file(load_path, cm)
     cm = "bash " + load_path

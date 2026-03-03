@@ -55,14 +55,6 @@ public class ESCatalogAction extends RestBaseController {
             executeCheckPassword(request, response);
         }
 
-        try {
-            if (!Env.getCurrentEnv().isMaster()) {
-                return redirectToMasterOrException(request, response);
-            }
-        } catch (Exception e) {
-            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
-        }
-
         Map<String, Object> resultMap = Maps.newHashMap();
         Env env = Env.getCurrentEnv();
         String catalogName = request.getParameter(CATALOG);

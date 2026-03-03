@@ -162,10 +162,19 @@ suite("test_iceberg_optimize_count", "p0,external,doris,external_docker,external
 
         qt_q09 """${sqlstr5}""" 
 
+        sql """ set ignore_iceberg_dangling_delete=false"""
         explain {
             sql("""${sqlstr5}""")
             contains """pushdown agg=COUNT (-1)"""
         }
+        qt_sql_count1 """select count(*) from ${catalog_name}.test_db.dangling_delete_after_write;"""
+
+        sql """ set ignore_iceberg_dangling_delete=true"""
+        explain {
+            sql("""${sqlstr5}""")
+            contains """pushdown agg=COUNT (1)"""
+        }
+        qt_sql_count1 """select count(*) from ${catalog_name}.test_db.dangling_delete_after_write;"""
 
     } finally {
         sql """ set enable_count_push_down_for_external_table=true; """

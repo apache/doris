@@ -63,7 +63,7 @@ import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.awaitility.Awaitility;
@@ -429,5 +429,17 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
     @Override
     public StmtType stmtType() {
         return StmtType.INSERT;
+    }
+
+    @Override
+    public String toDigest() {
+        // if with cte, query will be print twice
+        StringBuilder sb = new StringBuilder();
+        sb.append("OVERWRITE TABLE "); // there is no way add overwrite flag in sink(logic query), so add it here
+        sb.append(originLogicalQuery.toDigest());
+        if (cte.isPresent()) {
+            sb.append(" (").append(cte.get().toDigest()).append(")");
+        }
+        return sb.toString();
     }
 }

@@ -34,7 +34,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.Type;
@@ -54,21 +53,16 @@ import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.HivePartitionValues;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.PartitionValueCacheKey;
 import org.apache.doris.mysql.privilege.Auth;
-import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ListPartitionPrunerV2;
-import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Range;
-import com.google.common.collect.RangeMap;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -532,7 +526,6 @@ public class CatalogMgrTest extends TestWithFeService {
         // partition name format: nation=cn/city=beijing
         Map<Long, PartitionItem> idToPartitionItem = Maps.newHashMapWithExpectedSize(partitionNames.size());
         BiMap<String, Long> partitionNameToIdMap = HashBiMap.create(partitionNames.size());
-        Map<Long, List<UniqueId>> idToUniqueIdsMap = Maps.newHashMapWithExpectedSize(partitionNames.size());
         long idx = 0;
         for (String partitionName : partitionNames) {
             long partitionId = idx++;
@@ -541,23 +534,8 @@ public class CatalogMgrTest extends TestWithFeService {
             partitionNameToIdMap.put(partitionName, partitionId);
         }
 
-        Map<UniqueId, Range<PartitionKey>> uidToPartitionRange = null;
-        Map<Range<PartitionKey>, UniqueId> rangeToId = null;
-        RangeMap<ColumnBound, UniqueId> singleColumnRangeMap = null;
-        Map<UniqueId, Range<ColumnBound>> singleUidToColumnRangeMap = null;
-        if (key.getTypes().size() > 1) {
-            // uidToPartitionRange and rangeToId are only used for multi-column partition
-            uidToPartitionRange = ListPartitionPrunerV2.genUidToPartitionRange(idToPartitionItem, idToUniqueIdsMap);
-            rangeToId = ListPartitionPrunerV2.genRangeToId(uidToPartitionRange);
-        } else {
-            Preconditions.checkState(key.getTypes().size() == 1, key.getTypes());
-            // singleColumnRangeMap is only used for single-column partition
-            singleColumnRangeMap = ListPartitionPrunerV2.genSingleColumnRangeMap(idToPartitionItem, idToUniqueIdsMap);
-            singleUidToColumnRangeMap = ListPartitionPrunerV2.genSingleUidToColumnRange(singleColumnRangeMap);
-        }
         Map<Long, List<String>> partitionValuesMap = ListPartitionPrunerV2.getPartitionValuesMap(idToPartitionItem);
-        return new HivePartitionValues(idToPartitionItem, uidToPartitionRange, rangeToId, singleColumnRangeMap,
-                partitionNameToIdMap, idToUniqueIdsMap, singleUidToColumnRangeMap, partitionValuesMap);
+        return new HivePartitionValues(idToPartitionItem, partitionNameToIdMap, partitionValuesMap);
     }
 
     @Test

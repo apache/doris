@@ -46,7 +46,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -85,6 +85,11 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalCheckPolicy");
+    }
+
+    @Override
+    public String toDigest() {
+        return child().toDigest();
     }
 
     @Override

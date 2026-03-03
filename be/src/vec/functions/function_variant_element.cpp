@@ -126,8 +126,11 @@ private:
     // Return sub-path by specified prefix.
     // For example, for prefix a.b:
     // a.b.c.d -> c.d, a.b.c -> c
-    static std::string_view get_sub_path(const std::string_view& path,
-                                         const std::string_view& prefix) {
+    static std::optional<std::string_view> get_sub_path(const std::string_view& path,
+                                                        const std::string_view& prefix) {
+        if (path.size() <= prefix.size() || path[prefix.size()] != '.') {
+            return std::nullopt;
+        }
         return path.substr(prefix.size() + 1);
     }
     static Status get_element_column(const ColumnObject& src, const ColumnPtr& index_column,
@@ -205,7 +208,11 @@ private:
                         }
                         // Don't include path that is equal to the prefix.
                         if (path.size() != path_prefix.size()) {
-                            auto sub_path = get_sub_path(path, path_prefix);
+                            auto sub_path_optional = get_sub_path(path, path_prefix);
+                            if (!sub_path_optional.has_value()) {
+                                continue;
+                            }
+                            std::string_view sub_path = *sub_path_optional;
                             sparse_data_paths->insert_data(sub_path.data(), sub_path.size());
                             sparse_data_values->insert_from(src_sparse_data_values,
                                                             lower_bound_index);

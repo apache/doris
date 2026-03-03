@@ -119,9 +119,14 @@ suite("docs/table-design/auto-increment.md") {
         select * from tbl order by id;
         """
 
-        cmd """
-        curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "columns:name,value" -H "column_separator:," -T ${context.file.parent}/test_data/test.csv http://${context.config.feHttpAddress}/api/demo/tbl/_stream_load
-        """
+        def curlCmd = """
+            curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "columns:name,value" -H "column_separator:," -T ${context.file.parent}/test_data/test.csv http://${context.config.feHttpAddress}/api/demo/tbl/_stream_load
+            """
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            curlCmd = curlCmd.replace("http://", "https://") + " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+        }
+        cmd curlCmd
+        log.info("${curlCmd}")
         sql "select * from tbl order by id"
 
         multi_sql """

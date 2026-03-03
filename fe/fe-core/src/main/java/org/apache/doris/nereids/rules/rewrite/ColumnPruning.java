@@ -180,7 +180,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     @Override
     public Plan visitLogicalUnion(LogicalUnion union, PruneContext context) {
         if (union.getQualifier() == Qualifier.DISTINCT) {
-            return skipPruneThisAndFirstLevelChildren(union);
+            return skipPruneThis(union);
         }
         LogicalUnion prunedOutputUnion = pruneUnionOutput(union, context);
         // start prune children of union
@@ -209,12 +209,12 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     // we should keep the output of LogicalSetOperation and all the children
     @Override
     public Plan visitLogicalExcept(LogicalExcept except, PruneContext context) {
-        return skipPruneThisAndFirstLevelChildren(except);
+        return skipPruneThis(except);
     }
 
     @Override
     public Plan visitLogicalIntersect(LogicalIntersect intersect, PruneContext context) {
-        return skipPruneThisAndFirstLevelChildren(intersect);
+        return skipPruneThis(intersect);
     }
 
     @Override
@@ -237,7 +237,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
     @Override
     public Plan visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, PruneContext context) {
-        return skipPruneThisAndFirstLevelChildren(cteProducer);
+        return skipPruneThis(cteProducer);
     }
 
     @Override
@@ -276,12 +276,8 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         return pruneChildren(fillUpAggregate);
     }
 
-    private Plan skipPruneThisAndFirstLevelChildren(Plan plan) {
-        ImmutableSet.Builder<Slot> requireAllOutputOfChildren = ImmutableSet.builder();
-        for (Plan child : plan.children()) {
-            requireAllOutputOfChildren.addAll(child.getOutput());
-        }
-        return pruneChildren(plan, requireAllOutputOfChildren.build());
+    private Plan skipPruneThis(Plan plan) {
+        return pruneChildren(plan, plan.getOutputSet());
     }
 
     private static Aggregate<? extends Plan> fillUpGroupByAndOutput(Aggregate<? extends Plan> prunedOutputAgg) {

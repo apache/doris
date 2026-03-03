@@ -55,6 +55,8 @@ import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -74,8 +76,8 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.collections.MapUtils;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
@@ -360,6 +362,19 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return getDlaType() == DLAType.HIVE || getDlaType() == DLAType.HUDI;
     }
 
+    @Override
+    public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges(CatalogRelation scan) {
+        if (getDlaType() != DLAType.HIVE) {
+            return Optional.empty();
+        }
+        if (CollectionUtils.isEmpty(this.getPartitionColumns())) {
+            return Optional.empty();
+        }
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = getHivePartitionValues(
+                MvccUtil.getSnapshotFromContext(this));
+        return hivePartitionValues.getSortedPartitionRanges();
+    }
+
     public SelectedPartitions initHudiSelectedPartitions(Optional<TableSnapshot> tableSnapshot) {
         if (getDlaType() != DLAType.HUDI) {
             return SelectedPartitions.NOT_PRUNED;
@@ -390,11 +405,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (CollectionUtils.isEmpty(this.getPartitionColumns())) {
             return Collections.emptyMap();
         }
-        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) this.getCatalog());
-        List<Type> partitionColumnTypes = this.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(this));
-        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
-                this, partitionColumnTypes);
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = getHivePartitionValues(
+                MvccUtil.getSnapshotFromContext(this));
         Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
         // transfer id to name
         BiMap<Long, String> idToName = hivePartitionValues.getPartitionNameToIdMap().inverse();
@@ -717,7 +729,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private List<Column> initPartitionColumns(List<Column> schema) {
-        List<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
+        // get table from remote, do not use `remoteTable` directly,
+        // because here we need to get schema from latest table info.
+        Table newTable = ((HMSExternalCatalog) catalog).getClient().getTable(dbName, name);
+        List<String> partitionKeys = newTable.getPartitionKeys().stream().map(FieldSchema::getName)
                 .collect(Collectors.toList());
         List<Column> partitionColumns = Lists.newArrayListWithCapacity(partitionKeys.size());
         for (String partitionKey : partitionKeys) {
@@ -949,7 +964,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return dlaTable.getTableSnapshot(context, snapshot);
     }
 
-
     @Override
     public boolean isPartitionColumnAllowNull() {
         makeSureInitialized();
@@ -1017,16 +1031,15 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (isView()) {
             return null;
         }
-        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) catalog);
-        List<Type> partitionColumnTypes = getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(this));
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(this);
+        List<Type> partitionColumnTypes = getPartitionColumnTypes(snapshot);
         HiveMetaStoreCache.HivePartitionValues partitionValues = null;
         // Get table partitions from cache.
         if (!partitionColumnTypes.isEmpty()) {
             // It is ok to get partition values from cache,
             // no need to worry that this call will invalid or refresh the cache.
             // because it has enough space to keep partition info of all tables in cache.
-            partitionValues = cache.getPartitionValues(this, partitionColumnTypes);
+            partitionValues = getHivePartitionValues(snapshot);
             if (partitionValues == null || partitionValues.getPartitionNameToIdMap() == null) {
                 LOG.warn("Partition values for hive table {} is null", name);
             } else {
@@ -1144,5 +1157,26 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     private Table loadHiveTable() {
         HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
         return client.getTable(getRemoteDbName(), remoteName);
+    }
+
+    public HiveMetaStoreCache.HivePartitionValues getHivePartitionValues(Optional<MvccSnapshot> snapshot) {
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) this.getCatalog());
+        try {
+            List<Type> partitionColumnTypes = this.getPartitionColumnTypes(snapshot);
+            return cache.getPartitionValues(this, partitionColumnTypes);
+        } catch (Exception e) {
+            if (e.getMessage().contains(HiveMetaStoreCache.ERR_CACHE_INCONSISTENCY)) {
+                LOG.warn("Hive metastore cache inconsistency detected for table: {}.{}.{}. "
+                                + "Clearing cache and retrying to get partition values.",
+                        this.getCatalog().getName(), this.getDbName(), this.getName(), e);
+                ExternalSchemaCache schemaCache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
+                schemaCache.invalidateTableCache(this);
+                List<Type> partitionColumnTypes = this.getPartitionColumnTypes(snapshot);
+                return cache.getPartitionValues(this, partitionColumnTypes);
+            } else {
+                throw e;
+            }
+        }
     }
 }

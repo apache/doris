@@ -136,7 +136,7 @@ VALUES
 
     def addOpens = ""
     if (javaVersion.startsWith("17")) {
-        addOpens = "--add-opens=java.base/java.nio=ALL-UNNAMED  --add-opens java.base/java.lang=ALL-UNNAMED"
+        addOpens = "--add-opens=java.base/java.nio=ALL-UNNAMED  --add-opens=java.base/java.lang=ALL-UNNAMED"
     }
 
     def run_cmd = "${javaPath} ${addOpens} -cp flink-doris-case.jar org.apache.doris.FlinkConnectorTypeCase $context.config.feHttpAddress regression_test_flink_connector_p0 $context.config.feHttpUser"

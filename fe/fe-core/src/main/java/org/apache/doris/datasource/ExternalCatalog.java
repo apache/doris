@@ -605,6 +605,7 @@ public abstract class ExternalCatalog
      * @param invalidCache
      */
     public void onRefreshCache(boolean invalidCache) {
+        setLastUpdateTime(System.currentTimeMillis());
         refreshMetaCacheOnly();
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);

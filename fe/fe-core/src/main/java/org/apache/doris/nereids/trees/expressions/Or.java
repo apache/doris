@@ -36,19 +36,28 @@ public class Or extends CompoundPredicate {
      * @param right right child of comparison predicate
      */
     public Or(Expression left, Expression right) {
-        super(ExpressionUtils.mergeList(
+        this(left, right, false);
+    }
+
+    public Or(Expression left, Expression right, boolean inferred) {
+        this(ExpressionUtils.mergeList(
                 ExpressionUtils.extractDisjunction(left),
-                ExpressionUtils.extractDisjunction(right)), "OR");
+                ExpressionUtils.extractDisjunction(right)), inferred);
     }
 
     public Or(List<Expression> children) {
-        super(children, "OR");
+        this(children, false);
+    }
+
+    public Or(List<Expression> children, boolean inferred) {
+        super(children, "OR", inferred);
+        Preconditions.checkArgument(children.size() >= 2);
     }
 
     @Override
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 2);
-        return new Or(children);
+        return new Or(children, this.isInferred());
     }
 
     @Override
@@ -88,5 +97,10 @@ public class Or extends CompoundPredicate {
             }
         }
         return flattenChildren;
+    }
+
+    @Override
+    public Expression withInferred(boolean inferred) {
+        return new Or(children, inferred);
     }
 }

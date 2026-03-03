@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("projectMV1") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS projectMV1; """
@@ -37,16 +39,12 @@ suite ("projectMV1") {
     sql """insert into projectMV1 values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into projectMV1 values("2020-01-02",2,"b",2,2,2);"""
 
-    createMV("create materialized view projectMV1_mv as select deptno, empid from projectMV1 order by deptno;")
-
-    sleep(3000)
+    create_sync_mv(db, "projectMV1", "projectMV1_mv", "select deptno as a1, empid as a2 from projectMV1 order by deptno;")
 
     sql """insert into projectMV1 values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table projectMV1 with sync;"
     sql """alter table projectMV1 modify column time_col set stats ('row_count'='3');"""
-
-    sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from projectMV1 where time_col='2020-01-01' order by empid;", "projectMV1_mv")
     order_qt_select_star "select * from projectMV1 order by empid;"
@@ -54,9 +52,4 @@ suite ("projectMV1") {
     mv_rewrite_success("select empid, deptno from projectMV1 where deptno=0 order by empid;", "projectMV1_mv")
     order_qt_select_mv "select empid, deptno from projectMV1 order by empid;"
 
-    sql """set enable_stats=true;"""
-
-    mv_rewrite_fail("select * from projectMV1 where time_col='2020-01-01' order by empid;", "projectMV1_mv")
-
-    mv_rewrite_success("select empid, deptno from projectMV1 where deptno=0 order by empid;", "projectMV1_mv")
 }

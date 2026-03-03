@@ -17,6 +17,20 @@
 
 suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker_hive") {
 
+    def assertHasCache = { String sqlStr ->
+        explain {
+            sql ("physical plan ${sqlStr}")
+            contains("PhysicalSqlCache")
+        }
+    }
+
+    def assertNoCache = { String sqlStr ->
+        explain {
+            sql ("physical plan ${sqlStr}")
+            notContains("PhysicalSqlCache")
+        }
+    }
+
     def q01 = {
         qt_q24 """ select name, count(1) as c from student group by name order by c desc;"""
         qt_q25 """ select lo_orderkey, count(1) as c from lineorder group by lo_orderkey order by c desc;"""
@@ -113,7 +127,6 @@ suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker
         // test sql cache with empty result
         try {
             sql """set enable_sql_cache=true;"""
-            sql """set test_query_cache_hit="none";"""
             sql """select * from lineitem where l_suppkey="abc";""" // non exist l_suppkey;
             sql """select * from lineitem where l_suppkey="abc";"""
         } catch (java.sql.SQLException t) {
@@ -124,7 +137,6 @@ suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker
         // test more sql cache
         sql """use `default`"""
         sql """set enable_sql_cache=true;"""
-        sql """set test_query_cache_hit="none";"""
         // 1. first query, because we need to init the schema of table_with_x01 to update the table's update time
         // then sleep 2 seconds to wait longer than Config.cache_last_version_interval_second,
         // so that when doing the second query, we can fill the cache on BE
@@ -133,20 +145,14 @@ suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker
         // 2. second query is for filling the cache on BE
         qt_sql2 """select dt, dt, k2, k5, dt from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
         // 3. third query, to test cache hit.
-        sql """set test_query_cache_hit="sql";"""
+        assertHasCache """select dt, dt, k2, k5, dt from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
         qt_sql3 """select dt, dt, k2, k5, dt from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
 
         // test not hit
-        try {
-            sql """set enable_sql_cache=true;"""
-            sql """set test_query_cache_hit="sql";"""
-            def r = UUID.randomUUID().toString();
-            // using a random sql
-            sql """select dt, "${r}" from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
-            assertTrue(1 == 2)
-        } catch (Exception t) {
-            print t.getMessage()
-            assertTrue(t.getMessage().contains("but the query cache is not hit"));
-        }
+        sql """set enable_sql_cache=true;"""
+        sql """set enable_hive_sql_cache=true"""
+        def r = UUID.randomUUID().toString();
+        // using a random sql
+        assertNoCache """select dt, "${r}" from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
     }
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 import java.util.Objects;
 
@@ -76,6 +77,23 @@ public class OrderKey {
     @Override
     public String toString() {
         return expr.toString() + (isAsc ? " asc" : " desc") + (nullFirst ? " null first" : "");
+    }
+
+    /**
+     * generate digest for order by key
+     *
+     * @return String
+     */
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        if (expr instanceof Literal) {
+            sb.append(expr.toString());
+        } else {
+            sb.append(expr.toDigest());
+        }
+        sb.append(isAsc ? " ASC" : " DESC");
+        sb.append(nullFirst ? " NULLS FIRST" : "");
+        return sb.toString();
     }
 
     @Override

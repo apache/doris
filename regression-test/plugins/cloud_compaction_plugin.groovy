@@ -52,17 +52,24 @@ Suite.metaClass.doCloudCompaction = { String tableName /* param */ ->
     String[][] tablets = sql """ show tablets from ${tableName}; """
     def doCompaction = { backend_id, compact_type ->
         // trigger compactions for all tablets in ${tableName}
+        Boolean enableTls = (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+        def protocol = enableTls ? "https" : "http" 
         for (String[] tablet in tablets) {
             Thread.sleep(10)
             String tablet_id = tablet[0]
             StringBuilder sb = new StringBuilder();
-            sb.append("curl -X POST http://")
+            sb.append("curl -X POST ${protocol}://")
             sb.append(backendIdToBackendIP.get(backend_id))
             sb.append(":")
             sb.append(backendIdToBackendHttpPort.get(backend_id))
             sb.append("/api/compaction/run?tablet_id=")
             sb.append(tablet_id)
             sb.append("&compact_type=${compact_type}")
+            if (enableTls) {
+                sb.append(" --cert ${context.config.otherConfigs.get("trustCert")}")
+                sb.append(" --key ${context.config.otherConfigs.get("trustCAKey")}")
+                sb.append(" --cacert ${context.config.otherConfigs.get("trustCACert")}")
+            }
 
             String command = sb.toString()
             process = command.execute()
@@ -82,12 +89,17 @@ Suite.metaClass.doCloudCompaction = { String tableName /* param */ ->
                 Thread.sleep(1000)
                 String tablet_id = tablet[0]
                 StringBuilder sb = new StringBuilder();
-                sb.append("curl -X GET http://")
+                sb.append("curl -X GET ${protocol}://")
                 sb.append(backendIdToBackendIP.get(backend_id))
                 sb.append(":")
                 sb.append(backendIdToBackendHttpPort.get(backend_id))
                 sb.append("/api/compaction/run_status?tablet_id=")
                 sb.append(tablet_id)
+                if (enableTls) {
+                    sb.append(" --cert ${context.config.otherConfigs.get("trustCert")}")
+                    sb.append(" --key ${context.config.otherConfigs.get("trustCAKey")}")
+                    sb.append(" --cacert ${context.config.otherConfigs.get("trustCACert")}")
+                }
 
                 String command = sb.toString()
                 logger.info(command)

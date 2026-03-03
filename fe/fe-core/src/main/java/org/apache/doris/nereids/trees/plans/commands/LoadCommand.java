@@ -85,7 +85,7 @@ import java.util.stream.Collectors;
 /**
  * load OLAP table data from external bulk file
  */
-public class LoadCommand extends Command implements ForwardWithSync {
+public class LoadCommand extends Command implements NeedAuditEncryption, ForwardWithSync {
 
     public static final Logger LOG = LogManager.getLogger(LoadCommand.class);
 
@@ -142,7 +142,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
         } else {
             throw new AnalysisException("Multi insert into statements are unsupported.");
         }
-        profile.getSummaryProfile().setQueryPlanFinishTime();
+        profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
         submitInsertStmtPlan(ctx, executor, plans);
     }
 
@@ -508,5 +508,10 @@ public class LoadCommand extends Command implements ForwardWithSync {
     @Override
     public StmtType stmtType() {
         return StmtType.LOAD;
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
     }
 }

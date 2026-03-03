@@ -89,6 +89,7 @@ public:
     const io::FileSystemSPtr& get_fs() const { return _fs; }
     InvertedIndexStorageFormatPB get_storage_format() const { return _storage_format; }
     void set_file_writer_opts(const io::FileWriterOptions& opts) { _opts = opts; }
+    std::vector<std::string> get_index_file_names() const;
 
     std::string debug_string() const {
         std::stringstream indices_dirs;

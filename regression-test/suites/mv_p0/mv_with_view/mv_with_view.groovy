@@ -42,7 +42,6 @@ suite ("mv_with_view") {
 
     sql "analyze table d_table with sync;"
     sql """alter table d_table modify column k1 set stats ('row_count'='3');"""
-    sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from d_table order by k1;", "k312")
     qt_select_star "select * from d_table order by k1;"

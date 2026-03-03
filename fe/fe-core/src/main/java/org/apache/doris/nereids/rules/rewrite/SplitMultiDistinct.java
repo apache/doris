@@ -47,10 +47,8 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -216,23 +214,27 @@ public class SplitMultiDistinct extends DefaultPlanRewriter<DistinctSplitContext
         if (agg.getSourceRepeat().isPresent()) {
             return false;
         }
-        Set<Expression> distinctFunc = new HashSet<>();
+        if (agg.distinctFuncNum() < 2 || agg.getDistinctArguments().size() < 2) {
+            return false;
+        }
         boolean distinctMultiColumns = false;
+        boolean hasNotSupportMultiDistinctFunc = false;
         for (NamedExpression namedExpression : agg.getOutputExpressions()) {
             if (!(namedExpression instanceof Alias) || !(namedExpression.child(0) instanceof AggregateFunction)) {
                 continue;
             }
             AggregateFunction aggFunc = (AggregateFunction) namedExpression.child(0);
-            if (aggFunc instanceof SupportMultiDistinct && aggFunc.isDistinct()) {
+            if (aggFunc.isDistinct()) {
+                hasNotSupportMultiDistinctFunc = hasNotSupportMultiDistinctFunc
+                        || !(aggFunc instanceof SupportMultiDistinct);
                 aliases.add((Alias) namedExpression);
-                distinctFunc.add(aggFunc);
                 distinctMultiColumns = distinctMultiColumns || isDistinctMultiColumns(aggFunc);
             } else {
                 otherAggFuncs.add((Alias) namedExpression);
             }
         }
-        if (distinctFunc.size() <= 1) {
-            return false;
+        if (hasNotSupportMultiDistinctFunc) {
+            return true;
         }
         // when this aggregate is not distinctMultiColumns, and group by expressions is not empty
         // e.g. sql1: select count(distinct a), count(distinct b) from t1 group by c;

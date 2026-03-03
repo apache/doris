@@ -61,6 +61,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * EXPORT statement, export data to dirs by broker.
@@ -71,7 +72,7 @@ import java.util.UUID;
  *          [PROPERTIES("key"="value")]
  *          WITH BROKER 'broker_name' [( $broker_attrs)]
  */
-public class ExportCommand extends Command implements ForwardWithSync {
+public class ExportCommand extends Command implements NeedAuditEncryption, ForwardWithSync {
     public static final String PARALLELISM = "parallelism";
     public static final String LABEL = "label";
     public static final String DATA_CONSISTENCY = "data_consistency";
@@ -404,6 +405,23 @@ public class ExportCommand extends Command implements ForwardWithSync {
     @Override
     public StmtType stmtType() {
         return StmtType.EXPORT;
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder("EXPORT TABLE ");
+        sb.append(nameParts.stream().collect(Collectors.joining(".")));
+        if (expr.isPresent()) {
+            sb.append(" WHERE ")
+                    .append(expr.get().toDigest());
+        }
+        sb.append(" TO ?");
+        return sb.toString();
     }
 }
 

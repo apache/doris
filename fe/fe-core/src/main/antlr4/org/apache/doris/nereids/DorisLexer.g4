@@ -692,9 +692,6 @@ BRACKETED_COMMENT
     ;
 
 
-FROM_DUAL
-    : 'FROM' WS+ 'DUAL' -> channel(HIDDEN);
-
 WS
     : [ \r\n\t]+ -> channel(HIDDEN)
     ;

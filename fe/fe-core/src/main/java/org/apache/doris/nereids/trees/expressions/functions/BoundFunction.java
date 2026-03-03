@@ -107,6 +107,17 @@ public abstract class BoundFunction extends Function implements ComputeSignature
         return getName() + "(" + args + ")";
     }
 
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(getName().toUpperCase());
+        sb.append(
+                children().stream().map(Expression::toDigest)
+                        .collect(Collectors.joining(", ", "(", ")"))
+        );
+        return sb.toString();
+    }
+
     /**
      * checkOrderExprIsValid.
      */

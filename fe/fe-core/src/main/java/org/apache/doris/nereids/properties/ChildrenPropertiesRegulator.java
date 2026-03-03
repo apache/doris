@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
@@ -202,6 +203,17 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         if (children.get(0).getPlan() instanceof PhysicalDistribute) {
             return false;
         }
+        DistributionSpec distributionSpec = childrenProperties.get(0).getDistributionSpec();
+        // process must shuffle
+        if (distributionSpec instanceof DistributionSpecMustShuffle) {
+            Plan child = filter.child();
+            Plan realChild = getChildPhysicalPlan(child);
+            if (realChild instanceof PhysicalProject
+                    || realChild instanceof PhysicalFilter
+                    || realChild instanceof PhysicalLimit) {
+                visit(filter, context);
+            }
+        }
         return true;
     }
 
@@ -231,6 +243,19 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
                 int totalParaNum = Math.min(10, backEndNum * paraNum);
                 return totalBucketNum < totalParaNum;
             }
+        }
+    }
+
+    private Plan getChildPhysicalPlan(Plan plan) {
+        if (!(plan instanceof GroupPlan)) {
+            return null;
+        }
+        GroupPlan groupPlan = (GroupPlan) plan;
+        if (groupPlan == null || groupPlan.getGroup() == null
+                || groupPlan.getGroup().getPhysicalExpressions().isEmpty()) {
+            return null;
+        } else {
+            return groupPlan.getGroup().getPhysicalExpressions().get(0).getPlan();
         }
     }
 
@@ -466,6 +491,20 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         // do not process must shuffle
         if (children.get(0).getPlan() instanceof PhysicalDistribute) {
             return false;
+        }
+        DistributionSpec distributionSpec = childrenProperties.get(0).getDistributionSpec();
+        // process must shuffle
+        if (distributionSpec instanceof DistributionSpecMustShuffle) {
+            Plan child = project.child();
+            Plan realChild = getChildPhysicalPlan(child);
+            if (realChild instanceof PhysicalLimit) {
+                visit(project, context);
+            } else if (realChild instanceof PhysicalProject) {
+                PhysicalProject physicalProject = (PhysicalProject) realChild;
+                if (!project.canMergeProjections(physicalProject)) {
+                    visit(project, context);
+                }
+            }
         }
         return true;
     }

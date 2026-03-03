@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
+import java.util.concurrent.ThreadLocalRandom
+
 import static groovy.test.GroovyAssert.shouldFail;
 suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property") {
 
@@ -33,7 +36,8 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
             switch ${catalog_name};
         """
 
-        def db_name = prefix + "_db"
+        def db_name = prefix + "_db"+ ThreadLocalRandom.current().nextInt(100);
+        // Check if database exists
         sql """
             DROP DATABASE IF EXISTS ${db_name} FORCE;
         """

@@ -561,8 +561,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
 
-    public static final String TEST_QUERY_CACHE_HIT = "test_query_cache_hit";
-
     public static final String ENABLE_AUTO_ANALYZE = "enable_auto_analyze";
 
     public static final String FORCE_SAMPLE_ANALYZE = "force_sample_analyze";
@@ -1206,7 +1204,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(
             name = ENABLE_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
             description = {"是否在 pipelineX 引擎上开启 local shuffle 优化",
-                    "Whether to enable local shuffle on pipelineX engine."})
+                    "Whether to enable local shuffle on pipelineX engine."}, needForward = true)
     private boolean enableLocalShuffle = true;
 
     @VariableMgr.VarAttr(
@@ -2053,13 +2051,6 @@ public class SessionVariable implements Serializable, Writable {
             }, checker = "checkPartialUpdateNewKeyBehavior", options = {"APPEND", "ERROR"})
     public String partialUpdateNewKeyPolicy = "APPEND";
 
-    @VariableMgr.VarAttr(name = TEST_QUERY_CACHE_HIT, description = {
-            "用于测试查询缓存是否命中，如果未命中指定类型的缓存，则会报错",
-            "Used to test whether the query cache is hit. "
-                    + "If the specified type of cache is not hit, an error will be reported."},
-            options = {"none", "sql_cache", "partition_cache"})
-    public String testQueryCacheHit = "none";
-
     @VariableMgr.VarAttr(name = ENABLE_AUTO_ANALYZE,
             description = {"该参数控制是否开启自动收集", "Set false to disable auto analyze"},
             flag = VariableMgr.GLOBAL)
@@ -2659,6 +2650,19 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true
     )
     public int defaultVariantMaxSparseColumnStatisticsSize = 10000;
+
+    public static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
+    @VariableMgr.VarAttr(name = IGNORE_ICEBERG_DANGLING_DELETE,
+            description = {"是否忽略 Iceberg 表中 dangling delete 文件对 COUNT(*) 统计信息的影响。"
+                    + "默认为 true，COUNT(*) 会直接从元信息中获取行数，性能更好，但是如果有 dangling delete，结果可能是不准确的。"
+                    + "设置为 false 时，COUNT(*) 会扫描数据文件以排除 dangling delete 文件的影响。",
+                    " Whether to ignore the impact of dangling delete files in Iceberg tables on COUNT(*) statistics. "
+                            + "The default is true, COUNT(*) will directly obtain the number of rows from metadata, "
+                            + "which has better performance, but if there are dangling deletes, "
+                            + "the result may be inaccurate. "
+                            + "When set to false, COUNT(*) will scan data files "
+                            + "to exclude the impact of dangling delete files."})
+    public boolean ignoreIcebergDanglingDelete = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.

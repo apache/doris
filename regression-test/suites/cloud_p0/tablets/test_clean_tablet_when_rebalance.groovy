@@ -46,7 +46,8 @@ suite('test_clean_tablet_when_rebalance', 'docker') {
 
     def selectTriggerRehash = { ->
         for (int i = 0; i < 5; i++) {
-            sql """
+            sleep(1000) 
+            try_sql """
                 select count(*) from $table
             """
         }

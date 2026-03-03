@@ -35,7 +35,7 @@ import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Setter;
 import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.commons.collections.map.CaseInsensitiveMap;
+import org.apache.commons.collections4.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

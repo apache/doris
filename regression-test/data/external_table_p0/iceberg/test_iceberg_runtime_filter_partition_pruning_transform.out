@@ -71,6 +71,60 @@
 -- !trunc_decimal_in --
 2
 
+-- !day_eq --
+1
+
+-- !day_in --
+2
+
+-- !day_range_ge --
+7
+
+-- !day_range_lt --
+3
+
+-- !day_range_between --
+3
+
+-- !day_range_multi --
+5
+
+-- !year_eq --
+1
+
+-- !year_in --
+2
+
+-- !year_range --
+3
+
+-- !year_range_cross --
+3
+
+-- !month_eq --
+1
+
+-- !month_in --
+2
+
+-- !month_range --
+3
+
+-- !month_range_multi --
+6
+
+-- !hour_eq --
+1
+
+-- !hour_in --
+2
+
+-- !hour_range --
+3
+
+-- !hour_range_multi --
+5
+
 -- !bucket_int_eq --
 1
 
@@ -142,4 +196,58 @@
 
 -- !trunc_decimal_in --
 2
+
+-- !day_eq --
+1
+
+-- !day_in --
+2
+
+-- !day_range_ge --
+7
+
+-- !day_range_lt --
+3
+
+-- !day_range_between --
+3
+
+-- !day_range_multi --
+5
+
+-- !year_eq --
+1
+
+-- !year_in --
+2
+
+-- !year_range --
+3
+
+-- !year_range_cross --
+3
+
+-- !month_eq --
+1
+
+-- !month_in --
+2
+
+-- !month_range --
+3
+
+-- !month_range_multi --
+6
+
+-- !hour_eq --
+1
+
+-- !hour_in --
+2
+
+-- !hour_range --
+3
+
+-- !hour_range_multi --
+5
 

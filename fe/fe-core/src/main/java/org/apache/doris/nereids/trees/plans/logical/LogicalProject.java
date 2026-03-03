@@ -52,6 +52,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Logical project plan.
@@ -125,6 +126,32 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 "projects", projects,
                 "excepts", excepts
         );
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("SELECT ");
+        if (isDistinct) {
+            sb.append("DISTINCT ");
+        }
+        sb.append(
+                projects.stream().map(NamedExpression::toDigest)
+                        .collect(Collectors.joining(", "))
+        );
+        if (!excepts.isEmpty()) {
+            sb.append(" EXCEPT(");
+            sb.append(
+                    excepts.stream().map(Expression::toDigest)
+                            .collect(Collectors.joining(", "))
+            );
+            sb.append(")");
+        }
+        if (child().getType() != PlanType.LOGICAL_ONE_ROW_RELATION) {
+            sb.append(" FROM ");
+        }
+        sb.append(child().toDigest());
+        return sb.toString();
     }
 
     @Override

@@ -239,6 +239,10 @@ public:
 
     int64_t get_metadata_size() const override;
 
+#ifdef BE_TEST
+    void check_data_by_zone_map_for_test(const vectorized::MutableColumnPtr& dst) const;
+#endif
+
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  io::FileReaderSPtr file_reader);

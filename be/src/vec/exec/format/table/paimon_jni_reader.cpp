@@ -50,7 +50,12 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
     }
     std::map<String, String> params;
     params["paimon_split"] = range.table_format_params.paimon_params.paimon_split;
-    params["paimon_predicate"] = range.table_format_params.paimon_params.paimon_predicate;
+    if (range_params->__isset.paimon_predicate && !range_params->paimon_predicate.empty()) {
+        params["paimon_predicate"] = range_params->paimon_predicate;
+    } else if (range.table_format_params.paimon_params.__isset.paimon_predicate) {
+        // Fallback to split level paimon_predicate for backward compatibility
+        params["paimon_predicate"] = range.table_format_params.paimon_params.paimon_predicate;
+    }
     params["required_fields"] = join(column_names, ",");
     params["columns_types"] = join(column_types, "#");
     params["time_zone"] = _state->timezone();
@@ -67,7 +72,14 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
     for (const auto& kv : range.table_format_params.paimon_params.paimon_options) {
         params[PAIMON_OPTION_PREFIX + kv.first] = kv.second;
     }
-    if (range.table_format_params.paimon_params.__isset.hadoop_conf) {
+    // Prefer hadoop conf from scan node level (range_params->properties) over split level
+    // to avoid redundant configuration in each split
+    if (range_params->__isset.properties && !range_params->properties.empty()) {
+        for (const auto& kv : range_params->properties) {
+            params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
+        }
+    } else if (range.table_format_params.paimon_params.__isset.hadoop_conf) {
+        // Fallback to split level hadoop conf for backward compatibility
         for (const auto& kv : range.table_format_params.paimon_params.hadoop_conf) {
             params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
         }

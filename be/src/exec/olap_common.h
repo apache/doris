@@ -40,6 +40,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/type_limit.h"
+#include "util/cpu_info.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 #include "vec/runtime/ipv4_value.h"
@@ -48,6 +49,11 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+namespace config {
+namespace dynamic {
+int doris_scanner_thread_pool_thread_num();
+} // namespace dynamic
+} // namespace config
 
 template <PrimitiveType primitive_type, class T>
 std::string cast_to_string(T value, int scale) {

@@ -161,6 +161,8 @@ BUILD_META_TOOL='OFF'
 BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
 BUILD_INDEX_TOOL='OFF'
 BUILD_BE_JAVA_EXTENSIONS=0
+BUILD_OBS_DEPENDENCIES=1
+BUILD_COS_DEPENDENCIES=1
 BUILD_HIVE_UDF=0
 CLEAN=0
 HELP=0
@@ -229,6 +231,14 @@ else
             BUILD_BE_JAVA_EXTENSIONS=1
             shift
             ;;
+        --exclude-obs-dependencies)
+            BUILD_OBS_DEPENDENCIES=0
+            shift
+            ;; 
+        --exclude-cos-dependencies)
+            BUILD_COS_DEPENDENCIES=0
+            shift
+            ;;           
         --clean)
             CLEAN=1
             shift
@@ -578,7 +588,7 @@ FE_MODULES="$(
 # Clean and build Backend
 if [[ "${BUILD_BE}" -eq 1 ]]; then
     update_submodule "be/src/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
-    update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene-3.0.tar.gz"
+    update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene-3.1.tar.gz"
     if [[ -e "${DORIS_HOME}/gensrc/build/gen_cpp/version.h" ]]; then
         rm -f "${DORIS_HOME}/gensrc/build/gen_cpp/version.h"
     fi
@@ -594,10 +604,15 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         BUILD_FS_BENCHMARK=OFF
     fi
 
+    if [[ -z "${BUILD_FILE_CACHE_LRU_TOOL}" ]]; then
+        BUILD_FILE_CACHE_LRU_TOOL=OFF
+    fi
+
     echo "-- Make program: ${MAKE_PROGRAM}"
     echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
     echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
     echo "-- Build fs benchmark tool: ${BUILD_FS_BENCHMARK}"
+    echo "-- Build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}"
 
     mkdir -p "${CMAKE_BUILD_DIR}"
     cd "${CMAKE_BUILD_DIR}"
@@ -609,6 +624,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_CACHE_LOCK_DEBUG="${ENABLE_CACHE_LOCK_DEBUG}" \
         -DMAKE_TEST=OFF \
         -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
+        -DBUILD_FILE_CACHE_LRU_TOOL="${BUILD_FILE_CACHE_LRU_TOOL}" \
         ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
         -DWITH_MYSQL="${WITH_MYSQL}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
@@ -729,18 +745,26 @@ if [[ "${FE_MODULES}" != '' ]]; then
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_fe
     fi
+    DEPENDENCIES_MVN_OPTS=" "
+    if [[ "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
+        DEPENDENCIES_MVN_OPTS+=" -Dobs.dependency.scope=provided "
+    fi
+    if [[ "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
+        DEPENDENCIES_MVN_OPTS+=" -Dcos.dependency.scope=provided "
+    fi
+    
     if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
         # Allowed user customer set env param USER_SETTINGS_MVN_REPO means settings.xml file path
         if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
         else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
         fi
     else
         if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
         else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
         fi
     fi
     cd "${DORIS_HOME}"

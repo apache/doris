@@ -147,8 +147,6 @@ import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.deploy.DeployManager;
-import org.apache.doris.deploy.impl.AmbariDeployManager;
-import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.encryption.KeyManagerFactory;
 import org.apache.doris.encryption.KeyManagerInterface;
@@ -280,6 +278,7 @@ import org.apache.doris.system.HeartbeatMgr;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentTaskCleanupDaemon;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.CleanTrashTask;
 import org.apache.doris.task.CleanUDFCacheTask;
@@ -317,7 +316,7 @@ import com.google.common.collect.Sets;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -596,6 +595,8 @@ public class Env {
 
     private KeyManagerInterface keyManager;
 
+    private AgentTaskCleanupDaemon agentTaskCleanupDaemon;
+
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
             .of("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler);
@@ -854,6 +855,9 @@ public class Env {
         this.tokenManager = new TokenManager();
         this.keyManagerStore = new KeyManagerStore();
         this.keyManager = KeyManagerFactory.getKeyManager();
+        if (Config.agent_task_health_check_intervals_ms > 0) {
+            this.agentTaskCleanupDaemon = new AgentTaskCleanupDaemon();
+        }
     }
 
     public static Map<String, Long> getSessionReportTimeMap() {
@@ -1554,11 +1558,7 @@ public class Env {
         }
 
         if (!Config.enable_deploy_manager.equalsIgnoreCase("disable")) {
-            if (Config.enable_deploy_manager.equalsIgnoreCase("k8s")) {
-                deployManager = new K8sDeployManager(this, 5000 /* 5s interval */);
-            } else if (Config.enable_deploy_manager.equalsIgnoreCase("ambari")) {
-                deployManager = new AmbariDeployManager(this, 5000 /* 5s interval */);
-            } else if (Config.enable_deploy_manager.equalsIgnoreCase("local")) {
+            if (Config.enable_deploy_manager.equalsIgnoreCase("local")) {
                 deployManager = new LocalFileDeployManager(this, 5000 /* 5s interval */);
             } else {
                 throw new AnalysisException("Unknow deploy manager: " + Config.enable_deploy_manager);
@@ -1964,6 +1964,7 @@ public class Env {
         if (keyManager != null) {
             keyManager.init();
         }
+        agentTaskCleanupDaemon.start();
     }
 
     // start threads that should run on all FE

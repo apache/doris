@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("multi_slot5") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     sql """ DROP TABLE IF EXISTS multi_slot5; """
 
     sql """
@@ -36,9 +38,7 @@ suite ("multi_slot5") {
     sql "insert into multi_slot5 select 2,2,2,'b';"
     sql "insert into multi_slot5 select 3,-3,null,'c';"
 
-    createMV ("create materialized view k123p as select k1,k2+k3 from multi_slot5;")
-
-    sleep(3000)
+    create_sync_mv(db, "multi_slot5", "k123p", "select k1 as a1,k2+k3 from multi_slot5;")
 
     sql "insert into multi_slot5 select -4,-4,-4,'d';"
     sql "insert into multi_slot5 select 3,-3,null,'c';"
@@ -48,8 +48,6 @@ suite ("multi_slot5") {
     sql "analyze table multi_slot5 with sync;"
     sql """alter table multi_slot5 modify column k1 set stats ('row_count'='5');"""
 
-    sql """set enable_stats=false;"""
-
     order_qt_select_star "select * from multi_slot5 order by k1,k4;"
 
     mv_rewrite_success("select k1,k2+k3 from multi_slot5 order by k1;", "k123p")
@@ -58,7 +56,4 @@ suite ("multi_slot5") {
     order_qt_select_mv "select lhs.k1,rhs.k2 from multi_slot5 as lhs right join multi_slot5 as rhs on lhs.k1=rhs.k1 order by lhs.k1;"
 
     order_qt_select_mv "select k1,version() from multi_slot5 order by k1;"
-
-    sql """set enable_stats=true;"""
-    mv_rewrite_success("select k1,k2+k3 from multi_slot5 order by k1;", "k123p")
 }

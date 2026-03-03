@@ -87,9 +87,16 @@ suite("test_single_compaction_p2", "p2") {
         do {
             Thread.sleep(1000)
             StringBuilder sb = new StringBuilder();
-            sb.append("curl -X GET http://${be_host}:${be_http_port}")
-            sb.append("/api/compaction/run_status?tablet_id=")
-            sb.append(tablet_id)
+        Boolean enableTls = (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+        def protocol = enableTls ? "https" : "http"
+        sb.append("curl -X GET ${protocol}://${be_host}:${be_http_port}")
+        sb.append("/api/compaction/run_status?tablet_id=")
+        sb.append(tablet_id)
+        if (enableTls) {
+            sb.append(" --cert ${context.config.otherConfigs.get("trustCert")}")
+            sb.append(" --key ${context.config.otherConfigs.get("trustCAKey")}")
+            sb.append(" --cacert ${context.config.otherConfigs.get("trustCACert")}")
+        }
 
             String command = sb.toString()
             logger.info(command)
@@ -108,9 +115,16 @@ suite("test_single_compaction_p2", "p2") {
         boolean running = true
         Thread.sleep(1000)
         StringBuilder sb = new StringBuilder();
-        sb.append("curl -X GET http://${be_host}:${be_http_port}")
+        Boolean enableTls = (context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
+        def protocol = enableTls ? "https" : "http"
+        sb.append("curl -X GET ${protocol}://${be_host}:${be_http_port}")
         sb.append("/api/compaction/show?tablet_id=")
         sb.append(tablet_id)
+        if (enableTls) {
+            sb.append(" --cert ${context.config.otherConfigs.get("trustCert")}")
+            sb.append(" --key ${context.config.otherConfigs.get("trustCAKey")}")
+            sb.append(" --cacert ${context.config.otherConfigs.get("trustCACert")}")
+        }
 
         String command = sb.toString()
         logger.info(command)

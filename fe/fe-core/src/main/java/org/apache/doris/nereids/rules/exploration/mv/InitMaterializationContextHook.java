@@ -26,6 +26,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVUtil;
@@ -40,7 +41,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -68,7 +69,7 @@ public class InitMaterializationContextHook implements PlannerHook {
         StatementContext statementContext = cascadesContext.getStatementContext();
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsCollectTablePartitionFinishTime();
+                    .setNereidsCollectTablePartitionFinishTime(TimeUtils.getStartTimeMs());
         }
         initMaterializationContext(planner.getCascadesContext());
     }

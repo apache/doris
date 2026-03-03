@@ -67,6 +67,17 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        if (qualifier.isEmpty()) {
+            sb.append("*");
+        } else {
+            sb.append(qualifier.get(0) + ".*");
+        }
+        return sb.toString();
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

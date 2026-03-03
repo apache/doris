@@ -44,7 +44,7 @@ suite ("mv_percentile") {
     sql "insert into d_table(k4,k2) values('d',4);"
 
     sql "analyze table d_table with sync;"
-    sql """set enable_stats=false;"""
+    sql """alter table d_table modify column k1 set stats ('row_count'='15');"""
 
     qt_select_star "select * from d_table order by k1;"
 
@@ -60,27 +60,6 @@ suite ("mv_percentile") {
     // }
     // qt_select_mv "select k1,k2,percentile(k3, 0.1),percentile(k3, 0.9) from d_table group by grouping sets((k1),(k1,k2),()) order by 1,2,3;"
 
-
-    // explain {
-    //     sql("select percentile(k3, 0.1) from d_table group by grouping sets((k1),()) order by 1;")
-    //     contains "(kp)"
-    // }
-    // qt_select_mv "select percentile(k3, 0.1) from d_table group by grouping sets((k1),()) order by 1;"
-
-    // sql """set enable_stats=true;"""
-
-    // explain {
-    //     sql("select k1,k2,percentile(k3, 0.1),percentile(k3, 0.9) from d_table group by k1,k2 order by k1,k2;")
-    //     contains "(kp)"
-    // }
-
-    // explain {
-    //     sql("select k1,k2,percentile(k3, 0.1),percentile(k3, 0.9) from d_table group by grouping sets((k1),(k1,k2),()) order by 1,2;")
-    //     contains "(kp)"
-    // }
-
-    // explain {
-    //     sql("select percentile(k3, 0.1) from d_table group by grouping sets((k1),()) order by 1;")
-    //     contains "(kp)"
-    // }
+    mv_rewrite_success("select percentile(k3, 0.1) from d_table group by grouping sets((k1),()) order by 1;", "kp")
+    qt_select_mv "select percentile(k3, 0.1) from d_table group by grouping sets((k1),()) order by 1;"
 }

@@ -149,7 +149,10 @@ public class CopyStmt extends DdlStmt implements NotFallbackInParser {
                     getOrigStmt() != null ? getOrigStmt().originStmt : "", copyFromParam.getFileColumns(),
                     copyFromParam.getColumnMappingList(), copyFromParam.getFileFilterExpr());
         }
-        dataDescProperties.put(FileFormatProperties.PROP_COMPRESS_TYPE, copyIntoProperties.getCompression());
+        String compression = copyIntoProperties.getCompression();
+        if (compression != null) {
+            dataDescProperties.put(FileFormatProperties.PROP_COMPRESS_TYPE, compression);
+        }
         dataDescription = new DataDescription(tableName.getTbl(), null, Lists.newArrayList(filePath),
                 copyFromParam.getFileColumns(), separator, fileFormatStr, null, false,
                 copyFromParam.getColumnMappingList(), copyFromParam.getFileFilterExpr(), null, MergeType.APPEND, null,

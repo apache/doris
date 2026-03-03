@@ -65,10 +65,17 @@ suite("docs/data-operate/import/import-way/group-commit-manual.md", "p0,nonConcu
         """
 
         sql "set group_commit = off_mode;"
-        cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -T ${context.file.parent}/data.csv -H "group_commit:async_mode"  -H "column_separator:,"  http://${context.config.feHttpAddress}/api/db/dt/_stream_load"""
-        cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -T ${context.file.parent}/data.csv -H "group_commit:sync_mode"  -H "column_separator:,"  http://${context.config.feHttpAddress}/api/db/dt/_stream_load"""
-        cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -T ${context.file.parent}/data.csv  -H "group_commit:async_mode" -H "sql:insert into db.dt select * from http_stream('column_separator'=',', 'format' = 'CSV')"  http://${context.config.feHttpAddress}/api/_http_stream"""
-        cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -T ${context.file.parent}/data.csv  -H "group_commit:sync_mode" -H "sql:insert into db.dt select * from http_stream('column_separator'=',', 'format' = 'CSV')"  http://${context.config.feHttpAddress}/api/_http_stream"""
+        String tlsInfo = ""
+        String protocol = "http"
+        if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
+            tlsInfo = " --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey")
+            protocol = "https"
+        }
+        logger.info("curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -T ${context.file.parent}/data.csv -H \"group_commit:async_mode\"  -H \"column_separator:,\"  ${protocol}://${context.config.feHttpAddress}/api/db/dt/_stream_load ${tlsInfo}")
+        cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -T ${context.file.parent}/data.csv -H "group_commit:async_mode"  -H "column_separator:,"  ${protocol}://${context.config.feHttpAddress}/api/db/dt/_stream_load ${tlsInfo}"""
+        cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -T ${context.file.parent}/data.csv -H "group_commit:sync_mode"  -H "column_separator:,"  ${protocol}://${context.config.feHttpAddress}/api/db/dt/_stream_load ${tlsInfo}"""
+        cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -T ${context.file.parent}/data.csv  -H "group_commit:async_mode" -H "sql:insert into db.dt select * from http_stream('column_separator'=',', 'format' = 'CSV')"  ${protocol}://${context.config.feHttpAddress}/api/_http_stream ${tlsInfo}"""
+        cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -T ${context.file.parent}/data.csv  -H "group_commit:sync_mode" -H "sql:insert into db.dt select * from http_stream('column_separator'=',', 'format' = 'CSV')"  ${protocol}://${context.config.feHttpAddress}/api/_http_stream ${tlsInfo}"""
 
         sql """ALTER TABLE dt SET ("group_commit_interval_ms" = "2000");"""
         sql """ALTER TABLE dt SET ("group_commit_data_bytes" = "134217728");"""

@@ -107,4 +107,11 @@ public class UnboundTVFRelation extends LogicalRelation implements TVFRelation, 
                 "arguments", properties
         );
     }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder(functionName);
+        sb.append("(?)");
+        return sb.toString();
+    }
 }

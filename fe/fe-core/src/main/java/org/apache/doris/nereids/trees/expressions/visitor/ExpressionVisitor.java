@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
+import org.apache.doris.nereids.trees.expressions.DereferenceExpression;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Exists;
@@ -530,5 +531,9 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitUnboundVariable(UnboundVariable unboundVariable, C context) {
         return visit(unboundVariable, context);
+    }
+
+    public R visitDereferenceExpression(DereferenceExpression dereferenceExpression, C context) {
+        return visit(dereferenceExpression, context);
     }
 }

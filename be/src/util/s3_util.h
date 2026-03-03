@@ -62,6 +62,7 @@ extern bvar::LatencyRecorder s3_copy_object_latency;
 }; // namespace s3_bvar
 
 std::string hide_access_key(const std::string& ak);
+int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst, size_t limit);
 
 class S3URI;
 struct S3ClientConf {
@@ -160,6 +161,8 @@ private:
             const S3ClientConf& s3_conf);
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _get_aws_credentials_provider_v2(
             const S3ClientConf& s3_conf);
+    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _create_credentials_provider(
+            CredProviderType type);
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> get_aws_credentials_provider(
             const S3ClientConf& s3_conf);
 

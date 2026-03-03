@@ -37,7 +37,11 @@ public abstract class CompoundPredicate extends Expression implements ExpectsInp
     private String symbol;
 
     public CompoundPredicate(List<Expression> children, String symbol) {
-        super(children);
+        this(children, symbol, false);
+    }
+
+    public CompoundPredicate(List<Expression> children, String symbol, boolean inferred) {
+        super(children, inferred);
         this.symbol = symbol;
     }
 
@@ -117,6 +121,15 @@ public abstract class CompoundPredicate extends Expression implements ExpectsInp
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(");
+        sb.append(children().stream().map(c -> c.toDigest())
+                .collect(Collectors.joining(" " + symbol + " ")));
+        sb.append(")");
+        return sb.toString();
+    }
+
     public String shapeInfo() {
         StringBuilder sb = new StringBuilder();
         children().forEach(c -> sb.append(c.shapeInfo()).append(","));

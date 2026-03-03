@@ -729,7 +729,7 @@ unsupportedDropStatement
     | DROP CATALOG (IF EXISTS)? name=identifier                                 #dropCatalog
     | DROP (GLOBAL | SESSION | LOCAL)? FUNCTION (IF EXISTS)?
         functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN            #dropFunction
-    | DROP TABLE (IF EXISTS)? name=multipartIdentifier FORCE?                   #dropTable
+    | DROP TEMPORARY? TABLE (IF EXISTS)? name=multipartIdentifier FORCE?        #dropTable
     | DROP USER (IF EXISTS)? userIdentify                                       #dropUser
     | DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
     | DROP REPOSITORY name=identifier                                           #dropRepository
@@ -891,7 +891,7 @@ unsupportedSetStatement
     ;
 
 optionWithType
-    : (GLOBAL | LOCAL | SESSION) identifier EQ (expression | DEFAULT)
+    : (GLOBAL | LOCAL | SESSION) identifier EQ (expression | DEFAULT | ON | ALL)
     ;
 
 optionWithoutType
@@ -907,7 +907,8 @@ optionWithoutType
     ;
 
 variable
-    : (DOUBLEATSIGN ((GLOBAL | LOCAL | SESSION) DOT)?)? identifier EQ (expression | DEFAULT) #setSystemVariable
+    : (DOUBLEATSIGN ((GLOBAL | LOCAL | SESSION) DOT)?)? identifier EQ
+        (expression | DEFAULT | ON | ALL) #setSystemVariable
     | ATSIGN identifier EQ expression #setUserVariable
     ;
 
@@ -1221,7 +1222,8 @@ whereClause
     ;
 
 fromClause
-    : FROM relations
+    : FROM DUAL          #fromDual
+    | FROM relations     #fromRelations
     ;
 
 // For PL-SQL

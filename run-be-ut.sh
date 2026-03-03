@@ -181,7 +181,7 @@ if [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
     echo "export DORIS_TOOLCHAIN=clang" >>custom_env.sh
 fi
 
-if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
+if [[ "$(echo "${DISABLE_BUILD_AZURE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
     BUILD_AZURE='OFF'
 fi
 
@@ -237,6 +237,10 @@ if [[ -z "${USE_UNWIND}" ]]; then
     fi
 fi
 
+if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
+    ENABLE_INJECTION_POINT='ON'
+fi
+
 MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"
 echo "-- Make program: ${MAKE_PROGRAM}"
 echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
@@ -265,6 +269,7 @@ cd "${CMAKE_BUILD_DIR}"
     -DUSE_JEMALLOC=OFF \
     -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
     -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
+    -DENABLE_INJECTION_POINT="${ENABLE_INJECTION_POINT}" \
     ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
     -DENABLE_PCH="${ENABLE_PCH}" \
     -DDORIS_JAVA_HOME="${JAVA_HOME}" \

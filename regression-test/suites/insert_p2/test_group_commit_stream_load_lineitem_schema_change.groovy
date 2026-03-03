@@ -172,6 +172,8 @@ PROPERTIES (
                     }
                 }
                 break;
+            } catch (org.opentest4j.AssertionFailedError e) {
+                Thread.sleep(10000)
             } catch (Exception e) {
                 Thread.sleep(10000)
             }

@@ -320,7 +320,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             // update stats increment in this reading procedure for file cache metrics
             FileCacheStatistics fcache_stats_increment;
             _update_stats(stats, &fcache_stats_increment, io_ctx->is_inverted_index);
-            io::FileCacheProfile::instance().update(&fcache_stats_increment);
+            io::FileCacheMetrics::instance().update(&fcache_stats_increment);
         }
     };
     std::unique_ptr<int, decltype(defer_func)> defer((int*)0x01, std::move(defer_func));
@@ -389,6 +389,9 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     for (auto& block : holder.file_blocks) {
         switch (block->state()) {
         case FileBlock::State::EMPTY:
+            VLOG_DEBUG << fmt::format("Block EMPTY path={} hash={}:{}:{} offset={} cache_path={}",
+                                      path().native(), _cache_hash.to_string(), _cache_hash.high(),
+                                      _cache_hash.low(), block->offset(), block->get_cache_file());
             block->get_or_set_downloader();
             if (block->is_downloader()) {
                 empty_blocks.push_back(block);
@@ -397,6 +400,10 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             stats.hit_cache = false;
             break;
         case FileBlock::State::SKIP_CACHE:
+            VLOG_DEBUG << fmt::format(
+                    "Block SKIP_CACHE path={} hash={}:{}:{} offset={} cache_path={}",
+                    path().native(), _cache_hash.to_string(), _cache_hash.high(), _cache_hash.low(),
+                    block->offset(), block->get_cache_file());
             empty_blocks.push_back(block);
             stats.hit_cache = false;
             stats.skip_cache = true;
@@ -477,6 +484,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::max_wait_time", &max_wait_time);
         if (block_state != FileBlock::State::DOWNLOADED) {
             do {
+                SCOPED_RAW_TIMER(&stats.remote_wait_timer);
                 SCOPED_RAW_TIMER(&stats.remote_read_timer);
                 TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::DOWNLOADING");
                 block_state = block->wait();
@@ -552,6 +560,7 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
         }
     }
     statis->remote_io_timer += read_stats.remote_read_timer;
+    statis->remote_wait_timer += read_stats.remote_wait_timer;
     statis->local_io_timer += read_stats.local_read_timer;
     statis->num_skip_cache_io_total += read_stats.skip_cache;
     statis->bytes_write_into_cache += read_stats.bytes_write_into_file_cache;

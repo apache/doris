@@ -52,7 +52,7 @@ suite("test_group_commit_interval_ms_property") {
                 DISTRIBUTED BY HASH (k) BUCKETS 8
                 PROPERTIES(  
                 "replication_num" = "1",
-                "group_commit_interval_ms"="10000"
+                "group_commit_interval_ms"="5000"
                 );
             """
 
@@ -61,11 +61,11 @@ suite("test_group_commit_interval_ms_property") {
             sql """ set group_commit = async_mode; """
 
             def res1 = sql """show create table ${test_table}"""
-            assertTrue(res1.toString().contains("\"group_commit_interval_ms\" = \"10000\""))
+            assertTrue(res1.toString().contains("\"group_commit_interval_ms\" = \"5000\""))
 
             def msg1 = group_commit_insert """insert into ${test_table} values(1,1); """, 1
 
-            Thread.sleep(2000);
+            Thread.sleep(100);
 
             def msg2 = group_commit_insert """insert into ${test_table} values(2,2) """, 1
 
@@ -78,7 +78,7 @@ suite("test_group_commit_interval_ms_property") {
 
             def msg3 = group_commit_insert """insert into ${test_table} values(3,3); """, 1
 
-            Thread.sleep(8000);
+            Thread.sleep(6000);
 
             def msg4 = group_commit_insert """insert into ${test_table} values(4,4); """, 1
 

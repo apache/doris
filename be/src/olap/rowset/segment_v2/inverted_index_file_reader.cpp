@@ -60,6 +60,8 @@ Status InvertedIndexFileReader::_init_from(int32_t read_buffer_size, const io::I
             }
         })
 
+        DCHECK(_fs != nullptr) << "file system is nullptr, index_file_full_path: "
+                               << index_file_full_path;
         // 2. open file
         auto ok = DorisFSDirectory::FSIndexInput::open(
                 _fs, index_file_full_path.c_str(), index_input, err, read_buffer_size, file_size);
@@ -177,7 +179,8 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::_open(
                             "CLuceneError occur file size = -1, file is {}", index_file_path));
                 }
             })
-
+            DCHECK(_fs != nullptr)
+                    << "file system is nullptr, index_file_path: " << index_file_path;
             // 2. open file
             auto ok = DorisFSDirectory::FSIndexInput::open(
                     _fs, index_file_path.c_str(), index_input, err, _read_buffer_size, file_size);

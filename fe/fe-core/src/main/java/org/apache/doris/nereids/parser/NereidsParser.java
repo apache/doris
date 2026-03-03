@@ -51,7 +51,7 @@ import org.antlr.v4.runtime.TokenSource;
 import org.antlr.v4.runtime.atn.PredictionMode;
 import org.antlr.v4.runtime.misc.ParseCancellationException;
 import org.antlr.v4.runtime.tree.TerminalNode;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -341,6 +341,14 @@ public class NereidsParser {
         ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
         LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForCreateView(
                 getHintMap(sql, tokenStream, DorisParser::selectHint));
+        return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
+    }
+
+    public LogicalPlan parseForEncryption(String sql, Map<Pair<Integer, Integer>, String> indexInSqlToString) {
+        CommonTokenStream tokenStream = parseAllTokens(sql);
+        ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
+        LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForEncryption(
+                getHintMap(sql, tokenStream, DorisParser::selectHint), indexInSqlToString);
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
     }
 

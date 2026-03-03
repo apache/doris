@@ -34,6 +34,11 @@ public class HiveHMSConnectivityTester extends AbstractHiveConnectivityTester {
     }
 
     @Override
+    public String getErrorHint() {
+        return "Please check Hive Metastore Server connectivity (hive metastore uris)";
+    }
+
+    @Override
     public void testConnection() throws Exception {
         hmsTester.testConnection();
     }

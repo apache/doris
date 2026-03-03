@@ -22,6 +22,7 @@
 namespace doris::cloud::config {
 
 CONF_Int32(brpc_listen_port, "5000");
+CONF_Int32(brpc_internal_listen_port, "-1");
 CONF_Int32(brpc_num_threads, "64");
 // connections without data transmission for so many seconds will be closed
 // Set -1 to disable it.
@@ -118,12 +119,16 @@ CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 CONF_Bool(force_immediate_recycle, "false");
 
 CONF_mBool(enable_mow_job_key_check, "false");
+
 CONF_mBool(enable_restore_job_check, "false");
 
 CONF_mBool(enable_tablet_stats_key_check, "false");
 CONF_mBool(enable_txn_key_check, "false");
 
-CONF_mBool(enable_checker_for_meta_key_check, "false");
+CONF_mBool(enable_meta_key_check, "false");
+CONF_mBool(enable_version_key_check, "false");
+CONF_mBool(enable_meta_rowset_key_check, "false");
+
 CONF_mInt64(mow_job_key_check_expiration_diff_seconds, "600"); // 10min
 
 CONF_String(test_s3_ak, "");

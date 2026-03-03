@@ -112,34 +112,34 @@ suite("test_compaction_sparse_column", "p1") {
 
         // b is sparse
         // a is dense
-        sql """insert into ${tableName} select 0, '{"a": 11245, "b" : 42000}'  as json_str
-            union  all select 0, '{"a": 1123}' as json_str union all select 0, '{"a" : 1234, "xxxx" : "aaaaa"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
+        sql """insert into test_compaction select 0, '{"a": 11245, "b" : 42000}'  as json_str
+            union  all select 0, '{"a": 1123}' as json_str union all (select 0, '{"a" : 1234, "xxxx" : "aaaaa"}' as json_str from numbers("number" = "4096") limit 4096) ;"""
 
         // b is sparse 
         // a, xxxx is dense
         sql """insert into ${tableName} select 1, '{"a": 11245, "b" : 42001}'  as json_str
-            union  all select 1, '{"a": 1123}' as json_str union all select 1, '{"a" : 1234, "xxxx" : "bbbbb"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
+            union  all select 1, '{"a": 1123}' as json_str union all (select 1, '{"a" : 1234, "xxxx" : "bbbbb"}' as json_str from numbers("number" = "4096") limit 4096) ;"""
 
         // b is sparse        
         // xxxx is dense
         sql """insert into ${tableName} select 2, '{"a": 11245, "b" : 42002}'  as json_str
-            union  all select 2, '{"a": 1123}' as json_str union all select 2, '{"a" : 1234, "xxxx" : "ccccc"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
+            union  all select 2, '{"a": 1123}' as json_str union all (select 2, '{"a" : 1234, "xxxx" : "ccccc"}' as json_str from numbers("number" = "4096") limit 4096) ;"""
 
         // point, xxxx is sparse        
         // a, b is dense
         sql """insert into ${tableName} select 3, '{"a" : 1234, "point" : 1, "xxxx" : "ddddd"}'  as json_str
-            union  all select 3, '{"a": 1123}' as json_str union all select 3, '{"a": 11245, "b" : 42003}' as json_str from numbers("number" = "4096") limit 4096 ;"""
+            union  all select 3, '{"a": 1123}' as json_str union all (select 3, '{"a": 11245, "b" : 42003}' as json_str from numbers("number" = "4096") limit 4096) ;"""
 
 
         // xxxx, eeeee is sparse
         // a, b is dense
         sql """insert into ${tableName} select 4, '{"a" : 1234, "xxxx" : "eeeee", "point" : 5}'  as json_str
-            union  all select 4, '{"a": 1123}' as json_str union all select 4, '{"a": 11245, "b" : 42004}' as json_str from numbers("number" = "4096") limit 4096 ;"""
+            union  all select 4, '{"a": 1123}' as json_str union all (select 4, '{"a": 11245, "b" : 42004}' as json_str from numbers("number" = "4096") limit 4096) ;"""
         
         //   xxxx, point is sparse
         // a, b is dense
         sql """insert into ${tableName} select 5, '{"a" : 1234, "xxxx" : "fffff", "point" : 42000}'  as json_str
-            union  all select 5, '{"a": 1123}' as json_str union all select 5, '{"a": 11245, "b" : 42005}' as json_str from numbers("number" = "4096") limit 4096 ;"""
+            union  all select 5, '{"a": 1123}' as json_str union all (select 5, '{"a": 11245, "b" : 42005}' as json_str from numbers("number" = "4096") limit 4096) ;"""
 
         sql """insert into ${tableName} values (6, '{"b" : "789"}')"""
         

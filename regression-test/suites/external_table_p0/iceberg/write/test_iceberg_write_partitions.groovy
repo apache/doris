@@ -120,6 +120,54 @@ suite("test_iceberg_write_partitions", "p0,external,iceberg,external_docker,exte
         sql """ DROP TABLE iceberg_all_partition_types2_${format_compression}; """
     }
 
+    def test_datetime_partition = { String format_compression, String catalog_name ->
+        def parts = format_compression.split("_")
+        def format = parts[0]
+        def compression = parts[1]
+        sql """ drop table if exists datetime_partition_source_tbl_${format_compression} """
+        sql """
+            CREATE TABLE datetime_partition_source_tbl_${format_compression} (
+                `id` bigint,
+                `ts` datetime
+            ) ENGINE = iceberg
+            PARTITION BY LIST (ts) ()
+            properties (
+                "compression-codec" = ${compression},
+                "write-format"=${format}
+            )
+        """;
+        sql """ drop table if exists datetime_partition_target_tbl_${format_compression} """
+        sql """
+            CREATE TABLE datetime_partition_target_tbl_${format_compression} (
+                `id` bigint,
+                `ts` datetime
+            ) ENGINE = iceberg
+            PARTITION BY LIST (ts) ()
+            properties (
+                "compression-codec" = ${compression},
+                "write-format"=${format}
+            )
+        """;
+
+        sql """
+            INSERT INTO datetime_partition_source_tbl_${format_compression} (
+                id, ts
+            ) VALUES (1, '2025-01-01 10:00:00');
+            """
+        order_qt_datetime_partition01 """ SELECT * FROM datetime_partition_source_tbl_${format_compression} """
+
+        sql """
+            INSERT INTO datetime_partition_target_tbl_${format_compression} (
+                id, ts
+            ) VALUES (1, '2025-01-01 10:00:00');
+            """
+        order_qt_datetime_partition02 """ SELECT * FROM datetime_partition_target_tbl_${format_compression} """
+
+        sql """ drop table datetime_partition_source_tbl_${format_compression} """
+        sql """ drop table datetime_partition_target_tbl_${format_compression} """
+        sql """ drop database if exists `test_datetime_partition` """;
+    }
+
     def test_columns_out_of_order = {  String format_compression, String catalog_name ->
         def parts = format_compression.split("_")
         def format = parts[0]
@@ -218,6 +266,7 @@ suite("test_iceberg_write_partitions", "p0,external,iceberg,external_docker,exte
                 logger.info("Process format_compression " + format_compression)
                 q01(format_compression, iceberg_catalog_name, hive_catalog_name)
                 q02(format_compression, iceberg_catalog_name, hive_catalog_name)
+                test_datetime_partition(format_compression, iceberg_catalog_name)
                 test_columns_out_of_order(format_compression, iceberg_catalog_name)
             }
             sql """drop catalog if exists ${iceberg_catalog_name}"""
