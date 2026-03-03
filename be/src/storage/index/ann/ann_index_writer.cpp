@@ -174,12 +174,17 @@ Status AnnIndexColumnWriter::finish() {
         if (num_rows >= min_train_rows) {
             RETURN_IF_ERROR(_vector_index->train(num_rows, _float_array.data()));
             RETURN_IF_ERROR(_vector_index->add(num_rows, _float_array.data()));
+            _float_array.clear();
             return _vector_index->save(_dir.get());
         } else {
             // It happens to have not enough data to train.
             // If we have data to add before, we still need to save the index.
             if (_need_save_index) {
+                // For IVF indexes, adding remaining vectors without training is acceptable
+                // because the quantizer was already trained on previous batches. These vectors
+                // are simply added to the nearest clusters without retraining.
                 RETURN_IF_ERROR(_vector_index->add(num_rows, _float_array.data()));
+                _float_array.clear();
                 return _vector_index->save(_dir.get());
             } else {
                 // Not enough data to train and no data added before.
@@ -191,12 +196,11 @@ Status AnnIndexColumnWriter::finish() {
                         "index "
                         "training. Skipping index building for this segment.",
                         num_rows, min_train_rows);
+                _float_array.clear();
                 return _index_file_writer->delete_index(_index_meta);
             }
         }
     }
-
-    return Status::OK();
 }
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2

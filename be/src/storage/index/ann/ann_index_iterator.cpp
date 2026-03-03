@@ -49,8 +49,6 @@ Status AnnIndexIterator::read_from_index(const IndexParam& param) {
 
     // _context may be unset in some test scenarios; pass nullptr IOContext in that case.
     io::IOContext* io_ctx = (_context != nullptr) ? _context->io_ctx : nullptr;
-    LOG_INFO("_context of ann index iterator is {}", (_context != nullptr) ? "not null" : "null");
-
     return _ann_reader->query(io_ctx, a_param, a_param->stats.get());
 }
 

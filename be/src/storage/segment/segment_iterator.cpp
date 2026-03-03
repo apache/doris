@@ -923,11 +923,19 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
         return Status::OK();
     }
 
-    if (!ann_index_iterator_casted->try_load_index()) {
-        VLOG_DEBUG << "Failed to load ANN index, fallback to brute force search";
-        _need_read_data_indices[src_cid] = true;
-        _opts.stats->ann_fall_back_brute_force_cnt += 1;
-        return Status::OK();
+    // Track load index timing
+    {
+        SCOPED_TIMER(&(ann_index_stats.load_index_costs_ns));
+        if (!ann_index_iterator_casted->try_load_index()) {
+            VLOG_DEBUG << "Failed to load ANN index, fallback to brute force search";
+            _need_read_data_indices[src_cid] = true;
+            _opts.stats->ann_fall_back_brute_force_cnt += 1;
+            return Status::OK();
+        }
+        double load_costs_ms =
+                static_cast<double>(ann_index_stats.load_index_costs_ns.value()) / 1000000.0;
+        DorisMetrics::instance()->ann_index_load_costs_ms->increment(
+                static_cast<int64_t>(load_costs_ms));
     }
 
     RETURN_IF_ERROR(_ann_topn_runtime->evaluate_vector_ann_search(ann_index_iterator, &_row_bitmap,

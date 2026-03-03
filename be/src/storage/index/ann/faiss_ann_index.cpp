@@ -305,7 +305,7 @@ vectorized::Int64 FaissVectorIndex::get_min_train_rows() const {
         quantizer_min = (1LL << _params.pq_nbits) * 100;
     } else if (_params.quantizer == FaissBuildParameter::Quantizer::SQ4 ||
                _params.quantizer == FaissBuildParameter::Quantizer::SQ8) {
-        // For SQ, use a minimum of 20 training vectors, similar to IVF's nlist * 2 with nlist=10
+        // For SQ, minimal training requirement as scalar quantization is simpler
         quantizer_min = 1;
     }
     // For FLAT, no minimum training data required
