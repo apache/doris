@@ -19,6 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.Config;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -46,11 +47,32 @@ import javax.net.ssl.TrustManagerFactory;
  *
  * This approach is similar to other distributed systems (Kafka, Elasticsearch, Cassandra)
  * where inter-node SSL communication disables hostname verification for operational flexibility.
+ *
+ * The SSLContext is built once from the truststore and cached for the lifetime of the process.
+ * Certificate rotation requires a FE restart to take effect.
  */
 public class InternalHttpsUtils {
     private static final Logger LOG = LogManager.getLogger(InternalHttpsUtils.class);
 
-    public static CloseableHttpClient createValidatedHttpClient() {
+    @VisibleForTesting
+    static volatile SSLContext cachedSslContext = null;
+
+    /**
+     * Returns the cached SSLContext, building it from the configured truststore on first call.
+     * Thread-safe via double-checked locking on a volatile field.
+     */
+    public static SSLContext getSslContext() {
+        if (cachedSslContext == null) {
+            synchronized (InternalHttpsUtils.class) {
+                if (cachedSslContext == null) {
+                    cachedSslContext = buildSslContext();
+                }
+            }
+        }
+        return cachedSslContext;
+    }
+
+    private static SSLContext buildSslContext() {
         try {
             KeyStore trustStore = KeyStore.getInstance(Config.ssl_trust_store_type);
             try (InputStream stream = Files.newInputStream(
@@ -64,42 +86,21 @@ public class InternalHttpsUtils {
 
             SSLContext sslContext = SSLContext.getInstance("TLS");
             sslContext.init(null, tmf.getTrustManagers(), null);
-
-            SSLConnectionSocketFactory sslFactory = new SSLConnectionSocketFactory(
-                    sslContext,
-                    NoopHostnameVerifier.INSTANCE);
-
-            return HttpClients.custom()
-                    .setSSLSocketFactory(sslFactory)
-                    .build();
+            return sslContext;
         } catch (Exception e) {
-            LOG.error("Failed to create SSL-aware HTTP client using truststore: {}",
+            LOG.error("Failed to build SSLContext from truststore: {}",
                     Config.mysql_ssl_default_ca_certificate, e);
-            throw new RuntimeException("Failed to create SSL-aware HTTP client", e);
+            throw new RuntimeException("Failed to build SSLContext from truststore", e);
         }
     }
 
-    public static void installTrustManagerForUrlConnection() {
-        try {
-            KeyStore trustStore = KeyStore.getInstance(Config.ssl_trust_store_type);
-            try (InputStream stream = Files.newInputStream(
-                    Paths.get(Config.mysql_ssl_default_ca_certificate))) {
-                trustStore.load(stream, Config.mysql_ssl_default_ca_certificate_password.toCharArray());
-            }
+    public static CloseableHttpClient createValidatedHttpClient() {
+        SSLConnectionSocketFactory sslFactory = new SSLConnectionSocketFactory(
+                getSslContext(),
+                NoopHostnameVerifier.INSTANCE);
 
-            TrustManagerFactory tmf = TrustManagerFactory.getInstance(
-                    TrustManagerFactory.getDefaultAlgorithm());
-            tmf.init(trustStore);
-
-            SSLContext sslContext = SSLContext.getInstance("TLS");
-            sslContext.init(null, tmf.getTrustManagers(), null);
-
-            javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(sslContext.getSocketFactory());
-            javax.net.ssl.HttpsURLConnection.setDefaultHostnameVerifier((hostname, session) -> true);
-        } catch (Exception e) {
-            LOG.error("Failed to install trust manager for URLConnection using truststore: {}",
-                    Config.mysql_ssl_default_ca_certificate, e);
-            throw new RuntimeException("Failed to install trust manager for URLConnection", e);
-        }
+        return HttpClients.custom()
+                .setSSLSocketFactory(sslFactory)
+                .build();
     }
 }

@@ -39,6 +39,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.util.Map;
 
 public class MetaHelper {
     public static final Logger LOG = LogManager.getLogger(MetaHelper.class);
@@ -147,7 +148,9 @@ public class MetaHelper {
     }
 
     public static <T> ResponseBody doGet(String url, int timeout, Class<T> clazz) throws IOException {
-        String response = HttpUtils.doGet(url, HttpURLUtil.getNodeIdentHeaders(), timeout);
+        Map<String, String> headers = HttpURLUtil.getNodeIdentHeaders();
+        LOG.debug("meta helper, url: {}, timeout: {}, headers: {}", url, timeout, headers);
+        String response = HttpUtils.doGet(url, headers, timeout);
         try {
             return parseResponse(response, clazz);
         } catch (Exception e) {
