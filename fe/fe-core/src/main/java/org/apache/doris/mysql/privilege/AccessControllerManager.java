@@ -25,6 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ClassLoaderUtils;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfo;
@@ -32,6 +33,7 @@ import org.apache.doris.plugin.PropertiesUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -196,9 +198,29 @@ public class AccessControllerManager {
 
     public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
         boolean hasGlobal = checkGlobalPriv(currentUser, wanted);
-        // for checking catalog priv, always use InternalAccessController.
-        // because catalog priv is only saved in InternalAccessController.
-        return defaultAccessController.checkCtlPriv(hasGlobal, currentUser, ctl, wanted);
+        if (!Config.skip_catalog_priv_check) {
+            // for checking catalog priv, always use InternalAccessController.
+            // because catalog priv is only saved in InternalAccessController.
+            return defaultAccessController.checkCtlPriv(hasGlobal, currentUser, ctl, wanted);
+        } else {
+            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctl);
+            if (catalog == null) {
+                return false;
+            }
+            if (catalog.isInternalCatalog()) {
+                return defaultAccessController.checkCtlPriv(hasGlobal, currentUser, ctl, wanted);
+            }
+            // If catalog not set access controller, use internal access controller
+            // otherwise, skip catalog priv check
+            String className = (String) catalog.getProperties().getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP,
+                    "");
+            if (Strings.isNullOrEmpty(className)) {
+                // not set access controller, use internal access controller
+                return defaultAccessController.checkCtlPriv(hasGlobal, currentUser, ctl, wanted);
+            } else {
+                return true;
+            }
+        }
     }
 
     // ==== Database ====

@@ -89,6 +89,8 @@ public:
         return current_doc->second[pos_idx++];
     }
 
+    int32_t norm() const MOCK_DEFINE(override) { return 1; }
+
     bool read_range(DocRange* doc_range) const MOCK_DEFINE(override) {
         if (!doc_range) {
             return false;

@@ -129,7 +129,6 @@ public:
             top = _docs_queue->update_top();
         } while (top->doc_id() == doc);
         return top->doc_id();
-        return 0;
     }
 
     int32_t advance(int32_t target) const {
@@ -142,6 +141,11 @@ public:
     }
 
     int32_t doc_freq() const { return _cost; }
+
+    int32_t norm() const {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                        "UnionTermIterator does not support scoring");
+    }
 
 private:
     int32_t _cost = 0;
