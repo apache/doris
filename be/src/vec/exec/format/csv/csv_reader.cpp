@@ -770,8 +770,7 @@ Status CsvReader::_parse_col_nums(size_t* col_nums) {
     size_t size = 0;
     RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
     if (size == 0) {
-        return Status::InternalError<false>(
-                "The first line is empty, can not parse column numbers");
+        return Status::EndOfFile("The first line is empty, can not parse column numbers");
     }
     if (!validate_utf8(_params, reinterpret_cast<const char*>(ptr), size)) {
         return Status::InternalError<false>("Only support csv data in utf8 codec");
@@ -788,7 +787,7 @@ Status CsvReader::_parse_col_names(std::vector<std::string>* col_names) {
     // no use of _line_reader_eof
     RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
     if (size == 0) {
-        return Status::InternalError<false>("The first line is empty, can not parse column names");
+        return Status::EndOfFile("The first line is empty, can not parse column names");
     }
     if (!validate_utf8(_params, reinterpret_cast<const char*>(ptr), size)) {
         return Status::InternalError<false>("Only support csv data in utf8 codec");
