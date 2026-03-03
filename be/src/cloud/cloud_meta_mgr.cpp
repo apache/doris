@@ -1196,10 +1196,12 @@ Status CloudMetaMgr::_read_tablet_delete_bitmap_v2(CloudTablet* tablet, int64_t 
         }
         return Status::OK();
     };
-    auto get_delete_bitmap_from_file = [&](const std::string& rowset_id) {
+    auto get_delete_bitmap_from_file = [&](const std::string& rowset_id,
+                                           const DeleteBitmapStoragePB& storage) {
         if (config::enable_mow_verbose_log) {
             LOG(INFO) << "get delete bitmap for tablet_id=" << tablet->tablet_id()
-                      << ", rowset_id=" << rowset_id << " from file";
+                      << ", rowset_id=" << rowset_id << " from file"
+                      << ", is_packed=" << storage.has_packed_slice_location();
         }
         if (rowset_to_resource.find(rowset_id) == rowset_to_resource.end()) {
             return Status::InternalError("vault id not found for tablet_id={}, rowset_id={}",
@@ -1212,11 +1214,23 @@ Status CloudMetaMgr::_read_tablet_delete_bitmap_v2(CloudTablet* tablet, int64_t 
             return Status::InternalError("vault id not found, maybe not sync, vault id {}",
                                          resource_id);
         }
-        DeleteBitmapFileReader reader(tablet->tablet_id(), rowset_id, storage_resource);
-        RETURN_IF_ERROR(reader.init());
+
+        // Use packed file reader if packed_slice_location is present
+        std::unique_ptr<DeleteBitmapFileReader> reader;
+        if (storage.has_packed_slice_location() &&
+            !storage.packed_slice_location().packed_file_path().empty()) {
+            reader = std::make_unique<DeleteBitmapFileReader>(tablet->tablet_id(), rowset_id,
+                                                              storage_resource,
+                                                              storage.packed_slice_location());
+        } else {
+            reader = std::make_unique<DeleteBitmapFileReader>(tablet->tablet_id(), rowset_id,
+                                                              storage_resource);
+        }
+
+        RETURN_IF_ERROR(reader->init());
         DeleteBitmapPB dbm;
-        RETURN_IF_ERROR(reader.read(dbm));
-        RETURN_IF_ERROR(reader.close());
+        RETURN_IF_ERROR(reader->read(dbm));
+        RETURN_IF_ERROR(reader->close());
         return merge_delete_bitmap(rowset_id, dbm);
     };
     CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
@@ -1230,8 +1244,9 @@ Status CloudMetaMgr::_read_tablet_delete_bitmap_v2(CloudTablet* tablet, int64_t 
             DeleteBitmapPB dbm = delete_bitmap_storages[i].delete_bitmap();
             RETURN_IF_ERROR(merge_delete_bitmap(rowset_id, dbm));
         } else {
-            auto submit_st = token->submit_func([&]() {
-                auto status = get_delete_bitmap_from_file(rowset_id);
+            const auto& storage = delete_bitmap_storages[i];
+            auto submit_st = token->submit_func([&, rowset_id, storage]() {
+                auto status = get_delete_bitmap_from_file(rowset_id, storage);
                 if (!status.ok()) {
                     LOG(WARNING) << "failed to get delete bitmap for tablet_id="
                                  << tablet->tablet_id() << ", rowset_id=" << rowset_id
@@ -1691,12 +1706,26 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
             DeleteBitmapStoragePB delete_bitmap_storage;
             if (config::delete_bitmap_store_v2_max_bytes_in_fdb >= 0 &&
                 delete_bitmap_pb.ByteSizeLong() > config::delete_bitmap_store_v2_max_bytes_in_fdb) {
-                DeleteBitmapFileWriter file_writer(tablet.tablet_id(), rowset_id, storage_resource);
+                // Enable packed file only for load (txn_id > 0)
+                bool enable_packed = config::enable_packed_file && txn_id > 0;
+                DeleteBitmapFileWriter file_writer(tablet.tablet_id(), rowset_id, storage_resource,
+                                                   enable_packed, txn_id);
                 RETURN_IF_ERROR(file_writer.init());
                 RETURN_IF_ERROR(file_writer.write(delete_bitmap_pb));
                 RETURN_IF_ERROR(file_writer.close());
                 delete_bitmap_pb.Clear();
                 delete_bitmap_storage.set_store_in_fdb(false);
+
+                // Store packed slice location if file was written to packed file
+                if (file_writer.is_packed()) {
+                    io::PackedSliceLocation loc;
+                    RETURN_IF_ERROR(file_writer.get_packed_slice_location(&loc));
+                    auto* packed_loc = delete_bitmap_storage.mutable_packed_slice_location();
+                    packed_loc->set_packed_file_path(loc.packed_file_path);
+                    packed_loc->set_offset(loc.offset);
+                    packed_loc->set_size(loc.size);
+                    packed_loc->set_packed_file_size(loc.packed_file_size);
+                }
             } else {
                 delete_bitmap_storage.set_store_in_fdb(true);
                 *(delete_bitmap_storage.mutable_delete_bitmap()) = std::move(delete_bitmap_pb);
