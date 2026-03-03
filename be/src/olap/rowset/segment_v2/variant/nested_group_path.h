@@ -26,6 +26,10 @@ inline constexpr std::string_view kNestedGroupMarker = "__D0_ng__";
 inline constexpr std::string_view kRootNestedGroupPath = "__D0_root__";
 inline constexpr std::string_view kNestedGroupOffsetsSuffix = ".__offsets";
 
+inline bool is_root_nested_group_path(std::string_view path) {
+    return path == kRootNestedGroupPath;
+}
+
 inline bool ends_with(std::string_view value, std::string_view suffix) {
     return value.size() >= suffix.size() &&
            value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
