@@ -18,6 +18,7 @@
 #include "runtime/workload_management/query_task_controller.h"
 
 #include <gtest/gtest.h>
+
 #include "testutil/mock/mock_query_context.h"
 
 namespace doris {
@@ -31,28 +32,28 @@ public:
 TEST_F(QueryTaskControllerTest, TestGetUser) {
     // 1. Create MockQueryContext
     auto query_ctx = MockQueryContext::create();
-    
+
     // 2. Create QueryTaskController
     auto task_controller = QueryTaskController::create(query_ctx);
-    
+
     // 3. Test default (set_rsc_info = false)
     EXPECT_EQ("", task_controller->get_user());
-    
+
     // 4. Test with user set but set_rsc_info = false
     query_ctx->user = "test_user";
     EXPECT_EQ("", task_controller->get_user());
-    
+
     // 5. Test with set_rsc_info = true
     query_ctx->set_rsc_info = true;
     EXPECT_EQ("test_user", task_controller->get_user());
-    
+
     // 6. Test when QueryContext is destroyed
     std::shared_ptr<QueryContext> ctx_ptr = MockQueryContext::create();
     auto controller_ptr = QueryTaskController::create(ctx_ptr);
     ctx_ptr->set_rsc_info = true;
     ctx_ptr->user = "user1";
     EXPECT_EQ("user1", controller_ptr->get_user());
-    
+
     ctx_ptr.reset(); // Destroy the context
     EXPECT_EQ("", controller_ptr->get_user());
 }
