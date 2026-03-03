@@ -71,6 +71,7 @@ The following checkpoints must be **individually confirmed with conclusions** du
   - Would FE or BE crashes cause leaks, deadlocks, or incorrect data?
 - Are new variables added that need to be passed between FE and BE? If yes:
   - Is variable passing modified in all paths? For example, various scattered thrift sending points like constant folding, point queries.
+- Analyze deeply from all angles (including but not limited to time complexity, anti-patterns, CPU and memory friendliness, redundant calculations, etc.) based on the code context and available information. Are there any performance issues or optimization opportunities?
 - Based on your understanding, are there any other issues with the current modification?
 
 After checking all the above items with code. Use the remaining parts of this skill as needed. The following content does not need individual responses; just check during the review process.
