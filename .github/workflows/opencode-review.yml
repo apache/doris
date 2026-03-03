@@ -1,0 +1,115 @@
+name: Code Review
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  pull-requests: write
+  contents: read
+  issues: write
+
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: >-
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '/review') &&
+      (
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'COLLABORATOR'
+      )
+    steps:
+      - name: Get PR info
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.issue.number }})
+          HEAD_SHA=$(echo "$PR_JSON" | jq -r '.head.sha')
+          BASE_SHA=$(echo "$PR_JSON" | jq -r '.base.sha')
+          HEAD_REF=$(echo "$PR_JSON" | jq -r '.head.ref')
+          BASE_REF=$(echo "$PR_JSON" | jq -r '.base.ref')
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$HEAD_REF" >> "$GITHUB_OUTPUT"
+          echo "base_ref=$BASE_REF" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.head_sha }}
+
+      - name: Install OpenCode
+        run: |
+          for attempt in 1 2 3; do
+            if curl -fsSL https://opencode.ai/install | bash; then
+              echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+              exit 0
+            fi
+            echo "Install attempt $attempt failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "All install attempts failed"
+          exit 1
+
+      - name: Configure OpenCode auth
+        run: |
+          mkdir -p ~/.local/share/opencode
+          cat > ~/.local/share/opencode/auth.json <<EOF
+          {
+            "github-copilot": {
+              "type": "oauth",
+              "refresh": "${CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY}",
+              "access": "${CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY}",
+              "expires": 0
+            }
+          }
+          EOF
+        env:
+          CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY: ${{ secrets.CODE_REVIEW_ZCLLL_COPILOT_OPENCODE_KEY }}
+
+      - name: Configure OpenCode permission
+        run: |
+          echo '{"permission":"allow"}' > opencode.json
+
+      - name: Prepare review prompt
+        run: |
+          cat > /tmp/review_prompt.txt <<'PROMPT'
+          You are performing an automated code review inside a GitHub Actions runner. The gh CLI is available and authenticated via GH_TOKEN. You can comment on the pull request.
+
+          Context:
+          - Repository: PLACEHOLDER_REPO
+          - PR number: PLACEHOLDER_PR_NUMBER
+          - PR Head SHA: PLACEHOLDER_HEAD_SHA
+          - PR Base SHA: PLACEHOLDER_BASE_SHA
+
+          When reviewing, you must strictly follow AGENTS.md and the related skills. In addition, you can perform any desired review operations to observe suspicious code and details in order to identify issues as much as possible.
+
+          ## Submission
+          - After completing the review, you MUST provide a final summary opinion based on the rules defined in AGENTS.md and the code-review skill. The summary must include conclusions for each applicable critical checkpoint.
+          - If no issues to report, submit a short summary comment saying no issues found using: gh pr comment PLACEHOLDER_PR_NUMBER --body "<summary>"
+          - If issues found, submit a review with inline comments plus a comprehensive summary body. Use GitHub Reviews API to ensure comments are inline:
+              - Build a JSON array of comments like: [{ "path": "<file>", "position": <diff_position>, "body": "..." }]
+              - Submit via: gh api repos/PLACEHOLDER_REPO/pulls/PLACEHOLDER_PR_NUMBER/reviews --input <json_file>
+              - The JSON file should contain: {"event":"COMMENT","body":"<summary>","comments":[...]}
+          - Do not use: gh pr review --approve or --request-changes
+          PROMPT
+          sed -i "s|PLACEHOLDER_REPO|${REPO}|g" /tmp/review_prompt.txt
+          sed -i "s|PLACEHOLDER_PR_NUMBER|${PR_NUMBER}|g" /tmp/review_prompt.txt
+          sed -i "s|PLACEHOLDER_HEAD_SHA|${HEAD_SHA}|g" /tmp/review_prompt.txt
+          sed -i "s|PLACEHOLDER_BASE_SHA|${BASE_SHA}|g" /tmp/review_prompt.txt
+        env:
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          BASE_SHA: ${{ steps.pr.outputs.base_sha }}
+
+      - name: Run automated code review
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PROMPT=$(cat /tmp/review_prompt.txt)
+          opencode run "$PROMPT" -m "github-copilot/claude-opus-4.6"
