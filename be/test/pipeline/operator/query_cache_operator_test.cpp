@@ -93,7 +93,7 @@ struct QueryCacheOperatorTest : public ::testing::Test {
                                  .shared_state_map = {},
                                  .task_idx = 0};
 
-            EXPECT_TRUE(source_local_state_uptr->init(state.get(), info));
+            EXPECT_TRUE(source_local_state_uptr->init(state.get(), info).ok());
             state->resize_op_id_to_local_state(-100);
             state->emplace_local_state(source->operator_id(), std::move(source_local_state_uptr));
         }
@@ -136,6 +136,7 @@ TEST_F(QueryCacheOperatorTest, test_no_hit_cache1) {
             new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>()}, &pool});
     TQueryCacheParam cache_param;
     cache_param.node_id = 0;
+    cache_param.digest = "test_digest";
     cache_param.output_slot_mapping[0] = 0;
     cache_param.tablet_to_range.insert({42, "test"});
     cache_param.force_refresh_query_cache = false;
@@ -176,6 +177,7 @@ TEST_F(QueryCacheOperatorTest, test_no_hit_cache2) {
             new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>()}, &pool});
     TQueryCacheParam cache_param;
     cache_param.node_id = 0;
+    cache_param.digest = "test_digest";
     cache_param.output_slot_mapping[0] = 0;
     cache_param.tablet_to_range.insert({42, "test"});
     cache_param.force_refresh_query_cache = false;
@@ -216,6 +218,7 @@ TEST_F(QueryCacheOperatorTest, test_hit_cache) {
             new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>()}, &pool});
     TQueryCacheParam cache_param;
     cache_param.node_id = 0;
+    cache_param.digest = "test_digest";
     cache_param.output_slot_mapping[0] = 0;
     cache_param.tablet_to_range.insert({42, "test"});
     cache_param.force_refresh_query_cache = false;
@@ -225,7 +228,8 @@ TEST_F(QueryCacheOperatorTest, test_hit_cache) {
     {
         int64_t version = 0;
         std::string cache_key;
-        EXPECT_TRUE(QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version));
+        EXPECT_TRUE(
+                QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version).ok());
         CacheResult result;
         result.push_back(std::make_unique<Block>());
         *result.back() = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5});
