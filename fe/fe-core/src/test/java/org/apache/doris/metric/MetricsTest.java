@@ -128,6 +128,8 @@ public class MetricsTest {
                     Assert.assertEquals("Expected 1 blocked process from test data",
                             Long.valueOf(1L), blockedMetric.getValue());
                     break;
+                default:
+                    break;
             }
         }
 
