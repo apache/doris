@@ -346,6 +346,8 @@ public class JdbcScanNode extends ExternalScanNode {
                 filter += handleOracleDateFormat(children.get(1), tbl);
             } else if (tableType.equals(TOdbcTableType.TRINO) || tableType.equals(TOdbcTableType.PRESTO)) {
                 filter += handleTrinoDateFormat(children.get(1), tbl);
+            } else if (tableType.equals(TOdbcTableType.SQLSERVER)) {
+                filter += handleSQLServerDateFormat(children.get(1), tbl);
             } else {
                 filter += children.get(1).toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
             }
@@ -370,6 +372,8 @@ public class JdbcScanNode extends ExternalScanNode {
                     inItemStrings.add(handleOracleDateFormat(inItem, tbl));
                 } else if (tableType.equals(TOdbcTableType.TRINO) || tableType.equals(TOdbcTableType.PRESTO)) {
                     inItemStrings.add(handleTrinoDateFormat(inItem, tbl));
+                } else if (tableType.equals(TOdbcTableType.SQLSERVER)) {
+                    inItemStrings.add(handleSQLServerDateFormat(inItem, tbl));
                 } else {
                     inItemStrings.add(inItem.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl));
                 }
@@ -428,6 +432,21 @@ public class JdbcScanNode extends ExternalScanNode {
                 return "date '" + expr.getStringValue() + "'";
             } else if (expr.getType().isDatetime() || expr.getType().isDatetimeV2()) {
                 return "timestamp '" + expr.getStringValue() + "'";
+            }
+        }
+        return expr.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+    }
+
+    private static String handleSQLServerDateFormat(Expr expr, TableIf tbl) {
+        if (expr.isConstant()) {
+            if (expr.getType().isDatetime() || expr.getType().isDatetimeV2()) {
+                // Use CONVERT with style 121 (ODBC canonical: yyyy-mm-dd hh:mi:ss.mmm)
+                // which is language-independent and handles fractional seconds
+                return "CONVERT(DATETIME, '" + expr.getStringValue() + "', 121)";
+            } else if (expr.getType().isDate() || expr.getType().isDateV2()) {
+                // Use CONVERT with style 23 (ISO8601: yyyy-mm-dd)
+                // which is language-independent
+                return "CONVERT(DATE, '" + expr.getStringValue() + "', 23)";
             }
         }
         return expr.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
