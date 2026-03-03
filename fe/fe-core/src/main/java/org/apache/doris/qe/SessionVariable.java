@@ -3456,6 +3456,7 @@ public class SessionVariable implements Serializable, Writable {
     public int decomposeRepeatShuffleIndexInMaxGroup = -1;
 
     public static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
+    public static final String ADJUST_TABLET_READER_BATCH_SIZE_BY_LIMIT = "adjust_tablet_reader_batch_size_by_limit";
     @VariableMgr.VarAttr(name = IGNORE_ICEBERG_DANGLING_DELETE,
             description = {"是否忽略 Iceberg 表中 dangling delete 文件对 COUNT(*) 统计信息的影响。"
                     + "默认为 true，COUNT(*) 会直接从元信息中获取行数，性能更好，但是如果有 dangling delete，结果可能是不准确的。"
@@ -3468,6 +3469,11 @@ public class SessionVariable implements Serializable, Writable {
                             + "to exclude the impact of dangling delete files."})
     public boolean ignoreIcebergDanglingDelete = false;
 
+    @VariableMgr.VarAttr(name = ADJUST_TABLET_READER_BATCH_SIZE_BY_LIMIT, needForward = true, description = {
+            "是否根据查询中的 limit 调整 tablet reader 的 batch size。默认为 false。",
+            "Whether to adjust the batch size of tablet reader based on the limit in the query. The default is false."
+    })
+    public boolean adjustTabletReaderBatchSizeByLimit = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -5305,6 +5311,7 @@ public class SessionVariable implements Serializable, Writable {
 
         // Set Iceberg write target file size
         tResult.setIcebergWriteTargetFileSizeBytes(icebergWriteTargetFileSizeBytes);
+        tResult.setAdjustTabletReaderBatchSizeByLimit(adjustTabletReaderBatchSizeByLimit);
 
         return tResult;
     }

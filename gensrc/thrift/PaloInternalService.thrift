@@ -445,6 +445,7 @@ struct TQueryOptions {
   // In read path, read from file cache or remote storage when execute query.
   1000: optional bool disable_file_cache = false
   1001: optional i32 file_cache_query_limit_percent = -1
+  1002: optional bool adjust_tablet_reader_batch_size_by_limit = false
 }
 
 
