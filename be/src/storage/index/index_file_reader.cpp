@@ -88,7 +88,7 @@ Status IndexFileReader::_init_from(int32_t read_buffer_size, const io::IOContext
             int32_t numIndices = _stream->readInt(); // Read number of indices
 
             for (int32_t i = 0; i < numIndices; ++i) {
-                int64_t indexId = _stream->readLong(); // Read index ID
+                int64_t indexId = _stream->readLong();      // Read index ID
                 int32_t suffix_length = _stream->readInt(); // Read suffix length
                 std::vector<uint8_t> suffix_data(suffix_length);
                 _stream->readBytes(suffix_data.data(), suffix_length);

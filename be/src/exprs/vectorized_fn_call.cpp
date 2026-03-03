@@ -619,8 +619,7 @@ Status VectorizedFnCall::evaluate_ann_range_search(
                        << fmt::format("Failed to load ANN index for column cid {}", src_col_cid);
             return Status::OK();
         }
-        double load_costs_ms =
-                static_cast<double>(stats->load_index_costs_ns.value()) / 1000000.0;
+        double load_costs_ms = static_cast<double>(stats->load_index_costs_ns.value()) / 1000000.0;
         DorisMetrics::instance()->ann_index_load_costs_ms->increment(
                 static_cast<int64_t>(load_costs_ms));
     }
