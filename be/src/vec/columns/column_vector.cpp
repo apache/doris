@@ -376,6 +376,36 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const uint32_t* in
 }
 
 template <PrimitiveType T>
+void ColumnVector<T>::insert_to_multi_column(const std::vector<IColumn*>& dsts,
+                                             const uint32_t* positions, size_t rows) const {
+    const size_t num_dsts = dsts.size();
+    const auto* __restrict src_data = data.data();
+
+    // Phase 1: Count rows per destination.
+    std::vector<size_t> dst_row_counts(num_dsts, 0);
+    for (size_t i = 0; i < rows; ++i) {
+        dst_row_counts[positions[i]]++;
+    }
+
+    // Phase 2: Resize destination data arrays and cache write pointers.
+    std::vector<value_type*> dst_write_ptrs(num_dsts);
+    for (size_t d = 0; d < num_dsts; ++d) {
+        auto& dst_col = assert_cast<Self&>(*dsts[d]);
+        auto& dst_data = dst_col.get_data();
+        const size_t old_size = dst_data.size();
+        dst_data.resize(old_size + dst_row_counts[d]);
+        dst_write_ptrs[d] = dst_data.data() + old_size;
+    }
+
+    // Phase 3: Scatter elements to destinations.
+    for (size_t i = 0; i < rows; ++i) {
+        const uint32_t dst_idx = positions[i];
+        *dst_write_ptrs[dst_idx] = src_data[i];
+        dst_write_ptrs[dst_idx]++;
+    }
+}
+
+template <PrimitiveType T>
 ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_size_hint) const {
     size_t size = data.size();
     column_match_filter_size(size, filt.size());

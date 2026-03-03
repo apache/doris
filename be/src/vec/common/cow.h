@@ -447,6 +447,11 @@ public:
         this->template insert_from_multi_column_impl<Derived>(srcs, positions);
     }
 
+    void insert_to_multi_column(const std::vector<vectorized::IColumn*>& dsts,
+                                const uint32_t* positions, size_t rows) const override {
+        this->template insert_to_multi_column_impl<Derived>(dsts, positions, rows);
+    }
+
 protected:
     MutablePtr shallow_mutate() const {
         return MutablePtr(static_cast<Derived*>(Base::shallow_mutate().get()));

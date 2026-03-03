@@ -137,6 +137,9 @@ public:
     void insert_indices_from_not_has_null(const IColumn& src, const uint32_t* indices_begin,
                                           const uint32_t* indices_end);
 
+    void insert_to_multi_column(const std::vector<IColumn*>& dsts, const uint32_t* positions,
+                                size_t rows) const override;
+
     void insert(const Field& x) override;
     void insert_duplicate_fields(const Field& x, const size_t n) override;
     void insert_from(const IColumn& src, size_t n) override;
