@@ -130,6 +130,11 @@ under the License.
             <version>${paimon.version}</version>
         </dependency>
         <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-obs</artifactId>
+            <version>${paimon.version}</version>
+        </dependency>
+        <dependency>
             <groupId>commons-lang</groupId>
             <artifactId>commons-lang</artifactId>
             <version>${commons-lang.version}</version>
