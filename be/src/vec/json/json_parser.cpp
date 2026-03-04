@@ -93,6 +93,9 @@ template <typename ParserImpl>
 void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseContext& ctx) {
     ctx.paths.reserve(ctx.paths.size() + object.size());
     ctx.values.reserve(ctx.values.size() + object.size());
+    const bool has_skip_patterns = ctx.parse_config != nullptr &&
+                                   ctx.parse_config->skip_patterns != nullptr &&
+                                   !ctx.parse_config->skip_patterns->empty();
     for (auto it = object.begin(); it != object.end(); ++it) {
         const auto& [key, value] = *it;
         const size_t max_key_length = cast_set<size_t>(config::variant_max_json_key_length);
@@ -102,9 +105,6 @@ void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseC
                     fmt::format("Key length exceeds maximum allowed size of {} bytes.",
                                 max_key_length));
         }
-        const bool has_skip_patterns = ctx.parse_config != nullptr &&
-                                       ctx.parse_config->skip_patterns != nullptr &&
-                                       !ctx.parse_config->skip_patterns->empty();
         // Check skip patterns: build the dot-separated path and test against patterns.
         if (has_skip_patterns) {
             const size_t old_length = ctx.current_path.size();

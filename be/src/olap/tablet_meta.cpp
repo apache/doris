@@ -84,6 +84,15 @@ bvar::Window<bvar::Adder<uint64_t>> g_contains_agg_with_cache_if_eligible_full_h
 
 namespace {
 
+static_assert(static_cast<int>(TPatternType::MATCH_NAME) ==
+              static_cast<int>(PatternTypePB::MATCH_NAME));
+static_assert(static_cast<int>(TPatternType::MATCH_NAME_GLOB) ==
+              static_cast<int>(PatternTypePB::MATCH_NAME_GLOB));
+static_assert(static_cast<int>(TPatternType::SKIP_NAME) ==
+              static_cast<int>(PatternTypePB::SKIP_NAME));
+static_assert(static_cast<int>(TPatternType::SKIP_NAME_GLOB) ==
+              static_cast<int>(PatternTypePB::SKIP_NAME_GLOB));
+
 inline PatternTypePB to_pattern_type_pb(TPatternType::type pattern_type) {
     return static_cast<PatternTypePB>(pattern_type);
 }
