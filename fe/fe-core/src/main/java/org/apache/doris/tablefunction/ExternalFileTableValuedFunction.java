@@ -292,18 +292,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 // For stream sources there is a single logical "file"; no retry needed.
                 PFetchTableSchemaRequest request = getFetchTableStructureRequest();
                 if (request != null) {
-                    Future<InternalService.PFetchTableSchemaResult> future =
-                            BackendServiceProxy.getInstance().fetchTableStructureAsync(address, request);
-                    result = future.get();
-                    TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
-                    if (code != TStatusCode.OK) {
-                        String errMsg = !result.getStatus().getErrorMsgsList().isEmpty()
-                                ? result.getStatus().getErrorMsgsList().get(0)
-                                : "fetchTableStructureAsync failed. backend address: "
-                                        + NetUtils.getHostPortInAccessibleFormat(
-                                                address.getHostname(), address.getPort());
-                        throw new AnalysisException(errMsg);
-                    }
+                    result = fetchSchema(address, request);
                 }
             } else {
                 // For file-based sources, iterate through candidates and skip files whose
@@ -314,9 +303,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                         continue;
                     }
                     PFetchTableSchemaRequest request = getFetchTableStructureRequest(fileStatus);
-                    Future<InternalService.PFetchTableSchemaResult> future =
-                            BackendServiceProxy.getInstance().fetchTableStructureAsync(address, request);
-                    InternalService.PFetchTableSchemaResult candidateResult = future.get();
+                    InternalService.PFetchTableSchemaResult candidateResult = fetchSchema(address, request);
                     TStatusCode code = TStatusCode.findByValue(candidateResult.getStatus().getStatusCode());
                     if (code == TStatusCode.END_OF_FILE) {
                         LOG.info("Skipped file with empty content for schema inference: {}",
@@ -324,12 +311,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                         continue;
                     }
                     if (code != TStatusCode.OK) {
-                        String errMsg = !candidateResult.getStatus().getErrorMsgsList().isEmpty()
-                                ? candidateResult.getStatus().getErrorMsgsList().get(0)
-                                : "fetchTableStructureAsync failed. backend address: "
-                                        + NetUtils.getHostPortInAccessibleFormat(
-                                                address.getHostname(), address.getPort());
-                        throw new AnalysisException(errMsg);
+                        throwFetchError(candidateResult, address);
                     }
                     result = candidateResult;
                     break;
@@ -346,6 +328,27 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             throw new AnalysisException("getFetchTableStructureRequest exception", e);
         }
         return columns;
+    }
+
+    private InternalService.PFetchTableSchemaResult fetchSchema(TNetworkAddress address,
+            PFetchTableSchemaRequest request) throws RpcException, InterruptedException, ExecutionException {
+        Future<InternalService.PFetchTableSchemaResult> future =
+                BackendServiceProxy.getInstance().fetchTableStructureAsync(address, request);
+        InternalService.PFetchTableSchemaResult result = future.get();
+        TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+        if (code != TStatusCode.OK && code != TStatusCode.END_OF_FILE) {
+            throwFetchError(result, address);
+        }
+        return result;
+    }
+
+    private void throwFetchError(InternalService.PFetchTableSchemaResult result,
+            TNetworkAddress address) throws AnalysisException {
+        String errMsg = !result.getStatus().getErrorMsgsList().isEmpty()
+                ? result.getStatus().getErrorMsgsList().get(0)
+                : "fetchTableStructureAsync failed. backend address: "
+                        + NetUtils.getHostPortInAccessibleFormat(address.getHostname(), address.getPort());
+        throw new AnalysisException(errMsg);
     }
 
     protected Backend getBackend() {
@@ -467,8 +470,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 
-    private PFetchTableSchemaRequest getFetchTableStructureRequest() throws TException {
-        // set TFileScanRangeParams
+    private TFileScanRangeParams buildFileScanRangeParams() {
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
         fileScanRangeParams.setFormatType(fileFormatProperties.getFileFormatType());
         Map<String, String> beProperties = new HashMap<>();
@@ -477,7 +479,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());
-        // table function fetch schema, whether to enable mapping varbinary
         fileScanRangeParams.setEnableMappingVarbinary(fileFormatProperties.enableMappingVarbinary);
         fileScanRangeParams.setEnableMappingTimestampTz(fileFormatProperties.enableMappingTimestampTz);
 
@@ -494,6 +495,34 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             fileScanRangeParams.setHdfsParams(tHdfsParams);
         }
 
+        return fileScanRangeParams;
+    }
+
+    private TFileRangeDesc buildFileRangeDesc(TBrokerFileStatus fileStatus) {
+        TFileRangeDesc fileRangeDesc = new TFileRangeDesc();
+        fileRangeDesc.setLoadId(ConnectContext.get().queryId());
+        fileRangeDesc.setFileType(getTFileType());
+        fileRangeDesc.setCompressType(Util.getOrInferCompressType(
+                fileFormatProperties.getCompressionType(), fileStatus.getPath()));
+        fileRangeDesc.setPath(fileStatus.getPath());
+        fileRangeDesc.setStartOffset(0);
+        fileRangeDesc.setSize(fileStatus.getSize());
+        fileRangeDesc.setFileSize(fileStatus.getSize());
+        fileRangeDesc.setModificationTime(fileStatus.getModificationTime());
+        return fileRangeDesc;
+    }
+
+    private PFetchTableSchemaRequest buildSchemaRequest(
+            TFileScanRangeParams params, TFileRangeDesc fileRangeDesc) throws TException {
+        TFileScanRange fileScanRange = new TFileScanRange();
+        fileScanRange.addToRanges(fileRangeDesc);
+        fileScanRange.setParams(params);
+        return InternalService.PFetchTableSchemaRequest.newBuilder()
+                .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
+    }
+
+    private PFetchTableSchemaRequest getFetchTableStructureRequest() throws TException {
+        TFileScanRangeParams fileScanRangeParams = buildFileScanRangeParams();
         // get first file, used to parse table schema (for FILE_STREAM this is the dummy entry)
         TBrokerFileStatus firstFile = null;
         for (TBrokerFileStatus fileStatus : fileStatuses) {
@@ -512,23 +541,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             return null;
         }
 
-        // set TFileRangeDesc
-        TFileRangeDesc fileRangeDesc = new TFileRangeDesc();
-        fileRangeDesc.setLoadId(ctx.queryId());
-        fileRangeDesc.setFileType(getTFileType());
-        fileRangeDesc.setCompressType(Util.getOrInferCompressType(
-                fileFormatProperties.getCompressionType(), firstFile.getPath()));
-        fileRangeDesc.setPath(firstFile.getPath());
-        fileRangeDesc.setStartOffset(0);
-        fileRangeDesc.setSize(firstFile.getSize());
-        fileRangeDesc.setFileSize(firstFile.getSize());
-        fileRangeDesc.setModificationTime(firstFile.getModificationTime());
-        // set TFileScanRange
-        TFileScanRange fileScanRange = new TFileScanRange();
-        fileScanRange.addToRanges(fileRangeDesc);
-        fileScanRange.setParams(fileScanRangeParams);
-        return InternalService.PFetchTableSchemaRequest.newBuilder()
-                .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
+        return buildSchemaRequest(fileScanRangeParams, buildFileRangeDesc(firstFile));
     }
 
     /**
@@ -537,40 +550,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
      */
     private PFetchTableSchemaRequest getFetchTableStructureRequest(TBrokerFileStatus fileStatus)
             throws TException {
-        TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
-        fileScanRangeParams.setFormatType(fileFormatProperties.getFileFormatType());
-        Map<String, String> beProperties = new HashMap<>();
-        beProperties.putAll(backendConnectProperties);
-        fileScanRangeParams.setProperties(beProperties);
-        fileScanRangeParams.setFileAttributes(getFileAttributes());
-        ConnectContext ctx = ConnectContext.get();
-        fileScanRangeParams.setLoadId(ctx.queryId());
-        fileScanRangeParams.setEnableMappingVarbinary(fileFormatProperties.enableMappingVarbinary);
-        fileScanRangeParams.setEnableMappingTimestampTz(fileFormatProperties.enableMappingTimestampTz);
-
-        if (getTFileType() == TFileType.FILE_HDFS) {
-            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(
-                    storageProperties.getBackendConfigProperties());
-            String fsName = storageProperties.getBackendConfigProperties().get(HdfsResource.HADOOP_FS_NAME);
-            tHdfsParams.setFsName(fsName);
-            fileScanRangeParams.setHdfsParams(tHdfsParams);
-        }
-
-        TFileRangeDesc fileRangeDesc = new TFileRangeDesc();
-        fileRangeDesc.setLoadId(ctx.queryId());
-        fileRangeDesc.setFileType(getTFileType());
-        fileRangeDesc.setCompressType(Util.getOrInferCompressType(
-                fileFormatProperties.getCompressionType(), fileStatus.getPath()));
-        fileRangeDesc.setPath(fileStatus.getPath());
-        fileRangeDesc.setStartOffset(0);
-        fileRangeDesc.setSize(fileStatus.getSize());
-        fileRangeDesc.setFileSize(fileStatus.getSize());
-        fileRangeDesc.setModificationTime(fileStatus.getModificationTime());
-        TFileScanRange fileScanRange = new TFileScanRange();
-        fileScanRange.addToRanges(fileRangeDesc);
-        fileScanRange.setParams(fileScanRangeParams);
-        return InternalService.PFetchTableSchemaRequest.newBuilder()
-                .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
+        TFileScanRangeParams fileScanRangeParams = buildFileScanRangeParams();
+        return buildSchemaRequest(fileScanRangeParams, buildFileRangeDesc(fileStatus));
     }
 
     private boolean isFileContentEmpty(TBrokerFileStatus fileStatus) {
