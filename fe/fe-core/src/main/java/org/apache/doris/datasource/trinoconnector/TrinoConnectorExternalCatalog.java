@@ -80,6 +80,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -128,9 +129,48 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
             }
         } finally {
             if (connectorClassLoader != null) {
+                closeFileSystemsInClassLoader(connectorClassLoader);
+                stopThreadsForClassLoader(connectorClassLoader);
                 removeShutdownHooksForClassLoader(connectorClassLoader);
-                logThreadsWithClassLoader(connectorClassLoader);
             }
+        }
+    }
+
+    private void stopThreadsForClassLoader(ClassLoader targetClassLoader) {
+        try {
+            ThreadGroup root = Thread.currentThread().getThreadGroup();
+            while (root.getParent() != null) {
+                root = root.getParent();
+            }
+            Thread[] threads = new Thread[root.activeCount() + 100];
+            int count = root.enumerate(threads);
+
+            List<Thread> leakedThreads = new ArrayList<>();
+            for (int i = 0; i < count; i++) {
+                Thread t = threads[i];
+                if (t != null && t.getContextClassLoader() == targetClassLoader) {
+                    leakedThreads.add(t);
+                }
+            }
+
+            if (leakedThreads.isEmpty()) {
+                return;
+            }
+
+            LOG.info("Trino catalog {} cleaning up {} leaked threads", name, leakedThreads.size());
+
+            for (Thread t : leakedThreads) {
+                try {
+                    t.interrupt();
+                    t.setContextClassLoader(null);
+                } catch (Exception e) {
+                    LOG.warn("Failed to stop thread {} for catalog {}", t.getName(), name, e);
+                }
+            }
+
+            LOG.info("Trino catalog {} thread cleanup complete", name);
+        } catch (Exception e) {
+            LOG.warn("Failed to stop threads for trino catalog {}", name, e);
         }
     }
 
@@ -160,6 +200,17 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
             }
         } catch (Exception e) {
             LOG.warn("Failed to log threads for trino catalog {}", name, e);
+        }
+    }
+
+    private void closeFileSystemsInClassLoader(ClassLoader targetClassLoader) {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(targetClassLoader)) {
+            Class<?> fileSystemClass = Class.forName("org.apache.hadoop.fs.FileSystem", true, targetClassLoader);
+            Method closeAllMethod = fileSystemClass.getMethod("closeAll");
+            closeAllMethod.invoke(null);
+            LOG.info("Trino catalog {} closed all FileSystems in classloader", name);
+        } catch (Exception e) {
+            LOG.warn("Failed to close FileSystems for trino catalog {}", name, e);
         }
     }
 
