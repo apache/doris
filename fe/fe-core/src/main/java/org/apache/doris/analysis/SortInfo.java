@@ -68,6 +68,7 @@ public class SortInfo {
         isAscOrder = Lists.newArrayList(other.isAscOrder);
         nullsFirstParams = Lists.newArrayList(other.nullsFirstParams);
         sortTupleDesc = other.sortTupleDesc;
+        useTwoPhaseRead = other.useTwoPhaseRead;
     }
 
     public List<Expr> getOrderingExprs() {

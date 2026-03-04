@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
-import org.apache.doris.catalog.Column;
 
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
@@ -29,13 +28,6 @@ public class ImportColumnDesc {
     @SerializedName("expr")
     private Expr expr;
 
-    public ImportColumnDesc(ImportColumnDesc other) {
-        this.columnName = other.columnName;
-        if (other.expr != null) {
-            this.expr = other.expr.clone();
-        }
-    }
-
     public ImportColumnDesc(String column) {
         this.columnName = column;
     }
@@ -43,10 +35,6 @@ public class ImportColumnDesc {
     public ImportColumnDesc(String column, Expr expr) {
         this.columnName = column;
         this.expr = expr;
-    }
-
-    public static ImportColumnDesc newDeleteSignImportColumnDesc(Expr expr) {
-        return new ImportColumnDesc(Column.DELETE_SIGN, expr);
     }
 
     public String getColumnName() {

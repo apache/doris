@@ -319,6 +319,10 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                                                *_tablet->tablet_schema(), 1));
         }
     }
+    // Set timezone from request for functions like from_unixtime()
+    if (request->has_time_zone() && !request->time_zone().empty()) {
+        _reusable->runtime_state()->set_timezone(request->time_zone());
+    }
     if (request->has_version() && request->version() >= 0) {
         _version = request->version();
     }

@@ -23,6 +23,9 @@ import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 
 import com.google.common.collect.Maps;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.StorageCredential;
+import org.apache.iceberg.io.SupportsStorageCredentials;
 
 import java.util.Map;
 
@@ -38,7 +41,7 @@ public class IcebergVendedCredentialsProvider extends AbstractVendedCredentialsP
     }
 
     @Override
-    protected boolean isVendedCredentialsEnabled(MetastoreProperties metastoreProperties) {
+    public boolean isVendedCredentialsEnabled(MetastoreProperties metastoreProperties) {
         if (metastoreProperties instanceof IcebergRestProperties) {
             return ((IcebergRestProperties) metastoreProperties).isIcebergRestVendedCredentialsEnabled();
         }
@@ -57,7 +60,15 @@ public class IcebergVendedCredentialsProvider extends AbstractVendedCredentialsP
         }
 
         // Return table.io().properties() directly, and let StorageProperties.createAll() to convert the format
-        return table.io().properties();
+        FileIO fileIO = table.io();
+        Map<String, String> ioProps = Maps.newHashMap(fileIO.properties());
+        if (fileIO instanceof SupportsStorageCredentials) {
+            SupportsStorageCredentials ssc = (SupportsStorageCredentials) fileIO;
+            for (StorageCredential storageCredential : ssc.credentials()) {
+                ioProps.putAll(storageCredential.config());
+            }
+        }
+        return ioProps;
     }
 
     @Override

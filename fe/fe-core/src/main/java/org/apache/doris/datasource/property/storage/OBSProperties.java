@@ -62,6 +62,7 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
     @Getter
     @Setter
     @ConnectorProperty(names = {"obs.region", "s3.region", "AWS_REGION", "region", "REGION"}, required = false,
+            isRegionField = true,
             description = "The region of OBS.")
     protected String region;
 
