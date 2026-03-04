@@ -501,9 +501,7 @@ static VExprContextSPtr create_predicates(DescriptorTbl* desc_tbl, RuntimeState*
         texpr_node.__set_is_nullable(true);
         root = VectorizedFnCall::create_shared(texpr_node);
     }
-    {
-        root->add_child(VSlotRef::create_shared(tuple_desc->slots()[0]));
-    }
+    { root->add_child(VSlotRef::create_shared(tuple_desc->slots()[0])); }
     {
         TExprNode texpr_node;
         texpr_node.__set_node_type(TExprNodeType::STRING_LITERAL);
@@ -538,8 +536,8 @@ TEST_F(ParquetReaderTest, all_string_null) {
     auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
     auto local_fs = io::global_local_filesystem();
     io::FileReaderSPtr reader;
-    st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/test_string_null.zst.parquet",
-                             &reader);
+    st = local_fs->open_file(
+            "./be/test/exec/test_data/parquet_scanner/test_string_null.zst.parquet", &reader);
     EXPECT_TRUE(st.ok()) << st;
 
     cctz::time_zone ctz;
@@ -567,8 +565,8 @@ TEST_F(ParquetReaderTest, all_string_null) {
     const VExprContextSPtrs conjuncts = {context};
 
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    st = p_reader->init_reader(column_names, &col_name_to_block_idx, conjuncts, tmp, nullptr, nullptr,
-                               nullptr, nullptr, nullptr);
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, conjuncts, tmp, nullptr,
+                               nullptr, nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
