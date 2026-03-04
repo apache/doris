@@ -23,8 +23,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.gson.annotations.SerializedName;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
 
 import java.io.IOException;
 
@@ -32,7 +30,6 @@ import java.io.IOException;
  * This def used for column which defaultValue is an expression.
  */
 public class DefaultValueExprDef implements GsonPostProcessable {
-    private static final Logger LOG = LogManager.getLogger(DefaultValueExprDef.class);
     @SerializedName("exprName")
     private String exprName;
     @SerializedName("precision")

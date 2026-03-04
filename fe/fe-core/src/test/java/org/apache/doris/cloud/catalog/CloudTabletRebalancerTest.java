@@ -43,16 +43,22 @@ import java.util.concurrent.ConcurrentHashMap;
 public class CloudTabletRebalancerTest {
 
     private boolean oldEnableActiveScheduling;
+    private long oldActiveTabletIdsRefreshIntervalSecond;
+    private int oldForceInactiveAfterRounds;
 
     @BeforeEach
     public void setUp() {
         oldEnableActiveScheduling = Config.enable_cloud_active_tablet_priority_scheduling;
+        oldActiveTabletIdsRefreshIntervalSecond = Config.cloud_active_tablet_ids_refresh_interval_second;
+        oldForceInactiveAfterRounds = Config.cloud_active_unbalanced_force_inactive_after_rounds;
         Config.enable_cloud_active_tablet_priority_scheduling = true;
     }
 
     @AfterEach
     public void tearDown() {
         Config.enable_cloud_active_tablet_priority_scheduling = oldEnableActiveScheduling;
+        Config.cloud_active_tablet_ids_refresh_interval_second = oldActiveTabletIdsRefreshIntervalSecond;
+        Config.cloud_active_unbalanced_force_inactive_after_rounds = oldForceInactiveAfterRounds;
     }
 
     private static class TestRebalancer extends CloudTabletRebalancer {
@@ -77,6 +83,13 @@ public class CloudTabletRebalancerTest {
         Field f = CloudTabletRebalancer.class.getDeclaredField(name);
         f.setAccessible(true);
         f.set(obj, value);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T getField(Object obj, String name) throws Exception {
+        Field f = CloudTabletRebalancer.class.getDeclaredField(name);
+        f.setAccessible(true);
+        return (T) f.get(obj);
     }
 
     @SuppressWarnings("unchecked")
@@ -236,6 +249,63 @@ public class CloudTabletRebalancerTest {
         Assertions.assertEquals(200L, list.get(1).getKey());
         Assertions.assertEquals(100L, list.get(2).getKey(), "Internal db partition should be scheduled last");
     }
-}
 
+    @Test
+    public void testShouldForceInactivePhase_afterConsecutiveUnbalancedRounds() throws Exception {
+        TestRebalancer r = new TestRebalancer();
+        Config.cloud_active_unbalanced_force_inactive_after_rounds = 3;
+
+        boolean forceRound1 = invokePrivate(r, "shouldForceInactivePhase",
+                new Class<?>[] {boolean.class}, new Object[] {false});
+        boolean forceRound2 = invokePrivate(r, "shouldForceInactivePhase",
+                new Class<?>[] {boolean.class}, new Object[] {false});
+        boolean forceRound3 = invokePrivate(r, "shouldForceInactivePhase",
+                new Class<?>[] {boolean.class}, new Object[] {false});
+
+        Assertions.assertFalse(forceRound1);
+        Assertions.assertFalse(forceRound2);
+        Assertions.assertTrue(forceRound3);
+        Assertions.assertEquals(0, (int) getField(r, "consecutiveActiveUnbalancedRounds"));
+
+        boolean forceAfterBalanced = invokePrivate(r, "shouldForceInactivePhase",
+                new Class<?>[] {boolean.class}, new Object[] {true});
+        Assertions.assertFalse(forceAfterBalanced);
+        Assertions.assertEquals(0, (int) getField(r, "consecutiveActiveUnbalancedRounds"));
+    }
+
+    @Test
+    public void testShouldRefreshActiveTabletIds_respectsIntervalAndClamp() throws Exception {
+        TestRebalancer r = new TestRebalancer();
+
+        Config.cloud_active_tablet_ids_refresh_interval_second = 60L;
+        setField(r, "lastActiveTabletIdsRefreshMs", 0L);
+        boolean firstRound = invokePrivate(r, "shouldRefreshActiveTabletIds",
+                new Class<?>[] {long.class}, new Object[] {1000L});
+        Assertions.assertTrue(firstRound);
+
+        setField(r, "lastActiveTabletIdsRefreshMs", 1000L);
+        boolean beforeInterval = invokePrivate(r, "shouldRefreshActiveTabletIds",
+                new Class<?>[] {long.class}, new Object[] {60000L});
+        boolean atInterval = invokePrivate(r, "shouldRefreshActiveTabletIds",
+                new Class<?>[] {long.class}, new Object[] {61000L});
+        Assertions.assertFalse(beforeInterval);
+        Assertions.assertTrue(atInterval);
+
+        Config.cloud_active_tablet_ids_refresh_interval_second = 0L; // clamp to 1s
+        setField(r, "lastActiveTabletIdsRefreshMs", 1000L);
+        boolean beforeClampInterval = invokePrivate(r, "shouldRefreshActiveTabletIds",
+                new Class<?>[] {long.class}, new Object[] {1500L});
+        boolean atClampInterval = invokePrivate(r, "shouldRefreshActiveTabletIds",
+                new Class<?>[] {long.class}, new Object[] {2000L});
+        Assertions.assertFalse(beforeClampInterval);
+        Assertions.assertTrue(atClampInterval);
+    }
+
+    @Test
+    public void testMigrateTabletsForSmoothUpgrade_emptyQueueReturnsFalse() throws Exception {
+        TestRebalancer r = new TestRebalancer();
+        boolean migrated = invokePrivate(r, "migrateTabletsForSmoothUpgrade", new Class<?>[] {}, new Object[] {});
+        Assertions.assertFalse(migrated);
+    }
+}
 
