@@ -3495,6 +3495,7 @@ public class SessionVariable implements Serializable, Writable {
         this.enableBroadcastJoinForcePassthrough = random.nextBoolean();
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         this.shortCircuitEvaluation = random.nextBoolean();
+        this.adjustTabletReaderBatchSizeByLimit = random.nextBoolean();
 
         // 4KB = 4 * 1024 bytes
         int minBytes = 4 * 1024;
