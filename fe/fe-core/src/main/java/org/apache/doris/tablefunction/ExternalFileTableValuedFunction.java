@@ -334,7 +334,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
     private InternalService.PFetchTableSchemaResult fetchSchema(TNetworkAddress address,
-            PFetchTableSchemaRequest request) throws RpcException, InterruptedException, ExecutionException {
+            PFetchTableSchemaRequest request)
+            throws RpcException, InterruptedException, ExecutionException, AnalysisException {
         Future<InternalService.PFetchTableSchemaResult> future =
                 BackendServiceProxy.getInstance().fetchTableStructureAsync(address, request);
         InternalService.PFetchTableSchemaResult result = future.get();
