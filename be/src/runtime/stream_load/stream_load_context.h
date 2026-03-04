@@ -100,7 +100,7 @@ public:
               properties(t_info.__isset.properties ? t_info.properties
                                                    : std::map<std::string, std::string>()) {
         // Initialize committed sequence numbers with begin sequence numbers
-        for (auto& p : t_info.shard_begin_sequence_number) {
+        for (const auto& p : t_info.shard_begin_sequence_number) {
             cmt_sequence_number[p.first] = p.second;
         }
     }
@@ -112,7 +112,6 @@ public:
         }
     }
 
-public:
     std::string region;
     std::string stream;
     std::string endpoint; // Optional custom endpoint (for LocalStack/VPC)

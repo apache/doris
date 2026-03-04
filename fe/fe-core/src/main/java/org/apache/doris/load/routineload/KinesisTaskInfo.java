@@ -60,7 +60,9 @@ import java.util.stream.Collectors;
 public class KinesisTaskInfo extends RoutineLoadTaskInfo {
     private static final Logger LOG = LogManager.getLogger(KinesisTaskInfo.class);
 
-    private RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
+    private RoutineLoadManager getRoutineLoadManager() {
+        return Env.getCurrentEnv().getRoutineLoadManager();
+    }
 
     /**
      * Map from shard ID to starting sequence number for this task.
@@ -110,7 +112,7 @@ public class KinesisTaskInfo extends RoutineLoadTaskInfo {
     @Override
     public TRoutineLoadTask createRoutineLoadTask() throws UserException {
         KinesisRoutineLoadJob routineLoadJob =
-                (KinesisRoutineLoadJob) routineLoadManager.getJob(jobId);
+                (KinesisRoutineLoadJob) getRoutineLoadManager().getJob(jobId);
 
         // Create Thrift task object
         TRoutineLoadTask tRoutineLoadTask = new TRoutineLoadTask();
@@ -240,7 +242,7 @@ public class KinesisTaskInfo extends RoutineLoadTaskInfo {
 
     @Override
     boolean hasMoreDataToConsume() throws UserException {
-        KinesisRoutineLoadJob routineLoadJob = (KinesisRoutineLoadJob) routineLoadManager.getJob(jobId);
+        KinesisRoutineLoadJob routineLoadJob = (KinesisRoutineLoadJob) getRoutineLoadManager().getJob(jobId);
         return routineLoadJob.hasMoreDataToConsume(id, shardIdToSequenceNumber);
     }
 

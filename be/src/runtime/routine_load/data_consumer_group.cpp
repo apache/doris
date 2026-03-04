@@ -21,10 +21,11 @@
 
 #include <map>
 #include <ostream>
-#include <string>
 #include <utility>
 
 #include "common/logging.h"
+#include "io/fs/kafka_consumer_pipe.h"
+#include "io/fs/kinesis_consumer_pipe.h"
 #include "librdkafka/rdkafkacpp.h"
 #include "runtime/routine_load/data_consumer.h"
 #include "runtime/stream_load/stream_load_context.h"
@@ -73,7 +74,9 @@ KafkaDataConsumerGroup::~KafkaDataConsumerGroup() {
 }
 
 Status KafkaDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx,
-                                         std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe) {
+                                         std::shared_ptr<io::StreamLoadPipe> pipe) {
+    auto kafka_pipe = std::dynamic_pointer_cast<io::KafkaConsumerPipe>(pipe);
+    DORIS_CHECK(kafka_pipe != nullptr);
     Status result_st = Status::OK();
     // start all consumers
     for (auto& consumer : _consumers) {
@@ -208,6 +211,172 @@ void KafkaDataConsumerGroup::actual_consume(std::shared_ptr<DataConsumer> consum
             queue, max_running_time_ms);
     cb(st);
 }
+
+Status KinesisDataConsumerGroup::assign_stream_shards(std::shared_ptr<StreamLoadContext> ctx) {
+    DCHECK(ctx->kinesis_info);
+    DCHECK(_consumers.size() >= 1);
+
+    // For Kinesis, we use a single consumer to handle all shards
+    RETURN_IF_ERROR(std::static_pointer_cast<KinesisDataConsumer>(_consumers[0])
+                            ->assign_shards(ctx->kinesis_info->begin_sequence_number,
+                                            ctx->kinesis_info->stream, ctx));
+
+    return Status::OK();
+}
+
+KinesisDataConsumerGroup::~KinesisDataConsumerGroup() {
+    _queue.shutdown();
+    while (true) {
+        std::shared_ptr<Aws::Kinesis::Model::Record> record;
+        if (_queue.blocking_get(&record)) {
+            record.reset();
+        } else {
+            break;
+        }
+    }
+    DCHECK(_queue.get_size() == 0);
+}
+
+Status KinesisDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ctx,
+                                           std::shared_ptr<io::StreamLoadPipe> pipe) {
+    auto kinesis_pipe = std::dynamic_pointer_cast<io::KinesisConsumerPipe>(pipe);
+    DORIS_CHECK(kinesis_pipe != nullptr);
+    Status result_st = Status::OK();
+
+    // Start all consumers
+    for (auto& consumer : _consumers) {
+        if (!_thread_pool.offer(std::bind<void>(
+                    &KinesisDataConsumerGroup::actual_consume, this, consumer, &_queue,
+                    ctx->max_interval_s * 1000, [this, &result_st](const Status& st) {
+                        std::unique_lock<std::mutex> lock(_mutex);
+                        _counter--;
+                        VLOG_CRITICAL << "kinesis group counter is: " << _counter
+                                      << ", grp: " << _grp_id;
+                        if (_counter == 0) {
+                            _queue.shutdown();
+                            LOG(INFO) << "all kinesis consumers are finished. shutdown queue. "
+                                         "group id: "
+                                      << _grp_id;
+                        }
+                        if (result_st.ok() && !st.ok()) {
+                            result_st = st;
+                        }
+                    }))) {
+            LOG(WARNING) << "failed to submit kinesis data consumer: " << consumer->id()
+                         << ", group id: " << _grp_id;
+            return Status::InternalError("failed to submit kinesis data consumer");
+        } else {
+            VLOG_CRITICAL << "submit a kinesis data consumer: " << consumer->id()
+                          << ", group id: " << _grp_id;
+        }
+    }
+
+    // Consuming from queue and put data to stream load pipe
+    int64_t left_time = ctx->max_interval_s * 1000;
+    int64_t left_rows = ctx->max_batch_rows;
+    int64_t left_bytes = ctx->max_batch_size;
+
+    LOG(INFO) << "start kinesis consumer group: " << _grp_id << ". max time(ms): " << left_time
+              << ", batch rows: " << left_rows << ", batch size: " << left_bytes << ". "
+              << ctx->brief();
+
+    // Select append function based on format
+    Status (io::KinesisConsumerPipe::*append_data)(const char* data, size_t size);
+    if (ctx->format == TFileFormatType::FORMAT_JSON) {
+        append_data = &io::KinesisConsumerPipe::append_json;
+    } else {
+        append_data = &io::KinesisConsumerPipe::append_with_line_delimiter;
+    }
+
+    MonotonicStopWatch watch;
+    watch.start();
+    bool eos = false;
+    while (true) {
+        if (eos || left_time <= 0 || left_rows <= 0 || left_bytes <= 0) {
+            LOG(INFO) << "kinesis consumer group done: " << _grp_id
+                      << ". consume time(ms)=" << ctx->max_interval_s * 1000 - left_time
+                      << ", received rows=" << ctx->max_batch_rows - left_rows
+                      << ", received bytes=" << ctx->max_batch_size - left_bytes << ", eos: " << eos
+                      << ", left_time: " << left_time << ", left_rows: " << left_rows
+                      << ", left_bytes: " << left_bytes
+                      << ", blocking get time(us): " << _queue.total_get_wait_time() / 1000
+                      << ", blocking put time(us): " << _queue.total_put_wait_time() / 1000
+                      << ", " << ctx->brief();
+
+            // Shutdown queue
+            _queue.shutdown();
+            // Cancel all consumers
+            for (auto& consumer : _consumers) {
+                static_cast<void>(consumer->cancel(ctx));
+            }
+
+            // Wait for all threads to finish
+            _thread_pool.shutdown();
+            _thread_pool.join();
+            if (!result_st.ok()) {
+                kinesis_pipe->cancel(result_st.to_string());
+                return result_st;
+            }
+            static_cast<void>(kinesis_pipe->finish());
+            // Collect committed sequence numbers from all consumers
+            for (auto& consumer : _consumers) {
+                auto kinesis_consumer =
+                        std::static_pointer_cast<KinesisDataConsumer>(consumer);
+                for (auto& [shard_id, seq_num] :
+                     kinesis_consumer->get_committed_sequence_numbers()) {
+                    ctx->kinesis_info->cmt_sequence_number[shard_id] = seq_num;
+                }
+            }
+            ctx->receive_bytes = ctx->max_batch_size - left_bytes;
+            return Status::OK();
+        }
+
+        std::shared_ptr<Aws::Kinesis::Model::Record> record;
+        bool res = _queue.controlled_blocking_get(&record, config::blocking_queue_cv_wait_timeout_ms);
+        if (res) {
+            auto& data = record->GetData();
+            const char* payload = reinterpret_cast<const char*>(data.GetUnderlyingData());
+            size_t len = data.GetLength();
+
+            VLOG_NOTICE << "get kinesis record, seq: " << record->GetSequenceNumber()
+                        << ", len: " << len;
+
+            Status st = (kinesis_pipe.get()->*append_data)(payload, len);
+            if (st.ok()) {
+                left_rows--;
+                left_bytes -= len;
+                VLOG_NOTICE << "consume kinesis record [seq=" << record->GetSequenceNumber()
+                            << "]";
+            } else {
+                LOG(WARNING) << "failed to append kinesis record to pipe. grp: " << _grp_id;
+                eos = true;
+                {
+                    std::unique_lock<std::mutex> lock(_mutex);
+                    if (result_st.ok()) {
+                        result_st = st;
+                    }
+                }
+            }
+        } else {
+            // Queue is empty and shutdown
+            eos = true;
+        }
+
+        left_time = ctx->max_interval_s * 1000 - watch.elapsed_time() / 1000 / 1000;
+    }
+
+    return Status::OK();
+}
+
+void KinesisDataConsumerGroup::actual_consume(
+        std::shared_ptr<DataConsumer> consumer,
+        BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
+        int64_t max_running_time_ms, ConsumeFinishCallback cb) {
+    Status st = std::static_pointer_cast<KinesisDataConsumer>(consumer)->group_consume(
+            queue, max_running_time_ms);
+    cb(st);
+}
+
 #include "common/compile_check_end.h"
 
 } // namespace doris

@@ -22,9 +22,6 @@
 namespace doris {
 namespace io {
 
-// Pipe for consuming data from AWS Kinesis Data Streams.
-// Similar to KafkaConsumerPipe, this provides buffering and formatting
-// for Kinesis records before they are passed to the load process.
 class KinesisConsumerPipe : public StreamLoadPipe {
 public:
     KinesisConsumerPipe(size_t max_buffered_bytes = 1024 * 1024, size_t min_chunk_size = 64 * 1024)

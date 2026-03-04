@@ -228,10 +228,20 @@ private:
     // Updated during group_consume; read by the task executor to populate ctx after consumption.
     std::map<std::string, int64_t> _millis_behind_latest;
 
+    // Tracks the last consumed sequence number per shard.
+    // Updated during group_consume via _process_records; read by the consumer group
+    // to populate ctx->kinesis_info->cmt_sequence_number after consumption.
+    std::map<std::string, std::string> _committed_sequence_numbers;
+
 public:
     // Returns the MillisBehindLatest snapshot collected during group_consume.
     const std::map<std::string, int64_t>& get_millis_behind_latest() const {
         return _millis_behind_latest;
+    }
+
+    // Returns the committed sequence numbers per shard collected during group_consume.
+    const std::map<std::string, std::string>& get_committed_sequence_numbers() const {
+        return _committed_sequence_numbers;
     }
 
 private:
@@ -245,7 +255,8 @@ private:
                                std::string* iterator);
 
     // Process records from GetRecords result and add to queue
-    Status _process_records(const Aws::Kinesis::Model::GetRecordsResult& result,
+    Status _process_records(const std::string& shard_id,
+                           Aws::Kinesis::Model::GetRecordsResult result,
                            BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
                            int64_t* received_rows, int64_t* put_rows);
 

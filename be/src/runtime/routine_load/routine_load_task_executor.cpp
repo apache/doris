@@ -462,26 +462,16 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         break;
     }
     case TLoadSourceType::KINESIS: {
-        // Kinesis doesn't support multi-table yet
-        pipe = std::make_shared<io::KinesisConsumerPipe>();
-
-        // For Kinesis, we use a simplified approach without DataConsumerGroup
-        // Get the first (and only) consumer from the group
-        if (consumer_grp->consumers().empty()) {
-            err_handler(ctx, Status::InternalError("No Kinesis consumer available"),
-                       "No Kinesis consumer available");
+        if (ctx->is_multi_table) {
+            err_handler(ctx, Status::Cancelled("Cancelled"), "Kinesis doesn't support multi-table yet");
             cb(ctx);
             return;
+        } else {
+            pipe = std::make_shared<io::KinesisConsumerPipe>();
         }
+        Status st = std::static_pointer_cast<KinesisDataConsumerGroup>(consumer_grp)
+                            ->assign_stream_shards(ctx);
 
-        auto kinesis_consumer = std::static_pointer_cast<KinesisDataConsumer>(
-            consumer_grp->consumers()[0]);
-
-        // Assign shards to the consumer
-        Status st = kinesis_consumer->assign_shards(
-            ctx->kinesis_info->begin_sequence_number,
-            ctx->kinesis_info->stream,
-            ctx);
         if (!st.ok()) {
             err_handler(ctx, st, st.to_string());
             cb(ctx);
@@ -516,15 +506,15 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
 #endif
     }
 
-    std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe =
-            std::static_pointer_cast<io::KafkaConsumerPipe>(ctx->body_sink);
+    pipe = std::static_pointer_cast<io::StreamLoadPipe>(ctx->body_sink);
 
+    // Multi-table currently only supported for Kafka
     if (ctx->is_multi_table) {
         Status st;
         // plan the rest of unplanned data
         auto multi_table_pipe = std::static_pointer_cast<io::MultiTablePipe>(ctx->body_sink);
         // start to consume, this may block a while
-        st = consumer_grp->start_all(ctx, kafka_pipe);
+        st = consumer_grp->start_all(ctx, pipe);
         if (!st.ok()) {
             multi_table_pipe->handle_consume_finished();
             HANDLE_MULTI_TABLE_ERROR(st, "consuming failed");
@@ -536,10 +526,10 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         }
         // need memory order
         multi_table_pipe->handle_consume_finished();
-        HANDLE_MULTI_TABLE_ERROR(kafka_pipe->finish(), "finish multi table task failed");
+        HANDLE_MULTI_TABLE_ERROR(pipe->finish(), "finish multi table task failed");
     } else {
         // start to consume, this may block a while
-        HANDLE_ERROR(consumer_grp->start_all(ctx, kafka_pipe), "consuming failed");
+        HANDLE_ERROR(consumer_grp->start_all(ctx, pipe), "consuming failed");
     }
 
     // wait for all consumers finished

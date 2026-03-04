@@ -663,14 +663,24 @@ Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadCon
     // Set timeouts from properties or use defaults
     auto it_request_timeout = _custom_properties.find("aws.request.timeout.ms");
     if (it_request_timeout != _custom_properties.end()) {
-        aws_config.requestTimeoutMs = std::stoi(it_request_timeout->second);
+        try {
+            aws_config.requestTimeoutMs = std::stoi(it_request_timeout->second);
+        } catch (const std::exception& e) {
+            return Status::InvalidArgument("Invalid aws.request.timeout.ms value: {}",
+                                           it_request_timeout->second);
+        }
     } else {
         aws_config.requestTimeoutMs = 30000; // 30s default
     }
 
     auto it_conn_timeout = _custom_properties.find("aws.connection.timeout.ms");
     if (it_conn_timeout != _custom_properties.end()) {
-        aws_config.connectTimeoutMs = std::stoi(it_conn_timeout->second);
+        try {
+            aws_config.connectTimeoutMs = std::stoi(it_conn_timeout->second);
+        } catch (const std::exception& e) {
+            return Status::InvalidArgument("Invalid aws.connection.timeout.ms value: {}",
+                                           it_conn_timeout->second);
+        }
     }
 
     // Get credentials provider (reuses S3 infrastructure)
@@ -692,7 +702,7 @@ Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadCon
 Status KinesisDataConsumer::assign_shards(
         const std::map<std::string, std::string>& shard_sequence_numbers,
         const std::string& stream_name, std::shared_ptr<StreamLoadContext> ctx) {
-    DCHECK(_kinesis_client);
+    DORIS_CHECK(_kinesis_client);
 
     std::stringstream ss;
     ss << "Assigning shards to Kinesis consumer " << _id << ": ";
@@ -848,12 +858,14 @@ Status KinesisDataConsumer::group_consume(
             // Reset retry counter on success
             retry_times = 0;
 
-            // Process records
-            auto& result = outcome.GetResult();
-            RETURN_IF_ERROR(_process_records(result, queue, &received_rows, &put_rows));
+            // Process records - move result to allow moving individual records
+            auto result = outcome.GetResultWithOwnership();
+            auto millis_behind = result.GetMillisBehindLatest();
+            RETURN_IF_ERROR(_process_records(shard_id, std::move(result), queue, &received_rows,
+                                            &put_rows));
 
             // Track MillisBehindLatest for this shard (used by FE for lag monitoring & scheduling)
-            _millis_behind_latest[shard_id] = result.GetMillisBehindLatest();
+            _millis_behind_latest[shard_id] = millis_behind;
 
             // Update shard iterator for next call
             std::string next_iterator = result.GetNextShardIterator();
@@ -894,12 +906,13 @@ Status KinesisDataConsumer::group_consume(
 }
 
 Status KinesisDataConsumer::_process_records(
-        const Aws::Kinesis::Model::GetRecordsResult& result,
+        const std::string& shard_id,
+        Aws::Kinesis::Model::GetRecordsResult result,
         BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
         int64_t* received_rows, int64_t* put_rows) {
     auto& records = result.GetRecords();
 
-    for (const auto& record : records) {
+    for (auto& record : records) {
         DorisMetrics::instance()->routine_load_consume_bytes->increment(
                 record.GetData().GetLength());
 
@@ -908,8 +921,12 @@ Status KinesisDataConsumer::_process_records(
             continue;
         }
 
-        // Create shared_ptr to record for queue
-        auto record_ptr = std::make_shared<Aws::Kinesis::Model::Record>(record);
+        // Track the last sequence number for this shard
+        _committed_sequence_numbers[shard_id] = record.GetSequenceNumber();
+
+        // Use std::move to avoid expensive copy of Record
+        auto record_ptr = std::make_shared<Aws::Kinesis::Model::Record>(std::move(
+                const_cast<Aws::Kinesis::Model::Record&>(record)));
 
         if (!queue->controlled_blocking_put(record_ptr,
                                            config::blocking_queue_cv_wait_timeout_ms)) {
@@ -982,7 +999,7 @@ bool KinesisDataConsumer::match(std::shared_ptr<StreamLoadContext> ctx) {
 }
 
 Status KinesisDataConsumer::get_shard_list(std::vector<std::string>* shard_ids) {
-    DCHECK(_kinesis_client);
+    DORIS_CHECK(_kinesis_client);
 
     Aws::Kinesis::Model::ListShardsRequest request;
     request.SetStreamName(_stream);

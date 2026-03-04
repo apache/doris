@@ -124,7 +124,12 @@ public class KinesisProgress extends RoutineLoadProgress {
      * Add a shard with its starting position.
      */
     public void addShardPosition(Pair<String, String> shardPosition) {
-        shardIdToSequenceNumber.put(shardPosition.first, shardPosition.second);
+        lock.lock();
+        try {
+            shardIdToSequenceNumber.put(shardPosition.first, shardPosition.second);
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**
@@ -194,8 +199,13 @@ public class KinesisProgress extends RoutineLoadProgress {
      * Modify the position for specific shards.
      */
     public void modifyPosition(List<Pair<String, String>> kinesisShardPositions) {
-        for (Pair<String, String> pair : kinesisShardPositions) {
-            shardIdToSequenceNumber.put(pair.first, pair.second);
+        lock.lock();
+        try {
+            for (Pair<String, String> pair : kinesisShardPositions) {
+                shardIdToSequenceNumber.put(pair.first, pair.second);
+            }
+        } finally {
+            lock.unlock();
         }
     }
 
