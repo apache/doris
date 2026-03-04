@@ -17,7 +17,7 @@
 import static groovy.test.GroovyAssert.shouldFail;
 import java.util.concurrent.ThreadLocalRandom
 
-suite("oss_hdfs_catalog_test", "p2,external,new_catalog_property") {
+suite("oss_hdfs_catalog_test", "p2,external") {
     def testQueryAndInsert = { String catalogProperties, String prefix, String dbLocation ->
 
         def catalog_name = "${prefix}_catalog"

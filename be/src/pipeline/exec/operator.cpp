@@ -291,8 +291,8 @@ void PipelineXLocalStateBase::clear_origin_block() {
 }
 
 Status PipelineXLocalStateBase::filter_block(const vectorized::VExprContextSPtrs& expr_contexts,
-                                             vectorized::Block* block, size_t column_to_keep) {
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(expr_contexts, block, column_to_keep));
+                                             vectorized::Block* block) {
+    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(expr_contexts, block, block->columns()));
 
     _estimate_memory_usage += vectorized::VExprContext::get_memory_usage(expr_contexts);
     return Status::OK();

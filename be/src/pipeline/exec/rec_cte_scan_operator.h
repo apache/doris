@@ -77,7 +77,7 @@ public:
             return Status::OK();
         }
         *block = std::move(local_state._blocks.back());
-        RETURN_IF_ERROR(local_state.filter_block(local_state.conjuncts(), block, block->columns()));
+        RETURN_IF_ERROR(local_state.filter_block(local_state.conjuncts(), block));
         local_state._blocks.pop_back();
         return Status::OK();
     }

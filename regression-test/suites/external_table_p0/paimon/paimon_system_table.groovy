@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("paimon_system_table", "p0,external,doris,external_docker,external_docker_doris") {
+suite("paimon_system_table", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {

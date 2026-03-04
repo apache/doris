@@ -16,7 +16,7 @@
 // under the License.
 import static groovy.test.GroovyAssert.shouldFail;
 
-suite("iceberg_and_hive_on_glue", "p2,external,hive,new_catalog_property") {
+suite("iceberg_and_hive_on_glue", "p2,external") {
 
 
     def testQueryAndInsert = { String catalogProperties, String prefix, String dbLocation ->

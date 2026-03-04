@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_ctas_to_doris", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_ctas_to_doris", "p0,external") {
 
     for (String hivePrefix : ["hive2"]) {
 
