@@ -379,9 +379,9 @@ void FileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
     }
 }
 
-Status FileScanner::open(RuntimeState* state) {
+Status FileScanner::_open_impl(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(Scanner::open(state));
+    RETURN_IF_ERROR(Scanner::_open_impl(state));
     RETURN_IF_ERROR(_split_source->get_next(&_first_scan_range, &_current_range));
     if (_first_scan_range) {
         RETURN_IF_ERROR(_init_expr_ctxes());
