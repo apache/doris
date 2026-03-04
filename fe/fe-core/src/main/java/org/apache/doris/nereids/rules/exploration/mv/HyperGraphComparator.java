@@ -202,12 +202,12 @@ public class HyperGraphComparator {
             if (LongBitmap.getCardinality(eliminatedRight) != 1) {
                 return false;
             }
-            Plan rigthPlan = constructViewPlan(joinEdge.getRightExtendedNodes(), joinEdge.getRightInputSlots());
-            if (rigthPlan == null) {
+            Plan rightPlan = constructViewPlan(joinEdge.getRightExtendedNodes(), joinEdge.getRightInputSlots());
+            if (rightPlan == null) {
                 return false;
             }
             boolean couldEliminateByLeft = JoinUtils.canEliminateByLeft(joinEdge.getJoin(),
-                    rigthPlan.getLogicalProperties().getTrait());
+                    rightPlan.getLogicalProperties().getTrait());
             // if eliminated successfully, should refresh the eliminateViewNodesMap
             if (couldEliminateByLeft) {
                 this.reservedShouldEliminatedViewNodes =
@@ -251,14 +251,6 @@ public class HyperGraphComparator {
     }
 
     private boolean tryEliminateNodesAndEdge() {
-        boolean hasFilterEdgeAbove = viewHyperGraph.getFilterEdges().stream()
-                .filter(e -> LongBitmap.getCardinality(e.getReferenceNodes()) == 1)
-                .anyMatch(e -> LongBitmap.isSubset(e.getReferenceNodes(), shouldEliminateViewNodesMap));
-        if (hasFilterEdgeAbove) {
-            // If there is some filter edge above the eliminated node, we should rebuild a plan
-            // Right now, just reject it.
-            return false;
-        }
         long allCanEliminateNodes = 0;
         for (JoinEdge joinEdge : viewHyperGraph.getJoinEdges()) {
             long canEliminateSideNodes = getCanEliminateSideNodes(joinEdge);
