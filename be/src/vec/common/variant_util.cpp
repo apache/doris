@@ -181,9 +181,7 @@ bool should_skip_path(const ParseConfig& parse_config, const std::string& path) 
 
     if (parse_config.compiled_skip_use_re2_set &&
         parse_config.compiled_skip_glob_regex_set != nullptr) {
-        thread_local std::vector<int> matched_indexes;
-        matched_indexes.clear();
-        if (parse_config.compiled_skip_glob_regex_set->Match(path, &matched_indexes)) {
+        if (parse_config.compiled_skip_glob_regex_set->Match(path, nullptr)) {
             return true;
         }
     } else {
