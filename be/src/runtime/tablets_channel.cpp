@@ -102,6 +102,9 @@ Status BaseTabletsChannel::_get_current_seq(int64_t& cur_seq,
 }
 
 void BaseTabletsChannel::_init_profile(RuntimeProfile* profile) {
+    if (profile == nullptr) {
+        return;
+    }
     _profile =
             profile->create_child(fmt::format("TabletsChannel {}", _key.to_string()), true, true);
     _add_batch_number_counter = ADD_COUNTER(_profile, "NumberBatchAdded", TUnit::UNIT);
@@ -637,7 +640,9 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                                  PTabletWriterAddBlockResult* response) {
     SCOPED_TIMER(_add_batch_timer);
     int64_t cur_seq = 0;
-    _add_batch_number_counter->update(1);
+    if (_add_batch_number_counter) {
+        _add_batch_number_counter->update(1);
+    }
 
     auto status = _get_current_seq(cur_seq, request);
     if (UNLIKELY(!status.ok())) {
