@@ -48,7 +48,9 @@ private:
     std::string _pattern;
     bool _enable_scoring = false;
     bool _nullable = true;
-    int32_t _max_expansions = 50;
+    // Set to 0 to disable limit (ES has no default limit for prefix queries)
+    // The limit prevents collecting too many terms, but can cause incorrect results
+    int32_t _max_expansions = 0;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2
