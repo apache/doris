@@ -129,7 +129,37 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
         } finally {
             if (connectorClassLoader != null) {
                 removeShutdownHooksForClassLoader(connectorClassLoader);
+                logThreadsWithClassLoader(connectorClassLoader);
             }
+        }
+    }
+
+    private void logThreadsWithClassLoader(ClassLoader targetClassLoader) {
+        try {
+            ThreadGroup root = Thread.currentThread().getThreadGroup();
+            while (root.getParent() != null) {
+                root = root.getParent();
+            }
+            Thread[] threads = new Thread[root.activeCount() + 100];
+            int count = root.enumerate(threads);
+
+            List<String> leakedThreads = new ArrayList<>();
+            for (int i = 0; i < count; i++) {
+                Thread t = threads[i];
+                if (t != null && t.getContextClassLoader() == targetClassLoader) {
+                    StackTraceElement[] stack = t.getStackTrace();
+                    String topFrame = stack.length > 0 ? stack[0].toString() : "no-stack";
+                    leakedThreads.add(String.format("%s[%d](%s,daemon=%s): %s",
+                            t.getName(), t.getId(), t.getState(), t.isDaemon(), topFrame));
+                }
+            }
+
+            if (!leakedThreads.isEmpty()) {
+                LOG.warn("Trino catalog {} has {} leaked threads with HdfsClassLoader: {}",
+                        name, leakedThreads.size(), leakedThreads);
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to log threads for trino catalog {}", name, e);
         }
     }
 
