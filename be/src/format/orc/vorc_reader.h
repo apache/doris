@@ -716,7 +716,7 @@ private:
     std::unique_ptr<orc::Reader> _reader = nullptr;
     std::unique_ptr<orc::RowReader> _row_reader;
 
-    uint64_t _last_read_row_number = -1;
+    uint64_t _last_read_row_number = 0;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     std::unique_ptr<ORCFilterImpl> _orc_filter;
     orc::RowReaderOptions _row_reader_options;

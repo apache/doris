@@ -325,6 +325,7 @@ public:
     // across all ranges. For example, if ranges are [0,3000) and [8000,11000),
     // pos=0 returns 0, pos=2999 returns 2999, pos=3000 returns 8000.
     int64_t get_row_index_by_pos(int64_t pos) const {
+        DORIS_CHECK(pos < _count);
         size_t remaining = pos;
         for (const auto& range : _ranges) {
             size_t range_len = range.count();

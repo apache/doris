@@ -416,14 +416,6 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
     }
 }
 
-// On condition cache HIT, removes row ranges whose granules have no surviving rows from
-// _read_ranges BEFORE column readers are created. This makes ParquetColumnReader skip I/O
-// entirely for false-granule rows — both predicate and lazy columns — via its existing
-// page/row-skipping infrastructure.
-//
-// After filtering, _condition_cache_ctx is set to nullptr because:
-// 1. The batch-level cache checks in _do_lazy_read() / non-lazy path are now redundant
-//    (false-granule rows have already been excluded from _read_ranges).
 // Maps each batch row to its global parquet file position via _read_ranges, then marks
 // the corresponding condition cache granule as true if the filter indicates the row survived.
 // batch_seq_start is the number of rows already read sequentially before this batch
@@ -448,8 +440,10 @@ void RowGroupReader::_mark_condition_cache_granules(const uint8_t* filter_data, 
     }
 }
 
-// 2. The MISS population code paths should not execute on a HIT.
-// 3. FileScanner retains its own shared_ptr to the context for cache finalization.
+// On condition cache HIT, removes row ranges whose granules have no surviving rows from
+// _read_ranges BEFORE column readers are created. This makes ParquetColumnReader skip I/O
+// entirely for false-granule rows — both predicate and lazy columns — via its existing
+// page/row-skipping infrastructure.
 void RowGroupReader::_filter_read_ranges_by_condition_cache() {
     if (!_condition_cache_ctx || !_condition_cache_ctx->is_hit) {
         return;
@@ -464,7 +458,6 @@ void RowGroupReader::_filter_read_ranges_by_condition_cache() {
             filter_ranges_by_cache(_read_ranges, filter_result, _current_row_group_idx.first_row);
     _is_row_group_filtered = _read_ranges.is_empty();
     _condition_cache_filtered_rows += old_row_count - _read_ranges.count();
-    _condition_cache_ctx = nullptr;
 }
 
 // Filters read_ranges by removing rows whose cache granule is false.
@@ -616,28 +609,6 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         }
         pre_raw_read_rows += pre_read_rows;
 
-        // Condition cache HIT: check if all rows in this batch are in false granules
-        bool cache_skip_batch = false;
-        if (_condition_cache_ctx && _condition_cache_ctx->is_hit) {
-            auto& cache = *_condition_cache_ctx->filter_result;
-            int64_t first_rg_pos = _read_ranges.get_row_index_by_pos(batch_base_row);
-            int64_t last_rg_pos =
-                    _read_ranges.get_row_index_by_pos(batch_base_row + pre_read_rows - 1);
-            size_t start_granule = (_current_row_group_idx.first_row + first_rg_pos) /
-                                   ConditionCacheContext::GRANULE_SIZE;
-            size_t end_granule = (_current_row_group_idx.first_row + last_rg_pos) /
-                                 ConditionCacheContext::GRANULE_SIZE;
-            bool has_surviving_granule = false;
-            for (size_t g = start_granule; g <= end_granule && !has_surviving_granule; g++) {
-                if (g < cache.size() && cache[g]) {
-                    has_surviving_granule = true;
-                }
-            }
-            if (!has_surviving_granule) {
-                cache_skip_batch = true;
-            }
-        }
-
         RETURN_IF_ERROR(_fill_partition_columns(block, pre_read_rows,
                                                 _lazy_read_ctx.predicate_partition_columns));
         RETURN_IF_ERROR(_fill_missing_columns(block, pre_read_rows,
@@ -662,43 +633,36 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         {
             SCOPED_RAW_TIMER(&_predicate_filter_time);
 
-            // Condition cache HIT: skip predicate evaluation for false-granule batches
-            if (cache_skip_batch) {
-                can_filter_all = true;
-                result_filter.assign(pre_read_rows, static_cast<unsigned char>(0));
-            } else {
-                // generate filter vector
-                if (_lazy_read_ctx.resize_first_column) {
-                    // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
-                    // The following process may be tricky and time-consuming, but we have no other way.
-                    block->get_by_position(0).column->assume_mutable()->resize(pre_read_rows);
-                }
-                result_filter.assign(pre_read_rows, static_cast<unsigned char>(1));
-                std::vector<IColumn::Filter*> filters;
-                if (_position_delete_ctx.has_filter) {
-                    filters.push_back(_pos_delete_filter_ptr.get());
-                }
+            // generate filter vector
+            if (_lazy_read_ctx.resize_first_column) {
+                // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
+                // The following process may be tricky and time-consuming, but we have no other way.
+                block->get_by_position(0).column->assume_mutable()->resize(pre_read_rows);
+            }
+            result_filter.assign(pre_read_rows, static_cast<unsigned char>(1));
+            std::vector<IColumn::Filter*> filters;
+            if (_position_delete_ctx.has_filter) {
+                filters.push_back(_pos_delete_filter_ptr.get());
+            }
 
-                VExprContextSPtrs filter_contexts;
-                for (auto& conjunct : _filter_conjuncts) {
-                    filter_contexts.emplace_back(conjunct);
-                }
+            VExprContextSPtrs filter_contexts;
+            for (auto& conjunct : _filter_conjuncts) {
+                filter_contexts.emplace_back(conjunct);
+            }
 
-                {
-                    RETURN_IF_ERROR(VExprContext::execute_conjuncts(
-                            filter_contexts, &filters, block, &result_filter, &can_filter_all));
-                }
+            {
+                RETURN_IF_ERROR(VExprContext::execute_conjuncts(filter_contexts, &filters, block,
+                                                                &result_filter, &can_filter_all));
+            }
 
-                // Condition cache MISS: mark granules with surviving rows
-                if (!can_filter_all) {
-                    _mark_condition_cache_granules(result_filter.data(), pre_read_rows,
-                                                   batch_base_row);
-                }
+            // Condition cache MISS: mark granules with surviving rows
+            if (!can_filter_all) {
+                _mark_condition_cache_granules(result_filter.data(), pre_read_rows, batch_base_row);
+            }
 
-                if (_lazy_read_ctx.resize_first_column) {
-                    // We have to clean the first column to insert right data.
-                    block->get_by_position(0).column->assume_mutable()->clear();
-                }
+            if (_lazy_read_ctx.resize_first_column) {
+                // We have to clean the first column to insert right data.
+                block->get_by_position(0).column->assume_mutable()->clear();
             }
         }
 
