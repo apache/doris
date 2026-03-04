@@ -66,7 +66,9 @@ BaseTabletsChannel::BaseTabletsChannel(const TabletsChannelKey& key, const Uniqu
           _closed_senders(64),
           _is_high_priority(is_high_priority) {
     static std::once_flag once_flag;
-    _init_profile(profile);
+    if (profile != nullptr) {
+        _init_profile(profile);
+    }
     std::call_once(once_flag, [] {
         REGISTER_HOOK_METRIC(tablet_writer_count, [&]() { return _s_tablet_writer_count.load(); });
     });
@@ -125,6 +127,9 @@ void BaseTabletsChannel::_init_profile(RuntimeProfile* profile) {
 }
 
 void TabletsChannel::_init_profile(RuntimeProfile* profile) {
+    if (profile == nullptr) {
+        return;
+    }
     BaseTabletsChannel::_init_profile(profile);
     _slave_replica_timer = ADD_TIMER(_profile, "SlaveReplicaTime");
 }

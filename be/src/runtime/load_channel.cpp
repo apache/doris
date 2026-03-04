@@ -72,7 +72,9 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
     // _load_channels in load_channel_mgr, or it may be erased
     // immediately by gc thread.
     _last_updated_time.store(time(nullptr));
-    _init_profile();
+    if (enable_profile) {
+        _init_profile();
+    }
 }
 
 LoadChannel::~LoadChannel() {

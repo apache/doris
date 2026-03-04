@@ -63,7 +63,9 @@ using namespace ErrorCode;
 BaseDeltaWriter::BaseDeltaWriter(const WriteRequest& req, RuntimeProfile* profile,
                                  const UniqueId& load_id)
         : _req(req), _memtable_writer(new MemTableWriter(req)) {
-    _init_profile(profile);
+    if (profile != nullptr) {
+        _init_profile(profile);
+    }
 }
 
 DeltaWriter::DeltaWriter(StorageEngine& engine, const WriteRequest& req, RuntimeProfile* profile,
@@ -73,12 +75,18 @@ DeltaWriter::DeltaWriter(StorageEngine& engine, const WriteRequest& req, Runtime
 }
 
 void BaseDeltaWriter::_init_profile(RuntimeProfile* profile) {
+    if (profile == nullptr) {
+        return;
+    }
     _profile = profile->create_child(fmt::format("DeltaWriter {}", _req.tablet_id), true, true);
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
     _wait_flush_limit_timer = ADD_TIMER(_profile, "WaitFlushLimitTime");
 }
 
 void DeltaWriter::_init_profile(RuntimeProfile* profile) {
+    if (profile == nullptr) {
+        return;
+    }
     BaseDeltaWriter::_init_profile(profile);
     _commit_txn_timer = ADD_TIMER(_profile, "CommitTxnTime");
 }
