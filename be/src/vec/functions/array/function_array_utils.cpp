@@ -58,7 +58,18 @@ bool extract_column_array_info(const IColumn& src, ColumnArrayExecutionData& dat
         data.nested_type->get_primitive_type() != PrimitiveType::TYPE_VARIANT) {
         // set variant root column/type to from column/type
         auto variant = ColumnVariant::create(true /*always nullable*/);
-        variant->create_root(data.nested_type, make_nullable(data.nested_col)->assume_mutable());
+        auto root_col = data.nested_col->assume_mutable();
+        if (data.nested_type->is_nullable() && !root_col->is_nullable()) {
+            auto null_map = ColumnUInt8::create();
+            auto& null_map_data = null_map->get_data();
+            null_map_data.resize(root_col->size(), 0);
+            if (data.nested_nullmap_data != nullptr) {
+                std::copy(data.nested_nullmap_data, data.nested_nullmap_data + root_col->size(),
+                          null_map_data.begin());
+            }
+            root_col = ColumnNullable::create(std::move(root_col), std::move(null_map));
+        }
+        variant->create_root(data.nested_type, std::move(root_col));
         data.nested_col = variant->get_ptr();
     }
     return true;

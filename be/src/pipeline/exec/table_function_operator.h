@@ -65,6 +65,9 @@ private:
     // >0: some of fns are eos
     int _find_last_fn_eos_idx() const;
     bool _is_inner_and_empty();
+    bool _can_use_block_fast_path() const;
+    Status _get_expanded_block_block_fast_path(RuntimeState* state,
+                                               std::vector<vectorized::MutableColumnPtr>& columns);
 
     Status _get_expanded_block_for_outer_conjuncts(RuntimeState* state,
                                                    vectorized::Block* output_block, bool* eos);
@@ -79,6 +82,11 @@ private:
     int _current_row_insert_times = 0;
     bool _child_eos = false;
     DorisVector<bool> _child_rows_has_output;
+
+    bool _block_fast_path_prepared = false;
+    vectorized::TableFunction::BlockFastPathContext _block_fast_path_ctx;
+    int64_t _block_fast_path_row = 0;
+    uint64_t _block_fast_path_in_row_offset = 0;
 
     RuntimeProfile::Counter* _init_function_timer = nullptr;
     RuntimeProfile::Counter* _process_rows_timer = nullptr;

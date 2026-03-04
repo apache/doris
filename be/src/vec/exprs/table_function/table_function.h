@@ -20,8 +20,10 @@
 #include <fmt/core.h>
 
 #include <cstddef>
+#include <cstdint>
 
 #include "common/status.h"
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -33,6 +35,13 @@ constexpr auto COMBINATOR_SUFFIX_OUTER = "_outer";
 class TableFunction {
 public:
     virtual ~TableFunction() = default;
+
+    struct BlockFastPathContext {
+        const UInt8* array_nullmap_data = nullptr;
+        const IColumn::Offsets64* offsets_ptr = nullptr;
+        ColumnPtr nested_col = nullptr;
+        const UInt8* nested_nullmap_data = nullptr;
+    };
 
     virtual Status prepare() { return Status::OK(); }
 
@@ -57,6 +66,12 @@ public:
 
     virtual void get_same_many_values(MutableColumnPtr& column, int length = 0) = 0;
     virtual int get_value(MutableColumnPtr& column, int max_step) = 0;
+
+    virtual bool support_block_fast_path() const { return false; }
+    virtual Status prepare_block_fast_path(Block* /*block*/, RuntimeState* /*state*/,
+                                           BlockFastPathContext* /*ctx*/) {
+        return Status::NotSupported("table function {} doesn't support block fast path", _fn_name);
+    }
 
     virtual Status close() { return Status::OK(); }
 

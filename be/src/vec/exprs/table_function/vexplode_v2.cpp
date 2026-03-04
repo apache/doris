@@ -107,6 +107,29 @@ Status VExplodeV2TableFunction::process_init(Block* block, RuntimeState* state) 
     return Status::OK();
 }
 
+bool VExplodeV2TableFunction::support_block_fast_path() const {
+    return !_is_outer && !_generate_row_index;
+}
+
+Status VExplodeV2TableFunction::prepare_block_fast_path(Block* /*block*/, RuntimeState* /*state*/,
+                                                        BlockFastPathContext* ctx) {
+    if (!support_block_fast_path()) {
+        return Status::NotSupported("vexplode doesn't support block fast path in current mode");
+    }
+    if (_multi_detail.size() != 1) {
+        return Status::NotSupported("vexplode block fast path only supports single parameter");
+    }
+    const auto& detail = _multi_detail[0];
+    if (detail.offsets_ptr == nullptr || detail.nested_col.get() == nullptr) {
+        return Status::InternalError("vexplode block fast path not initialized");
+    }
+    ctx->array_nullmap_data = detail.array_nullmap_data;
+    ctx->offsets_ptr = detail.offsets_ptr;
+    ctx->nested_col = detail.nested_col;
+    ctx->nested_nullmap_data = detail.nested_nullmap_data;
+    return Status::OK();
+}
+
 void VExplodeV2TableFunction::process_row(size_t row_idx) {
     TableFunction::process_row(row_idx);
 
