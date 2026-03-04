@@ -608,7 +608,6 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         pre_eof = false;
         FilterMap filter_map;
         int64_t batch_base_row = _total_read_rows;
-        ;
         RETURN_IF_ERROR(_read_column_data(block, _lazy_read_ctx.predicate_columns.first, batch_size,
                                           &pre_read_rows, &pre_eof, filter_map));
         if (pre_read_rows == 0) {
