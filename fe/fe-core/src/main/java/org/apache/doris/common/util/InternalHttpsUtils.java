@@ -19,7 +19,6 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.Config;
 
-import com.google.common.annotations.VisibleForTesting;
 import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -35,31 +34,19 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
 
 /**
- * SSL-aware HTTP clients for internal FE communication using MySQL SSL truststore.
+ * Utility for creating SSL-aware HTTP clients for internal FE-to-FE communication.
  *
- * Security Model:
- * - Validates certificates against configured CA truststore (mysql_ssl_default_ca_certificate)
- * - Hostname verification is DISABLED to support IP-based FE communication
- * - This is safe for internal cluster communication because:
- *   1. All endpoints enforce checkFromValidFe() - only registered FE nodes can connect
- *   2. FE cluster is assumed to be on trusted network
- *   3. Traffic is encrypted and authenticated via certificate validation
- *
- * This approach is similar to other distributed systems (Kafka, Elasticsearch, Cassandra)
- * where inter-node SSL communication disables hostname verification for operational flexibility.
- *
- * The SSLContext is built once from the truststore and cached for the lifetime of the process.
- * Certificate rotation requires a FE restart to take effect.
+ * <p>Builds an {@link SSLContext} from the configured CA truststore once and caches it.
+ * Hostname verification is disabled for IP-based intra-cluster connections.
+ * Certificate rotation requires a FE restart.
  */
 public class InternalHttpsUtils {
-    private static final Logger LOG = LogManager.getLogger(InternalHttpsUtils.class);
+    private static volatile SSLContext cachedSslContext = null;
 
-    @VisibleForTesting
-    static volatile SSLContext cachedSslContext = null;
+    private static final Logger LOG = LogManager.getLogger(InternalHttpsUtils.class);
 
     /**
      * Returns the cached SSLContext, building it from the configured truststore on first call.
-     * Thread-safe via double-checked locking on a volatile field.
      */
     public static SSLContext getSslContext() {
         if (cachedSslContext == null) {
@@ -94,6 +81,9 @@ public class InternalHttpsUtils {
         }
     }
 
+    /**
+     * Returns an HTTP client configured with the FE CA truststore and hostname verification disabled.
+     */
     public static CloseableHttpClient createValidatedHttpClient() {
         SSLConnectionSocketFactory sslFactory = new SSLConnectionSocketFactory(
                 getSslContext(),
