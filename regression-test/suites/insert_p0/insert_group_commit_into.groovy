@@ -490,6 +490,7 @@ suite("insert_group_commit_into") {
             exception """group_commit_data_bytes must be greater than 0"""
         }
         test {
+            sql """ drop table if exists ${table}_invalid; """
             sql """ CREATE TABLE IF NOT EXISTS ${table}_invalid ( k1 INT not null )
                     DUPLICATE KEY(`k1`)
                     DISTRIBUTED BY HASH(`k1`) 
