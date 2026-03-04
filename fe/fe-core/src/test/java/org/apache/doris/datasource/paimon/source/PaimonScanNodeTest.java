@@ -25,6 +25,7 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 
 import org.apache.paimon.data.BinaryRow;
@@ -60,7 +61,7 @@ public class PaimonScanNodeTest {
     public void testSplitWeight() throws UserException {
 
         TupleDescriptor desc = new TupleDescriptor(new TupleId(3));
-        PaimonScanNode paimonScanNode = new PaimonScanNode(new PlanNodeId(1), desc, false, sv);
+        PaimonScanNode paimonScanNode = new PaimonScanNode(new PlanNodeId(1), desc, false, sv, ScanContext.EMPTY);
 
         paimonScanNode.setSource(new PaimonSource());
 
@@ -387,7 +388,8 @@ public class PaimonScanNodeTest {
     public void testDetermineTargetFileSplitSizeHonorsMaxFileSplitNum() throws Exception {
         SessionVariable sv = new SessionVariable();
         sv.setMaxFileSplitNum(100);
-        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), false, sv);
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)),
+                false, sv, ScanContext.EMPTY);
 
         PaimonSource source = Mockito.mock(PaimonSource.class);
         Mockito.when(source.getFileFormatFromTableProperties()).thenReturn("parquet");
