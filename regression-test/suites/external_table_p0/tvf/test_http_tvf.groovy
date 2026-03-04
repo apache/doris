@@ -189,21 +189,23 @@ suite("test_http_tvf", "p0") {
     """
 
     // hf
-    qt_sql15 """
+    def hfCountOneFile = sql """
         select count(*) from
         http(
             "uri" = "hf://datasets/fka/awesome-chatgpt-prompts/blob/main/prompts.csv",
             "format" = "csv"
         );
     """
+    assertTrue(Long.parseLong(hfCountOneFile[0][0].toString()) > 0)
 
-    qt_sql16 """
+    def hfCountWildcard = sql """
         select count(*) from
         http(
             "uri" = "hf://datasets/fka/awesome-chatgpt-prompts/blob/main/*.csv",
             "format" = "csv"
         );
     """
+    assertTrue(Long.parseLong(hfCountWildcard[0][0].toString()) > 0)
     
     qt_sql17 """
         desc function
@@ -255,4 +257,3 @@ suite("test_http_tvf", "p0") {
         ) order by text limit 1;
     """
 }
-
