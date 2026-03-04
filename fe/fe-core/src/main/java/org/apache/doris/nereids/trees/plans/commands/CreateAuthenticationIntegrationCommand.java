@@ -37,13 +37,16 @@ import java.util.Objects;
  */
 public class CreateAuthenticationIntegrationCommand extends Command implements ForwardWithSync, NeedAuditEncryption {
     private final String integrationName;
+    private final boolean ifNotExists;
     private final Map<String, String> properties;
     private final String comment;
 
-    public CreateAuthenticationIntegrationCommand(String integrationName,
+    /** Constructor. */
+    public CreateAuthenticationIntegrationCommand(String integrationName, boolean ifNotExists,
             Map<String, String> properties, String comment) {
         super(PlanType.CREATE_AUTHENTICATION_INTEGRATION_COMMAND);
         this.integrationName = Objects.requireNonNull(integrationName, "integrationName can not be null");
+        this.ifNotExists = ifNotExists;
         this.properties = Collections.unmodifiableMap(
                 new LinkedHashMap<>(Objects.requireNonNull(properties, "properties can not be null")));
         this.comment = comment;
@@ -51,7 +54,7 @@ public class CreateAuthenticationIntegrationCommand extends Command implements F
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitCommand(this, context);
+        return visitor.visitCreateAuthenticationIntegrationCommand(this, context);
     }
 
     @Override
@@ -60,7 +63,7 @@ public class CreateAuthenticationIntegrationCommand extends Command implements F
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
         Env.getCurrentEnv().getAuthenticationIntegrationMgr()
-                .createAuthenticationIntegration(integrationName, properties, comment);
+                .createAuthenticationIntegration(integrationName, ifNotExists, properties, comment);
     }
 
     @Override
@@ -75,6 +78,10 @@ public class CreateAuthenticationIntegrationCommand extends Command implements F
 
     public String getIntegrationName() {
         return integrationName;
+    }
+
+    public boolean isSetIfNotExists() {
+        return ifNotExists;
     }
 
     public Map<String, String> getProperties() {

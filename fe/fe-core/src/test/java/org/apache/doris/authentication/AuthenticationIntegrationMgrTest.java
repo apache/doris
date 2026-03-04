@@ -32,8 +32,11 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 
 public class AuthenticationIntegrationMgrTest {
 
@@ -48,6 +51,12 @@ public class AuthenticationIntegrationMgrTest {
         for (int i = 0; i < kvs.length; i += 2) {
             result.put(kvs[i], kvs[i + 1]);
         }
+        return result;
+    }
+
+    private static Set<String> set(String... keys) {
+        Set<String> result = new LinkedHashSet<>();
+        Collections.addAll(result, keys);
         return result;
     }
 
@@ -78,8 +87,9 @@ public class AuthenticationIntegrationMgrTest {
         Map<String, String> createProperties = new LinkedHashMap<>();
         createProperties.put("type", "ldap");
         createProperties.put("ldap.server", "ldap://127.0.0.1:389");
+        createProperties.put("ldap.admin_password", "123456");
 
-        mgr.createAuthenticationIntegration("corp_ldap", createProperties, "comment");
+        mgr.createAuthenticationIntegration("corp_ldap", false, createProperties, "comment");
         AuthenticationIntegrationMeta created = mgr.getAuthenticationIntegrations().get("corp_ldap");
         Assertions.assertNotNull(created);
         Assertions.assertEquals("ldap", created.getType());
@@ -88,6 +98,10 @@ public class AuthenticationIntegrationMgrTest {
         mgr.alterAuthenticationIntegrationProperties("corp_ldap", map("ldap.server", "ldap://127.0.0.1:1389"));
         Assertions.assertEquals("ldap://127.0.0.1:1389",
                 mgr.getAuthenticationIntegrations().get("corp_ldap").getProperties().get("ldap.server"));
+
+        mgr.alterAuthenticationIntegrationUnsetProperties("corp_ldap", set("ldap.admin_password"));
+        Assertions.assertFalse(mgr.getAuthenticationIntegrations()
+                .get("corp_ldap").getProperties().containsKey("ldap.admin_password"));
 
         mgr.alterAuthenticationIntegrationComment("corp_ldap", "new comment");
         Assertions.assertEquals("new comment", mgr.getAuthenticationIntegrations().get("corp_ldap").getComment());
@@ -117,12 +131,14 @@ public class AuthenticationIntegrationMgrTest {
         };
 
         AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
-        mgr.createAuthenticationIntegration("corp_ldap", map(
+        mgr.createAuthenticationIntegration("corp_ldap", false, map(
                 "type", "ldap",
                 "ldap.server", "ldap://127.0.0.1:389"), null);
 
         Assertions.assertThrows(DdlException.class,
-                () -> mgr.createAuthenticationIntegration("corp_ldap", map("type", "ldap"), null));
+                () -> mgr.createAuthenticationIntegration("corp_ldap", false, map("type", "ldap"), null));
+        Assertions.assertDoesNotThrow(
+                () -> mgr.createAuthenticationIntegration("corp_ldap", true, map("type", "ldap"), null));
 
         Assertions.assertDoesNotThrow(() -> mgr.dropAuthenticationIntegration("not_exist", true));
         Assertions.assertThrows(DdlException.class,
@@ -134,6 +150,8 @@ public class AuthenticationIntegrationMgrTest {
         AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
         Assertions.assertThrows(DdlException.class,
                 () -> mgr.alterAuthenticationIntegrationProperties("not_exist", map("k", "v")));
+        Assertions.assertThrows(DdlException.class,
+                () -> mgr.alterAuthenticationIntegrationUnsetProperties("not_exist", set("k")));
         Assertions.assertThrows(DdlException.class,
                 () -> mgr.alterAuthenticationIntegrationComment("not_exist", "comment"));
     }

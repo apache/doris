@@ -30,8 +30,11 @@ import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 
 public class AuthenticationIntegrationCommandTest {
 
@@ -55,10 +58,16 @@ public class AuthenticationIntegrationCommandTest {
         return result;
     }
 
+    private static Set<String> set(String... keys) {
+        Set<String> result = new LinkedHashSet<>();
+        Collections.addAll(result, keys);
+        return result;
+    }
+
     @Test
     public void testCreateCommandRunAndDenied() throws Exception {
         CreateAuthenticationIntegrationCommand createCommand =
-                new CreateAuthenticationIntegrationCommand("corp_ldap",
+                new CreateAuthenticationIntegrationCommand("corp_ldap", false,
                         map("type", "ldap", "ldap.server", "ldap://127.0.0.1:389"), "comment");
 
         new Expectations() {
@@ -78,7 +87,8 @@ public class AuthenticationIntegrationCommandTest {
                 minTimes = 0;
                 result = authenticationIntegrationMgr;
 
-                authenticationIntegrationMgr.createAuthenticationIntegration(anyString, (Map<String, String>) any, anyString);
+                authenticationIntegrationMgr.createAuthenticationIntegration(
+                        anyString, anyBoolean, (Map<String, String>) any, anyString);
                 times = 1;
             }
         };
@@ -110,6 +120,9 @@ public class AuthenticationIntegrationCommandTest {
         AlterAuthenticationIntegrationCommand setPropertiesCommand =
                 AlterAuthenticationIntegrationCommand.forSetProperties(
                         "corp_ldap", map("ldap.server", "ldap://127.0.0.1:1389"));
+        AlterAuthenticationIntegrationCommand unsetPropertiesCommand =
+                AlterAuthenticationIntegrationCommand.forUnsetProperties(
+                        "corp_ldap", set("ldap.server"));
         AlterAuthenticationIntegrationCommand setCommentCommand =
                 AlterAuthenticationIntegrationCommand.forSetComment("corp_ldap", "new comment");
 
@@ -131,7 +144,12 @@ public class AuthenticationIntegrationCommandTest {
                 minTimes = 0;
                 result = authenticationIntegrationMgr;
 
-                authenticationIntegrationMgr.alterAuthenticationIntegrationProperties(anyString, (Map<String, String>) any);
+                authenticationIntegrationMgr.alterAuthenticationIntegrationProperties(
+                        anyString, (Map<String, String>) any);
+                times = 1;
+
+                authenticationIntegrationMgr.alterAuthenticationIntegrationUnsetProperties(
+                        anyString, (Set<String>) any);
                 times = 1;
 
                 authenticationIntegrationMgr.alterAuthenticationIntegrationComment(anyString, anyString);
@@ -140,8 +158,10 @@ public class AuthenticationIntegrationCommandTest {
         };
 
         Assertions.assertDoesNotThrow(() -> setPropertiesCommand.doRun(connectContext, null));
+        Assertions.assertDoesNotThrow(() -> unsetPropertiesCommand.doRun(connectContext, null));
         Assertions.assertDoesNotThrow(() -> setCommentCommand.doRun(connectContext, null));
         Assertions.assertTrue(setPropertiesCommand.needAuditEncryption());
+        Assertions.assertTrue(unsetPropertiesCommand.needAuditEncryption());
         Assertions.assertTrue(setCommentCommand.needAuditEncryption());
     }
 

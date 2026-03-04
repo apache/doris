@@ -2121,6 +2121,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public Set<String> visitPropertyKeyList(DorisParser.PropertyKeyListContext ctx) {
+        if (ctx == null || ctx.keys == null) {
+            return ImmutableSet.of();
+        }
+        ImmutableSet.Builder<String> propertyKeys = ImmutableSet.builder();
+        for (PropertyKeyContext propertyKey : ctx.keys) {
+            propertyKeys.add(parsePropertyKey(propertyKey));
+        }
+        return propertyKeys.build();
+    }
+
+    @Override
+    public Set<String> visitPropertyKeyClause(DorisParser.PropertyKeyClauseContext ctx) {
+        return ctx == null ? ImmutableSet.of() : visitPropertyKeyList(ctx.propertyKeyList());
+    }
+
+    @Override
     public BrokerDesc visitWithRemoteStorageSystem(WithRemoteStorageSystemContext ctx) {
         BrokerDesc brokerDesc = null;
 
@@ -5041,8 +5058,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return item.getText();
     }
 
-    private boolean containsPropertyKeyIgnoreCase(Map<String, String> properties, String expectedKey) {
-        for (String key : properties.keySet()) {
+    private boolean containsPropertyKeyIgnoreCase(Iterable<String> propertyKeys, String expectedKey) {
+        for (String key : propertyKeys) {
             if (key.equalsIgnoreCase(expectedKey)) {
                 return true;
             }
@@ -7048,13 +7065,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitCreateAuthenticationIntegration(
             DorisParser.CreateAuthenticationIntegrationContext ctx) {
+        boolean ifNotExists = ctx.IF() != null;
         String integrationName = stripQuotes(ctx.integrationName.getText());
-        Map<String, String> properties = Maps.newHashMap(visitPropertyItemList(ctx.propertyItemList()));
-        if (!containsPropertyKeyIgnoreCase(properties, "type")) {
+        Map<String, String> properties = Maps.newHashMap(visitPropertyClause(ctx.properties));
+        if (!containsPropertyKeyIgnoreCase(properties.keySet(), "type")) {
             throw new ParseException("Property 'type' is required in CREATE AUTHENTICATION INTEGRATION", ctx);
         }
         String comment = ctx.commentSpec() == null ? null : stripQuotes(ctx.commentSpec().STRING_LITERAL().getText());
-        return new CreateAuthenticationIntegrationCommand(integrationName, properties, comment);
+        return new CreateAuthenticationIntegrationCommand(integrationName, ifNotExists, properties, comment);
     }
 
     @Override
@@ -7097,12 +7115,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitAlterAuthenticationIntegrationProperties(
             DorisParser.AlterAuthenticationIntegrationPropertiesContext ctx) {
         String integrationName = stripQuotes(ctx.integrationName.getText());
-        Map<String, String> properties = Maps.newHashMap(visitPropertyItemList(ctx.propertyItemList()));
-        if (containsPropertyKeyIgnoreCase(properties, "type")) {
+        Map<String, String> properties = Maps.newHashMap(visitPropertyClause(ctx.properties));
+        if (containsPropertyKeyIgnoreCase(properties.keySet(), "type")) {
             throw new ParseException(
                     "ALTER AUTHENTICATION INTEGRATION does not allow modifying property 'type'", ctx);
         }
         return AlterAuthenticationIntegrationCommand.forSetProperties(integrationName, properties);
+    }
+
+    @Override
+    public LogicalPlan visitAlterAuthenticationIntegrationUnsetProperties(
+            DorisParser.AlterAuthenticationIntegrationUnsetPropertiesContext ctx) {
+        String integrationName = stripQuotes(ctx.integrationName.getText());
+        Set<String> unsetProperties = visitPropertyKeyClause(ctx.properties);
+        if (containsPropertyKeyIgnoreCase(unsetProperties, "type")) {
+            throw new ParseException(
+                    "ALTER AUTHENTICATION INTEGRATION does not allow modifying property 'type'", ctx);
+        }
+        return AlterAuthenticationIntegrationCommand.forUnsetProperties(integrationName, unsetProperties);
     }
 
     @Override

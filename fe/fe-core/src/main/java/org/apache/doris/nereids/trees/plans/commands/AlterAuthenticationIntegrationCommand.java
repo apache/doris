@@ -29,8 +29,10 @@ import org.apache.doris.qe.StmtExecutor;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * ALTER AUTHENTICATION INTEGRATION command entry.
@@ -39,38 +41,48 @@ public class AlterAuthenticationIntegrationCommand extends AlterCommand implemen
     /** alter action. */
     public enum AlterType {
         SET_PROPERTIES,
+        UNSET_PROPERTIES,
         SET_COMMENT
     }
 
     private final String integrationName;
     private final AlterType alterType;
     private final Map<String, String> properties;
+    private final Set<String> unsetProperties;
     private final String comment;
 
     private AlterAuthenticationIntegrationCommand(String integrationName, AlterType alterType,
-            Map<String, String> properties, String comment) {
+            Map<String, String> properties, Set<String> unsetProperties, String comment) {
         super(PlanType.ALTER_AUTHENTICATION_INTEGRATION_COMMAND);
         this.integrationName = Objects.requireNonNull(integrationName, "integrationName can not be null");
         this.alterType = Objects.requireNonNull(alterType, "alterType can not be null");
         this.properties = Collections.unmodifiableMap(
                 new LinkedHashMap<>(Objects.requireNonNull(properties, "properties can not be null")));
+        this.unsetProperties = Collections.unmodifiableSet(
+                new LinkedHashSet<>(Objects.requireNonNull(unsetProperties, "unsetProperties can not be null")));
         this.comment = comment;
     }
 
     public static AlterAuthenticationIntegrationCommand forSetProperties(String integrationName,
             Map<String, String> properties) {
         return new AlterAuthenticationIntegrationCommand(
-                integrationName, AlterType.SET_PROPERTIES, properties, null);
+                integrationName, AlterType.SET_PROPERTIES, properties, Collections.emptySet(), null);
+    }
+
+    public static AlterAuthenticationIntegrationCommand forUnsetProperties(String integrationName,
+            Set<String> unsetProperties) {
+        return new AlterAuthenticationIntegrationCommand(
+                integrationName, AlterType.UNSET_PROPERTIES, Collections.emptyMap(), unsetProperties, null);
     }
 
     public static AlterAuthenticationIntegrationCommand forSetComment(String integrationName, String comment) {
         return new AlterAuthenticationIntegrationCommand(
-                integrationName, AlterType.SET_COMMENT, Collections.emptyMap(), comment);
+                integrationName, AlterType.SET_COMMENT, Collections.emptyMap(), Collections.emptySet(), comment);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitCommand(this, context);
+        return visitor.visitAlterAuthenticationIntegrationCommand(this, context);
     }
 
     @Override
@@ -82,6 +94,10 @@ public class AlterAuthenticationIntegrationCommand extends AlterCommand implemen
             case SET_PROPERTIES:
                 Env.getCurrentEnv().getAuthenticationIntegrationMgr()
                         .alterAuthenticationIntegrationProperties(integrationName, properties);
+                return;
+            case UNSET_PROPERTIES:
+                Env.getCurrentEnv().getAuthenticationIntegrationMgr()
+                        .alterAuthenticationIntegrationUnsetProperties(integrationName, unsetProperties);
                 return;
             case SET_COMMENT:
                 Env.getCurrentEnv().getAuthenticationIntegrationMgr()
@@ -107,6 +123,10 @@ public class AlterAuthenticationIntegrationCommand extends AlterCommand implemen
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public Set<String> getUnsetProperties() {
+        return unsetProperties;
     }
 
     public String getComment() {

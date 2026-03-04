@@ -31,7 +31,7 @@ import java.io.IOException;
  * Drop log for AUTHENTICATION INTEGRATION.
  */
 public class DropAuthenticationIntegrationOperationLog implements Writable {
-    @SerializedName(value = "integrationName")
+    @SerializedName(value = "in")
     private String integrationName;
 
     public DropAuthenticationIntegrationOperationLog(String integrationName) {

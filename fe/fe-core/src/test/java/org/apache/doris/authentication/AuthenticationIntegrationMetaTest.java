@@ -29,7 +29,9 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 
 public class AuthenticationIntegrationMetaTest {
 
@@ -38,6 +40,12 @@ public class AuthenticationIntegrationMetaTest {
         for (int i = 0; i < kvs.length; i += 2) {
             result.put(kvs[i], kvs[i + 1]);
         }
+        return result;
+    }
+
+    private static Set<String> set(String... keys) {
+        Set<String> result = new LinkedHashSet<>();
+        Collections.addAll(result, keys);
         return result;
     }
 
@@ -111,6 +119,26 @@ public class AuthenticationIntegrationMetaTest {
                 () -> meta.withAlterProperties(Collections.emptyMap()));
         Assertions.assertThrows(DdlException.class,
                 () -> meta.withAlterProperties(map("TYPE", "oidc")));
+    }
+
+    @Test
+    public void testWithUnsetProperties() throws Exception {
+        AuthenticationIntegrationMeta meta = AuthenticationIntegrationMeta.fromCreateSql(
+                "corp_ldap",
+                map("type", "ldap",
+                        "ldap.server", "ldap://old",
+                        "ldap.base_dn", "dc=example,dc=com"),
+                "old comment");
+
+        AuthenticationIntegrationMeta altered = meta.withUnsetProperties(set("ldap.base_dn"));
+        Assertions.assertEquals("ldap", altered.getType());
+        Assertions.assertFalse(altered.getProperties().containsKey("ldap.base_dn"));
+        Assertions.assertEquals("ldap://old", altered.getProperties().get("ldap.server"));
+
+        Assertions.assertThrows(DdlException.class,
+                () -> meta.withUnsetProperties(Collections.emptySet()));
+        Assertions.assertThrows(DdlException.class,
+                () -> meta.withUnsetProperties(set("TYPE")));
     }
 
     @Test

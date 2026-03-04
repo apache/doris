@@ -31,6 +31,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Persistent metadata for AUTHENTICATION INTEGRATION.
@@ -42,7 +43,7 @@ public class AuthenticationIntegrationMeta implements Writable {
     private String name;
     @SerializedName(value = "type")
     private String type;
-    @SerializedName(value = "properties")
+    @SerializedName(value = "p")
     private Map<String, String> properties;
     @SerializedName(value = "comment")
     private String comment;
@@ -104,6 +105,23 @@ public class AuthenticationIntegrationMeta implements Writable {
         Map<String, String> mergedProperties = new LinkedHashMap<>(properties);
         mergedProperties.putAll(propertiesDelta);
         return new AuthenticationIntegrationMeta(name, type, mergedProperties, comment);
+    }
+
+    /**
+     * Build a new metadata object after ALTER ... UNSET PROPERTIES.
+     */
+    public AuthenticationIntegrationMeta withUnsetProperties(Set<String> propertiesToUnset) throws DdlException {
+        if (propertiesToUnset == null || propertiesToUnset.isEmpty()) {
+            throw new DdlException("ALTER AUTHENTICATION INTEGRATION should contain at least one property");
+        }
+        Map<String, String> reducedProperties = new LinkedHashMap<>(properties);
+        for (String key : propertiesToUnset) {
+            if (TYPE_PROPERTY.equalsIgnoreCase(key)) {
+                throw new DdlException("ALTER AUTHENTICATION INTEGRATION does not allow modifying property 'type'");
+            }
+            reducedProperties.remove(key);
+        }
+        return new AuthenticationIntegrationMeta(name, type, reducedProperties, comment);
     }
 
     public AuthenticationIntegrationMeta withComment(String newComment) {

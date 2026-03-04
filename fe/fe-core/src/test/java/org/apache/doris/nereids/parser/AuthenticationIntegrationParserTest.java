@@ -32,13 +32,14 @@ public class AuthenticationIntegrationParserTest {
 
     @Test
     public void testCreateAuthenticationIntegrationParse() {
-        LogicalPlan plan = parser.parseSingle("CREATE AUTHENTICATION INTEGRATION corp_ldap "
-                + "WITH PROPERTIES ('type'='ldap', 'ldap.server'='ldap://127.0.0.1:389') "
+        LogicalPlan plan = parser.parseSingle("CREATE AUTHENTICATION INTEGRATION IF NOT EXISTS corp_ldap "
+                + "PROPERTIES ('type'='ldap', 'ldap.server'='ldap://127.0.0.1:389') "
                 + "COMMENT 'ldap integration'");
 
         Assertions.assertInstanceOf(CreateAuthenticationIntegrationCommand.class, plan);
         CreateAuthenticationIntegrationCommand command = (CreateAuthenticationIntegrationCommand) plan;
         Assertions.assertEquals("corp_ldap", command.getIntegrationName());
+        Assertions.assertTrue(command.isSetIfNotExists());
         Assertions.assertEquals("ldap", command.getProperties().get("type"));
         Assertions.assertEquals("ldap://127.0.0.1:389", command.getProperties().get("ldap.server"));
         Assertions.assertEquals("ldap integration", command.getComment());
@@ -48,7 +49,7 @@ public class AuthenticationIntegrationParserTest {
     public void testCreateAuthenticationIntegrationRequireType() {
         Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(
                 "CREATE AUTHENTICATION INTEGRATION corp_ldap "
-                        + "WITH PROPERTIES ('ldap.server'='ldap://127.0.0.1:389')"));
+                        + "PROPERTIES ('ldap.server'='ldap://127.0.0.1:389')"));
     }
 
     @Test
@@ -65,6 +66,16 @@ public class AuthenticationIntegrationParserTest {
         Assertions.assertEquals("ldap://127.0.0.1:1389",
                 alterPropertiesCommand.getProperties().get("ldap.server"));
 
+        LogicalPlan unsetProperties = parser.parseSingle("ALTER AUTHENTICATION INTEGRATION corp_ldap "
+                + "UNSET PROPERTIES ('ldap.server')");
+        Assertions.assertInstanceOf(AlterAuthenticationIntegrationCommand.class, unsetProperties);
+
+        AlterAuthenticationIntegrationCommand unsetPropertiesCommand =
+                (AlterAuthenticationIntegrationCommand) unsetProperties;
+        Assertions.assertEquals(AlterAuthenticationIntegrationCommand.AlterType.UNSET_PROPERTIES,
+                unsetPropertiesCommand.getAlterType());
+        Assertions.assertTrue(unsetPropertiesCommand.getUnsetProperties().contains("ldap.server"));
+
         LogicalPlan alterComment = parser.parseSingle(
                 "ALTER AUTHENTICATION INTEGRATION corp_ldap SET COMMENT 'new comment'");
         Assertions.assertInstanceOf(AlterAuthenticationIntegrationCommand.class, alterComment);
@@ -80,6 +91,8 @@ public class AuthenticationIntegrationParserTest {
     public void testAlterAuthenticationIntegrationRejectType() {
         Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(
                 "ALTER AUTHENTICATION INTEGRATION corp_ldap SET PROPERTIES ('TYPE'='oidc')"));
+        Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(
+                "ALTER AUTHENTICATION INTEGRATION corp_ldap UNSET PROPERTIES ('TYPE')"));
     }
 
     @Test

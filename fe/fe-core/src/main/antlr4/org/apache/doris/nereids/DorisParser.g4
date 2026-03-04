@@ -208,8 +208,8 @@ supportedCreateStatement
         LIKE existedTable=multipartIdentifier
         (WITH ROLLUP (rollupNames=identifierList)?)?                      #createTableLike
     | CREATE ROLE (IF NOT EXISTS)? name=identifierOrText (COMMENT STRING_LITERAL)?    #createRole
-    | CREATE AUTHENTICATION INTEGRATION integrationName=identifier
-        WITH PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN commentSpec?   #createAuthenticationIntegration
+    | CREATE AUTHENTICATION INTEGRATION (IF NOT EXISTS)? integrationName=identifier
+        properties=propertyClause commentSpec?                                  #createAuthenticationIntegration
     | CREATE WORKLOAD GROUP (IF NOT EXISTS)?
         name=identifierOrText (FOR computeGroup=identifierOrText)? properties=propertyClause? #createWorkloadGroup
     | CREATE CATALOG (IF NOT EXISTS)? catalogName=identifier
@@ -295,7 +295,9 @@ supportedAlterStatement
     | ALTER CATALOG name=identifier SET PROPERTIES
         LEFT_PAREN propertyItemList RIGHT_PAREN                                             #alterCatalogProperties        
     | ALTER AUTHENTICATION INTEGRATION integrationName=identifier
-        SET PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN                              #alterAuthenticationIntegrationProperties
+        SET properties=propertyClause                                                       #alterAuthenticationIntegrationProperties
+    | ALTER AUTHENTICATION INTEGRATION integrationName=identifier
+        UNSET properties=propertyKeyClause                                                  #alterAuthenticationIntegrationUnsetProperties
     | ALTER AUTHENTICATION INTEGRATION integrationName=identifier
         SET COMMENT comment=STRING_LITERAL                                                   #alterAuthenticationIntegrationComment
     | ALTER WORKLOAD POLICY name=identifierOrText
@@ -1461,8 +1463,16 @@ propertyClause
     : PROPERTIES LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN
     ;
 
+propertyKeyClause
+    : PROPERTIES LEFT_PAREN propertyKeyList RIGHT_PAREN
+    ;
+
 propertyItemList
     : properties+=propertyItem (COMMA properties+=propertyItem)*
+    ;
+
+propertyKeyList
+    : keys+=propertyKey (COMMA keys+=propertyKey)*
     ;
 
 propertyItem

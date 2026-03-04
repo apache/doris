@@ -43,7 +43,7 @@ public class DropAuthenticationIntegrationCommand extends DropCommand {
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitCommand(this, context);
+        return visitor.visitDropAuthenticationIntegrationCommand(this, context);
     }
 
     @Override

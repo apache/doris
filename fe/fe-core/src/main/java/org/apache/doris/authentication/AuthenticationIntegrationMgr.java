@@ -32,6 +32,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -60,12 +61,16 @@ public class AuthenticationIntegrationMgr implements Writable {
     }
 
     public void createAuthenticationIntegration(
-            String integrationName, Map<String, String> properties, String comment) throws DdlException {
+            String integrationName, boolean ifNotExists, Map<String, String> properties, String comment)
+            throws DdlException {
         AuthenticationIntegrationMeta meta =
                 AuthenticationIntegrationMeta.fromCreateSql(integrationName, properties, comment);
         writeLock();
         try {
             if (nameToIntegration.containsKey(integrationName)) {
+                if (ifNotExists) {
+                    return;
+                }
                 throw new DdlException("Authentication integration " + integrationName + " already exists");
             }
             nameToIntegration.put(integrationName, meta);
@@ -81,6 +86,19 @@ public class AuthenticationIntegrationMgr implements Writable {
         try {
             AuthenticationIntegrationMeta current = getOrThrow(integrationName);
             AuthenticationIntegrationMeta updated = current.withAlterProperties(properties);
+            nameToIntegration.put(integrationName, updated);
+            Env.getCurrentEnv().getEditLog().logAlterAuthenticationIntegration(updated);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void alterAuthenticationIntegrationUnsetProperties(
+            String integrationName, Set<String> propertiesToUnset) throws DdlException {
+        writeLock();
+        try {
+            AuthenticationIntegrationMeta current = getOrThrow(integrationName);
+            AuthenticationIntegrationMeta updated = current.withUnsetProperties(propertiesToUnset);
             nameToIntegration.put(integrationName, updated);
             Env.getCurrentEnv().getEditLog().logAlterAuthenticationIntegration(updated);
         } finally {
