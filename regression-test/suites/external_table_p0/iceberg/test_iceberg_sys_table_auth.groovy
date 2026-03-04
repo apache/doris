@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_sys_table_auth", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_sys_table_auth", "p0,external,doris,external_docker,external_docker_doris,system_table") {
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {

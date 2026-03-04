@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_docker_doris,system_table") {
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -45,23 +45,126 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
 
     def test_iceberg_systable = { tblName, systableType ->
         def systableName = "${tblName}\$${systableType}"
+        sql """explain select * from ${systableName}"""
+        sql """select * from `${systableName}`"""
+        sql """select * from ${systableName}"""
+        // Case sensitivity
+        test {
+            sql """select * from ${tblName}\$${systableType.toUpperCase()}"""
+            exception "Unknown sys table"
+        }
+
+        // Select only part of the columns (first two columns)
+        List<List<Object>> schema = sql """desc ${systableName}"""
+        if (schema.size() >= 2) {
+            String col1 = String.valueOf(schema[0][0])
+            String col2 = String.valueOf(schema[1][0])
+            sql """select `${col1}`, `${col2}` from ${systableName}"""
+        }
+        // WHERE filter (use file_size if exists, otherwise use the first column)
+        boolean hasFileSize = schema.any { it[0] == "file_size" }
+        if (hasFileSize) {
+            sql """select * from ${systableName} where file_size > 100000"""
+        } else {
+            String col1 = String.valueOf(schema[0][0])
+            List<List<Object>> rows = sql """select `${col1}` from ${systableName} limit 1"""
+            if (!rows.isEmpty()) {
+                String val = rows[0][0]
+                sql """select * from ${systableName} where `${col1}` = '${val}' """
+            }
+        }
+
+        // LIMIT query
+        sql """select * from ${systableName} limit 10"""
+
+        // OFFSET pagination
+        sql """select * from ${systableName} limit 5 offset 5"""
+
+        // AGG
+        order_qt_systable_count """select count(*) from ${systableName}"""
+        if (schema.size() >= 2) {
+            String col2 = String.valueOf(schema[1][0])
+            sql """select count(distinct ${col2}) from ${systableName}"""
+            sql """select `${col2}`, count(*) from ${systableName} group by ${col2}"""
+        }
+
+        // Subquery/CTE
+        if (schema.size() >= 2) {
+            String col1 = String.valueOf(schema[0][0])
+            String col2 = String.valueOf(schema[1][0])
+            sql """with t as (select `${col1}`, `${col2}` from ${systableName}) select count(*) from t"""
+        }
+
+        // JOIN (with temp table)
+        if (schema.size() >= 1) {
+            String col1 = String.valueOf(schema[0][0])
+            sql """select a.`${col1}` from ${systableName} a join (select 1) b on 1=1 limit 1"""
+            sql """select a.`${col1}`, b.`${col1}` from ${systableName} a join ${systableName} b on a.`${col1}`=b.`${col1}` limit 1"""
+
+            String otherSystableType = (systableType == 'files') ? 'entries' : 'files'
+            String otherSystableName = "${tblName}\$${otherSystableType}"
+            List<List<Object>> otherSchema = sql """desc ${otherSystableName}"""
+            if (!otherSchema.isEmpty()) {
+                String otherCol1 = String.valueOf(otherSchema[0][0])
+                sql """select a.`${col1}`, b.`${otherCol1}` from ${systableName} a join ${otherSystableName} b on a.`${col1}`=b.`${otherCol1}` limit 1"""
+            }
+            sql """drop database if exists internal.join_inner_db"""
+            sql """create database internal.join_inner_db"""
+            sql """create table internal.join_inner_db.join_inner_tbl (`${col1}` varchar(100)) PROPERTIES ("replication_num" = "1");"""
+            sql """insert into internal.join_inner_db.join_inner_tbl values('test_val')"""
+            sql """select a.`${col1}`, t.`${col1}` from ${systableName} a join internal.join_inner_db.join_inner_tbl t on a.`${col1}`=t.`${col1}` limit 1"""
+            sql """drop table if exists internal.join_inner_db.join_inner_tbl"""
+        }
+
+        // ORDER BY LIMIT
+        if (schema.size() >= 1) {
+            String col1 = String.valueOf(schema[0][0])
+            sql """select * from ${systableName} order by `${col1}` desc limit 3"""
+        }
+
+        // select * correctness check (row count, column count)
+        sql """select count(*) from ${systableName}"""
+        sql """select * from ${systableName} limit 1"""
+
+        sql """drop database if exists internal.view_db_iceberg_db"""
+        sql """create database internal.view_db_iceberg_db"""
+        // VIEW
+        sql """drop view if exists internal.view_db_iceberg_db.v_sys_table_${tblName}"""
+        sql """create view internal.view_db_iceberg_db.v_sys_table_${tblName} as select * from ${systableName}"""
+        sql """select * from internal.view_db_iceberg_db.v_sys_table_${tblName} limit 1"""
+        sql """drop view if exists internal.view_db_iceberg_db.v_sys_table_${tblName}"""
+
+
+        // MTMV
+        sql """drop materialized view if exists internal.view_db_iceberg_db.mtmv_sys_table_${tblName}"""
+        sql """create materialized view internal.view_db_iceberg_db.mtmv_sys_table_${tblName} BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
+    DISTRIBUTED BY RANDOM BUCKETS 2 
+    PROPERTIES ('replication_num' = '1') 
+    AS select count(*) as cnt from ${systableName}"""
+        sql """select * from internal.view_db_iceberg_db.mtmv_sys_table_${tblName} limit 1"""
+        sql """drop materialized view if exists internal.view_db_iceberg_db.mtmv_sys_table_${tblName}"""
+        // OUTFILE
+        // SELECT INTO OUTFILE
+        sql """select * from ${systableName} into outfile 'file:///iceberg_${tblName}_out.txt'"""
+        // EXPORT not supported yet
+        // sql """export table ${sysTable} to 'file:///paimon_export_${systemTable}'"""
+
 
         order_qt_desc_systable1 """desc ${systableName}"""
         order_qt_desc_systable2 """desc ${db_name}.${systableName}"""
         order_qt_desc_systable3 """desc ${catalog_name}.${db_name}.${systableName}"""
 
-        List<List<Object>> schema = sql """desc ${systableName}"""
+        // Re-fetch schema to avoid impact from previous definition
+        schema = sql """desc ${systableName}"""
         String key = String.valueOf(schema[1][0])
-
-        order_qt_tbl1_systable """select * from ${systableName}"""
-        order_qt_tbl1_systable_select """select ${key} from ${systableName}"""
+        String key2 = String.valueOf(schema[2][0])
         order_qt_tbl1_systable_count """select count(*) from ${systableName}"""
         order_qt_tbl1_systable_count_select """select count(${key}) from ${systableName}"""
 
-        List<List<Object>> res1 = sql """select ${key} from ${systableName} order by ${key}"""
+        List<List<Object>> res1 = sql """select ${key} from ${systableName} order by ${key},${key2}"""
         List<List<Object>> res2 = sql """select ${key} from iceberg_meta(
             "table" = "${catalog_name}.${db_name}.${tblName}",
-            "query_type" = "${systableType}") order by ${key};
+            "query_type" = "${systableType}") order by ${key},${key2};
         """
         assertEquals(res1.size(), res2.size());
         for (int i = 0; i < res1.size(); i++) {
@@ -75,20 +178,14 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
         }
 
         String value = String.valueOf(res1[0][0])
-        order_qt_tbl1_systable_where """
-            select * from ${systableName} where ${key}="${value}";
-        """
         order_qt_tbl1_systable_where_count """
-            select count(*) from ${systableName} where ${key}="${value}";
-        """
-        order_qt_systable_where2 """select * from iceberg_meta(
-            "table" = "${catalog_name}.${db_name}.${tblName}",
-            "query_type" = "${systableType}") where ${key}="${value}";
+            select count(*) from ${systableName} where `${key}`='${value}';
         """
     }
 
     def test_systable_entries = { table, systableType ->
         def systableName = "${table}\$${systableType}"
+        sql """select * from ${systableName}"""
         order_qt_desc_entries """desc ${systableName}"""
 
         List<List<Object>> desc1 = sql """desc ${systableName}"""
@@ -111,6 +208,7 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
 
     def test_systable_files = { table, systableType ->
         def systableName = "${table}\$${systableType}"
+        sql """select * from ${systableName}"""
         order_qt_desc_files """desc ${systableName}"""
 
         List<List<Object>> desc1 = sql """desc ${systableName}"""
@@ -133,6 +231,7 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
 
     def test_systable_history = { table ->
         def systableName = "${table}\$history"
+        sql """select * from ${systableName}"""
         order_qt_desc_history """desc ${systableName}"""
 
         List<List<Object>> desc1 = sql """desc ${systableName}"""
@@ -163,6 +262,7 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
 
     def test_systable_metadata_log_entries = { table ->
         def systableName = "${table}\$metadata_log_entries"
+        sql """select * from ${systableName}"""
         order_qt_desc_metadata_log_entries """desc ${systableName}"""
 
         List<List<Object>> desc1 = sql """desc ${systableName}"""
@@ -193,6 +293,7 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
 
     def test_systable_snapshots = { table ->
         def systableName = "${table}\$snapshots"
+        sql """select * from ${systableName}"""
         order_qt_desc_snapshots """desc ${systableName}"""
 
         List<List<Object>> desc1 = sql """desc ${systableName}"""
@@ -224,6 +325,7 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
 
     def test_systable_refs = { table ->
         def systableName = "${table}\$refs"
+        sql """select * from ${systableName}"""
         order_qt_desc_refs """desc ${systableName}"""
 
         List<List<Object>> desc1 = sql """desc ${systableName}"""
@@ -298,6 +400,7 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
 
     def test_systable_partitions = { table ->
         def systableName = "${table}\$partitions"
+        sql """select * from ${systableName}"""
         order_qt_desc_partitions """desc ${systableName}"""
 
         List<List<Object>> desc1 = sql """desc ${systableName}"""
@@ -314,7 +417,7 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
 
         order_qt_select_partitions_count """select count(*) from ${systableName}"""
 
-        
+
         List<List<Object>> res1 = sql """select * from ${systableName};"""
         List<List<Object>> res2 = sql """select * from iceberg_meta(
             "table" = "${catalog_name}.${db_name}.${table}",
@@ -325,19 +428,32 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
 
     def test_table_systables = { table ->
         test_systable_entries(table, "entries")
+        test_iceberg_systable(table, "entries")
         test_systable_entries(table, "all_entries")
+        test_iceberg_systable(table, "all_entries")
         test_systable_files(table, "files")
+        test_iceberg_systable(table, "files")
         test_systable_files(table, "data_files")
+        test_iceberg_systable(table, "data_files")
         test_systable_files(table, "delete_files")
+        test_iceberg_systable(table, "delete_files")
         test_systable_files(table, "all_files")
+        test_iceberg_systable(table, "all_files")
         test_systable_files(table, "all_data_files")
+        test_iceberg_systable(table, "all_data_files")
         test_systable_files(table, "all_delete_files")
+        test_iceberg_systable(table, "all_delete_files")
         test_systable_history(table)
+        test_iceberg_systable(table, "history")
         test_systable_metadata_log_entries(table)
+        test_iceberg_systable(table, "metadata_log_entries")
         test_systable_snapshots(table)
+        test_iceberg_systable(table, "snapshots")
         test_systable_refs(table)
+        test_iceberg_systable(table, "refs")
         test_systable_manifests(table, "manifests")
         test_systable_manifests(table, "all_manifests")
+        test_iceberg_systable(table, "manifests")
         test_systable_partitions(table)
         // TODO: these table will be supportted in future
         // test_systable_position_deletes(table)
@@ -347,6 +463,7 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
             exception "SysTable position_deletes is not supported yet"
         }
     }
+
 
     test_table_systables("test_iceberg_systable_unpartitioned")
     test_table_systables("test_iceberg_systable_partitioned")
@@ -372,21 +489,21 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
     }
 
     sql """create database if not exists internal.regression_test"""
-    sql """grant select_priv on internal.regression_test.* to ${user}""" 
+    sql """grant select_priv on internal.regression_test.* to ${user}"""
     connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
-              sql """
+            sql """
                  select committed_at, snapshot_id, parent_id, operation from iceberg_meta(
                                              "table" = "${catalog_name}.${db_name}.test_iceberg_systable_tbl1",
                                              "query_type" = "snapshots");
               """
-              exception "denied"
+            exception "denied"
         }
         test {
-              sql """
+            sql """
                  select committed_at, snapshot_id, parent_id, operation from ${catalog_name}.${db_name}.test_iceberg_systable_tbl1\$snapshots
               """
-              exception "denied"
+            exception "denied"
         }
     }
     sql """grant select_priv on ${catalog_name}.${db_name}.test_iceberg_systable_tbl1 to ${user}"""
