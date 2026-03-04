@@ -39,13 +39,13 @@ import java.util.Set;
 public class AuthenticationIntegrationMeta implements Writable {
     public static final String TYPE_PROPERTY = "type";
 
-    @SerializedName(value = "name")
+    @SerializedName(value = "n")
     private String name;
-    @SerializedName(value = "type")
+    @SerializedName(value = "t")
     private String type;
     @SerializedName(value = "p")
     private Map<String, String> properties;
-    @SerializedName(value = "comment")
+    @SerializedName(value = "c")
     private String comment;
 
     private AuthenticationIntegrationMeta() {

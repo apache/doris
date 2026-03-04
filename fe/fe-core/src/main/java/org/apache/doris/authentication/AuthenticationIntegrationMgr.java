@@ -40,7 +40,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class AuthenticationIntegrationMgr implements Writable {
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
-    @SerializedName(value = "nameToIntegration")
+    @SerializedName(value = "nTi")
     private Map<String, AuthenticationIntegrationMeta> nameToIntegration = new LinkedHashMap<>();
 
     private void readLock() {

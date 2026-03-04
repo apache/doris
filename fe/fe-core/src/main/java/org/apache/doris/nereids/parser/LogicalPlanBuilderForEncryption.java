@@ -135,11 +135,11 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     // create authentication integration clause
     @Override
     public LogicalPlan visitCreateAuthenticationIntegration(DorisParser.CreateAuthenticationIntegrationContext ctx) {
-        if (ctx.propertyItemList() != null) {
-            DorisParser.PropertyItemListContext propertyItemListContext = ctx.propertyItemList();
-            encryptProperty(visitPropertyItemList(propertyItemListContext),
-                    propertyItemListContext.start.getStartIndex(),
-                    propertyItemListContext.stop.getStopIndex());
+        if (ctx.properties != null && ctx.properties.fileProperties != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.properties;
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex());
         }
         return super.visitCreateAuthenticationIntegration(ctx);
     }
@@ -160,11 +160,11 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     @Override
     public LogicalPlan visitAlterAuthenticationIntegrationProperties(
             DorisParser.AlterAuthenticationIntegrationPropertiesContext ctx) {
-        if (ctx.propertyItemList() != null) {
-            DorisParser.PropertyItemListContext propertyItemListContext = ctx.propertyItemList();
-            encryptProperty(visitPropertyItemList(propertyItemListContext),
-                    propertyItemListContext.start.getStartIndex(),
-                    propertyItemListContext.stop.getStopIndex());
+        if (ctx.properties != null && ctx.properties.fileProperties != null) {
+            DorisParser.PropertyClauseContext propertyClauseContext = ctx.properties;
+            encryptProperty(visitPropertyClause(propertyClauseContext),
+                    propertyClauseContext.fileProperties.start.getStartIndex(),
+                    propertyClauseContext.fileProperties.stop.getStopIndex());
         }
         return super.visitAlterAuthenticationIntegrationProperties(ctx);
     }
