@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_query_cache", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_query_cache", "p0,external") {
     withGlobalLock("cache_last_version_interval_second") {
         def assertHasCache = { String sqlStr ->
             explain {

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_statistics_all_type_p0", "all_types,p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_statistics_all_type_p0", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable Hive test.")

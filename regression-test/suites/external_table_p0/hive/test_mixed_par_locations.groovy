@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_mixed_par_locations", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_mixed_par_locations", "p0,external") {
 
     def formats = ["_parquet", "_orc"]
     def q1 = """select * from test_mixed_par_locationsSUFFIX order by id;"""

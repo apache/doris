@@ -17,7 +17,7 @@
 
 
 
-suite("iceberg_schema_change_with_timetravel", "p0,external,doris,external_docker,external_docker_doris") {
+suite("iceberg_schema_change_with_timetravel", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {

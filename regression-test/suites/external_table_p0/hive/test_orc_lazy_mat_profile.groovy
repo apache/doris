@@ -17,7 +17,7 @@
 
 import groovy.json.JsonSlurper
 
-suite("test_orc_lazy_mat_profile", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_orc_lazy_mat_profile", "p0,external") {
     def getProfileList = {
         def dst = 'http://' + context.config.feHttpAddress
         def conn = new URL(dst + "/rest/v1/query_profile").openConnection()

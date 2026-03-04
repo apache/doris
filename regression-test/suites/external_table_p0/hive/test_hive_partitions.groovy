@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_partitions", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_partitions", "p0,external") {
     def q01 = {
         qt_q01 """
         select id, data from table_with_pars where dt_par = '2023-02-01' order by id;

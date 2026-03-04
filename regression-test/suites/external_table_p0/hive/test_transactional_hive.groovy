@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_transactional_hive", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_transactional_hive", "p0,external") {
     String skip_checking_acid_version_file = "false"
 
     def q01 = {
