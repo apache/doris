@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hms_partitions_tvf","p0,external,tvf,external_docker") {
+suite("test_hms_partitions_tvf", "p0,external") {
     String suiteName = "test_hms_partitions_tvf"
     String tableName = "mtmv_base1"
     String dbName = "default"

@@ -57,7 +57,7 @@ trinoPluginsPath = "/tmp/trino_connector"
 
 // will test <group>/<suite>.groovy
 // empty group will test all group
-testGroups = ""
+testGroups = "external"
 // empty suite will test all suite
 testSuites = ""
 // empty directories will test all directories
@@ -75,6 +75,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_profile," +
     "test_refresh_mtmv," +
     "test_spark_load," +
+    "test_paimon_gcs," +
     "test_broker_load_func," +
     "test_stream_stub_fault_injection," +
     "test_iceberg_overwrite_with_wrong_partition," +

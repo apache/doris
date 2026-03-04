@@ -1024,7 +1024,7 @@ Status StreamingAggOperatorX::pull(RuntimeState* state, vectorized::Block* block
         RETURN_IF_ERROR(local_state._get_results_with_serialized_key(state, block, eos));
         local_state.make_nullable_output_key(block);
         // dispose the having clause, should not be execute in prestreaming agg
-        RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block, block->columns()));
+        RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block));
     }
     local_state.reached_limit(block, eos);
 
