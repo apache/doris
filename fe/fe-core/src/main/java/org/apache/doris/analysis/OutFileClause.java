@@ -47,8 +47,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -59,7 +57,6 @@ import java.util.Set;
 
 // For syntax select * from tbl INTO OUTFILE xxxx
 public class OutFileClause {
-    private static final Logger LOG = LogManager.getLogger(OutFileClause.class);
 
     public static final List<String> RESULT_COL_NAMES = Lists.newArrayList();
     public static final List<Type> RESULT_COL_TYPES = Lists.newArrayList();

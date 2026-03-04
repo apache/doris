@@ -20,12 +20,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TFunctionName;
 
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Objects;
 
@@ -34,8 +31,6 @@ import java.util.Objects;
  * db.function_name.
  */
 public class FunctionName {
-    private static final Logger LOG = LogManager.getLogger(FunctionName.class);
-
     @SerializedName("db")
     private String db;
     @SerializedName("fn")
@@ -107,35 +102,12 @@ public class FunctionName {
         return fn;
     }
 
-    public boolean isFullyQualified() {
-        return db != null;
-    }
-
     @Override
     public String toString() {
         if (db == null) {
             return fn;
         }
         return db + "." + fn;
-    }
-
-    public void analyze(SetType type) throws AnalysisException {
-        if (fn.length() == 0) {
-            throw new AnalysisException("Function name can not be empty.");
-        }
-        for (int i = 0; i < fn.length(); ++i) {
-            if (!isValidCharacter(fn.charAt(i))) {
-                throw new AnalysisException("Function names must be all alphanumeric or underscore. "
-                          + "Invalid name: " + fn);
-            }
-        }
-        if (Character.isDigit(fn.charAt(0))) {
-            throw new AnalysisException("Function cannot start with a digit: " + fn);
-        }
-    }
-
-    private boolean isValidCharacter(char c) {
-        return Character.isLetterOrDigit(c) || c == '_';
     }
 
     public TFunctionName toThrift() {

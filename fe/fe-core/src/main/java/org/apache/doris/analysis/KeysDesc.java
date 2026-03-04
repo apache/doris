@@ -18,22 +18,13 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
-
-import com.google.common.collect.Lists;
 
 import java.util.List;
 
 public class KeysDesc {
-    private KeysType type;
-    private List<String> keysColumnNames;
+    private final KeysType type;
+    private final List<String> keysColumnNames;
     private List<String> orderByKeysColumnNames;
-
-    public KeysDesc() {
-        this.type = KeysType.AGG_KEYS;
-        this.keysColumnNames = Lists.newArrayList();
-    }
 
     public KeysDesc(KeysType type, List<String> keysColumnNames) {
         this.type = type;
@@ -55,101 +46,6 @@ public class KeysDesc {
 
     public List<String> getOrderByKeysColumnNames() {
         return orderByKeysColumnNames;
-    }
-
-    public boolean containsCol(String colName) {
-        return keysColumnNames.contains(colName);
-    }
-
-    public void analyze(List<ColumnDef> cols) throws AnalysisException {
-        if (type == null) {
-            throw new AnalysisException("Keys type is null.");
-        }
-
-        if ((keysColumnNames == null || keysColumnNames.size() == 0) && type != KeysType.DUP_KEYS) {
-            throw new AnalysisException("The number of key columns is 0.");
-        }
-
-        if (keysColumnNames.size() > cols.size()) {
-            throw new AnalysisException("The number of key columns should be less than the number of columns.");
-        }
-
-        for (int i = 0; i < keysColumnNames.size(); ++i) {
-            String name = cols.get(i).getName();
-            if (!keysColumnNames.get(i).equalsIgnoreCase(name)) {
-                String keyName = keysColumnNames.get(i);
-                if (cols.stream().noneMatch(col -> col.getName().equalsIgnoreCase(keyName))) {
-                    throw new AnalysisException("Key column[" + keyName + "] doesn't exist.");
-                }
-                throw new AnalysisException("Key columns should be a ordered prefix of the schema."
-                        + " KeyColumns[" + i + "] (starts from zero) is " + keyName + ", "
-                        + "but corresponding column is " + name  + " in the previous "
-                        + "columns declaration.");
-            }
-
-            if (cols.get(i).getAggregateType() != null) {
-                throw new AnalysisException("Key column[" + name + "] should not specify aggregate type.");
-            }
-        }
-
-        // for olap table
-        for (int i = keysColumnNames.size(); i < cols.size(); ++i) {
-            if (type == KeysType.AGG_KEYS) {
-                if (cols.get(i).getAggregateType() == null) {
-                    throw new AnalysisException(type.name() + " table should specify aggregate type for "
-                            + "non-key column[" + cols.get(i).getName() + "]");
-                }
-            } else {
-                if (cols.get(i).getAggregateType() != null) {
-                    throw new AnalysisException(type.name() + " table should not specify aggregate type for "
-                            + "non-key column[" + cols.get(i).getName() + "]");
-                }
-            }
-        }
-
-        if (orderByKeysColumnNames != null) {
-            analyzeOrderByKeys(cols);
-        }
-    }
-
-    private void analyzeOrderByKeys(List<ColumnDef> cols) throws AnalysisException {
-        if (type != KeysType.UNIQUE_KEYS) {
-            throw new AnalysisException("Order by keys only support unique keys table");
-        }
-        // check that order by keys is not duplicated
-        for (int i = 0; i < orderByKeysColumnNames.size(); i++) {
-            String name = orderByKeysColumnNames.get(i);
-            for (int j = 0; j < i; j++) {
-                if (orderByKeysColumnNames.get(j).equalsIgnoreCase(name)) {
-                    throw new AnalysisException("Duplicate order by key column[" + name + "].");
-                }
-            }
-        }
-        // check that order by keys is not equal to primary keys
-        int minKeySize = Math.min(keysColumnNames.size(), orderByKeysColumnNames.size());
-        boolean sameKey = true;
-        for (int i = 0; i < minKeySize; i++) {
-            if (!keysColumnNames.get(i).equalsIgnoreCase(orderByKeysColumnNames.get(i))) {
-                sameKey = false;
-                break;
-            }
-        }
-        if (sameKey && !Config.random_add_order_by_keys_for_mow) {
-            throw new AnalysisException("Unique keys and cluster keys should be different.");
-        }
-        // check that cluster key column exists
-        for (int i = 0; i < orderByKeysColumnNames.size(); i++) {
-            String name = orderByKeysColumnNames.get(i);
-            for (int j = 0; j < cols.size(); j++) {
-                if (cols.get(j).getName().equalsIgnoreCase(name)) {
-                    cols.get(j).setClusterKeyId(i);
-                    break;
-                }
-                if (j == cols.size() - 1) {
-                    throw new AnalysisException("Cluster key column[" + name + "] doesn't exist.");
-                }
-            }
-        }
     }
 
     public String toSql() {

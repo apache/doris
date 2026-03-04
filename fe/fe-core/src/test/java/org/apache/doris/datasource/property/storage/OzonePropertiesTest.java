@@ -107,8 +107,7 @@ public class OzonePropertiesTest {
         origProps.put("use_path_style", "true");
 
         List<StorageProperties> properties = StorageProperties.createAll(origProps);
-        Assertions.assertEquals(HdfsProperties.class, properties.get(0).getClass());
-        Assertions.assertEquals(OzoneProperties.class, properties.get(1).getClass());
+        Assertions.assertEquals(OzoneProperties.class, properties.get(0).getClass());
 
         Map<StorageProperties.Type, StorageProperties> propertiesMap = properties.stream()
                 .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
@@ -127,10 +126,9 @@ public class OzonePropertiesTest {
         origProps.put("ozone.region", "us-east-1");
 
         List<StorageProperties> properties = StorageProperties.createAll(origProps);
-        Assertions.assertEquals(HdfsProperties.class, properties.get(0).getClass());
-        Assertions.assertEquals(OzoneProperties.class, properties.get(1).getClass());
+        Assertions.assertEquals(OzoneProperties.class, properties.get(0).getClass());
 
-        OzoneProperties ozoneProperties = (OzoneProperties) properties.get(1);
+        OzoneProperties ozoneProperties = (OzoneProperties) properties.get(0);
         Assertions.assertEquals("hadoop", ozoneProperties.getHadoopStorageConfig().get("fs.s3a.access.key"));
         Assertions.assertEquals("hadoop", ozoneProperties.getHadoopStorageConfig().get("fs.s3a.secret.key"));
         Assertions.assertEquals("http://ozone-s3g:9878", ozoneProperties.getHadoopStorageConfig().get("fs.s3a.endpoint"));
@@ -176,8 +174,7 @@ public class OzonePropertiesTest {
 
         origProps.put(StorageProperties.FS_OZONE_SUPPORT, "true");
         List<StorageProperties> propertiesWithFlag = StorageProperties.createAll(origProps);
-        Assertions.assertEquals(2, propertiesWithFlag.size());
-        Assertions.assertEquals(HdfsProperties.class, propertiesWithFlag.get(0).getClass());
-        Assertions.assertEquals(OzoneProperties.class, propertiesWithFlag.get(1).getClass());
+        Assertions.assertEquals(1, propertiesWithFlag.size());
+        Assertions.assertEquals(OzoneProperties.class, propertiesWithFlag.get(0).getClass());
     }
 }

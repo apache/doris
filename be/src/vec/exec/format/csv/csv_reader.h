@@ -280,6 +280,8 @@ private:
 
     io::IOContext* _io_ctx = nullptr;
     std::shared_ptr<io::IOContext> _io_ctx_holder;
+    // Stored to adjust column_sep_positions when BOM is removed in enclose mode
+    std::shared_ptr<EncloseCsvLineReaderCtx> _enclose_reader_ctx;
     // save source text which have been splitted.
     std::vector<Slice> _split_values;
     std::vector<int> _use_nullable_string_opt;

@@ -15,25 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.info.PartitionNamesInfo;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties.Type;
 
-public class InsertTarget {
-    private final TableNameInfo tblName;
-    private final PartitionNamesInfo partitionNamesInfo;
+import java.util.Map;
 
-    public InsertTarget(TableNameInfo tblName, PartitionNamesInfo partitionNamesInfo) {
-        this.tblName = tblName;
-        this.partitionNamesInfo = partitionNamesInfo;
-    }
-
-    public TableNameInfo getTblName() {
-        return tblName;
-    }
-
-    public PartitionNamesInfo getPartitionNamesInfo() {
-        return partitionNamesInfo;
+/**
+ * Just a placeholder
+ */
+public class TrinoConnectorPropertiesFactory extends AbstractMetastorePropertiesFactory {
+    @Override
+    public MetastoreProperties create(Map<String, String> props) {
+        return new MetastoreProperties(Type.TRINO_CONNECTOR, props);
     }
 }

@@ -51,6 +51,7 @@ private:
 
     int32_t do_next(int32_t doc);
     bool matches(int32_t doc);
+    float count_phrase_freq(int32_t doc);
 
     void init_exact_phrase_matcher(const InvertedIndexQueryInfo& query_info, bool is_similarity);
     void init_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info, bool is_similarity);
@@ -78,7 +79,7 @@ private:
 
     std::vector<Matcher> _matchers;
 
-    std::vector<SimilarityPtr> _similarities;
+    SimilarityPtr _phrase_similarity;
 };
 
 } // namespace doris::segment_v2
