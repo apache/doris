@@ -544,11 +544,8 @@ Status PushBrokerReader::_convert_to_output_block(vectorized::Block* block) {
     }
     _src_block.clear();
 
-    size_t dest_size = block->columns();
-    block->insert(vectorized::ColumnWithTypeAndName(std::move(filter_column),
-                                                    std::make_shared<vectorized::DataTypeUInt8>(),
-                                                    "filter column"));
-    RETURN_IF_ERROR(vectorized::Block::filter_block(block, dest_size, dest_size));
+    RETURN_IF_ERROR(
+            vectorized::Block::filter_block_with_filter_column(block, std::move(filter_column)));
     return Status::OK();
 }
 

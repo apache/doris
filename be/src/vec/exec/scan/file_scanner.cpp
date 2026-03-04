@@ -822,13 +822,8 @@ Status FileScanner::_convert_to_output_block(Block* block) {
     // after do the dest block insert operation, clear _src_block to remove the reference of origin column
     _src_block_ptr->clear();
 
-    size_t dest_size = block->columns();
-    // do filter
-    block->insert(vectorized::ColumnWithTypeAndName(std::move(filter_column),
-                                                    std::make_shared<vectorized::DataTypeUInt8>(),
-                                                    "filter column"));
-    RETURN_IF_ERROR(vectorized::Block::filter_block(block, dest_size, dest_size));
-
+    RETURN_IF_ERROR(
+            vectorized::Block::filter_block_with_filter_column(block, std::move(filter_column)));
     _counter.num_rows_filtered += rows - block->rows();
     return Status::OK();
 }

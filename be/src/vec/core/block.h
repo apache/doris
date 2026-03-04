@@ -271,7 +271,7 @@ public:
     static Status filter_block(Block* block, const std::vector<uint32_t>& columns_to_filter,
                                size_t filter_column_id, size_t column_to_keep);
 
-    static Status filter_block(Block* block, size_t filter_column_id, size_t column_to_keep);
+    static Status filter_block_with_filter_column(Block* block, const ColumnPtr& filter_column);
 
     static void erase_useless_column(Block* block, size_t column_to_keep) {
         block->erase_tail(column_to_keep);

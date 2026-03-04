@@ -842,13 +842,36 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
     return Status::OK();
 }
 
-Status Block::filter_block(Block* block, size_t filter_column_id, size_t column_to_keep) {
-    std::vector<uint32_t> columns_to_filter;
-    columns_to_filter.resize(column_to_keep);
-    for (uint32_t i = 0; i < column_to_keep; ++i) {
-        columns_to_filter[i] = i;
+Status Block::filter_block_with_filter_column(Block* block, const ColumnPtr& filter_column) {
+    if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
+        const auto& nested_column = nullable_column->get_nested_column_ptr();
+
+        MutableColumnPtr mutable_holder =
+                nested_column->use_count() == 1
+                        ? nested_column->assume_mutable()
+                        : nested_column->clone_resized(nested_column->size());
+
+        auto* concrete_column = assert_cast<ColumnUInt8*>(mutable_holder.get());
+        const auto* __restrict null_map = nullable_column->get_null_map_data().data();
+        IColumn::Filter& filter = concrete_column->get_data();
+        auto* __restrict filter_data = filter.data();
+
+        const size_t size = filter.size();
+        for (size_t i = 0; i < size; ++i) {
+            filter_data[i] &= !null_map[i];
+        }
+        RETURN_IF_CATCH_EXCEPTION(filter_block_internal(block, filter));
+    } else if (const auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
+        bool ret = const_column->get_bool(0);
+        if (!ret) {
+            block->clear_column_data();
+        }
+    } else {
+        const IColumn::Filter& filter =
+                assert_cast<const doris::vectorized::ColumnUInt8&>(*filter_column).get_data();
+        RETURN_IF_CATCH_EXCEPTION(filter_block_internal(block, filter));
     }
-    return filter_block(block, columns_to_filter, filter_column_id, column_to_keep);
+    return Status::OK();
 }
 
 Status Block::serialize(int be_exec_version, PBlock* pblock,

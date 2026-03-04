@@ -196,10 +196,8 @@ Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block) {
     }
     ColumnPtr filter_column;
     RETURN_IF_ERROR(vexpr_ctx->execute(block, filter_column));
-    size_t filter_column_id = block->columns();
-    block->insert({filter_column, vexpr_ctx->execute_type(block), "filter_column"});
     vexpr_ctx->_memory_usage = filter_column->allocated_bytes();
-    return Block::filter_block(block, filter_column_id, filter_column_id);
+    return Block::filter_block_with_filter_column(block, filter_column);
 }
 
 Status VExprContext::filter_block(const VExprContextSPtrs& expr_contexts, Block* block,
