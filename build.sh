@@ -852,6 +852,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     if [[ "${BUILD_JINDOFS}" == "ON" ]]; then
         install -d "${DORIS_OUTPUT}/fe/lib/jindofs"
     fi
+    install -d "${DORIS_OUTPUT}/fe/lib/juicefs"
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     if [[ "${WITH_TDE_DIR}" != "" ]]; then
@@ -870,6 +871,13 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
             cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
             cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
         fi
+    fi
+
+    # copy juicefs hadoop client jar
+    if compgen -G "${DORIS_THIRDPARTY}/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar" > /dev/null; then
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/juicefs"/
+    else
+        echo "WARN: skip copying juicefs-hadoop jar, not found in ${DORIS_THIRDPARTY}/installed/juicefs_libs"
     fi
 
     cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
@@ -1056,6 +1064,14 @@ EOF
             cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
             cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
         fi
+    fi
+    install -d "${DORIS_OUTPUT}/be/lib/java_extensions/juicefs"/
+
+    # copy juicefs hadoop client jar
+    if compgen -G "${DORIS_THIRDPARTY}/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar" > /dev/null; then
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/juicefs"/
+    else
+        echo "WARN: skip copying juicefs-hadoop jar, not found in ${DORIS_THIRDPARTY}/installed/juicefs_libs"
     fi
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/

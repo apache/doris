@@ -153,6 +153,21 @@ public class HdfsPropertiesTest {
 
     }
 
+    @Test
+    public void testPassThroughJuicefsProperties() throws UserException {
+        Map<String, String> origProps = new HashMap<>();
+        origProps.put("hdfs.authentication.type", "simple");
+        origProps.put("fs.defaultFS", "jfs://cluster");
+        origProps.put("fs.jfs.impl", "io.juicefs.JuiceFileSystem");
+        origProps.put("juicefs.cluster.meta", "redis://127.0.0.1:6379/1");
+
+        StorageProperties properties = StorageProperties.createAll(origProps).get(0);
+        Assertions.assertEquals(HdfsProperties.class, properties.getClass());
+        Map<String, String> beProperties = properties.getBackendConfigProperties();
+        Assertions.assertEquals("redis://127.0.0.1:6379/1", beProperties.get("juicefs.cluster.meta"));
+        Assertions.assertEquals("jfs://cluster", beProperties.get("fs.defaultFS"));
+    }
+
     // Helper methods to reduce code duplication
     private Map<String, String> createBaseHdfsProperties() {
         Map<String, String> origProps = Maps.newHashMap();

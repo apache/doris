@@ -143,7 +143,8 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         }
         userOverriddenHdfsConfig = new HashMap<>();
         origProps.forEach((key, value) -> {
-            if (key.startsWith("hadoop.") || key.startsWith("dfs.") || key.startsWith("fs.")) {
+            if (key.startsWith("hadoop.") || key.startsWith("dfs.") || key.startsWith("fs.")
+                    || key.startsWith("juicefs.")) {
                 userOverriddenHdfsConfig.put(key, value);
             }
         });
