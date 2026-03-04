@@ -418,9 +418,6 @@ std::string AzureObjStorageClient::generate_presigned_url(const ObjectStoragePat
             Azure::Storage::StorageSharedKeyCredential(conf.ak, conf.sk));
 
     std::string endpoint = conf.endpoint;
-    if (doris::config::force_azure_blob_global_endpoint) {
-        endpoint = fmt::format("https://{}.blob.core.windows.net", conf.ak);
-    }
     auto sasURL = fmt::format(SAS_TOKEN_URL_TEMPLATE, endpoint, conf.bucket, opts.key, sasToken);
     if (sasURL.find("://") == std::string::npos) {
         sasURL = "https://" + sasURL;

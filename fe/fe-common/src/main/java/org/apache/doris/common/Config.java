@@ -3419,13 +3419,27 @@ public class Config extends ConfigBase {
     public static String[] s3_load_endpoint_white_list = {};
 
     @ConfField(mutable = true, description = {
-            "此参数控制是否强制使用 Azure global endpoint。默认值为 false，系统将使用用户指定的 endpoint。"
-            + "如果设置为 true，系统将强制使用 {account}.blob.core.windows.net。",
-            "This parameter controls whether to force the use of the Azure global endpoint. "
-            + "The default is false, meaning the system will use the user-specified endpoint. "
-            + "If set to true, the system will force the use of {account}.blob.core.windows.net."
+            "指定 Azure endpoint 域名后缀白名单（包含 blob 与 dfs），多个值使用逗号分隔。"
+                    + "默认值为 .blob.core.windows.net,.dfs.core.windows.net,"
+                    + ".blob.core.chinacloudapi.cn,.dfs.core.chinacloudapi.cn,"
+                    + ".blob.core.usgovcloudapi.net,.dfs.core.usgovcloudapi.net,"
+                    + ".blob.core.cloudapi.de,.dfs.core.cloudapi.de。",
+            "The host suffix whitelist for Azure endpoints (both blob and dfs), separated by commas. "
+                    + "The default value is .blob.core.windows.net,.dfs.core.windows.net,"
+                    + ".blob.core.chinacloudapi.cn,.dfs.core.chinacloudapi.cn,"
+                    + ".blob.core.usgovcloudapi.net,.dfs.core.usgovcloudapi.net,"
+                    + ".blob.core.cloudapi.de,.dfs.core.cloudapi.de."
     })
-    public static boolean force_azure_blob_global_endpoint = false;
+    public static String[] azure_blob_host_suffixes = {
+            ".blob.core.windows.net",
+            ".dfs.core.windows.net",
+            ".blob.core.chinacloudapi.cn",
+            ".dfs.core.chinacloudapi.cn",
+            ".blob.core.usgovcloudapi.net",
+            ".dfs.core.usgovcloudapi.net",
+            ".blob.core.cloudapi.de",
+            ".dfs.core.cloudapi.de"
+    };
 
     @ConfField(mutable = true, description = {"指定 Jdbc driver url 白名单，举例：jdbc_driver_url_white_list=a,b,c",
             "the white list for jdbc driver url, if it is empty, no white list will be set"
