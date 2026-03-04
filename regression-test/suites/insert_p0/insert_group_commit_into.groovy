@@ -479,6 +479,39 @@ suite("insert_group_commit_into") {
             exception """null value for not null column"""
         }
         getRowCount(2)
+
+        // test invalid group_commit_interval_ms and group_commit_data_bytes
+        test {
+            sql """ ALTER TABLE ${table} SET ("group_commit_interval_ms" = "0"); """
+            exception """group_commit_interval_ms must be greater than 0"""
+        }
+        test {
+            sql """ ALTER TABLE ${table} SET ("group_commit_data_bytes" = "0"); """
+            exception """group_commit_data_bytes must be greater than 0"""
+        }
+        test {
+            sql """ CREATE TABLE IF NOT EXISTS ${table}_invalid ( k1 INT not null )
+                    DUPLICATE KEY(`k1`)
+                    DISTRIBUTED BY HASH(`k1`) 
+                    BUCKETS 1 PROPERTIES (
+                        "replication_allocation" = "tag.location.default: 1",
+                        "group_commit_interval_ms" = "0",
+                        "group_commit_data_bytes" = "100"
+                    ); 
+                """
+            exception """group_commit_interval_ms must be greater than 0"""
+        }
+        test {
+            sql """ CREATE TABLE IF NOT EXISTS ${table}_invalid ( k1 INT not null )
+                    DUPLICATE KEY(`k1`)
+                    DISTRIBUTED BY HASH(`k1`) 
+                    BUCKETS 1 PROPERTIES (
+                        "replication_allocation" = "tag.location.default: 1",
+                        "group_commit_data_bytes" = "0"
+                    ); 
+                """
+            exception """group_commit_data_bytes must be greater than 0"""
+        }
     } finally {
     }
 }
