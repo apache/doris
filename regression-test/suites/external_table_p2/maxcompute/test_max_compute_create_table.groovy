@@ -28,7 +28,7 @@
  * Note: Tables are NOT deleted after creation to allow inspection after tests run
  */
 
-suite("test_max_compute_create_table", "p2,external,maxcompute,external_remote,external_remote_maxcompute") {
+suite("test_max_compute_create_table", "p2,external") {
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String ak = context.config.otherConfigs.get("ak")

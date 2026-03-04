@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_hive_opt_fill_partition", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_opt_fill_partition", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hivePrefix  ="hive3";

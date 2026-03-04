@@ -654,9 +654,8 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block
             {
                 SCOPED_TIMER(local_state._join_filter_timer);
 
-                RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts,
-                                                         &local_state._join_block,
-                                                         local_state._join_block.columns()));
+                RETURN_IF_ERROR(
+                        local_state.filter_block(local_state._conjuncts, &local_state._join_block));
             }
             RETURN_IF_ERROR(local_state._build_output_block(&local_state._join_block, block));
         }

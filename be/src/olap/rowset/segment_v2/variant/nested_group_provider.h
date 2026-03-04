@@ -23,11 +23,14 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/variant/nested_group_reader.h"
+#include "vec/columns/column.h"
 #include "vec/data_types/data_type.h"
 #include "vec/json/path_in_data.h"
 
@@ -214,6 +217,14 @@ public:
                                       uint64_t* total_elements) const = 0;
 
     // Map element-level bitmap to row-level bitmap through the nested group chain.
+    // Create an iterator that wraps |base_iterator| with root-level NG merge logic.
+    // For root variant reads, top-level NestedGroup arrays must be merged back into
+    // the reconstructed variant. CE no-op returns base_iterator unchanged.
+    virtual Status create_root_merge_iterator(ColumnIteratorUPtr base_iterator,
+                                              const NestedGroupReaders& readers,
+                                              const StorageReadOptions* opt,
+                                              ColumnIteratorUPtr* out) = 0;
+
     virtual Status map_elements_to_parent_ords(
             const std::vector<const NestedGroupReader*>& group_chain,
             const ColumnIteratorOptions& opts, const roaring::Roaring& element_bitmap,

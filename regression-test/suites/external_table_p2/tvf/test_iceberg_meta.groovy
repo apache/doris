@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_meta", "p2,external,iceberg,external_remote,external_remote_iceberg") {
+suite("test_iceberg_meta", "p2,external") {
     String suiteName = "test_iceberg_meta"
     Boolean ignoreP2 = true;
     if (ignoreP2) {

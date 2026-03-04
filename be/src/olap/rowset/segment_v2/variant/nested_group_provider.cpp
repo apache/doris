@@ -19,6 +19,8 @@
 
 #include <string>
 
+#include "olap/rowset/segment_v2/variant/nested_group_routing_plan.h"
+
 namespace doris::segment_v2 {
 
 namespace {
@@ -95,6 +97,17 @@ public:
         return Status::NotSupported("NestedGroup element access is not available in this build");
     }
 
+    Status create_root_merge_iterator(ColumnIteratorUPtr base_iterator,
+                                      const NestedGroupReaders& /*readers*/,
+                                      const StorageReadOptions* /*opt*/,
+                                      ColumnIteratorUPtr* out) override {
+        if (out == nullptr) {
+            return Status::InvalidArgument("out is null");
+        }
+        *out = std::move(base_iterator);
+        return Status::OK();
+    }
+
     Status map_elements_to_parent_ords(const std::vector<const NestedGroupReader*>& /*group_chain*/,
                                        const ColumnIteratorOptions& /*opts*/,
                                        const roaring::Roaring& /*element_bitmap*/,
@@ -110,6 +123,17 @@ NestedGroupPathMatch find_in_nested_groups(const NestedGroupReaders& readers,
                                            const std::string& path, bool collect_chain) {
     // Default implementation: no nested groups are populated, so nothing matches.
     return {};
+}
+
+Status collect_nested_group_routing_paths_from_variant_jsonb(
+        const vectorized::ColumnVariant& /*variant*/, std::vector<std::string>* out_ng_paths,
+        std::vector<std::string>* out_conflict_paths) {
+    if (out_ng_paths == nullptr || out_conflict_paths == nullptr) {
+        return Status::InvalidArgument("out_ng_paths or out_conflict_paths is null");
+    }
+    out_ng_paths->clear();
+    out_conflict_paths->clear();
+    return Status::OK();
 }
 
 std::unique_ptr<NestedGroupWriteProvider> create_nested_group_write_provider() {

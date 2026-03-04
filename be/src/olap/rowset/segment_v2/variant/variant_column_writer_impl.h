@@ -21,12 +21,14 @@
 
 #include <functional>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/rowset/segment_v2/variant/nested_group_provider.h"
+#include "olap/rowset/segment_v2/variant/nested_group_routing_plan.h"
 #include "olap/rowset/segment_v2/variant/variant_statistics.h"
 #include "olap/tablet_schema.h"
 #include "vec/columns/column.h"
@@ -216,6 +218,7 @@ private:
     std::unordered_map<std::string, TabletSchema::SubColumnInfo> _subcolumns_info;
     std::unique_ptr<NestedGroupWriteProvider> _nested_group_provider;
     VariantStatistics _statistics;
+    NestedGroupRoutingPlan _nested_group_routing_plan;
 };
 
 class VariantDocCompactWriter : public ColumnWriter {

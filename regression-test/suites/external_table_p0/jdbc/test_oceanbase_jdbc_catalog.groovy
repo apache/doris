@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_oceanbase_jdbc_catalog", "p0,external,oceanbase,external_docker,external_docker_oceanbase") {
+suite("test_oceanbase_jdbc_catalog", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest");
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
