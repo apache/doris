@@ -29,9 +29,9 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
 
     // ============ Source tables ============
 
-    def srcTable = "cc_ext_src"
-    def joinSrcTable = "cc_ext_join_src"
-    def largeSrcTable = "cc_ext_large_src"
+    def srcTable = "cc_ext_src_parquet"
+    def joinSrcTable = "cc_ext_join_src_parquet"
+    def largeSrcTable = "cc_ext_large_src_parquet"
 
     sql """ DROP TABLE IF EXISTS ${srcTable} """
     sql """

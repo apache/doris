@@ -1815,12 +1815,10 @@ void FileScanner::_init_reader_condition_cache() {
     _reader_handles_condition_cache = (_cur_reader->get_total_rows() > 0);
 
     // Create context to pass to readers (native readers use it; non-native readers ignore it)
-    if (!_condition_cache->empty()) {
-        _condition_cache_ctx = std::make_shared<ConditionCacheContext>();
-        _condition_cache_ctx->is_hit = _condition_cache_hit;
-        _condition_cache_ctx->filter_result = _condition_cache;
-        _cur_reader->set_condition_cache_context(_condition_cache_ctx);
-    }
+    _condition_cache_ctx = std::make_shared<ConditionCacheContext>();
+    _condition_cache_ctx->is_hit = _condition_cache_hit;
+    _condition_cache_ctx->filter_result = _condition_cache;
+    _cur_reader->set_condition_cache_context(_condition_cache_ctx);
 }
 
 size_t FileScanner::_condition_cache_filter_block_on_hit(Block* block, size_t read_rows) {
@@ -1866,8 +1864,20 @@ size_t FileScanner::_condition_cache_filter_block_on_hit(Block* block, size_t re
         return filtered_count;
     }
 
-    // Apply the filter to shrink the block.
-    Block::filter_block_internal(block, filter, block->columns());
+    // Apply the filter only to columns that are already populated (have read_rows rows).
+    // After get_next_block(), missing columns and partition columns may still have 0 rows;
+    // they will be filled later by _fill_columns_from_path / _fill_missing_columns using the
+    // adjusted read_rows. Filtering a 0-row column with a non-empty filter would crash
+    // (e.g. CHECK failed: filter.size() == offsets.size()).
+    std::vector<uint32_t> populated_columns;
+    for (uint32_t i = 0; i < block->columns(); i++) {
+        if (block->get_by_position(i).column->size() == read_rows) {
+            populated_columns.push_back(i);
+        }
+    }
+    if (!populated_columns.empty()) {
+        Block::filter_block_internal(block, populated_columns, filter);
+    }
     return filtered_count;
 }
 
