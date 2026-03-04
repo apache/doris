@@ -84,6 +84,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -91,6 +92,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 public class TrinoConnectorExternalCatalog extends ExternalCatalog {
@@ -98,7 +100,9 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
     private static final String TRINO_CONNECTOR_PROPERTIES_PREFIX = "trino.";
     public static final String TRINO_CONNECTOR_NAME = "trino.connector.name";
     private static final String APPLICATION_SHUTDOWN_HOOKS_CLASS = "java.lang.ApplicationShutdownHooks";
+    private static final String HADOOP_SHUTDOWN_HOOK_CLASS = "org.apache.hadoop.util.ShutdownHookManager$1";
     private static final String HDFS_CLASSLOADER_CLASS = "io.trino.filesystem.manager.HdfsClassLoader";
+    private static final Object HDFS_SHUTDOWN_HOOK_TRACKING_LOCK = new Object();
 
     private static final List<String> TRINO_CONNECTOR_REQUIRED_PROPERTIES = ImmutableList.of(
             TRINO_CONNECTOR_NAME
@@ -109,6 +113,7 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
     private ConnectorName connectorName;
     private Session trinoSession;
     private ImmutableMap<String, String> trinoProperties;
+    private final Set<Integer> ownedHdfsClassLoaderIds = ConcurrentHashMap.newKeySet();
 
     public TrinoConnectorExternalCatalog(long catalogId, String name, String resource,
             Map<String, String> props, String comment) {
@@ -137,43 +142,31 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
      * These hooks are JVM GC roots and can pin HdfsClassLoader instances after catalog drop.
      */
     private void removeTrinoHdfsShutdownHooks() {
-        List<Thread> hooksToRemove = new ArrayList<>();
-        List<String> matchedHookSamples = new ArrayList<>();
-        int totalHooks = 0;
-        int matchedHooks = 0;
-        Class<?> shutdownHooksClass;
-        Field hooksField;
+        if (ownedHdfsClassLoaderIds.isEmpty()) {
+            LOG.info("Skip HDFS shutdown hook cleanup for trino catalog {} because no owned classloader is tracked",
+                    name);
+            return;
+        }
+
+        Set<Integer> ownedClassLoaderIdsSnapshot = new HashSet<>(ownedHdfsClassLoaderIds);
+        HookSnapshot beforeSnapshot;
         try {
-            shutdownHooksClass = Class.forName(APPLICATION_SHUTDOWN_HOOKS_CLASS);
-            hooksField = shutdownHooksClass.getDeclaredField("hooks");
-            hooksField.setAccessible(true);
-            Object hookMapObj = hooksField.get(null);
-            if (!(hookMapObj instanceof Map<?, ?>)) {
-                LOG.info("Skip HDFS shutdown hook cleanup for trino catalog {} because hooks map type is {}",
-                        name, hookMapObj == null ? "null" : hookMapObj.getClass().getName());
-                return;
-            }
-            Map<?, ?> hookMap = (Map<?, ?>) hookMapObj;
-            synchronized (shutdownHooksClass) {
-                totalHooks = hookMap.size();
-                for (Object hookObj : hookMap.keySet()) {
-                    if (!(hookObj instanceof Thread)) {
-                        continue;
-                    }
-                    Thread hook = (Thread) hookObj;
-                    ClassLoader contextClassLoader = hook.getContextClassLoader();
-                    if (isTrinoHdfsClassLoader(contextClassLoader)) {
-                        hooksToRemove.add(hook);
-                        matchedHooks++;
-                        if (matchedHookSamples.size() < 5) {
-                            matchedHookSamples.add(describeHook(hook));
-                        }
-                    }
-                }
-            }
+            beforeSnapshot = collectCurrentHdfsHookSnapshot();
         } catch (ReflectiveOperationException e) {
             LOG.warn("Failed to inspect shutdown hooks when closing trino catalog {}", name, e);
             return;
+        }
+
+        List<Thread> hooksToRemove = new ArrayList<>();
+        List<String> matchedHookSamples = new ArrayList<>();
+        for (Map.Entry<Thread, Integer> entry : beforeSnapshot.hdfsHookClassLoaderIds.entrySet()) {
+            if (!ownedClassLoaderIdsSnapshot.contains(entry.getValue())) {
+                continue;
+            }
+            hooksToRemove.add(entry.getKey());
+            if (matchedHookSamples.size() < 5) {
+                matchedHookSamples.add(describeHook(entry.getKey()));
+            }
         }
 
         int removed = 0;
@@ -198,37 +191,141 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
             }
         }
 
-        int remainingMatchedHooks = countRemainingMatchedHooks(shutdownHooksClass, hooksField);
-        LOG.info("Trino catalog {} shutdown-hook cleanup summary: totalHooksBefore={}, matchedBefore={}, "
-                        + "removed={}, removeMiss={}, remainingMatched={}, matchedSamples={}, removeMissSamples={}",
-                name, totalHooks, matchedHooks, removed, removeMiss, remainingMatchedHooks,
-                matchedHookSamples, removeMissSamples);
+        int remainingOwnedHooks = -1;
+        try {
+            HookSnapshot afterSnapshot = collectCurrentHdfsHookSnapshot();
+            remainingOwnedHooks = countMatchedHooksByClassLoaderIds(
+                    afterSnapshot.hdfsHookClassLoaderIds, ownedClassLoaderIdsSnapshot);
+        } catch (ReflectiveOperationException e) {
+            LOG.warn("Failed to inspect remaining shutdown hooks when closing trino catalog {}", name, e);
+        }
+        if (remainingOwnedHooks == 0) {
+            ownedHdfsClassLoaderIds.clear();
+        }
+        LOG.info("Trino catalog {} shutdown-hook cleanup summary: totalHooksBefore={}, hdfsHooksBefore={}, "
+                        + "ownedClassLoaderCount={}, matchedOwnedBefore={}, removed={}, removeMiss={}, "
+                        + "remainingOwnedHooks={}, ownedClassLoaderIds={}, matchedSamples={}, removeMissSamples={}",
+                name,
+                beforeSnapshot.totalHooks,
+                beforeSnapshot.hdfsHookClassLoaderIds.size(),
+                ownedClassLoaderIdsSnapshot.size(),
+                hooksToRemove.size(),
+                removed,
+                removeMiss,
+                remainingOwnedHooks,
+                formatClassLoaderIds(ownedClassLoaderIdsSnapshot),
+                matchedHookSamples,
+                removeMissSamples);
     }
 
-    private int countRemainingMatchedHooks(Class<?> shutdownHooksClass, Field hooksField) {
-        try {
-            Object hookMapObj = hooksField.get(null);
-            if (!(hookMapObj instanceof Map<?, ?>)) {
-                return -1;
+    private void loadInitialCatalogsAndTrackOwnedHooks(TrinoConnectorServicesProvider trinoConnectorServicesProvider) {
+        synchronized (HDFS_SHUTDOWN_HOOK_TRACKING_LOCK) {
+            if (!ownedHdfsClassLoaderIds.isEmpty()) {
+                LOG.warn("Found stale owned HDFS classloaders before init trino catalog {}, force clear: {}",
+                        name, formatClassLoaderIds(ownedHdfsClassLoaderIds));
+                ownedHdfsClassLoaderIds.clear();
             }
-            Map<?, ?> hookMap = (Map<?, ?>) hookMapObj;
-            int remaining = 0;
-            synchronized (shutdownHooksClass) {
-                for (Object hookObj : hookMap.keySet()) {
-                    if (!(hookObj instanceof Thread)) {
+
+            HookSnapshot beforeSnapshot = null;
+            try {
+                beforeSnapshot = collectCurrentHdfsHookSnapshot();
+            } catch (ReflectiveOperationException e) {
+                LOG.warn("Failed to inspect shutdown hooks before loading trino catalog {}", name, e);
+            }
+
+            trinoConnectorServicesProvider.loadInitialCatalogs();
+
+            if (beforeSnapshot == null) {
+                LOG.warn("Skip tracking owned HDFS classloaders for trino catalog {} because pre-snapshot failed",
+                        name);
+                return;
+            }
+
+            try {
+                HookSnapshot afterSnapshot = collectCurrentHdfsHookSnapshot();
+                Set<Long> beforeHookThreadIds = new HashSet<>();
+                for (Thread hook : beforeSnapshot.hdfsHookClassLoaderIds.keySet()) {
+                    beforeHookThreadIds.add(hook.getId());
+                }
+                List<String> newHookSamples = new ArrayList<>();
+                int newHookCount = 0;
+                for (Map.Entry<Thread, Integer> entry : afterSnapshot.hdfsHookClassLoaderIds.entrySet()) {
+                    Thread hook = entry.getKey();
+                    if (beforeHookThreadIds.contains(hook.getId())) {
                         continue;
                     }
-                    Thread hook = (Thread) hookObj;
-                    if (isTrinoHdfsClassLoader(hook.getContextClassLoader())) {
-                        remaining++;
+                    newHookCount++;
+                    ownedHdfsClassLoaderIds.add(entry.getValue());
+                    if (newHookSamples.size() < 5) {
+                        newHookSamples.add(describeHook(hook));
                     }
                 }
+                LOG.info("Tracked owned HDFS classloaders for trino catalog {}: totalHooksBefore={}, "
+                                + "hdfsHooksBefore={}, totalHooksAfter={}, hdfsHooksAfter={}, newHooks={}, "
+                                + "ownedClassLoaderIds={}, newHookSamples={}",
+                        name,
+                        beforeSnapshot.totalHooks,
+                        beforeSnapshot.hdfsHookClassLoaderIds.size(),
+                        afterSnapshot.totalHooks,
+                        afterSnapshot.hdfsHookClassLoaderIds.size(),
+                        newHookCount,
+                        formatClassLoaderIds(ownedHdfsClassLoaderIds),
+                        newHookSamples);
+            } catch (ReflectiveOperationException e) {
+                LOG.warn("Failed to inspect shutdown hooks after loading trino catalog {}", name, e);
             }
-            return remaining;
-        } catch (IllegalAccessException e) {
-            LOG.warn("Failed to count remaining HDFS shutdown hooks for trino catalog {}", name, e);
-            return -1;
         }
+    }
+
+    private HookSnapshot collectCurrentHdfsHookSnapshot() throws ReflectiveOperationException {
+        Class<?> shutdownHooksClass = Class.forName(APPLICATION_SHUTDOWN_HOOKS_CLASS);
+        Field hooksField = shutdownHooksClass.getDeclaredField("hooks");
+        hooksField.setAccessible(true);
+        Object hookMapObj = hooksField.get(null);
+        if (!(hookMapObj instanceof Map<?, ?>)) {
+            LOG.info("Skip HDFS shutdown hook inspection for trino catalog {} because hooks map type is {}",
+                    name, hookMapObj == null ? "null" : hookMapObj.getClass().getName());
+            return new HookSnapshot(0, new HashMap<>());
+        }
+        Map<?, ?> hookMap = (Map<?, ?>) hookMapObj;
+        Map<Thread, Integer> hdfsHooks = new HashMap<>();
+        synchronized (shutdownHooksClass) {
+            for (Object hookObj : hookMap.keySet()) {
+                if (!(hookObj instanceof Thread)) {
+                    continue;
+                }
+                Thread hook = (Thread) hookObj;
+                if (!isHdfsShutdownHook(hook)) {
+                    continue;
+                }
+                ClassLoader contextClassLoader = hook.getContextClassLoader();
+                hdfsHooks.put(hook, System.identityHashCode(contextClassLoader));
+            }
+            return new HookSnapshot(hookMap.size(), hdfsHooks);
+        }
+    }
+
+    private int countMatchedHooksByClassLoaderIds(Map<Thread, Integer> hookClassLoaderIds, Set<Integer> targetIds) {
+        int count = 0;
+        for (Integer classLoaderId : hookClassLoaderIds.values()) {
+            if (targetIds.contains(classLoaderId)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private List<String> formatClassLoaderIds(Set<Integer> classLoaderIds) {
+        List<String> formatted = new ArrayList<>();
+        for (Integer classLoaderId : classLoaderIds) {
+            formatted.add("0x" + Integer.toHexString(classLoaderId));
+        }
+        return formatted;
+    }
+
+    private boolean isHdfsShutdownHook(Thread hook) {
+        return HADOOP_SHUTDOWN_HOOK_CLASS.equals(hook.getClass().getName())
+                && isTrinoHdfsClassLoader(hook.getContextClassLoader());
     }
 
     private boolean isTrinoHdfsClassLoader(ClassLoader contextClassLoader) {
@@ -245,7 +342,18 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
                 + ",id=" + hook.getId()
                 + ",alive=" + hook.isAlive()
                 + ",state=" + hook.getState()
+                + ",hookClass=" + hook.getClass().getName()
                 + ",cl=" + classLoaderName + "@" + classLoaderId;
+    }
+
+    private static class HookSnapshot {
+        private final int totalHooks;
+        private final Map<Thread, Integer> hdfsHookClassLoaderIds;
+
+        private HookSnapshot(int totalHooks, Map<Thread, Integer> hdfsHookClassLoaderIds) {
+            this.totalHooks = totalHooks;
+            this.hdfsHookClassLoaderIds = hdfsHookClassLoaderIds;
+        }
     }
 
     @Override
@@ -364,7 +472,7 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
         TrinoConnectorServicesProvider trinoConnectorServicesProvider = new TrinoConnectorServicesProvider(
                 trinoCatalogHandle.getCatalogName(), connectorNameString, catalogFactory,
                 trinoConnectorProperties, MoreExecutors.directExecutor());
-        trinoConnectorServicesProvider.loadInitialCatalogs();
+        loadInitialCatalogsAndTrackOwnedHooks(trinoConnectorServicesProvider);
         return trinoConnectorServicesProvider;
     }
 
