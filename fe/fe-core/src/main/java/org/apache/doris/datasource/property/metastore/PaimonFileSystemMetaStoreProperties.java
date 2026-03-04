@@ -48,9 +48,6 @@ public class PaimonFileSystemMetaStoreProperties extends AbstractPaimonPropertie
             }
         });
         appendUserHadoopConfig(conf);
-        // Sync hadoop storage config (fs.obs.*, fs.s3a.*, etc.) into Paimon Options
-        // so that Paimon FileIO (HadoopFileIO fallback) can correctly handle obs:// paths.
-        conf.forEach(entry -> catalogOptions.set(entry.getKey(), entry.getValue()));
         CatalogContext catalogContext = CatalogContext.create(catalogOptions, conf);
         try {
             return this.executionAuthenticator.execute(() -> CatalogFactory.createCatalog(catalogContext));
