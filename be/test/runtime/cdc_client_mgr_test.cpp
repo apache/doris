@@ -32,8 +32,8 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "runtime/exec_env.h"
 #include "runtime/cluster_info.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 
