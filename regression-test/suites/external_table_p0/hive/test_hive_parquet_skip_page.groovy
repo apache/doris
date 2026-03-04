@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_parquet_skip_page", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_parquet_skip_page", "p0,external") {
     def q01 = {
         qt_q01 """
         select * from lineitem where l_orderkey  < 1000 order by l_orderkey,l_partkey limit 10;

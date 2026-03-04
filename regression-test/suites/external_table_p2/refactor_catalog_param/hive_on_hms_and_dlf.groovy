@@ -17,7 +17,7 @@
 import static groovy.test.GroovyAssert.shouldFail;
 import java.util.concurrent.ThreadLocalRandom
 
-suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
+suite("hive_on_hms_and_dlf", "p2,external") {
 
 
     def testQueryAndInsert = { String catalogProperties, String prefix, String dbLocation ->

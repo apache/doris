@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_parquet_alter_column", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_parquet_alter_column", "p0,external") {
     if (true) {
         //Turn off this test for now, I may delete this case or modify it later.
         return;

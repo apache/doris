@@ -19,23 +19,41 @@
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <algorithm>
+#include <iostream>
 #include <memory>
+#include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
+#include "olap/rowset/segment_v2/variant/nested_group_path.h"
+#include "olap/rowset/segment_v2/variant/nested_group_routing_plan.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
+#include "runtime/runtime_state.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/column_variant.h"
 #include "vec/common/variant_util.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_variant.h"
+#include "vec/exprs/function_context.h"
+#include "vec/functions/simple_function_factory.h"
 #include "vec/json/path_in_data.h"
 #include "vec/olap/olap_data_convertor.h"
 
@@ -678,11 +696,15 @@ Status UnifiedSparseColumnWriter::append_single_sparse(
     size_t limit = parent_column.variant_max_sparse_column_statistics_size();
     for (size_t i = 0; i != paths->size(); ++i) {
         auto k = paths->get_data_at(i);
-        if (auto it = path_counts.find(k); it != path_counts.end())
+        if (auto it = path_counts.find(k); it != path_counts.end()) {
             ++it->second;
-        else if (path_counts.size() < limit)
+        } else if (path_counts.size() < limit) {
             path_counts.emplace(k, 1);
+        }
     }
+
+    // Build path frequency statistics with upper bound limit to avoid
+    // large memory and metadata size. Persist to meta for readers.
     segment_v2::VariantStatistics sparse_stats;
     for (const auto& [k, cnt] : path_counts) {
         sparse_stats.sparse_column_non_null_size.emplace(k.to_string(), static_cast<uint32_t>(cnt));
@@ -1064,6 +1086,24 @@ Status VariantColumnWriterImpl::_process_root_column(vectorized::ColumnVariant* 
     auto& nullable_column =
             assert_cast<vectorized::ColumnNullable&>(*ptr->get_root()->assume_mutable());
     auto root_column = nullable_column.get_nested_column_ptr();
+
+    // Simplified dedup logic:
+    // If we have NG paths that cover the root data, replace root JSONB with
+    // empty defaults — the actual data lives in NG columns.
+    // Conflict scalar data is discarded per the conflict policy.
+    if (_nested_group_routing_plan.can_remove_root_jsonb()) {
+        const bool has_root_ng = std::ranges::any_of(
+                _nested_group_routing_plan.ng_only_prefixes,
+                [](const std::string& p) { return is_root_nested_group_path(p); });
+        if (has_root_ng) {
+            // Replace with empty JSONB defaults — the actual data is in NG columns.
+            auto bare_jsonb_type = std::make_shared<vectorized::ColumnVariant::MostCommonType>();
+            auto bare_jsonb_col = bare_jsonb_type->create_column();
+            bare_jsonb_col->insert_many_defaults(num_rows);
+            root_column = std::move(bare_jsonb_col);
+        }
+    }
+
     // If the root variant is nullable, then update the root column null column with the outer null column.
     if (_tablet_column->is_nullable()) {
         // use outer null column as final null column
@@ -1093,66 +1133,59 @@ Status VariantColumnWriterImpl::_process_root_column(vectorized::ColumnVariant* 
 Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* ptr,
                                                     vectorized::OlapBlockDataConvertor* converter,
                                                     size_t num_rows, int& column_id) {
-    // generate column info by entry info
-    auto generate_column_info = [&](const auto& entry) {
-        const std::string& column_name =
-                _tablet_column->name_lower_case() + "." + entry->path.get_path();
-        const vectorized::DataTypePtr& final_data_type_from_object =
-                entry->data.get_least_common_type();
+    auto generate_column_info = [&](const vectorized::PathInData& relative_path,
+                                    const vectorized::DataTypePtr& final_data_type) {
+        const std::string column_name =
+                _tablet_column->name_lower_case() + "." + relative_path.get_path();
         vectorized::PathInData full_path;
-        if (entry->path.has_nested_part()) {
+        if (relative_path.has_nested_part()) {
             vectorized::PathInDataBuilder full_path_builder;
             full_path = full_path_builder.append(_tablet_column->name_lower_case(), false)
-                                .append(entry->path.get_parts(), false)
+                                .append(relative_path.get_parts(), false)
                                 .build();
         } else {
             full_path = vectorized::PathInData(column_name);
         }
-        // set unique_id and parent_unique_id, will use unique_id to get iterator correct
-        auto column = vectorized::variant_util::get_column_by_type(
-                final_data_type_from_object, column_name,
+        return vectorized::variant_util::get_column_by_type(
+                final_data_type, column_name,
                 vectorized::variant_util::ExtraInfo {
                         .unique_id = -1,
                         .parent_unique_id = _tablet_column->unique_id(),
                         .path_info = full_path});
-        return column;
     };
     _subcolumns_indexes.resize(ptr->get_subcolumns().size());
-    // convert sub column data from engine format to storage layer format
-    // NOTE: We only keep up to variant_max_subcolumns_count as extracted columns; others are externalized.
-    for (const auto& entry :
-         vectorized::variant_util::get_sorted_subcolumns(ptr->get_subcolumns())) {
-        const auto& least_common_type = entry->data.get_least_common_type();
-        if (vectorized::variant_util::get_base_type_of_array(least_common_type)
-                    ->get_primitive_type() == PrimitiveType::INVALID_TYPE) {
-            continue;
-        }
-        if (entry->path.empty()) {
-            // already handled
-            continue;
-        }
-        CHECK(entry->data.is_finalized());
 
-        // create subcolumn writer if under limit; otherwise externalize ColumnMetaPB via IndexedColumn
+    auto write_one_subcolumn =
+            [&](const std::string& current_path, const vectorized::PathInData& relative_path,
+                const vectorized::DataTypePtr& current_type,
+                const vectorized::ColumnPtr& current_column, size_t non_null_count,
+                bool check_storage_type, bool use_existing_subcolumn_info) -> Status {
         int current_column_id = column_id++;
+        if (_subcolumns_indexes.size() <= cast_set<size_t>(current_column_id)) {
+            _subcolumns_indexes.resize(cast_set<size_t>(current_column_id) + 1);
+        }
+
         TabletColumn tablet_column;
-        int64_t none_null_value_size = entry->data.get_non_null_value_size();
-        vectorized::ColumnPtr current_column = entry->data.get_finalized_column_ptr()->get_ptr();
-        vectorized::DataTypePtr current_type = entry->data.get_least_common_type();
-        if (auto current_path = entry->path.get_path();
-            _subcolumns_info.find(current_path) != _subcolumns_info.end()) {
-            tablet_column = std::move(_subcolumns_info[current_path].column);
-            _subcolumns_indexes[current_column_id] =
-                    std::move(_subcolumns_info[current_path].indexes);
-            if (auto storage_type =
-                        vectorized::DataTypeFactory::instance().create_data_type(tablet_column);
-                !storage_type->equals(*current_type)) {
-                return Status::InvalidArgument("Storage type {} is not equal to current type {}",
-                                               storage_type->get_name(), current_type->get_name());
+        if (use_existing_subcolumn_info) {
+            if (auto it = _subcolumns_info.find(current_path); it != _subcolumns_info.end()) {
+                tablet_column = it->second.column;
+                _subcolumns_indexes[current_column_id] = it->second.indexes;
+                if (check_storage_type) {
+                    auto storage_type =
+                            vectorized::DataTypeFactory::instance().create_data_type(tablet_column);
+                    if (!storage_type->equals(*current_type)) {
+                        return Status::InvalidArgument(
+                                "Storage type {} is not equal to current type {} for path {}",
+                                storage_type->get_name(), current_type->get_name(), current_path);
+                    }
+                }
+            } else {
+                tablet_column = generate_column_info(relative_path, current_type);
             }
         } else {
-            tablet_column = generate_column_info(entry);
+            tablet_column = generate_column_info(relative_path, current_type);
         }
+
         ColumnWriterOptions opts;
         opts.meta = _opts.footer->add_columns();
         opts.index_file_writer = _opts.index_file_writer;
@@ -1171,14 +1204,49 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
         RETURN_IF_ERROR(_create_column_writer(
                 current_column_id, tablet_column, _opts.rowset_ctx->tablet_schema,
                 _opts.index_file_writer, &writer, _subcolumns_indexes[current_column_id], &opts,
-                none_null_value_size, need_record_none_null_value_size));
+                non_null_count, need_record_none_null_value_size));
         _subcolumn_writers.push_back(std::move(writer));
         _subcolumn_opts.push_back(opts);
-        _subcolumn_opts[current_column_id - 1].meta->set_num_rows(num_rows);
+        _subcolumn_opts.back().meta->set_num_rows(num_rows);
 
         RETURN_IF_ERROR(convert_and_write_column(converter, tablet_column, current_type,
-                                                 _subcolumn_writers[current_column_id - 1].get(),
-                                                 current_column, ptr->rows(), current_column_id));
+                                                 _subcolumn_writers.back().get(), current_column,
+                                                 ptr->rows(), current_column_id));
+        return Status::OK();
+    };
+
+    // convert sub column data from engine format to storage layer format
+    // NOTE: We only keep up to variant_max_subcolumns_count as extracted columns; others are externalized.
+    for (const auto& entry :
+         vectorized::variant_util::get_sorted_subcolumns(ptr->get_subcolumns())) {
+        if (entry->path.empty()) {
+            continue;
+        }
+        const auto& least_common_type = entry->data.get_least_common_type();
+        if (least_common_type == nullptr) {
+            continue;
+        }
+        auto base_type = vectorized::variant_util::get_base_type_of_array(least_common_type);
+        if (base_type != nullptr &&
+            base_type->get_primitive_type() == PrimitiveType::INVALID_TYPE) {
+            continue;
+        }
+        // Skip Array(Variant) subcolumns — these represent NG (nested group) data
+        // that should be handled by the NG writer, not as regular subcolumns.
+        if (base_type != nullptr &&
+            typeid_cast<const vectorized::DataTypeVariant*>(base_type.get()) != nullptr) {
+            continue;
+        }
+        const std::string current_path = entry->path.get_path();
+        if (_nested_group_routing_plan.is_excluded_subcolumn(current_path)) {
+            continue;
+        }
+        CHECK(entry->data.is_finalized());
+        RETURN_IF_ERROR(write_one_subcolumn(current_path, entry->path, least_common_type,
+                                            entry->data.get_finalized_column_ptr()->get_ptr(),
+                                            entry->data.get_non_null_value_size(),
+                                            true /* check_storage_type */,
+                                            true /* use_existing_subcolumn_info */));
     }
     return Status::OK();
 }
@@ -1204,7 +1272,9 @@ Status VariantColumnWriterImpl::_process_binary_column(
 Status VariantColumnWriterImpl::finalize() {
     auto* ptr = _column.get();
     ptr->set_max_subcolumns_count(_tablet_column->variant_max_subcolumns_count());
+
     ptr->finalize(vectorized::ColumnVariant::FinalizeMode::WRITE_MODE);
+
     // convert each subcolumns to storage format and add data to sub columns writers buffer
     auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
 
@@ -1229,6 +1299,21 @@ Status VariantColumnWriterImpl::finalize() {
     }
 
     RETURN_IF_ERROR(ptr->convert_typed_path_to_storage_type(_subcolumns_info));
+    _nested_group_routing_plan = NestedGroupRoutingPlan {};
+
+    const int current_variant_uid = _tablet_column->unique_id();
+    const bool has_extracted_columns = std::ranges::any_of(
+            _opts.rowset_ctx->tablet_schema->columns(), [current_variant_uid](const auto& column) {
+                return column->is_extracted_column() &&
+                       column->parent_unique_id() == current_variant_uid;
+            });
+    if (!has_extracted_columns) {
+        RETURN_IF_ERROR(build_nested_group_routing_plan(*ptr, &_nested_group_routing_plan));
+
+        // Root NG dedup is handled in _process_root_column() — see the
+        // has_root_ng check there. We intentionally do NOT modify the in-memory
+        // root data here because _nested_group_provider->prepare() needs it.
+    }
 
     RETURN_IF_ERROR(ptr->pick_subcolumns_to_sparse_column(
             _subcolumns_info, _tablet_column->variant_enable_typed_paths_to_sparse()));
@@ -1243,12 +1328,7 @@ Status VariantColumnWriterImpl::finalize() {
     // convert root column data from engine format to storage layer format
     RETURN_IF_ERROR(_process_root_column(ptr, olap_data_convertor.get(), num_rows, column_id));
 
-    auto has_extracted_columns = [this]() {
-        return std::ranges::any_of(
-                _opts.rowset_ctx->tablet_schema->columns(),
-                [](const auto& column) { return column->is_extracted_column(); });
-    };
-    if (!has_extracted_columns()) {
+    if (!has_extracted_columns) {
         if (!_tablet_column->variant_enable_doc_mode()) {
             // process and append each subcolumns to sub columns writers buffer
             RETURN_IF_ERROR(
@@ -1258,16 +1338,16 @@ Status VariantColumnWriterImpl::finalize() {
         // process sparse column and append to sparse writer buffer
         RETURN_IF_ERROR(
                 _process_binary_column(ptr, olap_data_convertor.get(), num_rows, column_id));
-
-        // NestedGroup write behavior is determined by the injected provider implementation.
-        RETURN_IF_ERROR(_nested_group_provider->prepare(
-                *ptr, /*include_jsonb_subcolumns=*/true, _tablet_column, _opts,
-                olap_data_convertor.get(), num_rows, &column_id, &_statistics));
-        if (_binary_writer) {
-            _binary_writer->merge_stats_to(&_statistics);
-        }
-        _statistics.to_pb(_opts.meta->mutable_variant_statistics());
     }
+
+    // NestedGroup write behavior is determined by the injected provider implementation.
+    RETURN_IF_ERROR(_nested_group_provider->prepare(
+            *ptr, /*include_jsonb_subcolumns=*/true, _tablet_column, _opts,
+            olap_data_convertor.get(), num_rows, &column_id, &_statistics));
+    if (_binary_writer) {
+        _binary_writer->merge_stats_to(&_statistics);
+    }
+    _statistics.to_pb(_opts.meta->mutable_variant_statistics());
 
     _is_finalized = true;
     return Status::OK();

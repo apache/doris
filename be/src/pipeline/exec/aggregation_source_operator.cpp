@@ -448,7 +448,7 @@ Status AggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* blo
     RETURN_IF_ERROR(local_state._executor.get_result(state, block, eos));
     local_state.make_nullable_output_key(block);
     // dispose the having clause, should not be execute in prestreaming agg
-    RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block, block->columns()));
+    RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block));
     local_state.do_agg_limit(block, eos);
     return Status::OK();
 }
