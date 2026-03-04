@@ -298,21 +298,24 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 // For file-based sources, iterate through candidates and skip files whose
                 // content is effectively empty (e.g. only newlines in csv_with_names format).
                 // BE returns END_OF_FILE for such files, so we try the next candidate.
+                TFileScanRangeParams params = buildFileScanRangeParams();
                 for (TBrokerFileStatus fileStatus : fileStatuses) {
                     if (isFileContentEmpty(fileStatus)) {
                         continue;
                     }
-                    PFetchTableSchemaRequest request = getFetchTableStructureRequest(fileStatus);
-                    InternalService.PFetchTableSchemaResult candidateResult = fetchSchema(address, request);
-                    TStatusCode code = TStatusCode.findByValue(candidateResult.getStatus().getStatusCode());
+                    PFetchTableSchemaRequest request =
+                            buildSchemaRequest(params, buildFileRangeDesc(fileStatus));
+                    InternalService.PFetchTableSchemaResult candidateResult =
+                            fetchSchema(address, request);
+                    TStatusCode code = TStatusCode.findByValue(
+                            candidateResult.getStatus().getStatusCode());
                     if (code == TStatusCode.END_OF_FILE) {
                         LOG.info("Skipped file with empty content for schema inference: {}",
                                 fileStatus.getPath());
                         continue;
                     }
-                    if (code != TStatusCode.OK) {
-                        throwFetchError(candidateResult, address);
-                    }
+                    // fetchSchema() already throws on non-OK/non-END_OF_FILE,
+                    // so reaching here means code is OK.
                     result = candidateResult;
                     break;
                 }
@@ -543,16 +546,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
 
         return buildSchemaRequest(fileScanRangeParams, buildFileRangeDesc(firstFile));
-    }
-
-    /**
-     * Build a fetch-table-schema request for a specific file. Used by getTableColumns() to
-     * retry schema inference on the next candidate when the current file has empty content.
-     */
-    private PFetchTableSchemaRequest getFetchTableStructureRequest(TBrokerFileStatus fileStatus)
-            throws TException {
-        TFileScanRangeParams fileScanRangeParams = buildFileScanRangeParams();
-        return buildSchemaRequest(fileScanRangeParams, buildFileRangeDesc(fileStatus));
     }
 
     private boolean isFileContentEmpty(TBrokerFileStatus fileStatus) {
