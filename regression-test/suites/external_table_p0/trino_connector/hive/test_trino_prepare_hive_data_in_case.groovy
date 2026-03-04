@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_trino_prepare_hive_data_in_case", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_trino_prepare_hive_data_in_case", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     def catalog_name = "test_trino_prepare_hive_data_in_case"

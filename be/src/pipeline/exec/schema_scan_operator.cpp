@@ -257,8 +257,8 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
                         *src_block.safe_get_by_position(_slot_offsets[i]).column, 0,
                         src_block.rows());
             }
-            RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block,
-                                                     _dest_tuple_desc->slots().size()));
+            DCHECK_EQ(block->columns(), _dest_tuple_desc->slots().size());
+            RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block));
             src_block.clear();
         }
     } while (block->rows() == 0 && !*eos);

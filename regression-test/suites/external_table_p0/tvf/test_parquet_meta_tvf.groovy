@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_parquet_meta_tvf", "p0,external,external_docker,tvf") {
+suite("test_parquet_meta_tvf", "p0,external") {
     // use nereids planner
     sql """ set enable_nereids_planner=true """
     sql """ set enable_fallback_to_original_planner=false """

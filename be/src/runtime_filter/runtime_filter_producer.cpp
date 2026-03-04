@@ -50,12 +50,7 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
     _check_state({State::READY_TO_PUBLISH});
 
     auto do_merge = [&]() {
-        // two case we need do local merge:
-        // 1. has remote target
-        // 2. has local target and has global consumer (means target scan has local shuffle)
-        if (!_has_remote_target && state->global_runtime_filter_mgr()
-                                           ->get_consume_filters(_wrapper->filter_id())
-                                           .empty()) {
+        if (!_need_do_merge(state)) {
             // when global consumer not exist, send_to_local_targets will do nothing, so merge rf is useless
             return Status::OK();
         }
@@ -171,11 +166,7 @@ Status RuntimeFilterProducer::send_size(RuntimeState* state, uint64_t local_filt
     }
     set_state(State::WAITING_FOR_SYNCED_SIZE);
 
-    // two case we need do local merge:
-    // 1. has remote target
-    // 2. has local target and has global consumer (means target scan has local shuffle)
-    if (_has_remote_target ||
-        !state->global_runtime_filter_mgr()->get_consume_filters(_wrapper->filter_id()).empty()) {
+    if (_need_do_merge(state)) {
         LocalMergeContext* merger_context = nullptr;
         RETURN_IF_ERROR(state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
                 _wrapper->filter_id(), &merger_context));

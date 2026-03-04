@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_external_yandex_nereids", "p2,external,hive,external_remote,external_remote_hive") {
+suite("test_external_yandex_nereids", "p2,external") {
     Boolean ignoreP2 = true;
     if (ignoreP2) {
         logger.info("disable p2 test");

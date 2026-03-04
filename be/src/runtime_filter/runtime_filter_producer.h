@@ -131,11 +131,14 @@ public:
         _wrapper = wrapper;
     }
 
-    std::shared_ptr<RuntimeFilterWrapper> detect_in_filter() {
-        if (_has_remote_target) {
+    std::shared_ptr<RuntimeFilterWrapper> detect_local_in_filter(RuntimeState* state) {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
+        // need merge mean this filter not pure local
+        // the data not directly colocated with scan node
+        // so that can not enable local in filter optimization
+        if (_need_do_merge(state)) {
             return nullptr;
         }
-        std::unique_lock<std::recursive_mutex> l(_rmtx);
         if (_wrapper->is_ready_in_filter()) {
             return _wrapper;
         }
@@ -155,6 +158,15 @@ private:
                             "producer meet invalid state, {}, assumed_states is {}", debug_string(),
                             states_to_string<RuntimeFilterProducer>(assumed_states));
         }
+    }
+
+    bool _need_do_merge(RuntimeState* state) {
+        // two cases where we need to do a local merge:
+        // 1. has remote target
+        // 2. has local target and has global consumer (means target scan has local shuffle)
+        return (_has_remote_target || !state->global_runtime_filter_mgr()
+                                               ->get_consume_filters(_wrapper->filter_id())
+                                               .empty());
     }
 
     Status _init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options) override {

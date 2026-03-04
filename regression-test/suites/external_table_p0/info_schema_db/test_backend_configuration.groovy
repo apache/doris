@@ -16,7 +16,7 @@
 // under the License.
 import org.apache.doris.regression.suite.ClusterOptions
 
-suite("test_backend_configuration", "docker, p0, external_table,information_schema,backend_configuration") {
+suite("test_backend_configuration", "p0") {
     def options = new ClusterOptions()
     options.setFeNum(1)
     options.setBeNum(3)

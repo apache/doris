@@ -266,7 +266,7 @@ public:
     virtual std::vector<Dependency*> execution_dependencies() { return {}; }
 
     Status filter_block(const vectorized::VExprContextSPtrs& expr_contexts,
-                        vectorized::Block* block, size_t column_to_keep);
+                        vectorized::Block* block);
 
     int64_t& estimate_memory_usage() { return _estimate_memory_usage; }
 

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_dlf_catalog", "p2,external,iceberg,external_remote,external_remote_iceberg") {
+suite("test_iceberg_dlf_catalog", "p2,external") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         return

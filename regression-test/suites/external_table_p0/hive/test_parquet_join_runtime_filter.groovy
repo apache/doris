@@ -17,7 +17,7 @@
 
 import groovy.json.JsonSlurper
 
-suite("test_parquet_join_runtime_filter", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_parquet_join_runtime_filter", "p0,external") {
 
     def getProfileList = {
         def dst = 'http://' + context.config.feHttpAddress

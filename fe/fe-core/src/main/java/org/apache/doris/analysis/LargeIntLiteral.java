@@ -39,8 +39,6 @@ public class LargeIntLiteral extends NumericLiteralExpr {
     public static final BigInteger LARGE_INT_MIN = new BigInteger("-170141183460469231731687303715884105728");
     // 2^127 - 1
     public static final BigInteger LARGE_INT_MAX = new BigInteger("170141183460469231731687303715884105727");
-    // 2^127
-    public static final BigInteger LARGE_INT_MAX_ABS = new BigInteger("170141183460469231731687303715884105728");
 
     @SerializedName("v")
     private BigInteger value;

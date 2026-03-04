@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
+suite("test_paimon_hms_catalog", "p2,external") {
 
     def testQuery = { String catalogProperties, String prefix, String dbName ->
         def catalog_name = "test_paimon_on_hms_${prefix}_catalog"

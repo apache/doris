@@ -25,6 +25,7 @@
 #include <roaring/roaring.hh>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "binary_column_extract_iterator.h"
 #include "binary_column_reader.h"
@@ -58,6 +59,15 @@
 namespace doris::segment_v2 {
 
 #include "common/compile_check_begin.h"
+
+namespace {
+
+bool is_compaction_or_checksum_reader(const StorageReadOptions* opts) {
+    return opts != nullptr && (ColumnReader::is_compaction_reader_type(opts->io_ctx.reader_type) ||
+                               opts->io_ctx.reader_type == ReaderType::READER_CHECKSUM);
+}
+
+} // namespace
 
 const SubcolumnColumnMetaInfo::Node* VariantColumnReader::get_subcolumn_meta_by_path(
         const vectorized::PathInData& relative_path) const {
@@ -316,10 +326,17 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
 
     DCHECK(opts != nullptr);
+    int32_t col_uid =
+            target_col.unique_id() >= 0 ? target_col.unique_id() : target_col.parent_unique_id();
     auto relative_path = target_col.path_info_ptr()->copy_pop_front();
-    // compaction need to read flat leaves nodes data to prevent from amplification
     const auto* node =
             target_col.has_path_info() ? _subcolumns_meta_info->find_leaf(relative_path) : nullptr;
+    if (!relative_path.empty() && _can_use_nested_group_read_path() &&
+        _try_fill_nested_group_plan(plan, target_col, opts, col_uid, relative_path)) {
+        return Status::OK();
+    }
+
+    // compaction need to read flat leaves nodes data to prevent from amplification
     if (!node) {
         // Handle sparse column reads in flat-leaf compaction.
         const std::string rel = relative_path.get_path();
@@ -458,8 +475,12 @@ bool VariantColumnReader::_need_read_flat_leaves(const StorageReadOptions* opts)
     return opts != nullptr && opts->tablet_schema != nullptr &&
            std::ranges::any_of(opts->tablet_schema->columns(),
                                [](const auto& column) { return column->is_extracted_column(); }) &&
-           (is_compaction_reader_type(opts->io_ctx.reader_type) ||
-            opts->io_ctx.reader_type == ReaderType::READER_CHECKSUM);
+           is_compaction_or_checksum_reader(opts);
+}
+
+bool VariantColumnReader::_can_use_nested_group_read_path() const {
+    return _nested_group_read_provider != nullptr &&
+           _nested_group_read_provider->should_enable_nested_group_read_path();
 }
 
 Status VariantColumnReader::_validate_access_paths_debug(
@@ -587,21 +608,11 @@ Status VariantColumnReader::_validate_access_paths_debug(
     return Status::OK();
 }
 
-bool VariantColumnReader::_try_build_nested_group_plan(
+bool VariantColumnReader::_try_fill_nested_group_plan(
         ReadPlan* plan, const TabletColumn& target_col, const StorageReadOptions* opt,
         int32_t col_uid, const vectorized::PathInData& relative_path) const {
-    if (_nested_group_read_provider == nullptr ||
-        !_nested_group_read_provider->should_enable_nested_group_read_path()) {
-        return false;
-    }
-    if (_need_read_flat_leaves(opt)) {
-        return false;
-    }
-    // compaction skip read NestedGroup
-    if (is_compaction_reader_type(opt->io_ctx.reader_type) ||
-        opt->io_ctx.reader_type == ReaderType::READER_CHECKSUM) {
-        return false;
-    }
+    DCHECK(_nested_group_read_provider != nullptr);
+
     bool is_whole = false;
     vectorized::DataTypePtr out_type;
     vectorized::PathInData out_relative_path;
@@ -624,6 +635,26 @@ bool VariantColumnReader::_try_build_nested_group_plan(
     plan->nested_group_chain = std::move(out_chain);
     plan->nested_group_path_filter = std::move(out_path_filter);
     return true;
+}
+
+bool VariantColumnReader::_try_build_nested_group_plan(
+        ReadPlan* plan, const TabletColumn& target_col, const StorageReadOptions* opt,
+        int32_t col_uid, const vectorized::PathInData& relative_path) const {
+    const bool is_compaction_or_checksum = is_compaction_or_checksum_reader(opt);
+
+    // Root path in compaction/checksum must reconstruct full Variant rows for re-write.
+    // Query root reads can still use NestedGroup whole read for top-level array shape.
+    if (relative_path.empty() && is_compaction_or_checksum) {
+        return false;
+    }
+    if (!_can_use_nested_group_read_path()) {
+        return false;
+    }
+
+    if (_need_read_flat_leaves(opt)) {
+        return false;
+    }
+    return _try_fill_nested_group_plan(plan, target_col, opt, col_uid, relative_path);
 }
 
 Status VariantColumnReader::_try_build_leaf_plan(ReadPlan* plan, int32_t col_uid,
@@ -703,6 +734,12 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
     if (node == nullptr) {
         relative_path = vectorized::PathInData(relative_path.get_path());
         node = _subcolumns_meta_info->find_exact(relative_path);
+    }
+
+    // NestedGroup path resolution must happen before doc/sparse/hierarchical fallbacks.
+    // This keeps query/compaction behavior consistent for array<object> paths.
+    if (_try_build_nested_group_plan(plan, target_col, opt, col_uid, relative_path)) {
+        return Status::OK();
     }
 
     // read root: from doc value column
@@ -838,9 +875,23 @@ Status VariantColumnReader::_create_iterator_from_plan(
     case ReadKind::HIERARCHICAL: {
         int32_t col_uid = target_col.unique_id() >= 0 ? target_col.unique_id()
                                                       : target_col.parent_unique_id();
+        ColumnIteratorUPtr base_iterator;
         RETURN_IF_ERROR(_create_hierarchical_reader(
-                iterator, col_uid, plan.relative_path, plan.node, plan.root, column_reader_cache,
-                opt->stats, HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE));
+                &base_iterator, col_uid, plan.relative_path, plan.node, plan.root,
+                column_reader_cache, opt->stats,
+                HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE));
+
+        // Root variant reconstruction needs to merge top-level NestedGroup arrays, because NG leaf
+        // columns are not row-aligned and are skipped by the generic hierarchical reader.
+        if (plan.relative_path.empty() && _nested_group_read_provider != nullptr &&
+            !_nested_group_readers.empty()) {
+            ColumnIteratorUPtr merged_iterator;
+            RETURN_IF_ERROR(_nested_group_read_provider->create_root_merge_iterator(
+                    std::move(base_iterator), _nested_group_readers, opt, &merged_iterator));
+            *iterator = std::move(merged_iterator);
+            return Status::OK();
+        }
+        *iterator = std::move(base_iterator);
         return Status::OK();
     }
     case ReadKind::LEAF: {
@@ -1167,7 +1218,7 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
 
     // NestedGroup initialization is provider-driven. Disabled providers keep fallback behavior,
     // while enabled providers populate nested group readers from segment footer.
-    if (_nested_group_read_provider->should_enable_nested_group_read_path()) {
+    if (_can_use_nested_group_read_path()) {
         RETURN_IF_ERROR(_nested_group_read_provider->init_readers(opts, footer, file_reader,
                                                                   num_rows, _nested_group_readers));
     }
