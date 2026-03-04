@@ -167,6 +167,7 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
         }
         return null;
     }
+
     private static final boolean OBS_FILE_SYSTEM_AVAILABLE =
             isClassAvailable("org.apache.hadoop.fs.obs.OBSFileSystem");
 
