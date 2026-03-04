@@ -148,6 +148,10 @@ inline ScalarColumnWriter* get_null_writer(const ColumnWriterOptions& opts,
     return new ScalarColumnWriter(null_options, std::move(null_field), file_writer);
 }
 
+ColumnWriter::ColumnWriter(std::unique_ptr<Field> field, bool is_nullable, ColumnMetaPB* meta)
+        : _field(std::move(field)), _is_nullable(is_nullable), _column_meta(meta) {
+    _data_type = vectorized::DataTypeFactory::instance().create_data_type(*_column_meta);
+}
 Status ColumnWriter::create_struct_writer(const ColumnWriterOptions& opts,
                                           const TabletColumn* column, io::FileWriter* file_writer,
                                           std::unique_ptr<ColumnWriter>* writer) {
@@ -520,7 +524,8 @@ Status ScalarColumnWriter::init() {
         _null_bitmap_builder = std::make_unique<NullBitmapBuilder>();
     }
     if (_opts.need_zone_map) {
-        RETURN_IF_ERROR(ZoneMapIndexWriter::create(get_field(), _zone_map_index_builder));
+        RETURN_IF_ERROR(
+                ZoneMapIndexWriter::create(_data_type, get_field(), _zone_map_index_builder));
     }
 
     if (_opts.need_inverted_index) {

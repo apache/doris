@@ -382,7 +382,7 @@ Status HashJoinProbeLocalState::filter_data_and_build_output(RuntimeState* state
     }
     {
         SCOPED_TIMER(_join_filter_timer);
-        RETURN_IF_ERROR(filter_block(_conjuncts, temp_block, temp_block->columns()));
+        RETURN_IF_ERROR(filter_block(_conjuncts, temp_block));
     }
 
     RETURN_IF_ERROR(_build_output_block(temp_block, output_block));

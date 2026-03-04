@@ -28,10 +28,12 @@
 
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "olap/field.h"
+#include "olap/metadata_adder.h"
 #include "runtime/define_primitive_type.h"
 #include "util/once.h"
 #include "vec/common/arena.h"
+#include "vec/core/field.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -43,9 +45,9 @@ namespace segment_v2 {
 
 struct ZoneMap {
     // min value of zone
-    char* min_value = nullptr;
+    doris::vectorized::Field min_value;
     // max value of zone
-    char* max_value = nullptr;
+    doris::vectorized::Field max_value;
 
     // if both has_null and has_not_null is false, means no rows.
     // if has_null is true and has_not_null is false, means all rows is null.
@@ -64,13 +66,13 @@ struct ZoneMap {
 
     bool has_nan = false;
 
-    void to_proto(ZoneMapPB* dst, Field* field) const {
-        if (pass_all) {
+    void to_proto(ZoneMapPB* dst, const vectorized::DataTypePtr& data_type) const {
+        if (pass_all || !has_not_null) {
             dst->set_min("");
             dst->set_max("");
         } else {
-            dst->set_min(field->to_string(min_value));
-            dst->set_max(field->to_string(max_value));
+            dst->set_min(data_type->get_serde()->to_olap_string(min_value));
+            dst->set_max(data_type->get_serde()->to_olap_string(max_value));
         }
         dst->set_has_null(has_null);
         dst->set_has_not_null(has_not_null);
@@ -79,11 +81,15 @@ struct ZoneMap {
         dst->set_has_negative_inf(has_negative_inf);
         dst->set_has_nan(has_nan);
     }
+
+    static Status from_proto(const ZoneMapPB& zone_map, const vectorized::DataTypePtr& data_type,
+                             ZoneMap& zone_map_info);
 };
 
 class ZoneMapIndexWriter {
 public:
-    static Status create(Field* field, std::unique_ptr<ZoneMapIndexWriter>& res);
+    static Status create(vectorized::DataTypePtr data_type, Field* field,
+                         std::unique_ptr<ZoneMapIndexWriter>& res);
 
     ZoneMapIndexWriter() = default;
 
@@ -98,7 +104,7 @@ public:
 
     virtual Status finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta) = 0;
 
-    virtual void moidfy_index_before_flush(ZoneMap& zone_map) = 0;
+    virtual void modify_index_before_flush(ZoneMap& zone_map) = 0;
 
     virtual uint64_t size() const = 0;
 
@@ -112,7 +118,9 @@ public:
 template <PrimitiveType Type>
 class TypedZoneMapIndexWriter final : public ZoneMapIndexWriter {
 public:
-    explicit TypedZoneMapIndexWriter(Field* field);
+    using ValType = std::conditional_t<is_string_type(Type), StringRef,
+                                       typename PrimitiveTypeTraits<Type>::StorageFieldType>;
+    explicit TypedZoneMapIndexWriter(vectorized::DataTypePtr&& data_type);
 
     void add_values(const void* values, size_t count) override;
 
@@ -123,7 +131,7 @@ public:
 
     Status finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta) override;
 
-    void moidfy_index_before_flush(ZoneMap& zone_map) override;
+    void modify_index_before_flush(ZoneMap& zone_map) override;
 
     uint64_t size() const override { return _estimated_size; }
 
@@ -131,9 +139,6 @@ public:
 
 private:
     void _reset_zone_map(ZoneMap* zone_map) {
-        // we should allocate max varchar length and set to max for min value
-        _field->set_to_zone_map_max(zone_map->min_value);
-        _field->set_to_zone_map_min(zone_map->max_value);
         zone_map->has_null = false;
         zone_map->has_not_null = false;
         zone_map->pass_all = false;
@@ -142,7 +147,9 @@ private:
         zone_map->has_nan = false;
     }
 
-    Field* _field = nullptr;
+    void _update_page_zonemap(const ValType& min_value, const ValType& max_value);
+
+    vectorized::DataTypePtr _data_type;
     // memory will be managed by Arena
     ZoneMap _page_zone_map;
     ZoneMap _segment_zone_map;

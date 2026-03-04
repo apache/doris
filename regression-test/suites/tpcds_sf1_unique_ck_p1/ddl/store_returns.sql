@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS store_returns (
     sr_net_loss decimal(7,2)
 )
 UNIQUE KEY(sr_item_sk, sr_ticket_number)
-CLUSTER BY(sr_net_loss)
+ORDER BY(sr_net_loss)
 DISTRIBUTED BY HASH(sr_item_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

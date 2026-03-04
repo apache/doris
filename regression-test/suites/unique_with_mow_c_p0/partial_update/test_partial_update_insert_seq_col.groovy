@@ -39,7 +39,7 @@ suite("test_partial_update_native_insert_seq_col", "p0") {
                         `dft` int(11) DEFAULT "4321",
                         `update_time` date NULL)
                     UNIQUE KEY(`id`)
-                    CLUSTER BY(test, dft) 
+                    ORDER BY(test, dft) 
                     DISTRIBUTED BY HASH(`id`) BUCKETS 1
                     PROPERTIES(
                         "replication_num" = "1",
@@ -107,7 +107,7 @@ suite("test_partial_update_native_insert_seq_col", "p0") {
                         `score` int(11) NOT NULL COMMENT "用户得分",
                         `update_time` DATETIMEV2 NULL DEFAULT CURRENT_TIMESTAMP)
                     UNIQUE KEY(`id`)
-                    CLUSTER BY(score) 
+                    ORDER BY(score) 
                     DISTRIBUTED BY HASH(`id`) BUCKETS 1
                     PROPERTIES(
                         "replication_num" = "1",

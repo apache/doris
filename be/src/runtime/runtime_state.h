@@ -47,6 +47,7 @@
 #include "runtime/workload_group/workload_group.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
+#include "util/timezone_utils.h"
 #include "vec/runtime/vector_search_user_params.h"
 
 namespace doris {
@@ -125,6 +126,11 @@ public:
                                                            : _query_options.mem_limit / 20;
     }
 
+    bool enable_adjust_conjunct_order_by_cost() const {
+        return _query_options.__isset.enable_adjust_conjunct_order_by_cost &&
+               _query_options.enable_adjust_conjunct_order_by_cost;
+    }
+
     int32_t max_column_reader_num() const {
         return _query_options.__isset.max_column_reader_num ? _query_options.max_column_reader_num
                                                             : 20000;
@@ -176,6 +182,10 @@ public:
     // if possible, use timezone_obj() rather than timezone()
     const std::string& timezone() const { return _timezone; }
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
+    void set_timezone(const std::string& timezone) {
+        _timezone = timezone;
+        TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
+    }
     const std::string& lc_time_names() const { return _lc_time_names; }
     const std::string& user() const { return _user; }
     const TUniqueId& query_id() const { return _query_id; }
@@ -501,6 +511,16 @@ public:
         _iceberg_commit_datas.emplace_back(iceberg_commit_data);
     }
 
+    std::vector<TMCCommitData> mc_commit_datas() const {
+        std::lock_guard<std::mutex> lock(_mc_commit_datas_mutex);
+        return _mc_commit_datas;
+    }
+
+    void add_mc_commit_datas(const TMCCommitData& mc_commit_data) {
+        std::lock_guard<std::mutex> lock(_mc_commit_datas_mutex);
+        _mc_commit_datas.emplace_back(mc_commit_data);
+    }
+
     // local runtime filter mgr, the runtime filter do not have remote target or
     // not need local merge should regist here. the instance exec finish, the local
     // runtime filter mgr can release the memory of local runtime filter
@@ -535,6 +555,21 @@ public:
                        : 0;
     }
 
+    bool enable_streaming_agg_hash_join_force_passthrough() const {
+        return _query_options.__isset.enable_streaming_agg_hash_join_force_passthrough &&
+               _query_options.enable_streaming_agg_hash_join_force_passthrough;
+    }
+
+    bool enable_distinct_streaming_agg_force_passthrough() const {
+        return _query_options.__isset.enable_distinct_streaming_agg_force_passthrough &&
+               _query_options.enable_distinct_streaming_agg_force_passthrough;
+    }
+
+    bool enable_broadcast_join_force_passthrough() const {
+        return _query_options.__isset.enable_broadcast_join_force_passthrough &&
+               _query_options.enable_broadcast_join_force_passthrough;
+    }
+
     int rpc_verbose_profile_max_instance_count() const {
         return _query_options.__isset.rpc_verbose_profile_max_instance_count
                        ? _query_options.rpc_verbose_profile_max_instance_count
@@ -548,6 +583,11 @@ public:
 
     bool enable_parallel_scan() const {
         return _query_options.__isset.enable_parallel_scan && _query_options.enable_parallel_scan;
+    }
+
+    bool enable_aggregate_function_null_v2() const {
+        return _query_options.__isset.enable_aggregate_function_null_v2 &&
+               _query_options.enable_aggregate_function_null_v2;
     }
 
     bool is_read_csv_empty_line_as_null() const {
@@ -837,6 +877,9 @@ private:
 
     mutable std::mutex _iceberg_commit_datas_mutex;
     std::vector<TIcebergCommitData> _iceberg_commit_datas;
+
+    mutable std::mutex _mc_commit_datas_mutex;
+    std::vector<TMCCommitData> _mc_commit_datas;
 
     std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
 

@@ -95,6 +95,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
     public static final DecomposeRepeatWithPreAggregation INSTANCE = new DecomposeRepeatWithPreAggregation();
     private static final Set<Class<? extends AggregateFunction>> SUPPORT_AGG_FUNCTIONS =
             ImmutableSet.of(Sum.class, Sum0.class, Min.class, Max.class, AnyValue.class, Count.class);
+    private static final int DECOMPOSE_REPEAT_THRESHOLD = 3;
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -404,7 +405,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         // This is an empirical threshold: when there are too few grouping sets,
         // the overhead of creating CTE and union may outweigh the benefits.
         // The value 3 is chosen heuristically based on practical experience.
-        if (groupingSets.size() <= connectContext.getSessionVariable().decomposeRepeatThreshold) {
+        if (groupingSets.size() <= DECOMPOSE_REPEAT_THRESHOLD) {
             return -1;
         }
         return findMaxGroupingSetIndex(groupingSets);
@@ -492,6 +493,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         LogicalCTEProducer<LogicalAggregate<Plan>> producer =
                 new LogicalCTEProducer<>(ctx.statementContext.getNextCTEId(), preAggClone);
         ctx.cteProducerList.add(producer);
+        producer.accept(new StatsDerive(false), new DeriveContext());
         return producer;
     }
 

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_catalog_upgrade_test", "p0,external,hive,external_docker,external_docker_hive,restart_fe,upgrade_case") {
+suite("test_catalog_upgrade_test", "p0,external") {
 
     // Hive
     String enabled = context.config.otherConfigs.get("enableHiveTest")

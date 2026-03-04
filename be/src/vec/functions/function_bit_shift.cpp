@@ -43,6 +43,8 @@ public:
 
     size_t get_number_of_arguments() const override { return 2; }
 
+    bool use_default_implementation_for_constants() const final { return false; }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto& column_left = block.get_by_position(arguments[0]).column;

@@ -47,6 +47,7 @@ public class COSProperties extends AbstractS3CompatibleProperties {
     @Setter
     @ConnectorProperty(names = {"cos.region", "s3.region", "AWS_REGION", "region", "REGION"},
             required = false,
+            isRegionField = true,
             description = "The region of COS.")
     protected String region = "";
 

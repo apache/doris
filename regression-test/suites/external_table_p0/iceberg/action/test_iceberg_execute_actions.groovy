@@ -21,7 +21,7 @@ import java.time.temporal.ChronoField
 import java.time.LocalDateTime
 import java.time.ZoneId
 
-suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_optimize_actions_ddl", "p0,external") {
     DateTimeFormatter unifiedFormatter = new DateTimeFormatterBuilder()
             .appendPattern("yyyy-MM-dd")
             .optionalStart()

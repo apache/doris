@@ -79,6 +79,17 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                 segment_v2::AnnTopNRuntime::create_shared(asc, limit, ordering_expr_ctx);
     }
 
+    // Parse score range filtering parameters and set to ScoreRuntime
+    if (olap_scan_node.__isset.score_range_info) {
+        const auto& score_range_info = olap_scan_node.score_range_info;
+        if (score_range_info.__isset.op && score_range_info.__isset.threshold) {
+            if (_score_runtime) {
+                _score_runtime->set_score_range_info(score_range_info.op,
+                                                     score_range_info.threshold);
+            }
+        }
+    }
+
     RETURN_IF_ERROR(Base::init(state, info));
     RETURN_IF_ERROR(_sync_cloud_tablets(state));
     return Status::OK();
@@ -289,6 +300,8 @@ Status OlapScanLocalState::_init_profile() {
             ADD_TIMER(_scanner_profile, "SegmentIteratorInitReturnColumnIteratorsTimer");
     _segment_iterator_init_index_iterators_timer =
             ADD_TIMER(_scanner_profile, "SegmentIteratorInitIndexIteratorsTimer");
+    _segment_iterator_init_segment_prefetchers_timer =
+            ADD_TIMER(_scanner_profile, "SegmentIteratorInitSegmentPrefetchersTimer");
 
     _segment_create_column_readers_timer =
             ADD_TIMER(_scanner_profile, "SegmentCreateColumnReadersTimer");

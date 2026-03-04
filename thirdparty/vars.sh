@@ -548,10 +548,10 @@ ICU_SOURCE=icu-release-69-1
 ICU_MD5SUM="135125f633864285d637db5c01e0388b"
 
 # jindofs
-JINDOFS_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/alibabacloud-jindodata-releases/jindofs-6.8.2-libs-0.1.tar.gz"
-JINDOFS_NAME=jindofs-6.8.2-libs-0.1.tar.gz
-JINDOFS_SOURCE=jindofs-6.8.2-libs-0.1
-JINDOFS_MD5SUM="0e5b0f71e636b8ed3f09e0bf16208fd1"
+JINDOFS_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/alibabacloud-jindodata-releases/jindofs-6.10.4-libs-0.1.tar.gz"
+JINDOFS_NAME=jindofs-6.10.4-libs-0.1.tar.gz
+JINDOFS_SOURCE=jindofs-6.10.4-libs-0.1
+JINDOFS_MD5SUM="bd30b4c5fe97c4367eeb3bb228b317d9"
 
 # pugixml
 PUGIXML_DOWNLOAD="https://github.com/zeux/pugixml/releases/download/v1.15/pugixml-1.15.tar.gz"
@@ -560,12 +560,10 @@ PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # paimon-cpp
-# Using git clone since there's no official release yet
-# We'll use a specific commit or tag for reproducibility
-PAIMON_CPP_GIT_URL="https://github.com/alibaba/paimon-cpp.git"
-PAIMON_CPP_GIT_TAG="0a4f4e2e7967fdb0be180711bbe581a18eeeb2dd"
-PAIMON_CPP_NAME=paimon-cpp
-PAIMON_CPP_SOURCE=paimon-cpp
+PAIMON_CPP_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/paimon-cpp-0a4f4e2.tar.gz"
+PAIMON_CPP_NAME="paimon-cpp-0a4f4e2.tar.gz"
+PAIMON_CPP_SOURCE="doris-thirdparty-paimon-cpp-0a4f4e2"
+PAIMON_CPP_MD5SUM="b8599a0421dbf1ec05e2f1a481d64e87"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(

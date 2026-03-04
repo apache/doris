@@ -23,7 +23,7 @@ import java.time.ZoneId
 
 
 
-suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_doris") {
+suite("paimon_time_travel", "p0,external") {
     logger.info("start paimon test")
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {

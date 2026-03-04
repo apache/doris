@@ -217,6 +217,20 @@ static void commit_txn(MetaServiceProxy* meta_service, int64_t db_id, int64_t tx
             << label << ", res=" << res.ShortDebugString();
 }
 
+static void get_table_version(MetaServiceProxy* meta_service, int64_t db_id, int64_t table_id,
+                              int64_t& version) {
+    brpc::Controller ctrl;
+    GetVersionRequest req;
+    req.set_db_id(db_id);
+    req.set_table_id(table_id);
+    req.set_is_table_version(true);
+    GetVersionResponse resp;
+    meta_service->get_version(&ctrl, &req, &resp, nullptr);
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::OK)
+            << ", get table version res=" << resp.ShortDebugString();
+    version = resp.version();
+}
+
 doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int partition_id = 10,
                                        int64_t version = -1, int num_rows = 100) {
     doris::RowsetMetaCloudPB rowset;
@@ -1797,7 +1811,7 @@ TEST(MetaServiceTest, CommitTxnTest) {
     int64_t partition_id = 1236;
 
     // case: first version of rowset
-    {
+    for (int i = 0; i < 2; ++i) {
         int64_t txn_id = -1;
         // begin txn
         {
@@ -1806,7 +1820,7 @@ TEST(MetaServiceTest, CommitTxnTest) {
             req.set_cloud_unique_id("test_cloud_unique_id");
             TxnInfoPB txn_info_pb;
             txn_info_pb.set_db_id(666);
-            txn_info_pb.set_label("test_label");
+            txn_info_pb.set_label("test_label_" + std::to_string(i));
             txn_info_pb.add_table_ids(1234);
             txn_info_pb.set_timeout_ms(36000);
             req.mutable_txn_info()->CopyFrom(txn_info_pb);
@@ -1854,6 +1868,11 @@ TEST(MetaServiceTest, CommitTxnTest) {
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(res.table_stats().size(), 1);
+
+            int64_t table_version = res.table_stats()[0].table_version();
+            get_table_version(meta_service.get(), 666, table_id, table_version);
+            ASSERT_EQ(table_version, i + 1);
         }
 
         // doubly commit txn
@@ -2105,6 +2124,14 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest) {
         ASSERT_EQ(res.table_ids()[2], t1);
         ASSERT_EQ(res.partition_ids()[2], t1_p1) << res.ShortDebugString();
         ASSERT_EQ(res.versions()[2], 3) << res.ShortDebugString();
+
+        ASSERT_EQ(res.table_stats().size(), 2);
+        int64_t table_version = 0;
+        get_table_version(meta_service.get(), db_id, t1, table_version);
+        ASSERT_EQ(res.table_stats()[0].table_version(), table_version);
+        table_version = 0;
+        get_table_version(meta_service.get(), db_id, t2, table_version);
+        ASSERT_EQ(res.table_stats()[1].table_version(), table_version);
     }
 
     // doubly commit txn
@@ -2669,6 +2696,23 @@ TEST(MetaServiceTest, GetCurrentMaxTxnIdTest) {
 
     ASSERT_EQ(max_txn_id_res.status().code(), MetaServiceCode::OK);
     ASSERT_GE(max_txn_id_res.current_max_txn_id(), begin_txn_res.txn_id());
+}
+
+TEST(MetaServiceTest, CreateMetaSyncPointTest) {
+    auto meta_service = get_meta_service();
+    const std::string cloud_unique_id = "test_cloud_unique_id";
+
+    brpc::Controller cntl;
+    CreateMetaSyncPointRequest req;
+    CreateMetaSyncPointResponse resp;
+    req.set_cloud_unique_id(cloud_unique_id);
+
+    meta_service->create_meta_sync_point(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &resp, nullptr);
+
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+    ASSERT_GT(resp.committed_version(), 0);
+    ASSERT_EQ(resp.versionstamp().size(), 20);
 }
 
 TEST(MetaServiceTest, AbortTxnWithCoordinatorTest) {
@@ -7845,6 +7889,8 @@ TEST(MetaServiceTest, IndexRequest) {
     ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
     val_int = *reinterpret_cast<const int64_t*>(val.data());
     ASSERT_EQ(val_int, 1);
+    ASSERT_TRUE(res.has_table_version());
+    ASSERT_EQ(val_int, res.table_version());
     // Last state DROPPED
     reset_meta_service();
     index_pb.set_state(RecycleIndexPB::DROPPED);
@@ -8096,6 +8142,8 @@ TEST(MetaServiceTest, PartitionRequest) {
     ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
     val_int = *reinterpret_cast<const int64_t*>(val.data());
     ASSERT_EQ(val_int, 2);
+    ASSERT_TRUE(res.has_table_version());
+    ASSERT_EQ(val_int, res.table_version());
     // Last state DROPPED
     reset_meta_service();
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -8257,6 +8305,8 @@ TEST(MetaServiceTest, PartitionRequest) {
     ASSERT_EQ(txn->get(tbl_version_key, &val), TxnErrorCode::TXN_OK);
     val_int = *reinterpret_cast<const int64_t*>(val.data());
     ASSERT_EQ(val_int, 2);
+    ASSERT_TRUE(res.has_table_version());
+    ASSERT_EQ(val_int, res.table_version());
     // Last state PREPARED
     reset_meta_service();
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);

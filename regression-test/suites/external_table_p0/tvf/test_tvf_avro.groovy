@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_tvf_avro", "external,hive,tvf,avro,external_docker") {
+suite("test_tvf_avro", "p0,external") {
 
     // def all_type_file = "all_type.avro";
     // def format = "avro"

@@ -66,6 +66,7 @@ public:
     const std::string& expr_name() const override;
     std::string function_name() const;
     std::string debug_string() const override;
+    double execute_cost() const override;
     bool is_blockable() const override {
         return _function->is_blockable() ||
                std::any_of(_children.begin(), _children.end(),

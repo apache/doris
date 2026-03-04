@@ -51,6 +51,7 @@ import io.netty.util.internal.logging.Log4JLoggerFactory;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
+import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.logging.log4j.LogManager;
@@ -66,6 +67,7 @@ import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -350,6 +352,9 @@ public class DorisFE {
         options.addOption("m", "metaversion", true, "Specify the meta version to decode log value");
         options.addOption("r", FeConstants.METADATA_FAILURE_RECOVERY_KEY, false,
                 "Check if the specified metadata recover is valid");
+        options.addOption(Option.builder().longOpt(FeConstants.RECOVERY_JOURNAL_ID_KEY).hasArg()
+                .desc("Specify the recovery truncate journal id, and journals greater than this id will be removed")
+                .build());
         options.addOption("c", "cluster_snapshot", true, "Specify the cluster snapshot json file");
 
         CommandLine cmd = null;
@@ -386,6 +391,14 @@ public class DorisFE {
         }
         if (cmd.hasOption('r') || cmd.hasOption(FeConstants.METADATA_FAILURE_RECOVERY_KEY)) {
             System.setProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY, "true");
+        }
+        if (cmd.hasOption(FeConstants.RECOVERY_JOURNAL_ID_KEY)) {
+            String recoveryJournalId = cmd.getOptionValue(FeConstants.RECOVERY_JOURNAL_ID_KEY);
+            if (Strings.isNullOrEmpty(recoveryJournalId)) {
+                System.err.println("recovery_journal_id is missing");
+                System.exit(-1);
+            }
+            System.setProperty(FeConstants.RECOVERY_JOURNAL_ID_KEY, recoveryJournalId.trim());
         }
         if (cmd.hasOption('b') || cmd.hasOption("bdb")) {
             if (cmd.hasOption('l') || cmd.hasOption("listdb")) {
@@ -592,9 +605,14 @@ public class DorisFE {
         // Keep global fuzzy knobs that are not session-based.
         if (Config.fuzzy_test_type.equalsIgnoreCase("daily")
                 || Config.fuzzy_test_type.equalsIgnoreCase("rqg")) {
-            Config.random_add_cluster_keys_for_mow = (LocalDate.now().getDayOfMonth() % 2 == 0);
-            LOG.info("fuzzy set random_add_cluster_keys_for_mow={}", Config.random_add_cluster_keys_for_mow);
+            Config.random_add_order_by_keys_for_mow = (LocalDate.now().getDayOfMonth() % 2 == 0);
+            LOG.info("fuzzy set random_add_order_by_keys_for_mow={}", Config.random_add_order_by_keys_for_mow);
         }
+
+        Config.enable_txn_log_outside_lock = new Random().nextBoolean();
+        LOG.info("fuzzy set enable_txn_log_outside_lock={}", Config.enable_txn_log_outside_lock);
+        Config.enable_batch_editlog = new Random().nextBoolean();
+        LOG.info("fuzzy set enable_batch_editlog={}", Config.enable_batch_editlog);
 
         setFuzzyForCatalog();
     }

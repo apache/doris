@@ -18,6 +18,9 @@
 
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_execute_util.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/array/function_array_utils.h"
@@ -65,29 +68,35 @@ public:
                     block.get_by_position(arguments[0]).type->get_name()));
         }
 
-        ColumnPtr sep_column =
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        ColumnPtr null_replace_column =
-                (arguments.size() > 2 ? block.get_by_position(arguments[2])
-                                                .column->convert_to_full_column_if_const()
-                                      : nullptr);
-
-        std::string sep_str = _get_string_from_column(sep_column);
-        std::string null_replace_str = _get_string_from_column(null_replace_column);
-
         auto nested_type = data_type_array->get_nested_type();
         auto dest_column_ptr = ColumnString::create();
-        DCHECK(dest_column_ptr);
 
-        auto res_val = _execute_string(*src.nested_col, *src.offsets_ptr, src.nested_nullmap_data,
-                                       sep_str, null_replace_str, dest_column_ptr.get());
-        if (!res_val) {
-            return Status::RuntimeError(fmt::format(
-                    "execute failed or unsupported types for function {}({},{},{})", "array_join",
-                    block.get_by_position(arguments[0]).type->get_name(),
-                    block.get_by_position(arguments[1]).type->get_name(),
-                    (arguments.size() > 2 ? block.get_by_position(arguments[2]).type->get_name()
-                                          : "")));
+        auto& dest_chars = dest_column_ptr->get_chars();
+        auto& dest_offsets = dest_column_ptr->get_offsets();
+
+        dest_offsets.resize_fill(src_column->size(), 0);
+
+        auto sep_column =
+                ColumnView<TYPE_STRING>::create(block.get_by_position(arguments[1]).column);
+
+        if (arguments.size() > 2) {
+            auto null_replace_column =
+                    ColumnView<TYPE_STRING>::create(block.get_by_position(arguments[2]).column);
+
+            _execute_string(*src.nested_col, *src.offsets_ptr, src.nested_nullmap_data, sep_column,
+                            null_replace_column, dest_chars, dest_offsets);
+
+        } else {
+            auto tmp_column_string = ColumnString::create();
+            // insert default value for null replacement, which is empty string
+            tmp_column_string->insert_default();
+            ColumnPtr tmp_const_column =
+                    ColumnConst::create(std::move(tmp_column_string), sep_column.size());
+
+            auto null_replace_column = ColumnView<TYPE_STRING>::create(tmp_const_column);
+
+            _execute_string(*src.nested_col, *src.offsets_ptr, src.nested_nullmap_data, sep_column,
+                            null_replace_column, dest_chars, dest_offsets);
         }
 
         block.replace_by_position(result, std::move(dest_column_ptr));
@@ -95,61 +104,66 @@ public:
     }
 
 private:
-    static std::string _get_string_from_column(const ColumnPtr& column_ptr) {
-        if (!column_ptr) {
-            return std::string("");
+    // same as ColumnString::insert_data
+    static void insert_to_chars(int64_t i, ColumnString::Chars& chars, uint32_t& total_size,
+                                const char* pos, size_t length) {
+        const size_t old_size = chars.size();
+        const size_t new_size = old_size + length;
+
+        if (length) {
+            ColumnString::check_chars_length(new_size, i);
+            chars.resize(new_size);
+            memcpy(chars.data() + old_size, pos, length);
+            total_size += length;
         }
-        const ColumnString* column_string_ptr = check_and_get_column<ColumnString>(*column_ptr);
-        StringRef str_ref = column_string_ptr->get_data_at(0);
-        std::string str(str_ref.data, str_ref.size);
-        return str;
     }
 
-    static void _fill_result_string(const std::string& input_str, const std::string& sep_str,
-                                    std::string& result_str, bool& is_first_elem) {
+    static void _fill_result_string(int64_t i, const StringRef& input_str, const StringRef& sep_str,
+                                    ColumnString::Chars& dest_chars, uint32_t& total_size,
+                                    bool& is_first_elem) {
         if (is_first_elem) {
-            result_str.append(input_str);
+            insert_to_chars(i, dest_chars, total_size, input_str.data, input_str.size);
             is_first_elem = false;
         } else {
-            result_str.append(sep_str);
-            result_str.append(input_str);
+            insert_to_chars(i, dest_chars, total_size, sep_str.data, sep_str.size);
+            insert_to_chars(i, dest_chars, total_size, input_str.data, input_str.size);
         }
-        return;
     }
 
-    static bool _execute_string(const IColumn& src_column,
+    static void _execute_string(const IColumn& src_column,
                                 const ColumnArray::Offsets64& src_offsets,
-                                const UInt8* src_null_map, const std::string& sep_str,
-                                const std::string& null_replace_str,
-                                ColumnString* dest_column_ptr) {
-        const ColumnString* src_data_concrete = assert_cast<const ColumnString*>(&src_column);
-        if (!src_data_concrete) {
-            return false;
-        }
+                                const UInt8* src_null_map, ColumnView<TYPE_STRING>& sep_column,
+                                ColumnView<TYPE_STRING>& null_replace_column,
+                                ColumnString::Chars& dest_chars,
+                                ColumnString::Offsets& dest_offsets) {
+        const auto& src_data = assert_cast<const ColumnString&>(src_column);
 
-        size_t prev_src_offset = 0;
-        for (auto curr_src_offset : src_offsets) {
-            std::string result_str;
+        uint32_t total_size = 0;
+
+        for (int64_t i = 0; i < src_offsets.size(); ++i) {
+            auto begin = src_offsets[i - 1];
+            auto end = src_offsets[i];
+
+            auto sep_str = sep_column.value_at(i);
+            auto null_replace_str = null_replace_column.value_at(i);
+
             bool is_first_elem = true;
-            for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
+
+            for (size_t j = begin; j < end; ++j) {
                 if (src_null_map && src_null_map[j]) {
-                    if (null_replace_str.size() == 0) {
-                        continue;
-                    } else {
-                        _fill_result_string(null_replace_str, sep_str, result_str, is_first_elem);
-                        continue;
+                    if (null_replace_str.size != 0) {
+                        _fill_result_string(i, null_replace_str, sep_str, dest_chars, total_size,
+                                            is_first_elem);
                     }
+                    continue;
                 }
 
-                StringRef src_str_ref = src_data_concrete->get_data_at(j);
-                std::string elem_str(src_str_ref.data, src_str_ref.size);
-                _fill_result_string(elem_str, sep_str, result_str, is_first_elem);
+                StringRef src_str_ref = src_data.get_data_at(j);
+                _fill_result_string(i, src_str_ref, sep_str, dest_chars, total_size, is_first_elem);
             }
 
-            dest_column_ptr->insert_data(result_str.c_str(), result_str.size());
-            prev_src_offset = curr_src_offset;
+            dest_offsets[i] = total_size;
         }
-        return true;
     }
 };
 

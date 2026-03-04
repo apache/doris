@@ -116,6 +116,8 @@ public:
                                int64_t start, int64_t end, vectorized::Arena& arena,
                                const FormatOptions& options) const override;
 
+    std::string to_olap_string(const vectorized::Field& field) const override;
+
 protected:
     template <bool is_date>
     Status _read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,

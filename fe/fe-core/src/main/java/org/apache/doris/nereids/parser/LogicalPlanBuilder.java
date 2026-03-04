@@ -26,7 +26,6 @@ import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.LockTable;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.ResourceDesc;
@@ -241,6 +240,7 @@ import org.apache.doris.nereids.DorisParser.InPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.IndexDefContext;
 import org.apache.doris.nereids.DorisParser.IndexDefsContext;
 import org.apache.doris.nereids.DorisParser.InlineTableContext;
+import org.apache.doris.nereids.DorisParser.InsertIntoTVFContext;
 import org.apache.doris.nereids.DorisParser.InsertTableContext;
 import org.apache.doris.nereids.DorisParser.InstallPluginContext;
 import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
@@ -496,6 +496,7 @@ import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
+import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
@@ -834,6 +835,8 @@ import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcessListCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowPythonPackagesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowPythonVersionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueryStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueuedAnalyzeJobsCommand;
@@ -995,10 +998,12 @@ import org.apache.doris.nereids.trees.plans.commands.info.SetUserPropertyVarOp;
 import org.apache.doris.nereids.trees.plans.commands.info.SetVarOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ShowCreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.SortFieldInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.WarmUpItem;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTVFCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.WarmupSelectCommand;
@@ -1384,6 +1389,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return TlsOptions.of(options);
     }
 
+    @Override
+    public LogicalPlan visitInsertIntoTVF(InsertIntoTVFContext ctx) {
+        String tvfName = ctx.tvfName.getText();
+        Map<String, String> properties = visitPropertyItemList(ctx.tvfProperties);
+        Optional<String> labelName = ctx.labelName == null
+                ? Optional.empty() : Optional.of(ctx.labelName.getText());
+        LogicalPlan plan = visitQuery(ctx.query());
+
+        UnboundTVFTableSink<LogicalPlan> sink = new UnboundTVFTableSink<>(
+                tvfName, properties, DMLCommandType.INSERT, plan);
+
+        Optional<LogicalPlan> cte = Optional.empty();
+        if (ctx.cte() != null) {
+            cte = Optional.ofNullable(withCte(plan, ctx.cte()));
+        }
+
+        LogicalPlan command = new InsertIntoTVFCommand(sink, labelName, cte);
+        return withExplain(command, ctx.explain());
+    }
+
     /**
      * This function may be used in some task like InsertTask, RefreshDictionary, etc. the target could be many type of
      * tables.
@@ -1552,6 +1577,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Map<String, Expression> staticValues = Maps.newLinkedHashMap();
             for (DorisParser.PartitionKeyValueContext kvCtx : ctx.partitionKeyValue()) {
                 String colName = kvCtx.identifier().getText();
+                if (staticValues.containsKey(colName)) {
+                    throw new AnalysisException("Duplicate partition column: " + colName);
+                }
                 Expression valueExpr = typedVisit(kvCtx.expression());
                 staticValues.put(colName, valueExpr);
             }
@@ -3965,6 +3993,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             partitionInfo = PartitionTableInfo.EMPTY;
         }
 
+        // parse sort items
+        List<SortFieldInfo> sortFields = parseSortItems(ctx.sortItems);
+
         if (ctx.columnDefs() != null) {
             if (ctx.query() != null) {
                 throw new AnalysisException("Should not define the entire column in CTAS");
@@ -3987,7 +4018,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ctx.rollupDefs() != null ? visitRollupDefs(ctx.rollupDefs()) : ImmutableList.of(),
                     properties,
                     extProperties,
-                    ctx.clusterKeys != null ? visitIdentifierList(ctx.clusterKeys) : ImmutableList.of()));
+                    sortFields));
         } else if (ctx.query() != null) {
             return new CreateTableCommand(Optional.of(visitQuery(ctx.query())), new CreateTableInfo(
                     ctx.EXISTS() != null,
@@ -4006,7 +4037,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ctx.rollupDefs() != null ? visitRollupDefs(ctx.rollupDefs()) : ImmutableList.of(),
                     properties,
                     extProperties,
-                    ctx.clusterKeys != null ? visitIdentifierList(ctx.clusterKeys) : ImmutableList.of()));
+                    sortFields));
         } else {
             throw new AnalysisException("Should contain at least one column in a table");
         }
@@ -5061,7 +5092,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 // TODO use function binder to check function exists
                 throw new ParseException("Can not found function '" + functionName + "'", ctx);
             }
-            return new AggStateType(functionName, dataTypes, nullables);
+            return new AggStateType(functionName, dataTypes, nullables,
+                    BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(functionName));
         });
     }
 
@@ -6480,6 +6512,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new ShowTrashCommand();
         }
         return new ShowTrashCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowPythonVersions(DorisParser.ShowPythonVersionsContext ctx) {
+        return new ShowPythonVersionsCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowPythonPackages(DorisParser.ShowPythonPackagesContext ctx) {
+        String version = stripQuotes(ctx.STRING_LITERAL().getText());
+        return new ShowPythonPackagesCommand(version);
     }
 
     @Override
@@ -7909,12 +7952,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(lockTableCtx.name));
             String alias = lockTableCtx.alias != null ? lockTableCtx.alias.getText() : null;
 
-            LockTable.LockType lockType;
+            LockTableInfo.LockType lockType;
             if (lockTableCtx.READ() != null) {
-                lockType = lockTableCtx.LOCAL() != null ? LockTable.LockType.READ_LOCAL : LockTable.LockType.READ;
+                lockType = lockTableCtx.LOCAL() != null
+                        ? LockTableInfo.LockType.READ_LOCAL : LockTableInfo.LockType.READ;
             } else if (lockTableCtx.WRITE() != null) {
-                lockType = lockTableCtx.LOW_PRIORITY() != null ? LockTable.LockType.LOW_PRIORITY_WRITE
-                        : LockTable.LockType.WRITE;
+                lockType = lockTableCtx.LOW_PRIORITY() != null
+                        ? LockTableInfo.LockType.LOW_PRIORITY_WRITE : LockTableInfo.LockType.WRITE;
             } else {
                 throw new IllegalArgumentException("Invalid lock type in LOCK TABLES command.");
             }
@@ -9792,5 +9836,53 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public AlterTableOp visitDropBranchClause(DorisParser.DropBranchClauseContext ctx) {
         return new DropBranchOp(ctx.name.getText(), ctx.EXISTS() != null);
+    }
+
+    /**
+     * Parse sort items from ANTLR context to SortFieldInfo list.
+     * Used for Iceberg table ORDER BY clause.
+     *
+     * @param sortItemContexts List of sortItem contexts from grammar
+     * @return List of SortFieldInfo containing column name, sort order, and null order
+     */
+    private List<SortFieldInfo> parseSortItems(List<DorisParser.SortItemContext> sortItemContexts) {
+        if (sortItemContexts == null || sortItemContexts.isEmpty()) {
+            return ImmutableList.of();
+        }
+
+        ImmutableList.Builder<SortFieldInfo> sortFields = ImmutableList.builder();
+        for (DorisParser.SortItemContext sortItemContext : sortItemContexts) {
+            Expression expression = typedVisit(sortItemContext.expression());
+
+            // Extract column name from expression
+            String columnName;
+            if (expression instanceof UnboundSlot) {
+                UnboundSlot slot = (UnboundSlot) expression;
+                // Get the last part of the nameParts as column name
+                columnName = slot.getNameParts().get(slot.getNameParts().size() - 1);
+            } else {
+                throw new AnalysisException("ORDER BY clause only supports column references, got: "
+                    + expression.getClass().getSimpleName());
+            }
+
+            // Determine sort order (default is ASC)
+            boolean isAscending = sortItemContext.DESC() == null;
+
+            // Determine null order
+            // Default: NULLS FIRST for ASC, NULLS LAST for DESC
+            boolean isNullFirst;
+            if (sortItemContext.FIRST() != null) {
+                isNullFirst = true;
+            } else if (sortItemContext.LAST() != null) {
+                isNullFirst = false;
+            } else {
+                // Use default behavior
+                isNullFirst = isAscending;
+            }
+
+            sortFields.add(new SortFieldInfo(columnName, isAscending, isNullFirst));
+        }
+
+        return sortFields.build();
     }
 }

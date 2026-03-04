@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.ConnectContext;
@@ -69,26 +68,9 @@ public class FunctionCallExpr extends Expr {
 
     // use to record the num of json_object parameters
     private int originChildSize;
-    // Save the functionCallExpr in the original statement
-    private Expr originStmtFnExpr;
-
-    // this field is set by nereids, so we would not get arg types by the children.
-    private Optional<List<Type>> argTypesForNereids = Optional.empty();
-
-    public void setAggFnParams(FunctionParams aggFnParams) {
-        this.aggFnParams = aggFnParams;
-    }
-
-    public FunctionParams getAggFnParams() {
-        return aggFnParams;
-    }
 
     public void setIsAnalyticFnCall(boolean v) {
         isAnalyticFnCall = v;
-    }
-
-    public void setTableFnCall(boolean tableFnCall) {
-        isTableFnCall = tableFnCall;
     }
 
     public void setFnName(FunctionName fnName) {
@@ -167,33 +149,6 @@ public class FunctionCallExpr extends Expr {
         this.isMergeAggFn = other.isMergeAggFn;
         fn = other.fn;
         this.isTableFnCall = other.isTableFnCall;
-    }
-
-    public static int computeJsonDataType(Type type) {
-        if (type.isNull()) {
-            return 0;
-        } else if (type.isBoolean()) {
-            return 1;
-        } else if (type.isFixedPointType()) {
-            if (type.isInteger32Type()) {
-                return 2;
-            } else {
-                return 5;
-            }
-        } else if (type.isFloatingPointType() || type.isDecimalV2() || type.isDecimalV3()) {
-            return 3;
-        } else if (type.isTimeV2()) {
-            return 4;
-        } else if (type.isComplexType() || type.isJsonbType()) {
-            return 7;
-        } else {
-            // default is string for BE execution
-            return 6;
-        }
-    }
-
-    public boolean isMergeAggFn() {
-        return isMergeAggFn;
     }
 
     @Override
@@ -381,12 +336,6 @@ public class FunctionCallExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
-        Expr expr;
-        if (originStmtFnExpr != null) {
-            expr = originStmtFnExpr;
-        } else {
-            expr = this;
-        }
         StringBuilder sb = new StringBuilder();
 
         // when function is like or regexp, the expr generated sql should be like this
@@ -395,7 +344,7 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("regexp")) {
             sb.append(children.get(0).toSql());
             sb.append(" ");
-            sb.append(((FunctionCallExpr) expr).fnName);
+            sb.append(this.fnName);
             sb.append(" ");
             sb.append(children.get(1).toSql());
         } else if (fnName.getFunction().equalsIgnoreCase("encryptkeyref")) {
@@ -410,7 +359,7 @@ public class FunctionCallExpr extends Expr {
             }
             sb.deleteCharAt(sb.length() - 1);
         } else {
-            sb.append(((FunctionCallExpr) expr).fnName);
+            sb.append(this.fnName);
             sb.append(paramsToSql());
             if (fnName.getFunction().equalsIgnoreCase("json_quote")
                     || fnName.getFunction().equalsIgnoreCase("json_array")
@@ -427,12 +376,6 @@ public class FunctionCallExpr extends Expr {
     @Override
     public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
-        Expr expr;
-        if (originStmtFnExpr != null) {
-            expr = originStmtFnExpr;
-        } else {
-            expr = this;
-        }
         StringBuilder sb = new StringBuilder();
 
         // when function is like or regexp, the expr generated sql should be like this
@@ -441,7 +384,7 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("regexp")) {
             sb.append(children.get(0).toSql(disableTableName, needExternalSql, tableType, table));
             sb.append(" ");
-            sb.append(((FunctionCallExpr) expr).fnName);
+            sb.append(this.fnName);
             sb.append(" ");
             sb.append(children.get(1).toSql(disableTableName, needExternalSql, tableType, table));
         } else if (fnName.getFunction().equalsIgnoreCase("encryptkeyref")) {
@@ -456,7 +399,7 @@ public class FunctionCallExpr extends Expr {
             }
             sb.deleteCharAt(sb.length() - 1);
         } else {
-            sb.append(((FunctionCallExpr) expr).fnName);
+            sb.append(this.fnName);
             sb.append(paramsToSql(disableTableName, needExternalSql, tableType, table));
             if (fnName.getFunction().equalsIgnoreCase("json_quote")
                     || fnName.getFunction().equalsIgnoreCase("json_array")
@@ -495,8 +438,7 @@ public class FunctionCallExpr extends Expr {
     protected void toThrift(TExprNode msg) {
         // TODO: we never serialize this to thrift if it's an aggregate function
         // except in test cases that do it explicitly.
-        if (this instanceof FunctionCallExpr && ((FunctionCallExpr) this).isAggregateFunction()
-                || isAnalyticFnCall) {
+        if (this.isAggregateFunction() || isAnalyticFnCall) {
             msg.node_type = TExprNodeType.AGG_EXPR;
             if (aggFnParams == null) {
                 aggFnParams = fnParams;
@@ -662,9 +604,5 @@ public class FunctionCallExpr extends Expr {
 
     public void setOrderByElements(List<OrderByElement> orderByElements) {
         this.orderByElements = orderByElements;
-    }
-
-    private void setChildren() {
-        orderByElements.forEach(o -> addChild(o.getExpr()));
     }
 }

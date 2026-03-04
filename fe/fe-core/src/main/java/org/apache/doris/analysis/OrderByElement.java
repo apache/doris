@@ -20,9 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
-
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -62,27 +59,7 @@ public class OrderByElement {
     }
 
     public OrderByElement clone() {
-        OrderByElement clone = new OrderByElement(
-                expr.clone(), isAsc, nullsFirstParam);
-        return clone;
-    }
-
-    /**
-     * Returns a new list of OrderByElements with the same (cloned) expressions but the
-     * ordering direction reversed (asc becomes desc, nulls first becomes nulls last, etc.)
-     */
-    public static List<OrderByElement> reverse(List<OrderByElement> src) {
-        List<OrderByElement> result = Lists.newArrayListWithCapacity(src.size());
-
-        for (int i = 0; i < src.size(); ++i) {
-            OrderByElement element = src.get(i);
-            OrderByElement reverseElement =
-                    new OrderByElement(element.getExpr().clone(), !element.isAsc,
-                            !nullsFirst(element.nullsFirstParam, element.isAsc));
-            result.add(reverseElement);
-        }
-
-        return result;
+        return new OrderByElement(expr.clone(), isAsc, nullsFirstParam);
     }
 
     /**
@@ -101,29 +78,6 @@ public class OrderByElement {
     public String toSql() {
         StringBuilder strBuilder = new StringBuilder();
         strBuilder.append(expr.toSql());
-        strBuilder.append(isAsc ? " ASC" : " DESC");
-
-        // When ASC and NULLS LAST or DESC and NULLS FIRST, we do not print NULLS FIRST/LAST
-        // because it is the default behavior and we want to avoid printing NULLS FIRST/LAST
-        // whenever possible as it is incompatible with Hive (SQL compatibility with Hive is
-        // important for views).
-        if (nullsFirstParam != null) {
-            if (isAsc && nullsFirstParam) {
-                // If ascending, nulls are last by default, so only add if nulls first.
-                strBuilder.append(" NULLS FIRST");
-            } else if (!isAsc && !nullsFirstParam) {
-                // If descending, nulls are first by default, so only add if nulls last.
-                strBuilder.append(" NULLS LAST");
-            }
-        }
-
-        return strBuilder.toString();
-    }
-
-    public String toSql(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        StringBuilder strBuilder = new StringBuilder();
-        strBuilder.append(expr.toSql(disableTableName, needExternalSql, tableType, table));
         strBuilder.append(isAsc ? " ASC" : " DESC");
 
         // When ASC and NULLS LAST or DESC and NULLS FIRST, we do not print NULLS FIRST/LAST

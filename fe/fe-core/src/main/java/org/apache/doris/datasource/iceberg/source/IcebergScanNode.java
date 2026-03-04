@@ -192,7 +192,14 @@ public class IcebergScanNode extends FileQueryScanNode {
         icebergTable = source.getIcebergTable();
         partitionMapInfos = new HashMap<>();
         isPartitionedTable = icebergTable.spec().isPartitioned();
-        formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
+        // Metadata tables (system tables) are not BaseTable instances, so we need to handle this case
+        if (icebergTable instanceof BaseTable) {
+            formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
+        } else {
+            // For metadata tables (e.g., snapshots, history), use a default format version
+            // These tables are always readable regardless of format version
+            formatVersion = MIN_DELETE_FILE_SUPPORT_VERSION;
+        }
         preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
                 source.getCatalog().getCatalogProperty().getMetastoreProperties(),

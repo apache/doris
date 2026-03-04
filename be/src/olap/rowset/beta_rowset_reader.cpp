@@ -152,6 +152,10 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     // create segment iterators
     VLOG_NOTICE << "read columns size: " << read_columns.size();
     _input_schema = std::make_shared<Schema>(_read_context->tablet_schema->columns(), read_columns);
+    // output_schema only contains return_columns (excludes extra columns like delete-predicate columns).
+    // It is used by merge/union iterators to determine how many columns to copy to the output block.
+    _output_schema = std::make_shared<Schema>(_read_context->tablet_schema->columns(),
+                                              *(_read_context->return_columns));
     if (_read_context->predicates != nullptr) {
         _read_options.column_predicates.insert(_read_options.column_predicates.end(),
                                                _read_context->predicates->begin(),
@@ -328,15 +332,16 @@ Status BetaRowsetReader::_init_iterator() {
                 }
             }
         }
-        _iterator = vectorized::new_merge_iterator(
-                std::move(iterators), sequence_loc, _read_context->is_unique,
-                _read_context->read_orderby_key_reverse, _read_context->merged_rows);
+        _iterator = vectorized::new_merge_iterator(std::move(iterators), sequence_loc,
+                                                   _read_context->is_unique,
+                                                   _read_context->read_orderby_key_reverse,
+                                                   _read_context->merged_rows, _output_schema);
     } else {
         if (_read_context->read_orderby_key_reverse) {
             // reverse iterators to read backward for ORDER BY key DESC
             std::reverse(iterators.begin(), iterators.end());
         }
-        _iterator = vectorized::new_union_iterator(std::move(iterators));
+        _iterator = vectorized::new_union_iterator(std::move(iterators), _output_schema);
     }
 
     auto s = _iterator->init(_read_options);

@@ -298,35 +298,12 @@ public class CopyIntoInfo {
         }
 
         // translate copy from description to copy from param
-        legacyCopyFromParam = toLegacyParam(copyFromDesc, analyzer, context, cascadesContext);
+        legacyCopyFromParam = toLegacyParam(copyFromDesc);
     }
 
-    private CopyFromParam toLegacyParam(CopyFromDesc copyFromDesc, ExpressionAnalyzer analyzer,
-                                        PlanTranslatorContext context, CascadesContext cascadesContext) {
+    private CopyFromParam toLegacyParam(CopyFromDesc copyFromDesc) {
         StageAndPattern stageAndPattern = copyFromDesc.getStageAndPattern();
-        List<Expr> exprList = null;
-        if (copyFromDesc.getExprList() != null) {
-            exprList = new ArrayList<>();
-            for (Expression expression : copyFromDesc.getExprList()) {
-                exprList.add(translateToLegacyExpr(expression, analyzer, context, cascadesContext));
-            }
-        }
-        Expr fileFilterExpr = null;
-        if (copyFromDesc.getFileFilterExpr().isPresent()) {
-            fileFilterExpr = translateToLegacyExpr(copyFromDesc.getFileFilterExpr().get(),
-                    analyzer, context, cascadesContext);
-        }
-        List<String> fileColumns = copyFromDesc.getFileColumns();
-        List<Expr> columnMappingList = null;
-        if (copyFromDesc.getColumnMappingList() != null) {
-            columnMappingList = new ArrayList<>();
-            for (Expression expression : copyFromDesc.getColumnMappingList()) {
-                columnMappingList.add(translateToLegacyExpr(expression, analyzer, context, cascadesContext));
-            }
-        }
-        List<String> targetColumns = copyFromDesc.getTargetColumns();
-        return new CopyFromParam(stageAndPattern, exprList, fileFilterExpr, fileColumns, columnMappingList,
-                targetColumns);
+        return new CopyFromParam(stageAndPattern);
     }
 
     private Expr translateToLegacyExpr(Expression expr, ExpressionAnalyzer analyzer, PlanTranslatorContext context,

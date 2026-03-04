@@ -40,7 +40,6 @@ import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
 import java.io.FileNotFoundException;
-import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.net.MalformedURLException;
 import java.net.URLClassLoader;
@@ -139,6 +138,10 @@ public abstract class BaseExecutor {
         UdfClassCache cache = null;
         if (isStaticLoad) {
             cache = ScannerLoader.getUdfClassLoader(signature);
+            if (cache != null && cache.classLoader != null) {
+                // Reuse the cached classLoader to ensure dependent classes can be loaded
+                classLoader = cache.classLoader;
+            }
         }
         if (cache == null) {
             ClassLoader loader;
@@ -156,6 +159,7 @@ public abstract class BaseExecutor {
             cache.allMethods = new HashMap<>();
             cache.udfClass = Class.forName(className, true, loader);
             cache.methodAccess = MethodAccess.get(cache.udfClass);
+            cache.classLoader = classLoader;
             checkAndCacheUdfClass(cache, funcRetType, parameterTypes);
             if (isStaticLoad) {
                 ScannerLoader.cacheClassLoader(signature, cache, expirationTime);
@@ -171,24 +175,17 @@ public abstract class BaseExecutor {
      * Close the class loader we may have created.
      */
     public void close() {
-        if (classLoader != null) {
-            try {
-                classLoader.close();
-            } catch (IOException e) {
-                // Log and ignore.
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Error closing the URLClassloader.", e);
-                }
-            }
-        }
         // Close the output table if it exists.
         if (outputTable != null) {
             outputTable.close();
         }
-        // We are now un-usable (because the class loader has been
-        // closed), so null out method_ and classLoader_.
-        classLoader = null;
-        objCache.methodAccess = null;
+        if (!isStaticLoad) {
+            // close classLoader via UdfClassCache.close() if not in static load mode.
+            // In static load mode, the classLoader is cached and should not be closed here.
+            objCache.close();
+            objCache.methodAccess = null;
+            classLoader = null;
+        }
     }
 
     protected ColumnValueConverter getInputConverter(TPrimitiveType primitiveType, Class clz)

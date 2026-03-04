@@ -644,9 +644,9 @@ public class Config extends ConfigBase {
             "Default timeout for insert load job, in seconds."})
     public static int insert_load_default_timeout_second = 14400; // 4 hour
 
-    @ConfField(mutable = true, masterOnly = true, description = {"对 mow 表随机设置 cluster keys，用于测试",
-            "random set cluster keys for mow table for test"})
-    public static boolean random_add_cluster_keys_for_mow = false;
+    @ConfField(mutable = true, masterOnly = true, description = {"对 mow 表随机设置 order by keys，用于测试",
+            "random set order by keys for mow table for test"})
+    public static boolean random_add_order_by_keys_for_mow = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "在 fuzzy 测试中随机选择部分表使用 V3 storage_format（ext_meta），用于增强覆盖",
@@ -743,6 +743,28 @@ public class Config extends ConfigBase {
             "Maximum concurrent running txn num including prepare, commit txns under a single db.",
             "Txn manager will reject coming txns."})
     public static int max_running_txn_num_per_db = 10000;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否将事务的 edit log 写入移到写锁之外以减少锁竞争。"
+                    + "开启后，edit log 条目在写锁内入队（FIFO 保证顺序），"
+                    + "在写锁外等待持久化完成，从而降低写锁持有时间，提高并发事务吞吐量。"
+                    + "默认开启。关闭后使用传统的锁内同步写入模式。",
+            "Whether to move transaction edit log writes outside the write lock to reduce lock contention. "
+                    + "When enabled, edit log entries are enqueued inside the write lock (FIFO preserves ordering) "
+                    + "and awaited outside the lock, reducing write lock hold time "
+                    + "and improving concurrent transaction throughput. "
+                    + "Default is true. Set to false to use the traditional in-lock synchronous write mode."})
+    public static boolean enable_txn_log_outside_lock = true;
+
+    @ConfField(mutable = true, description = {
+            "是否启用按事务级别并行发布。开启后，同一数据库内的不同事务可以在不同的执行器线程上并行完成发布，"
+                    + "而不是按数据库顺序执行。关闭后回退到按数据库路由（旧行为），同一数据库内的事务顺序发布。",
+            "Whether to enable per-transaction parallel publish. When enabled, different transactions "
+                    + "in the same database can finish publishing in parallel across executor threads, "
+                    + "instead of being serialized per database. "
+                    + "When disabled, falls back to per-database routing (old behavior) "
+                    + "where transactions within a DB are published sequentially."})
+    public static boolean enable_per_txn_publish = true;
 
     @ConfField(masterOnly = true, description = {"pending load task 执行线程数。这个配置可以限制当前等待的导入作业数。"
             + "并且应小于 `max_running_txn_num_per_db`。",
@@ -3436,19 +3458,59 @@ public class Config extends ConfigBase {
             options = {"without_warmup", "async_warmup", "sync_warmup", "peer_read_async_warmup"})
     public static String cloud_warm_up_for_rebalance_type = "async_warmup";
 
-    @ConfField(mutable = true, masterOnly = true, description = {"云上 tablet 均衡时，"
-            + "同一个 host 内预热批次的最大 tablet 个数，默认 10", "The max number of tablets per host "
-            + "when batching warm-up requests during cloud tablet rebalancing, default 10"})
+    @ConfField(mutable = true, masterOnly = true, description = {"存算分离模式下tablet均衡时，"
+            + "同一个host内预热批次的最大tablet个数，默认10", "The max number of tablets per host "
+            + "when batching warm-up requests during tablet rebalancing in "
+            + "compute-storage separation mode, default 10"})
     public static int cloud_warm_up_batch_size = 10;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"云上 tablet 均衡时，"
-            + "预热批次最长等待时间，单位毫秒，默认 50ms", "Maximum wait time in milliseconds before a "
+    @ConfField(mutable = true, masterOnly = true, description = {"存算分离模式下tablet均衡时，"
+            + "预热批次最长等待时间，单位毫秒，默认50ms", "Maximum wait time in milliseconds before a "
             + "pending warm-up batch is flushed, default 50ms"})
     public static int cloud_warm_up_batch_flush_interval_ms = 50;
 
-    @ConfField(mutable = true, masterOnly = true, description = {"云上 tablet 均衡预热 rpc 异步线程池大小，默认 4",
-        "Thread pool size for asynchronous warm-up RPC dispatch during cloud tablet rebalancing, default 4"})
+    @ConfField(mutable = true, masterOnly = true, description = {"存算分离模式下tablet均衡预热rpc异步线程池大小，默认4",
+        "Thread pool size for asynchronous warm-up RPC dispatch during tablet "
+            + "rebalancing in compute-storage separation mode, default 4"})
     public static int cloud_warm_up_rpc_async_pool_size = 4;
+
+    @ConfField(masterOnly = true, description = {"存算分离模式下tablet均衡时，是否开启活跃tablet优先调度策略，默认打开"
+            + "When tablets are being balanced in compute-storage separation mode, "
+            + "is the active tablet priority scheduling strategy enabled?  (Default: Enabled)"})
+    public static boolean enable_cloud_active_tablet_priority_scheduling = true;
+
+    @ConfField(masterOnly = true, description = {"是否启用活跃tablet滑动窗口访问统计功能，默认打开",
+            "Whether to enable active tablet sliding window access statistics feature, default true"})
+    public static boolean enable_active_tablet_sliding_window_access_stats = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"活跃tablet滑动窗口访问统计的时间窗口大小（秒），默认3600秒（1小时）",
+            "Time window size in seconds for active tablet sliding window access statistics, "
+                + "default 3600 seconds (1 hour)"})
+    public static long active_tablet_sliding_window_time_window_second = 3600L;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "活跃 tablet 优先调度开启时：partition 级调度将优先处理 TopN 的活跃 partition，"
+                    + "再处理其余活跃 partition、非活跃 partition，最后处理 internal db。默认 10000，<=0 表示不做 TopN 分段。",
+            "When active tablet priority scheduling is enabled: partition-level scheduling processes TopN active "
+                    + "partitions first, then other active partitions,"
+                    + "then inactive partitions, and internal db at last. "
+                    + "Default 10000. <=0 disables TopN segmentation."})
+    public static int cloud_active_partition_scheduling_topn = 10000;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "活跃 tablet 优先调度开启时，active 集合刷新间隔（秒）。默认 60 秒，"
+                    + "表示 60 秒内复用同一批 active tablet，避免每轮重算。",
+            "Refresh interval in seconds for the active-tablet snapshot when active priority scheduling is enabled. "
+                    + "Default 60 seconds. Reuses the same active-tablet set within the interval."})
+    public static long cloud_active_tablet_ids_refresh_interval_second = 60L;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "活跃 tablet 优先调度开启时，若 active 阶段连续 N 轮未达均衡，"
+                    + "则强制执行一轮 inactive 阶段以避免长期饥饿。默认 10，<=0 表示关闭该强制机制。",
+            "When active priority scheduling is enabled and the active phase remains unbalanced for N consecutive "
+                    + "rounds, force one inactive phase round to avoid long-term starvation. "
+                    + "Default 10. <=0 disables this forced mechanism."})
+    public static int cloud_active_unbalanced_force_inactive_after_rounds = 10;
 
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
@@ -3460,6 +3522,26 @@ public class Config extends ConfigBase {
             "the white list for the s3 load endpoint, if it is empty, no white list will be set,"
             + "for example: s3_load_endpoint_white_list=a,b,c"})
     public static String[] s3_load_endpoint_white_list = {};
+
+    @ConfField(mutable = true, description = {
+            "对于确定性的 S3 路径（无通配符如 *, ?），使用 HEAD 请求代替 ListObjects 来避免需要 ListBucket 权限。"
+            + "花括号模式 {1,2,3} 和非否定方括号模式 [abc] 会展开为具体路径。"
+            + "这对于只有 GetObject 权限的场景很有用。如果遇到问题可以设置为 false 回退到原有行为。",
+            "For deterministic S3 paths (without wildcards like *, ?), use HEAD requests instead of "
+            + "ListObjects to avoid requiring ListBucket permission. Brace patterns {1,2,3} and "
+            + "non-negated bracket patterns [abc] are expanded to concrete paths. This is useful when only "
+            + "GetObject permission is granted. Set to false to fall back to the original listing behavior."
+    })
+    public static boolean s3_skip_list_for_deterministic_path = true;
+
+    @ConfField(mutable = true, description = {
+            "当使用 HEAD 请求代替 ListObjects 时，展开路径的最大数量。如果展开的路径数量超过此限制，"
+            + "将回退到使用 ListObjects。这可以防止类似 {1..100}/{1..100} 的模式触发过多的 HEAD 请求。",
+            "Maximum number of expanded paths when using HEAD requests instead of ListObjects. "
+            + "If the expanded path count exceeds this limit, falls back to ListObjects. "
+            + "This prevents patterns like {1..100}/{1..100} from triggering too many HEAD requests."
+    })
+    public static int s3_head_request_max_paths = 100;
 
     @ConfField(mutable = true, description = {
             "此参数控制是否强制使用 Azure global endpoint。默认值为 false，系统将使用用户指定的 endpoint。"
@@ -3583,6 +3665,25 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Get tablet stat task 的最大并发数。",
         "Maximal concurrent num of get tablet stat job."})
     public static int max_get_tablet_stat_task_threads_num = 4;
+
+    @ConfField(description = {"存算分离模式下同步 table 和 partition version 的间隔. 所有 frontend 都会检查",
+            "Cloud table and partition version syncer interval. All frontends will perform the checking"})
+    public static int cloud_version_syncer_interval_second = 20;
+
+    @ConfField(mutable = true, description = {"存算分离模式下是否启用同步 table 和 partition version 的功能",
+            "Whether to enable the function of syncing table and partition version in cloud mode"})
+    public static boolean cloud_enable_version_syncer = true;
+
+    @ConfField(description = {"Get version task 的并发数", "Concurrent num of get version task."})
+    public static int cloud_get_version_task_threads_num = 4;
+
+    @ConfField(description = {"Master FE 发送给其它 FE sync version task 的最大并发数",
+            "Maximal concurrent num of sync version task between Master FE and other FEs."})
+    public static int cloud_sync_version_task_threads_num = 4;
+
+    @ConfField(mutable = true, description = {"Get version task 包含的 table 或 partition 数目的 batch size",
+            "Maximal table or partition batch size of get version task."})
+    public static int cloud_get_version_task_batch_size = 2000;
 
     @ConfField(mutable = true, description = {"schema change job 失败是否重试",
             "Whether to enable retry when a schema change job fails, default is true."})
@@ -3809,6 +3910,9 @@ public class Config extends ConfigBase {
             "agent tasks health check interval, default is five minutes, no health check when less than or equal to 0"
     })
     public static long agent_task_health_check_intervals_ms = 5 * 60 * 1000L; // 5 min
+    @ConfField(description = {"是否跳过 catalog 层级的鉴权",
+            "Whether to skip catalog level privilege check"})
+    public static boolean skip_catalog_priv_check = false;
 
     @ConfField(mutable = true, description = {
             "存算分离模式下，计算删除位图时，是否批量获取分区版本信息，默认开启",

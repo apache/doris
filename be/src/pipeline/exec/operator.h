@@ -138,6 +138,8 @@ public:
         return Status::OK();
     }
 
+    virtual bool is_hash_join_probe() const { return false; }
+
     /**
      * Pipeline task is blockable means it will be blocked in the next run. So we should put the
      * pipeline task into the blocking task scheduler.
@@ -167,12 +169,14 @@ public:
      */
     [[nodiscard]] virtual bool is_shuffled_operator() const { return false; }
     /**
-     * Return True if this operator is followed by a shuffled operator.
+     * For multiple children's operators, return true if this is a shuffled operator or this is followed by a shuffled operator (HASH JOIN and SET OPERATION).
+     *
+     * For single child's operators, return true if this operator is followed by a shuffled operator.
      * For example, in the plan fragment:
      *   `UNION` -> `SHUFFLED HASH JOIN`
      * The `SHUFFLED HASH JOIN` is a shuffled operator so the UNION operator is followed by a shuffled operator.
      */
-    [[nodiscard]] bool followed_by_shuffled_operator() const {
+    [[nodiscard]] virtual bool followed_by_shuffled_operator() const {
         return _followed_by_shuffled_operator;
     }
     /**
@@ -262,7 +266,7 @@ public:
     virtual std::vector<Dependency*> execution_dependencies() { return {}; }
 
     Status filter_block(const vectorized::VExprContextSPtrs& expr_contexts,
-                        vectorized::Block* block, size_t column_to_keep);
+                        vectorized::Block* block);
 
     int64_t& estimate_memory_usage() { return _estimate_memory_usage; }
 

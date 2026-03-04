@@ -230,4 +230,15 @@ bool is_column_const(const IColumn& column) {
     return is_column<ColumnConst>(column);
 }
 
+void IColumn::check_const_only_in_top_level() const {
+    ColumnCallback throw_if_const = [&](WrappedPtr& column) {
+        if (is_column_const(*column)) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "const column is not allowed to be nested, but got {}",
+                                   column->get_name());
+        }
+    };
+    const_cast<IColumn*>(this)->for_each_subcolumn(throw_if_const);
+}
+
 } // namespace doris::vectorized

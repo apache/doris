@@ -174,7 +174,7 @@ Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_for_text(
         }
     }
 
-    // EQUAL/WILDCARD/REGEXP queries prefer STRING_TYPE
+    // EQUAL queries prefer STRING_TYPE for exact match
     if (is_equal_query(query_type)) {
         for (const auto* entry : match.candidates) {
             if (entry->type == InvertedIndexReaderType::STRING_TYPE) {

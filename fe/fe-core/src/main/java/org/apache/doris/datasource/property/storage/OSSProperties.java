@@ -70,8 +70,10 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
 
     @Getter
     @Setter
-    @ConnectorProperty(names = {"oss.region", "s3.region", "AWS_REGION", "region", "REGION", "dlf.region"},
+    @ConnectorProperty(names = {"oss.region", "s3.region", "AWS_REGION", "region", "REGION", "dlf.region",
+        "iceberg.rest.signing-region"},
             required = false,
+            isRegionField = true,
             description = "The region of OSS.")
     protected String region;
 
@@ -177,7 +179,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
 
     protected static boolean guessIsMe(Map<String, String> origProps) {
         String value = Stream.of("oss.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
-                        "dlf.endpoint", "dlf.catalog.endpoint", "fs.oss.endpoint")
+                        "dlf.endpoint", "dlf.catalog.endpoint", "fs.oss.endpoint", "fs.oss.accessKeyId")
                 .map(origProps::get)
                 .filter(Objects::nonNull)
                 .findFirst()

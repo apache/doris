@@ -20,7 +20,6 @@
 
 #include "vec/columns/column_variant.h"
 
-#include <assert.h>
 #include <fmt/core.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
@@ -29,6 +28,7 @@
 #include <rapidjson/writer.h>
 
 #include <algorithm>
+#include <cassert>
 #include <cstdlib>
 #include <functional>
 #include <limits>
@@ -40,6 +40,7 @@
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -129,6 +130,45 @@ size_t get_number_of_dimensions(const IDataType& type) {
     }
     return num_dimensions;
 }
+
+// ============================================================================
+// NestedGroup (NG) type-conflict helpers
+// ============================================================================
+// These helpers encapsulate the NG-specific logic that must run inside
+// Subcolumn::insert_range_from and Subcolumn::finalize.  Keeping them here
+// avoids spreading NG semantics throughout the generic column code.
+
+// Returns true if the base element type of `type` is DataTypeVariant,
+// which indicates NG-originated array<object> data.
+bool is_nested_group_type(const DataTypePtr& type) {
+    auto base = get_base_type_of_array(type);
+    return typeid_cast<const DataTypeVariant*>(base.get()) != nullptr;
+}
+
+// Resolve a type conflict between dst (current LCT) and src types when one
+// side is an NG type (Array<Variant>) and the other is a scalar type.
+//
+// Under DISCARD_SCALAR policy: returns the NG side's type (NG wins).
+// Under ERROR policy: throws an exception.
+//
+// Returns nullptr if neither side is an NG type (caller should fall through
+// to the normal get_least_supertype_jsonb path).
+DataTypePtr resolve_ng_type_conflict(const DataTypePtr& dst_type, const DataTypePtr& src_type) {
+    bool dst_is_ng = is_nested_group_type(dst_type);
+    bool src_is_ng = is_nested_group_type(src_type);
+    if (!dst_is_ng && !src_is_ng) {
+        return nullptr; // Not an NG conflict — use normal type resolution.
+    }
+    if (!config::variant_nested_group_discard_scalar_on_conflict) {
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                               "NestedGroup type conflict: cannot merge Array<Variant> with "
+                               "scalar type. dst={}, src={}",
+                               dst_type->get_name(), src_type->get_name());
+    }
+    // NG wins: keep whichever side is the NG type.
+    return dst_is_ng ? dst_type : src_type;
+}
+
 } // namespace
 
 // current nested level is 2, inside column object
@@ -324,9 +364,14 @@ void ColumnVariant::Subcolumn::insert_range_from(const Subcolumn& src, size_t st
     if (data.empty()) {
         add_new_column_part(src.get_least_common_type());
     } else if (!least_common_type.get()->equals(*src.get_least_common_type())) {
-        DataTypePtr new_least_common_type;
-        get_least_supertype_jsonb(DataTypes {least_common_type.get(), src.get_least_common_type()},
-                                  &new_least_common_type);
+        DataTypePtr new_least_common_type =
+                resolve_ng_type_conflict(least_common_type.get(), src.get_least_common_type());
+        if (new_least_common_type == nullptr) {
+            // Normal (non-NG) type promotion.
+            get_least_supertype_jsonb(
+                    DataTypes {least_common_type.get(), src.get_least_common_type()},
+                    &new_least_common_type);
+        }
         if (!new_least_common_type->equals(*least_common_type.get())) {
             add_new_column_part(std::move(new_least_common_type));
         }
@@ -348,6 +393,18 @@ void ColumnVariant::Subcolumn::insert_range_from(const Subcolumn& src, size_t st
         }
         if (column_type->equals(*least_common_type.get())) {
             data.back()->insert_range_from(*column, from, n);
+            return;
+        }
+        // When LCT is Array<Variant> (NG data) and the part is scalar, cast
+        // would crash.  Under DISCARD_SCALAR the scalar part becomes defaults.
+        if (is_nested_group_type(least_common_type.get())) {
+            if (!config::variant_nested_group_discard_scalar_on_conflict) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "NestedGroup type conflict: cannot cast scalar type {} to "
+                                       "Array<Variant>",
+                                       column_type->get_name());
+            }
+            data.back()->insert_many_defaults(n);
             return;
         }
         /// If we need to insert large range, there is no sense to cut part of column and cast it.
@@ -488,6 +545,19 @@ void ColumnVariant::Subcolumn::finalize(FinalizeMode mode) {
         part = part->convert_to_full_column_if_const();
         size_t part_size = part->size();
         if (!from_type->equals(*to_type)) {
+            // NG vs scalar mismatch: casting Array(Variant) ↔ scalar is not
+            // supported.  Under DISCARD_SCALAR the non-NG part becomes defaults.
+            if (is_nested_group_type(to_type) != is_nested_group_type(from_type)) {
+                if (!config::variant_nested_group_discard_scalar_on_conflict) {
+                    throw doris::Exception(
+                            ErrorCode::INVALID_ARGUMENT,
+                            "NestedGroup type conflict in finalize: cannot cast {} to {}",
+                            from_type->get_name(), to_type->get_name());
+                }
+                result_column->insert_many_defaults(part_size);
+                continue;
+            }
+
             ColumnPtr ptr;
             Status st = variant_util::cast_column({part, from_type, ""}, to_type, &ptr);
             if (!st.ok()) {
@@ -1820,6 +1890,8 @@ Status ColumnVariant::serialize_sparse_columns(
     return Status::OK();
 }
 
+/// @deprecated This function is deprecated. Array<Variant> subcolumns are now handled
+/// directly as NestedGroup data by the writer (VariantColumnWriterImpl).
 void ColumnVariant::unnest(Subcolumns::NodePtr& entry, Subcolumns& res_subcolumns) const {
     entry->data.finalize();
     auto nested_column = entry->data.get_finalized_column_ptr()->assume_mutable();
@@ -2006,9 +2078,10 @@ void ColumnVariant::finalize(FinalizeMode mode) {
             continue;
         }
 
-        // unnest all nested columns, add them to new_subcolumns
+        // [DEPRECATED] unnest path - Array<Variant> subcolumns are now handled
+        // directly as NestedGroup by the writer. This branch exists only for
+        // backward compatibility with the exact NESTED_TYPE wrapper.
         if (mode == FinalizeMode::WRITE_MODE && least_common_type->equals(*NESTED_TYPE)) {
-            // reset counter
             unnest(entry, new_subcolumns);
             continue;
         }
@@ -2023,6 +2096,7 @@ void ColumnVariant::finalize(FinalizeMode mode) {
             std::count_if(new_subcolumns.begin(), new_subcolumns.end(),
                           [](const auto& entry) { return entry->path.has_nested_part(); });
     std::swap(subcolumns, new_subcolumns);
+
     _prev_positions.clear();
     ENABLE_CHECK_CONSISTENCY(this);
 }
@@ -2582,6 +2656,7 @@ MutableColumnPtr ColumnVariant::clone() const {
     auto doc_value_column = std::move(*new_doc_value_column).mutate();
     res->serialized_doc_value_column = doc_value_column->assume_mutable();
     res->set_num_rows(num_rows);
+
     ENABLE_CHECK_CONSISTENCY(res.get());
     return res;
 }
