@@ -663,24 +663,14 @@ Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadCon
     // Set timeouts from properties or use defaults
     auto it_request_timeout = _custom_properties.find("aws.request.timeout.ms");
     if (it_request_timeout != _custom_properties.end()) {
-        try {
-            aws_config.requestTimeoutMs = std::stoi(it_request_timeout->second);
-        } catch (const std::exception& e) {
-            return Status::InvalidArgument("Invalid aws.request.timeout.ms value: {}",
-                                           it_request_timeout->second);
-        }
+        aws_config.requestTimeoutMs = std::stoi(it_request_timeout->second);
     } else {
         aws_config.requestTimeoutMs = 30000; // 30s default
     }
 
     auto it_conn_timeout = _custom_properties.find("aws.connection.timeout.ms");
     if (it_conn_timeout != _custom_properties.end()) {
-        try {
-            aws_config.connectTimeoutMs = std::stoi(it_conn_timeout->second);
-        } catch (const std::exception& e) {
-            return Status::InvalidArgument("Invalid aws.connection.timeout.ms value: {}",
-                                           it_conn_timeout->second);
-        }
+        aws_config.connectTimeoutMs = std::stoi(it_conn_timeout->second);
     }
 
     // Get credentials provider (reuses S3 infrastructure)
