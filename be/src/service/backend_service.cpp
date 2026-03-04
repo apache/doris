@@ -760,7 +760,7 @@ void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& d
 
 void BaseBackendService::submit_routine_load_task(TStatus& t_status,
                                                   const std::vector<TRoutineLoadTask>& tasks) {
-    for (auto& task : tasks) {
+    for (const auto& task : tasks) {
         Status st = _exec_env->routine_load_task_executor()->submit_task(task);
         if (!st.ok()) {
             LOG(WARNING) << "failed to submit routine load task. job id: " << task.job_id

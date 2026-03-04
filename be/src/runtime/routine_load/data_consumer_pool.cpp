@@ -80,33 +80,34 @@ Status DataConsumerPool::get_consumer(std::shared_ptr<StreamLoadContext> ctx,
 
 Status DataConsumerPool::get_consumer_grp(std::shared_ptr<StreamLoadContext> ctx,
                                           std::shared_ptr<DataConsumerGroup>* ret) {
-    // if (ctx->load_src_type != TLoadSourceType::KAFKA) {
-    //     return Status::InternalError(
-    //             "PAUSE: Currently only support consumer group for Kafka data source");
-    // }
-    // DCHECK(ctx->kafka_info);
-
-    if (ctx->kafka_info->begin_offset.size() == 0) {
-        return Status::InternalError("PAUSE: The size of begin_offset of task should not be 0.");
-    }
-
     // one data consumer group contains at least one data consumers.
     size_t consumer_num = config::max_consumer_num_per_group;
+    std::shared_ptr<DataConsumerGroup> grp;
     switch (ctx->load_src_type) {
-        case TLoadSourceType::KAFKA:
-            consumer_num = std::min(consumer_num, ctx->kafka_info->begin_offset.size());
-            break;
-        case TLoadSourceType::KINESIS:
-            // (Refrain) TODO: For Kinesis, now just set consumer_num = 1
-            consumer_num = 1;
-            break;
-        default:
-            std::stringstream ss;
-            ss << "unknown routine load task type: " << ctx->load_type;
-            return Status::Cancelled(ss.str());
+    case TLoadSourceType::KAFKA: {
+        DCHECK(ctx->kafka_info);
+        if (ctx->kafka_info->begin_offset.size() == 0) {
+            return Status::InternalError(
+                    "PAUSE: The size of begin_offset of task should not be 0.");
+        }
+        consumer_num = std::min(consumer_num, ctx->kafka_info->begin_offset.size());
+        grp = std::make_shared<KafkaDataConsumerGroup>(consumer_num);
+        break;
     }
-
-    std::shared_ptr<DataConsumerGroup> grp = std::make_shared<DataConsumerGroup>(consumer_num);
+    case TLoadSourceType::KINESIS: {
+        DCHECK(ctx->kinesis_info);
+        if (ctx->kinesis_info->begin_sequence_number.size() == 0) {
+            return Status::InternalError(
+                    "PAUSE: The size of begin_sequence_number of task should not be 0.");
+        }
+        // Kinesis uses a single consumer to handle all shards
+        consumer_num = 1;
+        grp = std::make_shared<KinesisDataConsumerGroup>(consumer_num);
+        break;
+    }
+    default:
+        return Status::Cancelled("unknown routine load task type: {}", ctx->load_type);
+    }
 
     for (int i = 0; i < consumer_num; ++i) {
         std::shared_ptr<DataConsumer> consumer;

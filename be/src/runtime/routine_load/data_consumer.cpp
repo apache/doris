@@ -861,6 +861,7 @@ Status KinesisDataConsumer::group_consume(
             // Process records - move result to allow moving individual records
             auto result = outcome.GetResultWithOwnership();
             auto millis_behind = result.GetMillisBehindLatest();
+            std::string next_iterator = result.GetNextShardIterator();
             RETURN_IF_ERROR(_process_records(shard_id, std::move(result), queue, &received_rows,
                                             &put_rows));
 
@@ -868,7 +869,6 @@ Status KinesisDataConsumer::group_consume(
             _millis_behind_latest[shard_id] = millis_behind;
 
             // Update shard iterator for next call
-            std::string next_iterator = result.GetNextShardIterator();
             if (next_iterator.empty()) {
                 // Shard is closed (split/merge), remove from active set
                 LOG(INFO) << "Shard closed: " << shard_id << " (split/merge detected)";
@@ -910,7 +910,9 @@ Status KinesisDataConsumer::_process_records(
         Aws::Kinesis::Model::GetRecordsResult result,
         BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
         int64_t* received_rows, int64_t* put_rows) {
-    auto& records = result.GetRecords();
+    // result is owned by value, safe to get mutable access to its records
+    auto records = std::move(
+            const_cast<Aws::Vector<Aws::Kinesis::Model::Record>&>(result.GetRecords()));
 
     for (auto& record : records) {
         DorisMetrics::instance()->routine_load_consume_bytes->increment(
@@ -924,9 +926,8 @@ Status KinesisDataConsumer::_process_records(
         // Track the last sequence number for this shard
         _committed_sequence_numbers[shard_id] = record.GetSequenceNumber();
 
-        // Use std::move to avoid expensive copy of Record
-        auto record_ptr = std::make_shared<Aws::Kinesis::Model::Record>(std::move(
-                const_cast<Aws::Kinesis::Model::Record&>(record)));
+        // Move record into shared_ptr to avoid expensive copy
+        auto record_ptr = std::make_shared<Aws::Kinesis::Model::Record>(std::move(record));
 
         if (!queue->controlled_blocking_put(record_ptr,
                                            config::blocking_queue_cv_wait_timeout_ms)) {

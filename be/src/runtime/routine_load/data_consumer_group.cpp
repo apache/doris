@@ -307,7 +307,11 @@ Status KinesisDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ct
             _queue.shutdown();
             // Cancel all consumers
             for (auto& consumer : _consumers) {
-                static_cast<void>(consumer->cancel(ctx));
+                auto cancel_st = consumer->cancel(ctx);
+                if (!cancel_st.ok()) {
+                    LOG(WARNING) << "failed to cancel kinesis consumer: " << consumer->id()
+                                 << ", error: " << cancel_st;
+                }
             }
 
             // Wait for all threads to finish
@@ -317,7 +321,7 @@ Status KinesisDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ct
                 kinesis_pipe->cancel(result_st.to_string());
                 return result_st;
             }
-            static_cast<void>(kinesis_pipe->finish());
+            RETURN_IF_ERROR(kinesis_pipe->finish());
             // Collect committed sequence numbers from all consumers
             for (auto& consumer : _consumers) {
                 auto kinesis_consumer =
