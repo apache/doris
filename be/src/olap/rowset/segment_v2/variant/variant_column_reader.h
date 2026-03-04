@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "nested_group_provider.h"
+#include "nested_group_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/page_handle.h"
@@ -179,21 +180,7 @@ using BinaryColumnCacheSPtr = std::shared_ptr<BinaryColumnCache>;
 using PathToBinaryColumnCache = std::unordered_map<std::string, BinaryColumnCacheSPtr>;
 using PathToBinaryColumnCacheUPtr = std::unique_ptr<PathToBinaryColumnCache>;
 
-// Forward declaration
-struct NestedGroupReader;
-
-// Holds readers for a single NestedGroup (offsets + child columns + nested groups)
-struct NestedGroupReader {
-    std::string array_path;
-    size_t depth = 1; // Nesting depth (1 = first level)
-    std::shared_ptr<ColumnReader> offsets_reader;
-    std::shared_ptr<NestedOffsetsMappingIndex> offsets_mapping_index;
-    std::unordered_map<std::string, std::shared_ptr<ColumnReader>> child_readers;
-    // Nested groups within this group (for multi-level nesting)
-    NestedGroupReaders nested_group_readers;
-
-    bool is_valid() const { return offsets_reader != nullptr; }
-};
+// NestedGroupReader is defined in nested_group_reader.h
 
 class VariantColumnReader : public ColumnReader {
 public:
@@ -218,6 +205,11 @@ public:
     FieldType get_meta_type() override { return FieldType::OLAP_FIELD_TYPE_VARIANT; }
 
     const VariantStatistics* get_stats() const { return _statistics.get(); }
+
+    // Expose raw root column reader for test assertions (e.g., dedup checks).
+    const std::shared_ptr<ColumnReader>& get_root_column_reader() const {
+        return _root_column_reader;
+    }
 
     int64_t get_metadata_size() const override;
 
@@ -361,9 +353,13 @@ private:
                             PathToBinaryColumnCache* binary_column_cache_ptr);
 
     static bool _need_read_flat_leaves(const StorageReadOptions* opts);
+    bool _can_use_nested_group_read_path() const;
     Status _validate_access_paths_debug(const TabletColumn& target_col,
                                         const StorageReadOptions* opt, int32_t col_uid,
                                         const vectorized::PathInData& relative_path) const;
+    bool _try_fill_nested_group_plan(ReadPlan* plan, const TabletColumn& target_col,
+                                     const StorageReadOptions* opt, int32_t col_uid,
+                                     const vectorized::PathInData& relative_path) const;
     bool _try_build_nested_group_plan(ReadPlan* plan, const TabletColumn& target_col,
                                       const StorageReadOptions* opt, int32_t col_uid,
                                       const vectorized::PathInData& relative_path) const;
