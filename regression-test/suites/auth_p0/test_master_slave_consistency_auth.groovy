@@ -366,11 +366,11 @@ suite ("test_follower_consistent_auth","p0,auth") {
                  }
         connect(user, "${pwd}", url_tmp1) {
             def res = sql """SHOW RESOURCES;"""
-            assertTrue(res.size == 10)
+            assertTrue(res.size() == 10)
         }
         connect(user, "${pwd}", new_jdbc_url) {
             def res = sql """SHOW RESOURCES;"""
-            assertTrue(res.size == 10)
+            assertTrue(res.size() == 10)
         }
 
         try_sql("DROP USER ${user}")
