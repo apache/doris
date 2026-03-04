@@ -17,7 +17,7 @@
 
 import java.nio.charset.Charset;
 
-suite("test_jdbc_query_pg", "p0,external,pg,external_docker,external_docker_pg") {
+suite("test_jdbc_query_pg", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")

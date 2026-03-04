@@ -17,9 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
-
 // change one variable.
 public class SetVar {
 
@@ -107,11 +104,6 @@ public class SetVar {
 
     public void setVarType(SetVarType varType) {
         this.varType = varType;
-    }
-
-    // Value can be null. When value is null, means to set variable to DEFAULT.
-    public void analyze() throws AnalysisException, UserException {
-
     }
 
     public String toSql() {

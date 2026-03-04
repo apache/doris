@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_runtime_filter_partition_pruning", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_runtime_filter_partition_pruning", "p0,external") {
     def test_runtime_filter_partition_pruning = {
         qt_runtime_filter_partition_pruning_decimal1 """
             select count(*) from decimal_partition_table where partition_col =
