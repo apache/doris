@@ -227,7 +227,7 @@ class ReadMorAsDupTest extends TestWithFeService implements GeneratedPlanPattern
                 connectContext.getSessionVariable().isReadMorAsDupEnabled("mydb", "mytbl"));
         Assertions.assertFalse(
                 connectContext.getSessionVariable().isReadMorAsDupEnabled("otherdb", "othertbl"));
-        // "mydb.mytbl" entry only matches full name or exact table name "mydb.mytbl"
+        // "mydb.mytbl" entry requires both db and table components to match
         Assertions.assertFalse(
                 connectContext.getSessionVariable().isReadMorAsDupEnabled("anything", "mytbl"));
 

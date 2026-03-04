@@ -4794,43 +4794,45 @@ public class SessionVariable implements Serializable, Writable {
         return enableMorValuePredicatePushdownTables;
     }
 
-    /**
-     * Check if a table is enabled for MOR value predicate pushdown.
-     * @param dbName database name
-     * @param tableName table name
-     * @return true if the table is in the enabled list or if '*' is set
-     */
     public boolean isMorValuePredicatePushdownEnabled(String dbName, String tableName) {
-        if (enableMorValuePredicatePushdownTables == null
-                || enableMorValuePredicatePushdownTables.isEmpty()) {
-            return false;
-        }
-        String trimmed = enableMorValuePredicatePushdownTables.trim();
-        if ("*".equals(trimmed)) {
-            return true;
-        }
-        String fullName = dbName + "." + tableName;
-        for (String table : trimmed.split(",")) {
-            if (table.trim().equalsIgnoreCase(fullName)
-                    || table.trim().equalsIgnoreCase(tableName)) {
-                return true;
-            }
-        }
-        return false;
+        return isTableInList(enableMorValuePredicatePushdownTables, dbName, tableName);
     }
 
     public boolean isReadMorAsDupEnabled(String dbName, String tableName) {
-        if (readMorAsDupTables == null || readMorAsDupTables.isEmpty()) {
+        return isTableInList(readMorAsDupTables, dbName, tableName);
+    }
+
+    /**
+     * Check if a table matches any entry in a comma-separated table list.
+     * Parses entries the same way as TableNameInfo: split by "." to extract
+     * component parts (table, db.table, or ctl.db.table).
+     * When entry specifies db, both db and table must match.
+     * When entry is just a table name, it matches any database.
+     */
+    private static boolean isTableInList(String tableList, String dbName, String tableName) {
+        if (tableList == null || tableList.isEmpty()) {
             return false;
         }
-        String trimmed = readMorAsDupTables.trim();
+        String trimmed = tableList.trim();
         if ("*".equals(trimmed)) {
             return true;
         }
-        String fullName = dbName + "." + tableName;
-        for (String table : trimmed.split(",")) {
-            if (table.trim().equalsIgnoreCase(fullName)
-                    || table.trim().equalsIgnoreCase(tableName)) {
+        for (String entry : trimmed.split(",")) {
+            String trimmedEntry = entry.trim();
+            if (trimmedEntry.isEmpty()) {
+                continue;
+            }
+            String[] parts = trimmedEntry.split("\\.");
+            String entryTbl = parts[parts.length - 1];
+            String entryDb = parts.length >= 2 ? parts[parts.length - 2] : null;
+            if (!entryTbl.equalsIgnoreCase(tableName)) {
+                continue;
+            }
+            if (entryDb != null) {
+                if (dbName != null && entryDb.equalsIgnoreCase(dbName)) {
+                    return true;
+                }
+            } else {
                 return true;
             }
         }
