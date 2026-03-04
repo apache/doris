@@ -278,6 +278,10 @@ public class CreateRoutineLoadInfo {
         return tableName;
     }
 
+    public void setTableName(String tableName) {
+        this.tableName = tableName;
+    }
+
     public String getDBName() {
         return dbName;
     }
