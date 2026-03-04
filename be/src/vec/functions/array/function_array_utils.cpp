@@ -60,8 +60,8 @@ bool extract_column_array_info(const IColumn& src, ColumnArrayExecutionData& dat
         // set variant root column/type to from column/type
         auto variant = ColumnVariant::create(true /*always nullable*/);
         auto nullable_nested_type = make_nullable(data.nested_type);
-        variant->create_root(nullable_nested_type,
-                             make_nullable(data.nested_col)->assume_mutable());
+        auto nullable_col = make_nullable(data.nested_col);
+        variant->create_root(nullable_nested_type, std::move(*nullable_col).mutate());
         data.nested_col = variant->get_ptr();
     }
     return true;

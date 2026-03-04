@@ -3450,7 +3450,7 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true,
             fuzzy = true
     )
-    public boolean defaultVariantEnableNestedGroup = true;
+    public boolean defaultVariantEnableNestedGroup = false;
 
     @VariableMgr.VarAttr(
             name = "use_v3_storage_format",
