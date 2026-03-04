@@ -113,7 +113,7 @@ Status HdfsFileSystem::open_file_internal(const Path& file, FileReaderSPtr* read
                                           const FileReaderOptions& opts) {
     CHECK_HDFS_HANDLER(_fs_handler);
     *reader =
-            DORIS_TRY(HdfsFileReader::create(file, _fs_handler->hdfs_fs, _fs_name, opts, _profile));
+            DORIS_TRY(HdfsFileReader::create(file, _fs_handler->hdfs_fs,  _hdfs_params.user, _fs_name, opts, _profile));
     return Status::OK();
 }
 

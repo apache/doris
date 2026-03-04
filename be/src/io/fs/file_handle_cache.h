@@ -30,8 +30,35 @@
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs.h"
 #include "util/aligned_new.h"
+#include "util/hash_util.hpp"
 #include "util/lru_multi_cache.inline.h"
 #include "util/thread.h"
+
+namespace doris::io {
+class FileHandleCacheKey {
+public:
+    FileHandleCacheKey(const std::string& user, const std::string& fname, int64_t mtime)
+        : user(user), fname(fname), mtime(mtime) {}
+    bool operator==(const FileHandleCacheKey& other) const {
+        return user == other.user && fname == other.fname && mtime == other.mtime;
+    }
+    std::string user;
+    std::string fname;
+    int64_t mtime;
+};
+}
+namespace std {
+template <>
+struct hash<doris::io::FileHandleCacheKey> {
+    std::size_t operator()(const doris::io::FileHandleCacheKey& key) const {
+        std::size_t seed = 0;
+        doris::HashUtil::hash_combine(seed, key.user);
+        doris::HashUtil::hash_combine(seed, key.fname);
+        doris::HashUtil::hash_combine(seed, key.mtime);
+        return seed;
+    }
+};
+}
 
 namespace doris::io {
 
@@ -117,7 +144,7 @@ private:
     struct FileHandleCachePartition : public CacheLineAligned {
         // Cache key is a pair of filename and mtime
         // Using std::pair to spare boilerplate of hash function
-        typedef LruMultiCache<std::pair<std::string, int64_t>, CachedHdfsFileHandle> CacheType;
+        typedef LruMultiCache<FileHandleCacheKey, CachedHdfsFileHandle> CacheType;
         CacheType cache;
     };
 
@@ -172,7 +199,7 @@ public:
     /// a file handle to make room for the new file handle.
     ///
     /// This obtains exclusive control over the returned file handle.
-    Status get_file_handle(const hdfsFS& fs, const std::string& fname, int64_t mtime,
+    Status get_file_handle(const hdfsFS& fs, const std::string& user, const std::string& fname, int64_t mtime,
                            int64_t file_size, bool require_new_handle, Accessor* accessor,
                            bool* cache_hit) WARN_UNUSED_RESULT;
 

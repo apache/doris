@@ -41,7 +41,7 @@ public:
     // - fs_name/path_to_file
     // - /path_to_file
     // TODO(plat1ko): Support related path for cloud mode
-    static Result<FileReaderSPtr> create(Path path, const hdfsFS& fs, std::string fs_name,
+    static Result<FileReaderSPtr> create(Path path, const hdfsFS& fs, const std::string& user, const std::string& fs_name,
                                          const FileReaderOptions& opts, RuntimeProfile* profile);
 
     HdfsFileReader(Path path, std::string fs_name, FileHandleCache::Accessor accessor,

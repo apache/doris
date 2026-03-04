@@ -102,7 +102,7 @@ FileHandleCache::Accessor::~Accessor() {
 #ifdef USE_HADOOP_HDFS
         if (hdfsUnbufferFile(get()->file()) != 0) {
             VLOG_FILE << "FS does not support file handle unbuffering, closing file="
-                      << _cache_accessor.get_key()->first;
+                      << _cache_accessor.get_key()->fname;
             destroy();
         } else {
             // Calling explicit release to handle metrics
@@ -145,8 +145,8 @@ Status FileHandleCache::init() {
                           &FileHandleCache::_evict_handles_loop, this, &_eviction_thread);
 }
 
-Status FileHandleCache::get_file_handle(const hdfsFS& fs, const std::string& fname, int64_t mtime,
-                                        int64_t file_size, bool require_new_handle,
+Status FileHandleCache::get_file_handle(const hdfsFS& fs, const std::string& user, const std::string& fname,
+                                        int64_t mtime, int64_t file_size, bool require_new_handle,
                                         FileHandleCache::Accessor* accessor, bool* cache_hit) {
     DCHECK_GE(mtime, 0);
     // Hash the key and get appropriate partition
@@ -154,7 +154,7 @@ Status FileHandleCache::get_file_handle(const hdfsFS& fs, const std::string& fna
             HashUtil::hash(fname.data(), cast_set<int>(fname.size()), 0) % _cache_partitions.size();
     FileHandleCachePartition& p = _cache_partitions[index];
 
-    auto cache_key = std::make_pair(fname, mtime);
+    FileHandleCacheKey cache_key(user, fname, mtime);
 
     // If this requires a new handle, skip to the creation codepath. Otherwise,
     // find an unused entry with the same mtime

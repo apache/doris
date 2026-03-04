@@ -235,8 +235,8 @@ Result<io::FileReaderSPtr> FileFactory::create_file_reader(
         }
         RETURN_IF_ERROR_RESULT(ExecEnv::GetInstance()->hdfs_mgr()->get_or_create_fs(
                 system_properties.hdfs_params, *fs_name, &handler));
-        return io::HdfsFileReader::create(file_description.path, handler->hdfs_fs, *fs_name,
-                                          reader_options, profile)
+        return io::HdfsFileReader::create(file_description.path, handler->hdfs_fs, system_properties.hdfs_params.user,
+                                          *fs_name, reader_options, profile)
                 .and_then([&](auto&& reader) {
                     return io::create_cached_file_reader(std::move(reader), reader_options);
                 });
