@@ -727,21 +727,21 @@ void OlapScanner::_collect_profile_before_close() {
     // Update counters from tablet reader's stats
     auto& stats = _tablet_reader->stats();
     auto* local_state = (pipeline::OlapScanLocalState*)_local_state;
-    COUNTER_UPDATE(local_state->_io_timer, stats.io_ns);
+    COUNTER_SET(local_state->_io_timer, stats.io_ns);
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
     COUNTER_UPDATE(local_state->_scan_bytes, stats.uncompressed_bytes_read);
-    COUNTER_UPDATE(local_state->_decompressor_timer, stats.decompress_ns);
+    COUNTER_SET(local_state->_decompressor_timer, stats.decompress_ns);
     COUNTER_UPDATE(local_state->_read_uncompressed_counter, stats.uncompressed_bytes_read);
-    COUNTER_UPDATE(local_state->_block_load_timer, stats.block_load_ns);
-    COUNTER_UPDATE(local_state->_block_load_counter, stats.blocks_load);
-    COUNTER_UPDATE(local_state->_block_fetch_timer, stats.block_fetch_ns);
-    COUNTER_UPDATE(local_state->_delete_bitmap_get_agg_timer, stats.delete_bitmap_get_agg_ns);
-    COUNTER_UPDATE(local_state->_scan_rows, stats.raw_rows_read);
-    COUNTER_UPDATE(local_state->_vec_cond_timer, stats.vec_cond_ns);
-    COUNTER_UPDATE(local_state->_short_cond_timer, stats.short_cond_ns);
-    COUNTER_UPDATE(local_state->_expr_filter_timer, stats.expr_filter_ns);
-    COUNTER_UPDATE(local_state->_block_init_timer, stats.block_init_ns);
-    COUNTER_UPDATE(local_state->_block_init_seek_timer, stats.block_init_seek_ns);
+    COUNTER_SET(local_state->_block_load_timer, stats.block_load_ns);
+    COUNTER_SET(local_state->_block_load_counter, stats.blocks_load);
+    COUNTER_SET(local_state->_block_fetch_timer, stats.block_fetch_ns);
+    COUNTER_SET(local_state->_delete_bitmap_get_agg_timer, stats.delete_bitmap_get_agg_ns);
+    COUNTER_SET(local_state->_scan_rows, stats.raw_rows_read);
+    COUNTER_SET(local_state->_vec_cond_timer, stats.vec_cond_ns);
+    COUNTER_SET(local_state->_short_cond_timer, stats.short_cond_ns);
+    COUNTER_SET(local_state->_expr_filter_timer, stats.expr_filter_ns);
+    COUNTER_SET(local_state->_block_init_timer, stats.block_init_ns);
+    COUNTER_SET(local_state->_block_init_seek_timer, stats.block_init_seek_ns);
     COUNTER_UPDATE(local_state->_block_init_seek_counter, stats.block_init_seek_num);
     COUNTER_UPDATE(local_state->_segment_generate_row_range_by_keys_timer,
                    stats.generate_row_ranges_by_keys_ns);

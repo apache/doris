@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_insert_into_s3_tvf", "external,external_docker") {
+suite("test_insert_into_s3_tvf", "p0,external") {
 
     String ak = getS3AK()
     String sk = getS3SK()

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_partitions_tvf","p0,external,tvf,external_docker") {
+suite("test_partitions_tvf", "p0,external") {
     String suiteName = "test_partitions_tvf"
     String tableName = "${suiteName}_table"
     sql """drop table if exists `${tableName}`"""

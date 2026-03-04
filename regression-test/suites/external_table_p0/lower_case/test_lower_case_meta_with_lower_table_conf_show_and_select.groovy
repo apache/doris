@@ -19,7 +19,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
-suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external") {
 
     String jdbcUrl = context.config.jdbcUrl
     String jdbcUser = "test_lower_with_conf"

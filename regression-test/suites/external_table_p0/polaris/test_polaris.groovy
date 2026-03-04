@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_polaris", "p0,external,iceberg,polaris,external_docker,external_docker_polaris,new_catalog_property") {
+suite("test_polaris", "p0,external") {
 
     def testQueryAndInsert = { String catalogProperties, String prefix ->
 

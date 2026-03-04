@@ -121,8 +121,7 @@ public:
                 *eos = true;
             } else {
                 block->swap(ctx->blocks.back());
-                RETURN_IF_ERROR(
-                        local_state.filter_block(local_state.conjuncts(), block, block->columns()));
+                RETURN_IF_ERROR(local_state.filter_block(local_state.conjuncts(), block));
                 ctx->blocks.pop_back();
             }
         }

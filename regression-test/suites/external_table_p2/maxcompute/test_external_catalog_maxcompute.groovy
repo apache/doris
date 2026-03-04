@@ -326,7 +326,7 @@
   INSERT INTO TABLE `mc_parts2`  PARTITION (`ds`='2027-01-09', `audit_flag`='Y') values ('3');
   INSERT INTO TABLE `mc_parts2`  PARTITION (`ds`='2024-01-01', `audit_flag`='N') values ('4');
  */
-suite("test_external_catalog_maxcompute", "p2,external,maxcompute,external_remote,external_remote_maxcompute") {
+suite("test_external_catalog_maxcompute", "p2,external") {
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String ak = context.config.otherConfigs.get("ak")
