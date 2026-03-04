@@ -80,6 +80,7 @@ import org.slf4j.LoggerFactory;
 public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     private static final Logger LOG = LoggerFactory.getLogger(PostgresSourceReader.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final Object SLOT_CREATION_LOCK = new Object();
 
     public PostgresSourceReader() {
         super();
@@ -89,8 +90,10 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     public void initialize(long jobId, DataSource dataSource, Map<String, String> config) {
         PostgresSourceConfig sourceConfig = generatePostgresConfig(config, jobId, 0);
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
-        LOG.info("Creating slot for job {}, user {}", jobId, sourceConfig.getUsername());
-        createSlotForGlobalStreamSplit(dialect);
+        synchronized (SLOT_CREATION_LOCK) {
+            LOG.info("Creating slot for job {}, user {}", jobId, sourceConfig.getUsername());
+            createSlotForGlobalStreamSplit(dialect);
+        }
         super.initialize(jobId, dataSource, config);
     }
 
