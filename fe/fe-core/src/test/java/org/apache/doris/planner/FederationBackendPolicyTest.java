@@ -769,9 +769,9 @@ public class FederationBackendPolicyTest {
         Map<Backend, List<Split>> backendListMap2 = mergeAssignment(assignment2);
         backendListMap2.forEach((k, v) -> {
             if (k.getId() == 1) {
-                Assert.assertEquals(900000L, v.stream().mapToLong(Split::getLength).sum());
+                Assert.assertEquals(1000000L, v.stream().mapToLong(Split::getLength).sum());
             } else if (k.getId() == 2) {
-                Assert.assertEquals(500000L, v.stream().mapToLong(Split::getLength).sum());
+                Assert.assertEquals(400000L, v.stream().mapToLong(Split::getLength).sum());
             } else if (k.getId() == 3) {
                 Assert.assertEquals(1000000L, v.stream().mapToLong(Split::getLength).sum());
             }

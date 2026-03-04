@@ -327,6 +327,29 @@ suite("test_date_function") {
     qt_sql """ select str_to_date("2014-12-21 12:34:56.789 PM", '%Y-%m-%d %h:%i:%s.%f %p'); """
     qt_sql """ select str_to_date('2023-07-05T02:09:55.880Z','%Y-%m-%dT%H:%i:%s.%fZ') """
     qt_sql """ select str_to_date('200442 Monday', '%X%V %W') """
+    // %f with 6 digits
+    qt_sql """ select str_to_date('2026-01-28 11:32:47.000000', '%Y-%m-%d %T.%f') """
+    qt_sql """ select str_to_date('2026-01-28 11:32:47.123456', '%Y-%m-%d %T.%f') """
+    qt_sql """ select str_to_date('2026-01-28 11:32:47.123456', '%Y-%m-%d %H:%i:%s.%f') """
+    // %f with 3 digits
+    qt_sql """ select str_to_date('2026-01-28 11:32:47.123', '%Y-%m-%d %T.%f') """
+    qt_sql """ select str_to_date('2026-01-28 11:32:47.100', '%Y-%m-%d %T.%f') """
+    // %f with >6 digits (should truncate or parse first 6)
+    qt_sql """ select str_to_date('2026-01-28 11:32:47.1234567', '%Y-%m-%d %T.%f') """
+    qt_sql """ select str_to_date('2026-01-28 11:32:47.123456789', '%Y-%m-%d %T.%f') """
+    // %T without %f (0-digit fractional)
+    qt_sql """ select str_to_date('2026-01-28 11:32:47', '%Y-%m-%d %T') """
+    // verify FE constant folding, BE constant folding, and BE execution all produce consistent results for %f
+    check_fold_consistency("str_to_date('2026-01-28 11:32:47.000000', '%Y-%m-%d %T.%f')")
+    check_fold_consistency("str_to_date('2026-01-28 11:32:47.123456', '%Y-%m-%d %T.%f')")
+    check_fold_consistency("str_to_date('2026-01-28 11:32:47.123456', '%Y-%m-%d %H:%i:%s.%f')")
+    check_fold_consistency("str_to_date('2026-01-28 11:32:47.789000', '%Y-%m-%d %T.%f')")
+    // 3-digit, >6-digit, 0-digit consistency checks
+    check_fold_consistency("str_to_date('2026-01-28 11:32:47.123', '%Y-%m-%d %T.%f')")
+    check_fold_consistency("str_to_date('2026-01-28 11:32:47.100', '%Y-%m-%d %T.%f')")
+    check_fold_consistency("str_to_date('2026-01-28 11:32:47.1234567', '%Y-%m-%d %T.%f')")
+    check_fold_consistency("str_to_date('2026-01-28 11:32:47.123456789', '%Y-%m-%d %T.%f')")
+    check_fold_consistency("str_to_date('2026-01-28 11:32:47', '%Y-%m-%d %T')")
     sql """ truncate table ${tableName} """
     sql """ insert into ${tableName} values ("2020-09-01")  """
     qt_sql """ select str_to_date(test_datetime, "%Y-%m-%d %H:%i:%s") from ${tableName};"""

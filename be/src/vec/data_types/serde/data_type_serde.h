@@ -209,6 +209,12 @@ public:
 
         const cctz::time_zone* timezone = nullptr;
 
+        /**
+         * Ignore scale when converting decimal to string, because decimal in zone map is stored in
+         * unscaled value.
+         */
+        bool ignore_scale = false;
+
         [[nodiscard]] char get_collection_delimiter(
                 int hive_text_complex_type_delimiter_level) const {
             CHECK(0 <= hive_text_complex_type_delimiter_level &&
@@ -315,9 +321,11 @@ public:
                                      const FormatOptions& options) const {
         return Status::NotSupported("from_string is not supported");
     }
-    virtual Status from_string(const std::string& str, Field& field,
-                               const FormatOptions& options) const {
-        return Status::NotSupported("from_string is not supported");
+    // Convert string which is read from OLAP table to corresponding type.
+    // Only used for basic data types, such as Ip, Date, Number, etc.
+    virtual Status from_olap_string(const std::string& str, Field& field,
+                                    const FormatOptions& options) const {
+        return Status::NotSupported("from_olap_string is not supported");
     }
 
     // For strict mode, we should not have nullable columns, as we will directly report errors when string conversion fails instead of handling them

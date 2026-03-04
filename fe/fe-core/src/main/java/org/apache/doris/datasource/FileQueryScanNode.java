@@ -35,6 +35,7 @@ import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
@@ -96,6 +97,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected TableScanParams scanParams;
 
+    protected FileSplitter fileSplitter;
+
     /**
      * External file scan node for Query hms table
      * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
@@ -103,9 +106,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
     public FileQueryScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            StatisticalType statisticalType, boolean needCheckColumnPriv,
-            SessionVariable sv) {
-        super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
+            ScanContext scanContext, boolean needCheckColumnPriv, SessionVariable sv) {
+        this(id, desc, planNodeName, StatisticalType.DEFAULT, scanContext, needCheckColumnPriv, sv);
+    }
+
+    public FileQueryScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
+            StatisticalType statisticalType, ScanContext scanContext, boolean needCheckColumnPriv, SessionVariable sv) {
+        super(id, desc, planNodeName, statisticalType, scanContext, needCheckColumnPriv);
         this.sessionVariable = sv;
     }
 
@@ -137,6 +144,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
         initBackendPolicy();
         initSchemaParams();
+        fileSplitter = new FileSplitter(sessionVariable.maxInitialSplitSize, sessionVariable.maxSplitSize,
+                sessionVariable.maxInitialSplitNum);
     }
 
     // Init schema (Tuple/Slot) related params.
@@ -535,7 +544,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     @Override
     public int getNumInstances() {
         if (sessionVariable.isIgnoreStorageDataDistribution()) {
-            return sessionVariable.getParallelExecInstanceNum();
+            return sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName());
         }
         return scanRangeLocations.size();
     }
@@ -648,18 +657,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return this.scanParams;
     }
 
-    /**
-     * The real file split size is determined by:
-     * 1. If user specify the split size in session variable `file_split_size`, use user specified value.
-     * 2. Otherwise, use the max value of DEFAULT_SPLIT_SIZE and block size.
-     * @param blockSize, got from file system, eg, hdfs
-     * @return the real file split size
-     */
-    protected long getRealFileSplitSize(long blockSize) {
-        long realSplitSize = sessionVariable.getFileSplitSize();
-        if (realSplitSize <= 0) {
-            realSplitSize = Math.max(DEFAULT_SPLIT_SIZE, blockSize);
+    protected long applyMaxFileSplitNumLimit(long targetSplitSize, long totalFileSize) {
+        int maxFileSplitNum = sessionVariable.getMaxFileSplitNum();
+        if (maxFileSplitNum <= 0 || totalFileSize <= 0) {
+            return targetSplitSize;
         }
-        return realSplitSize;
+        long minSplitSizeForMaxNum = (totalFileSize + maxFileSplitNum - 1L) / (long) maxFileSplitNum;
+        return Math.max(targetSplitSize, minSplitSizeForMaxNum);
     }
 }

@@ -66,6 +66,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         olapScan.getVirtualColumns(),
                         olapScan.getScoreOrderKeys(),
                         olapScan.getScoreLimit(),
+                        olapScan.getScoreRangeInfo(),
                         olapScan.getAnnOrderKeys(),
                         olapScan.getAnnLimit())
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);

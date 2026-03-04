@@ -313,14 +313,9 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
             std::make_shared<Azure::Storage::StorageSharedKeyCredential>(s3_conf.ak, s3_conf.sk);
 
     const std::string container_name = s3_conf.bucket;
-    std::string uri;
-    if (config::force_azure_blob_global_endpoint) {
-        uri = fmt::format("https://{}.blob.core.windows.net/{}", s3_conf.ak, container_name);
-    } else {
-        uri = fmt::format("{}/{}", s3_conf.endpoint, container_name);
-        if (s3_conf.endpoint.find("://") == std::string::npos) {
-            uri = "https://" + uri;
-        }
+    std::string uri = fmt::format("{}/{}", s3_conf.endpoint, container_name);
+    if (s3_conf.endpoint.find("://") == std::string::npos) {
+        uri = "https://" + uri;
     }
 
     Azure::Storage::Blobs::BlobClientOptions options;
@@ -563,7 +558,8 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     }
 
     if (auto it = properties.find(S3_ROLE_ARN); it != properties.end()) {
-        s3_conf->client_conf.cred_provider_type = CredProviderType::InstanceProfile;
+        // Keep provider type as Default unless explicitly configured by
+        // AWS_CREDENTIALS_PROVIDER_TYPE, consistent with FE behavior.
         s3_conf->client_conf.role_arn = it->second;
     }
 

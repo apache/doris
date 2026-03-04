@@ -229,8 +229,8 @@ Status DataTypeDateV2SerDe::from_string_batch(const ColumnString& col_str, Colum
     return Status::OK();
 }
 
-Status DataTypeDateV2SerDe::from_string(const std::string& str, Field& field,
-                                        const FormatOptions& options) const {
+Status DataTypeDateV2SerDe::from_olap_string(const std::string& str, Field& field,
+                                             const FormatOptions& options) const {
     CastParameters params {.status = Status::OK(), .is_strict = false};
 
     DateV2Value<DateV2ValueType> res;

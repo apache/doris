@@ -111,8 +111,8 @@ Status DataTypeTimeV2SerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
-Status DataTypeTimeV2SerDe::from_string(const std::string& str, Field& field,
-                                        const FormatOptions& options) const {
+Status DataTypeTimeV2SerDe::from_olap_string(const std::string& str, Field& field,
+                                             const FormatOptions& options) const {
     CastParameters params {.status = Status::OK(), .is_strict = false};
     // set false to `is_strict`, it will not set error code cuz we dont need then speed up the process.
     // then we rely on return value to check success.

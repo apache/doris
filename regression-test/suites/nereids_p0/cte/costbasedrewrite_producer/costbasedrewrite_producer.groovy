@@ -14,31 +14,32 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+suite("costbasedrewrite_producer") {
+    sql """
+    drop table if exists t1;
 
-package org.apache.doris.common.jni.utils;
+    create table t1(a1 int,b1 int)
+    properties("replication_num" = "1");
 
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
+    insert into t1 values(1,2);
 
-import java.io.OutputStream;
+    drop table if exists t2;
 
-public class Log4jOutputStream extends OutputStream {
-    private final Logger logger;
-    private final StringBuilder buffer = new StringBuilder();
-    private final Level level;
+    create table t2(a2 int,b2 int)
+    properties("replication_num" = "1");
 
-    public Log4jOutputStream(Logger logger, Level level) {
-        this.logger = logger;
-        this.level = level;
-    }
+    insert into t2 values(1,3);
+    """
 
-    @Override
-    public void write(int b) {
-        if (b == '\n') {
-            logger.log(level, buffer.toString());
-            buffer.setLength(0);
-        } else {
-            buffer.append((char) b);
-        }
-    }
+    sql"""
+   with cte1 as (
+    select t1.a1, t1.b1
+    from t1
+    where t1.a1 > 0 and not exists (select distinct t2.b2 from t2 where t1.a1 = t2.a2 or t1.b1 = t2.a2)  
+    ),
+    cte2 as (
+    select * from cte1 union  select * from cte1)
+   select * from cte2 join t1 on cte2.a1 = t1.a1;
+
+    """
 }

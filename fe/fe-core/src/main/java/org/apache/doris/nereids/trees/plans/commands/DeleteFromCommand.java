@@ -36,6 +36,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
@@ -149,36 +150,27 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                     .getDeleteHandler().processEmptyRelation(ctx.getState());
             return;
         }
+        OlapTable olapTable = getTargetTable(ctx);
+
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), olapTable.getDatabase().getCatalog().getName(),
+                        olapTable.getDatabase().getFullName(), olapTable.getName(), PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    olapTable.getDatabase().getFullName() + "." + Util.getTempTableDisplayName(olapTable.getName()));
+        }
+
         Optional<PhysicalFilter<?>> optFilter = (planner.getPhysicalPlan()
                 .<PhysicalFilter<?>>collect(PhysicalFilter.class::isInstance)).stream()
                 .findAny();
-        Optional<PhysicalOlapScan> optScan = (planner.getPhysicalPlan()
-                .<PhysicalOlapScan>collect(PhysicalOlapScan.class::isInstance)).stream()
-                .findAny();
-        Optional<UnboundRelation> optRelation = (logicalQuery
-                .<UnboundRelation>collect(UnboundRelation.class::isInstance)).stream()
-                .findAny();
         Preconditions.checkArgument(optFilter.isPresent(), "delete command must contain filter");
-        Preconditions.checkArgument(optScan.isPresent(), "delete command could be only used on olap table");
-        Preconditions.checkArgument(optRelation.isPresent(), "delete command could be only used on olap table");
-        PhysicalOlapScan scan = optScan.get();
-        UnboundRelation relation = optRelation.get();
         PhysicalFilter<?> filter = optFilter.get();
 
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), scan.getDatabase().getCatalog().getName(),
-                        scan.getDatabase().getFullName(),
-                        scan.getTable().getName(), PrivPredicate.LOAD)) {
-            String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("LOAD",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    scan.getDatabase().getFullName() + ": " + Util.getTempTableDisplayName(scan.getTable().getName()));
-            throw new AnalysisException(message);
-        }
-
         // predicate check
-        OlapTable olapTable = scan.getTable();
         Set<String> columns = olapTable.getFullSchema().stream().map(Column::getName).collect(Collectors.toSet());
         try {
+            // treat sql as simple `delete from t where keyC = ...`
             Plan plan = planner.getPhysicalPlan();
             checkSubQuery(plan);
             for (Expression conjunct : filter.getConjuncts()) {
@@ -192,14 +184,16 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                         logicalQuery, Optional.empty()).run(ctx, executor);
                 return;
             } catch (Exception e2) {
+                LOG.warn("delete from command failed", e2);
                 throw e;
             }
         }
 
+        // if table's enable_mow_light_delete is false, use `DeleteFromUsingCommand`
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
                 && !olapTable.getEnableMowLightDelete()) {
-            new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions,
-                    logicalQuery, Optional.empty()).run(ctx, executor);
+            new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions, logicalQuery,
+                    Optional.empty()).run(ctx, executor);
             return;
         }
 
@@ -225,6 +219,17 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
             throw new AnalysisException("delete all rows is forbidden temporary.");
         }
 
+        Optional<UnboundRelation> optRelation = (logicalQuery
+                .<UnboundRelation>collect(UnboundRelation.class::isInstance)).stream()
+                .findAny();
+        Optional<PhysicalOlapScan> optScan = (planner.getPhysicalPlan()
+                .<PhysicalOlapScan>collect(PhysicalOlapScan.class::isInstance)).stream()
+                .findAny();
+        Preconditions.checkArgument(optRelation.isPresent(), "delete command must apply to one table");
+        Preconditions.checkArgument(optScan.isPresent(), "delete command could be only used on olap table");
+        // prune partitions
+        PhysicalOlapScan scan = optScan.get();
+        UnboundRelation relation = optRelation.get();
         ArrayList<String> partitionNames = Lists.newArrayList(relation.getPartNames());
         List<Partition> selectedPartitions = getSelectedPartitions(olapTable, filter, scan, partitionNames);
 
@@ -459,7 +464,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
         TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
         if (!(table instanceof OlapTable)) {
-            throw new AnalysisException("table must be olapTable in delete command");
+            throw new AnalysisException("delete command could be only used on olap table");
         }
         return ((OlapTable) table);
     }

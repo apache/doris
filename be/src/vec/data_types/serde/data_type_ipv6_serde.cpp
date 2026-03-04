@@ -275,8 +275,8 @@ Status DataTypeIPv6SerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
-Status DataTypeIPv6SerDe::from_string(const std::string& str, Field& field,
-                                      const FormatOptions& options) const {
+Status DataTypeIPv6SerDe::from_olap_string(const std::string& str, Field& field,
+                                           const FormatOptions& options) const {
     CastParameters params;
     params.is_strict = false;
 

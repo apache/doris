@@ -34,7 +34,7 @@ class Arena;
 
 class DataTypeJsonbSerDe : public DataTypeStringSerDe {
 public:
-    DataTypeJsonbSerDe(int nesting_level = 1) : DataTypeStringSerDe(nesting_level) {};
+    DataTypeJsonbSerDe(int nesting_level = 1) : DataTypeStringSerDe(TYPE_JSONB, nesting_level) {};
 
     std::string get_name() const override { return "JSONB"; }
 

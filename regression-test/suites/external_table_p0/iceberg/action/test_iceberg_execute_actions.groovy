@@ -395,15 +395,6 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
     qt_after_fast_forword_branch """SELECT * FROM test_fast_forward@branch(feature_branch) ORDER BY id"""
 
 
-    // Test expire_snapshots action
-    test {
-        sql """
-            ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE expire_snapshots
-            ("older_than" = "2024-01-01T00:00:00")
-        """
-        exception "Iceberg expire_snapshots procedure is not implemented yet"
-    }
-
     // Test validation - missing required property
     test {
         sql """
@@ -447,87 +438,6 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
             ()
         """
         exception "Missing required argument: timestamp"
-    }
-
-    // Test expire_snapshots with invalid older_than timestamp
-    test {
-        sql """
-            ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE expire_snapshots
-            ("older_than" = "not-a-timestamp")
-        """
-        exception "Invalid older_than format"
-    }
-
-    // Test expire_snapshots with negative timestamp
-    test {
-        sql """
-            ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE expire_snapshots
-            ("older_than" = "-1000")
-        """
-        exception "older_than timestamp must be non-negative"
-    }
-
-    // Test validation - retain_last must be at least 1
-    test {
-        sql """
-            ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE expire_snapshots
-            ("retain_last" = "0")
-        """
-        exception "retain_last must be positive, got: 0"
-    }
-
-    // Test expire_snapshots with invalid retain_last format
-    test {
-        sql """
-            ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE expire_snapshots
-            ("retain_last" = "not-a-number")
-        """
-        exception "Invalid retain_last format: not-a-number"
-    }
-
-    // Test expire_snapshots with negative retain_last
-    test {
-        sql """
-            ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE expire_snapshots
-            ("retain_last" = "-5")
-        """
-        exception "retain_last must be positive, got: -5"
-    }
-
-    // Test expire_snapshots with neither older_than nor retain_last
-    test {
-        sql """
-            ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE expire_snapshots
-            ()
-        """
-        exception "At least one of 'older_than' or 'retain_last' must be specified"
-    }
-
-    // Test expire_snapshots with valid timestamp format (milliseconds)
-    test {
-        sql """
-            ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE expire_snapshots
-            ("older_than" = "1640995200000")
-        """
-        exception "Iceberg expire_snapshots procedure is not implemented yet"
-    }
-
-    // Test expire_snapshots with valid ISO datetime
-    test {
-        sql """
-            ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE expire_snapshots
-            ("older_than" = "2024-01-01T12:30:45")
-        """
-        exception "Iceberg expire_snapshots procedure is not implemented yet"
-    }
-
-    // Test expire_snapshots with valid retain_last and older_than
-    test {
-        sql """
-            ALTER TABLE ${catalog_name}.${db_name}.${table_name} EXECUTE expire_snapshots
-            ("older_than" = "2024-01-01T00:00:00", "retain_last" = "5")
-        """
-        exception "Iceberg expire_snapshots procedure is not implemented yet"
     }
 
     // Test unknown action

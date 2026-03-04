@@ -549,7 +549,6 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             }
 
             {
-                SCOPED_RAW_TIMER(&_predicate_filter_time);
                 RETURN_IF_ERROR(VExprContext::execute_conjuncts(filter_contexts, &filters, block,
                                                                 &result_filter, &can_filter_all));
             }

@@ -278,6 +278,12 @@ public class PointQueryExecutor implements CoordInterface {
                     .setOutputExpr(shortCircuitQueryContext.serializedOutputExpr)
                     .setQueryOptions(shortCircuitQueryContext.serializedQueryOptions)
                     .setIsBinaryRow(ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE);
+            // Set timezone for functions like from_unixtime
+            String timeZone = ConnectContext.get().getSessionVariable().getTimeZone();
+            if ("CST".equals(timeZone)) {
+                timeZone = "Asia/Shanghai";
+            }
+            requestBuilder.setTimeZone(timeZone);
             if (snapshotVisibleVersions != null && !snapshotVisibleVersions.isEmpty()) {
                 requestBuilder.setVersion(snapshotVisibleVersions.get(0));
             }

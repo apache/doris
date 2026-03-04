@@ -32,6 +32,7 @@ import org.apache.doris.datasource.FileSplit.FileSplitCreator;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -68,8 +69,9 @@ public class TVFScanNode extends FileQueryScanNode {
      * eg: s3 tvf
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
-    public TVFScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv) {
-        super(id, desc, "TVF_SCAN_NODE", StatisticalType.TVF_SCAN_NODE, needCheckColumnPriv, sv);
+    public TVFScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv,
+            ScanContext scanContext) {
+        super(id, desc, "TVF_SCAN_NODE", StatisticalType.TVF_SCAN_NODE, scanContext, needCheckColumnPriv, sv);
         table = (FunctionGenTable) this.desc.getTable();
         tableValuedFunction = (ExternalFileTableValuedFunction) table.getTvf();
     }
@@ -142,17 +144,23 @@ public class TVFScanNode extends FileQueryScanNode {
         // Push down count optimization.
         boolean needSplit = true;
         if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT) {
-            int parallelNum = sessionVariable.getParallelExecInstanceNum();
+            int parallelNum = sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName());
             int totalFileNum = fileStatuses.size();
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
         }
 
+        long targetFileSplitSize = determineTargetFileSplitSize(fileStatuses);
+
         for (TBrokerFileStatus fileStatus : fileStatuses) {
             try {
-                splits.addAll(FileSplitter.splitFile(LocationPath.of(fileStatus.getPath()),
-                        getRealFileSplitSize(needSplit ? fileStatus.getBlockSize() : Long.MAX_VALUE),
-                        null, fileStatus.getSize(),
-                        fileStatus.getModificationTime(), fileStatus.isSplitable, null,
+                splits.addAll(fileSplitter.splitFile(
+                        LocationPath.of(fileStatus.getPath()),
+                        targetFileSplitSize,
+                        null,
+                        fileStatus.getSize(),
+                        fileStatus.getModificationTime(),
+                        fileStatus.isSplitable && needSplit,
+                        null,
                         FileSplitCreator.DEFAULT));
             } catch (IOException e) {
                 LOG.warn("get file split failed for TVF: {}", fileStatus.getPath(), e);
@@ -160,6 +168,25 @@ public class TVFScanNode extends FileQueryScanNode {
             }
         }
         return splits;
+    }
+
+    private long determineTargetFileSplitSize(List<TBrokerFileStatus> fileStatuses) {
+        if (sessionVariable.getFileSplitSize() > 0) {
+            return sessionVariable.getFileSplitSize();
+        }
+        long result = sessionVariable.getMaxInitialSplitSize();
+        long totalFileSize = 0;
+        boolean exceedInitialThreshold = false;
+        for (TBrokerFileStatus fileStatus : fileStatuses) {
+            totalFileSize += fileStatus.getSize();
+            if (!exceedInitialThreshold
+                    && totalFileSize >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
+                exceedInitialThreshold = true;
+            }
+        }
+        result = exceedInitialThreshold ? sessionVariable.getMaxSplitSize() : result;
+        result = applyMaxFileSplitNumLimit(result, totalFileSize);
+        return result;
     }
 
     @Override

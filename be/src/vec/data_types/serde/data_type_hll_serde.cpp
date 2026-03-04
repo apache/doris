@@ -220,8 +220,8 @@ Status DataTypeHLLSerDe::from_string(StringRef& str, IColumn& column,
     return deserialize_one_cell_from_json(column, slice, options);
 }
 
-Status DataTypeHLLSerDe::from_string(const std::string& str, Field& field,
-                                     const FormatOptions& options) const {
+Status DataTypeHLLSerDe::from_olap_string(const std::string& str, Field& field,
+                                          const FormatOptions& options) const {
     HyperLogLog hyper_log_log(Slice(str.data(), str.size()));
     field = Field::create_field<TYPE_HLL>(std::move(hyper_log_log));
     return Status::OK();

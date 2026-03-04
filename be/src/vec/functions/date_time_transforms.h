@@ -20,12 +20,16 @@
 
 #pragma once
 
+#include <libdivide.h>
+
 #include <cmath>
 #include <cstdint>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "util/binary_cast.hpp"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -298,6 +302,53 @@ struct MonthNameImpl {
     }
 };
 
+template <typename FormatImpl, const char* FuncName>
+struct DateTimeV2FormatImpl {
+    static constexpr PrimitiveType OpArgType = TYPE_DATETIMEV2;
+    using ArgType = typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType;
+    static constexpr auto name = FuncName;
+    static constexpr auto max_size = FormatImpl::row_size;
+
+    static auto execute(const ArgType& dt, ColumnString::Chars& res_data, size_t& offset,
+                        const char* const* /*names_ptr*/, FunctionContext* /*context*/) {
+        auto* buf = reinterpret_cast<char*>(&res_data[offset]);
+        offset += FormatImpl::date_to_str(dt, buf);
+        return offset;
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::DataType>()};
+    }
+};
+
+inline constexpr char kYearMonthName[] = "year_month";
+inline constexpr char kDayHourName[] = "day_hour";
+inline constexpr char kDayMinuteName[] = "day_minute";
+inline constexpr char kDaySecondName[] = "day_second";
+inline constexpr char kDayMicrosecondName[] = "day_microsecond";
+inline constexpr char kHourMinuteName[] = "hour_minute";
+inline constexpr char kHourSecondName[] = "hour_second";
+inline constexpr char kHourMicrosecondName[] = "hour_microsecond";
+inline constexpr char kMinuteSecondName[] = "minute_second";
+inline constexpr char kMinuteMicrosecondName[] = "minute_microsecond";
+inline constexpr char kSecondMicrosecondName[] = "second_microsecond";
+
+using YearMonthImpl = DateTimeV2FormatImpl<time_format_type::yyyy_MMImpl, kYearMonthName>;
+using DayHourImpl = DateTimeV2FormatImpl<time_format_type::dd_HHImpl, kDayHourName>;
+using DayMinuteImpl = DateTimeV2FormatImpl<time_format_type::dd_HH_mmImpl, kDayMinuteName>;
+using DaySecondImpl = DateTimeV2FormatImpl<time_format_type::dd_HH_mm_ssImpl, kDaySecondName>;
+using DayMicrosecondImpl =
+        DateTimeV2FormatImpl<time_format_type::dd_HH_mm_ss_SSSSSSImpl, kDayMicrosecondName>;
+using HourMinuteImpl = DateTimeV2FormatImpl<time_format_type::HH_mmImpl, kHourMinuteName>;
+using HourSecondImpl = DateTimeV2FormatImpl<time_format_type::HH_mm_ssImpl, kHourSecondName>;
+using HourMicrosecondImpl =
+        DateTimeV2FormatImpl<time_format_type::HH_mm_ss_SSSSSSImpl, kHourMicrosecondName>;
+using MinuteSecondImpl = DateTimeV2FormatImpl<time_format_type::mm_ssImpl, kMinuteSecondName>;
+using MinuteMicrosecondImpl =
+        DateTimeV2FormatImpl<time_format_type::mm_ss_SSSSSSImpl, kMinuteMicrosecondName>;
+using SecondMicrosecondImpl =
+        DateTimeV2FormatImpl<time_format_type::ss_SSSSSSImpl, kSecondMicrosecondName>;
+
 template <PrimitiveType PType>
 struct DateFormatImpl {
     using DateType = typename PrimitiveTypeTraits<PType>::CppType;
@@ -541,6 +592,139 @@ private:
             return TimeValue::make_time(datetime_val.hour(), datetime_val.minute(),
                                         datetime_val.second(), datetime_val.microsecond());
         }
+    }
+};
+
+// Base template for optimized time field(HOUR, MINUTE, SECOND, MS) extraction from Unix timestamp
+// Uses lookup_offset to avoid expensive civil_second construction
+template <typename Impl>
+class FunctionTimeFieldFromUnixtime : public IFunction {
+public:
+    static constexpr auto name = Impl::name;
+    static FunctionPtr create() { return std::make_shared<FunctionTimeFieldFromUnixtime<Impl>>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        // microsecond_from_unixtime returns Int32, others (hour/minute/second) return Int8
+        if constexpr (Impl::ArgType == PrimitiveType::TYPE_DECIMAL64) {
+            return make_nullable(std::make_shared<DataTypeInt32>());
+        } else {
+            return make_nullable(std::make_shared<DataTypeInt8>());
+        }
+    }
+
+    // (UTC 9999-12-31 23:59:59) - 24 * 3600
+    static const int64_t TIMESTAMP_VALID_MAX = 253402243199L;
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        using ArgColType = PrimitiveTypeTraits<Impl::ArgType>::ColumnType;
+        using ResColType = std::conditional_t<Impl::ArgType == PrimitiveType::TYPE_DECIMAL64,
+                                              ColumnInt32, ColumnInt8>;
+        using ResItemType = typename ResColType::value_type;
+        auto res = ResColType::create();
+
+        const auto* ts_col =
+                assert_cast<const ArgColType*>(block.get_by_position(arguments[0]).column.get());
+        if constexpr (Impl::ArgType == PrimitiveType::TYPE_DECIMAL64) {
+            // microsecond_from_unixtime only
+            const auto scale = static_cast<int32_t>(ts_col->get_scale());
+
+            for (int i = 0; i < input_rows_count; ++i) {
+                const auto seconds = ts_col->get_intergral_part(i);
+                const auto fraction = ts_col->get_fractional_part(i);
+
+                if (seconds < 0 || seconds > TIMESTAMP_VALID_MAX) {
+                    return Status::InvalidArgument(
+                            "The input value of TimeFiled(from_unixtime()) must between 0 and "
+                            "253402243199L");
+                }
+
+                ResItemType value = Impl::extract_field(fraction, scale);
+                res->insert_value(value);
+            }
+        } else {
+            auto ctz = context->state()->timezone_obj();
+            for (int i = 0; i < input_rows_count; ++i) {
+                auto date = ts_col->get_element(i);
+
+                if (date < 0 || date > TIMESTAMP_VALID_MAX) {
+                    return Status::InvalidArgument(
+                            "The input value of TimeFiled(from_unixtime()) must between 0 and "
+                            "253402243199L");
+                }
+
+                ResItemType value = Impl::extract_field(date, ctz);
+                res->insert_value(value);
+            }
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+};
+
+struct HourFromUnixtimeImpl {
+    static constexpr PrimitiveType ArgType = PrimitiveType::TYPE_BIGINT;
+    static constexpr auto name = "hour_from_unixtime";
+
+    static int8_t extract_field(int64_t local_time, const cctz::time_zone& ctz) {
+        static const auto epoch = std::chrono::time_point_cast<cctz::sys_seconds>(
+                std::chrono::system_clock::from_time_t(0));
+        cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(local_time);
+        int offset = ctz.lookup_offset(t).offset;
+        local_time += offset;
+
+        static const libdivide::divider<int64_t> fast_div_3600(3600);
+        static const libdivide::divider<int64_t> fast_div_86400(86400);
+
+        int64_t remainder;
+        if (LIKELY(local_time >= 0)) {
+            remainder = local_time - local_time / fast_div_86400 * 86400;
+        } else {
+            remainder = local_time % 86400;
+            if (remainder < 0) {
+                remainder += 86400;
+            }
+        }
+        return static_cast<int8_t>(remainder / fast_div_3600);
+    }
+};
+
+struct MinuteFromUnixtimeImpl {
+    static constexpr PrimitiveType ArgType = PrimitiveType::TYPE_BIGINT;
+    static constexpr auto name = "minute_from_unixtime";
+
+    static int8_t extract_field(int64_t local_time, const cctz::time_zone& /*ctz*/) {
+        static const libdivide::divider<int64_t> fast_div_60(60);
+        static const libdivide::divider<int64_t> fast_div_3600(3600);
+
+        local_time = local_time - local_time / fast_div_3600 * 3600;
+
+        return static_cast<int8_t>(local_time / fast_div_60);
+    }
+};
+
+struct SecondFromUnixtimeImpl {
+    static constexpr PrimitiveType ArgType = PrimitiveType::TYPE_BIGINT;
+    static constexpr auto name = "second_from_unixtime";
+
+    static int8_t extract_field(int64_t local_time, const cctz::time_zone& /*ctz*/) {
+        return static_cast<int8_t>(local_time % 60);
+    }
+};
+
+struct MicrosecondFromUnixtimeImpl {
+    static constexpr PrimitiveType ArgType = PrimitiveType::TYPE_DECIMAL64;
+    static constexpr auto name = "microsecond_from_unixtime";
+
+    static int32_t extract_field(int64_t fraction, int scale) {
+        if (scale < 6) {
+            fraction *= common::exp10_i64(6 - scale);
+        }
+        return static_cast<int32_t>(fraction);
     }
 };
 

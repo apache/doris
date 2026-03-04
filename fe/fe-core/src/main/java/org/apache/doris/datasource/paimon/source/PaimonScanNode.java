@@ -28,7 +28,6 @@ import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
-import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
@@ -38,6 +37,7 @@ import org.apache.doris.datasource.paimon.profile.PaimonMetricRegistry;
 import org.apache.doris.datasource.paimon.profile.PaimonScanMetricsReporter;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -149,8 +149,10 @@ public class PaimonScanNode extends FileQueryScanNode {
     public PaimonScanNode(PlanNodeId id,
                           TupleDescriptor desc,
                           boolean needCheckColumnPriv,
-                          SessionVariable sv) {
-        super(id, desc, "PAIMON_SCAN_NODE", StatisticalType.PAIMON_SCAN_NODE, needCheckColumnPriv, sv);
+                          SessionVariable sv,
+                          ScanContext scanContext) {
+        super(id, desc, "PAIMON_SCAN_NODE", StatisticalType.PAIMON_SCAN_NODE,
+                scanContext, needCheckColumnPriv, sv);
     }
 
     @Override
@@ -322,7 +324,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         // And for counting the number of selected partitions for this paimon table.
         Map<BinaryRow, Map<String, String>> partitionInfoMaps = new HashMap<>();
         // if applyCountPushdown is true, we can't split the DataSplit
-        long realFileSplitSize = getRealFileSplitSize(applyCountPushdown ? Long.MAX_VALUE : 0);
+        boolean hasDeterminedTargetFileSplitSize = false;
+        long targetFileSplitSize = 0;
         for (DataSplit dataSplit : dataSplits) {
             SplitStat splitStat = new SplitStat();
             splitStat.setRowCount(dataSplit.rowCount());
@@ -354,6 +357,10 @@ public class PaimonScanNode extends FileQueryScanNode {
                 if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
                     continue;
                 }
+                if (!hasDeterminedTargetFileSplitSize) {
+                    targetFileSplitSize = determineTargetFileSplitSize(dataSplits, isBatchMode());
+                    hasDeterminedTargetFileSplitSize = true;
+                }
                 splitStat.setType(SplitReadType.NATIVE);
                 splitStat.setRawFileConvertable(true);
                 List<RawFile> rawFiles = optRawFiles.get();
@@ -361,13 +368,13 @@ public class PaimonScanNode extends FileQueryScanNode {
                     RawFile file = rawFiles.get(i);
                     LocationPath locationPath = LocationPath.of(file.path(), storagePropertiesMap);
                     try {
-                        List<Split> dorisSplits = FileSplitter.splitFile(
+                        List<Split> dorisSplits = fileSplitter.splitFile(
                                 locationPath,
-                                realFileSplitSize,
+                                targetFileSplitSize,
                                 null,
                                 file.length(),
                                 -1,
-                                true,
+                                !applyCountPushdown,
                                 null,
                                 PaimonSplit.PaimonSplitCreator.DEFAULT);
                         for (Split dorisSplit : dorisSplits) {
@@ -400,7 +407,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         // if applyCountPushdown is true, calcute row count for count pushdown
         if (applyCountPushdown && !pushDownCountSplits.isEmpty()) {
             if (pushDownCountSum > COUNT_WITH_PARALLEL_SPLITS) {
-                int minSplits = sessionVariable.getParallelExecInstanceNum() * numBackends;
+                int minSplits = sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName())
+                        * numBackends;
                 pushDownCountSplits = pushDownCountSplits.subList(0, Math.min(pushDownCountSplits.size(), minSplits));
             } else {
                 pushDownCountSplits = Collections.singletonList(pushDownCountSplits.get(0));
@@ -412,10 +420,43 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         // We need to set the target size for all splits so that we can calculate the
         // proportion of each split later.
-        splits.forEach(s -> s.setTargetSplitSize(realFileSplitSize));
+        splits.forEach(s -> s.setTargetSplitSize(sessionVariable.getFileSplitSize() > 0
+                ? sessionVariable.getFileSplitSize() : sessionVariable.getMaxSplitSize()));
 
         this.selectedPartitionNum = partitionInfoMaps.size();
         return splits;
+    }
+
+    private long determineTargetFileSplitSize(List<DataSplit> dataSplits,
+            boolean isBatchMode) {
+        if (sessionVariable.getFileSplitSize() > 0) {
+            return sessionVariable.getFileSplitSize();
+        }
+        /** Paimon batch split mode will return 0. and <code>FileSplitter</code>
+         *  will determine file split size.
+         */
+        if (isBatchMode) {
+            return 0;
+        }
+        long result = sessionVariable.getMaxInitialSplitSize();
+        long totalFileSize = 0;
+        boolean exceedInitialThreshold = false;
+        for (DataSplit dataSplit : dataSplits) {
+            Optional<List<RawFile>> rawFiles = dataSplit.convertToRawFiles();
+            if (!supportNativeReader(rawFiles)) {
+                continue;
+            }
+            for (RawFile rawFile : rawFiles.get()) {
+                totalFileSize += rawFile.fileSize();
+                if (!exceedInitialThreshold && totalFileSize
+                        >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
+                    exceedInitialThreshold = true;
+                }
+            }
+        }
+        result = exceedInitialThreshold ? sessionVariable.getMaxSplitSize() : result;
+        result = applyMaxFileSplitNumLimit(result, totalFileSize);
+        return result;
     }
 
     @VisibleForTesting

@@ -32,9 +32,7 @@ namespace doris::vectorized {
 
 ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnPtr&& null_map_)
         : _nested_column(std::move(nested_column_)), _null_map(std::move(null_map_)) {
-    /// ColumnNullable cannot have constant nested column. But constant argument could be passed. Materialize it.
-    _nested_column = get_nested_column().convert_to_full_column_if_const();
-
+    check_const_only_in_top_level();
     // after convert const column to full column, it may be a nullable column
     if (_nested_column->is_nullable()) {
         assert_cast<ColumnNullable&>(*_nested_column)
@@ -344,6 +342,16 @@ void ColumnNullable::insert(const Field& x) {
     } else {
         get_nested_column().insert(x);
         push_false_to_nullmap(1);
+    }
+}
+
+void ColumnNullable::insert_duplicate_fields(const Field& x, const size_t n) {
+    if (x.is_null()) {
+        get_nested_column().insert_many_defaults(n);
+        get_null_map_column().insert_many_vals(1, n);
+    } else {
+        get_nested_column().insert_duplicate_fields(x, n);
+        get_null_map_column().insert_many_vals(0, n);
     }
 }
 

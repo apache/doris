@@ -491,10 +491,9 @@ Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
-Status DataTypeNullableSerDe::from_string(const std::string& str, Field& field,
-                                          const FormatOptions& options) const {
-    auto st = nested_serde->from_string(str, field, options);
-    if (!st.ok()) {
+Status DataTypeNullableSerDe::from_olap_string(const std::string& str, Field& field,
+                                               const FormatOptions& options) const {
+    if (!nested_serde->from_olap_string(str, field, options).ok()) {
         // fill null if fail
         field = Field();
         return Status::OK();

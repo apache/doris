@@ -42,8 +42,8 @@ Status DataTypeTimeStampTzSerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
-Status DataTypeTimeStampTzSerDe::from_string(const std::string& str, Field& field,
-                                             const FormatOptions& options) const {
+Status DataTypeTimeStampTzSerDe::from_olap_string(const std::string& str, Field& field,
+                                                  const FormatOptions& options) const {
     CastParameters params {.status = Status::OK(), .is_strict = false};
 
     TimestampTzValue res;

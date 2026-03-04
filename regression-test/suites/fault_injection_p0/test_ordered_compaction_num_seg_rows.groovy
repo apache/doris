@@ -24,7 +24,8 @@ suite("test_ordered_compaction_num_seg_rows","nonConcurrent") {
 
     def custoBeConfig = [
         ordered_data_compaction_min_segment_size : 1,
-        enable_ordered_data_compaction: true
+        enable_ordered_data_compaction: true,
+        segments_key_bounds_truncation_threshold: -1 // this config may be fuzzied to value that will make the condition of ordered compaction not met, so manually set it to -1 to disable the truncation
     ]
     setBeConfigTemporary(custoBeConfig) {
 
