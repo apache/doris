@@ -173,8 +173,8 @@ Status OlapScanLocalState::_init_profile() {
                 _scanner_profile, "SyncRowsetGetRemoteDeleteBitmapRpcTime", sync_rowset_timer_name);
         _sync_rowset_bthread_schedule_wait_timer = ADD_CHILD_TIMER(
                 _scanner_profile, "SyncRowsetBthreadScheduleWaitTime", sync_rowset_timer_name);
-        _sync_rowset_meta_lock_wait_timer =
-                ADD_CHILD_TIMER(_scanner_profile, "SyncRowsetMetaLockWaitTime", sync_rowset_timer_name);
+        _sync_rowset_meta_lock_wait_timer = ADD_CHILD_TIMER(
+                _scanner_profile, "SyncRowsetMetaLockWaitTime", sync_rowset_timer_name);
         _sync_rowset_sync_meta_lock_wait_timer = ADD_CHILD_TIMER(
                 _scanner_profile, "SyncRowsetSyncMetaLockWaitTime", sync_rowset_timer_name);
     }
@@ -626,8 +626,8 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
                     auto task_start_time = std::chrono::steady_clock::now();
                     if (sync_stats) {
                         sync_stats->bthread_schedule_delay_ns +=
-                                std::chrono::duration_cast<std::chrono::nanoseconds>(task_start_time -
-                                                                                       task_create_time)
+                                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                        task_start_time - task_create_time)
                                         .count();
                     }
                     auto task_lock = task_ctx.lock();
@@ -703,9 +703,11 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                            sync_stats.get_remote_delete_bitmap_bytes);
             COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_rpc_timer,
                            sync_stats.get_remote_delete_bitmap_rpc_ns);
-            COUNTER_UPDATE(_sync_rowset_bthread_schedule_wait_timer, sync_stats.bthread_schedule_delay_ns);
+            COUNTER_UPDATE(_sync_rowset_bthread_schedule_wait_timer,
+                           sync_stats.bthread_schedule_delay_ns);
             COUNTER_UPDATE(_sync_rowset_meta_lock_wait_timer, sync_stats.meta_lock_wait_ns);
-            COUNTER_UPDATE(_sync_rowset_sync_meta_lock_wait_timer, sync_stats.sync_meta_lock_wait_ns);
+            COUNTER_UPDATE(_sync_rowset_sync_meta_lock_wait_timer,
+                           sync_stats.sync_meta_lock_wait_ns);
         }
         auto time_ms = _sync_cloud_tablets_watcher.elapsed_time_microseconds();
         if (time_ms >= config::sync_rowsets_slow_threshold_ms) {

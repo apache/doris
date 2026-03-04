@@ -291,10 +291,9 @@ Status CloudTablet::sync_rowsets(const SyncOptions& options, SyncRowsetStats* st
     auto sync_lock_start = std::chrono::steady_clock::now();
     std::unique_lock lock(_sync_meta_lock);
     if (stats) {
-        stats->sync_meta_lock_wait_ns +=
-                std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() -
-                                                                       sync_lock_start)
-                        .count();
+        stats->sync_meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                 std::chrono::steady_clock::now() - sync_lock_start)
+                                                 .count();
     }
     if (options.query_version > 0) {
         auto lock_start = std::chrono::steady_clock::now();
@@ -329,10 +328,9 @@ Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
     auto sync_lock_start = std::chrono::steady_clock::now();
     std::unique_lock lock(_sync_meta_lock);
     if (stats) {
-        stats->sync_meta_lock_wait_ns +=
-                std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() -
-                                                                       sync_lock_start)
-                        .count();
+        stats->sync_meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                 std::chrono::steady_clock::now() - sync_lock_start)
+                                                 .count();
     }
 
     {

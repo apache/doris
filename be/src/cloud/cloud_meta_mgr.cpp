@@ -593,9 +593,10 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             auto lock_start = std::chrono::steady_clock::now();
             std::shared_lock rlock(tablet->get_header_lock());
             if (sync_stats) {
-                sync_stats->meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                                           std::chrono::steady_clock::now() - lock_start)
-                                                           .count();
+                sync_stats->meta_lock_wait_ns +=
+                        std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                std::chrono::steady_clock::now() - lock_start)
+                                .count();
             }
             if (options.full_sync) {
                 req.set_start_version(0);
@@ -702,9 +703,10 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             auto lock_start = std::chrono::steady_clock::now();
             std::unique_lock wlock(tablet->get_header_lock());
             if (sync_stats) {
-                sync_stats->meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                                           std::chrono::steady_clock::now() - lock_start)
-                                                           .count();
+                sync_stats->meta_lock_wait_ns +=
+                        std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                std::chrono::steady_clock::now() - lock_start)
+                                .count();
             }
 
             // ATTN: we are facing following data race
