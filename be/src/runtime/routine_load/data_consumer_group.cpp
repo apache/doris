@@ -300,8 +300,8 @@ Status KinesisDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ct
                       << ", left_time: " << left_time << ", left_rows: " << left_rows
                       << ", left_bytes: " << left_bytes
                       << ", blocking get time(us): " << _queue.total_get_wait_time() / 1000
-                      << ", blocking put time(us): " << _queue.total_put_wait_time() / 1000
-                      << ", " << ctx->brief();
+                      << ", blocking put time(us): " << _queue.total_put_wait_time() / 1000 << ", "
+                      << ctx->brief();
 
             // Shutdown queue
             _queue.shutdown();
@@ -324,8 +324,7 @@ Status KinesisDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ct
             RETURN_IF_ERROR(kinesis_pipe->finish());
             // Collect committed sequence numbers from all consumers
             for (auto& consumer : _consumers) {
-                auto kinesis_consumer =
-                        std::static_pointer_cast<KinesisDataConsumer>(consumer);
+                auto kinesis_consumer = std::static_pointer_cast<KinesisDataConsumer>(consumer);
                 for (auto& [shard_id, seq_num] :
                      kinesis_consumer->get_committed_sequence_numbers()) {
                     ctx->kinesis_info->cmt_sequence_number[shard_id] = seq_num;
@@ -336,7 +335,8 @@ Status KinesisDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ct
         }
 
         std::shared_ptr<Aws::Kinesis::Model::Record> record;
-        bool res = _queue.controlled_blocking_get(&record, config::blocking_queue_cv_wait_timeout_ms);
+        bool res =
+                _queue.controlled_blocking_get(&record, config::blocking_queue_cv_wait_timeout_ms);
         if (res) {
             auto& data = record->GetData();
             const char* payload = reinterpret_cast<const char*>(data.GetUnderlyingData());
@@ -349,8 +349,7 @@ Status KinesisDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ct
             if (st.ok()) {
                 left_rows--;
                 left_bytes -= len;
-                VLOG_NOTICE << "consume kinesis record [seq=" << record->GetSequenceNumber()
-                            << "]";
+                VLOG_NOTICE << "consume kinesis record [seq=" << record->GetSequenceNumber() << "]";
             } else {
                 LOG(WARNING) << "failed to append kinesis record to pipe. grp: " << _grp_id;
                 eos = true;

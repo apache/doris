@@ -234,7 +234,7 @@ Status RoutineLoadTaskExecutor::_prepare_ctx(const PKinesisMetaProxyRequest& req
 }
 
 Status RoutineLoadTaskExecutor::get_kinesis_shard_meta(const PKinesisMetaProxyRequest& request,
-                                                        std::vector<std::string>* shard_ids) {
+                                                       std::vector<std::string>* shard_ids) {
     CHECK(request.has_kinesis_info());
 
     // This context is meaningless, just for unifying the interface
@@ -463,7 +463,8 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     }
     case TLoadSourceType::KINESIS: {
         if (ctx->is_multi_table) {
-            err_handler(ctx, Status::Cancelled("Cancelled"), "Kinesis doesn't support multi-table yet");
+            err_handler(ctx, Status::Cancelled("Cancelled"),
+                        "Kinesis doesn't support multi-table yet");
             cb(ctx);
             return;
         } else {
@@ -540,8 +541,8 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     // Extract Kinesis metrics before returning consumers to pool,
     // because reset() in return_consumer() clears internal state.
     if (ctx->load_src_type == TLoadSourceType::KINESIS && !consumer_grp->consumers().empty()) {
-        auto kinesis_consumer = std::static_pointer_cast<KinesisDataConsumer>(
-                consumer_grp->consumers()[0]);
+        auto kinesis_consumer =
+                std::static_pointer_cast<KinesisDataConsumer>(consumer_grp->consumers()[0]);
         ctx->kinesis_info->millis_behind_latest = kinesis_consumer->get_millis_behind_latest();
     }
 
@@ -592,8 +593,8 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     case TLoadSourceType::KINESIS: {
         // millis_behind_latest already extracted before return_consumers above
         LOG(INFO) << "Kinesis routine load task completed. Committed sequence numbers for "
-                  << ctx->kinesis_info->cmt_sequence_number.size() << " shards. Task: "
-                  << ctx->brief();
+                  << ctx->kinesis_info->cmt_sequence_number.size()
+                  << " shards. Task: " << ctx->brief();
         break;
     }
     default:

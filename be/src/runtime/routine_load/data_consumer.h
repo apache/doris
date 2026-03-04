@@ -196,12 +196,11 @@ public:
     // Kinesis-specific methods
     // Assign shards with their starting sequence numbers
     Status assign_shards(const std::map<std::string, std::string>& shard_sequence_numbers,
-                        const std::string& stream_name,
-                        std::shared_ptr<StreamLoadContext> ctx);
+                         const std::string& stream_name, std::shared_ptr<StreamLoadContext> ctx);
 
     // Main consumption loop - pulls records from all assigned shards
     Status group_consume(BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
-                        int64_t max_running_time_ms);
+                         int64_t max_running_time_ms);
 
     // Get list of shard IDs for the stream
     Status get_shard_list(std::vector<std::string>* shard_ids);
@@ -245,7 +244,6 @@ public:
     }
 
 private:
-
     // Helper methods
     // Create and configure AWS Kinesis client with credentials
     Status _create_kinesis_client(std::shared_ptr<StreamLoadContext> ctx);
@@ -256,9 +254,9 @@ private:
 
     // Process records from GetRecords result and add to queue
     Status _process_records(const std::string& shard_id,
-                           Aws::Kinesis::Model::GetRecordsResult result,
-                           BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
-                           int64_t* received_rows, int64_t* put_rows);
+                            Aws::Kinesis::Model::GetRecordsResult result,
+                            BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
+                            int64_t* received_rows, int64_t* put_rows);
 
     // Check if an AWS error is retriable (throttling, network, etc.)
     bool _is_retriable_error(const Aws::Client::AWSError<Aws::Kinesis::KinesisErrors>& error);

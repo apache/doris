@@ -598,8 +598,8 @@ Status KinesisDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
     // Create AWS Kinesis client
     RETURN_IF_ERROR(_create_kinesis_client(ctx));
 
-    VLOG_NOTICE << "finished to init Kinesis consumer. stream=" << _stream
-                << ", region=" << _region << ", " << ctx->brief();
+    VLOG_NOTICE << "finished to init Kinesis consumer. stream=" << _stream << ", region=" << _region
+                << ", " << ctx->brief();
     _init = true;
     return Status::OK();
 }
@@ -691,8 +691,8 @@ Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadCon
             std::make_shared<Aws::Kinesis::KinesisClient>(credentials_provider, aws_config);
 
     if (!_kinesis_client) {
-        return Status::InternalError("Failed to create AWS Kinesis client for stream: {}, region: {}",
-                                    _stream, _region);
+        return Status::InternalError(
+                "Failed to create AWS Kinesis client for stream: {}, region: {}", _stream, _region);
     }
 
     LOG(INFO) << "Created Kinesis client for stream: " << _stream << ", region: " << _region;
@@ -726,15 +726,14 @@ Status KinesisDataConsumer::assign_shards(
 }
 
 Status KinesisDataConsumer::_get_shard_iterator(const std::string& shard_id,
-                                               const std::string& sequence_number,
-                                               std::string* iterator) {
+                                                const std::string& sequence_number,
+                                                std::string* iterator) {
     Aws::Kinesis::Model::GetShardIteratorRequest request;
     request.SetStreamName(_stream);
     request.SetShardId(shard_id);
 
     // Determine iterator type based on sequence number
-    if (sequence_number.empty() || sequence_number == "TRIM_HORIZON" ||
-        sequence_number == "-2") {
+    if (sequence_number.empty() || sequence_number == "TRIM_HORIZON" || sequence_number == "-2") {
         // Start from oldest record in shard
         request.SetShardIteratorType(Aws::Kinesis::Model::ShardIteratorType::TRIM_HORIZON);
     } else if (sequence_number == "LATEST" || sequence_number == "-1") {
@@ -742,17 +741,15 @@ Status KinesisDataConsumer::_get_shard_iterator(const std::string& shard_id,
         request.SetShardIteratorType(Aws::Kinesis::Model::ShardIteratorType::LATEST);
     } else {
         // Resume from specific sequence number
-        request.SetShardIteratorType(
-                Aws::Kinesis::Model::ShardIteratorType::AFTER_SEQUENCE_NUMBER);
+        request.SetShardIteratorType(Aws::Kinesis::Model::ShardIteratorType::AFTER_SEQUENCE_NUMBER);
         request.SetStartingSequenceNumber(sequence_number);
     }
 
     auto outcome = _kinesis_client->GetShardIterator(request);
     if (!outcome.IsSuccess()) {
         auto& error = outcome.GetError();
-        return Status::InternalError(
-                "Failed to get shard iterator for shard {}: {} ({})", shard_id,
-                error.GetMessage(), static_cast<int>(error.GetErrorType()));
+        return Status::InternalError("Failed to get shard iterator for shard {}: {} ({})", shard_id,
+                                     error.GetMessage(), static_cast<int>(error.GetErrorType()));
     }
 
     *iterator = outcome.GetResult().GetShardIterator();
@@ -764,9 +761,9 @@ Status KinesisDataConsumer::group_consume(
         BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
         int64_t max_running_time_ms) {
     static constexpr int MAX_RETRY_TIMES_FOR_TRANSPORT_FAILURE = 3;
-    static constexpr int RATE_LIMIT_BACKOFF_MS = 1000;             // 1 second
-    static constexpr int KINESIS_GET_RECORDS_LIMIT = 1000;         // Max 10000
-    static constexpr int INTER_SHARD_SLEEP_MS = 10;                // Small sleep between shards
+    static constexpr int RATE_LIMIT_BACKOFF_MS = 1000;     // 1 second
+    static constexpr int KINESIS_GET_RECORDS_LIMIT = 1000; // Max 10000
+    static constexpr int INTER_SHARD_SLEEP_MS = 10;        // Small sleep between shards
 
     int64_t left_time = max_running_time_ms;
     LOG(INFO) << "start Kinesis consumer: " << _id << ", grp: " << _grp_id
@@ -847,10 +844,10 @@ Status KinesisDataConsumer::group_consume(
 
                 // Fatal error
                 LOG(WARNING) << "Kinesis consume failed for shard " << shard_id << ": "
-                            << error.GetMessage() << " (" << static_cast<int>(error.GetErrorType())
-                            << ")";
+                             << error.GetMessage() << " (" << static_cast<int>(error.GetErrorType())
+                             << ")";
                 st = Status::InternalError("Kinesis GetRecords failed for shard {}: {}", shard_id,
-                                          error.GetMessage());
+                                           error.GetMessage());
                 done = true;
                 break;
             }
@@ -863,7 +860,7 @@ Status KinesisDataConsumer::group_consume(
             auto millis_behind = result.GetMillisBehindLatest();
             std::string next_iterator = result.GetNextShardIterator();
             RETURN_IF_ERROR(_process_records(shard_id, std::move(result), queue, &received_rows,
-                                            &put_rows));
+                                             &put_rows));
 
             // Track MillisBehindLatest for this shard (used by FE for lag monitoring & scheduling)
             _millis_behind_latest[shard_id] = millis_behind;
@@ -906,13 +903,12 @@ Status KinesisDataConsumer::group_consume(
 }
 
 Status KinesisDataConsumer::_process_records(
-        const std::string& shard_id,
-        Aws::Kinesis::Model::GetRecordsResult result,
-        BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
-        int64_t* received_rows, int64_t* put_rows) {
+        const std::string& shard_id, Aws::Kinesis::Model::GetRecordsResult result,
+        BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue, int64_t* received_rows,
+        int64_t* put_rows) {
     // result is owned by value, safe to get mutable access to its records
-    auto records = std::move(
-            const_cast<Aws::Vector<Aws::Kinesis::Model::Record>&>(result.GetRecords()));
+    auto records =
+            std::move(const_cast<Aws::Vector<Aws::Kinesis::Model::Record>&>(result.GetRecords()));
 
     for (auto& record : records) {
         DorisMetrics::instance()->routine_load_consume_bytes->increment(
@@ -930,7 +926,7 @@ Status KinesisDataConsumer::_process_records(
         auto record_ptr = std::make_shared<Aws::Kinesis::Model::Record>(std::move(record));
 
         if (!queue->controlled_blocking_put(record_ptr,
-                                           config::blocking_queue_cv_wait_timeout_ms)) {
+                                            config::blocking_queue_cv_wait_timeout_ms)) {
             // Queue shutdown
             return Status::InternalError("Queue shutdown during record processing");
         }
@@ -950,8 +946,7 @@ bool KinesisDataConsumer::_is_retriable_error(
     return error_type == Aws::Kinesis::KinesisErrors::PROVISIONED_THROUGHPUT_EXCEEDED ||
            error_type == Aws::Kinesis::KinesisErrors::SERVICE_UNAVAILABLE ||
            error_type == Aws::Kinesis::KinesisErrors::INTERNAL_FAILURE ||
-           error_type == Aws::Kinesis::KinesisErrors::NETWORK_CONNECTION ||
-           error.ShouldRetry();
+           error_type == Aws::Kinesis::KinesisErrors::NETWORK_CONNECTION || error.ShouldRetry();
 }
 
 Status KinesisDataConsumer::reset() {
@@ -1009,7 +1004,7 @@ Status KinesisDataConsumer::get_shard_list(std::vector<std::string>* shard_ids) 
     if (!outcome.IsSuccess()) {
         auto& error = outcome.GetError();
         return Status::InternalError("Failed to list shards for stream {}: {} ({})", _stream,
-                                    error.GetMessage(), static_cast<int>(error.GetErrorType()));
+                                     error.GetMessage(), static_cast<int>(error.GetErrorType()));
     }
 
     for (const auto& shard : outcome.GetResult().GetShards()) {
