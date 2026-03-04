@@ -41,6 +41,8 @@ public class HdfsPropertiesTest {
         Map<String, String> simpleHdfsProperties = new HashMap<>();
         simpleHdfsProperties.put("uri", "hdfs://test/1.orc");
         Assertions.assertEquals(HdfsProperties.class, StorageProperties.createPrimary(simpleHdfsProperties).getClass());
+        simpleHdfsProperties.put("uri", "jfs://test/1.orc");
+        Assertions.assertEquals(HdfsProperties.class, StorageProperties.createPrimary(simpleHdfsProperties).getClass());
         Map<String, String> origProps = createBaseHdfsProperties();
         List<StorageProperties> storageProperties = StorageProperties.createAll(origProps);
         HdfsProperties hdfsProperties = (HdfsProperties) storageProperties.get(0);

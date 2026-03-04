@@ -86,7 +86,7 @@ bool is_s3_scheme(const std::string& scheme) {
 }
 
 bool is_hdfs_scheme(const std::string& scheme) {
-    return scheme == "hdfs" || scheme == "viewfs" || scheme == "local";
+    return scheme == "hdfs" || scheme == "viewfs" || scheme == "local" || scheme == "jfs";
 }
 
 bool is_http_scheme(const std::string& scheme) {
@@ -109,7 +109,7 @@ doris::TFileType::type map_scheme_to_file_type(const std::string& scheme) {
     if (is_http_scheme(scheme)) {
         return doris::TFileType::FILE_HTTP;
     }
-    if (scheme == "ofs" || scheme == "gfs" || scheme == "jfs") {
+    if (scheme == "ofs" || scheme == "gfs") {
         return doris::TFileType::FILE_BROKER;
     }
     return doris::TFileType::FILE_HDFS;

@@ -608,8 +608,9 @@ public class OutFileClause {
          *    - Centralize HDFS URI parsing logic
          *    - Add validation in FE to reject incomplete or malformed configs
          */
-        if (null != brokerDesc.getStorageType() && brokerDesc.getStorageType()
-                .equals(StorageBackend.StorageType.HDFS)) {
+        if (null != brokerDesc.getStorageType() && (brokerDesc.getStorageType()
+                .equals(StorageBackend.StorageType.HDFS)
+                || brokerDesc.getStorageType().equals(StorageBackend.StorageType.JFS))) {
             String defaultFs = HdfsPropertiesUtils.extractDefaultFsFromPath(filePath);
             brokerDesc.getBackendConfigProperties().put(HdfsProperties.HDFS_DEFAULT_FS_NAME, defaultFs);
         }
@@ -766,5 +767,4 @@ public class OutFileClause {
         return sinkOptions;
     }
 }
-
 

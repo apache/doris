@@ -110,9 +110,9 @@ public class LocationPathTest {
         // BE
         String loc = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(loc.startsWith("jfs://"));
-        Assertions.assertEquals(FileSystemType.JFS, locationPath.getFileSystemType());
+        Assertions.assertEquals(FileSystemType.HDFS, locationPath.getFileSystemType());
         Assertions.assertEquals("jfs://test.com", locationPath.getFsIdentifier());
-        Assertions.assertEquals(TFileType.FILE_BROKER, locationPath.getTFileTypeForBE());
+        Assertions.assertEquals(TFileType.FILE_HDFS, locationPath.getTFileTypeForBE());
     }
 
     @Disabled("not support in master")

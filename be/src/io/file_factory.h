@@ -119,6 +119,8 @@ public:
             return TFileType::FILE_BROKER;
         case TStorageBackendType::HDFS:
             return TFileType::FILE_HDFS;
+        case TStorageBackendType::JFS:
+            return TFileType::FILE_HDFS;
         default:
             return ResultError(Status::FatalError("not match type to convert, from type:{}", type));
         }
