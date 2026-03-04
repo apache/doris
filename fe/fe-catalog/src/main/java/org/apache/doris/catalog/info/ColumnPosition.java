@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.catalog.info;
 
 import org.apache.doris.common.AnalysisException;
 

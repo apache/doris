@@ -15,24 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands.info;
+package org.apache.doris.catalog.info;
 
 /**
- * Represents the information needed to drop a branch in the system.
+ * Represents the information needed to drop a tag in the system.
  *
  */
-public class DropBranchInfo {
+public class DropTagInfo {
 
-    private final String branchName;
+    private final String tagName;
     private final Boolean ifExists;
 
-    public DropBranchInfo(String branchName, boolean ifExists) {
-        this.branchName = branchName;
+    public DropTagInfo(String tagName, boolean ifExists) {
+        this.tagName = tagName;
         this.ifExists = ifExists;
     }
 
-    public String getBranchName() {
-        return branchName;
+    public String getTagName() {
+        return tagName;
     }
 
     public Boolean getIfExists() {
@@ -40,17 +40,17 @@ public class DropBranchInfo {
     }
 
     /**
-     * Generates the SQL representation of the drop branch command.
+     * Generates the SQL representation of the drop tag command.
      *
-     * @return SQL string for drop a branch
+     * @return SQL string for drop a tag
      */
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("DROP BRANCH");
+        sb.append("DROP TAG");
         if (ifExists) {
             sb.append(" IF EXISTS");
         }
-        sb.append(" ").append(branchName);
+        sb.append(" ").append(tagName);
         return sb.toString();
     }
 }
