@@ -58,6 +58,8 @@ import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
@@ -221,10 +223,11 @@ public class RestoreJobTest {
                 minTimes = 0;
 
                 List<BackupMeta> backupMetas = Lists.newArrayList();
-                repo.getSnapshotMetaFile(label, backupMetas, -1);
+                repo.getSnapshotMetaFile(label, backupMetas, anyInt);
                 minTimes = 0;
                 result = new Delegate() {
-                    public Status getSnapshotMetaFile(String label, List<BackupMeta> backupMetas) {
+                    public Status getSnapshotMetaFile(String label, List<BackupMeta> backupMetas,
+                            int metaVersion) {
                         backupMetas.add(backupMeta);
                         return Status.OK;
                     }
@@ -2208,6 +2211,7 @@ public class RestoreJobTest {
             {
                 systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any,
                         (Map<Tag, Integer>) any, (TStorageMedium) any, (MediumAllocationMode) any, anyBoolean);
+                minTimes = 0;
                 result = new DdlException("no backend for strict mode test");
             }
         };
@@ -2220,5 +2224,35 @@ public class RestoreJobTest {
 
         Assert.assertFalse(status.ok());
         Assert.assertTrue(status.getErrMsg().contains("Failed to decide medium for partition"));
+    }
+
+    private void invokeCheckAndPrepareMeta(String storageMedium, String allocationMode) {
+        new MockUp<AgentTaskExecutor>() {
+            @Mock
+            public void submit(AgentBatchTask task) {
+            }
+        };
+
+        RestoreJob testJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
+                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
+                false, false, false, false, storageMedium, allocationMode, env, repo.getId());
+        Deencapsulation.setField(testJob, "repo", repo);
+        Deencapsulation.setField(testJob, "backupMeta", backupMeta);
+        Deencapsulation.invoke(testJob, "checkAndPrepareMeta");
+    }
+
+    @Test
+    public void testCheckAndPrepareMetaMediumDecision() throws Exception {
+        invokeCheckAndPrepareMeta("hdd", "strict");
+    }
+
+    @Test
+    public void testCheckAndPrepareMetaSsdAdaptive() throws Exception {
+        invokeCheckAndPrepareMeta("ssd", "adaptive");
+    }
+
+    @Test
+    public void testCheckAndPrepareMetaSameWithUpstream() throws Exception {
+        invokeCheckAndPrepareMeta("same_with_upstream", "adaptive");
     }
 }
