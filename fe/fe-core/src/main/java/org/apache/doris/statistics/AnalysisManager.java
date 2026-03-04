@@ -594,15 +594,36 @@ public class AnalysisManager implements Writable {
             for (Entry<TableNameInfo, Set<Pair<String, String>>> entry : jobMap.entrySet()) {
                 TableNameInfo table = entry.getKey();
                 if (tableNameInfo == null
-                        || tableNameInfo.getCtl() == null && tableNameInfo.getDb() == null
-                        && tableNameInfo.getTbl() == null
-                        || tableNameInfo.equals(table)) {
+                        || matchesFilter(tableNameInfo, table)) {
                     result.add(new AutoAnalysisPendingJob(table.getCtl(),
                             table.getDb(), table.getTbl(), entry.getValue(), priority));
                 }
             }
         }
         return result;
+    }
+
+    private boolean matchesFilter(TableNameInfo filter, TableNameInfo target) {
+        if (StringUtils.isEmpty(filter.getCtl())
+                && StringUtils.isEmpty(filter.getDb())
+                && StringUtils.isEmpty(filter.getTbl())) {
+            return true;
+        }
+
+        if (!StringUtils.isEmpty(filter.getCtl())
+                && !filter.getCtl().equals(target.getCtl())) {
+            return false;
+        }
+        if (!StringUtils.isEmpty(filter.getDb())
+                && !filter.getDb().equals(target.getDb())) {
+            return false;
+        }
+        if (!StringUtils.isEmpty(filter.getTbl())
+                && !filter.getTbl().equals(target.getTbl())) {
+            return false;
+        }
+
+        return true;
     }
 
     public List<AnalysisInfo> findAnalysisJobs(String state, String ctl, String db,

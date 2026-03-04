@@ -46,7 +46,7 @@ under the License.
     &nbsp;
     <a href="https://github.com/apache/doris/discussions"><img src="https://img.shields.io/badge/- Discussion -red?style=social&logo=discourse" height=25></a>
     &nbsp;
-    <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w" height=25></a>
+    <a href="https://doris.apache.org/slack" height=25></a>
     &nbsp;
     <a href="https://medium.com/@ApacheDoris"><img src="https://img.shields.io/badge/-Medium-red?style=social&logo=medium" height=25></a>
 
@@ -295,7 +295,7 @@ Hubungi kami melalui daftar surat berikut.
 
 * Situs Web Resmi Apache Doris - [Situs](https://doris.apache.org)
 * Daftar surat pengembang - <dev@doris.apache.org>. Kirim email ke <dev-subscribe@doris.apache.org>, ikuti balasan untuk berlangganan daftar surat.
-* Saluran Slack - [Bergabung dengan Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
+* Saluran Slack - [Bergabung dengan Slack](https://doris.apache.org/slack)
 * Twitter - [Ikuti @doris_apache](https://twitter.com/doris_apache)
 
 

@@ -62,9 +62,7 @@ VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, VExprSPtr im
           _impl(std::move(impl)),
           _ignore_thredhold(ignore_thredhold),
           _null_aware(null_aware),
-          _filter_id(filter_id) {
-    reset_judge_selectivity();
-}
+          _filter_id(filter_id) {}
 
 Status VRuntimeFilterWrapper::prepare(RuntimeState* state, const RowDescriptor& desc,
                                       VExprContext* context) {
@@ -88,32 +86,109 @@ void VRuntimeFilterWrapper::close(VExprContext* context,
 }
 
 Status VRuntimeFilterWrapper::execute_column(VExprContext* context, const Block* block,
-                                             size_t count, ColumnPtr& result_column) const {
-    DCHECK(_open_finished || block == nullptr);
-    if (_judge_counter.fetch_sub(1) == 0) {
-        reset_judge_selectivity();
-    }
-    if (_always_true) {
-        size_t size = count;
-        result_column = create_always_true_column(size, _data_type->is_nullable());
-        COUNTER_UPDATE(_always_true_filter_rows, size);
-        return Status::OK();
-    } else {
-        ColumnPtr arg_column = nullptr;
-        RETURN_IF_ERROR(
-                _impl->execute_runtime_filter(context, block, count, result_column, &arg_column));
-        // bloom filter will handle null aware inside itself
-        if (_null_aware && TExprNodeType::BLOOM_PRED != node_type()) {
-            DCHECK(arg_column);
-            change_null_to_true(result_column->assume_mutable(), arg_column);
-        }
-
-        return Status::OK();
-    }
+                                             Selector* selector, size_t count,
+                                             ColumnPtr& result_column) const {
+    return Status::InternalError("Not implement VRuntimeFilterWrapper::execute_column");
 }
 
 const std::string& VRuntimeFilterWrapper::expr_name() const {
     return _expr_name;
+}
+
+Status VRuntimeFilterWrapper::execute_filter(VExprContext* context, const Block* block,
+                                             uint8_t* __restrict result_filter_data, size_t rows,
+                                             bool accept_null, bool* can_filter_all) const {
+    DCHECK(_open_finished);
+    if (accept_null) {
+        return Status::InternalError(
+                "Runtime filter does not support accept_null in execute_filter");
+    }
+
+    auto& rf_selectivity = context->get_runtime_filter_selectivity();
+    Defer auto_update_judge_counter = [&]() { rf_selectivity.update_judge_counter(); };
+
+    // if always true, skip evaluate runtime filter
+    if (rf_selectivity.maybe_always_true_can_ignore()) {
+        COUNTER_UPDATE(_always_true_filter_rows, rows);
+        return Status::OK();
+    }
+
+    ColumnPtr filter_column;
+    ColumnPtr arg_column = nullptr;
+
+    RETURN_IF_ERROR(_impl->execute_runtime_filter(context, block, result_filter_data, rows,
+                                                  filter_column, &arg_column));
+
+    // bloom filter will handle null aware inside itself
+    if (_null_aware && TExprNodeType::BLOOM_PRED != node_type()) {
+        DCHECK(arg_column);
+        change_null_to_true(filter_column->assume_mutable(), arg_column);
+    }
+
+    if (const auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
+        // const(nullable) or const(bool)
+        if (!const_column->get_bool(0)) {
+            // filter all
+            COUNTER_UPDATE(_rf_filter_rows, rows);
+            COUNTER_UPDATE(_rf_input_rows, rows);
+            rf_selectivity.update_judge_selectivity(_filter_id, rows, rows, _ignore_thredhold);
+            *can_filter_all = true;
+            memset(result_filter_data, 0, rows);
+            return Status::OK();
+        } else {
+            // filter none
+            COUNTER_UPDATE(_rf_input_rows, rows);
+            rf_selectivity.update_judge_selectivity(_filter_id, 0, rows, _ignore_thredhold);
+            return Status::OK();
+        }
+    } else if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
+        // nullable(bool)
+        const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
+        const IColumn::Filter& filter = assert_cast<const ColumnUInt8&>(*nested_column).get_data();
+        const auto* __restrict filter_data = filter.data();
+        const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
+
+        const size_t input_rows = rows - simd::count_zero_num((int8_t*)result_filter_data, rows);
+
+        for (size_t i = 0; i < rows; ++i) {
+            result_filter_data[i] &= (!null_map_data[i]) & filter_data[i];
+        }
+
+        const size_t output_rows = rows - simd::count_zero_num((int8_t*)result_filter_data, rows);
+
+        COUNTER_UPDATE(_rf_filter_rows, input_rows - output_rows);
+        COUNTER_UPDATE(_rf_input_rows, input_rows);
+        rf_selectivity.update_judge_selectivity(_filter_id, input_rows - output_rows, input_rows,
+                                                _ignore_thredhold);
+
+        if (output_rows == 0) {
+            *can_filter_all = true;
+            return Status::OK();
+        }
+    } else {
+        // bool
+        const IColumn::Filter& filter = assert_cast<const ColumnUInt8&>(*filter_column).get_data();
+        const auto* __restrict filter_data = filter.data();
+
+        const size_t input_rows = rows - simd::count_zero_num((int8_t*)result_filter_data, rows);
+
+        for (size_t i = 0; i < rows; ++i) {
+            result_filter_data[i] &= filter_data[i];
+        }
+
+        const size_t output_rows = rows - simd::count_zero_num((int8_t*)result_filter_data, rows);
+
+        COUNTER_UPDATE(_rf_filter_rows, input_rows - output_rows);
+        COUNTER_UPDATE(_rf_input_rows, input_rows);
+        rf_selectivity.update_judge_selectivity(_filter_id, input_rows - output_rows, input_rows,
+                                                _ignore_thredhold);
+
+        if (output_rows == 0) {
+            *can_filter_all = true;
+            return Status::OK();
+        }
+    }
+    return Status::OK();
 }
 
 #include "common/compile_check_end.h"

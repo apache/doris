@@ -52,6 +52,7 @@ import io.trino.testing.TestingAccessControlManager;
 import io.trino.transaction.NoOpTransactionManager;
 import io.trino.type.InternalTypeManager;
 import io.trino.util.EmbedVersion;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -94,10 +95,12 @@ public class TrinoConnectorCache {
 
     public static TrinoConnectorCacheValue getConnector(TrinoConnectorCacheKey key) {
         try {
-            LOG.info("Connector cache size is : " + connectorCache.size());
+            LOG.info("Connector cache size is : {}", connectorCache.size());
             return connectorCache.get(key);
         } catch (Exception e) {
-            throw new RuntimeException("failed to get connector for:" + key);
+            LOG.warn("failed to get connector for: " + key + ": " + ExceptionUtils.getRootCauseMessage(e), e);
+            throw new RuntimeException("failed to get connector for: " + key + ": "
+                    + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -142,8 +145,8 @@ public class TrinoConnectorCache {
             return new TrinoConnectorCacheValue(catalogHandle, connector,
                     handleResolver, trinoConnectorServicesProvider);
         } catch (Exception e) {
-            LOG.warn("failed to create trino connector", e);
-            throw new RuntimeException(e);
+            LOG.warn("failed to create trino connector: " + ExceptionUtils.getRootCauseMessage(e), e);
+            throw new RuntimeException("failed to create trino connector: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -159,7 +162,9 @@ public class TrinoConnectorCache {
                 }
             }
         } catch (Exception e) {
-            throw new RuntimeException("failed to invalidate connector for: " + key);
+            LOG.warn("failed to invalidate connector for: " + key + ": " + ExceptionUtils.getRootCauseMessage(e), e);
+            throw new RuntimeException("failed to invalidate connector for: " + key
+                    + ": " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 

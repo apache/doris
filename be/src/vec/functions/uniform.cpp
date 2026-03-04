@@ -27,7 +27,6 @@
 
 #include "common/status.h"
 #include "runtime/primitive_type.h"
-#include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
@@ -36,6 +35,7 @@
 #include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h" // IWYU pragma: keep
+#include "vec/exprs/function_context.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -79,7 +79,7 @@ struct UniformIntImpl {
 
         for (int i = 0; i < input_rows_count; i++) {
             // Use gen value as seed for each row
-            auto seed = (*gen_column)[i].get<Int64>();
+            auto seed = (*gen_column)[i].get<TYPE_BIGINT>();
             std::mt19937_64 generator(seed);
             std::uniform_int_distribution<int64_t> distribution(min, max);
             res_data[i] = distribution(generator);
@@ -127,7 +127,7 @@ struct UniformDoubleImpl {
 
         for (int i = 0; i < input_rows_count; i++) {
             // Use gen value as seed for each row
-            auto seed = (*gen_column)[i].get<Int64>();
+            auto seed = (*gen_column)[i].get<TYPE_BIGINT>();
             std::mt19937_64 generator(seed);
             std::uniform_real_distribution<double> distribution(min, max);
             res_data[i] = distribution(generator);

@@ -17,7 +17,7 @@
 
 import groovy.json.JsonSlurper
 
-suite("test_parquet_join_runtime_filter", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_parquet_join_runtime_filter", "p0,external") {
 
     def getProfileList = {
         def dst = 'http://' + context.config.feHttpAddress
@@ -69,7 +69,8 @@ suite("test_parquet_join_runtime_filter", "p0,external,hive,external_docker,exte
     sql "unset variable all;"
     sql "set profile_level=2;"
     sql "set enable_profile=true;"
-
+    sql " set parallel_pipeline_task_num = 1;"
+    sql " set file_split_size = 100000;"
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (!"true".equalsIgnoreCase(enabled)) {

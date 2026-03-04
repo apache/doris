@@ -32,6 +32,17 @@ set(NO_LAPACK OFF CACHE BOOL "Disable LAPACK in OpenBLAS")
 set(NO_CBLAS ON CACHE BOOL "Disable CBLAS in OpenBLAS")
 set(NO_AVX512 ON CACHE BOOL "Disable AVX512 in OpenBLAS")
 
+# Allow overriding DYNAMIC_ARCH from build.sh via ENABLE_DYNAMIC_ARCH variable
+if (DEFINED ENABLE_DYNAMIC_ARCH)
+    if (NOT CMAKE_SYSTEM_NAME MATCHES "Darwin" AND NOT CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
+        set(DYNAMIC_ARCH "${ENABLE_DYNAMIC_ARCH}" CACHE BOOL "Enable runtime CPU detection in OpenBLAS")
+    endif ()
+else()
+    if (NOT CMAKE_SYSTEM_NAME MATCHES "Darwin" AND NOT CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
+        set(DYNAMIC_ARCH ON CACHE BOOL "Enable runtime CPU detection in OpenBLAS")
+    endif ()
+endif ()
+
 # EXCLUDE_FROM_ALL so that binary in openblas is not installed.
 add_subdirectory(${PROJECT_SOURCE_DIR}/../contrib/openblas ${PROJECT_BINARY_DIR}/openblas EXCLUDE_FROM_ALL)
 

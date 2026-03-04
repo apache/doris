@@ -18,3 +18,4 @@
 create schema doris_test;
 create schema catalog_pg_test;
 create schema cdc_test;
+create schema test_timestamp_tz_db;

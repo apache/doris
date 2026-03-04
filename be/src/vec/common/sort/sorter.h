@@ -32,6 +32,7 @@
 #include "vec/common/sort/vsort_exec_exprs.h"
 #include "vec/core/block.h"
 #include "vec/core/field.h"
+#include "vec/core/hybrid_sorter.h"
 #include "vec/core/sort_cursor.h"
 #include "vec/core/sort_description.h"
 #include "vec/runtime/vsorted_run_merger.h"
@@ -101,15 +102,16 @@ private:
 
 class Sorter {
 public:
-    Sorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset, ObjectPool* pool,
-           std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first)
+    Sorter(VSortExecExprs& vsort_exec_exprs, RuntimeState* state, int64_t limit, int64_t offset,
+           ObjectPool* pool, std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first)
             : _vsort_exec_exprs(vsort_exec_exprs),
               _limit(limit),
               _offset(offset),
               _pool(pool),
               _is_asc_order(is_asc_order),
               _nulls_first(nulls_first),
-              _materialize_sort_exprs(vsort_exec_exprs.need_materialize_tuple()) {}
+              _materialize_sort_exprs(vsort_exec_exprs.need_materialize_tuple()),
+              _hybrid_sorter(state->enable_use_hybrid_sort()) {}
 #ifdef BE_TEST
     VSortExecExprs mock_vsort_exec_exprs;
     std::vector<bool> mock_is_asc_order;
@@ -169,6 +171,7 @@ protected:
 
     std::priority_queue<MergeSortBlockCursor> _block_priority_queue;
     bool _materialize_sort_exprs;
+    HybridSorter _hybrid_sorter;
 };
 
 class FullSorter final : public Sorter {
@@ -199,14 +202,16 @@ public:
         _max_buffered_block_bytes = max_buffered_block_bytes;
     }
 
+    auto merge_sort_state() { return _state.get(); }
+
+    Status do_sort();
+
 private:
     bool _reach_limit() {
         return _state->unsorted_block()->allocated_bytes() >= _max_buffered_block_bytes;
     }
 
     bool has_enough_capacity(Block* input_block, Block* unsorted_block) const;
-
-    Status _do_sort();
 
     std::unique_ptr<MergeSorterState> _state;
 

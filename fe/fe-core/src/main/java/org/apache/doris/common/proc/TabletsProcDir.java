@@ -23,6 +23,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletSlidingWindowAccessStats;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -56,7 +57,8 @@ public class TabletsProcDir implements ProcDirInterface {
                 .add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
                 .add("LocalDataSize").add("RemoteDataSize").add("RowCount").add("State")
                 .add("LstConsistencyCheckTime").add("CheckVersion")
-                .add("VisibleVersionCount").add("VersionCount").add("QueryHits").add("PathHash").add("Path")
+                .add("VisibleVersionCount").add("VersionCount").add("QueryHits").add("WindowAccessCount")
+                .add("LastAccessTime").add("PathHash").add("Path")
                 .add("MetaUrl").add("CompactionStatus")
                 .add("CooldownReplicaId").add("CooldownMetaId");
 
@@ -128,6 +130,8 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(-1); // visible version count
                     tabletInfo.add(-1); // total version count
                     tabletInfo.add(0L); // query hits
+                    tabletInfo.add(0L); // query WindowAccessCount
+                    tabletInfo.add(0L); // query LastAccessTime
                     tabletInfo.add(-1); // path hash
                     tabletInfo.add(FeConstants.null_string); // path
                     tabletInfo.add(FeConstants.null_string); // meta url
@@ -140,6 +144,14 @@ public class TabletsProcDir implements ProcDirInterface {
 
                     tabletInfos.add(tabletInfo);
                 } else {
+                    TabletSlidingWindowAccessStats.AccessStatsResult asr = TabletSlidingWindowAccessStats.getInstance()
+                            .getAccessInfo(tabletId);
+                    long accessCount = 0;
+                    long lastAccessTime = 0;
+                    if (asr != null) {
+                        accessCount = asr.accessCount;
+                        lastAccessTime = asr.lastAccessTime;
+                    }
                     for (Replica replica : tablet.getReplicas()) {
                         long beId = replica.getBackendIdWithoutException();
                         if ((version > -1 && replica.getVersion() != version)
@@ -167,6 +179,8 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(replica.getVisibleVersionCount());
                         tabletInfo.add(replica.getTotalVersionCount());
                         tabletInfo.add(replicaIdToQueryHits.getOrDefault(replica.getId(), 0L));
+                        tabletInfo.add(String.valueOf(accessCount));
+                        tabletInfo.add(String.valueOf(lastAccessTime));
                         tabletInfo.add(replica.getPathHash());
                         tabletInfo.add(pathHashToRoot.getOrDefault(replica.getPathHash(), ""));
                         Backend be = backendMap.get(beId);
@@ -178,7 +192,7 @@ public class TabletsProcDir implements ProcDirInterface {
                         String compactionUrl = String.format(
                                 "http://" + hostPort + "/api/compaction/show?tablet_id=%d", tabletId);
                         tabletInfo.add(compactionUrl);
-                        tabletInfo.add(tablet.getCooldownConf().first);
+                        tabletInfo.add(tablet.getCooldownReplicaId());
                         if (replica.getCooldownMetaId() == null) {
                             tabletInfo.add("");
                         } else {

@@ -25,6 +25,7 @@
 #include <arrow/status.h>
 #include <arrow/type.h>
 #include <arrow/type_fwd.h>
+#include <arrow/util/key_value_metadata.h>
 #include <glog/logging.h>
 #include <stdint.h>
 
@@ -97,6 +98,8 @@ Status convert_to_arrow_type(const vectorized::DataTypePtr& origin_type,
     case TYPE_DATEV2:
         *result = std::make_shared<arrow::Date32Type>();
         break;
+    // TODO: maybe need to distinguish TYPE_DATETIME and TYPE_TIMESTAMPTZ
+    case TYPE_TIMESTAMPTZ:
     case TYPE_DATETIMEV2:
         if (type->get_scale() > 3) {
             *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO, timezone);
@@ -172,6 +175,21 @@ Status convert_to_arrow_type(const vectorized::DataTypePtr& origin_type,
     return Status::OK();
 }
 
+// Helper function to create an Arrow Field with type metadata if applicable, such as IP types
+static std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
+        const std::string& field_name, const std::shared_ptr<arrow::DataType>& arrow_type,
+        bool is_nullable, PrimitiveType primitive_type) {
+    if (primitive_type == PrimitiveType::TYPE_IPV4) {
+        auto metadata = arrow::KeyValueMetadata::Make({"doris_type"}, {"IPV4"});
+        return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
+    } else if (primitive_type == PrimitiveType::TYPE_IPV6) {
+        auto metadata = arrow::KeyValueMetadata::Make({"doris_type"}, {"IPV6"});
+        return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
+    } else {
+        return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable);
+    }
+}
+
 Status get_arrow_schema_from_block(const vectorized::Block& block,
                                    std::shared_ptr<arrow::Schema>* result,
                                    const std::string& timezone) {
@@ -179,8 +197,10 @@ Status get_arrow_schema_from_block(const vectorized::Block& block,
     for (const auto& type_and_name : block) {
         std::shared_ptr<arrow::DataType> arrow_type;
         RETURN_IF_ERROR(convert_to_arrow_type(type_and_name.type, &arrow_type, timezone));
-        fields.push_back(std::make_shared<arrow::Field>(type_and_name.name, arrow_type,
-                                                        type_and_name.type->is_nullable()));
+        auto field = create_arrow_field_with_metadata(type_and_name.name, arrow_type,
+                                                      type_and_name.type->is_nullable(),
+                                                      type_and_name.type->get_primitive_type());
+        fields.push_back(field);
     }
     *result = arrow::schema(std::move(fields));
     return Status::OK();
@@ -197,8 +217,10 @@ Status get_arrow_schema_from_expr_ctxs(const vectorized::VExprContextSPtrs& outp
         auto field_name = root_expr->is_slot_ref() && !root_expr->expr_label().empty()
                                   ? root_expr->expr_label()
                                   : fmt::format("{}_{}", root_expr->data_type()->get_name(), i);
-        fields.push_back(
-                std::make_shared<arrow::Field>(field_name, arrow_type, root_expr->is_nullable()));
+        auto field =
+                create_arrow_field_with_metadata(field_name, arrow_type, root_expr->is_nullable(),
+                                                 root_expr->data_type()->get_primitive_type());
+        fields.push_back(field);
     }
     *result = arrow::schema(std::move(fields));
     return Status::OK();

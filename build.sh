@@ -57,12 +57,15 @@ Usage: $0 <options>
      --be-java-extensions       build Backend java extensions. Default ON.
      --be-cdc-client            build Cdc Client for backend. Default ON.
      --be-extension-ignore      build be-java-extensions package, choose which modules to ignore. Multiple modules separated by commas.
+     --enable-dynamic-arch      enable dynamic CPU detection in OpenBLAS. Default ON.
+     --disable-dynamic-arch     disable dynamic CPU detection in OpenBLAS.
      --clean                    clean and build target
      --output                   specify the output directory
      -j                         build Backend parallel
 
   Environment variables:
     USE_AVX2                    If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
+    ENABLE_DYNAMIC_ARCH         If set ENABLE_DYNAMIC_ARCH=ON, it will enable dynamic CPU detection in OpenBLAS. Default is ON. Can also use --enable-dynamic-arch flag.
     ARM_MARCH                   Specify the ARM architecture instruction set. Default is armv8-a+crc.
     STRIP_DEBUG_INFO            If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
     DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hadoop-hudi-scanner,jdbc-scanner and so on Default is OFF.
@@ -89,6 +92,8 @@ Usage: $0 <options>
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
     ARM_MARCH=armv8-a+crc+simd $0 --be      build Backend with specified ARM architecture instruction set
+    $0 --be --disable-dynamic-arch          build Backend with DYNAMIC_ARCH disabled in OpenBLAS
+    ENABLE_DYNAMIC_ARCH=OFF $0 --be         build Backend with DYNAMIC_ARCH disabled via environment variable
   "
     exit 1
 }
@@ -145,6 +150,8 @@ if ! OPTS="$(getopt \
     -l 'be-java-extensions' \
     -l 'be-cdc-client' \
     -l 'be-extension-ignore:' \
+    -l 'enable-dynamic-arch' \
+    -l 'disable-dynamic-arch' \
     -l 'clean' \
     -l 'coverage' \
     -l 'help' \
@@ -171,6 +178,7 @@ BUILD_BE_CDC_CLIENT=0
 BUILD_OBS_DEPENDENCIES=1
 BUILD_COS_DEPENDENCIES=1
 BUILD_HIVE_UDF=0
+ENABLE_DYNAMIC_ARCH='ON'
 CLEAN=0
 HELP=0
 PARAMETER_COUNT="$#"
@@ -262,6 +270,14 @@ else
             ;; 
         --exclude-cos-dependencies)
             BUILD_COS_DEPENDENCIES=0
+            shift
+            ;;
+        --enable-dynamic-arch)
+            ENABLE_DYNAMIC_ARCH='ON'
+            shift
+            ;;
+        --disable-dynamic-arch)
+            ENABLE_DYNAMIC_ARCH='OFF'
             shift
             ;;           
         --clean)
@@ -474,6 +490,12 @@ if [[ "$(echo "${DISABLE_BUILD_AZURE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]
     BUILD_AZURE='OFF'
 fi
 
+if [[ "$(echo "${DISABLE_BUILD_JINDOFS}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+    BUILD_JINDOFS='OFF'
+else
+    BUILD_JINDOFS='ON'
+fi
+
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
     ENABLE_INJECTION_POINT='OFF'
 fi
@@ -578,12 +600,13 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/jdbc-scanner")
     modules+=("be-java-extensions/paimon-scanner")
     modules+=("be-java-extensions/trino-connector-scanner")
-    modules+=("be-java-extensions/max-compute-scanner")
+    modules+=("be-java-extensions/max-compute-connector")
     modules+=("be-java-extensions/avro-scanner")
     # lakesoul-scanner has been deprecated
     # modules+=("be-java-extensions/lakesoul-scanner")
     modules+=("be-java-extensions/preload-extensions")
     modules+=("be-java-extensions/${HADOOP_DEPS_NAME}")
+    modules+=("be-java-extensions/java-writer")
 
     # If the BE_EXTENSION_IGNORE variable is not empty, remove the modules that need to be ignored from FE_MODULES
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
@@ -663,6 +686,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
+        -DENABLE_DYNAMIC_ARCH="${ENABLE_DYNAMIC_ARCH}" \
         -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
         "${DORIS_HOME}/be"
 
@@ -705,6 +729,7 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
         -DBUILD_CHECK_META="${BUILD_CHECK_META:-OFF}" \
+        -DENABLE_DYNAMIC_ARCH="${ENABLE_DYNAMIC_ARCH}" \
         "${DORIS_HOME}/cloud/"
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -794,7 +819,9 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/conf/ldap.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/mysql_ssl_default_certificate" "${DORIS_OUTPUT}/fe/"/
     rm -rf "${DORIS_OUTPUT}/fe/lib"/*
-    install -d "${DORIS_OUTPUT}/fe/lib/jindofs"
+    if [[ "${BUILD_JINDOFS}" == "ON" ]]; then
+        install -d "${DORIS_OUTPUT}/fe/lib/jindofs"
+    fi
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     if [[ "${WITH_TDE_DIR}" != "" ]]; then
@@ -804,13 +831,15 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     #cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
 
     # copy jindofs jars, only support for Linux x64 or arm
-    if [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "${TARGET_ARCH}" == 'x86_64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
-    elif [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "${TARGET_ARCH}" == 'aarch64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
+    if [[ "${BUILD_JINDOFS}" == "ON" ]]; then
+        if [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "${TARGET_ARCH}" == 'x86_64' ]]; then
+            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
+            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
+            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
+        elif [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "${TARGET_ARCH}" == 'aarch64' ]]; then
+            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
+            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
+        fi
     fi
 
     cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
@@ -913,13 +942,14 @@ EOF
     extensions_modules+=("hadoop-hudi-scanner")
     extensions_modules+=("paimon-scanner")
     extensions_modules+=("trino-connector-scanner")
-    extensions_modules+=("max-compute-scanner")
+    extensions_modules+=("max-compute-connector")
     extensions_modules+=("avro-scanner")
     # lakesoul-scanner has been deprecated
     # extensions_modules+=("lakesoul-scanner")
     extensions_modules+=("preload-extensions")
     extensions_modules+=("iceberg-metadata-scanner")
     extensions_modules+=("${HADOOP_DEPS_NAME}")
+    extensions_modules+=("java-writer")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
@@ -958,6 +988,13 @@ EOF
             mkdir "${BE_HADOOP_HDFS_DIR}"
             HADOOP_DEPS_JAR_DIR="${DORIS_HOME}/fe/be-java-extensions/${HADOOP_DEPS_NAME}/target"
             echo "HADOOP_DEPS_JAR_DIR: ${HADOOP_DEPS_JAR_DIR}"
+            if  [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && ! -d "${HADOOP_DEPS_JAR_DIR}/lib" ]]; then
+                echo "WARN: lib directory missing (likely due to Maven cache). Regenerating..."
+                pushd "${DORIS_HOME}/fe/be-java-extensions/${HADOOP_DEPS_NAME}"
+                "${MVN_CMD}" dependency:copy-dependencies -DskipTests -Dcheckstyle.skip=true
+                mv target/dependency target/lib
+                popd
+            fi
             if [[ -f "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" ]]; then
                 echo "Copy Be Extensions hadoop deps jar to ${BE_HADOOP_HDFS_DIR}"
                 cp "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" "${BE_HADOOP_HDFS_DIR}"
@@ -979,14 +1016,16 @@ EOF
     done        
 
     # copy jindofs jars, only support for Linux x64 or arm
-    install -d "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
-    if [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'x86_64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
-    elif [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'aarch64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
+    if [[ "${BUILD_JINDOFS}" == "ON" ]]; then
+        install -d "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
+        if [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'x86_64' ]]; then
+            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
+            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
+            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
+        elif [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'aarch64' ]]; then
+            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
+            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
+        fi
     fi
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
@@ -996,9 +1035,11 @@ EOF
     mkdir -p "${DORIS_OUTPUT}/be/storage"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/jdbc_drivers/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/java_udf/"
+    mkdir -p "${DORIS_OUTPUT}/be/plugins/python_udf/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/connectors/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/hadoop_conf/"
     mkdir -p "${DORIS_OUTPUT}/be/plugins/java_extensions/"
+    cp -r -p "${DORIS_HOME}/be/src/udf/python/python_server.py" "${DORIS_OUTPUT}/be/plugins/python_udf/"
 fi
 
 if [[ "${BUILD_BROKER}" -eq 1 ]]; then

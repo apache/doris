@@ -26,7 +26,16 @@ suite("test_having_project") {
         create table t(id smallint) distributed by random properties('replication_num'='1');
     """
 
-    qt_having_project_with_having_count_1_and_slot_from_project """
-        SELECT 1 AS c1 FROM t HAVING count(1) > 0 OR c1 IS NOT NULL
+    qt_having_project_1 """
+        SELECT 1 AS c1 FROM t HAVING count(1) >= 0
     """
+
+    qt_having_project_2 """
+        SELECT 1 AS c1 FROM t HAVING count(1) > 0
+    """
+
+    test {
+        sql "SELECT 1 AS c1 FROM t HAVING count(1) > 0 OR c1 IS NOT NULL"
+        exception "HAVING expression 'c1' must appear in the GROUP BY clause or be used in an aggregate function"
+    }
 }

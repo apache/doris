@@ -208,6 +208,7 @@ public:
         const cctz::time_zone* ctz;
         std::map<int, PageIndexStat> stats;
         std::function<bool(PageIndexStat**, int)> get_stat_func;
+        RowRange row_group_range;
     };
 
     // The encoded Parquet min-max value is parsed into `fields`;
@@ -311,8 +312,8 @@ public:
         auto logical_prim_type = logical_data_type->get_primitive_type();
 
         if (logical_prim_type == TYPE_FLOAT) {
-            auto& min_value = min_field->get<PrimitiveTypeTraits<TYPE_FLOAT>::NearestFieldType>();
-            auto& max_value = max_field->get<PrimitiveTypeTraits<TYPE_FLOAT>::NearestFieldType>();
+            auto& min_value = min_field->get<TYPE_FLOAT>();
+            auto& max_value = max_field->get<TYPE_FLOAT>();
 
             if (std::isnan(min_value) || std::isnan(max_value)) {
                 return Status::DataQualityError("Can not use this parquet min/max value.");
@@ -325,8 +326,8 @@ public:
                 max_value = 0.0F;
             }
         } else if (logical_prim_type == TYPE_DOUBLE) {
-            auto& min_value = min_field->get<PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType>();
-            auto& max_value = max_field->get<PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType>();
+            auto& min_value = min_field->get<TYPE_DOUBLE>();
+            auto& max_value = max_field->get<TYPE_DOUBLE>();
 
             if (std::isnan(min_value) || std::isnan(max_value)) {
                 return Status::DataQualityError("Can not use this parquet min/max value.");
@@ -340,10 +341,8 @@ public:
             }
         } else if (col_schema->parquet_schema.type == tparquet::Type::type::INT96 ||
                    logical_prim_type == TYPE_DATETIMEV2) {
-            auto min_value =
-                    min_field->get<PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>();
-            auto max_value =
-                    min_field->get<PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>();
+            auto min_value = min_field->get<TYPE_DATETIMEV2>();
+            auto max_value = min_field->get<TYPE_DATETIMEV2>();
 
             // From Trino: Parquet INT96 timestamp values were compared incorrectly
             // for the purposes of producing statistics by older parquet writers,

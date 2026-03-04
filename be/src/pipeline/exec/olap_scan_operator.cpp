@@ -21,6 +21,7 @@
 
 #include <memory>
 #include <numeric>
+#include <optional>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
@@ -78,9 +79,43 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                 segment_v2::AnnTopNRuntime::create_shared(asc, limit, ordering_expr_ctx);
     }
 
+    // Parse score range filtering parameters and set to ScoreRuntime
+    if (olap_scan_node.__isset.score_range_info) {
+        const auto& score_range_info = olap_scan_node.score_range_info;
+        if (score_range_info.__isset.op && score_range_info.__isset.threshold) {
+            if (_score_runtime) {
+                _score_runtime->set_score_range_info(score_range_info.op,
+                                                     score_range_info.threshold);
+            }
+        }
+    }
+
     RETURN_IF_ERROR(Base::init(state, info));
     RETURN_IF_ERROR(_sync_cloud_tablets(state));
     return Status::OK();
+}
+
+PushDownType OlapScanLocalState::_should_push_down_binary_predicate(
+        vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
+        vectorized::Field& constant_val, const std::set<std::string> fn_name) const {
+    if (!fn_name.contains(fn_call->fn().name.function_name)) {
+        return PushDownType::UNACCEPTABLE;
+    }
+    const auto& children = fn_call->children();
+    DCHECK(children.size() == 2);
+    DCHECK_EQ(vectorized::VExpr::expr_without_cast(children[0])->node_type(),
+              TExprNodeType::SLOT_REF);
+    if (children[1]->is_constant()) {
+        std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
+        THROW_IF_ERROR(children[1]->get_const_col(expr_ctx, &const_col_wrapper));
+        const auto* const_column =
+                assert_cast<const vectorized::ColumnConst*>(const_col_wrapper->column_ptr.get());
+        constant_val = const_column->operator[](0);
+        return PushDownType::ACCEPTABLE;
+    } else {
+        // only handle constant value
+        return PushDownType::UNACCEPTABLE;
+    }
 }
 
 Status OlapScanLocalState::_init_profile() {
@@ -265,6 +300,8 @@ Status OlapScanLocalState::_init_profile() {
             ADD_TIMER(_scanner_profile, "SegmentIteratorInitReturnColumnIteratorsTimer");
     _segment_iterator_init_index_iterators_timer =
             ADD_TIMER(_scanner_profile, "SegmentIteratorInitIndexIteratorsTimer");
+    _segment_iterator_init_segment_prefetchers_timer =
+            ADD_TIMER(_scanner_profile, "SegmentIteratorInitSegmentPrefetchersTimer");
 
     _segment_create_column_readers_timer =
             ADD_TIMER(_scanner_profile, "SegmentCreateColumnReadersTimer");
@@ -334,6 +371,8 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER(_segment_profile, "VariantSubtreeHierarchicalIterCount", TUnit::UNIT);
     _variant_subtree_sparse_iter_count =
             ADD_COUNTER(_segment_profile, "VariantSubtreeSparseIterCount", TUnit::UNIT);
+    _variant_doc_value_column_iter_count =
+            ADD_COUNTER(_segment_profile, "VariantDocValueColumnIterCount", TUnit::UNIT);
 
     _condition_cache_hit_segment_counter =
             ADD_COUNTER(_segment_profile, "ConditionCacheSegmentHit", TUnit::UNIT);
@@ -427,19 +466,6 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
         return Status::OK();
     }
     SCOPED_TIMER(_scanner_init_timer);
-
-    if (!_conjuncts.empty() && _state->enable_profile()) {
-        std::string message;
-        for (auto& conjunct : _conjuncts) {
-            if (conjunct->root()) {
-                if (!message.empty()) {
-                    message += ", ";
-                }
-                message += conjunct->root()->debug_string();
-            }
-        }
-        custom_profile()->add_info_string("RemainedDownPredicates", message);
-    }
     auto& p = _parent->cast<OlapScanOperatorX>();
 
     for (auto uid : p._olap_scan_node.output_column_unique_ids) {
@@ -811,23 +837,6 @@ void OlapScanLocalState::set_scan_ranges(RuntimeState* state,
     }
 }
 
-static std::string predicates_to_string(
-        const phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
-                slot_id_to_predicates) {
-    fmt::memory_buffer debug_string_buffer;
-    for (const auto& [slot_id, predicates] : slot_id_to_predicates) {
-        if (predicates.empty()) {
-            continue;
-        }
-        fmt::format_to(debug_string_buffer, "Slot ID: {}: [", slot_id);
-        for (const auto& predicate : predicates) {
-            fmt::format_to(debug_string_buffer, "{{{}}}, ", predicate->debug_string());
-        }
-        fmt::format_to(debug_string_buffer, "] ");
-    }
-    return fmt::to_string(debug_string_buffer);
-}
-
 static std::string tablets_id_to_string(
         const std::vector<std::unique_ptr<TPaloScanRange>>& scan_ranges) {
     if (scan_ranges.empty()) {
@@ -888,6 +897,8 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
             DCHECK(_slot_id_to_predicates.count(iter->first) > 0);
             const auto& value_range = iter->second;
 
+            std::optional<int> key_to_erase;
+
             RETURN_IF_ERROR(std::visit(
                     [&](auto&& range) {
                         // make a copy or range and pass to extend_scan_key, keep the range unchanged
@@ -899,21 +910,7 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                                     _scan_keys.extend_scan_key(temp_range, p._max_scan_key_num,
                                                                &exact_range, &eos, &should_break));
                             if (exact_range) {
-                                auto key = iter->first;
-                                _slot_id_to_value_range.erase(key);
-
-                                std::vector<std::shared_ptr<ColumnPredicate>> new_predicates;
-                                for (const auto& it : _slot_id_to_predicates[key]) {
-                                    if (it->type() == PredicateType::NOT_IN_LIST ||
-                                        it->type() == PredicateType::NE) {
-                                        new_predicates.push_back(it);
-                                    }
-                                }
-                                if (new_predicates.empty()) {
-                                    _slot_id_to_predicates.erase(key);
-                                } else {
-                                    _slot_id_to_predicates[key] = new_predicates;
-                                }
+                                key_to_erase = iter->first;
                             }
                         } else {
                             // if exceed max_pushdown_conditions_per_column, use whole_value_rang instead
@@ -926,6 +923,24 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                         return Status::OK();
                     },
                     value_range));
+
+            // Perform the erase operation after the visit is complete, still under lock
+            if (key_to_erase.has_value()) {
+                _slot_id_to_value_range.erase(*key_to_erase);
+
+                std::vector<std::shared_ptr<ColumnPredicate>> new_predicates;
+                for (const auto& it : _slot_id_to_predicates[*key_to_erase]) {
+                    if (!it->could_be_erased()) {
+                        new_predicates.push_back(it);
+                    }
+                }
+                if (new_predicates.empty()) {
+                    _slot_id_to_predicates.erase(*key_to_erase);
+                } else {
+                    _slot_id_to_predicates[*key_to_erase] = new_predicates;
+                }
+            }
+            // lock is released here when it goes out of scope
         }
         if (eos) {
             _eos = true;
@@ -937,8 +952,6 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
     }
 
     if (state()->enable_profile()) {
-        custom_profile()->add_info_string("PushDownPredicates",
-                                          predicates_to_string(_slot_id_to_predicates));
         custom_profile()->add_info_string("KeyRanges", _scan_keys.debug_string());
         custom_profile()->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
     }

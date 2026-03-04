@@ -18,14 +18,19 @@
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.qe.ConnectContext;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 
 /**
  * executable functions:
@@ -49,7 +54,8 @@ public class TimeRoundSeries {
     private static LocalDateTime getDateCeilOrFloor(DATE tag, LocalDateTime date, int period, LocalDateTime origin,
             boolean getCeil) {
         if (period < 1) {
-            return null;
+            throw new AnalysisException("Operation " + tag.name().toLowerCase()
+                    + (getCeil ? "_ceil" : "_floor") + " of " + period + " out of range");
         }
 
         DateTimeV2Literal dt = (DateTimeV2Literal) DateTimeV2Literal.fromJavaDateType(date);
@@ -150,6 +156,58 @@ public class TimeRoundSeries {
     }
 
     /**
+     * Helper method for TimestampTz ceil/floor operations with timezone conversion.
+     * 1. Convert UTC to local time (using session timezone)
+     * 2. Perform ceil/floor operation on local time
+     * 3. Convert result back to UTC
+     */
+    private static LocalDateTime getDateCeilOrFloorForTimestampTz(DATE tag, LocalDateTime utcDate, int period,
+            LocalDateTime utcOrigin, boolean getCeil) {
+        // Get session timezone, default to UTC if not available
+        String timeZone = "UTC";
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getSessionVariable() != null) {
+            timeZone = ctx.getSessionVariable().timeZone;
+        }
+        ZoneId zoneId = ZoneId.of(timeZone);
+
+        // Get the ZonedDateTime for the date to determine its offset
+        ZonedDateTime zonedDate = utcDate.atZone(ZoneId.of("UTC")).withZoneSameInstant(zoneId);
+
+        // Use the date's offset to ensure consistent conversion for both date and origin
+        // This prevents historical timezone offset inconsistencies (e.g., Asia/Shanghai
+        // used +08:05:43 before 1900, then +08:00 after) from affecting the calculation
+        ZoneId fixedOffsetZone = ZoneId.ofOffset("UTC", zonedDate.getOffset());
+
+        // Convert UTC time to local time using the fixed offset from date
+        LocalDateTime localDate = utcDate.atZone(ZoneId.of("UTC")).withZoneSameInstant(fixedOffsetZone)
+                .toLocalDateTime();
+
+        // Handle origin: START_ORIGINAL_DAY is already in local time, don't convert it
+        // Only convert origin if it's a real UTC timestamp (from TimestampTzLiteral)
+        LocalDateTime localOrigin;
+        if (utcOrigin.equals(START_ORIGINAL_DAY)) {
+            localOrigin = START_ORIGINAL_DAY;
+        } else {
+            localOrigin = utcOrigin.atZone(ZoneId.of("UTC")).withZoneSameInstant(fixedOffsetZone)
+                    .toLocalDateTime();
+        }
+
+        // Perform ceil/floor operation on local time
+        LocalDateTime localResult = getDateCeilOrFloor(tag, localDate, period, localOrigin, getCeil);
+
+        if (localResult == null) {
+            return null;
+        }
+
+        // Convert result back to UTC: treat localResult as being in the zoneId timezone
+        // and convert to UTC
+        LocalDateTime utcResult = localResult.atZone(zoneId).withZoneSameInstant(ZoneId.of("UTC"))
+                .toLocalDateTime();
+        return utcResult;
+    }
+
+    /**
      * datetime arithmetic function year-ceil
      */
     @ExecFunction(name = "year_ceil")
@@ -197,6 +255,30 @@ public class TimeRoundSeries {
     @ExecFunction(name = "year_ceil")
     public static Expression yearCeil(DateTimeV2Literal date, IntegerLiteral period, DateTimeV2Literal origin) {
         return DateTimeV2Literal.fromJavaDateType(getDateCeilOrFloor(DATE.YEAR, date.toJavaDateType(),
+                period.getValue(), origin.toJavaDateType(), true), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "year_ceil")
+    public static Expression yearCeil(TimestampTzLiteral date) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.YEAR, date.toJavaDateType(),
+                1, START_ORIGINAL_DAY, true), date.getScale());
+    }
+
+    @ExecFunction(name = "year_ceil")
+    public static Expression yearCeil(TimestampTzLiteral date, IntegerLiteral period) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.YEAR, date.toJavaDateType(),
+                period.getValue(), START_ORIGINAL_DAY, true), date.getScale());
+    }
+
+    @ExecFunction(name = "year_ceil")
+    public static Expression yearCeil(TimestampTzLiteral date, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.YEAR, date.toJavaDateType(),
+                1, origin.toJavaDateType(), true), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "year_ceil")
+    public static Expression yearCeil(TimestampTzLiteral date, IntegerLiteral period, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.YEAR, date.toJavaDateType(),
                 period.getValue(), origin.toJavaDateType(), true), date.commonScale(origin));
     }
 
@@ -251,6 +333,30 @@ public class TimeRoundSeries {
                 period.getValue(), origin.toJavaDateType(), true), date.commonScale(origin));
     }
 
+    @ExecFunction(name = "quarter_ceil")
+    public static Expression quarterCeil(TimestampTzLiteral date) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.QUARTER, date.toJavaDateType(),
+                1, START_ORIGINAL_DAY, true), date.getScale());
+    }
+
+    @ExecFunction(name = "quarter_ceil")
+    public static Expression quarterCeil(TimestampTzLiteral date, IntegerLiteral period) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.QUARTER, date.toJavaDateType(),
+                period.getValue(), START_ORIGINAL_DAY, true), date.getScale());
+    }
+
+    @ExecFunction(name = "quarter_ceil")
+    public static Expression quarterCeil(TimestampTzLiteral date, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.QUARTER, date.toJavaDateType(),
+                1, origin.toJavaDateType(), true), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "quarter_ceil")
+    public static Expression quarterCeil(TimestampTzLiteral date, IntegerLiteral period, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.QUARTER, date.toJavaDateType(),
+                period.getValue(), origin.toJavaDateType(), true), date.commonScale(origin));
+    }
+
     /**
      * datetime arithmetic function month-ceil
      */
@@ -299,6 +405,30 @@ public class TimeRoundSeries {
     @ExecFunction(name = "month_ceil")
     public static Expression monthCeil(DateTimeV2Literal date, IntegerLiteral period, DateTimeV2Literal origin) {
         return DateTimeV2Literal.fromJavaDateType(getDateCeilOrFloor(DATE.MONTH, date.toJavaDateType(),
+                period.getValue(), origin.toJavaDateType(), true), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "month_ceil")
+    public static Expression monthCeil(TimestampTzLiteral date) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.MONTH, date.toJavaDateType(),
+                1, START_ORIGINAL_DAY, true), date.getScale());
+    }
+
+    @ExecFunction(name = "month_ceil")
+    public static Expression monthCeil(TimestampTzLiteral date, IntegerLiteral period) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.MONTH, date.toJavaDateType(),
+                period.getValue(), START_ORIGINAL_DAY, true), date.getScale());
+    }
+
+    @ExecFunction(name = "month_ceil")
+    public static Expression monthCeil(TimestampTzLiteral date, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.MONTH, date.toJavaDateType(),
+                1, origin.toJavaDateType(), true), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "month_ceil")
+    public static Expression monthCeil(TimestampTzLiteral date, IntegerLiteral period, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.MONTH, date.toJavaDateType(),
                 period.getValue(), origin.toJavaDateType(), true), date.commonScale(origin));
     }
 
@@ -353,6 +483,30 @@ public class TimeRoundSeries {
                 period.getValue(), origin.toJavaDateType(), true), date.commonScale(origin));
     }
 
+    @ExecFunction(name = "day_ceil")
+    public static Expression dayCeil(TimestampTzLiteral date) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.DAY, date.toJavaDateType(),
+                1, START_ORIGINAL_DAY, true), date.getScale());
+    }
+
+    @ExecFunction(name = "day_ceil")
+    public static Expression dayCeil(TimestampTzLiteral date, IntegerLiteral period) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.DAY, date.toJavaDateType(),
+                period.getValue(), START_ORIGINAL_DAY, true), date.getScale());
+    }
+
+    @ExecFunction(name = "day_ceil")
+    public static Expression dayCeil(TimestampTzLiteral date, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.DAY, date.toJavaDateType(),
+                1, origin.toJavaDateType(), true), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "day_ceil")
+    public static Expression dayCeil(TimestampTzLiteral date, IntegerLiteral period, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.DAY, date.toJavaDateType(),
+                period.getValue(), origin.toJavaDateType(), true), date.commonScale(origin));
+    }
+
     /**
      * datetime arithmetic function hour-ceil
      */
@@ -401,6 +555,30 @@ public class TimeRoundSeries {
     @ExecFunction(name = "hour_ceil")
     public static Expression hourCeil(DateTimeV2Literal date, IntegerLiteral period, DateTimeV2Literal origin) {
         return DateTimeV2Literal.fromJavaDateType(getDateCeilOrFloor(DATE.HOUR, date.toJavaDateType(),
+                period.getValue(), origin.toJavaDateType(), true), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "hour_ceil")
+    public static Expression hourCeil(TimestampTzLiteral date) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.HOUR, date.toJavaDateType(),
+                1, START_ORIGINAL_DAY, true), date.getScale());
+    }
+
+    @ExecFunction(name = "hour_ceil")
+    public static Expression hourCeil(TimestampTzLiteral date, IntegerLiteral period) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.HOUR, date.toJavaDateType(),
+                period.getValue(), START_ORIGINAL_DAY, true), date.getScale());
+    }
+
+    @ExecFunction(name = "hour_ceil")
+    public static Expression hourCeil(TimestampTzLiteral date, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.HOUR, date.toJavaDateType(),
+                1, origin.toJavaDateType(), true), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "hour_ceil")
+    public static Expression hourCeil(TimestampTzLiteral date, IntegerLiteral period, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.HOUR, date.toJavaDateType(),
                 period.getValue(), origin.toJavaDateType(), true), date.commonScale(origin));
     }
 
@@ -456,6 +634,31 @@ public class TimeRoundSeries {
                 period.getValue(), origin.toJavaDateType(), true), date.commonScale(origin));
     }
 
+    @ExecFunction(name = "minute_ceil")
+    public static Expression minuteCeil(TimestampTzLiteral date) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.MINUTE, date.toJavaDateType(),
+                1, START_ORIGINAL_DAY, true), date.getScale());
+    }
+
+    @ExecFunction(name = "minute_ceil")
+    public static Expression minuteCeil(TimestampTzLiteral date, IntegerLiteral period) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.MINUTE, date.toJavaDateType(),
+                period.getValue(), START_ORIGINAL_DAY, true), date.getScale());
+    }
+
+    @ExecFunction(name = "minute_ceil")
+    public static Expression minuteCeil(TimestampTzLiteral date, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.MINUTE, date.toJavaDateType(),
+                1, origin.toJavaDateType(), true), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "minute_ceil")
+    public static Expression minuteCeil(TimestampTzLiteral date, IntegerLiteral period,
+            TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.MINUTE, date.toJavaDateType(),
+                period.getValue(), origin.toJavaDateType(), true), date.commonScale(origin));
+    }
+
     /**
      * datetime arithmetic function SECOND-ceil
      */
@@ -508,6 +711,31 @@ public class TimeRoundSeries {
                 period.getValue(), origin.toJavaDateType(), true), date.commonScale(origin));
     }
 
+    @ExecFunction(name = "second_ceil")
+    public static Expression secondCeil(TimestampTzLiteral date) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.SECOND, date.toJavaDateType(),
+                1, START_ORIGINAL_DAY, true), date.getScale());
+    }
+
+    @ExecFunction(name = "second_ceil")
+    public static Expression secondCeil(TimestampTzLiteral date, IntegerLiteral period) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.SECOND, date.toJavaDateType(),
+                period.getValue(), START_ORIGINAL_DAY, true), date.getScale());
+    }
+
+    @ExecFunction(name = "second_ceil")
+    public static Expression secondCeil(TimestampTzLiteral date, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.SECOND, date.toJavaDateType(),
+                1, origin.toJavaDateType(), true), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "second_ceil")
+    public static Expression secondCeil(TimestampTzLiteral date, IntegerLiteral period,
+            TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.SECOND, date.toJavaDateType(),
+                period.getValue(), origin.toJavaDateType(), true), date.commonScale(origin));
+    }
+
     /**
      * datetime arithmetic function year-floor
      */
@@ -556,6 +784,30 @@ public class TimeRoundSeries {
     @ExecFunction(name = "year_floor")
     public static Expression yearFloor(DateTimeV2Literal date, IntegerLiteral period, DateTimeV2Literal origin) {
         return DateTimeV2Literal.fromJavaDateType(getDateCeilOrFloor(DATE.YEAR, date.toJavaDateType(),
+                period.getValue(), origin.toJavaDateType(), false), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "year_floor")
+    public static Expression yearFloor(TimestampTzLiteral date) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.YEAR, date.toJavaDateType(),
+                1, START_ORIGINAL_DAY, false), date.getScale());
+    }
+
+    @ExecFunction(name = "year_floor")
+    public static Expression yearFloor(TimestampTzLiteral date, IntegerLiteral period) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.YEAR, date.toJavaDateType(),
+                period.getValue(), START_ORIGINAL_DAY, false), date.getScale());
+    }
+
+    @ExecFunction(name = "year_floor")
+    public static Expression yearFloor(TimestampTzLiteral date, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.YEAR, date.toJavaDateType(),
+                1, origin.toJavaDateType(), false), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "year_floor")
+    public static Expression yearFloor(TimestampTzLiteral date, IntegerLiteral period, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.YEAR, date.toJavaDateType(),
                 period.getValue(), origin.toJavaDateType(), false), date.commonScale(origin));
     }
 
@@ -611,6 +863,31 @@ public class TimeRoundSeries {
                 period.getValue(), origin.toJavaDateType(), false), date.commonScale(origin));
     }
 
+    @ExecFunction(name = "quarter_floor")
+    public static Expression quarterFloor(TimestampTzLiteral date) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.QUARTER, date.toJavaDateType(),
+                1, START_ORIGINAL_DAY, false), date.getScale());
+    }
+
+    @ExecFunction(name = "quarter_floor")
+    public static Expression quarterFloor(TimestampTzLiteral date, IntegerLiteral period) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.QUARTER, date.toJavaDateType(),
+                period.getValue(), START_ORIGINAL_DAY, false), date.getScale());
+    }
+
+    @ExecFunction(name = "quarter_floor")
+    public static Expression quarterFloor(TimestampTzLiteral date, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.QUARTER, date.toJavaDateType(),
+                1, origin.toJavaDateType(), false), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "quarter_floor")
+    public static Expression quarterFloor(TimestampTzLiteral date, IntegerLiteral period,
+            TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.QUARTER, date.toJavaDateType(),
+                period.getValue(), origin.toJavaDateType(), false), date.commonScale(origin));
+    }
+
     /**
      * datetime arithmetic function month-floor
      */
@@ -660,6 +937,31 @@ public class TimeRoundSeries {
     public static Expression monthFloor(DateTimeV2Literal date, IntegerLiteral period,
             DateTimeV2Literal origin) {
         return DateTimeV2Literal.fromJavaDateType(getDateCeilOrFloor(DATE.MONTH, date.toJavaDateType(),
+                period.getValue(), origin.toJavaDateType(), false), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "month_floor")
+    public static Expression monthFloor(TimestampTzLiteral date) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.MONTH, date.toJavaDateType(),
+                1, START_ORIGINAL_DAY, false), date.getScale());
+    }
+
+    @ExecFunction(name = "month_floor")
+    public static Expression monthFloor(TimestampTzLiteral date, IntegerLiteral period) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.MONTH, date.toJavaDateType(),
+                period.getValue(), START_ORIGINAL_DAY, false), date.getScale());
+    }
+
+    @ExecFunction(name = "month_floor")
+    public static Expression monthFloor(TimestampTzLiteral date, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.MONTH, date.toJavaDateType(),
+                1, origin.toJavaDateType(), false), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "month_floor")
+    public static Expression monthFloor(TimestampTzLiteral date, IntegerLiteral period,
+            TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.MONTH, date.toJavaDateType(),
                 period.getValue(), origin.toJavaDateType(), false), date.commonScale(origin));
     }
 
@@ -714,6 +1016,30 @@ public class TimeRoundSeries {
                 period.getValue(), origin.toJavaDateType(), false), date.commonScale(origin));
     }
 
+    @ExecFunction(name = "day_floor")
+    public static Expression dayFloor(TimestampTzLiteral date) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.DAY, date.toJavaDateType(),
+                1, START_ORIGINAL_DAY, false), date.getScale());
+    }
+
+    @ExecFunction(name = "day_floor")
+    public static Expression dayFloor(TimestampTzLiteral date, IntegerLiteral period) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.DAY, date.toJavaDateType(),
+                period.getValue(), START_ORIGINAL_DAY, false), date.getScale());
+    }
+
+    @ExecFunction(name = "day_floor")
+    public static Expression dayFloor(TimestampTzLiteral date, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.DAY, date.toJavaDateType(),
+                1, origin.toJavaDateType(), false), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "day_floor")
+    public static Expression dayFloor(TimestampTzLiteral date, IntegerLiteral period, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.DAY, date.toJavaDateType(),
+                period.getValue(), origin.toJavaDateType(), false), date.commonScale(origin));
+    }
+
     /**
      * datetime arithmetic function hour-floor
      */
@@ -762,6 +1088,30 @@ public class TimeRoundSeries {
     @ExecFunction(name = "hour_floor")
     public static Expression hourFloor(DateTimeV2Literal date, IntegerLiteral period, DateTimeV2Literal origin) {
         return DateTimeV2Literal.fromJavaDateType(getDateCeilOrFloor(DATE.HOUR, date.toJavaDateType(),
+                period.getValue(), origin.toJavaDateType(), false), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "hour_floor")
+    public static Expression hourFloor(TimestampTzLiteral date) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.HOUR, date.toJavaDateType(),
+                1, START_ORIGINAL_DAY, false), date.getScale());
+    }
+
+    @ExecFunction(name = "hour_floor")
+    public static Expression hourFloor(TimestampTzLiteral date, IntegerLiteral period) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.HOUR, date.toJavaDateType(),
+                period.getValue(), START_ORIGINAL_DAY, false), date.getScale());
+    }
+
+    @ExecFunction(name = "hour_floor")
+    public static Expression hourFloor(TimestampTzLiteral date, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.HOUR, date.toJavaDateType(),
+                1, origin.toJavaDateType(), false), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "hour_floor")
+    public static Expression hourFloor(TimestampTzLiteral date, IntegerLiteral period, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.HOUR, date.toJavaDateType(),
                 period.getValue(), origin.toJavaDateType(), false), date.commonScale(origin));
     }
 
@@ -817,6 +1167,31 @@ public class TimeRoundSeries {
                 period.getValue(), origin.toJavaDateType(), false), date.commonScale(origin));
     }
 
+    @ExecFunction(name = "minute_floor")
+    public static Expression minuteFloor(TimestampTzLiteral date) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.MINUTE, date.toJavaDateType(),
+                1, START_ORIGINAL_DAY, false), date.getScale());
+    }
+
+    @ExecFunction(name = "minute_floor")
+    public static Expression minuteFloor(TimestampTzLiteral date, IntegerLiteral period) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.MINUTE, date.toJavaDateType(),
+                period.getValue(), START_ORIGINAL_DAY, false), date.getScale());
+    }
+
+    @ExecFunction(name = "minute_floor")
+    public static Expression minuteFloor(TimestampTzLiteral date, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.MINUTE, date.toJavaDateType(),
+                1, origin.toJavaDateType(), false), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "minute_floor")
+    public static Expression minuteFloor(TimestampTzLiteral date, IntegerLiteral period,
+            TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.MINUTE, date.toJavaDateType(),
+                period.getValue(), origin.toJavaDateType(), false), date.commonScale(origin));
+    }
+
     /**
      * datetime arithmetic function SECOND-floor
      */
@@ -866,6 +1241,31 @@ public class TimeRoundSeries {
     public static Expression secondFloor(DateTimeV2Literal date, IntegerLiteral period,
             DateTimeV2Literal origin) {
         return DateTimeV2Literal.fromJavaDateType(getDateCeilOrFloor(DATE.SECOND, date.toJavaDateType(),
+                period.getValue(), origin.toJavaDateType(), false), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "second_floor")
+    public static Expression secondFloor(TimestampTzLiteral date) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.SECOND, date.toJavaDateType(),
+                1, START_ORIGINAL_DAY, false), date.getScale());
+    }
+
+    @ExecFunction(name = "second_floor")
+    public static Expression secondFloor(TimestampTzLiteral date, IntegerLiteral period) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.SECOND, date.toJavaDateType(),
+                period.getValue(), START_ORIGINAL_DAY, false), date.getScale());
+    }
+
+    @ExecFunction(name = "second_floor")
+    public static Expression secondFloor(TimestampTzLiteral date, TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.SECOND, date.toJavaDateType(),
+                1, origin.toJavaDateType(), false), date.commonScale(origin));
+    }
+
+    @ExecFunction(name = "second_floor")
+    public static Expression secondFloor(TimestampTzLiteral date, IntegerLiteral period,
+            TimestampTzLiteral origin) {
+        return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.SECOND, date.toJavaDateType(),
                 period.getValue(), origin.toJavaDateType(), false), date.commonScale(origin));
     }
 }

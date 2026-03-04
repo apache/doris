@@ -87,6 +87,7 @@ function add_cpu_limit_config()
 update_conf_from_configmap()
 {
     echo "" >> $DORIS_HOME/conf/be.conf
+    echo "########## doris-operator automatically adds ##########" >> $DORIS_HOME/conf/be.conf
     echo "deploy_mode = cloud" >> $DORIS_HOME/conf/be.conf
     if [[ "x$CONFIGMAP_MOUNT_PATH" == "x" ]] ; then
         log_stderr '[info] Empty $CONFIGMAP_MOUNT_PATH env var, skip it!'
@@ -107,6 +108,8 @@ update_conf_from_configmap()
         fi
         if [[ "$conffile" == "be.conf" ]]; then
              cp $CONFIGMAP_MOUNT_PATH/$conffile $DORIS_HOME/conf/$conffile
+             echo "" >> $DORIS_HOME/conf/$conffile
+             echo "########## doris-operator automatically adds ##########" >> $DORIS_HOME/conf/$conffile
              echo "deploy_mode = cloud" >> $DORIS_HOME/conf/$conffile
              continue
          fi

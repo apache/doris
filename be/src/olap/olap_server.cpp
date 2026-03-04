@@ -1093,96 +1093,9 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                       << ", max_threads: " << thread_pool->max_threads()
                       << ", min_threads: " << thread_pool->min_threads()
                       << ", num_total_queued_tasks: " << thread_pool->get_queue_size();
-        auto status = thread_pool->submit_func([tablet, compaction = std::move(compaction),
-                                                compaction_type, permits, force, this]() {
-            if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) [[likely]] {
-                DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(1);
-                DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
-                        _cumu_compaction_thread_pool->get_queue_size());
-            } else if (compaction_type == CompactionType::BASE_COMPACTION) {
-                DorisMetrics::instance()->base_compaction_task_running_total->increment(1);
-                DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
-                        _base_compaction_thread_pool->get_queue_size());
-            }
-            bool is_large_task = true;
-            Defer defer {[&]() {
-                DBUG_EXECUTE_IF("StorageEngine._submit_compaction_task.sleep", { sleep(5); })
-                if (!force) {
-                    _permit_limiter.release(permits);
-                }
-                _pop_tablet_from_submitted_compaction(tablet, compaction_type);
-                tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
-                if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-                    std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
-                    _cumu_compaction_thread_pool_used_threads--;
-                    if (!is_large_task) {
-                        _cumu_compaction_thread_pool_small_tasks_running--;
-                    }
-                    DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(
-                            -1);
-                    DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
-                            _cumu_compaction_thread_pool->get_queue_size());
-                } else if (compaction_type == CompactionType::BASE_COMPACTION) {
-                    DorisMetrics::instance()->base_compaction_task_running_total->increment(-1);
-                    DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
-                            _base_compaction_thread_pool->get_queue_size());
-                }
-            }};
-            do {
-                if (compaction->compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
-                    std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
-                    _cumu_compaction_thread_pool_used_threads++;
-                    if (config::large_cumu_compaction_task_min_thread_num > 1 &&
-                        _cumu_compaction_thread_pool->max_threads() >=
-                                config::large_cumu_compaction_task_min_thread_num) {
-                        // Determine if this is a large task based on configured thresholds
-                        is_large_task =
-                                (compaction->calc_input_rowsets_total_size() >
-                                         config::large_cumu_compaction_task_bytes_threshold ||
-                                 compaction->calc_input_rowsets_row_num() >
-                                         config::large_cumu_compaction_task_row_num_threshold);
-
-                        // Small task. No delay needed
-                        if (!is_large_task) {
-                            _cumu_compaction_thread_pool_small_tasks_running++;
-                            break;
-                        }
-                        // Deal with large task
-                        if (_should_delay_large_task()) {
-                            LOG_WARNING(
-                                    "failed to do CumulativeCompaction, cumu thread pool is "
-                                    "intensive, delay large task.")
-                                    .tag("tablet_id", tablet->tablet_id())
-                                    .tag("input_rows", compaction->calc_input_rowsets_row_num())
-                                    .tag("input_rowsets_total_size",
-                                         compaction->calc_input_rowsets_total_size())
-                                    .tag("config::large_cumu_compaction_task_bytes_threshold",
-                                         config::large_cumu_compaction_task_bytes_threshold)
-                                    .tag("config::large_cumu_compaction_task_row_num_threshold",
-                                         config::large_cumu_compaction_task_row_num_threshold)
-                                    .tag("remaining threads",
-                                         _cumu_compaction_thread_pool_used_threads)
-                                    .tag("small_tasks_running",
-                                         _cumu_compaction_thread_pool_small_tasks_running);
-                            // Delay this task and sleep 5s for this tablet
-                            long now = duration_cast<std::chrono::milliseconds>(
-                                               std::chrono::system_clock::now().time_since_epoch())
-                                               .count();
-                            tablet->set_last_cumu_compaction_failure_time(now);
-                            return;
-                        }
-                    }
-                }
-            } while (false);
-            if (!tablet->can_do_compaction(tablet->data_dir()->path_hash(), compaction_type)) {
-                LOG(INFO) << "Tablet state has been changed, no need to begin this compaction "
-                             "task, tablet_id="
-                          << tablet->tablet_id() << ", tablet_state=" << tablet->tablet_state();
-                return;
-            }
-            tablet->compaction_stage = CompactionStage::EXECUTING;
-            TEST_SYNC_POINT_RETURN_WITH_VOID("olap_server::execute_compaction");
-            tablet->execute_compaction(*compaction);
+        auto status = thread_pool->submit_func([=, compaction = std::move(compaction), this]() {
+            _handle_compaction(std::move(tablet), std::move(compaction), compaction_type, permits,
+                               force);
         });
         if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) [[likely]] {
             DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
@@ -1216,6 +1129,97 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
         }
         return st;
     }
+}
+
+void StorageEngine::_handle_compaction(TabletSharedPtr tablet,
+                                       std::shared_ptr<CompactionMixin> compaction,
+                                       CompactionType compaction_type, int64_t permits,
+                                       bool force) {
+    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) [[likely]] {
+        DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(1);
+        DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+                _cumu_compaction_thread_pool->get_queue_size());
+    } else if (compaction_type == CompactionType::BASE_COMPACTION) {
+        DorisMetrics::instance()->base_compaction_task_running_total->increment(1);
+        DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
+                _base_compaction_thread_pool->get_queue_size());
+    }
+    bool is_large_task = true;
+    Defer defer {[&]() {
+        DBUG_EXECUTE_IF("StorageEngine._submit_compaction_task.sleep", { sleep(5); })
+        if (!force) {
+            _permit_limiter.release(permits);
+        }
+        _pop_tablet_from_submitted_compaction(tablet, compaction_type);
+        tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
+        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+            std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
+            _cumu_compaction_thread_pool_used_threads--;
+            if (!is_large_task) {
+                _cumu_compaction_thread_pool_small_tasks_running--;
+            }
+            DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(-1);
+            DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+                    _cumu_compaction_thread_pool->get_queue_size());
+        } else if (compaction_type == CompactionType::BASE_COMPACTION) {
+            DorisMetrics::instance()->base_compaction_task_running_total->increment(-1);
+            DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
+                    _base_compaction_thread_pool->get_queue_size());
+        }
+    }};
+    do {
+        if (compaction->compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
+            std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
+            _cumu_compaction_thread_pool_used_threads++;
+            if (config::large_cumu_compaction_task_min_thread_num > 1 &&
+                _cumu_compaction_thread_pool->max_threads() >=
+                        config::large_cumu_compaction_task_min_thread_num) {
+                // Determine if this is a large task based on configured thresholds
+                is_large_task = (compaction->calc_input_rowsets_total_size() >
+                                         config::large_cumu_compaction_task_bytes_threshold ||
+                                 compaction->calc_input_rowsets_row_num() >
+                                         config::large_cumu_compaction_task_row_num_threshold);
+
+                // Small task. No delay needed
+                if (!is_large_task) {
+                    _cumu_compaction_thread_pool_small_tasks_running++;
+                    break;
+                }
+                // Deal with large task
+                if (_should_delay_large_task()) {
+                    LOG_WARNING(
+                            "failed to do CumulativeCompaction, cumu thread pool is "
+                            "intensive, delay large task.")
+                            .tag("tablet_id", tablet->tablet_id())
+                            .tag("input_rows", compaction->calc_input_rowsets_row_num())
+                            .tag("input_rowsets_total_size",
+                                 compaction->calc_input_rowsets_total_size())
+                            .tag("config::large_cumu_compaction_task_bytes_threshold",
+                                 config::large_cumu_compaction_task_bytes_threshold)
+                            .tag("config::large_cumu_compaction_task_row_num_threshold",
+                                 config::large_cumu_compaction_task_row_num_threshold)
+                            .tag("remaining threads", _cumu_compaction_thread_pool_used_threads)
+                            .tag("small_tasks_running",
+                                 _cumu_compaction_thread_pool_small_tasks_running);
+                    // Delay this task and sleep 5s for this tablet
+                    long now = duration_cast<std::chrono::milliseconds>(
+                                       std::chrono::system_clock::now().time_since_epoch())
+                                       .count();
+                    tablet->set_last_cumu_compaction_failure_time(now);
+                    return;
+                }
+            }
+        }
+    } while (false);
+    if (!tablet->can_do_compaction(tablet->data_dir()->path_hash(), compaction_type)) {
+        LOG(INFO) << "Tablet state has been changed, no need to begin this compaction "
+                     "task, tablet_id="
+                  << tablet->tablet_id() << ", tablet_state=" << tablet->tablet_state();
+        return;
+    }
+    tablet->compaction_stage = CompactionStage::EXECUTING;
+    TEST_SYNC_POINT_RETURN_WITH_VOID("olap_server::execute_compaction");
+    tablet->execute_compaction(*compaction);
 }
 
 Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
@@ -1363,6 +1367,119 @@ void StorageEngine::_remove_unused_remote_files_callback() {
     }
 }
 
+static void collect_tablet_unused_remote_files(
+        Tablet* t, TConfirmUnusedRemoteFilesRequest& req,
+        std::unordered_map<int64_t, std::pair<StorageResource, std::vector<io::FileInfo>>>& buffer,
+        int64_t& num_files_in_buffer, PendingRowsetSet& pending_remote_rowsets) {
+    auto storage_resource = get_resource_by_storage_policy_id(t->storage_policy_id());
+    if (!storage_resource) {
+        LOG(WARNING) << "encounter error when remove unused remote files, tablet_id="
+                     << t->tablet_id() << " : " << storage_resource.error();
+        return;
+    }
+
+    // TODO(plat1ko): Support path v1
+    if (storage_resource->path_version > 0) {
+        return;
+    }
+
+    std::vector<io::FileInfo> files;
+    // FIXME(plat1ko): What if user reset resource in storage policy to another resource?
+    //  Maybe we should also list files in previously uploaded resources.
+    bool exists = true;
+    auto st = storage_resource->fs->list(storage_resource->remote_tablet_path(t->tablet_id()), true,
+                                         &files, &exists);
+    if (!st.ok()) {
+        LOG(WARNING) << "encounter error when remove unused remote files, tablet_id="
+                     << t->tablet_id() << " : " << st;
+        return;
+    }
+    if (!exists || files.empty()) {
+        return;
+    }
+    // get all cooldowned rowsets
+    RowsetIdUnorderedSet cooldowned_rowsets;
+    UniqueId cooldown_meta_id;
+    {
+        std::shared_lock rlock(t->get_header_lock());
+        for (const auto& [_, rs_meta] : t->tablet_meta()->all_rs_metas()) {
+            if (!rs_meta->is_local()) {
+                cooldowned_rowsets.insert(rs_meta->rowset_id());
+            }
+        }
+        if (cooldowned_rowsets.empty()) {
+            return;
+        }
+        cooldown_meta_id = t->tablet_meta()->cooldown_meta_id();
+    }
+    auto [cooldown_term, cooldown_replica_id] = t->cooldown_conf();
+    if (cooldown_replica_id != t->replica_id()) {
+        return;
+    }
+    // {cooldown_replica_id}.{cooldown_term}.meta
+    std::string remote_meta_path =
+            cooldown_tablet_meta_filename(cooldown_replica_id, cooldown_term);
+    // filter out the paths that should be reserved
+    auto filter = [&](io::FileInfo& info) {
+        std::string_view filename = info.file_name;
+        if (filename.ends_with(".meta")) {
+            return filename == remote_meta_path;
+        }
+        auto rowset_id = extract_rowset_id(filename);
+        if (rowset_id.hi == 0) {
+            return false;
+        }
+        return cooldowned_rowsets.contains(rowset_id) || pending_remote_rowsets.contains(rowset_id);
+    };
+    files.erase(std::remove_if(files.begin(), files.end(), std::move(filter)), files.end());
+    if (files.empty()) {
+        return;
+    }
+    files.shrink_to_fit();
+    num_files_in_buffer += files.size();
+    buffer.insert({t->tablet_id(), {*storage_resource, std::move(files)}});
+    auto& info = req.confirm_list.emplace_back();
+    info.__set_tablet_id(t->tablet_id());
+    info.__set_cooldown_replica_id(cooldown_replica_id);
+    info.__set_cooldown_meta_id(cooldown_meta_id.to_thrift());
+}
+
+static void confirm_and_remove_unused_remote_files(
+        const TConfirmUnusedRemoteFilesRequest& req,
+        std::unordered_map<int64_t, std::pair<StorageResource, std::vector<io::FileInfo>>>& buffer,
+        const int64_t num_files_in_buffer) {
+    TConfirmUnusedRemoteFilesResult result;
+    LOG(INFO) << "begin to confirm unused remote files. num_tablets=" << buffer.size()
+              << " num_files=" << num_files_in_buffer;
+    auto st = MasterServerClient::instance()->confirm_unused_remote_files(req, &result);
+    if (!st.ok()) {
+        LOG(WARNING) << st;
+        return;
+    }
+    for (auto id : result.confirmed_tablets) {
+        if (auto it = buffer.find(id); LIKELY(it != buffer.end())) {
+            auto& storage_resource = it->second.first;
+            auto& files = it->second.second;
+            std::vector<io::Path> paths;
+            paths.reserve(files.size());
+            // delete unused files
+            LOG(INFO) << "delete unused files. root_path=" << storage_resource.fs->root_path()
+                      << " tablet_id=" << id;
+            io::Path dir = storage_resource.remote_tablet_path(id);
+            for (auto& file : files) {
+                auto file_path = dir / file.file_name;
+                LOG(INFO) << "delete unused file: " << file_path.native();
+                paths.push_back(std::move(file_path));
+            }
+            st = storage_resource.fs->batch_delete(paths);
+            if (!st.ok()) {
+                LOG(WARNING) << "failed to delete unused files, tablet_id=" << id << " : " << st;
+            }
+            buffer.erase(it);
+        }
+    }
+}
+
 void StorageEngine::do_remove_unused_remote_files() {
     auto tablets = tablet_manager()->get_all_tablet([](Tablet* t) {
         return t->tablet_meta()->cooldown_meta_id().initialized() && t->is_used() &&
@@ -1379,115 +1496,6 @@ void StorageEngine::do_remove_unused_remote_files() {
     // assume a filename is 0.1KB, buffer size should not larger than 100MB
     constexpr int64_t max_files_in_buffer = 1000000;
 
-    auto calc_unused_remote_files = [&req, &buffer, &num_files_in_buffer, this](Tablet* t) {
-        auto storage_resource = get_resource_by_storage_policy_id(t->storage_policy_id());
-        if (!storage_resource) {
-            LOG(WARNING) << "encounter error when remove unused remote files, tablet_id="
-                         << t->tablet_id() << " : " << storage_resource.error();
-            return;
-        }
-
-        // TODO(plat1ko): Support path v1
-        if (storage_resource->path_version > 0) {
-            return;
-        }
-
-        std::vector<io::FileInfo> files;
-        // FIXME(plat1ko): What if user reset resource in storage policy to another resource?
-        //  Maybe we should also list files in previously uploaded resources.
-        bool exists = true;
-        auto st = storage_resource->fs->list(storage_resource->remote_tablet_path(t->tablet_id()),
-                                             true, &files, &exists);
-        if (!st.ok()) {
-            LOG(WARNING) << "encounter error when remove unused remote files, tablet_id="
-                         << t->tablet_id() << " : " << st;
-            return;
-        }
-        if (!exists || files.empty()) {
-            return;
-        }
-        // get all cooldowned rowsets
-        RowsetIdUnorderedSet cooldowned_rowsets;
-        UniqueId cooldown_meta_id;
-        {
-            std::shared_lock rlock(t->get_header_lock());
-            for (const auto& [_, rs_meta] : t->tablet_meta()->all_rs_metas()) {
-                if (!rs_meta->is_local()) {
-                    cooldowned_rowsets.insert(rs_meta->rowset_id());
-                }
-            }
-            if (cooldowned_rowsets.empty()) {
-                return;
-            }
-            cooldown_meta_id = t->tablet_meta()->cooldown_meta_id();
-        }
-        auto [cooldown_term, cooldown_replica_id] = t->cooldown_conf();
-        if (cooldown_replica_id != t->replica_id()) {
-            return;
-        }
-        // {cooldown_replica_id}.{cooldown_term}.meta
-        std::string remote_meta_path =
-                cooldown_tablet_meta_filename(cooldown_replica_id, cooldown_term);
-        // filter out the paths that should be reserved
-        auto filter = [&, this](io::FileInfo& info) {
-            std::string_view filename = info.file_name;
-            if (filename.ends_with(".meta")) {
-                return filename == remote_meta_path;
-            }
-            auto rowset_id = extract_rowset_id(filename);
-            if (rowset_id.hi == 0) {
-                return false;
-            }
-            return cooldowned_rowsets.contains(rowset_id) ||
-                   pending_remote_rowsets().contains(rowset_id);
-        };
-        files.erase(std::remove_if(files.begin(), files.end(), std::move(filter)), files.end());
-        if (files.empty()) {
-            return;
-        }
-        files.shrink_to_fit();
-        num_files_in_buffer += files.size();
-        buffer.insert({t->tablet_id(), {*storage_resource, std::move(files)}});
-        auto& info = req.confirm_list.emplace_back();
-        info.__set_tablet_id(t->tablet_id());
-        info.__set_cooldown_replica_id(cooldown_replica_id);
-        info.__set_cooldown_meta_id(cooldown_meta_id.to_thrift());
-    };
-
-    auto confirm_and_remove_files = [&buffer, &req, &num_files_in_buffer]() {
-        TConfirmUnusedRemoteFilesResult result;
-        LOG(INFO) << "begin to confirm unused remote files. num_tablets=" << buffer.size()
-                  << " num_files=" << num_files_in_buffer;
-        auto st = MasterServerClient::instance()->confirm_unused_remote_files(req, &result);
-        if (!st.ok()) {
-            LOG(WARNING) << st;
-            return;
-        }
-        for (auto id : result.confirmed_tablets) {
-            if (auto it = buffer.find(id); LIKELY(it != buffer.end())) {
-                auto& storage_resource = it->second.first;
-                auto& files = it->second.second;
-                std::vector<io::Path> paths;
-                paths.reserve(files.size());
-                // delete unused files
-                LOG(INFO) << "delete unused files. root_path=" << storage_resource.fs->root_path()
-                          << " tablet_id=" << id;
-                io::Path dir = storage_resource.remote_tablet_path(id);
-                for (auto& file : files) {
-                    auto file_path = dir / file.file_name;
-                    LOG(INFO) << "delete unused file: " << file_path.native();
-                    paths.push_back(std::move(file_path));
-                }
-                st = storage_resource.fs->batch_delete(paths);
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to delete unused files, tablet_id=" << id << " : "
-                                 << st;
-                }
-                buffer.erase(it);
-            }
-        }
-    };
-
     // batch confirm to reduce FE's overhead
     auto next_confirm_time = std::chrono::steady_clock::now() +
                              std::chrono::seconds(config::confirm_unused_remote_files_interval_sec);
@@ -1497,10 +1505,11 @@ void StorageEngine::do_remove_unused_remote_files() {
             t->tablet_state() != TABLET_RUNNING) {
             continue;
         }
-        calc_unused_remote_files(t.get());
+        collect_tablet_unused_remote_files(t.get(), req, buffer, num_files_in_buffer,
+                                           _pending_remote_rowsets);
         if (num_files_in_buffer > 0 && (num_files_in_buffer > max_files_in_buffer ||
                                         std::chrono::steady_clock::now() > next_confirm_time)) {
-            confirm_and_remove_files();
+            confirm_and_remove_unused_remote_files(req, buffer, num_files_in_buffer);
             buffer.clear();
             req.confirm_list.clear();
             num_files_in_buffer = 0;
@@ -1510,7 +1519,7 @@ void StorageEngine::do_remove_unused_remote_files() {
         }
     }
     if (num_files_in_buffer > 0) {
-        confirm_and_remove_files();
+        confirm_and_remove_unused_remote_files(req, buffer, num_files_in_buffer);
     }
 }
 
@@ -1578,71 +1587,73 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         for (auto& [tablet, score] : tablet_to_compact) {
             LOG(INFO) << "submit cold data compaction. tablet_id=" << tablet->tablet_id()
                       << " score=" << score;
-            static_cast<void>(_cold_data_compaction_thread_pool->submit_func(
-                    [&, t = std::move(tablet), this]() {
-                        auto compaction = std::make_shared<ColdDataCompaction>(*this, t);
-                        {
-                            std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
-                            _cold_compaction_tablet_submitted.insert(t->tablet_id());
-                        }
-                        Defer defer {[&] {
-                            std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
-                            _cold_compaction_tablet_submitted.erase(t->tablet_id());
-                        }};
-                        std::unique_lock cold_compaction_lock(t->get_cold_compaction_lock(),
-                                                              std::try_to_lock);
-                        if (!cold_compaction_lock.owns_lock()) {
-                            LOG(WARNING) << "try cold_compaction_lock failed, tablet_id="
-                                         << t->tablet_id();
-                            return;
-                        }
-                        _update_cumulative_compaction_policy();
-                        if (t->get_cumulative_compaction_policy() == nullptr ||
-                            t->get_cumulative_compaction_policy()->name() !=
-                                    t->tablet_meta()->compaction_policy()) {
-                            t->set_cumulative_compaction_policy(_cumulative_compaction_policies.at(
-                                    t->tablet_meta()->compaction_policy()));
-                        }
-
-                        auto st = compaction->prepare_compact();
-                        if (!st.ok()) {
-                            LOG(WARNING) << "failed to prepare cold data compaction. tablet_id="
-                                         << t->tablet_id() << " err=" << st;
-                            return;
-                        }
-
-                        st = compaction->execute_compact();
-                        if (!st.ok()) {
-                            LOG(WARNING) << "failed to execute cold data compaction. tablet_id="
-                                         << t->tablet_id() << " err=" << st;
-                            return;
-                        }
+            static_cast<void>(
+                    _cold_data_compaction_thread_pool->submit_func([t = std::move(tablet), this]() {
+                        _handle_cold_data_compaction(std::move(t));
                     }));
         }
 
         for (auto& [tablet, score] : tablet_to_follow) {
             LOG(INFO) << "submit to follow cooldown meta. tablet_id=" << tablet->tablet_id()
                       << " score=" << score;
-            static_cast<void>(_cold_data_compaction_thread_pool->submit_func([&,
-                                                                              t = std::move(
-                                                                                      tablet)]() {
-                {
-                    std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
-                    _cold_compaction_tablet_submitted.insert(t->tablet_id());
-                }
-                auto st = t->cooldown();
-                {
-                    std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
-                    _cold_compaction_tablet_submitted.erase(t->tablet_id());
-                }
-                if (!st.ok()) {
-                    // The cooldown of the replica may be relatively slow
-                    // resulting in a short period of time where following cannot be successful
-                    LOG_EVERY_N(WARNING, 5)
-                            << "failed to cooldown. tablet_id=" << t->tablet_id() << " err=" << st;
-                }
-            }));
+            static_cast<void>(_cold_data_compaction_thread_pool->submit_func(
+                    [t = std::move(tablet), this]() { _follow_cooldown_meta(std::move(t)); }));
         }
+    }
+}
+
+void StorageEngine::_handle_cold_data_compaction(TabletSharedPtr t) {
+    auto compaction = std::make_shared<ColdDataCompaction>(*this, t);
+    {
+        std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+        _cold_compaction_tablet_submitted.insert(t->tablet_id());
+    }
+    Defer defer {[&] {
+        std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+        _cold_compaction_tablet_submitted.erase(t->tablet_id());
+    }};
+    std::unique_lock cold_compaction_lock(t->get_cold_compaction_lock(), std::try_to_lock);
+    if (!cold_compaction_lock.owns_lock()) {
+        LOG(WARNING) << "try cold_compaction_lock failed, tablet_id=" << t->tablet_id();
+        return;
+    }
+    _update_cumulative_compaction_policy();
+    if (t->get_cumulative_compaction_policy() == nullptr ||
+        t->get_cumulative_compaction_policy()->name() != t->tablet_meta()->compaction_policy()) {
+        t->set_cumulative_compaction_policy(
+                _cumulative_compaction_policies.at(t->tablet_meta()->compaction_policy()));
+    }
+
+    auto st = compaction->prepare_compact();
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to prepare cold data compaction. tablet_id=" << t->tablet_id()
+                     << " err=" << st;
+        return;
+    }
+
+    st = compaction->execute_compact();
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to execute cold data compaction. tablet_id=" << t->tablet_id()
+                     << " err=" << st;
+        return;
+    }
+}
+
+void StorageEngine::_follow_cooldown_meta(TabletSharedPtr t) {
+    {
+        std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+        _cold_compaction_tablet_submitted.insert(t->tablet_id());
+    }
+    auto st = t->cooldown();
+    {
+        std::lock_guard lock(_cold_compaction_tablet_submitted_mtx);
+        _cold_compaction_tablet_submitted.erase(t->tablet_id());
+    }
+    if (!st.ok()) {
+        // The cooldown of the replica may be relatively slow
+        // resulting in a short period of time where following cannot be successful
+        LOG_EVERY_N(WARNING, 5) << "failed to cooldown. tablet_id=" << t->tablet_id()
+                                << " err=" << st;
     }
 }
 

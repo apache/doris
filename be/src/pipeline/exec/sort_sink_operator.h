@@ -56,7 +56,7 @@ private:
 class SortSinkOperatorX final : public DataSinkOperatorX<SortSinkLocalState> {
 public:
     SortSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id, const TPlanNode& tnode,
-                      const DescriptorTbl& descs, const bool require_bucket_distribution);
+                      const DescriptorTbl& descs);
 #ifdef BE_TEST
     SortSinkOperatorX(ObjectPool* pool, TSortAlgorithm::type type, int64_t limit, int64_t offset)
             : _offset(offset),
@@ -79,7 +79,7 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_is_analytic_sort) {
-            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
+            return _is_colocate && _require_bucket_distribution
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         } else if (_merge_by_exchange) {
@@ -89,7 +89,8 @@ public:
             return {ExchangeType::NOOP};
         }
     }
-    bool require_data_distribution() const override { return _is_colocate; }
+    bool is_colocated_operator() const override { return _is_colocate; }
+    bool is_shuffled_operator() const override { return _is_analytic_sort; }
 
     size_t get_revocable_mem_size(RuntimeState* state) const;
 
@@ -99,7 +100,7 @@ public:
 
     Status merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
                                      int batch_size, bool* eos);
-    void reset(RuntimeState* state);
+    Status reset(RuntimeState* state) override;
 
     int64_t limit() const { return _limit; }
     int64_t offset() const { return _offset; }
@@ -121,9 +122,8 @@ private:
     const RowDescriptor _row_descriptor;
     const bool _merge_by_exchange;
     const bool _is_colocate = false;
-    const bool _require_bucket_distribution = false;
     const bool _is_analytic_sort = false;
-    const std::vector<TExpr> _partition_exprs;
+    std::vector<TExpr> _partition_exprs;
     const TSortAlgorithm::type _algorithm;
     const bool _reuse_mem;
     const int64_t _max_buffered_bytes;

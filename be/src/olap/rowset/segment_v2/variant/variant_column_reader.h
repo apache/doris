@@ -22,14 +22,19 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "nested_group_provider.h"
+#include "nested_group_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/page_handle.h"
+#include "olap/rowset/segment_v2/variant/binary_column_reader.h"
+#include "olap/rowset/segment_v2/variant/hierarchical_data_iterator.h"
 #include "olap/rowset/segment_v2/variant/variant_external_meta_reader.h"
 #include "olap/rowset/segment_v2/variant/variant_statistics.h"
 #include "olap/tablet_schema.h"
@@ -37,6 +42,10 @@
 #include "vec/columns/column_variant.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/json/path_in_data.h"
+
+namespace roaring {
+class Roaring;
+}
 
 namespace doris {
 
@@ -52,43 +61,11 @@ class ColumnIterator;
 class InvertedIndexIterator;
 class InvertedIndexFileReader;
 class ColumnReaderCache;
-
-// Abstracts access to variant sparse column readers that may be in a single
-// column or bucketized across multiple columns.
-class UnifiedSparseColumnReader {
-public:
-    void set_single(std::shared_ptr<ColumnReader> reader) { _single = std::move(reader); }
-
-    void add_bucket(size_t index, std::shared_ptr<ColumnReader> reader) {
-        if (_buckets.size() <= index) {
-            _buckets.resize(index + 1);
-        }
-        _buckets[index] = std::move(reader);
-    }
-
-    bool has_buckets() const { return !_buckets.empty(); }
-    bool empty() const { return !has_buckets() && !_single; }
-    size_t num_buckets() const { return _buckets.size(); }
-
-    // Build an iterator that reads all sparse data. In bucket mode, it returns
-    // a combined iterator across all buckets; otherwise returns an iterator of the single reader.
-    Status new_sparse_iterator(ColumnIteratorUPtr* iter) const;
-
-    // Select a concrete reader and cache key for a given sparse subpath.
-    // In bucket mode this chooses a bucket using the same hashing as write path.
-    std::pair<std::shared_ptr<ColumnReader>, std::string> select_reader_and_cache_key(
-            const std::string& relative_path) const;
-
-    const std::shared_ptr<ColumnReader>& single() const { return _single; }
-    const std::vector<std::shared_ptr<ColumnReader>>& buckets() const { return _buckets; }
-
-private:
-    std::shared_ptr<ColumnReader> _single;
-    std::vector<std::shared_ptr<ColumnReader>> _buckets; // index aligned
-};
+class NestedGroupReadProvider;
+class NestedOffsetsMappingIndex;
 
 /**
- * SparseColumnCache provides a caching layer for sparse column data access.
+ * BinaryColumnCache provides a caching layer for sparse column data access.
  * 
  * The "shared" aspect refers to the ability to share cached column data between
  * multiple iterators or readers that access the same column (SPARSE_COLUMN_PATH). This reduces
@@ -107,9 +84,9 @@ private:
  * - SEEKED_NEXT_BATCHED: Data cached from sequential read
  * - READ_BY_ROWIDS: Data cached from random access read
  */
-struct SparseColumnCache {
-    const ColumnIteratorUPtr sparse_column_iterator = nullptr;
-    vectorized::MutableColumnPtr sparse_column = nullptr;
+struct BinaryColumnCache {
+    const ColumnIteratorUPtr binary_column_iterator = nullptr;
+    vectorized::MutableColumnPtr binary_column = nullptr;
 
     enum class State : uint8_t {
         INVALID = 0,
@@ -123,17 +100,17 @@ struct SparseColumnCache {
     std::unique_ptr<rowid_t[]> rowids; // Cached row IDs for random access reads
     size_t length = 0;                 // Length of cached data
 
-    SparseColumnCache() = default;
-    SparseColumnCache(ColumnIteratorUPtr _column_iterator, vectorized::MutableColumnPtr _column)
-            : sparse_column_iterator(std::move(_column_iterator)),
-              sparse_column(std::move(_column)) {}
+    BinaryColumnCache() = default;
+    BinaryColumnCache(ColumnIteratorUPtr _column_iterator, vectorized::MutableColumnPtr _column)
+            : binary_column_iterator(std::move(_column_iterator)),
+              binary_column(std::move(_column)) {}
 
     Status init(const ColumnIteratorOptions& opts) {
         if (state >= State::INITED) {
             return Status::OK();
         }
         reset(State::INITED);
-        return sparse_column_iterator->init(opts);
+        return binary_column_iterator->init(opts);
     }
 
     Status seek_to_ordinal(ordinal_t ord) {
@@ -142,7 +119,7 @@ struct SparseColumnCache {
             return Status::OK();
         }
         reset(State::SEEKED_NEXT_BATCHED);
-        RETURN_IF_ERROR(sparse_column_iterator->seek_to_ordinal(ord));
+        RETURN_IF_ERROR(binary_column_iterator->seek_to_ordinal(ord));
         offset = ord;
         return Status::OK();
     }
@@ -154,9 +131,9 @@ struct SparseColumnCache {
             *_n = length;
             return Status::OK();
         }
-        sparse_column->clear();
+        binary_column->clear();
         DCHECK(state == State::SEEKED_NEXT_BATCHED);
-        RETURN_IF_ERROR(sparse_column_iterator->next_batch(_n, sparse_column, _has_null));
+        RETURN_IF_ERROR(binary_column_iterator->next_batch(_n, binary_column, _has_null));
         length = *_n; // update length
         return Status::OK();
     }
@@ -168,7 +145,7 @@ struct SparseColumnCache {
             return Status::OK();
         }
         reset(State::READ_BY_ROWIDS);
-        RETURN_IF_ERROR(sparse_column_iterator->read_by_rowids(_rowids, _count, sparse_column));
+        RETURN_IF_ERROR(binary_column_iterator->read_by_rowids(_rowids, _count, binary_column));
         length = _count;                              // update length
         rowids = std::make_unique<rowid_t[]>(_count); // update rowids
         std::copy(_rowids, _rowids + _count, rowids.get());
@@ -179,7 +156,7 @@ struct SparseColumnCache {
         state = _state;
         offset = 0;
         length = 0;
-        sparse_column->clear();
+        binary_column->clear();
         rowids.reset();
     }
 
@@ -192,14 +169,18 @@ struct SparseColumnCache {
         }
         return std::equal(_rowids, _rowids + _count, rowids.get());
     }
+
+    ordinal_t get_current_ordinal() const { return binary_column_iterator->get_current_ordinal(); }
 };
 
-using SparseColumnCacheSPtr = std::shared_ptr<SparseColumnCache>;
+using BinaryColumnCacheSPtr = std::shared_ptr<BinaryColumnCache>;
 
-// key is column path, value is the sparse column cache
-// now column path is only SPARSE_COLUMN_PATH, in the future, we can add more sparse column paths
-using PathToSparseColumnCache = std::unordered_map<std::string, SparseColumnCacheSPtr>;
-using PathToSparseColumnCacheUPtr = std::unique_ptr<PathToSparseColumnCache>;
+// key is column path, value is the binary column cache
+// column path: SPARSE_COLUMN_PATH, DOC_VALUE_COLUMN_PATH
+using PathToBinaryColumnCache = std::unordered_map<std::string, BinaryColumnCacheSPtr>;
+using PathToBinaryColumnCacheUPtr = std::unique_ptr<PathToBinaryColumnCache>;
+
+// NestedGroupReader is defined in nested_group_reader.h
 
 class VariantColumnReader : public ColumnReader {
 public:
@@ -214,7 +195,7 @@ public:
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
                         const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache,
-                        PathToSparseColumnCache* sparse_column_cache_ptr = nullptr);
+                        PathToBinaryColumnCache* binary_column_cache_ptr = nullptr);
 
     virtual const SubcolumnColumnMetaInfo::Node* get_subcolumn_meta_by_path(
             const vectorized::PathInData& relative_path) const;
@@ -224,6 +205,11 @@ public:
     FieldType get_meta_type() override { return FieldType::OLAP_FIELD_TYPE_VARIANT; }
 
     const VariantStatistics* get_stats() const { return _statistics.get(); }
+
+    // Expose raw root column reader for test assertions (e.g., dedup checks).
+    const std::shared_ptr<ColumnReader>& get_root_column_reader() const {
+        return _root_column_reader;
+    }
 
     int64_t get_metadata_size() const override;
 
@@ -285,22 +271,47 @@ public:
     // 3) Externalized metas via `_ext_meta_reader`
     bool has_prefix_path(const vectorized::PathInData& relative_path) const;
 
+    // NestedGroup support
+    // Get NestedGroup reader for a given array path
+    const NestedGroupReader* get_nested_group_reader(const std::string& array_path) const;
+
+    // Find nested group and child path by string path (without is_nested flag)
+    // Returns: (nested_group_reader, child_path) or (nullptr, "") if not found
+    // This method iterates through all registered nested groups and checks if
+    // the path starts with any nested group's path prefix.
+    // Example: path="items.id" with nested group "items" -> returns (items_reader, "id")
+    // Example: path="id" with nested group kRootNestedGroupPath -> returns (root_reader, "id")
+    std::pair<const NestedGroupReader*, std::string> find_nested_group_for_path(
+            const std::string& path) const;
+
+    // Collect the chain of nested groups from outer to inner for multi-level nested paths.
+    // Returns: (success, chain of nested group readers from outer to inner, child column path)
+    // Example: path="level1.level2.deep_id" returns (true, [level1_reader, level2_reader], "deep_id")
+    std::tuple<bool, std::vector<const NestedGroupReader*>, std::string> collect_nested_group_chain(
+            const std::string& path) const;
+
+    // Get all NestedGroup readers
+    const NestedGroupReaders& get_nested_group_readers() const { return _nested_group_readers; }
+
 private:
     // Internal unlocked helpers. Caller must hold `_subcolumns_meta_mutex` when using them.
-    // english only in comments
     bool _is_exceeded_sparse_column_limit_unlocked() const;
     bool _has_prefix_path_unlocked(const vectorized::PathInData& relative_path) const;
 
     // Describe how a variant sub-path should be read. This is a logical plan only and
     // does not create any concrete ColumnIterator.
     enum class ReadKind {
-        ROOT_FLAT,      // root variant using `VariantRootColumnIterator`
-        HIERARCHICAL,   // hierarchical merge (root + subcolumns + sparse)
-        LEAF,           // direct leaf reader
-        SPARSE_EXTRACT, // extract single path from sparse column
-        SPARSE_MERGE,   // merge subcolumns into sparse column
-        DEFAULT_NESTED, // fill nested subcolumn using sibling nested column
-        DEFAULT_FILL    // default iterator when path not exist
+        ROOT_FLAT,          // root variant using `VariantRootColumnIterator`
+        HIERARCHICAL,       // hierarchical merge (root + subcolumns + sparse)
+        HIERARCHICAL_DOC,   // hierarchical merge (root + doc)
+        LEAF,               // direct leaf reader
+        BINARY_EXTRACT,     // extract single path from sparse column
+        SPARSE_MERGE,       // merge subcolumns into sparse column
+        DEFAULT_NESTED,     // fill nested subcolumn using sibling nested column
+        DEFAULT_FILL,       // default iterator when path not exist
+        DOC_COMPACT,        // read from doc value column when compaction read
+        NESTED_GROUP_WHOLE, // read whole NestedGroup as array<variant>
+        NESTED_GROUP_CHILD  // read child from NestedGroup (single or multi-level)
     };
 
     struct ReadPlan {
@@ -314,11 +325,19 @@ private:
 
         // readers for LEAF / sparse cases
         std::shared_ptr<ColumnReader> leaf_column_reader;
-        std::shared_ptr<ColumnReader> sparse_column_reader;
+        std::shared_ptr<ColumnReader> binary_column_reader;
 
         // sparse extras
-        std::string sparse_cache_key;
+        std::string binary_cache_key;
         std::optional<uint32_t> bucket_index;
+
+        // NestedGroup fields
+        std::string nested_child_path; // child path within NestedGroup
+        std::string
+                nested_group_pruned_path; // prefix path within NestedGroup for object reconstruction
+        std::vector<const NestedGroupReader*>
+                nested_group_chain; // for nested groups (single or multi-level)
+        std::optional<NestedGroupPathFilter> nested_group_path_filter;
     };
 
     // Build read plan for flat-leaf (compaction/checksum) mode. Only decides the
@@ -326,52 +345,68 @@ private:
     Status _build_read_plan_flat_leaves(ReadPlan* plan, const TabletColumn& col,
                                         const StorageReadOptions* opts,
                                         ColumnReaderCache* column_reader_cache,
-                                        PathToSparseColumnCache* sparse_column_cache_ptr);
+                                        PathToBinaryColumnCache* binary_column_cache_ptr);
 
     // Build read plan for the general hierarchical reading mode.
     Status _build_read_plan(ReadPlan* plan, const TabletColumn& target_col,
                             const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache,
-                            PathToSparseColumnCache* sparse_column_cache_ptr);
+                            PathToBinaryColumnCache* binary_column_cache_ptr);
+
+    static bool _need_read_flat_leaves(const StorageReadOptions* opts);
+    bool _can_use_nested_group_read_path() const;
+    Status _validate_access_paths_debug(const TabletColumn& target_col,
+                                        const StorageReadOptions* opt, int32_t col_uid,
+                                        const vectorized::PathInData& relative_path) const;
+    bool _try_fill_nested_group_plan(ReadPlan* plan, const TabletColumn& target_col,
+                                     const StorageReadOptions* opt, int32_t col_uid,
+                                     const vectorized::PathInData& relative_path) const;
+    bool _try_build_nested_group_plan(ReadPlan* plan, const TabletColumn& target_col,
+                                      const StorageReadOptions* opt, int32_t col_uid,
+                                      const vectorized::PathInData& relative_path) const;
+    Status _try_build_leaf_plan(ReadPlan* plan, int32_t col_uid,
+                                const vectorized::PathInData& relative_path,
+                                const SubcolumnColumnMetaInfo::Node* node,
+                                ColumnReaderCache* column_reader_cache,
+                                OlapReaderStatistics* stats);
+    Status _try_build_external_leaf_plan(ReadPlan* plan, int32_t col_uid,
+                                         const vectorized::PathInData& relative_path,
+                                         ColumnReaderCache* column_reader_cache,
+                                         OlapReaderStatistics* stats);
 
     // Materialize a concrete ColumnIterator according to the previously built plan.
     Status _create_iterator_from_plan(ColumnIteratorUPtr* iterator, const ReadPlan& plan,
                                       const TabletColumn& target_col, const StorageReadOptions* opt,
                                       ColumnReaderCache* column_reader_cache,
-                                      PathToSparseColumnCache* sparse_column_cache_ptr);
+                                      PathToBinaryColumnCache* binary_column_cache_ptr);
     // init for compaction read
     Status _new_default_iter_with_same_nested(ColumnIteratorUPtr* iterator, const TabletColumn& col,
                                               const StorageReadOptions* opt,
                                               ColumnReaderCache* column_reader_cache);
-    Status _new_iterator_with_flat_leaves(
-            ColumnIteratorUPtr* iterator, vectorized::DataTypePtr* type, const TabletColumn& col,
-            const StorageReadOptions* opts, bool exceeded_sparse_column_limit,
-            bool existed_in_sparse_column, ColumnReaderCache* column_reader_cache,
-            PathToSparseColumnCache* sparse_column_cache_ptr = nullptr);
 
     Status _create_hierarchical_reader(ColumnIteratorUPtr* reader, int32_t col_uid,
                                        vectorized::PathInData path,
                                        const SubcolumnColumnMetaInfo::Node* node,
                                        const SubcolumnColumnMetaInfo::Node* root,
                                        ColumnReaderCache* column_reader_cache,
-                                       OlapReaderStatistics* stats);
+                                       OlapReaderStatistics* stats,
+                                       HierarchicalDataIterator::ReadType read_type);
     // Create a reader that merges subcolumns into the destination sparse column.
     // If bucket_index is set, only subcolumns whose path belongs to this bucket will be merged.
     Status _create_sparse_merge_reader(ColumnIteratorUPtr* iterator, const StorageReadOptions* opts,
                                        const TabletColumn& target_col,
-                                       SparseColumnCacheSPtr sparse_column_cache,
+                                       BinaryColumnCacheSPtr sparse_column_cache,
                                        ColumnReaderCache* column_reader_cache,
                                        std::optional<uint32_t> bucket_index = std::nullopt);
 
-    static Result<SparseColumnCacheSPtr> _get_shared_column_cache(
-            PathToSparseColumnCache* sparse_column_cache_ptr, const std::string& path,
-            std::shared_ptr<ColumnReader> sparse_column_reader);
+    static Result<BinaryColumnCacheSPtr> _get_binary_column_cache(
+            PathToBinaryColumnCache* binary_column_cache_ptr, const std::string& path,
+            std::shared_ptr<ColumnReader> binary_column_reader);
 
     // Protect `_subcolumns_meta_info` and `_statistics` when loading external meta.
-    // english only in comments
     mutable std::shared_mutex _subcolumns_meta_mutex;
     std::unique_ptr<SubcolumnColumnMetaInfo> _subcolumns_meta_info;
     // Sparse column readers (single or bucketized)
-    UnifiedSparseColumnReader _sparse_reader;
+    std::shared_ptr<BinaryColumnReader> _binary_column_reader;
     std::shared_ptr<ColumnReader> _root_column_reader;
     std::unique_ptr<VariantStatistics> _statistics;
     std::shared_ptr<TabletSchema> _tablet_schema;
@@ -387,6 +422,10 @@ private:
     uint32_t _root_unique_id {0};
 
     // call-once guard moved into VariantExternalMetaReader
+
+    // NestedGroup readers for array<object> paths
+    NestedGroupReaders _nested_group_readers;
+    std::unique_ptr<NestedGroupReadProvider> _nested_group_read_provider;
 };
 
 class VariantRootColumnIterator : public ColumnIterator {
@@ -416,6 +455,11 @@ public:
                           vectorized::MutableColumnPtr& dst) override;
 
     ordinal_t get_current_ordinal() const override { return _inner_iter->get_current_ordinal(); }
+
+    Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod init_method) override;
 
 private:
     Status _process_root_column(vectorized::MutableColumnPtr& dst,

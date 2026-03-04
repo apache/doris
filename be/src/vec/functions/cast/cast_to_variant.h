@@ -57,6 +57,14 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
         auto new_context = context == nullptr ? nullptr : context->clone();
         if (new_context != nullptr) {
             new_context->set_jsonb_string_as_string(true);
+            // Disable strict mode for the inner JSONB→target conversion.
+            // The variant root column may contain null/empty JSONB entries for rows
+            // where the subcolumn doesn't exist (e.g., mixed-schema variant data).
+            // In strict mode (INSERT context), these null entries cause the ENTIRE
+            // cast to fail and return all NULLs. Since this is an internal type
+            // conversion within variant, not user-provided INSERT data validation,
+            // strict mode should not apply here.
+            new_context->set_enable_strict_mode(false);
         }
         // dst type nullable has been removed, so we should remove the inner nullable of root column
         auto wrapper =

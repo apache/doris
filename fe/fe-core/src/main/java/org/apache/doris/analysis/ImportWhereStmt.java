@@ -34,9 +34,4 @@ public class ImportWhereStmt extends StatementBase {
     public boolean isPreceding() {
         return isPreceding;
     }
-
-    @Override
-    public RedirectStatus getRedirectStatus() {
-        return null;
-    }
 }

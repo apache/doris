@@ -26,6 +26,7 @@
 
 #include "common/cast_set.h"
 #include "vec/common/sip_hash.h"
+#include "vec/common/variant_util.h"
 
 namespace doris::vectorized {
 
@@ -187,6 +188,11 @@ size_t PathInData::Hash::operator()(const PathInData& value) const {
     return hash.low() ^ hash.high();
 }
 
+bool PathInData::need_record_stats() const {
+    return !empty() && !is_typed && !has_nested &&
+           path.find(DOC_VALUE_COLUMN_PATH) == std::string::npos;
+}
+
 PathInData PathInData::copy_pop_front() const {
     return copy_pop_nfront(1);
 }
@@ -233,6 +239,30 @@ PathInData PathInData::copy_pop_nfront(size_t n) const {
     new_path.build_parts(new_parts);
     new_path.is_typed = is_typed;
     return new_path;
+}
+
+bool PathInData::try_strip_prefix(const std::string& name, const std::string& prefix_dot,
+                                  std::string* out) {
+    if (!name.starts_with(prefix_dot)) {
+        return false;
+    }
+    *out = name.substr(prefix_dot.size());
+    return !out->empty();
+}
+
+PathInData PathInData::append(const PathInData& base, std::string_view suffix) {
+    if (suffix.empty()) {
+        return base;
+    }
+    if (base.empty()) {
+        return PathInData(suffix);
+    }
+    std::string new_path;
+    new_path.reserve(base.get_path().size() + 1 + suffix.size());
+    new_path.append(base.get_path());
+    new_path.push_back('.');
+    new_path.append(suffix.data(), suffix.size());
+    return PathInData(new_path);
 }
 
 PathInDataBuilder& PathInDataBuilder::append(std::string_view key, bool is_array) {

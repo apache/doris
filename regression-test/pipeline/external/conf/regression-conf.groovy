@@ -57,14 +57,14 @@ trinoPluginsPath = "/tmp/trino_connector"
 
 // will test <group>/<suite>.groovy
 // empty group will test all group
-testGroups = ""
+testGroups = "external"
 // empty suite will test all suite
 testSuites = ""
 // empty directories will test all directories
 testDirectories = ""
 
 // this groups will not be executed
-excludeGroups = ""
+excludeGroups = "p1,p2"
 // this suites will not be executed
 // load_stream_fault_injection may cause bad disk
 
@@ -75,6 +75,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_profile," +
     "test_refresh_mtmv," +
     "test_spark_load," +
+    "test_paimon_gcs," +
     "test_broker_load_func," +
     "test_stream_stub_fault_injection," +
     "test_iceberg_overwrite_with_wrong_partition," +
@@ -197,3 +198,12 @@ enableLakesoulTest = true
 
 // AWS iam role config
 
+// hudi p0 external regression test config
+// To enable hudi test, you need first start hudi container.
+// See `docker/thirdparties/run-thirdparties-docker.sh -c hudi`
+enableHudiTest=true
+// hudi catalog config
+hudiHmsPort=19083
+hudiMinioPort=19100
+hudiMinioAccessKey="minio"
+hudiMinioSecretKey="minio123"

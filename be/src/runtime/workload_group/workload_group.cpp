@@ -26,8 +26,11 @@
 #include <ostream>
 #include <utility>
 
+#include "cloud/config.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "exec/schema_scanner/schema_scanner_helper.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "io/fs/local_file_reader.h"
 #include "olap/storage_engine.h"
 #include "pipeline/task_queue.h"
@@ -422,7 +425,12 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     int num_disk = 1;
     int num_cpus = 1;
 #ifndef BE_TEST
-    num_disk = ExecEnv::GetInstance()->storage_engine().get_disk_num();
+    if (config::is_cloud_mode()) {
+        // In cloud mode, use cache disk count instead of data disk count
+        num_disk = cast_set<int>(io::FileCacheFactory::instance()->get_cache_instance_size());
+    } else {
+        num_disk = ExecEnv::GetInstance()->storage_engine().get_disk_num();
+    }
     num_cpus = std::thread::hardware_concurrency();
 #endif
     num_disk = std::max(1, num_disk);
@@ -741,6 +749,32 @@ void WorkloadGroup::try_stop_schedulers() {
         _memtable_flush_pool->shutdown();
         _memtable_flush_pool->wait();
     }
+}
+
+void WorkloadGroup::update_memtable_flush_threads() {
+    if (_memtable_flush_pool == nullptr) {
+        return;
+    }
+
+    int num_disk = 1;
+    int num_cpus = 0;
+#ifndef BE_TEST
+    if (config::is_cloud_mode()) {
+        num_disk = cast_set<int>(io::FileCacheFactory::instance()->get_cache_instance_size());
+    } else {
+        num_disk = ExecEnv::GetInstance()->storage_engine().get_disk_num();
+    }
+    num_cpus = std::thread::hardware_concurrency();
+#endif
+    num_disk = std::max(1, num_disk);
+    int min_threads = std::max(1, config::flush_thread_num_per_store);
+    int max_threads = num_cpus == 0 ? num_disk * min_threads
+                                    : std::min(num_disk * min_threads,
+                                               num_cpus * config::max_flush_thread_num_per_cpu);
+
+    // Update max_threads first to avoid constraint violation when increasing min_threads
+    static_cast<void>(_memtable_flush_pool->set_max_threads(max_threads));
+    static_cast<void>(_memtable_flush_pool->set_min_threads(min_threads));
 }
 
 #include "common/compile_check_end.h"

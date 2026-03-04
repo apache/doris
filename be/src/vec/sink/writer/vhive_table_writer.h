@@ -21,6 +21,7 @@
 
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/sink/writer/async_result_writer.h"
 

@@ -72,6 +72,7 @@ public:
         ALWAYS_INLINE std::string_view getString() const {
             return element.get_string().value_unsafe();
         }
+        ALWAYS_INLINE UInt64 getUInt64() const { return element.get_uint64().value_unsafe(); }
         ALWAYS_INLINE Array getArray() const;
         ALWAYS_INLINE Object getObject() const;
 

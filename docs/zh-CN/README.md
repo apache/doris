@@ -46,7 +46,7 @@ under the License.
     &nbsp;
     <a href="https://github.com/apache/doris/discussions"><img src="https://img.shields.io/badge/- Discussion -red?style=social&logo=discourse" height=25></a>
     &nbsp;
-    <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w"><img src="https://img.shields.io/badge/-Slack-4A154B?style=social&logo=slack" height=25 alt="Slack"></a>
+    <a href="https://doris.apache.org/slack"><img src="https://img.shields.io/badge/-Slack-4A154B?style=social&logo=slack" height=25 alt="Slack"></a>
     &nbsp;
     <a href="https://medium.com/@ApacheDoris"><img src="https://img.shields.io/badge/-Medium-red?style=social&logo=medium" height=25></a>
 
@@ -295,7 +295,7 @@ Doris 通过 Connector 支持 Spark/Flink 读取存储在 Doris 中的数据，�
 
 * Apache Doris 官方网站 - [网站](https://doris.apache.org)
 * 开发者邮件列表 - <dev@doris.apache.org>。发送邮件至 <dev-subscribe@doris.apache.org>，按照回复订阅邮件列表。
-* Slack 频道 - [加入 Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
+* Slack 频道 - [加入 Slack](https://doris.apache.org/slack)
 * Twitter - [关注 @doris_apache](https://twitter.com/doris_apache)
 
 

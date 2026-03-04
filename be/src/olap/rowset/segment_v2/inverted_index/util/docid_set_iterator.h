@@ -79,5 +79,12 @@ struct NextPosition {
     }
 };
 
+struct Norm {
+    template <typename T>
+    int32_t operator()(const T& iter) const {
+        return iter->norm();
+    }
+};
+
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2

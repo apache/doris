@@ -66,16 +66,17 @@ Result<FileReaderSPtr> HdfsFileReader::create(Path full_path, const hdfsFS& fs, 
     auto path = convert_path(full_path, fs_name);
     return get_file(fs, path, opts.mtime, opts.file_size).transform([&](auto&& accessor) {
         return std::make_shared<HdfsFileReader>(std::move(path), std::move(fs_name),
-                                                std::move(accessor), profile);
+                                                std::move(accessor), profile, opts.mtime);
     });
 }
 
 HdfsFileReader::HdfsFileReader(Path path, std::string fs_name, FileHandleCache::Accessor accessor,
-                               RuntimeProfile* profile)
+                               RuntimeProfile* profile, int64_t mtime)
         : _path(std::move(path)),
           _fs_name(std::move(fs_name)),
           _accessor(std::move(accessor)),
-          _profile(profile) {
+          _profile(profile),
+          _mtime(mtime) {
     _handle = _accessor.get();
 
     DorisMetrics::instance()->hdfs_file_open_reading->increment(1);

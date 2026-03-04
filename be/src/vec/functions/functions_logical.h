@@ -106,7 +106,7 @@ template <PrimitiveType A>
 struct NotImpl {
     static constexpr PrimitiveType ResultType = TYPE_BOOLEAN;
 
-    static inline UInt8 apply(typename PrimitiveTypeTraits<A>::ColumnItemType a) { return !a; }
+    static inline UInt8 apply(typename PrimitiveTypeTraits<A>::CppType a) { return !a; }
 };
 
 template <typename Impl, typename Name>

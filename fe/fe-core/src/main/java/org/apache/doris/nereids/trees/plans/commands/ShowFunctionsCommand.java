@@ -18,12 +18,15 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.SetType;
+import org.apache.doris.catalog.AggregateFunction;
+import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.FunctionRegistry;
+import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionUtil;
+import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -33,7 +36,6 @@ import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -45,13 +47,13 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * show functions command
@@ -67,7 +69,6 @@ public class ShowFunctionsCommand extends ShowCommand {
                 .build();
 
     private String dbName;
-    private boolean isBuiltin;
     private boolean isVerbose;
     private String likeCondition;
     private SetType type = SetType.DEFAULT;
@@ -75,10 +76,9 @@ public class ShowFunctionsCommand extends ShowCommand {
     /**
      * constructor
      */
-    public ShowFunctionsCommand(String dbName, boolean isBuiltin, boolean isVerbose, String likeCondition) {
+    public ShowFunctionsCommand(String dbName, boolean isVerbose, String likeCondition) {
         super(PlanType.SHOW_FUNCTIONS_COMMAND);
         this.dbName = dbName;
-        this.isBuiltin = isBuiltin;
         this.isVerbose = isVerbose;
         this.likeCondition = likeCondition;
     }
@@ -99,21 +99,21 @@ public class ShowFunctionsCommand extends ShowCommand {
      * get Info by nereids.
      * To make the code in nereids more concise, all irrelevant information here will use an empty string.
      */
-    private List<Comparable> getInfo(boolean isVerbose, String funcName) {
+    private List<Comparable> getInfo(boolean isVerbose, Function function) {
         List<Comparable> row = Lists.newArrayList();
         if (isVerbose) {
             // signature
-            row.add(funcName);
+            row.add(function.signatureString());
             // return type
-            row.add("");
+            row.add(function.getReturnType().toString());
             // function type
             // intermediate type
-            row.add("");
-            row.add("");
+            row.add(buildFunctionType(function));
+            row.add(buildIntermediateType(function));
             // property
-            row.add("");
+            row.add(buildProperties(function));
         } else {
-            row.add(funcName);
+            row.add(function.functionName());
         }
         return row;
     }
@@ -128,13 +128,13 @@ public class ShowFunctionsCommand extends ShowCommand {
      * get resultRowSet
      */
     @VisibleForTesting
-    protected List<List<String>> getResultRowSetByFunctions(List<String> functions) {
+    protected List<List<String>> getResultRowSetByFunctions(List<Function> functions) {
         List<List<String>> resultRowSet = Lists.newArrayList();
         List<List<Comparable>> rowSet = Lists.newArrayList();
-        for (String function : functions) {
+        for (Function function : functions) {
             List<Comparable> row = getInfo(isVerbose, function);
             // like predicate
-            if (likeCondition == null || like(function, likeCondition)) {
+            if (likeCondition == null || like(function.functionName(), likeCondition)) {
                 rowSet.add(row);
             }
         }
@@ -165,7 +165,7 @@ public class ShowFunctionsCommand extends ShowCommand {
      * get resultRowSet
      */
     private List<List<String>> getResultRowSet(ConnectContext ctx) throws AnalysisException {
-        List<String> functions = getFunctions(ctx);
+        List<Function> functions = getFunctions(ctx);
         return getResultRowSetByFunctions(functions);
     }
 
@@ -174,25 +174,24 @@ public class ShowFunctionsCommand extends ShowCommand {
      * All functions including builtin and udf are registered in FunctionRegistry
      */
     @VisibleForTesting
-    protected List<String> getFunctions(ConnectContext ctx) throws AnalysisException {
-        List<String> functions = Lists.newArrayList();
+    protected List<Function> getFunctions(ConnectContext ctx) throws AnalysisException {
+        List<Function> functions = Lists.newArrayList();
         if (ctx == null || ctx.getEnv() == null || ctx.getEnv().getFunctionRegistry() == null) {
             return functions;
         }
 
-        FunctionRegistry functionRegistry = ctx.getEnv().getFunctionRegistry();
-        Map<String, Map<String, List<FunctionBuilder>>> udfFunctions = functionRegistry.getName2UdfBuilders();
         if (!FunctionUtil.isGlobalFunction(type)) {
+            dbName = reAcquireDbName(ctx, dbName);
+        }
+
+        if (FunctionUtil.isGlobalFunction(type)) {
+            functions = Env.getCurrentEnv().getGlobalFunctionMgr().getFunctions();
+        } else {
             Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), this.getClass().getSimpleName());
             DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(dbName);
             if (db instanceof Database) {
-                Map<String, List<FunctionBuilder>> builtinFunctions = functionRegistry.getName2BuiltinBuilders();
-                functions = isBuiltin ? new ArrayList<>(builtinFunctions.keySet()) :
-                        new ArrayList<>(udfFunctions.getOrDefault(dbName, new HashMap<>()).keySet());
+                functions = ((Database) db).getFunctions();
             }
-        } else {
-            functions = new ArrayList<>(udfFunctions
-                .getOrDefault(functionRegistry.getGlobalFunctionDbName(), new HashMap<>()).keySet());
         }
         return functions;
     }
@@ -223,10 +222,12 @@ public class ShowFunctionsCommand extends ShowCommand {
             this.dbName = reAcquireDbName(ctx, dbName);
         }
 
-        if (!FunctionUtil.isGlobalFunction(type) && !Env.getCurrentEnv().getAccessManager()
-                .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName, PrivPredicate.SHOW)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                    ConnectContext.get().getQualifiedUser(), dbName);
+        if (!FunctionUtil.isGlobalFunction(type)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, PrivPredicate.SELECT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
+                        PrivPredicate.SELECT.getPrivs().toString(), dbName);
+            }
         }
 
         List<List<String>> resultRowSet = getResultRowSet(ctx);
@@ -243,6 +244,104 @@ public class ShowFunctionsCommand extends ShowCommand {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowFunctionsCommand(this, context);
+    }
+
+    private String buildFunctionType(Function function) {
+        if (function instanceof AggregateFunction) {
+            return "AGGREGATE/" + function.getBinaryType();
+        }
+        if (function.isUDTFunction()) {
+            return "UDTF/" + function.getBinaryType();
+        }
+        if (function instanceof AliasFunction) {
+            return "ALIAS/" + function.getBinaryType();
+        }
+        return "SCALAR/" + function.getBinaryType();
+    }
+
+    private String buildIntermediateType(Function function) {
+        if (function instanceof AggregateFunction) {
+            AggregateFunction aggregateFunction = (AggregateFunction) function;
+            return aggregateFunction.getIntermediateType() == null
+                    ? ""
+                    : aggregateFunction.getIntermediateType().toString();
+        }
+        return "";
+    }
+
+    private String buildProperties(Function function) {
+        Map<String, String> properties = new LinkedHashMap<>();
+        if (function.getId() > 0) {
+            properties.put("ID", String.valueOf(function.getId()));
+        }
+        if (!Strings.isNullOrEmpty(function.getChecksum())) {
+            properties.put("CHECKSUM", function.getChecksum());
+        }
+        if (function.getLocation() != null) {
+            String locationKey = function.getBinaryType() == null
+                    || function.getBinaryType().name().startsWith("JAVA")
+                            ? "FILE"
+                            : "OBJECT_FILE";
+            properties.put(locationKey, function.getLocation().toString());
+        }
+        properties.put("NULLABLE_MODE", function.getNullableMode().name());
+        if (function.isStaticLoad()) {
+            properties.put("STATIC_LOAD", String.valueOf(function.isStaticLoad()));
+        }
+        if (!Strings.isNullOrEmpty(function.getRuntimeVersion())) {
+            properties.put("RUNTIME_VERSION", function.getRuntimeVersion());
+        }
+
+        if (function instanceof ScalarFunction) {
+            ScalarFunction scalarFunction = (ScalarFunction) function;
+            properties.put("SYMBOL", Strings.nullToEmpty(scalarFunction.getSymbolName()));
+            if (scalarFunction.getPrepareFnSymbol() != null) {
+                properties.put("PREPARE_FN", scalarFunction.getPrepareFnSymbol());
+            }
+            if (scalarFunction.getCloseFnSymbol() != null) {
+                properties.put("CLOSE_FN", scalarFunction.getCloseFnSymbol());
+            }
+        }
+
+        if (function instanceof AggregateFunction) {
+            AggregateFunction aggregateFunction = (AggregateFunction) function;
+            properties.put("INIT_FN", Strings.nullToEmpty(aggregateFunction.getInitFnSymbol()));
+            properties.put("UPDATE_FN", Strings.nullToEmpty(aggregateFunction.getUpdateFnSymbol()));
+            properties.put("MERGE_FN", Strings.nullToEmpty(aggregateFunction.getMergeFnSymbol()));
+            if (aggregateFunction.getSerializeFnSymbol() != null) {
+                properties.put("SERIALIZE_FN", aggregateFunction.getSerializeFnSymbol());
+            }
+            if (aggregateFunction.getFinalizeFnSymbol() != null) {
+                properties.put("FINALIZE_FN", aggregateFunction.getFinalizeFnSymbol());
+            }
+            if (aggregateFunction.getGetValueFnSymbol() != null) {
+                properties.put("GET_VALUE_FN", aggregateFunction.getGetValueFnSymbol());
+            }
+            if (aggregateFunction.getRemoveFnSymbol() != null) {
+                properties.put("REMOVE_FN", aggregateFunction.getRemoveFnSymbol());
+            }
+            if (aggregateFunction.getSymbolName() != null) {
+                properties.put("SYMBOL", aggregateFunction.getSymbolName());
+            }
+        }
+
+        if (function instanceof AliasFunction) {
+            AliasFunction aliasFunction = (AliasFunction) function;
+            properties.put("ALIAS_OF", aliasFunction.getOriginFunction().toSqlWithoutTbl());
+            if (aliasFunction.getParameters() != null && !aliasFunction.getParameters().isEmpty()) {
+                properties.put("PARAMETERS", String.join(",", aliasFunction.getParameters()));
+            }
+        }
+
+        // inline python UDF/UDTF/UDAF code
+        if (function.getBinaryType() != null && function.getBinaryType().name().contains("PYTHON")
+                && !Strings.isNullOrEmpty(function.getFunctionCode())) {
+            properties.put("INLINE_CODE", function.getFunctionCode());
+        }
+
+        return properties.entrySet().stream()
+                .map(entry -> entry.getKey() + "=" + entry.getValue())
+                .collect(Collectors.joining(", "));
     }
 
 }

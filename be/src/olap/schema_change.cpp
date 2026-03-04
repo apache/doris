@@ -68,7 +68,6 @@
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "olap/utils.h"
-#include "olap/wrapper_field.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
@@ -80,7 +79,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
@@ -301,9 +300,6 @@ BlockChanger::BlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tb
 }
 
 BlockChanger::~BlockChanger() {
-    for (auto it = _schema_mapping.begin(); it != _schema_mapping.end(); ++it) {
-        SAFE_DELETE(it->default_value);
-    }
     _schema_mapping.clear();
 }
 
@@ -386,15 +382,14 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
             swap_idx_list.emplace_back(result_tmp_column_idx, idx);
         } else if (_schema_mapping[idx].ref_column_idx < 0) {
             // new column, write default value
-            auto* value = _schema_mapping[idx].default_value;
+            const auto& value = _schema_mapping[idx].default_value;
             auto column = new_block->get_by_position(idx).column->assume_mutable();
-            if (value->is_null()) {
+            if (value.is_null()) {
                 DCHECK(column->is_nullable());
                 column->insert_many_defaults(row_num);
             } else {
-                auto type_info = get_type_info(_schema_mapping[idx].new_column);
-                DefaultValueColumnIterator::insert_default_data(type_info.get(), value->size(),
-                                                                value->ptr(), column, row_num);
+                column = column->convert_to_predicate_column_if_dictionary();
+                column->insert_duplicate_fields(value, row_num);
             }
         } else {
             // same type, just swap column
@@ -577,7 +572,14 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
     bool eof = false;
     do {
         auto new_block = vectorized::Block::create_unique(new_tablet_schema->create_block());
-        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block(false));
+        // create_block() skips dropped columns (from light-weight schema change).
+        // Dropped columns are only needed for delete predicate evaluation, which
+        // SegmentIterator handles internally — it creates temporary columns for
+        // predicate columns not present in the block (via `i >= block->columns()`
+        // guard in _init_current_block). If dropped columns were included here,
+        // the block would have more columns than VMergeIterator's output_schema
+        // expects, causing DCHECK failures in copy_rows.
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
 
         Status st = next_batch(rowset_reader, ref_block.get(), _row_same_bit);
         if (!st) {
@@ -646,7 +648,14 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
 
     bool eof = false;
     do {
-        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block(false));
+        // create_block() skips dropped columns (from light-weight schema change).
+        // Dropped columns are only needed for delete predicate evaluation, which
+        // SegmentIterator handles internally — it creates temporary columns for
+        // predicate columns not present in the block (via `i >= block->columns()`
+        // guard in _init_current_block). If dropped columns were included here,
+        // the block would have more columns than VMergeIterator's output_schema
+        // expects, causing DCHECK failures in copy_rows.
+        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
         Status st = next_batch(rowset_reader, ref_block.get(), _row_same_bit);
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
@@ -926,6 +935,27 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
     // dropped column during light weight schema change.
     // But the tablet schema in base tablet maybe not the latest from FE, so that if fe pass through
     // a tablet schema, then use request schema.
+    //
+    // return_columns does NOT include dropped columns. It is computed here BEFORE
+    // merge_dropped_columns() appends dropped columns to _base_tablet_schema below.
+    // This means return_columns only covers the original (non-dropped) columns.
+    //
+    // This is important because:
+    // - BetaRowsetReader builds _output_schema from return_columns, which determines the
+    //   number of columns in ref_block (via create_block() which also skips dropped cols).
+    // - VMergeIterator's copy_rows iterates over _output_schema columns, so ref_block
+    //   must match _output_schema exactly.
+    // - Dropped columns are only needed for delete predicate evaluation, and SegmentIterator
+    //   handles them internally (creates temporary columns for predicate columns not present
+    //   in the block via `i >= block->columns()` guard in _init_current_block).
+    //
+    // Example: table has columns [k1, v1, v2], then DROP COLUMN v1, then
+    //   DELETE FROM t WHERE v1 = 'x' was issued before the drop.
+    //   - _base_tablet_schema after merge_dropped_columns: [k1, v2, v1(DROPPED)]
+    //   - return_columns (computed before merge): [0, 1] → [k1, v2]
+    //   - _output_schema / ref_block columns: [k1, v2] (2 columns)
+    //   - SegmentIterator reads v1 internally for delete predicate, but does not
+    //     output it to ref_block. copy_rows only iterates 2 columns — no OOB access.
     size_t num_cols =
             request.columns.empty() ? _base_tablet_schema->num_columns() : request.columns.size();
     return_columns.resize(num_cols);
@@ -1493,7 +1523,7 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
             return Status::OK();
         } else if (column_mapping->ref_column_idx >= 0) {
             // index changed
-            if (vectorized::schema_util::has_schema_index_diff(
+            if (vectorized::variant_util::has_schema_index_diff(
                         new_tablet_schema, base_tablet_schema, cast_set<int32_t>(i),
                         column_mapping->ref_column_idx)) {
                 *sc_directly = true;
@@ -1521,17 +1551,16 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
 Status SchemaChangeJob::_init_column_mapping(ColumnMapping* column_mapping,
                                              const TabletColumn& column_schema,
                                              const std::string& value) {
-    if (auto field = WrapperField::create(column_schema); field.has_value()) {
-        column_mapping->default_value = field.value();
-    } else {
-        return field.error();
+    auto t = FieldFactory::create(column_schema);
+    Defer defer([t]() { delete t; });
+    if (t == nullptr) {
+        return Status::Uninitialized("Unsupport field creation of {}", column_schema.name());
     }
 
-    if (column_schema.is_nullable() && value.length() == 0) {
-        column_mapping->default_value->set_null();
-    } else {
-        RETURN_IF_ERROR(column_mapping->default_value->from_string(value, column_schema.precision(),
-                                                                   column_schema.frac()));
+    if (!column_schema.is_nullable() || value.length() != 0) {
+        vectorized::DataTypeSerDe::FormatOptions options;
+        RETURN_IF_ERROR(column_schema.get_vec_type()->get_serde()->from_olap_string(
+                value, column_mapping->default_value, options));
     }
 
     return Status::OK();

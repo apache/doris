@@ -106,16 +106,29 @@ private:
     // this isn't going to scale for a high request rate
     std::mutex _lock;
 
-    // map from (host, port) to list of client keys for that address
-    using ClientCacheMap = std::unordered_map<TNetworkAddress, std::list<void*>>;
+    // Cached client entry with resolved IP address
+    struct CachedClient {
+        void* client_key;
+        std::string resolved_ip; // The IP address when this client was cached
+    };
+
+    // map from (host, port) to list of cached client entries for that address
+    using ClientCacheMap = std::unordered_map<TNetworkAddress, std::list<CachedClient>>;
     ClientCacheMap _client_cache;
 
-    // if cache not found, set client_key as nullptr
-    void _get_client_from_cache(const TNetworkAddress& hostport, void** client_key);
+    // Get a client from cache that matches the resolved IP.
+    // If cache not found or IP doesn't match, set client_key as nullptr.
+    void _get_client_from_cache(const TNetworkAddress& hostport, const std::string& resolved_ip,
+                                void** client_key);
 
     // Map from client key back to its associated ThriftClientImpl transport
     using ClientMap = std::unordered_map<void*, ThriftClientImpl*>;
     ClientMap _client_map;
+
+    // Map from client key to the original hostport (with hostname, not resolved IP).
+    // This is needed to correctly return clients to the cache by hostname.
+    using ClientHostportMap = std::unordered_map<void*, TNetworkAddress>;
+    ClientHostportMap _client_hostport_map;
 
     bool _metrics_enabled;
 
@@ -130,9 +143,10 @@ private:
     // Total clients in the cache, including those in use
     IntGauge* thrift_opened_clients = nullptr;
 
-    // Create a new client for specific host/port in 'client' and put it in _client_map
-    Status _create_client(const TNetworkAddress& hostport, ClientFactory& factory_method,
-                          void** client_key, int timeout_ms);
+    // Create a new client for specific host/port in 'client' and put it in _client_map.
+    // The resolved_ip is the actual IP address to connect to (resolved from hostname).
+    Status _create_client(const TNetworkAddress& hostport, const std::string& resolved_ip,
+                          ClientFactory& factory_method, void** client_key, int timeout_ms);
 };
 
 template <class T>

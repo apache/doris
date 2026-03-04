@@ -142,11 +142,17 @@ bool PinyinFilter::readTerm(Token* token) {
     if (!processed_original_ && has_current_token_) {
         bool should_add_original = config_->keepOriginal;
 
-        // For emoji/symbol fallback: check if ANY content was generated (candidates OR pending letters)
-        // If nothing was generated, this is likely an emoji/symbol that should be preserved
-        if (!should_add_original && candidate_.empty() && first_letters_.empty() &&
-            full_pinyin_letters_.empty()) {
-            // No candidates and no pending letters, this is emoji/symbol
+        // For emoji/symbol fallback: check if ANY content WILL BE ACTUALLY OUTPUT
+        // Not just whether buffers have content, but whether they will be processed
+        // This handles cases like: keep_first_letter=false but first_letters_ has content
+        bool will_output_first_letter = config_->keepFirstLetter && !first_letters_.empty();
+        bool will_output_full_pinyin =
+                config_->keepJoinedFullPinyin && !full_pinyin_letters_.empty();
+        bool has_candidates = !candidate_.empty();
+
+        if (!should_add_original && !has_candidates && !will_output_first_letter &&
+            !will_output_full_pinyin) {
+            // No content will be output, trigger fallback to preserve original token
             should_add_original = true;
         }
 
@@ -239,24 +245,6 @@ bool PinyinFilter::processCurrentToken() {
             PinyinUtil::instance().convert(source_codepoints, PinyinFormat::TONELESS_PINYIN_FORMAT);
     auto chinese_list = ChineseUtil::segmentChinese(source_codepoints);
 
-    // Early return optimization: if no Chinese characters found
-    if (pinyin_list.empty() && chinese_list.empty()) {
-        // Check if there are non-ASCII Unicode characters (like emoji) to preserve
-        bool has_unicode_symbols = false;
-        for (const auto& cp : source_codepoints) {
-            if (cp >= 128) { // Non-ASCII character
-                has_unicode_symbols = true;
-                break;
-            }
-        }
-
-        // If no Unicode symbols, return false and let other filters handle it
-        if (!has_unicode_symbols) {
-            return false;
-        }
-        // Otherwise, continue processing to preserve Unicode symbols
-    }
-
     // Process each character and generate candidates
     position_ = 0;
     std::string first_letters_buffer;
@@ -306,8 +294,12 @@ bool PinyinFilter::processCurrentToken() {
             if (config_->keepNoneChineseInJoinedFullPinyin) {
                 full_pinyin_buffer += static_cast<char>(codepoint);
             }
+        } else if (is_ascii) {
+            // For non-alphanumeric ASCII characters (like spaces, punctuation),
+            // do nothing and continue to keep the buffer intact.
+            continue;
         } else {
-            // Process accumulated ASCII buffer when we hit non-ASCII
+            // Process accumulated ASCII buffer when we hit non-ASCII (Chinese) characters
             if (!ascii_buffer.empty()) {
                 processAsciiBuffer(ascii_buffer, ascii_buffer_start_pos, static_cast<int>(i));
                 ascii_buffer.clear();

@@ -33,13 +33,48 @@ protected:
     bool _is_key_column(const std::string& col_name) override { return true; }
 
 private:
-    PushDownType _should_push_down_bloom_filter() override { return PushDownType::ACCEPTABLE; }
+    PushDownType _should_push_down_bloom_filter() const override {
+        return PushDownType::ACCEPTABLE;
+    }
 
-    PushDownType _should_push_down_bitmap_filter() override { return PushDownType::ACCEPTABLE; }
-
-    PushDownType _should_push_down_is_null_predicate() override { return PushDownType::ACCEPTABLE; }
+    PushDownType _should_push_down_bitmap_filter() const override {
+        return PushDownType::ACCEPTABLE;
+    }
 
     bool _should_push_down_common_expr() override { return true; }
+    PushDownType _should_push_down_topn_filter() const override { return PushDownType::ACCEPTABLE; }
+
+    PushDownType _should_push_down_is_null_predicate(
+            vectorized::VectorizedFnCall* fn_call) const override {
+        return fn_call->fn().name.function_name == "is_null_pred" ||
+                               fn_call->fn().name.function_name == "is_not_null_pred"
+                       ? PushDownType::ACCEPTABLE
+                       : PushDownType::UNACCEPTABLE;
+    }
+    PushDownType _should_push_down_in_predicate() const override {
+        return PushDownType::ACCEPTABLE;
+    }
+    PushDownType _should_push_down_binary_predicate(
+            vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
+            vectorized::Field& constant_val, const std::set<std::string> fn_name) const override {
+        if (!fn_name.contains(fn_call->fn().name.function_name)) {
+            return PushDownType::UNACCEPTABLE;
+        }
+        const auto& children = fn_call->children();
+        DCHECK(children.size() == 2);
+        DCHECK_EQ(children[0]->node_type(), TExprNodeType::SLOT_REF);
+        if (children[1]->is_constant()) {
+            std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
+            THROW_IF_ERROR(children[1]->get_const_col(expr_ctx, &const_col_wrapper));
+            const auto* const_column = assert_cast<const vectorized::ColumnConst*>(
+                    const_col_wrapper->column_ptr.get());
+            constant_val = const_column->operator[](0);
+            return PushDownType::ACCEPTABLE;
+        } else {
+            // only handle constant value
+            return PushDownType::UNACCEPTABLE;
+        }
+    }
 };
 
 class MockScanOperatorX final : public ScanOperatorX<MockScanLocalState> {

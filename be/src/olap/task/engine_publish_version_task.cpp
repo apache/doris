@@ -216,74 +216,22 @@ Status EnginePublishVersionTask::execute() {
                                                                       tablet->tablet_uid());
                         continue;
                     }
-                    auto handle_version_not_continuous = [&]() {
-                        if (config::enable_auto_clone_on_mow_publish_missing_version) {
-                            LOG_INFO("mow publish submit missing rowset clone task.")
-                                    .tag("tablet_id", tablet->tablet_id())
-                                    .tag("version", version.second)
-                                    .tag("replica_id", tablet->replica_id())
-                                    .tag("partition_id", tablet->partition_id())
-                                    .tag("table_id", tablet->table_id());
-                            Status st = _engine.submit_clone_task(tablet.get(), version.second);
-                            if (!st) {
-                                LOG_WARNING(
-                                        "mow publish failed to submit missing rowset clone task.")
-                                        .tag("st", st.msg())
-                                        .tag("tablet_id", tablet->tablet_id())
-                                        .tag("version", version.second)
-                                        .tag("replica_id", tablet->replica_id())
-                                        .tag("partition_id", tablet->partition_id())
-                                        .tag("table_id", tablet->table_id());
-                            }
-                        }
-                        add_error_tablet_id(tablet_info.tablet_id);
-                        // When there are too many missing versions, do not directly retry the
-                        // publish and handle it through async publish.
-                        if (max_version + config::mow_publish_max_discontinuous_version_num <
-                            version.first) {
-                            _engine.add_async_publish_task(
-                                    partition_id, tablet_info.tablet_id, version.first,
-                                    _publish_version_req.transaction_id, false);
-                        } else {
-                            _discontinuous_version_tablets->emplace_back(
-                                    partition_id, tablet_info.tablet_id, version.first);
-                        }
-                        res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>(
-                                "version not continuous for mow, tablet_id={}, "
-                                "tablet_max_version={}, txn_version={}",
-                                tablet_info.tablet_id, max_version, version.first);
-                        int64_t missed_version = max_version + 1;
-                        int64_t missed_txn_id = _engine.txn_manager()->get_txn_by_tablet_version(
-                                tablet->tablet_id(), missed_version);
-                        bool need_log =
-                                (config::publish_version_gap_logging_threshold < 0 ||
-                                 max_version + config::publish_version_gap_logging_threshold >=
-                                         version.second);
-                        if (need_log) {
-                            auto msg = fmt::format(
-                                    "uniq key with merge-on-write version not continuous, "
-                                    "missed version={}, it's transaction_id={}, current publish "
-                                    "version={}, tablet_id={}, transaction_id={}",
-                                    missed_version, missed_txn_id, version.second,
-                                    tablet->tablet_id(), _publish_version_req.transaction_id);
-                            if (first_time_update) {
-                                LOG(INFO) << msg;
-                            } else {
-                                LOG_EVERY_SECOND(INFO) << msg;
-                            }
-                        }
-                    };
+
                     // The versions during the schema change period need to be also continuous
                     if (tablet_state == TabletState::TABLET_NOTREADY) {
                         Version max_continuous_version = {-1, 0};
                         tablet->max_continuous_version_from_beginning(&max_continuous_version);
                         if (max_version > 1 && version.first > max_version &&
                             max_continuous_version.second != max_version) {
-                            handle_version_not_continuous();
+                            _handle_publish_version_not_continuous(partition_id, tablet_info,
+                                                                   tablet, version, max_version,
+                                                                   first_time_update, res);
                             continue;
                         }
                     } else {
-                        handle_version_not_continuous();
+                        _handle_publish_version_not_continuous(partition_id, tablet_info, tablet,
+                                                               version, max_version,
+                                                               first_time_update, res);
                         continue;
                     }
                 }
@@ -374,6 +322,61 @@ Status EnginePublishVersionTask::execute() {
                   << ", res=" << res.to_string();
     }
     return res;
+}
+
+void EnginePublishVersionTask::_handle_publish_version_not_continuous(
+        int64_t partition_id, const TabletInfo& tablet_info, const TabletSharedPtr& tablet,
+        const Version& version, int64_t max_version, bool first_time_update, Status& res) {
+    if (config::enable_auto_clone_on_mow_publish_missing_version) {
+        LOG_INFO("mow publish submit missing rowset clone task.")
+                .tag("tablet_id", tablet->tablet_id())
+                .tag("version", version.second)
+                .tag("replica_id", tablet->replica_id())
+                .tag("partition_id", tablet->partition_id())
+                .tag("table_id", tablet->table_id());
+        Status st = _engine.submit_clone_task(tablet.get(), version.second);
+        if (!st) {
+            LOG_WARNING("mow publish failed to submit missing rowset clone task.")
+                    .tag("st", st.msg())
+                    .tag("tablet_id", tablet->tablet_id())
+                    .tag("version", version.second)
+                    .tag("replica_id", tablet->replica_id())
+                    .tag("partition_id", tablet->partition_id())
+                    .tag("table_id", tablet->table_id());
+        }
+    }
+    add_error_tablet_id(tablet_info.tablet_id);
+    // When there are too many missing versions, do not directly retry the
+    // publish and handle it through async publish.
+    if (max_version + config::mow_publish_max_discontinuous_version_num < version.first) {
+        _engine.add_async_publish_task(partition_id, tablet_info.tablet_id, version.first,
+                                       _publish_version_req.transaction_id, false);
+    } else {
+        _discontinuous_version_tablets->emplace_back(partition_id, tablet_info.tablet_id,
+                                                     version.first);
+    }
+    res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>(
+            "version not continuous for mow, tablet_id={}, "
+            "tablet_max_version={}, txn_version={}",
+            tablet_info.tablet_id, max_version, version.first);
+    int64_t missed_version = max_version + 1;
+    int64_t missed_txn_id =
+            _engine.txn_manager()->get_txn_by_tablet_version(tablet->tablet_id(), missed_version);
+    bool need_log = (config::publish_version_gap_logging_threshold < 0 ||
+                     max_version + config::publish_version_gap_logging_threshold >= version.second);
+    if (need_log) {
+        auto msg = fmt::format(
+                "uniq key with merge-on-write version not continuous, "
+                "missed version={}, it's transaction_id={}, current publish "
+                "version={}, tablet_id={}, transaction_id={}",
+                missed_version, missed_txn_id, version.second, tablet->tablet_id(),
+                _publish_version_req.transaction_id);
+        if (first_time_update) {
+            LOG(INFO) << msg;
+        } else {
+            LOG_EVERY_SECOND(INFO) << msg;
+        }
+    }
 }
 
 void EnginePublishVersionTask::_calculate_tbl_num_delta_rows(

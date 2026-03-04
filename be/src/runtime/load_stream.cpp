@@ -290,21 +290,37 @@ Status TabletStream::_run_in_heavy_work_pool(std::function<Status()> fn) {
     return st;
 }
 
-void TabletStream::pre_close() {
+void TabletStream::wait_for_flush_tasks() {
+    {
+        std::lock_guard lock_guard(_lock);
+        if (_flush_tasks_done) {
+            return;
+        }
+        _flush_tasks_done = true;
+    }
+
     if (!_status.ok()) {
-        // cancel all pending tasks, wait all running tasks to finish
         _flush_token->shutdown();
         return;
     }
 
-    SCOPED_TIMER(_close_wait_timer);
-    _status.update(_run_in_heavy_work_pool([this]() {
+    // Use heavy_work_pool to avoid blocking bthread
+    auto st = _run_in_heavy_work_pool([this]() {
         _flush_token->wait();
         return Status::OK();
-    }));
-    // it is necessary to check status after wait_func,
-    // for create_rowset could fail during add_segment when loading to MOW table,
-    // in this case, should skip close to avoid submit_calc_delete_bitmap_task which could cause coredump.
+    });
+    if (!st.ok()) {
+        // If heavy_work_pool is unavailable, fall back to shutdown
+        // which will cancel pending tasks and wait for running tasks
+        _flush_token->shutdown();
+        _status.update(st);
+    }
+}
+
+void TabletStream::pre_close() {
+    SCOPED_TIMER(_close_wait_timer);
+    wait_for_flush_tasks();
+
     if (!_status.ok()) {
         return;
     }
@@ -341,6 +357,16 @@ IndexStream::IndexStream(const PUniqueId& load_id, int64_t id, int64_t txn_id,
     _profile = profile->create_child(fmt::format("IndexStream {}", id), true, true);
     _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
+}
+
+IndexStream::~IndexStream() {
+    // Ensure all TabletStreams have their flush tokens properly handled before destruction.
+    // In normal flow, close() should have called pre_close() on all tablet streams.
+    // But if IndexStream is destroyed without close() being called (e.g., on_idle_timeout),
+    // we need to wait for flush tasks here to ensure flush tokens are properly shut down.
+    for (auto& [_, tablet_stream] : _tablet_streams_map) {
+        tablet_stream->wait_for_flush_tasks();
+    }
 }
 
 Status IndexStream::append_data(const PStreamHeader& header, butil::IOBuf* data) {
@@ -580,6 +606,9 @@ void LoadStream::_report_tablet_load_info(StreamId stream, int64_t index_id) {
         PLoadStreamResponse response;
         auto* tablet_load_infos = response.mutable_tablet_load_rowset_num_infos();
         _collect_tablet_load_info_from_tablets(write_tablet_ids, tablet_load_infos);
+        if (tablet_load_infos->empty()) {
+            return;
+        }
         buf.append(response.SerializeAsString());
         auto wst = _write_stream(stream, buf);
         if (!wst.ok()) {
@@ -712,16 +741,26 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
     }
 
     switch (hdr.opcode()) {
-    case PStreamHeader::ADD_SEGMENT: // ADD_SEGMENT will be dispatched inside TabletStream
-    case PStreamHeader::APPEND_DATA: {
+    case PStreamHeader::ADD_SEGMENT: {
         auto st = _append_data(hdr, data);
         if (!st.ok()) {
             _report_failure(id, st, hdr);
         } else {
+            // Report tablet load info only on ADD_SEGMENT to reduce frequency.
+            // ADD_SEGMENT is sent once per segment, while APPEND_DATA is sent
+            // for every data batch. This reduces unnecessary writes and avoids
+            // potential stream write failures when the sender is closing.
             _report_tablet_load_info(id, hdr.index_id());
         }
     } break;
+    case PStreamHeader::APPEND_DATA: {
+        auto st = _append_data(hdr, data);
+        if (!st.ok()) {
+            _report_failure(id, st, hdr);
+        }
+    } break;
     case PStreamHeader::CLOSE_LOAD: {
+        DBUG_EXECUTE_IF("LoadStream.close_load.block", DBUG_BLOCK);
         std::vector<int64_t> success_tablet_ids;
         FailedTablets failed_tablets;
         std::vector<PTabletID> tablets_to_commit(hdr.tablets().begin(), hdr.tablets().end());

@@ -36,7 +36,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -56,9 +55,9 @@ public class QueryPartitionCollector extends DefaultPlanVisitor<Void, CascadesCo
         }
         StatementContext statementContext = context.getStatementContext();
         // Collect relationId to tableId mapping
-        Map<Integer, Integer> relationIdToTableId = statementContext.getRelationIdToCommonTableIdMap();
-        relationIdToTableId.put(catalogRelation.getRelationId().asInt(),
-                statementContext.getTableId(catalogRelation.getTable()).asInt());
+        Multimap<Integer, Integer> relationIdToTableId = statementContext.getCommonTableIdToRelationIdMap();
+        relationIdToTableId.put(statementContext.getTableId(catalogRelation.getTable()).asInt(),
+                catalogRelation.getRelationId().asInt());
         // Collect table used partition mapping
         Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = statementContext
                 .getTableUsedPartitionNameMap();

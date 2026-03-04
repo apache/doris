@@ -73,10 +73,15 @@ public:
     }
 
     void set_expected_producer_num(int num) {
-        DCHECK_EQ(_received_producer_num, 0);
-        DCHECK_EQ(_received_rf_size_num, 0);
+        if (_received_producer_num > 0 || _received_rf_size_num > 0) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "runtime filter merger set expected producer after receive data, {}",
+                            debug_string());
+        }
         _expected_producer_num = num;
     }
+
+    int get_expected_producer_num() const { return _expected_producer_num; }
 
     bool add_rf_size(uint64_t size) {
         _received_rf_size_num++;

@@ -3,11 +3,17 @@
 id	int	YES	YES	\N	
 name	text	YES	NO	\N	NONE
 score	float	YES	NO	\N	NONE
+event_date	date	YES	NO	\N	NONE
+event_time	datetime	YES	NO	\N	NONE
+decimal_col	decimal(10,2)	YES	NO	\N	NONE
 
 -- !cmd --
 id	int		YES	YES	\N			
 name	text		YES	NO	\N	NONE		
 score	float		YES	NO	\N	NONE		
+event_date	date		YES	NO	\N	NONE		
+event_time	datetime		YES	NO	\N	NONE		
+decimal_col	decimal(10,2)		YES	NO	\N	NONE		
 
 -- !cmd --
 score	float	YES	NO	\N	NONE

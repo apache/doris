@@ -54,17 +54,16 @@ import com.google.common.collect.Multimap;
 
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * Base class for External File Scan, including external query and load.
  */
 public abstract class FileScanNode extends ExternalScanNode {
-
-    public static final long DEFAULT_SPLIT_SIZE = 64 * 1024 * 1024; // 64MB
-
     // For explain
     protected long totalFileSize = 0;
     protected long totalPartitionNum = 0;
@@ -102,6 +101,17 @@ public abstract class FileScanNode extends ExternalScanNode {
         return totalFileSize;
     }
 
+    /**
+     * Get all delete files for the given file range.
+     * @param rangeDesc the file range descriptor
+     * @return list of delete file paths (formatted strings)
+     */
+    protected List<String> getDeleteFiles(TFileRangeDesc rangeDesc) {
+        // Default implementation: return empty list
+        // Subclasses should override this method
+        return Collections.emptyList();
+    }
+
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
@@ -115,12 +125,7 @@ public abstract class FileScanNode extends ExternalScanNode {
         }
 
         output.append(prefix);
-        boolean isBatch;
-        try {
-            isBatch = isBatchMode();
-        } catch (UserException e) {
-            throw new RuntimeException(e);
-        }
+        boolean isBatch = isBatchMode();
         if (isBatch) {
             output.append("(approximate)");
         }
@@ -147,6 +152,21 @@ public abstract class FileScanNode extends ExternalScanNode {
                         return Long.compare(o1.getStartOffset(), o2.getStartOffset());
                     }
                 });
+
+                // A Data file may be divided into different splits, so a set is used to remove duplicates.
+                Set<String> dataFilesSet = new HashSet<>();
+                // A delete file might be used by multiple data files, so use set to remove duplicates.
+                Set<String> deleteFilesSet = new HashSet<>();
+                // You can estimate how many delete splits need to be read for a data split
+                // using deleteSplitNum / dataSplitNum(fileRangeDescs.size()) split.
+                long deleteSplitNum = 0;
+                for (TFileRangeDesc fileRangeDesc : fileRangeDescs) {
+                    dataFilesSet.add(fileRangeDesc.getPath());
+                    List<String> deletefiles =  getDeleteFiles(fileRangeDesc);
+                    deleteFilesSet.addAll(deletefiles);
+                    deleteSplitNum += deletefiles.size();
+                }
+
                 // 3. if size <= 4, print all. if size > 4, print first 3 and last 1
                 int size = fileRangeDescs.size();
                 if (size <= 4) {
@@ -172,6 +192,10 @@ public abstract class FileScanNode extends ExternalScanNode {
                             .append(" length: ").append(file.getSize())
                             .append("\n");
                 }
+                output.append(prefix).append("    ").append("dataFileNum=").append(dataFilesSet.size())
+                        .append(", deleteFileNum=").append(deleteFilesSet.size())
+                        .append(", deleteSplitNum=").append(deleteSplitNum)
+                        .append("\n");
             }
         }
 

@@ -109,6 +109,7 @@ public class ShowRoutineLoadCommand extends ShowCommand {
             .add("OtherMsg")
             .add("User")
             .add("Comment")
+            .add("ComputeGroup")
             .build();
 
     private final LabelNameInfo labelNameInfo;

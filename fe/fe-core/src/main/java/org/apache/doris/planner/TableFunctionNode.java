@@ -37,9 +37,10 @@ public class TableFunctionNode extends PlanNode {
     // The output slot ids of TableFunctionNode
     // Only the slot whose id is in this list will be output by TableFunctionNode
     private List<SlotId> outputSlotIds = Lists.newArrayList();
+    private List<Expr> expandConjuncts;
 
     public TableFunctionNode(PlanNodeId id, PlanNode inputNode, TupleId lateralViewTupleId,
-            ArrayList<Expr> fnCallExprList, List<SlotId> outputSlotIds) {
+            ArrayList<Expr> fnCallExprList, List<SlotId> outputSlotIds, List<Expr> expandConjuncts) {
         super(id, "TABLE FUNCTION NODE");
         if (inputNode.outputTupleDesc != null) {
             tupleIds.add(inputNode.outputTupleDesc.getId());
@@ -56,10 +57,15 @@ public class TableFunctionNode extends PlanNode {
         this.fnCallExprList = fnCallExprList;
         this.outputSlotIds = outputSlotIds;
         this.children.add(inputNode);
+        this.expandConjuncts = expandConjuncts;
     }
 
     public void setOutputSlotIds(List<SlotId> outputSlotIds) {
         this.outputSlotIds = outputSlotIds;
+    }
+
+    public List<Expr> getExpandConjuncts() {
+        return expandConjuncts;
     }
 
     @Override
@@ -88,6 +94,11 @@ public class TableFunctionNode extends PlanNode {
         }
         output.append("\n");
 
+        if (!expandConjuncts.isEmpty()) {
+            output.append(prefix).append("expand conjuncts: ").append(
+                    getExplainString(expandConjuncts)).append("\n");
+        }
+
         if (!conjuncts.isEmpty()) {
             output.append(prefix).append("PREDICATES: ").append(
                     getExplainString(conjuncts)).append("\n");
@@ -101,6 +112,7 @@ public class TableFunctionNode extends PlanNode {
         msg.node_type = TPlanNodeType.TABLE_FUNCTION_NODE;
         msg.table_function_node = new TTableFunctionNode();
         msg.table_function_node.setFnCallExprList(Expr.treesToThrift(fnCallExprList));
+        msg.table_function_node.setExpandConjuncts(Expr.treesToThrift(expandConjuncts));
         for (SlotId slotId : outputSlotIds) {
             msg.table_function_node.addToOutputSlotIds(slotId.asInt());
         }

@@ -249,40 +249,6 @@ public class HashJoinNode extends JoinNodeBase {
         return output.toString();
     }
 
-    public enum DistributionMode {
-        NONE("NONE"),
-        BROADCAST("BROADCAST"),
-        PARTITIONED("PARTITIONED"),
-        BUCKET_SHUFFLE("BUCKET_SHUFFLE");
-
-        private final String description;
-
-        DistributionMode(String descr) {
-            this.description = descr;
-        }
-
-        @Override
-        public String toString() {
-            return description;
-        }
-
-        public TJoinDistributionType toThrift() {
-            switch (this) {
-                case NONE:
-                    return TJoinDistributionType.NONE;
-                case BROADCAST:
-                    return TJoinDistributionType.BROADCAST;
-                case PARTITIONED:
-                    return TJoinDistributionType.PARTITIONED;
-                case BUCKET_SHUFFLE:
-                    return TJoinDistributionType.BUCKET_SHUFFLE;
-                default:
-                    Preconditions.checkArgument(false, "Unknown DistributionMode: " + this);
-            }
-            return TJoinDistributionType.NONE;
-        }
-    }
-
     /**
      * Used by nereids.
      */

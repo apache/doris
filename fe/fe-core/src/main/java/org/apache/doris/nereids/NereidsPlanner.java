@@ -70,6 +70,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
@@ -98,9 +99,12 @@ import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -315,8 +319,25 @@ public class NereidsPlanner extends Planner {
                 LOG.info("{}\nMemo is null", ConnectContext.get().getQueryIdentifier());
             }
         }
-        int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
-        PhysicalPlan physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
+        Set<Integer> requiredGroupIds = cascadesContext.getConnectContext()
+                .getSessionVariable().getRequiredGroupIds();
+        PhysicalPlan physicalPlan;
+        if (!requiredGroupIds.isEmpty()) {
+            Map<Group, Set<Integer>> reachableCache = new HashMap<>();
+            computeReachableGroupIds(getRoot(), reachableCache);
+            // Validate all required groups are reachable from root
+            Set<Integer> rootReachable = reachableCache.get(getRoot());
+            Set<Integer> unreachable = new HashSet<>(requiredGroupIds);
+            unreachable.removeAll(rootReachable);
+            if (!unreachable.isEmpty()) {
+                throw new AnalysisException("Required group IDs not found in memo: " + unreachable);
+            }
+            physicalPlan = chooseBestPlanWithRequiredGroups(
+                    getRoot(), requireProperties, requiredGroupIds, reachableCache);
+        } else {
+            int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
+            physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
+        }
 
         physicalPlan = postProcess(physicalPlan);
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
@@ -761,7 +782,10 @@ public class NereidsPlanner extends Planner {
             GroupExpression groupExpression = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
                     () -> new AnalysisException("lowestCostPlans with physicalProperties("
                             + physicalProperties + ") doesn't exist in root group")).second;
-            if (rootGroup.getEnforcers().containsKey(groupExpression)) {
+            if ((groupExpression.getPlan() instanceof PhysicalDistribute
+                    && rootGroup.getEnforcerSpecs().containsKey(
+                            ((PhysicalDistribute<?>) groupExpression.getPlan()).getDistributionSpec()))
+                    || rootGroup.getEnforcers().containsKey(groupExpression)) {
                 rootGroup.addChosenEnforcerId(groupExpression.getId().asInt());
                 rootGroup.addChosenEnforcerProperties(physicalProperties);
             } else {
@@ -791,6 +815,129 @@ public class NereidsPlanner extends Planner {
             LOG.warn("Failed to choose best plan, memo structure:{}", cascadesContext.getMemo(), e);
             throw new AnalysisException("Failed to choose best plan: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Memoized bottom-up DFS: compute all group IDs reachable from this group's subtree
+     * through physical GroupExpressions (including enforcers).
+     */
+    private static Set<Integer> computeReachableGroupIds(Group group, Map<Group, Set<Integer>> cache) {
+        Set<Integer> cached = cache.get(group);
+        if (cached != null) {
+            return cached;
+        }
+        Set<Integer> reachable = new HashSet<>();
+        reachable.add(group.getGroupId().asInt());
+        // Put in cache BEFORE recursing to break cycles (enforcers reference the same group)
+        cache.put(group, reachable);
+        for (GroupExpression ge : group.getPhysicalExpressions()) {
+            for (Group child : ge.children()) {
+                reachable.addAll(computeReachableGroupIds(child, cache));
+            }
+        }
+        for (GroupExpression enforcer : group.getEnforcers().values()) {
+            for (Group child : enforcer.children()) {
+                reachable.addAll(computeReachableGroupIds(child, cache));
+            }
+        }
+        return reachable;
+    }
+
+    /**
+     * Choose the cheapest physical plan that contains all required group IDs.
+     * At each group, picks the cheapest physical GroupExpression whose children's
+     * reachable sets collectively cover all remaining required groups, then distributes
+     * the remaining requirements among children and recurses.
+     */
+    private PhysicalPlan chooseBestPlanWithRequiredGroups(
+            Group group, PhysicalProperties properties,
+            Set<Integer> remaining, Map<Group, Set<Integer>> reachableCache) {
+        remaining = new HashSet<>(remaining);
+        remaining.remove(group.getGroupId().asInt());
+
+        if (remaining.isEmpty()) {
+            return chooseBestPlan(group, properties, cascadesContext);
+        }
+
+        GroupExpression chosenGE = null;
+        double chosenCost = Double.MAX_VALUE;
+
+        // Check all physical GEs in this group
+        for (GroupExpression ge : group.getPhysicalExpressions()) {
+            if (!ge.getLowestCostTable().containsKey(properties)) {
+                continue;
+            }
+            double geCost = ge.getCostByProperties(properties);
+            if (geCost >= chosenCost) {
+                continue;
+            }
+            Set<Integer> childReachable = new HashSet<>();
+            for (Group child : ge.children()) {
+                childReachable.addAll(reachableCache.getOrDefault(child, new HashSet()));
+            }
+            if (childReachable.containsAll(remaining)) {
+                chosenGE = ge;
+                chosenCost = geCost;
+            }
+        }
+
+        // Also check enforcers
+        for (GroupExpression enforcer : group.getEnforcers().values()) {
+            if (!enforcer.getLowestCostTable().containsKey(properties)) {
+                continue;
+            }
+            double eCost = enforcer.getCostByProperties(properties);
+            if (eCost >= chosenCost) {
+                continue;
+            }
+            Set<Integer> childReachable = new HashSet<>();
+            for (Group child : enforcer.children()) {
+                childReachable.addAll(reachableCache.getOrDefault(child, new HashSet()));
+            }
+            if (childReachable.containsAll(remaining)) {
+                chosenGE = enforcer;
+                chosenCost = eCost;
+            }
+        }
+
+        if (chosenGE == null) {
+            throw new AnalysisException("Cannot find physical plan containing required group IDs: "
+                    + remaining + " at group " + group.getGroupId());
+        }
+
+        // Handle enforcer marking (same as chooseBestPlan)
+        if ((chosenGE.getPlan() instanceof PhysicalDistribute
+                && group.getEnforcerSpecs().containsKey(
+                        ((PhysicalDistribute<?>) chosenGE.getPlan()).getDistributionSpec()))
+                || group.getEnforcers().containsKey(chosenGE)) {
+            group.addChosenEnforcerId(chosenGE.getId().asInt());
+            group.addChosenEnforcerProperties(properties);
+        } else {
+            group.setChosenProperties(properties);
+            group.setChosenGroupExpressionId(chosenGE.getId().asInt());
+        }
+
+        // Distribute remaining among children and recurse
+        List<PhysicalProperties> inputProps = chosenGE.getInputPropertiesList(properties);
+        List<Plan> planChildren = Lists.newArrayList();
+        for (int i = 0; i < chosenGE.arity(); i++) {
+            Group child = chosenGE.child(i);
+            Set<Integer> childReachable = reachableCache.getOrDefault(child, new HashSet());
+            Set<Integer> childRemaining = new HashSet<>(remaining);
+            childRemaining.retainAll(childReachable);
+            planChildren.add(chooseBestPlanWithRequiredGroups(
+                    child, inputProps.get(i), childRemaining, reachableCache));
+        }
+
+        Plan plan = chosenGE.getPlan().withChildren(planChildren);
+        if (!(plan instanceof PhysicalPlan)) {
+            throw new AnalysisException("Result plan must be PhysicalPlan");
+        }
+        plan = plan.withGroupExpression(Optional.of(chosenGE));
+        PhysicalPlan physicalPlan = ((PhysicalPlan) plan).withPhysicalPropertiesAndStats(
+                properties, group.getStatistics());
+        cost = chosenCost;
+        return physicalPlan;
     }
 
     private long getGarbageCollectionTime() {

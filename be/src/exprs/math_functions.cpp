@@ -29,8 +29,8 @@
 #include <limits>
 #include <string_view>
 
-#include "udf/udf.h"
 #include "util/string_parser.hpp"
+#include "vec/exprs/function_context.h"
 
 namespace doris {
 

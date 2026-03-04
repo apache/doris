@@ -74,7 +74,7 @@ WindowFunnelMode string_to_window_funnel_mode(const String& string) {
 
 struct DataValue {
     using TimestampEvent = std::vector<ColumnUInt8::Container>;
-    std::vector<UInt64> dt;
+    std::vector<DateV2Value<DateTimeV2ValueType>> dt;
     TimestampEvent event_columns_data;
     bool operator<(const DataValue& other) const { return dt < other.dt; }
     void clear() {
@@ -89,9 +89,7 @@ struct DataValue {
         std::string result = "\n" + std::to_string(dt.size()) + " " +
                              std::to_string(event_columns_data[0].size()) + "\n";
         for (size_t i = 0; i < dt.size(); ++i) {
-            result += std::to_string(dt[i]) + " VS " +
-                      binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(dt[i]).debug_string() +
-                      " ,";
+            result += dt[i].debug_string() + " ,";
             for (const auto& event : event_columns_data) {
                 result += std::to_string(event[i]) + ",";
             }
@@ -160,7 +158,6 @@ struct WindowFunnelState {
     template <WindowFunnelMode WINDOW_FUNNEL_MODE>
     int _match_event_list(size_t& start_row, size_t row_count) const {
         int matched_count = 0;
-        DateValueType start_timestamp;
         DateValueType end_timestamp;
 
         if (window < 0) {
@@ -175,7 +172,7 @@ struct WindowFunnelState {
         auto match_row = simd::find_one(first_event_data, start_row, row_count);
         start_row = match_row + 1;
         if (match_row < row_count) {
-            auto prev_timestamp = binary_cast<NativeType, DateValueType>(timestamp_data[match_row]);
+            auto prev_timestamp = timestamp_data[match_row];
             end_timestamp = prev_timestamp;
             end_timestamp.template date_add_interval<SECOND>(interval);
 
@@ -187,8 +184,7 @@ struct WindowFunnelState {
                 const auto& event_data = events_list.event_columns_data[column_idx];
                 if constexpr (WINDOW_FUNNEL_MODE == WindowFunnelMode::FIXED) {
                     if (event_data[match_row] == 1) {
-                        auto current_timestamp =
-                                binary_cast<NativeType, DateValueType>(timestamp_data[match_row]);
+                        auto current_timestamp = timestamp_data[match_row];
                         if (current_timestamp <= end_timestamp) {
                             matched_count++;
                             continue;
@@ -198,8 +194,7 @@ struct WindowFunnelState {
                 }
                 match_row = simd::find_one(event_data.data(), match_row, row_count);
                 if (match_row < row_count) {
-                    auto current_timestamp =
-                            binary_cast<NativeType, DateValueType>(timestamp_data[match_row]);
+                    auto current_timestamp = timestamp_data[match_row];
                     bool is_matched = current_timestamp <= end_timestamp;
                     if (is_matched) {
                         if constexpr (WINDOW_FUNNEL_MODE == WindowFunnelMode::INCREASE) {
@@ -210,8 +205,7 @@ struct WindowFunnelState {
                         break;
                     }
                     if constexpr (WINDOW_FUNNEL_MODE == WindowFunnelMode::INCREASE) {
-                        prev_timestamp =
-                                binary_cast<NativeType, DateValueType>(timestamp_data[match_row]);
+                        prev_timestamp = timestamp_data[match_row];
                     }
                     if constexpr (WINDOW_FUNNEL_MODE == WindowFunnelMode::DEDUPLICATION) {
                         bool is_dup = false;
@@ -309,7 +303,7 @@ struct WindowFunnelState {
         auto size = events_list.size();
         write_var_int(size, out);
         for (const auto& timestamp : events_list.dt) {
-            write_var_int(timestamp, out);
+            write_var_int(timestamp.to_date_int_val(), out);
         }
         for (int64_t i = 0; i < event_count; i++) {
             const auto& event_columns_data = events_list.event_columns_data[i];

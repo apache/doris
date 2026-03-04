@@ -35,7 +35,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.hive.HiveDlaTable;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
-import org.apache.doris.datasource.systable.SupportedSysTables;
+import org.apache.doris.datasource.systable.PartitionsSysTable;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
@@ -136,8 +136,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         setField(db, "initialized", true);
 
         setField(tbl, "objectCreated", true);
-        setField(tbl, "schemaUpdateTime", NOW);
-        setField(tbl, "eventUpdateTime", 0);
+        setField(tbl, "updateTime", NOW);
         setField(tbl, "catalog", hmsCatalog);
         setField(tbl, "dbName", "hms_db");
         setField(tbl, "name", "hms_tbl");
@@ -159,8 +158,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 .thenReturn(Optional.empty());
 
         setField(tbl2, "objectCreated", true);
-        setField(tbl2, "schemaUpdateTime", NOW);
-        setField(tbl2, "eventUpdateTime", 0);
+        setField(tbl2, "updateTime", NOW);
         setField(tbl2, "catalog", hmsCatalog);
         setField(tbl2, "dbName", "hms_db");
         setField(tbl2, "name", "hms_tbl2");
@@ -176,13 +174,13 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Mockito.when(tbl2.getType()).thenReturn(TableIf.TableType.HMS_EXTERNAL_TABLE);
         Mockito.when(tbl2.getDlaType()).thenReturn(DLAType.HIVE);
         Mockito.when(tbl2.getDatabase()).thenReturn(db);
-        Mockito.when(tbl2.getSupportedSysTables()).thenReturn(SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES);
+        Mockito.when(tbl2.getSupportedSysTables()).thenReturn(PartitionsSysTable.HIVE_SUPPORTED_SYS_TABLES);
         Mockito.when(tbl2.getUpdateTime()).thenReturn(NOW);
-        Mockito.when(tbl2.getSchemaUpdateTime()).thenReturn(NOW);
+        Mockito.when(tbl2.getUpdateTime()).thenReturn(NOW);
         // mock initSchemaAndUpdateTime and do nothing
         Mockito.when(tbl2.initSchemaAndUpdateTime(Mockito.any(ExternalSchemaCache.SchemaCacheKey.class)))
                 .thenReturn(Optional.empty());
-        Mockito.doNothing().when(tbl2).setEventUpdateTime(Mockito.anyLong());
+        Mockito.doNothing().when(tbl2).setUpdateTime(Mockito.anyLong());
 
         setField(view1, "objectCreated", true);
 
@@ -198,7 +196,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Mockito.when(view1.getDlaType()).thenReturn(DLAType.HIVE);
         Mockito.when(view1.getUpdateTime()).thenReturn(NOW);
         Mockito.when(view1.getDatabase()).thenReturn(db);
-        Mockito.when(view1.getSupportedSysTables()).thenReturn(SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES);
+        Mockito.when(view1.getSupportedSysTables()).thenReturn(PartitionsSysTable.HIVE_SUPPORTED_SYS_TABLES);
 
         setField(view2, "objectCreated", true);
 
@@ -214,7 +212,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Mockito.when(view2.getDlaType()).thenReturn(DLAType.HIVE);
         Mockito.when(view2.getUpdateTime()).thenReturn(NOW);
         Mockito.when(view2.getDatabase()).thenReturn(db);
-        Mockito.when(view2.getSupportedSysTables()).thenReturn(SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES);
+        Mockito.when(view2.getSupportedSysTables()).thenReturn(PartitionsSysTable.HIVE_SUPPORTED_SYS_TABLES);
 
         db.addTableForTest(tbl);
         db.addTableForTest(tbl2);
@@ -259,7 +257,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         SqlCache sqlCache1 = (SqlCache) ca.getCache();
 
         // latestTime is equals to the schema update time if not set partition update time
-        Assert.assertEquals(tbl2.getSchemaUpdateTime(), sqlCache1.getLatestTime());
+        Assert.assertEquals(tbl2.getUpdateTime(), sqlCache1.getLatestTime());
 
         // wait a second and set partition update time
         try {

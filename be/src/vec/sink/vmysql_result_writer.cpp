@@ -37,7 +37,6 @@
 #include "runtime/result_block_buffer.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
-#include "udf/udf.h"
 #include "util/mysql_global.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"

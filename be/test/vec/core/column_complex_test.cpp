@@ -608,7 +608,7 @@ TEST_F(ColumnBitmapTest, ColumnBitmapReadWrite) {
 
     Field field;
     column->get(0, field);
-    auto bitmap = field.get<BitmapValue>();
+    auto bitmap = field.get<TYPE_BITMAP>();
     EXPECT_TRUE(bitmap.contains(10));
     EXPECT_TRUE(bitmap.contains(1000000));
 }
@@ -636,7 +636,7 @@ TEST_F(ColumnBitmapTest, OperatorValidate) {
     for (size_t i = 0; i != row_size; ++i) {
         auto field = bitmap_column[i];
         ASSERT_EQ(field.get_type(), PrimitiveType::TYPE_BITMAP);
-        const auto& bitmap = vectorized::get<BitmapValue&>(field);
+        const auto& bitmap = field.get<TYPE_BITMAP>();
 
         ASSERT_EQ(bitmap.cardinality(), i + 1);
         for (size_t j = 0; j <= i; ++j) {

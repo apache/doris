@@ -7,6 +7,8 @@ B1	2
 A2	1
 B2	2
 
+-- !select_snapshot_table3 --
+
 -- !select_binlog_table1 --
 B1	10
 Doris	18

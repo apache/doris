@@ -134,4 +134,26 @@ suite("test_substring_index") {
     """
 
     sql "DROP TABLE IF EXISTS test_substring_index"
+
+    sql "DROP TABLE IF EXISTS test_substring_index2"
+    sql """
+    CREATE TABLE test_substring_index2 (
+        id INT,
+        str VARCHAR(100),
+        delimiter VARCHAR(10)
+    ) ENGINE=OLAP
+    DUPLICATE KEY(id)
+    DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+    )
+    """
+
+    sql """
+    INSERT INTO test_substring_index2 VALUES
+        (1, NULL, NULL),
+        (2, NULL, NULL)
+    """
+    qt_sql """ SELECT  SUBSTRING_INDEX(IFNULL(a.str, ''), ',', a.id) from test_substring_index2 a """
+    sql "DROP TABLE IF EXISTS test_substring_index2"
 }

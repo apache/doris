@@ -588,6 +588,7 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_export_set_37 """SELECT id, EXPORT_SET(-7, `on`, `off`) FROM `test_export_set` ORDER BY `id`;"""
     qt_export_set_38 """SELECT id, EXPORT_SET(114514, '1', '0', `sep`) FROM `test_export_set` ORDER BY `id`;"""
     qt_export_set_39 """SELECT id, EXPORT_SET(`bits`, `on`, '0', '世界!?你好')FROM `test_export_set` ORDER BY `id`;"""
+    qt_export_set_40 """SELECT id, EXPORT_SET(`bits`, '1', '0', ',', 5) FROM `test_export_set` ORDER BY `id`;"""
     testFoldConst("SELECT EXPORT_SET(7, '1', '0');")
     testFoldConst("SELECT EXPORT_SET(7, '你好', '0', '?');")
     testFoldConst("SELECT EXPORT_SET(BIT_SHIFT_LEFT(1, 64), '1', '0');")

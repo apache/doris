@@ -73,7 +73,7 @@ struct FullSorterTest : public testing::Test {
 
 TEST_F(FullSorterTest, test_full_sorter1) {
     sorter = FullSorter::create_unique(sort_exec_exprs, -1, 0, &pool, is_asc_order, nulls_first,
-                                       *row_desc, nullptr, nullptr);
+                                       *row_desc, &_state, nullptr);
 
     Block block1 = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
     Block block2 = ColumnHelper::create_block<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1});
@@ -85,7 +85,7 @@ TEST_F(FullSorterTest, test_full_sorter1) {
 
 TEST_F(FullSorterTest, test_full_sorter2) {
     sorter = FullSorter::create_unique(sort_exec_exprs, -1, 0, &pool, is_asc_order, nulls_first,
-                                       *row_desc, nullptr, nullptr);
+                                       *row_desc, &_state, nullptr);
     {
         Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
         EXPECT_TRUE(sorter->append_block(&block).ok());
@@ -104,18 +104,18 @@ TEST_F(FullSorterTest, test_full_sorter2) {
 
 TEST_F(FullSorterTest, test_full_sorter3) {
     sorter = FullSorter::create_unique(sort_exec_exprs, 3, 3, &pool, is_asc_order, nulls_first,
-                                       *row_desc, nullptr, nullptr);
+                                       *row_desc, &_state, nullptr);
     sorter->init_profile(&_profile);
     {
         Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
         EXPECT_TRUE(sorter->append_block(&block).ok());
-        EXPECT_TRUE(sorter->_do_sort());
+        EXPECT_TRUE(sorter->do_sort());
     }
 
     {
         Block block = ColumnHelper::create_block<DataTypeInt64>({4, 5, 6, 7});
         EXPECT_TRUE(sorter->append_block(&block).ok());
-        EXPECT_TRUE(sorter->_do_sort());
+        EXPECT_TRUE(sorter->do_sort());
     }
     EXPECT_EQ(sorter->_state->get_sorted_block()[0]->rows(), 6);
     EXPECT_EQ(sorter->_state->get_sorted_block()[1]->rows(), 4);

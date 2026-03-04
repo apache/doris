@@ -73,6 +73,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -234,8 +235,14 @@ public class HudiScanNode extends HiveScanNode {
         if (incrementalRead) {
             return incrementalRelation.getHoodieParams();
         } else {
-            // HudiJniScanner uses hadoop client to read data.
-            return hmsTable.getBackendStorageProperties();
+            // Merge both BE format (AWS_*) and Hadoop format (fs.s3a.*) properties
+            // Native reader needs BE format, JNI reader needs Hadoop format
+            Map<String, String> properties = new HashMap<>();
+            // Add BE format properties for native reader
+            properties.putAll(hmsTable.getBackendStorageProperties());
+            // Add Hadoop format properties for JNI reader
+            properties.putAll(hmsTable.getCatalog().getCatalogProperty().getHadoopProperties());
+            return properties;
         }
     }
 

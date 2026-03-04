@@ -216,7 +216,8 @@ LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capa
 RowCache::RowCache(int64_t capacity, int num_shards)
         : LRUCachePolicy(CachePolicy::CacheType::POINT_QUERY_ROW_CACHE, capacity,
                          LRUCacheType::SIZE, config::point_query_row_cache_stale_sweep_time_sec,
-                         num_shards) {}
+                         num_shards, /*element count capacity */ 0,
+                         /*enable prune*/ true, /*is lru-k*/ true) {}
 
 // Create global instance of this class
 RowCache* RowCache::create_global_cache(int64_t capacity, uint32_t num_shards) {
@@ -317,6 +318,10 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
             RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
                                                *_tablet->tablet_schema(), 1));
         }
+    }
+    // Set timezone from request for functions like from_unixtime()
+    if (request->has_time_zone() && !request->time_zone().empty()) {
+        _reusable->runtime_state()->set_timezone(request->time_zone());
     }
     if (request->has_version() && request->version() >= 0) {
         _version = request->version();

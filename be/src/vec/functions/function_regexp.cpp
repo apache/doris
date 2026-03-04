@@ -30,7 +30,6 @@
 
 #include "common/status.h"
 #include "exprs/string_functions.h"
-#include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -46,6 +45,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/exprs/function_context.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/stringop_substring.h"
@@ -64,7 +64,12 @@ struct RegexpExtractEngine {
     // Try to compile with RE2 first, fallback to Boost.Regex if RE2 fails
     static bool compile(const StringRef& pattern, std::string* error_str,
                         RegexpExtractEngine& engine, bool enable_extended_regex) {
-        engine.re2_regex = std::make_unique<re2::RE2>(re2::StringPiece(pattern.data, pattern.size));
+        re2::RE2::Options options;
+        options.set_log_errors(false); // avoid RE2 printing to stderr; we handle errors ourselves
+        options.set_dot_nl(true); // make '.' match '\n' by default, consistent with REGEXP/LIKE
+        engine.re2_regex =
+                std::make_unique<re2::RE2>(re2::StringPiece(pattern.data, pattern.size), options);
+
         if (engine.re2_regex->ok()) {
             return true;
         } else if (!enable_extended_regex) {

@@ -32,5 +32,11 @@ public class DataSourceConfigKeys {
     public static final String OFFSET_INITIAL = "initial";
     public static final String OFFSET_EARLIEST = "earliest";
     public static final String OFFSET_LATEST = "latest";
-    public static final String SPLIT_SIZE = "split_size";
+    public static final String SNAPSHOT_SPLIT_SIZE = "snapshot_split_size";
+    public static final String SNAPSHOT_PARALLELISM = "snapshot_parallelism";
+    public static final String SNAPSHOT_PARALLELISM_DEFAULT = "1";
+
+    // target properties
+    public static final String TABLE_PROPS_PREFIX = "table.create.properties.";
+    public static final String LOAD_PROPERTIES = "load.";
 }

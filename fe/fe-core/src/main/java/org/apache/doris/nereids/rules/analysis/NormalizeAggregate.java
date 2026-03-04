@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -178,7 +179,8 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                     if (arg instanceof Literal) {
                         continue;
                     }
-                    if (arg.containsType(SubqueryExpr.class, WindowExpression.class, PreferPushDownProject.class)) {
+                    if (arg.containsType(SubqueryExpr.class, WindowExpression.class, Unnest.class,
+                            PreferPushDownProject.class)) {
                         needPushDownSelfExprs.add(arg);
                     } else {
                         needPushDownInputs.add(arg);
@@ -297,17 +299,32 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             }
             if (!missingSlotsInAggregate.isEmpty()) {
                 if (SqlModeHelper.hasOnlyFullGroupBy()) {
-                    throw new AnalysisException(String.format("%s not in aggregate's output", missingSlotsInAggregate
-                            .stream().map(NamedExpression::getName).collect(Collectors.joining(", "))));
+                    throw new AnalysisException(String.format("PROJECT expression %s must appear in the GROUP BY"
+                            + " clause or be used in an aggregate function",
+                            missingSlotsInAggregate.stream()
+                                    .map(slot -> "'" + slot.getName() + "'")
+                                    .collect(Collectors.joining(", "))));
                 } else {
                     // for any slots missing in aggregate's output, we should add a any_value(slot) into
                     // aggregate's output list and slot itself into bottom project's output list
                     bottomProjects = Sets.union(bottomProjects, missingSlotsInAggregate);
                     Map<Expression, Expression> replaceMap = Maps.newHashMap();
+                    Map<String, Alias> normalizedAggExistingAlias = Maps.newHashMap();
+                    for (NamedExpression output : normalizedAggOutputBuilder.build()) {
+                        if (output instanceof Alias) {
+                            normalizedAggExistingAlias.put(output.getName(), (Alias) output);
+                        }
+                    }
                     for (Slot slot : missingSlotsInAggregate) {
-                        Alias anyValue = new Alias(new AnyValue(slot), slot.getName());
-                        replaceMap.put(slot, anyValue.toSlot());
-                        normalizedAggOutputBuilder.add(anyValue);
+                        AnyValue anyValue = new AnyValue(false, normalizedGroupExprs.isEmpty(), slot);
+                        Alias exisitingAlias = normalizedAggExistingAlias.get(slot.getName());
+                        if (exisitingAlias != null && anyValue.equals(exisitingAlias.child())) {
+                            replaceMap.put(slot, exisitingAlias.toSlot());
+                        } else {
+                            Alias anyValueAlias = new Alias(anyValue, slot.getName());
+                            replaceMap.put(slot, anyValueAlias.toSlot());
+                            normalizedAggOutputBuilder.add(anyValueAlias);
+                        }
                     }
                     upperProjects = upperProjects.stream()
                             .map(e -> (NamedExpression) ExpressionUtils.replace(e, replaceMap))

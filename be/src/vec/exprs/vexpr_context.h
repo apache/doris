@@ -30,13 +30,15 @@
 #include "common/status.h"
 #include "olap/rowset/segment_v2/ann_index/ann_range_search_runtime.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
-#include "udf/udf.h"
+#include "runtime_filter/runtime_filter_selectivity.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
@@ -45,6 +47,7 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris::segment_v2 {
+class Segment;
 class ColumnIterator;
 } // namespace doris::segment_v2
 
@@ -61,18 +64,31 @@ public:
             const std::vector<vectorized::IndexFieldNameAndTypePair>& storage_name_and_type_vec,
             std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>&
                     common_expr_index_status,
-            ScoreRuntimeSPtr score_runtime)
+            ScoreRuntimeSPtr score_runtime, segment_v2::Segment* segment,
+            const segment_v2::ColumnIteratorOptions& column_iter_opts)
             : _col_ids(col_ids),
               _index_iterators(index_iterators),
               _storage_name_and_type(storage_name_and_type_vec),
               _expr_index_status(common_expr_index_status),
-              _score_runtime(std::move(score_runtime)) {}
+              _score_runtime(std::move(score_runtime)),
+              _segment(segment),
+              _column_iter_opts(column_iter_opts) {}
 
     segment_v2::IndexIterator* get_inverted_index_iterator_by_column_id(int column_index) const {
         if (column_index < 0 || column_index >= _col_ids.size()) {
             return nullptr;
         }
         const auto& column_id = _col_ids[column_index];
+        if (column_id >= _index_iterators.size()) {
+            return nullptr;
+        }
+        if (!_index_iterators[column_id]) {
+            return nullptr;
+        }
+        return _index_iterators[column_id].get();
+    }
+
+    segment_v2::IndexIterator* get_inverted_index_iterator_by_id(ColumnId column_id) const {
         if (column_id >= _index_iterators.size()) {
             return nullptr;
         }
@@ -93,6 +109,38 @@ public:
         }
         return &_storage_name_and_type[column_id];
     }
+
+    const vectorized::IndexFieldNameAndTypePair* get_storage_name_and_type_by_id(
+            ColumnId column_id) const {
+        if (column_id >= _storage_name_and_type.size()) {
+            return nullptr;
+        }
+        return &_storage_name_and_type[column_id];
+    }
+
+    int column_index_by_id(ColumnId column_id) const {
+        for (int i = 0; i < _col_ids.size(); ++i) {
+            if (_col_ids[i] == column_id) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    bool get_column_id(int column_index, ColumnId* column_id) const {
+        if (column_id == nullptr) {
+            return false;
+        }
+        if (column_index < 0 || column_index >= _col_ids.size()) {
+            return false;
+        }
+        *column_id = _col_ids[column_index];
+        return true;
+    }
+
+    segment_v2::Segment* segment() const { return _segment; }
+
+    const segment_v2::ColumnIteratorOptions& column_iter_opts() const { return _column_iter_opts; }
 
     bool has_index_result_for_expr(const vectorized::VExpr* expr) const {
         return _index_result_bitmap.contains(expr);
@@ -180,6 +228,9 @@ private:
             _expr_index_status;
 
     ScoreRuntimeSPtr _score_runtime;
+
+    segment_v2::Segment* _segment = nullptr; // Ref
+    segment_v2::ColumnIteratorOptions _column_iter_opts;
 };
 
 class VExprContext {
@@ -200,7 +251,9 @@ public:
 
     [[nodiscard]] Status execute_const_expr(ColumnWithTypeAndName& result);
 
-    VExprSPtr root() const { return _root; }
+    double execute_cost() const;
+
+    VExprSPtr root() { return _root; }
     void set_root(const VExprSPtr& expr) { _root = expr; }
     void set_index_context(std::shared_ptr<IndexExecContext> index_context) {
         _index_context = std::move(index_context);
@@ -232,6 +285,9 @@ public:
     [[nodiscard]] Status evaluate_inverted_index(uint32_t segment_num_rows);
 
     bool all_expr_inverted_index_evaluated();
+
+    Status execute_filter(const Block* block, uint8_t* __restrict result_filter_data, size_t rows,
+                          bool accept_null, bool* can_filter_all);
 
     [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block);
 
@@ -267,6 +323,13 @@ public:
     int get_last_result_column_id() const {
         DCHECK(_last_result_column_id != -1);
         return _last_result_column_id;
+    }
+
+    RuntimeFilterSelectivity& get_runtime_filter_selectivity() {
+        if (!_rf_selectivity) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "RuntimeFilterSelectivity is null");
+        }
+        return *_rf_selectivity;
     }
 
     FunctionContext::FunctionStateScope get_function_state_scope() const {
@@ -360,5 +423,8 @@ private:
 
     segment_v2::AnnRangeSearchRuntime _ann_range_search_runtime;
     bool _suitable_for_ann_index = true;
+
+    std::unique_ptr<RuntimeFilterSelectivity> _rf_selectivity =
+            std::make_unique<RuntimeFilterSelectivity>();
 };
 } // namespace doris::vectorized

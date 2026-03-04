@@ -29,7 +29,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_fixed_length_object.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
@@ -111,7 +111,7 @@ TEST_P(DataTypeAggStateTest, CreateColumnTest) {
     // get_uncompressed_serialized_bytes
     ASSERT_EQ(datatype_agg_state_count->get_uncompressed_serialized_bytes(
                       *column, BeExecVersionManager::get_newest_version()),
-              25);
+              33);
 }
 
 void insert_data_agg_state(MutableColumns* agg_state_cols, DataTypePtr datatype_agg_state,

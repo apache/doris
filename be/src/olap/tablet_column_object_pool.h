@@ -34,7 +34,10 @@ class TabletColumnObjectPool : public LRUCachePolicy {
 public:
     TabletColumnObjectPool(size_t capacity)
             : LRUCachePolicy(CachePolicy::CacheType::TABLET_COLUMN_OBJECT_POOL, capacity,
-                             LRUCacheType::NUMBER, config::tablet_schema_cache_recycle_interval) {}
+                             LRUCacheType::NUMBER, config::tablet_schema_cache_recycle_interval,
+                             /*num_shards*/ 32,
+                             /*element_count_capacity*/ 0, /*enable_prune*/ true,
+                             /*is_lru_k*/ false) {}
 
     static TabletColumnObjectPool* create_global_column_cache(size_t capacity) {
         auto* res = new TabletColumnObjectPool(capacity);

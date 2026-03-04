@@ -313,6 +313,10 @@ public class LocationPath {
                 && storagePropertiesMap.containsKey(StorageProperties.Type.MINIO)) {
             return storagePropertiesMap.get(StorageProperties.Type.MINIO);
         }
+        if (type == StorageProperties.Type.S3
+                && storagePropertiesMap.containsKey(StorageProperties.Type.OZONE)) {
+            return storagePropertiesMap.get(StorageProperties.Type.OZONE);
+        }
 
         // Step 3: Compatibility fallback based on schema
         // In previous configurations, the schema name may not strictly match the actual storage type.
@@ -366,6 +370,7 @@ public class LocationPath {
     }
 
     public static String getTempWritePath(String loc, String prefix) {
+        // If prefix is relative, it is resolved under loc; if absolute, it is used as the base path.
         Path tempRoot = new Path(loc, prefix);
         Path tempPath = new Path(tempRoot, UUID.randomUUID().toString().replace("-", ""));
         return tempPath.toString();

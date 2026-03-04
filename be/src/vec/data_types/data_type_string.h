@@ -81,7 +81,7 @@ public:
     bool equals(const IDataType& rhs) const override;
     using SerDeType = DataTypeStringSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<SerDeType>(nesting_level);
+        return std::make_shared<SerDeType>(_primitive_type, nesting_level, _len);
     };
     bool is_char_type() const { return _primitive_type == PrimitiveType::TYPE_CHAR; }
     int len() const { return _len; }

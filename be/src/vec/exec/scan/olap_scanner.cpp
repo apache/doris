@@ -54,7 +54,7 @@
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/scan_node.h"
 #include "vec/exprs/vexpr.h"
@@ -153,8 +153,6 @@ Status OlapScanner::prepare() {
 
     _slot_id_to_index_in_block = local_state->_slot_id_to_index_in_block;
     _slot_id_to_col_type = local_state->_slot_id_to_col_type;
-    _score_runtime = local_state->_score_runtime;
-
     _score_runtime = local_state->_score_runtime;
     // All scanners share the same ann_topn_runtime.
     _ann_topn_runtime = local_state->_ann_topn_runtime;
@@ -553,7 +551,7 @@ Status OlapScanner::_init_variant_columns() {
             }
         }
     }
-    schema_util::inherit_column_attributes(tablet_schema);
+    variant_util::inherit_column_attributes(tablet_schema);
     return Status::OK();
 }
 
@@ -591,14 +589,14 @@ Status OlapScanner::_init_return_columns() {
         }
 
         const auto& column = tablet_schema->column(index);
+        int32_t unique_id = column.unique_id() > 0 ? column.unique_id() : column.parent_unique_id();
         if (!slot->all_access_paths().empty()) {
-            _tablet_reader_params.all_access_paths.insert(
-                    {column.unique_id(), slot->all_access_paths()});
+            _tablet_reader_params.all_access_paths.insert({unique_id, slot->all_access_paths()});
         }
 
         if (!slot->predicate_access_paths().empty()) {
             _tablet_reader_params.predicate_access_paths.insert(
-                    {column.unique_id(), slot->predicate_access_paths()});
+                    {unique_id, slot->predicate_access_paths()});
         }
 
         if ((slot->type()->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
@@ -729,21 +727,21 @@ void OlapScanner::_collect_profile_before_close() {
     // Update counters from tablet reader's stats
     auto& stats = _tablet_reader->stats();
     auto* local_state = (pipeline::OlapScanLocalState*)_local_state;
-    COUNTER_UPDATE(local_state->_io_timer, stats.io_ns);
+    COUNTER_SET(local_state->_io_timer, stats.io_ns);
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
     COUNTER_UPDATE(local_state->_scan_bytes, stats.uncompressed_bytes_read);
-    COUNTER_UPDATE(local_state->_decompressor_timer, stats.decompress_ns);
+    COUNTER_SET(local_state->_decompressor_timer, stats.decompress_ns);
     COUNTER_UPDATE(local_state->_read_uncompressed_counter, stats.uncompressed_bytes_read);
-    COUNTER_UPDATE(local_state->_block_load_timer, stats.block_load_ns);
-    COUNTER_UPDATE(local_state->_block_load_counter, stats.blocks_load);
-    COUNTER_UPDATE(local_state->_block_fetch_timer, stats.block_fetch_ns);
-    COUNTER_UPDATE(local_state->_delete_bitmap_get_agg_timer, stats.delete_bitmap_get_agg_ns);
-    COUNTER_UPDATE(local_state->_scan_rows, stats.raw_rows_read);
-    COUNTER_UPDATE(local_state->_vec_cond_timer, stats.vec_cond_ns);
-    COUNTER_UPDATE(local_state->_short_cond_timer, stats.short_cond_ns);
-    COUNTER_UPDATE(local_state->_expr_filter_timer, stats.expr_filter_ns);
-    COUNTER_UPDATE(local_state->_block_init_timer, stats.block_init_ns);
-    COUNTER_UPDATE(local_state->_block_init_seek_timer, stats.block_init_seek_ns);
+    COUNTER_SET(local_state->_block_load_timer, stats.block_load_ns);
+    COUNTER_SET(local_state->_block_load_counter, stats.blocks_load);
+    COUNTER_SET(local_state->_block_fetch_timer, stats.block_fetch_ns);
+    COUNTER_SET(local_state->_delete_bitmap_get_agg_timer, stats.delete_bitmap_get_agg_ns);
+    COUNTER_SET(local_state->_scan_rows, stats.raw_rows_read);
+    COUNTER_SET(local_state->_vec_cond_timer, stats.vec_cond_ns);
+    COUNTER_SET(local_state->_short_cond_timer, stats.short_cond_ns);
+    COUNTER_SET(local_state->_expr_filter_timer, stats.expr_filter_ns);
+    COUNTER_SET(local_state->_block_init_timer, stats.block_init_ns);
+    COUNTER_SET(local_state->_block_init_seek_timer, stats.block_init_seek_ns);
     COUNTER_UPDATE(local_state->_block_init_seek_counter, stats.block_init_seek_num);
     COUNTER_UPDATE(local_state->_segment_generate_row_range_by_keys_timer,
                    stats.generate_row_ranges_by_keys_ns);
@@ -828,6 +826,8 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.variant_subtree_hierarchical_iter_count);
     COUNTER_UPDATE(local_state->_variant_subtree_sparse_iter_count,
                    stats.variant_subtree_sparse_iter_count);
+    COUNTER_UPDATE(local_state->_variant_doc_value_column_iter_count,
+                   stats.variant_doc_value_column_iter_count);
 
     InvertedIndexProfileReporter inverted_index_profile;
     inverted_index_profile.update(local_state->_index_filter_profile.get(),

@@ -46,7 +46,8 @@ private:
     PredicateColumnType(const size_t n) : data(n) {}
     PredicateColumnType(const PredicateColumnType& src) : data(src.data.begin(), src.data.end()) {}
     friend class COWHelper<IColumn, PredicateColumnType<Type>>;
-    using T = typename PrimitiveTypeTraits<Type>::CppType;
+    using T = std::conditional_t<is_string_type(Type), StringRef,
+                                 typename PrimitiveTypeTraits<Type>::CppType>;
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
 
     void insert_string_to_res_column(const uint16_t* sel, size_t sel_size, ColumnString* res_ptr) {
@@ -74,16 +75,9 @@ private:
         // because reserve or resize may change memory block.
         size_t org_num = res_data.size();
         res_data.reserve(sel_size);
-        auto* y = (typename PrimitiveTypeTraits<Y>::ColumnItemType*)res_data.get_end_ptr();
+        auto* y = (typename PrimitiveTypeTraits<Y>::CppType*)res_data.get_end_ptr();
         for (size_t i = 0; i < sel_size; i++) {
-            if constexpr (std::is_same_v<typename PrimitiveTypeTraits<Y>::ColumnItemType,
-                                         typename PrimitiveTypeTraits<Y>::CppType>) {
-                y[i] = data[sel[i]];
-            } else {
-                static_assert(sizeof(typename PrimitiveTypeTraits<Y>::ColumnItemType) == sizeof(T));
-                memcpy(reinterpret_cast<void*>(&y[i]), reinterpret_cast<void*>(&data[sel[i]]),
-                       sizeof(T));
-            }
+            y[i] = data[sel[i]];
         }
         res_data.resize(org_num + sel_size);
     }
@@ -323,6 +317,28 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override {
         DCHECK(size == 0);
         return this->create();
+    }
+
+    void insert_duplicate_fields(const Field& x, const size_t n) override {
+        if constexpr (is_string_type(Type)) {
+            const auto& str = x.get<TYPE_STRING>();
+            auto* dst = _arena.alloc(str.size() * n);
+            for (size_t i = 0; i < n; i++) {
+                memcpy(dst, str.data(), str.size());
+                insert_string_value(dst, str.size());
+                dst += i * str.size();
+            }
+        } else if constexpr (Type == TYPE_LARGEINT) {
+            const auto& v = x.get<TYPE_LARGEINT>();
+            for (size_t i = 0; i < n; i++) {
+                insert_in_copy_way(reinterpret_cast<const char*>(&v), sizeof(v));
+            }
+        } else {
+            const auto& v = x.get<Type>();
+            for (size_t i = 0; i < n; i++) {
+                insert_default_type(reinterpret_cast<const char*>(&v), sizeof(v));
+            }
+        }
     }
 
     void insert(const Field& x) override {

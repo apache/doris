@@ -88,4 +88,8 @@ public class RepeatNode extends PlanNode {
     public boolean isSerialOperator() {
         return children.get(0).isSerialOperator();
     }
+
+    public GroupingInfo getGroupingInfo() {
+        return groupingInfo;
+    }
 }

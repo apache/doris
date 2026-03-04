@@ -83,7 +83,9 @@ public:
 
     ConditionCache(size_t capacity, uint32_t num_shards)
             : LRUCachePolicy(CachePolicy::CacheType::CONDITION_CACHE, capacity, LRUCacheType::SIZE,
-                             config::inverted_index_cache_stale_sweep_time_sec, num_shards) {}
+                             config::inverted_index_cache_stale_sweep_time_sec, num_shards,
+                             /*element_count_capacity*/ 0, /*enable_prune*/ true,
+                             /*is_lru_k*/ true) {}
 
     bool lookup(const CacheKey& key, ConditionCacheHandle* handle);
 

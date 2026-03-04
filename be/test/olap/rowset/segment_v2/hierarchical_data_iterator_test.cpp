@@ -53,11 +53,12 @@ TEST(HierarchicalDataIteratorTest, ProcessSparseExtractSubpaths) {
     std::unique_ptr<ColumnIterator> sparse_reader = std::make_unique<DummySparseIterator>();
     doris::segment_v2::ColumnIteratorUPtr iter;
     auto sparse_iter = std::make_unique<SubstreamIterator>(
-            doris::vectorized::ColumnVariant::create_sparse_column_fn(), std::move(sparse_reader),
+            doris::vectorized::ColumnVariant::create_binary_column_fn(), std::move(sparse_reader),
             nullptr);
     ASSERT_TRUE(HierarchicalDataIterator::create(
                         &iter, /*col_uid*/ 0, PathInData("a.b"), /*node*/ nullptr,
-                        /*root*/ std::move(sparse_iter), nullptr, nullptr, nullptr)
+                        /*root*/ std::move(sparse_iter), nullptr, nullptr, nullptr,
+                        HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE)
                         .ok());
 
     ColumnIteratorOptions opts;
@@ -65,7 +66,7 @@ TEST(HierarchicalDataIteratorTest, ProcessSparseExtractSubpaths) {
     ASSERT_TRUE(iter->seek_to_ordinal(0).ok());
 
     auto* hiter = static_cast<HierarchicalDataIterator*>(iter.get());
-    auto& map = assert_cast<ColumnMap&>(*hiter->_sparse_column_reader->column);
+    auto& map = assert_cast<ColumnMap&>(*hiter->_binary_column_reader->column);
     auto& keys = assert_cast<ColumnString&>(map.get_keys());
     auto& vals = assert_cast<ColumnString&>(map.get_values());
     auto& offs = map.get_offsets();

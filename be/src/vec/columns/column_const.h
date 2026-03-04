@@ -33,6 +33,7 @@
 
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/string_ref.h"
@@ -91,6 +92,10 @@ std::pair<const ColumnPtr&, bool> unpack_if_const(const ColumnPtr&) noexcept;
 void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
                                           const std::initializer_list<size_t>& parameters,
                                           Block& block, const ColumnNumbers& arg_indexes);
+
+void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_const,
+                                          const std::span<const size_t>& parameters, Block& block,
+                                          const ColumnNumbers& arg_indexes);
 
 /** ColumnConst contains another column with single element,
   *  but looks like a column with arbitrary amount of same elements.
@@ -157,7 +162,8 @@ public:
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override {
-        if (!is_column_const(src) || compare_at(0, 0, src, 0) != 0) {
+        if (this->s != 0 /*not empty*/ &&
+            (!is_column_const(src) || compare_at(0, 0, src, 0) != 0)) {
             throw Exception(
                     ErrorCode::INTERNAL_ERROR,
                     "ColumnConst::insert_indices_from: src is not const or not equal to dst");
@@ -225,7 +231,7 @@ public:
 
     MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
     // ColumnPtr index(const IColumn & indexes, size_t limit) const override;
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
                          Permutation& res) const override;
 
     size_t byte_size() const override { return s > 0 ? data->byte_size() + sizeof(s) : 0; }
@@ -274,15 +280,28 @@ public:
 
     Field get_field() const { return get_data_column()[0]; }
 
-    template <typename T>
-    T get_value() const {
+    template <PrimitiveType T>
+    typename PrimitiveTypeTraits<T>::CppType get_value() const {
         // Here the cast is correct, relevant code is rather tricky.
-        return static_cast<T>(get_field().get<NearestFieldType<T>>());
+        return get_field().get<T>();
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                         "Method replace_column_data is not supported for " + get_name());
+    }
+
+    void replace_column_null_data(const uint8_t* __restrict null_map) override {
+        // For ColumnConst, the null_map has only 1 element (the const value's null status)
+        // If the const value is null, replace the nested data with default value
+        if (null_map[0]) {
+            data = std::move(*data).mutate();
+            data->replace_column_null_data(null_map);
+        }
+    }
+
+    bool support_replace_column_null_data() const override {
+        return data->support_replace_column_null_data();
     }
 
     void finalize() override { data->finalize(); }

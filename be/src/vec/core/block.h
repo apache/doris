@@ -565,7 +565,6 @@ public:
     Status add_rows(const Block* block, const uint32_t* row_begin, const uint32_t* row_end,
                     const std::vector<int>* column_offset = nullptr);
     Status add_rows(const Block* block, size_t row_begin, size_t length);
-    Status add_rows(const Block* block, const std::vector<int64_t>& rows);
 
     std::string dump_data(size_t row_limit = 100) const;
     std::string dump_data_json(size_t row_limit = 100) const;

@@ -25,6 +25,7 @@
 #include <memory> // for unique_ptr
 #include <ostream>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -35,6 +36,8 @@
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/rowset/segment_v2/options.h"
+#include "olap/rowset/segment_v2/variant/nested_group_provider.h"
+#include "olap/rowset/segment_v2/variant/variant_statistics.h"
 #include "util/bitmap.h" // for BitmapChange
 #include "util/slice.h"  // for OwnedSlice
 #include "vec/columns/column_variant.h"
@@ -100,6 +103,7 @@ class PageBuilder;
 class BloomFilterIndexWriter;
 class ZoneMapIndexWriter;
 class VariantColumnWriterImpl;
+class ColumnWriter;
 
 class ColumnWriter {
 public:
@@ -123,8 +127,7 @@ public:
                                           const TabletColumn* column, io::FileWriter* file_writer,
                                           std::unique_ptr<ColumnWriter>* writer);
 
-    explicit ColumnWriter(std::unique_ptr<Field> field, bool is_nullable, ColumnMetaPB* meta)
-            : _field(std::move(field)), _is_nullable(is_nullable), _column_meta(meta) {}
+    explicit ColumnWriter(std::unique_ptr<Field> field, bool is_nullable, ColumnMetaPB* meta);
 
     virtual ~ColumnWriter() = default;
 
@@ -194,6 +197,9 @@ public:
 
     ColumnMetaPB* get_column_meta() const { return _column_meta; }
 
+protected:
+    vectorized::DataTypePtr _data_type;
+
 private:
     std::unique_ptr<Field> _field;
     bool _is_nullable;
@@ -250,6 +256,7 @@ public:
         _new_page_callback = flush_page_callback;
     }
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
+    Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows) override;
 
     // used for append not null data. When page is full, will append data not reach num_rows.
     Status append_data_in_current_page(const uint8_t** ptr, size_t* num_written);
@@ -265,6 +272,12 @@ private:
     Status _internal_append_data_in_current_page(const uint8_t* ptr, size_t* num_written);
 
 private:
+    struct NullRun {
+        bool is_null;
+        uint32_t len;
+    };
+
+    std::vector<NullRun> _null_run_buffer;
     std::unique_ptr<PageBuilder> _page_builder;
 
     std::unique_ptr<NullBitmapBuilder> _null_bitmap_builder;
@@ -615,6 +628,9 @@ private:
     ColumnWriterOptions _opts;
     std::unique_ptr<ColumnWriter> _writer;
     TabletIndexes _indexes;
+
+    std::unique_ptr<NestedGroupWriteProvider> _nested_group_provider;
+    VariantStatistics _statistics;
 };
 
 class VariantColumnWriter : public ColumnWriter {

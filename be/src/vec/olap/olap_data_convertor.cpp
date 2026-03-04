@@ -44,7 +44,6 @@
 #include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_array.h"
@@ -203,6 +202,10 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     }
     case FieldType::OLAP_FIELD_TYPE_BIGINT: {
         return std::make_unique<OlapColumnDataConvertorSimple<TYPE_BIGINT>>();
+    }
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT: {
+        // used by internal length/offset columns (e.g. ColumnOffset64).
+        return std::make_unique<OlapColumnDataConvertorSimple<TYPE_UINT64>>();
     }
     case FieldType::OLAP_FIELD_TYPE_LARGEINT: {
         return std::make_unique<OlapColumnDataConvertorSimple<TYPE_LARGEINT>>();

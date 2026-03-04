@@ -29,8 +29,10 @@
 #include <mutex>
 #include <sstream>
 #include <utility>
+#include <vector>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -57,7 +59,6 @@
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "vec/columns/column.h"
-#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_factory.hpp"
 
@@ -97,6 +98,9 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
     std::vector<KeyBoundsPB> segments_key_bounds;
     spec_rowset_meta.get_segments_key_bounds(&segments_key_bounds);
     rowset_meta.set_segments_key_bounds(segments_key_bounds);
+    std::vector<uint32_t> num_segment_rows;
+    spec_rowset_meta.get_num_segment_rows(&num_segment_rows);
+    rowset_meta.set_num_segment_rows(num_segment_rows);
 }
 
 } // namespace
@@ -280,6 +284,9 @@ BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
                           fmt::format("Failed to delete file={}", seg_path));
         }
     }
+    if (_calc_delete_bitmap_token) {
+        _calc_delete_bitmap_token->cancel();
+    }
 }
 
 BetaRowsetWriter::~BetaRowsetWriter() {
@@ -288,10 +295,6 @@ BetaRowsetWriter::~BetaRowsetWriter() {
      * is cancelled, the objects involved in the job should be preserved during segcompaction to
      * avoid crashs for memory issues. */
     WARN_IF_ERROR(_wait_flying_segcompaction(), "segment compaction failed");
-
-    if (_calc_delete_bitmap_token != nullptr) {
-        _calc_delete_bitmap_token->cancel();
-    }
 }
 
 Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
@@ -777,6 +780,7 @@ Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     _num_segment += cast_set<int32_t>(rowset->num_segments());
     // append key_bounds to current rowset
     RETURN_IF_ERROR(rowset->get_segments_key_bounds(&_segments_encoded_key_bounds));
+    rowset->get_num_segment_rows(&_segment_num_rows);
     _segments_key_bounds_truncated = rowset->rowset_meta()->is_segments_key_bounds_truncated();
 
     // TODO update zonemap
@@ -956,6 +960,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     int64_t total_data_size = 0;
     int64_t total_index_size = 0;
     std::vector<KeyBoundsPB> segments_encoded_key_bounds;
+    std::vector<uint32_t> segment_rows;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         for (const auto& itr : _segid_statistics_map) {
@@ -963,14 +968,23 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
             total_data_size += itr.second.data_size;
             total_index_size += itr.second.index_size;
             segments_encoded_key_bounds.push_back(itr.second.key_bounds);
+            // segcompaction don't modify _segment_num_rows, so we need to get segment rows from _segid_statistics_map for load
+            segment_rows.push_back(cast_set<uint32_t>(itr.second.row_num));
         }
     }
+    if (segment_rows.empty()) {
+        // vertical compaction and linked schema change will not record segment statistics,
+        // it will record segment rows in _segment_num_rows
+        RETURN_IF_ERROR(get_segment_num_rows(&segment_rows));
+    }
+
     for (auto& key_bound : _segments_encoded_key_bounds) {
         segments_encoded_key_bounds.push_back(key_bound);
     }
     if (_segments_key_bounds_truncated.has_value()) {
         rowset_meta->set_segments_key_bounds_truncated(_segments_key_bounds_truncated.value());
     }
+    rowset_meta->set_num_segment_rows(segment_rows);
     // segment key bounds are empty in old version(before version 1.2.x). So we should not modify
     // the overlap property when key bounds are empty.
     // for mow table with cluster keys, the overlap is used for cluster keys,
@@ -990,6 +1004,13 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
                     "segments_encoded_key_bounds_size "
                     "is: {}, _num_seg is: {}",
                     segments_encoded_key_bounds_size, segment_num);
+        }
+        if (segment_rows.size() != segment_num) {
+            return Status::InternalError(
+                    "segment_rows size should equal to _num_seg, segment_rows size is: {}, "
+                    "_num_seg is {}, tablet={}, rowset={}, txn={}",
+                    segment_rows.size(), segment_num, _context.tablet_id,
+                    _context.rowset_id.to_string(), _context.txn_id);
         }
     }
 
@@ -1029,8 +1050,9 @@ Status BaseBetaRowsetWriter::_build_tmp(RowsetSharedPtr& rowset_ptr) {
 }
 
 Status BaseBetaRowsetWriter::_create_file_writer(const std::string& path,
-                                                 io::FileWriterPtr& file_writer) {
-    io::FileWriterOptions opts = _context.get_file_writer_options();
+                                                 io::FileWriterPtr& file_writer,
+                                                 bool is_index_file) {
+    io::FileWriterOptions opts = _context.get_file_writer_options(is_index_file);
     Status st = _context.fs()->create_file(path, &file_writer, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
@@ -1048,9 +1070,9 @@ Status BaseBetaRowsetWriter::create_file_writer(uint32_t segment_id, io::FileWri
         std::string prefix =
                 std::string {InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
         std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(prefix);
-        return _create_file_writer(index_path, file_writer);
+        return _create_file_writer(index_path, file_writer, true /* is_index_file */);
     } else if (file_type == FileType::SEGMENT_FILE) {
-        return _create_file_writer(segment_path, file_writer);
+        return _create_file_writer(segment_path, file_writer, false /* is_index_file */);
     }
     return Status::Error<ErrorCode::INTERNAL_ERROR>(
             fmt::format("failed to create file = {}, file type = {}", segment_path, file_type));
@@ -1060,7 +1082,8 @@ Status BaseBetaRowsetWriter::create_index_file_writer(uint32_t segment_id,
                                                       IndexFileWriterPtr* index_file_writer) {
     RETURN_IF_ERROR(RowsetWriter::create_index_file_writer(segment_id, index_file_writer));
     // used for inverted index format v1
-    (*index_file_writer)->set_file_writer_opts(_context.get_file_writer_options());
+    (*index_file_writer)
+            ->set_file_writer_opts(_context.get_file_writer_options(true /* is_index_file */));
     return Status::OK();
 }
 
@@ -1070,7 +1093,7 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     std::string path = BetaRowset::local_segment_path_segcompacted(_context.tablet_path,
                                                                    _context.rowset_id, begin, end);
     io::FileWriterPtr file_writer;
-    RETURN_IF_ERROR(_create_file_writer(path, file_writer));
+    RETURN_IF_ERROR(_create_file_writer(path, file_writer, false /* is_index_file */));
 
     IndexFileWriterPtr index_file_writer;
     if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
@@ -1079,7 +1102,8 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
         if (_context.tablet_schema->get_inverted_index_storage_format() !=
             InvertedIndexStorageFormatPB::V1) {
             std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(prefix);
-            RETURN_IF_ERROR(_create_file_writer(index_path, idx_file_writer));
+            RETURN_IF_ERROR(
+                    _create_file_writer(index_path, idx_file_writer, true /* is_index_file */));
         }
         index_file_writer = std::make_unique<IndexFileWriter>(
                 _context.fs(), prefix, _context.rowset_id.to_string(), _num_segcompacted,

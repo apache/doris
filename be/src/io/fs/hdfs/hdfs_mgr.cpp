@@ -23,6 +23,7 @@
 #include <chrono>
 #include <thread>
 
+#include "common/config.h"
 #include "common/kerberos/kerberos_ticket_mgr.h"
 #include "common/logging.h"
 #include "io/fs/err_utils.h"
@@ -126,6 +127,13 @@ void HdfsMgr::_cleanup_loop() {
 
 Status HdfsMgr::get_or_create_fs(const THdfsParams& hdfs_params, const std::string& fs_name,
                                  std::shared_ptr<HdfsHandler>* fs_handler) {
+#ifdef USE_HADOOP_HDFS
+    if (!config::enable_java_support) {
+        return Status::InvalidArgument(
+                "hdfs file system is not enabled, you can change be config enable_java_support to "
+                "true.");
+    }
+#endif
     uint64_t hash_code = _hdfs_hash_code(hdfs_params, fs_name);
 
     // First check without lock

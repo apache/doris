@@ -245,7 +245,7 @@ public:
                             const std::vector<std::pair<std::string, std::string>>& ranges,
                             const BatchGetOptions& opts = BatchGetOptions()) override;
 
-    size_t approximate_bytes() const override { return approximate_bytes_; }
+    size_t approximate_bytes(bool = false) const override { return approximate_bytes_; }
 
     size_t num_get_keys() const override { return num_get_keys_; }
 

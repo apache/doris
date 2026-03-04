@@ -191,7 +191,7 @@ void ColumnVector<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
 
 template <PrimitiveType T>
 Field ColumnVector<T>::operator[](size_t n) const {
-    return Field::create_field<T>((typename PrimitiveTypeTraits<T>::NearestFieldType)data[n]);
+    return Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)(&data[n]));
 }
 
 template <PrimitiveType T>
@@ -201,40 +201,28 @@ void ColumnVector<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primit
     auto s = rows;
     DCHECK(s == size());
 
-    if constexpr (is_date_or_datetime(T)) {
-        char buf[64];
-        auto date_convert_do_crc = [&](size_t i) {
-            const auto& date_val = (const VecDateTimeValue&)data[i];
-            auto len = date_val.to_buffer(buf);
-            hashes[i] = HashUtil::zlib_crc_hash(buf, len, hashes[i]);
-        };
-
-        if (null_data == nullptr) {
-            for (size_t i = 0; i < s; i++) {
-                date_convert_do_crc(i);
-            }
-        } else {
-            for (size_t i = 0; i < s; i++) {
-                if (null_data[i] == 0) {
-                    date_convert_do_crc(i);
-                }
-            }
+    if (null_data == nullptr) {
+        for (size_t i = 0; i < s; i++) {
+            hashes[i] = _zlib_crc32_hash(hashes[i], i);
         }
     } else {
-        if (null_data == nullptr) {
-            for (size_t i = 0; i < s; i++) {
-                hashes[i] = HashUtil::zlib_crc_hash(
-                        &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType),
-                        hashes[i]);
-            }
-        } else {
-            for (size_t i = 0; i < s; i++) {
-                if (null_data[i] == 0)
-                    hashes[i] = HashUtil::zlib_crc_hash(
-                            &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType),
-                            hashes[i]);
+        for (size_t i = 0; i < s; i++) {
+            if (null_data[i] == 0) {
+                hashes[i] = _zlib_crc32_hash(hashes[i], i);
             }
         }
+    }
+}
+
+template <PrimitiveType T>
+uint32_t ColumnVector<T>::_zlib_crc32_hash(uint32_t hash, size_t idx) const {
+    if constexpr (is_date_or_datetime(T)) {
+        char buf[64];
+        const auto& date_val = (const VecDateTimeValue&)data[idx];
+        auto len = date_val.to_buffer(buf);
+        return HashUtil::zlib_crc_hash(buf, len, hash);
+    } else {
+        return HashUtil::zlib_crc32_fixed(data[idx], hash);
     }
 }
 
@@ -270,15 +258,14 @@ void ColumnVector<T>::update_crc32c_batch(uint32_t* __restrict hashes,
 template <PrimitiveType T>
 void ColumnVector<T>::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
                                            const uint8_t* __restrict null_map) const {
-    auto s = size();
     if (null_map) {
-        for (size_t i = 0; i < s; ++i) {
+        for (size_t i = start; i < end; ++i) {
             if (null_map[i] == 0) {
                 hash = _crc32c_hash(hash, i);
             }
         }
     } else {
-        for (size_t i = 0; i < s; ++i) {
+        for (size_t i = start; i < end; ++i) {
             hash = _crc32c_hash(hash, i);
         }
     }
@@ -308,7 +295,7 @@ struct ColumnVector<T>::greater {
 
 template <PrimitiveType T>
 void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                      IColumn::Permutation& res) const {
+                                      HybridSorter& sorter, IColumn::Permutation& res) const {
     size_t s = data.size();
     res.resize(s);
 
@@ -331,9 +318,9 @@ void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direct
         for (size_t i = 0; i < s; ++i) res[i] = i;
 
         if (reverse)
-            pdqsort(res.begin(), res.end(), greater(*this, nan_direction_hint));
+            sorter.sort(res.begin(), res.end(), greater(*this, nan_direction_hint));
         else
-            pdqsort(res.begin(), res.end(), less(*this, nan_direction_hint));
+            sorter.sort(res.begin(), res.end(), less(*this, nan_direction_hint));
     }
 }
 
@@ -525,12 +512,9 @@ MutableColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size
 template <PrimitiveType T>
 void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_map) {
     auto s = size();
-    size_t null_count = s - simd::count_zero_num((const int8_t*)null_map, s);
-    if (0 == null_count) {
-        return;
-    }
+    auto value = default_value();
     for (size_t i = 0; i < s; ++i) {
-        data[i] = null_map[i] ? default_value() : data[i];
+        data[i] = null_map[i] ? value : data[i];
     }
 }
 

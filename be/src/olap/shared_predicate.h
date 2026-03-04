@@ -24,7 +24,6 @@
 #include "olap/column_predicate.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
-#include "olap/wrapper_field.h"
 #include "vec/columns/column_dictionary.h"
 
 namespace doris {
@@ -36,8 +35,8 @@ class SharedPredicate final : public ColumnPredicate {
     ENABLE_FACTORY_CREATOR(SharedPredicate);
 
 public:
-    SharedPredicate(uint32_t column_id)
-            : ColumnPredicate(column_id, PrimitiveType::INVALID_TYPE),
+    SharedPredicate(uint32_t column_id, std::string col_name)
+            : ColumnPredicate(column_id, col_name, PrimitiveType::INVALID_TYPE),
               _mtx(std::make_shared<std::shared_mutex>()) {}
     SharedPredicate(const ColumnPredicate& other) = delete;
     SharedPredicate(const SharedPredicate& other, uint32_t column_id)
@@ -104,20 +103,20 @@ public:
         DCHECK(false) << "should not reach here";
     }
 
-    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
-            return ColumnPredicate::evaluate_and(statistic);
+            return ColumnPredicate::evaluate_and(zone_map);
         }
-        return _nested->evaluate_and(statistic);
+        return _nested->evaluate_and(zone_map);
     }
 
-    bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
+    bool evaluate_del(const segment_v2::ZoneMap& zone_map) const override {
         std::shared_lock<std::shared_mutex> lock(*_mtx);
         if (!_nested) {
-            return ColumnPredicate::evaluate_del(statistic);
+            return ColumnPredicate::evaluate_del(zone_map);
         }
-        return _nested->evaluate_del(statistic);
+        return _nested->evaluate_del(zone_map);
     }
 
     bool evaluate_and(const BloomFilter* bf) const override {
@@ -163,6 +162,27 @@ public:
             DCHECK(false) << "should not reach here";
         }
         return _nested->get_search_str();
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
+        if (!_nested) {
+            // at the begining _nested will be null, so return true.
+            return true;
+        }
+        return _nested->evaluate_and(statistic);
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override {
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
+
+        if (!_nested) {
+            // at the begining _nested will be null, so return true.
+            row_ranges->add(statistic->row_group_range);
+            return true;
+        }
+        return _nested->evaluate_and(statistic, row_ranges);
     }
 
 private:

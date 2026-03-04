@@ -23,7 +23,7 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import java.net.InetSocketAddress
 
-suite("test_http_tvf", "p2") {
+suite("test_http_tvf", "p0") {
     // csv
     qt_sql01 """
         SELECT *
@@ -158,6 +158,16 @@ suite("test_http_tvf", "p2") {
         exception """exceeds maximum allowed size (1000 bytes"""
     }
 
+    // non range and large than readBuffer(1MB)
+    qt_sql_norange """
+        SELECT count(1) FROM
+        HTTP(
+            "uri" = "https://raw.githubusercontent.com/apache/doris/refs/tags/4.0.2-rc02/regression-test/data/datatype_p0/nested_types/query/test_nested_type_with_resize.csv",
+            "format" = "csv",
+            "http.enable.range.request"="false"
+        );
+    """
+
     qt_sql13 """
         select * from
         http(
@@ -179,21 +189,23 @@ suite("test_http_tvf", "p2") {
     """
 
     // hf
-    qt_sql15 """
+    def hfCountOneFile = sql """
         select count(*) from
         http(
             "uri" = "hf://datasets/fka/awesome-chatgpt-prompts/blob/main/prompts.csv",
             "format" = "csv"
         );
     """
+    assertTrue(Long.parseLong(hfCountOneFile[0][0].toString()) > 0)
 
-    qt_sql16 """
+    def hfCountWildcard = sql """
         select count(*) from
         http(
             "uri" = "hf://datasets/fka/awesome-chatgpt-prompts/blob/main/*.csv",
             "format" = "csv"
         );
     """
+    assertTrue(Long.parseLong(hfCountWildcard[0][0].toString()) > 0)
     
     qt_sql17 """
         desc function
@@ -245,4 +257,3 @@ suite("test_http_tvf", "p2") {
         ) order by text limit 1;
     """
 }
-

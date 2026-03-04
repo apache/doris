@@ -278,6 +278,13 @@ void WorkloadGroupMgr::refresh_workload_group_metrics() {
     }
 }
 
+void WorkloadGroupMgr::update_memtable_flush_threads() {
+    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+    for (const auto& [id, wg] : _workload_groups) {
+        wg->update_memtable_flush_threads();
+    }
+}
+
 void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<ResourceContext>& resource_ctx,
                                         int64_t reserve_size, const Status& status) {
     DCHECK(resource_ctx != nullptr);
@@ -871,6 +878,7 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
 }
 
 void WorkloadGroupMgr::stop() {
+    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
     for (auto iter = _workload_groups.begin(); iter != _workload_groups.end(); iter++) {
         iter->second->try_stop_schedulers();
     }

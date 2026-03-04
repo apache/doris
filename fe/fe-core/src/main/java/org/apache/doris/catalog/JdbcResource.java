@@ -124,10 +124,10 @@ public class JdbcResource extends Resource {
             TYPE,
             CREATE_TIME,
             ONLY_SPECIFIED_DATABASE,
-            LOWER_CASE_META_NAMES,
-            META_NAMES_MAPPING,
-            INCLUDE_DATABASE_LIST,
-            EXCLUDE_DATABASE_LIST,
+            ExternalCatalog.LOWER_CASE_META_NAMES,
+            ExternalCatalog.META_NAMES_MAPPING,
+            ExternalCatalog.INCLUDE_DATABASE_LIST,
+            ExternalCatalog.EXCLUDE_DATABASE_LIST,
             CONNECTION_POOL_MIN_SIZE,
             CONNECTION_POOL_MAX_SIZE,
             CONNECTION_POOL_MAX_LIFE_TIME,
@@ -135,7 +135,8 @@ public class JdbcResource extends Resource {
             CONNECTION_POOL_KEEP_ALIVE,
             TEST_CONNECTION,
             ExternalCatalog.USE_META_CACHE,
-            CatalogProperty.ENABLE_MAPPING_VARBINARY
+            CatalogProperty.ENABLE_MAPPING_VARBINARY,
+            CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ
     ).build();
 
     // The default value of optional properties
@@ -144,10 +145,10 @@ public class JdbcResource extends Resource {
 
     static {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ONLY_SPECIFIED_DATABASE, "false");
-        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(LOWER_CASE_META_NAMES, "false");
-        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(META_NAMES_MAPPING, "");
-        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(INCLUDE_DATABASE_LIST, "");
-        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(EXCLUDE_DATABASE_LIST, "");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ExternalCatalog.LOWER_CASE_META_NAMES, "false");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ExternalCatalog.META_NAMES_MAPPING, "");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ExternalCatalog.INCLUDE_DATABASE_LIST, "");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ExternalCatalog.EXCLUDE_DATABASE_LIST, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MIN_SIZE, "1");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MAX_SIZE, "30");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MAX_LIFE_TIME, "1800000");
@@ -157,6 +158,7 @@ public class JdbcResource extends Resource {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ExternalCatalog.USE_META_CACHE,
                 String.valueOf(ExternalCatalog.DEFAULT_USE_META_CACHE));
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CatalogProperty.ENABLE_MAPPING_VARBINARY, "false");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "false");
     }
 
     // timeout for both connection and read. 10 seconds is long enough.
@@ -336,9 +338,14 @@ public class JdbcResource extends Resource {
             // so we need to check the old default dir for compatibility.
             String targetPath = defaultDriverUrl + "/" + driverUrl;
             File targetFile = new File(targetPath);
+            String oldTargetPath = defaultOldDriverUrl + "/" + driverUrl;
+            File oldTargetFile = new File(oldTargetPath);
             if (targetFile.exists()) {
                 // File exists in new default directory
                 return "file://" + targetPath;
+            } else if (oldTargetFile.exists()) {
+                // File exists in old default directory
+                return "file://" + oldTargetPath;
             } else if (Config.isCloudMode()) {
                 // Cloud mode: download from cloud to default directory
                 try {
@@ -346,12 +353,15 @@ public class JdbcResource extends Resource {
                             PluginType.JDBC_DRIVERS, driverUrl, targetPath);
                     return "file://" + downloadedPath;
                 } catch (Exception e) {
+                    LOG.warn("failed to download jdbc driver url: " + driverUrl, e);
                     throw new RuntimeException("Cannot download JDBC driver from cloud: " + driverUrl
-                            + ". Please retry later or check your driver has been uploaded to cloud.");
+                            + ". Please retry later or check your driver has been uploaded to cloud. Error: "
+                            + Util.getRootCauseMessage(e));
                 }
+            } else {
+                // File does not exist in both new and old default directory
+                throw new RuntimeException("JDBC driver file does not exist: " + driverUrl);
             }
-            // Fallback to old default directory for compatibility
-            return "file://" + defaultOldDriverUrl + "/" + driverUrl;
         } else {
             // Return user specified driver url directly.
             return "file://" + Config.jdbc_drivers_dir + "/" + driverUrl;

@@ -17,6 +17,7 @@
 
 #include "collection_statistics.h"
 
+#include <set>
 #include <sstream>
 
 #include "common/exception.h"
@@ -26,6 +27,7 @@
 #include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
+#include "util/uid_util.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
@@ -64,31 +66,44 @@ Status CollectionStatistics::collect(
         }
     }
 
-#ifndef NDEBUG
-    std::stringstream ss;
-    ss << "term_num_docs: " << _total_num_docs;
-    for (const auto& [ws_field_name, num_tokens] : _total_num_tokens) {
-        ss << ", [field_name: " << StringHelper::to_string(ws_field_name)
-           << ", num_tokens: " << num_tokens;
-        auto it = _term_doc_freqs.find(ws_field_name);
-        if (it != _term_doc_freqs.end()) {
-            ss << ", terms: {";
-            bool first = true;
-            for (const auto& [term, doc_freq] : it->second) {
-                if (!first) {
-                    ss << ", ";
-                }
-                ss << StringHelper::to_string(term) << ": " << doc_freq;
-                first = false;
+    // Build a single-line log with query_id, tablet_ids, and per-field term statistics
+    if (VLOG_IS_ON(1)) {
+        std::set<int64_t> tablet_ids;
+        for (const auto& rs_split : rs_splits) {
+            if (rs_split.rs_reader && rs_split.rs_reader->rowset()) {
+                tablet_ids.insert(rs_split.rs_reader->rowset()->rowset_meta()->tablet_id());
             }
-            ss << "}";
-        } else {
-            ss << ", (no term stats)";
         }
-        ss << "]";
+
+        std::ostringstream oss;
+        oss << "CollectionStatistics: query_id=" << print_id(state->query_id());
+
+        oss << ", tablet_ids=[";
+        bool first_tablet = true;
+        for (int64_t tid : tablet_ids) {
+            if (!first_tablet) oss << ",";
+            oss << tid;
+            first_tablet = false;
+        }
+        oss << "]";
+
+        oss << ", total_num_docs=" << _total_num_docs;
+
+        for (const auto& [ws_field_name, num_tokens] : _total_num_tokens) {
+            oss << ", {field=" << StringHelper::to_string(ws_field_name)
+                << ", num_tokens=" << num_tokens << ", terms=[";
+
+            bool first_term = true;
+            for (const auto& [term, doc_freq] : _term_doc_freqs.at(ws_field_name)) {
+                if (!first_term) oss << ", ";
+                oss << "(" << StringHelper::to_string(term) << ":" << doc_freq << ")";
+                first_term = false;
+            }
+            oss << "]}";
+        }
+
+        VLOG(1) << oss.str();
     }
-    LOG(INFO) << "CollectionStatistics: " << ss.str();
-#endif
 
     return Status::OK();
 }

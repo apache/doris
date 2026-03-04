@@ -28,6 +28,7 @@
 #include <string>
 #include <string_view>
 
+#include "runtime/define_primitive_type.h"
 #include "util/hash_util.hpp"
 #include "vec/core/extended_types.h"
 
@@ -52,6 +53,7 @@ enum DecimalRoundMode { HALF_UP = 1, HALF_EVEN = 2, CEILING = 3, FLOOR = 4, TRUN
 
 class DecimalV2Value {
 public:
+    static constexpr PrimitiveType PType = TYPE_DECIMALV2;
     using NativeType = __int128_t;
     friend DecimalV2Value operator+(const DecimalV2Value& v1, const DecimalV2Value& v2);
     friend DecimalV2Value operator-(const DecimalV2Value& v1, const DecimalV2Value& v2);
@@ -76,6 +78,7 @@ public:
 
     static const int128_t MAX_DECIMAL_VALUE =
             static_cast<int128_t>(MAX_INT64) * ONE_BILLION + MAX_FRAC_VALUE;
+    static constexpr int max_string_length() { return PRECISION + 1; }
 
     DecimalV2Value() = default;
     const int128_t& value() const { return _value; }

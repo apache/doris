@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.algebra.Intersect;
 import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
@@ -34,6 +35,7 @@ import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -47,6 +49,7 @@ import com.google.common.collect.Multimap;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -54,6 +57,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -164,7 +168,9 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         // so we should fill up this instance
         List<HashJoinNode> hashJoinNodes = fragment.getPlanRoot()
                 .collectInCurrentFragment(HashJoinNode.class::isInstance);
-        if (shouldFillUpInstances(hashJoinNodes)) {
+        List<SetOperationNode> setOperationNodes = fragment.getPlanRoot()
+                .collectInCurrentFragment(SetOperationNode.class::isInstance);
+        if (shouldFillUpInstances(hashJoinNodes, setOperationNodes)) {
             return fillUpInstances(assignedJobs);
         }
 
@@ -294,7 +300,7 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         }
     }
 
-    private boolean shouldFillUpInstances(List<HashJoinNode> hashJoinNodes) {
+    private boolean shouldFillUpInstances(List<HashJoinNode> hashJoinNodes, List<SetOperationNode> setOperationNodes) {
         for (HashJoinNode hashJoinNode : hashJoinNodes) {
             if (!hashJoinNode.isBucketShuffle()) {
                 continue;
@@ -308,6 +314,16 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
                     return true;
             }
         }
+
+        for (SetOperationNode setOperationNode : setOperationNodes) {
+            if (setOperationNode instanceof Intersect) {
+                continue;
+            }
+            if (setOperationNode.isBucketShuffle()) {
+                return true;
+            }
+        }
+
         return false;
     }
 
@@ -363,19 +379,30 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
                         = (BucketScanSource) firstInstance.getScanSource();
                 firstInstanceScanSource.bucketIndexToScanNodeToTablets.putAll(scanEmptyBuckets);
 
+                Comparator<Pair<Integer, Integer>> preferAssignToMinBucketNum
+                        = Comparator.comparing(Pair<Integer, Integer>::value).thenComparing(Pair::key);
+                PriorityQueue<Pair<Integer, Integer>> assignedBucketQueue = new PriorityQueue<>(
+                        preferAssignToMinBucketNum
+                );
+                for (int i = 0; i < sameWorkerInstances.size(); i++) {
+                    LocalShuffleBucketJoinAssignedJob assignedJob =
+                            (LocalShuffleBucketJoinAssignedJob) sameWorkerInstances.get(i);
+                    int assignedBucketsNum = assignedJob.getAssignedJoinBucketIndexes().size();
+                    assignedBucketQueue.add(Pair.of(i, assignedBucketsNum));
+                }
+
                 Iterator<Integer> assignedJoinBuckets = new LinkedHashSet<>(workerToBuckets.getValue()).iterator();
-                // make sure the first instance must be assigned some buckets:
-                // if the first instance assigned some buckets, we start assign empty
-                // bucket for second instance for balance, or else assign for first instance
-                int index = firstInstance.getAssignedJoinBucketIndexes().isEmpty() ? -1 : 0;
                 while (assignedJoinBuckets.hasNext()) {
                     Integer bucketIndex = assignedJoinBuckets.next();
                     assignedJoinBuckets.remove();
 
-                    index = (index + 1) % sameWorkerInstances.size();
+                    Pair<Integer, Integer> assignedInstance = assignedBucketQueue.poll();
+                    Integer instanceIndex = assignedInstance.first;
                     LocalShuffleBucketJoinAssignedJob instance
-                            = (LocalShuffleBucketJoinAssignedJob) sameWorkerInstances.get(index);
+                            = (LocalShuffleBucketJoinAssignedJob) sameWorkerInstances.get(instanceIndex);
                     instance.addAssignedJoinBucketIndexes(ImmutableSet.of(bucketIndex));
+                    int assignedBucketNum = assignedInstance.second + 1;
+                    assignedBucketQueue.add(Pair.of(instanceIndex, assignedBucketNum));
                 }
             } else {
                 newInstances.add(assignWorkerAndDataSources(
@@ -477,5 +504,41 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
             }
         }
         return workers;
+    }
+
+    @Override
+    protected int degreeOfParallelism(int maxParallel, boolean useLocalShuffleToAddParallel) {
+        Preconditions.checkArgument(maxParallel > 0, "maxParallel must be positive");
+        if (!fragment.getDataPartition().isPartitioned()) {
+            return 1;
+        }
+        if (fragment.queryCacheParam != null) {
+            return maxParallel;
+        }
+        if (scanNodes.size() == 1 && scanNodes.get(0) instanceof OlapScanNode) {
+            OlapScanNode olapScanNode = (OlapScanNode) scanNodes.get(0);
+            ConnectContext connectContext = statementContext.getConnectContext();
+            if (connectContext != null && olapScanNode.shouldUseOneInstance(connectContext)) {
+                return 1;
+            }
+        }
+
+        long tabletNum = 0;
+        for (ScanNode scanNode : scanNodes) {
+            if (scanNode instanceof OlapScanNode) {
+                OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+                tabletNum = olapScanNode.getTotalTabletsNum();
+                break;
+            }
+        }
+
+        ConnectContext connectContext = statementContext.getConnectContext();
+        int colocateMaxParallelNum = 128;
+        if (connectContext != null) {
+            colocateMaxParallelNum = connectContext.getSessionVariable().colocateMaxParallelNum;
+        }
+
+        int maxParallelism = (int) Math.max(tabletNum, fragment.getParallelExecNum());
+        return Math.min(maxParallelism, colocateMaxParallelNum);
     }
 }

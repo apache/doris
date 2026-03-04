@@ -59,6 +59,7 @@ import org.apache.commons.text.StringSubstitutor;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -69,7 +70,6 @@ import java.util.stream.Collectors;
 
 @Log4j2
 public class StreamingJobUtils {
-    public static final String TABLE_PROPS_PREFIX = "table.create.properties.";
     public static final String INTERNAL_STREAMING_JOB_META_TABLE_NAME = "streaming_job_meta";
     public static final String FULL_QUALIFIED_META_TBL_NAME = InternalCatalog.INTERNAL_CATALOG_NAME
             + "." + FeConstants.INTERNAL_DB_NAME + "." + INTERNAL_STREAMING_JOB_META_TABLE_NAME;
@@ -97,6 +97,8 @@ public class StreamingJobUtils {
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
+    private static int lastSelectedBackendIndex = 0;
+
     public static void createMetaTableIfNotExist() throws Exception {
         Optional<Database> optionalDatabase =
                 Env.getCurrentEnv().getInternalCatalog()
@@ -117,7 +119,7 @@ public class StreamingJobUtils {
         }
     }
 
-    public static Map<String, List<SnapshotSplit>> restoreSplitsToJob(Long jobId) throws IOException {
+    public static Map<String, List<SnapshotSplit>> restoreSplitsToJob(Long jobId) throws JobException {
         List<ResultRow> resultRows;
         String sql = String.format(SELECT_SPLITS_TABLE_TEMPLATE, jobId);
         try (AutoCloseConnectContext context
@@ -127,12 +129,17 @@ public class StreamingJobUtils {
         }
 
         Map<String, List<SnapshotSplit>> tableSplits = new LinkedHashMap<>();
-        for (ResultRow row : resultRows) {
-            String tableName = row.get(0);
-            String chunkListStr = row.get(1);
-            List<SnapshotSplit> splits =
-                    new ArrayList<>(Arrays.asList(objectMapper.readValue(chunkListStr, SnapshotSplit[].class)));
-            tableSplits.put(tableName, splits);
+        try {
+            for (ResultRow row : resultRows) {
+                String tableName = row.get(0);
+                String chunkListStr = row.get(1);
+                List<SnapshotSplit> splits =
+                        new ArrayList<>(Arrays.asList(objectMapper.readValue(chunkListStr, SnapshotSplit[].class)));
+                tableSplits.put(tableName, splits);
+            }
+        } catch (IOException ex) {
+            log.warn("Failed to deserialize snapshot splits from job {} meta table: {}", jobId, ex.getMessage());
+            throw new JobException(ex);
         }
         return tableSplits;
     }
@@ -213,25 +220,29 @@ public class StreamingJobUtils {
         return JdbcClient.createJdbcClient(config);
     }
 
-    public static Backend selectBackend(Long jobId) throws JobException {
+    public static Backend selectBackend() throws JobException {
         Backend backend = null;
         BeSelectionPolicy policy = null;
 
-        policy = new BeSelectionPolicy.Builder()
-                .setEnableRoundRobin(true)
-                .needLoadAvailable().build();
+        policy = new BeSelectionPolicy.Builder().setEnableRoundRobin(true).needLoadAvailable().build();
+        policy.nextRoundRobinIndex = getLastSelectedBackendIndexAndUpdate();
+
         List<Long> backendIds;
-        backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1);
+        backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
         if (backendIds.isEmpty()) {
             throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
-        // jobid % backendSize
-        long index = backendIds.get(jobId.intValue() % backendIds.size());
-        backend = Env.getCurrentSystemInfo().getBackend(index);
+        backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
         if (backend == null) {
             throw new JobException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
         return backend;
+    }
+
+    private static synchronized int getLastSelectedBackendIndexAndUpdate() {
+        int index = lastSelectedBackendIndex;
+        lastSelectedBackendIndex = (index >= Integer.MAX_VALUE - 1) ? 0 : index + 1;
+        return index;
     }
 
     public static List<CreateTableCommand> generateCreateTableCmds(String targetDb, DataSourceType sourceType,
@@ -327,18 +338,50 @@ public class StreamingJobUtils {
         return createtblCmds;
     }
 
-    private static List<Column> getColumns(JdbcClient jdbcClient,
+    public static List<Column> getColumns(JdbcClient jdbcClient,
             String database,
             String table,
             List<String> primaryKeys) {
         List<Column> columns = jdbcClient.getColumnsFromJdbc(database, table);
         columns.forEach(col -> {
+            Preconditions.checkArgument(!col.getType().isUnsupported(),
+                    "Unsupported column type, table:[%s], column:[%s]", table, col.getName());
+            if (col.getType().isVarchar()) {
+                // The length of varchar needs to be multiplied by 3.
+                int len = col.getType().getLength() * 3;
+                if (len > ScalarType.MAX_VARCHAR_LENGTH) {
+                    col.setType(ScalarType.createStringType());
+                } else {
+                    col.setType(ScalarType.createVarcharType(len));
+                }
+            } else if (col.getType().isChar()) {
+                // The length of char needs to be multiplied by 3.
+                int len = col.getType().getLength() * 3;
+                if (len > ScalarType.MAX_CHAR_LENGTH) {
+                    col.setType(ScalarType.createVarcharType(len));
+                } else {
+                    col.setType(ScalarType.createCharType(len));
+                }
+            }
+
             // string can not to be key
             if (primaryKeys.contains(col.getName())
                     && col.getDataType() == PrimitiveType.STRING) {
                 col.setType(ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH));
             }
         });
+
+        // sort columns for primary keys
+        columns.sort(
+                Comparator
+                        .comparing((Column col) -> !primaryKeys.contains(col.getName()))
+                        .thenComparing(
+                                col -> primaryKeys.contains(col.getName())
+                                        ? primaryKeys.indexOf(col.getName())
+                                        : Integer.MAX_VALUE
+                        )
+        );
+
         return columns;
     }
 
@@ -367,8 +410,8 @@ public class StreamingJobUtils {
     private static Map<String, String> getTableCreateProperties(Map<String, String> properties) {
         final Map<String, String> tableCreateProps = new HashMap<>();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(TABLE_PROPS_PREFIX)) {
-                String subKey = entry.getKey().substring(TABLE_PROPS_PREFIX.length());
+            if (entry.getKey().startsWith(DataSourceConfigKeys.TABLE_PROPS_PREFIX)) {
+                String subKey = entry.getKey().substring(DataSourceConfigKeys.TABLE_PROPS_PREFIX.length());
                 tableCreateProps.put(subKey, entry.getValue());
             }
         }

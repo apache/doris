@@ -27,8 +27,11 @@
 #include <glog/logging.h>
 #include <stdint.h>
 
+#include <functional>
 #include <future>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -67,6 +70,12 @@ bvar::LatencyRecorder g_stream_load_commit_txn_latency("stream_load", "commit_tx
 
 Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadContext> ctx,
                                                  const TPipelineFragmentParamsList& parent) {
+    return execute_plan_fragment(ctx, parent, [](std::shared_ptr<StreamLoadContext> ctx) {});
+}
+
+Status StreamLoadExecutor::execute_plan_fragment(
+        std::shared_ptr<StreamLoadContext> ctx, const TPipelineFragmentParamsList& parent,
+        const std::function<void(std::shared_ptr<StreamLoadContext> ctx)>& cb) {
 // submit this params
 #ifndef BE_TEST
     ctx->put_result.pipeline_params.query_options.__set_enable_strict_cast(false);
@@ -74,7 +83,9 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
     LOG(INFO) << "begin to execute stream load. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << ctx->id;
     Status st;
-    auto exec_fragment = [ctx, this](RuntimeState* state, Status* status) {
+    std::shared_ptr<bool> is_prepare_success = std::make_shared<bool>(false);
+
+    auto exec_fragment = [ctx, cb, this, is_prepare_success](RuntimeState* state, Status* status) {
         if (ctx->group_commit) {
             ctx->label = state->import_label();
             ctx->txn_id = state->wal_id();
@@ -123,7 +134,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
             }
         }
         ctx->write_data_cost_nanos = MonotonicNanos() - ctx->start_write_data_nanos;
-        ctx->promise.set_value(*status);
+        ctx->load_status_promise.set_value(*status);
 
         if (!status->ok() && ctx->body_sink != nullptr) {
             // In some cases, the load execution is exited early.
@@ -143,16 +154,22 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                 static_cast<void>(this->commit_txn(ctx.get()));
             }
         }
+
+        if (*is_prepare_success) {
+            // if prepare failed, on_header will send reply
+            cb(ctx);
+        }
     };
-    st = _exec_env->fragment_mgr()->exec_plan_fragment(
-            ctx->put_result.pipeline_params, QuerySource::STREAM_LOAD, exec_fragment, parent);
+    st = _exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.pipeline_params,
+                                                       QuerySource::STREAM_LOAD, exec_fragment,
+                                                       parent, is_prepare_success);
 
     if (!st.ok()) {
         // no need to check unref's return value
         return st;
     }
 #else
-    ctx->promise.set_value(k_stream_load_plan_status);
+    ctx->load_status_promise.set_value(k_stream_load_plan_status);
 #endif
     return Status::OK();
 }
@@ -176,15 +193,15 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     TLoadTxnBeginResult result;
     Status status;
     int64_t duration_ns = 0;
-    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
+    auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
+    TNetworkAddress master_addr = master_addr_provider();
     if (master_addr.hostname.empty() || master_addr.port == 0) {
         status = Status::Error<SERVICE_UNAVAILABLE>("Have not get FE Master heartbeat yet");
     } else {
         SCOPED_RAW_TIMER(&duration_ns);
 #ifndef BE_TEST
         RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-                master_addr.hostname, master_addr.port,
-                [&request, &result](FrontendServiceConnection& client) {
+                master_addr_provider, [&request, &result](FrontendServiceConnection& client) {
                     client->loadTxnBegin(result, request);
                 }));
 #else
@@ -213,14 +230,14 @@ Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
     TLoadTxnCommitRequest request;
     get_commit_request(ctx, request);
 
-    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     TLoadTxnCommitResult result;
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
 #ifndef BE_TEST
+        auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
         RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-                master_addr.hostname, master_addr.port,
+                master_addr_provider,
                 [&request, &result](FrontendServiceConnection& client) {
                     client->loadTxnPreCommit(result, request);
                 },
@@ -258,13 +275,13 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
         request.__set_txnId(ctx->txn_id);
     }
 
-    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     TLoadTxn2PCResult result;
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
+        auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
         RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-                master_addr.hostname, master_addr.port,
+                master_addr_provider,
                 [&request, &result](FrontendServiceConnection& client) {
                     client->loadTxn2PC(result, request);
                 },
@@ -310,11 +327,11 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     TLoadTxnCommitRequest request;
     get_commit_request(ctx, request);
 
-    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     TLoadTxnCommitResult result;
 #ifndef BE_TEST
+    auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
+            master_addr_provider,
             [&request, &result](FrontendServiceConnection& client) {
                 client->loadTxnCommit(result, request);
             },
@@ -342,7 +359,6 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
 void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
     DorisMetrics::instance()->stream_load_txn_rollback_request_total->increment(1);
 
-    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     TLoadTxnRollbackRequest request;
     set_request_auth(&request, ctx->auth);
     request.__set_db(ctx->db);
@@ -363,9 +379,9 @@ void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
 
     TLoadTxnRollbackResult result;
 #ifndef BE_TEST
+    auto master_addr_provider = [this]() { return _exec_env->cluster_info()->master_fe_addr; };
     auto rpc_st = ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
-            [&request, &result](FrontendServiceConnection& client) {
+            master_addr_provider, [&request, &result](FrontendServiceConnection& client) {
                 client->loadTxnRollback(result, request);
             });
     if (!rpc_st.ok()) {

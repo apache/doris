@@ -27,6 +27,7 @@
 #include "vec/columns/column_vector.h"
 #include "vec/columns/common_column_test.h"
 #include "vec/core/field.h"
+#include "vec/json/json_parser.h"
 
 namespace doris::vectorized {
 struct FunctionCastToDecimalPerfTest : public FunctionCastTest {
@@ -76,6 +77,108 @@ struct FunctionCastToDecimalPerfTest : public FunctionCastTest {
                                  type_to_string(ToPT),
                                  PrettyPrinter::print(duration_ns, TUnit::TIME_NS));
     }
+    template <PrimitiveType ToPT>
+    int64_t perf_test_string_to_decimal(const MutableColumnPtr& column_orig, size_t orig_line_count,
+                                        int to_precision, int to_scale, bool nullable) {
+        // Create string column and load data from file
+        auto dt_from = std::make_shared<DataTypeString>();
+        // Replicate data 10 times for better performance measurement
+        auto column_from = dt_from->create_column();
+        for (int i = 0; i < 10; ++i) {
+            column_from->insert_range_from(*column_orig, 0, column_orig->size());
+        }
+        EXPECT_EQ(column_from->size(), orig_line_count * 10);
+        std::cout << "column_from size: " << column_from->size() << std::endl;
+
+        // Create target decimal type
+        DataTypePtr dt_to = DataTypeFactory::instance().create_data_type(ToPT, nullable,
+                                                                         to_precision, to_scale);
+
+        // Setup cast context
+        bool is_strict_mode = false;
+        auto ctx = create_context(is_strict_mode);
+        auto fn = get_cast_wrapper(ctx.get(), dt_from, dt_to);
+
+        Block block = {
+                {std::move(column_from), dt_from, "from"},
+                {nullptr, dt_to, "to"},
+        };
+
+        // Measure performance
+        int64_t duration_ns = 0;
+        {
+            SCOPED_RAW_TIMER(&duration_ns);
+            EXPECT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+        }
+
+        auto result = block.get_by_position(1).column;
+        EXPECT_EQ(result->size(), orig_line_count * 10);
+
+        // Display results
+        // std::cout << block.dump_data(0, 10) << "\n";
+        std::cout << fmt::format("cast STRING to {} (precision={}, scale={}) time: {}\n",
+                                 type_to_string(ToPT), to_precision, to_scale,
+                                 PrettyPrinter::print(duration_ns, TUnit::TIME_NS));
+
+        // Calculate throughput
+        double rows_per_second = (orig_line_count * 10.0) / (duration_ns / 1e9);
+        std::cout << fmt::format("Throughput: {:.2f} million rows/second\n", rows_per_second / 1e6);
+        return duration_ns;
+    }
+
+    // Variant with strict mode support
+    template <PrimitiveType ToPT>
+    void perf_test_string_to_decimal_strict(const std::string& test_data_file,
+                                            size_t orig_line_count, int to_precision, int to_scale,
+                                            bool nullable, bool strict_mode) {
+        auto dt_from = std::make_shared<DataTypeString>();
+        auto column_orig = dt_from->create_column();
+
+        {
+            MutableColumns columns;
+            columns.push_back(column_orig->get_ptr());
+            DataTypeSerDeSPtrs serde = {dt_from->get_serde()};
+            load_columns_data_from_file(columns, serde, ';', {0}, test_data_file);
+            EXPECT_EQ(column_orig->size(), orig_line_count);
+        }
+
+        auto column_from = dt_from->create_column();
+        for (int i = 0; i < 10; ++i) {
+            column_from->insert_range_from(*column_orig, 0, column_orig->size());
+        }
+        EXPECT_EQ(column_from->size(), orig_line_count * 10);
+        std::cout << "column_from size: " << column_from->size() << std::endl;
+
+        DataTypePtr dt_to = DataTypeFactory::instance().create_data_type(ToPT, nullable,
+                                                                         to_precision, to_scale);
+
+        auto ctx = create_context(strict_mode);
+        auto fn = get_cast_wrapper(ctx.get(), dt_from, dt_to);
+        ASSERT_TRUE(fn != nullptr);
+
+        Block block = {
+                {std::move(column_from), dt_from, "from"},
+                {nullptr, dt_to, "to"},
+        };
+
+        int64_t duration_ns = 0;
+        {
+            SCOPED_RAW_TIMER(&duration_ns);
+            EXPECT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+        }
+
+        auto result = block.get_by_position(1).column;
+        EXPECT_EQ(result->size(), orig_line_count * 10);
+
+        std::cout << block.dump_data(0, 10) << "\n";
+        std::cout << fmt::format(
+                "cast STRING to {} (precision={}, scale={}, strict_mode={}) time: {}\n",
+                type_to_string(ToPT), to_precision, to_scale, strict_mode,
+                PrettyPrinter::print(duration_ns, TUnit::TIME_NS));
+
+        double rows_per_second = (orig_line_count * 10.0) / (duration_ns / 1e9);
+        std::cout << fmt::format("Throughput: {:.2f} million rows/second\n", rows_per_second / 1e6);
+    }
 };
 
 // Optimized version with reserve for better performance
@@ -100,6 +203,123 @@ void read_file_to_vector_optimized(const std::string& filename, std::vector<std:
         lines.push_back(std::move(line)); // Move instead of copy
     }
 }
+// Test cases
+/*
+TEST_F(FunctionCastToDecimalPerfTest, test_string_to_decimal128v3_perf) {
+    std::string test_data_file = "/mnt/disk2/tengjianping/cast_perf/decimal_test_data_38_19.txt";
+    size_t orig_line_count = 10000000; // 10 million lines
+    // Create string column and load data from file
+    auto dt_from = std::make_shared<DataTypeString>();
+    auto column_orig = dt_from->create_column();
+
+    {
+        MutableColumns columns;
+        columns.push_back(column_orig->get_ptr());
+        DataTypeSerDeSPtrs serde = {dt_from->get_serde()};
+        load_columns_data_from_file(columns, serde, ';', {0}, test_data_file);
+        EXPECT_EQ(column_orig->size(), orig_line_count);
+    }
+
+    int test_rounds = 10;
+    int64_t total_duration_ns = 0;
+    for (int i = 0; i < test_rounds; ++i) {
+        std::cout << "\n--- Test Round " << (i + 1) << " ---\n";
+        total_duration_ns += perf_test_string_to_decimal<PrimitiveType::TYPE_DECIMAL128I>(
+                column_orig, orig_line_count, 38, 19, false);
+    }
+    auto avg_duration_ns = total_duration_ns / test_rounds;
+    std::cout << fmt::format("\nAverage time over {} rounds: {}\n", test_rounds,
+                             PrettyPrinter::print(avg_duration_ns, TUnit::TIME_NS));
+}
+
+TEST_F(FunctionCastToDecimalPerfTest, test_string_to_decimal128v3_nullable_perf) {
+    std::string test_data_file = "/mnt/disk2/tengjianping/cast_perf/decimal_test_data_38_19.txt";
+    size_t orig_line_count = 10000000; // 10 million lines
+    // Create string column and load data from file
+    auto dt_from = std::make_shared<DataTypeString>();
+    auto column_orig = dt_from->create_column();
+
+    {
+        MutableColumns columns;
+        columns.push_back(column_orig->get_ptr());
+        DataTypeSerDeSPtrs serde = {dt_from->get_serde()};
+        load_columns_data_from_file(columns, serde, ';', {0}, test_data_file);
+        EXPECT_EQ(column_orig->size(), orig_line_count);
+    }
+
+    int test_rounds = 10;
+    int64_t total_duration_ns = 0;
+    for (int i = 0; i < test_rounds; ++i) {
+        std::cout << "\n--- Test Round " << (i + 1) << " ---\n";
+        total_duration_ns += perf_test_string_to_decimal<PrimitiveType::TYPE_DECIMAL128I>(
+                column_orig, orig_line_count, 38, 19, true);
+    }
+    auto avg_duration_ns = total_duration_ns / test_rounds;
+    std::cout << fmt::format("\nAverage time over {} rounds: {}\n", test_rounds,
+                             PrettyPrinter::print(avg_duration_ns, TUnit::TIME_NS));
+}
+
+TEST_F(FunctionCastToDecimalPerfTest, test_string_to_decimal64v3_perf) {
+    std::string test_data_file = "/mnt/disk2/tengjianping/cast_perf/decimal_test_data_18_9.txt";
+    size_t orig_line_count = 10000000;
+    perf_test_string_to_decimal<PrimitiveType::TYPE_DECIMAL64>(test_data_file, orig_line_count, 18,
+                                                               9, false);
+}
+
+TEST_F(FunctionCastToDecimalPerfTest, test_string_to_decimal32v3_perf) {
+    std::string test_data_file = "/mnt/disk2/tengjianping/cast_perf/decimal_test_data_9_4.txt";
+    size_t orig_line_count = 10000000;
+    perf_test_string_to_decimal<PrimitiveType::TYPE_DECIMAL32>(test_data_file, orig_line_count, 9,
+                                                               4, false);
+}
+
+TEST_F(FunctionCastToDecimalPerfTest, test_string_to_decimalv2_perf) {
+    std::string test_data_file = "/mnt/disk2/tengjianping/cast_perf/decimalv2_test_data_27_9.txt";
+    size_t orig_line_count = 10000000;
+    perf_test_string_to_decimal<PrimitiveType::TYPE_DECIMALV2>(test_data_file, orig_line_count, 27,
+                                                               9, false);
+}
+
+TEST_F(FunctionCastToDecimalPerfTest, test_string_to_decimal128v3_strict_mode_perf) {
+    std::string test_data_file = "/mnt/disk2/tengjianping/cast_perf/decimal_test_data_38_19.txt";
+    size_t orig_line_count = 10000000;
+
+    std::cout << "\n=== Testing with strict_mode=false ===\n";
+    perf_test_string_to_decimal_strict<PrimitiveType::TYPE_DECIMAL128I>(
+            test_data_file, orig_line_count, 38, 19, false, false);
+
+    std::cout << "\n=== Testing with strict_mode=true ===\n";
+    perf_test_string_to_decimal_strict<PrimitiveType::TYPE_DECIMAL128I>(
+            test_data_file, orig_line_count, 38, 19, false, true);
+}
+
+// Comparison test: String vs Direct decimal parsing
+TEST_F(FunctionCastToDecimalPerfTest, test_string_parse_comparison) {
+    std::vector<std::string> file_contents;
+    read_file_to_vector_optimized("/mnt/disk2/tengjianping/cast_perf/decimal_test_data_38_19.txt",
+                                  file_contents);
+
+    size_t line_count = file_contents.size();
+    std::cout << "Read " << line_count << " lines" << std::endl;
+
+    // Test 1: Direct StringParser
+    int64_t duration_ns_parser = 0;
+    StringParser::ParseResult result;
+    {
+        SCOPED_RAW_TIMER(&duration_ns_parser);
+        for (size_t i = 0; i != line_count; ++i) {
+            auto decimal_value = StringParser::string_to_decimal<PrimitiveType::TYPE_DECIMAL128I>(
+                    file_contents[i].c_str(), file_contents[i].size(), 38, 19, &result);
+            (void)decimal_value;
+        }
+    }
+    std::cout << "Direct StringParser time: "
+              << PrettyPrinter::print(duration_ns_parser, TUnit::TIME_NS) << "\n";
+
+    // Test 2: Cast function (already tested in other tests)
+    std::cout << "\nFor cast function performance, see test_string_to_decimal128v3_perf\n";
+}
+    */
 
 /*
 TEST_F(FunctionCastToDecimalPerfTest, test_to_decimal128v3_from_string_perf) {

@@ -184,6 +184,7 @@ class DBManager(object):
                 "s3.region" = "{cloud_store_config['DORIS_CLOUD_REGION']}",
                 "s3.root.path" = "{str(uuid.uuid4())}",
                 "provider" = "{cloud_store_config['DORIS_CLOUD_PROVIDER']}",
+                "s3_validity_check" = "false",
                 "use_path_style" = "false"
             );
             """

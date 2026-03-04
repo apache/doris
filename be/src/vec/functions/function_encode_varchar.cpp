@@ -73,12 +73,12 @@ public:
         // max_row_byte_size = size of string + size of offset value
         size_t max_str_size = col_str->get_max_row_byte_size() - sizeof(UInt32);
 
-        if (max_str_size > sizeof(typename PrimitiveTypeTraits<ReturnType>::ColumnItemType) - 1) {
+        if (max_str_size > sizeof(typename PrimitiveTypeTraits<ReturnType>::CppType) - 1) {
             return Status::InternalError(
                     "String is too long to encode, input string size {}, max valid string "
                     "size for {} is {}",
                     max_str_size, name,
-                    sizeof(typename PrimitiveTypeTraits<ReturnType>::ColumnItemType) - 1);
+                    sizeof(typename PrimitiveTypeTraits<ReturnType>::CppType) - 1);
         }
 
         auto col_res = PrimitiveTypeTraits<ReturnType>::ColumnType::create(input_rows_count, 0);
@@ -91,16 +91,16 @@ public:
             auto* __restrict ui8_ptr = reinterpret_cast<UInt8*>(res);
 
             // "reverse" the order of string on little endian machine.
-            simd::reverse_copy_bytes(
-                    ui8_ptr, sizeof(typename PrimitiveTypeTraits<ReturnType>::ColumnItemType),
-                    str_ptr, str_size);
+            simd::reverse_copy_bytes(ui8_ptr,
+                                     sizeof(typename PrimitiveTypeTraits<ReturnType>::CppType),
+                                     str_ptr, str_size);
             // Lowest byte of Integer stores the size of the string, bit left shiflted by 1 so that we can get
             // correct size after right shifting by 1
             memset(ui8_ptr, str_size << 1, 1);
             *res >>= 1;
             // operator &= can not be applied to Int128
-            *res = *res & std::numeric_limits<
-                                  typename PrimitiveTypeTraits<ReturnType>::ColumnItemType>::max();
+            *res = *res &
+                   std::numeric_limits<typename PrimitiveTypeTraits<ReturnType>::CppType>::max();
         }
 
         block.get_by_position(result).column = std::move(col_res);

@@ -20,6 +20,7 @@ package org.apache.doris.cdcclient.sink;
 import org.apache.doris.cdcclient.common.Env;
 import org.apache.doris.cdcclient.exception.StreamLoadException;
 import org.apache.doris.cdcclient.utils.HttpUtil;
+import org.apache.doris.job.cdc.request.CommitOffsetRequest;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.annotation.VisibleForTesting;
@@ -38,6 +39,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -55,6 +57,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.Getter;
 import lombok.Setter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -80,19 +83,24 @@ public class DorisBatchStreamLoad implements Serializable {
     private BlockingQueue<BatchRecordBuffer> flushQueue;
     private final AtomicBoolean started;
     private volatile boolean loadThreadAlive = false;
+    private final CountDownLatch loadThreadStarted = new CountDownLatch(1);
     private AtomicReference<Throwable> exception = new AtomicReference<>(null);
     private long maxBlockedBytes;
     private final AtomicLong currentCacheBytes = new AtomicLong(0L);
     private final Lock lock = new ReentrantLock();
     private final Condition block = lock.newCondition();
     private final Map<String, ReadWriteLock> bufferMapLock = new ConcurrentHashMap<>();
-    @Setter private String currentTaskId;
+    @Setter @Getter private String currentTaskId;
     private String targetDb;
     private long jobId;
     @Setter private String token;
+    // stream load headers
+    @Setter private Map<String, String> loadProps = new HashMap<>();
+    @Getter private LoadStatistic loadStatistic;
 
     public DorisBatchStreamLoad(long jobId, String targetDb) {
         this.hostPort = Env.getCurrentEnv().getBackendHostPort();
+        this.loadStatistic = new LoadStatistic();
         this.flushQueue = new LinkedBlockingDeque<>(1);
         // maxBlockedBytes is two times of FLUSH_MAX_BYTE_SIZE
         this.maxBlockedBytes = STREAM_LOAD_MAX_BYTES * 2;
@@ -110,6 +118,16 @@ public class DorisBatchStreamLoad implements Serializable {
         this.loadExecutorService.execute(loadAsyncExecutor);
         this.targetDb = targetDb;
         this.jobId = jobId;
+        // Wait for the load thread to start
+        try {
+            if (!loadThreadStarted.await(10, TimeUnit.SECONDS)) {
+                throw new RuntimeException("LoadAsyncExecutor thread startup timed out");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(
+                    "Thread interrupted while waiting for load thread to start", e);
+        }
     }
 
     /**
@@ -150,42 +168,53 @@ public class DorisBatchStreamLoad implements Serializable {
                 lock.unlock();
             }
         }
-    }
 
-    public boolean cacheFullFlush() {
-        return doFlush(true, true);
-    }
-
-    public boolean forceFlush() {
-        return doFlush(true, false);
-    }
-
-    private synchronized boolean doFlush(boolean waitUtilDone, boolean cacheFull) {
-        checkFlushException();
-        if (waitUtilDone || cacheFull) {
-            return flush(waitUtilDone);
+        // Single table flush according to the STREAM_LOAD_MAX_BYTES
+        if (buffer.getBufferSizeBytes() >= STREAM_LOAD_MAX_BYTES) {
+            bufferFullFlush(bufferKey);
         }
-        return false;
     }
 
-    private synchronized boolean flush(boolean waitUtilDone) {
+    public void bufferFullFlush(String bufferKey) {
+        doFlush(bufferKey, false, true);
+    }
+
+    public void forceFlush() {
+        doFlush(null, true, false);
+    }
+
+    public void cacheFullFlush() {
+        doFlush(null, true, true);
+    }
+
+    private synchronized void doFlush(String bufferKey, boolean waitUtilDone, boolean bufferFull) {
+        checkFlushException();
+        if (waitUtilDone || bufferFull) {
+            flush(bufferKey, waitUtilDone);
+        }
+    }
+
+    private synchronized void flush(String bufferKey, boolean waitUtilDone) {
         if (!waitUtilDone && bufferMap.isEmpty()) {
             // bufferMap may have been flushed by other threads
             LOG.info("bufferMap is empty, no need to flush");
-            return false;
+            return;
         }
-        for (String key : bufferMap.keySet()) {
-            if (waitUtilDone) {
-                // Ensure that the interval satisfies intervalMS
-                flushBuffer(key);
+
+        if (null == bufferKey) {
+            for (String key : bufferMap.keySet()) {
+                if (waitUtilDone) {
+                    flushBuffer(key);
+                }
             }
-        }
-        if (!waitUtilDone) {
-            return false;
+        } else if (bufferMap.containsKey(bufferKey)) {
+            flushBuffer(bufferKey);
         } else {
+            LOG.warn("buffer not found for key: {}, may be already flushed.", bufferKey);
+        }
+        if (waitUtilDone) {
             waitAsyncLoadFinish();
         }
-        return true;
     }
 
     private synchronized void flushBuffer(String bufferKey) {
@@ -310,6 +339,7 @@ public class DorisBatchStreamLoad implements Serializable {
         public void run() {
             LOG.info("LoadAsyncExecutor start for jobId {}", jobId);
             loadThreadAlive = true;
+            loadThreadStarted.countDown();
             List<BatchRecordBuffer> recordList = new ArrayList<>(flushQueueSize);
             while (started.get()) {
                 recordList.clear();
@@ -363,11 +393,11 @@ public class DorisBatchStreamLoad implements Serializable {
             String finalLabel = String.format("%s_%s_%s", jobId, currentTaskId, label);
             putBuilder
                     .setUrl(loadUrl)
+                    .addProperties(loadProps)
                     .addTokenAuth(token)
                     .setLabel(finalLabel)
                     .formatJson()
                     .addCommonHeader()
-                    .setEntity(entity)
                     .addHiddenColumns(true)
                     .setEntity(entity);
 
@@ -397,6 +427,7 @@ public class DorisBatchStreamLoad implements Serializable {
                                 } finally {
                                     lock.unlock();
                                 }
+                                loadStatistic.add(respContent);
                                 return;
                             } else {
                                 String errMsg = null;
@@ -468,16 +499,24 @@ public class DorisBatchStreamLoad implements Serializable {
     }
 
     /** commit offfset to frontends. */
-    public void commitOffset(Map<String, String> meta, long scannedRows, long scannedBytes) {
+    public void commitOffset(
+            String taskId,
+            List<Map<String, String>> meta,
+            long scannedRows,
+            LoadStatistic loadStatistic) {
         try {
             String url = String.format(COMMIT_URL_PATTERN, frontendAddress, targetDb);
-            Map<String, Object> commitParams = new HashMap<>();
-            commitParams.put("offset", OBJECT_MAPPER.writeValueAsString(meta));
-            commitParams.put("jobId", jobId);
-            commitParams.put("taskId", currentTaskId);
-            commitParams.put("scannedRows", scannedRows);
-            commitParams.put("scannedBytes", scannedBytes);
-            String param = OBJECT_MAPPER.writeValueAsString(commitParams);
+            CommitOffsetRequest commitRequest =
+                    CommitOffsetRequest.builder()
+                            .offset(OBJECT_MAPPER.writeValueAsString(meta))
+                            .jobId(jobId)
+                            .taskId(Long.parseLong(taskId))
+                            .scannedRows(scannedRows)
+                            .filteredRows(loadStatistic.getFilteredRows())
+                            .loadedRows(loadStatistic.getLoadedRows())
+                            .loadBytes(loadStatistic.getLoadBytes())
+                            .build();
+            String param = OBJECT_MAPPER.writeValueAsString(commitRequest);
 
             HttpPutBuilder builder =
                     new HttpPutBuilder()
@@ -488,8 +527,7 @@ public class DorisBatchStreamLoad implements Serializable {
                             .commit()
                             .setEntity(new StringEntity(param));
 
-            LOG.info(
-                    "commit offset for jobId {} taskId {}, params {}", jobId, currentTaskId, param);
+            LOG.info("commit offset for jobId {} taskId {}, params {}", jobId, taskId, param);
             Throwable resEx = null;
             int retry = 0;
             while (retry <= RETRY) {
@@ -503,7 +541,7 @@ public class DorisBatchStreamLoad implements Serializable {
                                         : "";
                         LOG.info("commit result {}", responseBody);
                         if (statusCode == 200) {
-                            LOG.info("commit offset for jobId {} taskId {}", jobId, currentTaskId);
+                            LOG.info("commit offset for jobId {} taskId {}", jobId, taskId);
                             // A 200 response indicates that the request was successful, and
                             // information such as offset and statistics may have already been
                             // updated. Retrying may result in repeated updates.

@@ -29,9 +29,13 @@ Test Description:
 
 
 suite('test_create_partition_idempotence_non_cloud', 'docker') {
-    def options = new ClusterOptions()
+    // non_cloud mode
+    // (Refrain) Because with storage-compute separation, the BE actually tracks the tablet id, so it's hard to use mock tests 
+    // to verify the "rowset already exists" problem in the reverse case. Therefore, we only verify the positive case here.
+    def options= new ClusterOptions()
     options.feConfigs += [
-        'enable_debug_points = true',
+        'enable_debug_points=true',
+        'sys_log_verbose_modules = org.apache.doris',
     ]
     options.cloudMode = false
     options.beNum = 3 
@@ -63,7 +67,7 @@ suite('test_create_partition_idempotence_non_cloud', 'docker') {
                 `value` VARCHAR(100)
             )
             AUTO PARTITION BY RANGE (date_trunc(`date`, 'day')) ()
-            DISTRIBUTED BY HASH(id) BUCKETS 10
+            DISTRIBUTED BY HASH(id) BUCKETS 4
             PROPERTIES (
                 "replication_num" = "1"
             );
@@ -73,17 +77,20 @@ suite('test_create_partition_idempotence_non_cloud', 'docker') {
         sql """ set load_stream_per_node = 2 """
 
         GetDebugPoint().enableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.MockRebalance")
-    
-        sql """ INSERT INTO ${tableName} SELECT * FROM ${sourceTable}; """
-
-        GetDebugPoint().disableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.MockRebalance")
-
-        def result = sql "SELECT count(DISTINCT `date`) FROM ${tableName}"
-        logger.info("Distinct date count: ${result}")
-        assertEquals(1, result[0][0])
-
-        def count = sql "SELECT count(*) FROM ${tableName}"
-        logger.info("Total row count: ${count}")
-        assertEquals(20001, count[0][0])
+        try {
+            sql """ INSERT INTO ${tableName} SELECT * FROM ${sourceTable}; """
+            
+            def result = sql "SELECT count(DISTINCT `date`) FROM ${tableName}"
+            assertEquals(1, result[0][0])
+            
+            def count = sql "SELECT count(*) FROM ${tableName}"
+            assertEquals(20001, count[0][0])
+            
+        } catch (Exception e) {
+            logger.error("failed: ${e.message}")
+            throw e
+        } finally {
+            GetDebugPoint().disableDebugPointForAllFEs("FE.FrontendServiceImpl.createPartition.MockRebalance")
+        }
     }
 }

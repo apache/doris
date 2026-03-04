@@ -96,6 +96,9 @@ struct TColumn {
     23: optional bool is_on_update_current_timestamp = false
     24: optional i32 variant_max_sparse_column_statistics_size = 10000
     25: optional i32 variant_sparse_hash_shard_count
+    26: optional bool variant_enable_doc_mode
+  27: optional i64 variant_doc_materialization_min_rows
+  28: optional i32 variant_doc_hash_shard_count
 }
 
 struct TSlotDescriptor {
@@ -298,6 +301,8 @@ struct TOlapTablePartitionParam {
     11: optional bool enable_auto_detect_overwrite
     12: optional i64 overwrite_group_id
     13: optional bool partitions_is_fake = false
+    // remote insert fe master address
+    14: optional Types.TNetworkAddress master_address
 }
 
 struct TOlapTableIndex {
@@ -439,13 +444,14 @@ struct TMCTable {
   1: optional string region // deprecated
   2: optional string project
   3: optional string table
-  4: optional string access_key
-  5: optional string secret_key
+  4: optional string access_key // deprecated
+  5: optional string secret_key // deprecated
   6: optional string public_access // deprecated
   7: optional string odps_url   // deprecated
   8: optional string tunnel_url // deprecated 
   9: optional string endpoint
   10: optional string quota
+  11: optional map<string, string> properties // contains authentication properties
 }
 
 struct TTrinoConnectorTable {

@@ -20,15 +20,15 @@
 
 #include "vec/json/json_parser.h"
 
-#include <assert.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <cassert>
 #include <string_view>
 
 #include "common/cast_set.h"
-#include "common/config.h"
+// IWYU pragma: keep
 #include "common/status.h"
 #include "vec/json/path_in_data.h"
 #include "vec/json/simd_json_parser.h"
@@ -44,6 +44,8 @@ std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, 
         return {};
     }
     ParseContext context;
+    // enable_flatten_nested controls nested path traversal
+    // NestedGroup expansion is now handled at storage layer
     context.enable_flatten_nested = config.enable_flatten_nested;
     context.is_top_array = document.isArray();
     traverse(document, context);
@@ -62,11 +64,8 @@ void JSONDataParser<ParserImpl>::traverse(const Element& element, ParseContext& 
     if (element.isObject()) {
         traverseObject(element.getObject(), ctx);
     } else if (element.isArray()) {
-        if (ctx.has_nested_in_flatten) {
-            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                   "Nesting of array in Nested array within variant subcolumns is "
-                                   "currently not supported.");
-        }
+        // allow nested arrays (multi-level) for NestedGroup; deeper levels are
+        // handled by VariantNestedBuilder with a max-depth guard.
         has_nested = false;
         check_has_nested_object(element);
         ctx.has_nested_in_flatten = has_nested && ctx.enable_flatten_nested;
@@ -93,9 +92,12 @@ void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseC
     ctx.values.reserve(ctx.values.size() + object.size());
     for (auto it = object.begin(); it != object.end(); ++it) {
         const auto& [key, value] = *it;
-        if (key.size() >= std::numeric_limits<uint8_t>::max()) {
-            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                   "Key length exceeds maximum allowed size of 255 bytes.");
+        const size_t max_key_length = cast_set<size_t>(config::variant_max_json_key_length);
+        if (key.size() > max_key_length) {
+            throw doris::Exception(
+                    doris::ErrorCode::INVALID_ARGUMENT,
+                    fmt::format("Key length exceeds maximum allowed size of {} bytes.",
+                                max_key_length));
         }
         ctx.builder.append(key, false);
         traverse(value, ctx);
@@ -133,9 +135,12 @@ void JSONDataParser<ParserImpl>::traverseObjectAsJsonb(const JSONObject& object,
     writer.writeStartObject();
     for (auto it = object.begin(); it != object.end(); ++it) {
         const auto& [key, value] = *it;
-        if (key.size() >= std::numeric_limits<uint8_t>::max()) {
-            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                   "Key length exceeds maximum allowed size of 255 bytes.");
+        const size_t max_key_length = cast_set<size_t>(config::variant_max_json_key_length);
+        if (key.size() > max_key_length) {
+            throw doris::Exception(
+                    doris::ErrorCode::INVALID_ARGUMENT,
+                    fmt::format("Key length exceeds maximum allowed size of {} bytes.",
+                                max_key_length));
         }
         writer.writeKey(key.data(), cast_set<uint8_t>(key.size()));
         traverseAsJsonb(value, writer);
@@ -225,7 +230,8 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
         }
     }
 
-    if (keys_to_update && !(is_top_array && ctx.has_nested_in_flatten)) {
+    // always fill missed values to keep element-level association between keys.
+    if (keys_to_update) {
         fillMissedValuesInArrays(ctx);
     }
 }
@@ -254,17 +260,14 @@ void JSONDataParser<ParserImpl>::handleExistingPath(std::pair<PathInData::Parts,
                                                     ParseArrayContext& ctx,
                                                     size_t& keys_to_update) {
     auto& path_array = path_data.second;
-    // For top_array structure we no need to check cur array size equals ctx.current_size
-    // because we do not need to maintain the association information between Nested in array
-    if (!(ctx.is_top_array && ctx.has_nested_in_flatten)) {
-        assert(path_array.size() == ctx.current_size);
-    }
+    // keep arrays aligned for all keys (including top-level arrays).
+    assert(path_array.size() == ctx.current_size);
     // If current element of array is part of Nested,
     // collect its size or check it if the size of
     // the Nested has been already collected.
     auto nested_key = getNameOfNested(path, value);
     if (!nested_key.empty()) {
-        size_t array_size = get<const Array&>(value).size();
+        size_t array_size = value.get<TYPE_ARRAY>().size();
         auto& current_nested_sizes = ctx.nested_sizes_by_key[nested_key];
         if (current_nested_sizes.size() == ctx.current_size) {
             current_nested_sizes.push_back(array_size);
@@ -285,15 +288,12 @@ void JSONDataParser<ParserImpl>::handleNewPath(UInt128 hash, const PathInData::P
     Array path_array;
     path_array.reserve(ctx.total_size);
 
-    // For top_array structure we no need to resize array
-    // because we no need to fill default values for maintaining the association information between Nested in array
-    if (!(ctx.is_top_array && ctx.has_nested_in_flatten)) {
-        path_array.resize(ctx.current_size);
-    }
+    // always resize to keep alignment.
+    path_array.resize(ctx.current_size);
 
     auto nested_key = getNameOfNested(path, value);
     if (!nested_key.empty()) {
-        size_t array_size = get<const Array&>(value).size();
+        size_t array_size = value.get<TYPE_ARRAY>().size();
         auto& current_nested_sizes = ctx.nested_sizes_by_key[nested_key];
         if (current_nested_sizes.empty()) {
             current_nested_sizes.resize(ctx.current_size);

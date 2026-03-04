@@ -70,7 +70,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -242,21 +242,21 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         opts.index_file_writer = _index_file_writer;
     }
 
-#define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
+#define DISABLE_INDEX_IF_FIELD_TYPE(TYPE)                     \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
         opts.need_zone_map = false;                           \
         opts.need_bloom_filter = false;                       \
     }
 
-    DISABLE_INDEX_IF_FIELD_TYPE(STRUCT, "struct")
-    DISABLE_INDEX_IF_FIELD_TYPE(ARRAY, "array")
-    DISABLE_INDEX_IF_FIELD_TYPE(JSONB, "jsonb")
-    DISABLE_INDEX_IF_FIELD_TYPE(AGG_STATE, "agg_state")
-    DISABLE_INDEX_IF_FIELD_TYPE(MAP, "map")
-    DISABLE_INDEX_IF_FIELD_TYPE(BITMAP, "object")
-    DISABLE_INDEX_IF_FIELD_TYPE(HLL, "hll")
-    DISABLE_INDEX_IF_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
-    DISABLE_INDEX_IF_FIELD_TYPE(VARIANT, "variant")
+    DISABLE_INDEX_IF_FIELD_TYPE(STRUCT)
+    DISABLE_INDEX_IF_FIELD_TYPE(ARRAY)
+    DISABLE_INDEX_IF_FIELD_TYPE(JSONB)
+    DISABLE_INDEX_IF_FIELD_TYPE(AGG_STATE)
+    DISABLE_INDEX_IF_FIELD_TYPE(MAP)
+    DISABLE_INDEX_IF_FIELD_TYPE(BITMAP)
+    DISABLE_INDEX_IF_FIELD_TYPE(HLL)
+    DISABLE_INDEX_IF_FIELD_TYPE(QUANTILE_STATE)
+    DISABLE_INDEX_IF_FIELD_TYPE(VARIANT)
 
 #undef DISABLE_INDEX_IF_FIELD_TYPE
 
@@ -528,6 +528,11 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         full_block.replace_by_position(i, data.block->get_by_position(input_id++).column);
     }
 
+    if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&
+        _tablet_schema->num_variant_columns() > 0) {
+        RETURN_IF_ERROR(vectorized::variant_util::parse_and_materialize_variant_columns(
+                full_block, *_tablet_schema, including_cids));
+    }
     bool have_input_seq_column = false;
     // write including columns
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
@@ -800,6 +805,16 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // 7. fill row store column
     _serialize_block_to_row_column(full_block);
 
+    std::vector<uint32_t> column_ids;
+    for (uint32_t i = 0; i < _tablet_schema->num_columns(); ++i) {
+        column_ids.emplace_back(i);
+    }
+    if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&
+        _tablet_schema->num_variant_columns() > 0) {
+        RETURN_IF_ERROR(vectorized::variant_util::parse_and_materialize_variant_columns(
+                full_block, *_tablet_schema, column_ids));
+    }
+
     // 8. encode and write all non-primary key columns(including sequence column if exists)
     for (auto cid = _tablet_schema->num_key_columns(); cid < _tablet_schema->num_columns(); cid++) {
         if (cid != _tablet_schema->sequence_col_idx()) {
@@ -988,6 +1003,18 @@ Status VerticalSegmentWriter::write_batch() {
         for (auto& data : _batched_blocks) {
             // TODO: maybe we should pass range to this method
             _serialize_block_to_row_column(*data.block);
+        }
+    }
+
+    std::vector<uint32_t> column_ids;
+    for (uint32_t i = 0; i < _tablet_schema->num_columns(); ++i) {
+        column_ids.emplace_back(i);
+    }
+    if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&
+        _tablet_schema->num_variant_columns() > 0) {
+        for (auto& data : _batched_blocks) {
+            RETURN_IF_ERROR(vectorized::variant_util::parse_and_materialize_variant_columns(
+                    const_cast<vectorized::Block&>(*data.block), *_tablet_schema, column_ids));
         }
     }
 

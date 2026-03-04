@@ -30,6 +30,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 
@@ -61,6 +62,9 @@ public:
 
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
+
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
 
     Status from_string_strict_mode(StringRef& str, IColumn& column,
                                    const FormatOptions& options) const override;
@@ -139,6 +143,9 @@ public:
 
     void to_string_batch(const IColumn& column, ColumnString& column_to,
                          const FormatOptions& options) const override;
+
+    std::string to_olap_string(const vectorized::Field& field) const override;
+
     // will override in DateTime and Time
     virtual int get_scale() const { return 0; }
 
@@ -156,7 +163,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
         auto& data = assert_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.uint32_value_size(); ++i) {
             data[old_column_size + i] =
-                    cast_set<typename PrimitiveTypeTraits<T>::ColumnItemType, uint32_t, false>(
+                    cast_set<typename PrimitiveTypeTraits<T>::CppType, uint32_t, false>(
                             arg.uint32_value(i));
         }
     } else if constexpr (T == TYPE_DATEV2 || T == TYPE_IPV4) {
@@ -170,7 +177,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.int32_value_size(); ++i) {
             data[old_column_size + i] =
-                    cast_set<typename PrimitiveTypeTraits<T>::ColumnItemType, int32_t, false>(
+                    cast_set<typename PrimitiveTypeTraits<T>::CppType, int32_t, false>(
                             arg.int32_value(i));
         }
     } else if constexpr (T == TYPE_INT) {
@@ -179,13 +186,26 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
         for (int i = 0; i < arg.int32_value_size(); ++i) {
             data[old_column_size + i] = arg.int32_value(i);
         }
-    } else if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
+    } else if constexpr (T == TYPE_DATETIMEV2) {
         column.resize(old_column_size + arg.uint64_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.uint64_value_size(); ++i) {
-            data[old_column_size + i] = arg.uint64_value(i);
+            data[old_column_size + i] =
+                    binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(arg.uint64_value(i));
         }
-    } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME) {
+    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
+        column.resize(old_column_size + arg.uint64_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.uint64_value_size(); ++i) {
+            data[old_column_size + i] = binary_cast<UInt64, TimestampTzValue>(arg.uint64_value(i));
+        }
+    } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
+        column.resize(old_column_size + arg.int64_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.int64_value_size(); ++i) {
+            data[old_column_size + i] = binary_cast<Int64, VecDateTimeValue>(arg.int64_value(i));
+        }
+    } else if constexpr (T == TYPE_BIGINT) {
         column.resize(old_column_size + arg.int64_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.int64_value_size(); ++i) {
@@ -236,7 +256,12 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         auto* values = result.mutable_uint32_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (T == TYPE_DATEV2 || T == TYPE_IPV4) {
+    } else if constexpr (T == TYPE_DATEV2) {
+        ptype->set_id(PGenericType::UINT32);
+        auto* values = result.mutable_uint32_value();
+        values->Reserve(row_count);
+        values->Add((uint32_t*)data.begin() + start, (uint32_t*)data.begin() + end);
+    } else if constexpr (T == TYPE_IPV4) {
         ptype->set_id(PGenericType::UINT32);
         auto* values = result.mutable_uint32_value();
         values->Reserve(row_count);
@@ -245,7 +270,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         ptype->set_id(PGenericType::UINT64);
         auto* values = result.mutable_uint64_value();
         values->Reserve(row_count);
-        values->Add(data.begin() + start, data.begin() + end);
+        values->Add((uint64_t*)data.begin() + start, (uint64_t*)data.begin() + end);
     } else if constexpr (T == TYPE_TINYINT) {
         ptype->set_id(PGenericType::INT8);
         auto* values = result.mutable_int32_value();
@@ -261,7 +286,12 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         auto* values = result.mutable_int32_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME) {
+    } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
+        ptype->set_id(PGenericType::INT64);
+        auto* values = result.mutable_int64_value();
+        values->Reserve(row_count);
+        values->Add((int64_t*)data.begin() + start, (int64_t*)data.begin() + end);
+    } else if constexpr (T == TYPE_BIGINT) {
         ptype->set_id(PGenericType::INT64);
         auto* values = result.mutable_int64_value();
         values->Reserve(row_count);

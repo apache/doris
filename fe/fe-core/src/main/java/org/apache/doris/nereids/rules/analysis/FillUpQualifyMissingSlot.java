@@ -119,7 +119,7 @@ public class FillUpQualifyMissingSlot extends FillUpMissingSlots {
                     checkWindow(qualify);
                     Aggregate<Plan> agg = qualify.child();
                     Resolver resolver = new Resolver(agg);
-                    qualify.getConjuncts().forEach(resolver::resolve);
+                    qualify.getConjuncts().forEach(expr -> resolver.resolve(expr, ResolvePlanType.QUALIFY));
                     return createPlan(resolver, agg, (r, a) -> {
                         Set<Expression> newConjuncts = ExpressionUtils.replace(
                                 qualify.getConjuncts(), r.getSubstitution());
@@ -140,7 +140,7 @@ public class FillUpQualifyMissingSlot extends FillUpMissingSlots {
                     LogicalHaving<Aggregate<Plan>> having = qualify.child();
                     Aggregate<Plan> agg = qualify.child().child();
                     Resolver resolver = new Resolver(agg);
-                    qualify.getConjuncts().forEach(resolver::resolve);
+                    qualify.getConjuncts().forEach(expr -> resolver.resolve(expr, ResolvePlanType.QUALIFY));
                     return createPlan(resolver, agg, (r, a) -> {
                         Set<Expression> newConjuncts = ExpressionUtils.replace(
                                 qualify.getConjuncts(), r.getSubstitution());

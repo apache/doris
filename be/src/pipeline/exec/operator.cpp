@@ -45,6 +45,7 @@
 #include "pipeline/exec/jdbc_table_sink_operator.h"
 #include "pipeline/exec/local_merge_sort_source_operator.h"
 #include "pipeline/exec/materialization_opertor.h"
+#include "pipeline/exec/maxcompute_table_sink_operator.h"
 #include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/mock_operator.h"
@@ -62,6 +63,10 @@
 #include "pipeline/exec/partitioned_aggregation_source_operator.h"
 #include "pipeline/exec/partitioned_hash_join_probe_operator.h"
 #include "pipeline/exec/partitioned_hash_join_sink_operator.h"
+#include "pipeline/exec/rec_cte_anchor_sink_operator.h"
+#include "pipeline/exec/rec_cte_scan_operator.h"
+#include "pipeline/exec/rec_cte_sink_operator.h"
+#include "pipeline/exec/rec_cte_source_operator.h"
 #include "pipeline/exec/repeat_operator.h"
 #include "pipeline/exec/result_file_sink_operator.h"
 #include "pipeline/exec/result_sink_operator.h"
@@ -72,10 +77,12 @@
 #include "pipeline/exec/set_source_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
+#include "pipeline/exec/spill_iceberg_table_sink_operator.h"
 #include "pipeline/exec/spill_sort_sink_operator.h"
 #include "pipeline/exec/spill_sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_operator.h"
 #include "pipeline/exec/table_function_operator.h"
+#include "pipeline/exec/tvf_table_sink_operator.h"
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
@@ -141,10 +148,6 @@ DataDistribution OperatorBase::required_data_distribution(RuntimeState* /*state*
                    : DataDistribution(ExchangeType::NOOP);
 }
 
-bool OperatorBase::require_shuffled_data_distribution(RuntimeState* state) const {
-    return Pipeline::is_hash_exchange(required_data_distribution(state).distribution_type);
-}
-
 const RowDescriptor& OperatorBase::row_desc() const {
     return _child->row_desc();
 }
@@ -175,7 +178,7 @@ std::string OperatorXBase::debug_string(RuntimeState* state, int indentation_lev
     return state->get_local_state(operator_id())->debug_string(indentation_level);
 }
 
-Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
+Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* state) {
     std::string node_name = print_plan_node_type(tnode.node_type);
     _nereids_id = tnode.nereids_id;
     if (!tnode.intermediate_output_tuple_id_list.empty()) {
@@ -195,11 +198,9 @@ Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
     _op_name = substr + "_OPERATOR";
 
     if (tnode.__isset.vconjunct) {
-        vectorized::VExprContextSPtr context;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(tnode.vconjunct, context));
-        _conjuncts.emplace_back(context);
+        return Status::InternalError("vconjunct is not supported yet");
     } else if (tnode.__isset.conjuncts) {
-        for (auto& conjunct : tnode.conjuncts) {
+        for (const auto& conjunct : tnode.conjuncts) {
             vectorized::VExprContextSPtr context;
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(conjunct, context));
             _conjuncts.emplace_back(context);
@@ -207,7 +208,6 @@ Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
     }
 
     // create the projections expr
-
     if (tnode.__isset.projections) {
         DCHECK(tnode.__isset.output_tuple_id);
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(tnode.projections, _projections));
@@ -228,6 +228,12 @@ Status OperatorXBase::prepare(RuntimeState* state) {
     for (auto& conjunct : _conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, intermediate_row_desc()));
     }
+    if (state->enable_adjust_conjunct_order_by_cost()) {
+        std::ranges::sort(_conjuncts, [](const auto& a, const auto& b) {
+            return a->execute_cost() < b->execute_cost();
+        });
+    };
+
     for (int i = 0; i < _intermediate_projections.size(); i++) {
         RETURN_IF_ERROR(vectorized::VExpr::prepare(_intermediate_projections[i], state,
                                                    intermediate_row_desc(i)));
@@ -285,8 +291,8 @@ void PipelineXLocalStateBase::clear_origin_block() {
 }
 
 Status PipelineXLocalStateBase::filter_block(const vectorized::VExprContextSPtrs& expr_contexts,
-                                             vectorized::Block* block, size_t column_to_keep) {
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(expr_contexts, block, column_to_keep));
+                                             vectorized::Block* block) {
+    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(expr_contexts, block, block->columns()));
 
     _estimate_memory_usage += vectorized::VExprContext::get_memory_usage(expr_contexts);
     return Status::OK();
@@ -312,16 +318,32 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     size_t bytes_usage = 0;
     vectorized::ColumnsWithTypeAndName new_columns;
     for (const auto& projections : local_state->_intermediate_projections) {
+        if (projections.empty()) {
+            return Status::InternalError("meet empty intermediate projection, node id: {}",
+                                         node_id());
+        }
         new_columns.resize(projections.size());
         for (int i = 0; i < projections.size(); i++) {
             RETURN_IF_ERROR(projections[i]->execute(&input_block, new_columns[i]));
+            if (new_columns[i].column->size() != rows) {
+                return Status::InternalError(
+                        "intermediate projection result column size {} not equal input rows {}, "
+                        "expr: {}",
+                        new_columns[i].column->size(), rows,
+                        projections[i]->root()->debug_string());
+            }
         }
         vectorized::Block tmp_block {new_columns};
         bytes_usage += tmp_block.allocated_bytes();
         input_block.swap(tmp_block);
     }
 
-    DCHECK_EQ(rows, input_block.rows());
+    if (input_block.rows() != rows) {
+        return Status::InternalError(
+                "after intermediate projections input block rows {} not equal origin rows {}, "
+                "input_block: {}",
+                input_block.rows(), rows, input_block.dump_structure());
+    }
     auto insert_column_datas = [&](auto& to, vectorized::ColumnPtr& from, size_t rows) {
         if (to->is_nullable() && !from->is_nullable()) {
             if (_keep_origin || !from->is_exclusive()) {
@@ -354,6 +376,12 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
             auto result_column_id = -1;
             ColumnPtr column_ptr;
             RETURN_IF_ERROR(local_state->_projections[i]->execute(&input_block, column_ptr));
+            if (column_ptr->size() != rows) {
+                return Status::InternalError(
+                        "projection result column size {} not equal input rows {}, expr: {}",
+                        column_ptr->size(), rows,
+                        local_state->_projections[i]->root()->debug_string());
+            }
             column_ptr = column_ptr->convert_to_full_column_if_const();
             if (result_column_id >= origin_columns_count) {
                 bytes_usage += column_ptr->allocated_bytes();
@@ -562,6 +590,11 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
     _exec_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "ExecTime", 1);
     _memory_used_counter =
             _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+    _common_profile->add_info_string("IsColocate",
+                                     std::to_string(_parent->is_colocated_operator()));
+    _common_profile->add_info_string("IsShuffled", std::to_string(_parent->is_shuffled_operator()));
+    _common_profile->add_info_string("FollowedByShuffledOperator",
+                                     std::to_string(_parent->followed_by_shuffled_operator()));
     return Status::OK();
 }
 
@@ -660,6 +693,11 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
     _exec_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "ExecTime", 1);
     _memory_used_counter =
             _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+    _common_profile->add_info_string("IsColocate",
+                                     std::to_string(_parent->is_colocated_operator()));
+    _common_profile->add_info_string("IsShuffled", std::to_string(_parent->is_shuffled_operator()));
+    _common_profile->add_info_string("FollowedByShuffledOperator",
+                                     std::to_string(_parent->followed_by_shuffled_operator()));
     return Status::OK();
 }
 
@@ -782,7 +820,10 @@ DECLARE_OPERATOR(ResultFileSinkLocalState)
 DECLARE_OPERATOR(OlapTableSinkLocalState)
 DECLARE_OPERATOR(OlapTableSinkV2LocalState)
 DECLARE_OPERATOR(HiveTableSinkLocalState)
+DECLARE_OPERATOR(TVFTableSinkLocalState)
 DECLARE_OPERATOR(IcebergTableSinkLocalState)
+DECLARE_OPERATOR(SpillIcebergTableSinkLocalState)
+DECLARE_OPERATOR(MCTableSinkLocalState)
 DECLARE_OPERATOR(AnalyticSinkLocalState)
 DECLARE_OPERATOR(BlackholeSinkLocalState)
 DECLARE_OPERATOR(SortSinkLocalState)
@@ -803,6 +844,8 @@ DECLARE_OPERATOR(PartitionedHashJoinSinkLocalState)
 DECLARE_OPERATOR(GroupCommitBlockSinkLocalState)
 DECLARE_OPERATOR(CacheSinkLocalState)
 DECLARE_OPERATOR(DictSinkLocalState)
+DECLARE_OPERATOR(RecCTESinkLocalState)
+DECLARE_OPERATOR(RecCTEAnchorSinkLocalState)
 
 #undef DECLARE_OPERATOR
 
@@ -836,6 +879,8 @@ DECLARE_OPERATOR(MetaScanLocalState)
 DECLARE_OPERATOR(LocalExchangeSourceLocalState)
 DECLARE_OPERATOR(PartitionedHashJoinProbeLocalState)
 DECLARE_OPERATOR(CacheSourceLocalState)
+DECLARE_OPERATOR(RecCTESourceLocalState)
+DECLARE_OPERATOR(RecCTEScanLocalState)
 
 #ifdef BE_TEST
 DECLARE_OPERATOR(MockLocalState)
@@ -871,6 +916,7 @@ template class PipelineXSinkLocalState<SetSharedState>;
 template class PipelineXSinkLocalState<LocalExchangeSharedState>;
 template class PipelineXSinkLocalState<BasicSharedState>;
 template class PipelineXSinkLocalState<DataQueueSharedState>;
+template class PipelineXSinkLocalState<RecCTESharedState>;
 
 template class PipelineXLocalState<HashJoinSharedState>;
 template class PipelineXLocalState<PartitionedHashJoinSharedState>;
@@ -888,6 +934,7 @@ template class PipelineXLocalState<PartitionSortNodeSharedState>;
 template class PipelineXLocalState<SetSharedState>;
 template class PipelineXLocalState<LocalExchangeSharedState>;
 template class PipelineXLocalState<BasicSharedState>;
+template class PipelineXLocalState<RecCTESharedState>;
 
 template class AsyncWriterSink<doris::vectorized::VFileResultWriter, ResultFileSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VJdbcTableWriter, JdbcTableSinkOperatorX>;
@@ -895,6 +942,10 @@ template class AsyncWriterSink<doris::vectorized::VTabletWriter, OlapTableSinkOp
 template class AsyncWriterSink<doris::vectorized::VTabletWriterV2, OlapTableSinkV2OperatorX>;
 template class AsyncWriterSink<doris::vectorized::VHiveTableWriter, HiveTableSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VIcebergTableWriter, IcebergTableSinkOperatorX>;
+template class AsyncWriterSink<doris::vectorized::VIcebergTableWriter,
+                               SpillIcebergTableSinkOperatorX>;
+template class AsyncWriterSink<doris::vectorized::VMCTableWriter, MCTableSinkOperatorX>;
+template class AsyncWriterSink<doris::vectorized::VTVFTableWriter, TVFTableSinkOperatorX>;
 
 #ifdef BE_TEST
 template class OperatorX<DummyOperatorLocalState>;

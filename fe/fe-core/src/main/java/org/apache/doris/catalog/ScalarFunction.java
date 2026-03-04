@@ -24,6 +24,7 @@ import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TScalarFunction;
 
+import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -249,10 +250,17 @@ public class ScalarFunction extends Function {
     public TFunction toThrift(Type realReturnType, Type[] realArgTypes, Boolean[] realArgTypeNullables) {
         TFunction fn = super.toThrift(realReturnType, realArgTypes, realArgTypeNullables);
         fn.setScalarFn(new TScalarFunction());
-        if (getBinaryType() == TFunctionBinaryType.JAVA_UDF || getBinaryType() == TFunctionBinaryType.RPC) {
+        if (getBinaryType() == TFunctionBinaryType.JAVA_UDF || getBinaryType() == TFunctionBinaryType.RPC
+                || getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
             fn.getScalarFn().setSymbol(symbolName);
         } else {
             fn.getScalarFn().setSymbol("");
+        }
+        if (getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+            if (!Strings.isNullOrEmpty(functionCode)) {
+                fn.setFunctionCode(functionCode);
+            }
+            fn.setRuntimeVersion(runtimeVersion);
         }
         if (dictFunction != null) {
             fn.setDictFunction(dictFunction);

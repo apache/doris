@@ -26,8 +26,8 @@ class VSearchExpr : public VExpr {
 public:
     VSearchExpr(const TExprNode& node);
     ~VSearchExpr() override = default;
-    Status execute_column(VExprContext* context, const Block* block, size_t count,
-                          ColumnPtr& result_column) const override;
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
     const std::string& expr_name() const override;
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
 
@@ -41,10 +41,15 @@ public:
     bool can_push_down_to_index() const override { return true; }
 
     const TSearchParam& get_search_param() const { return _search_param; }
+    bool enable_cache() const { return _enable_cache; }
+
+    Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
+                   VExprContext* context) override;
 
 private:
     TSearchParam _search_param;
     std::string _original_dsl;
+    bool _enable_cache = true;
 };
 
 } // namespace doris::vectorized

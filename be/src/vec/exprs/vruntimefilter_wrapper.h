@@ -26,8 +26,8 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "udf/udf.h"
 #include "util/runtime_profile.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
@@ -53,8 +53,8 @@ public:
     VRuntimeFilterWrapper(const TExprNode& node, VExprSPtr impl, double ignore_thredhold,
                           bool null_aware, int filter_id);
     ~VRuntimeFilterWrapper() override = default;
-    Status execute_column(VExprContext* context, const Block* block, size_t count,
-                          ColumnPtr& result_column) const override;
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -62,6 +62,13 @@ public:
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
     const std::string& expr_name() const override;
     const VExprSPtrs& children() const override { return _impl->children(); }
+    TExprNodeType::type node_type() const override { return _impl->node_type(); }
+
+    double execute_cost() const override { return _impl->execute_cost(); }
+
+    Status execute_filter(VExprContext* context, const Block* block,
+                          uint8_t* __restrict result_filter_data, size_t rows, bool accept_null,
+                          bool* can_filter_all) const override;
 
     uint64_t get_digest(uint64_t seed) const override {
         seed = _impl->get_digest(seed);
@@ -91,32 +98,9 @@ public:
         }
     }
 
-    void update_counters(int64_t filter_rows, int64_t input_rows) {
-        COUNTER_UPDATE(_rf_filter_rows, filter_rows);
-        COUNTER_UPDATE(_rf_input_rows, input_rows);
-    }
-
-    template <typename T>
-    static void judge_selectivity(double ignore_threshold, int64_t filter_rows, int64_t input_rows,
-                                  T& always_true) {
-        always_true = static_cast<double>(filter_rows) / static_cast<double>(input_rows) <
-                      ignore_threshold;
-    }
-
     bool is_rf_wrapper() const override { return true; }
 
     int filter_id() const { return _filter_id; }
-
-    void do_judge_selectivity(uint64_t filter_rows, uint64_t input_rows) override {
-        update_counters(filter_rows, input_rows);
-
-        if (!_always_true) {
-            _judge_filter_rows += filter_rows;
-            _judge_input_rows += input_rows;
-            judge_selectivity(_ignore_thredhold, _judge_filter_rows, _judge_input_rows,
-                              _always_true);
-        }
-    }
 
     std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter() const {
         return _rf_filter_rows;
@@ -129,26 +113,7 @@ public:
     }
 
 private:
-    void reset_judge_selectivity() const {
-        _always_true = false;
-        _judge_counter = config::runtime_filter_sampling_frequency;
-        _judge_input_rows = 0;
-        _judge_filter_rows = 0;
-    }
-
     VExprSPtr _impl;
-    // VRuntimeFilterWrapper and ColumnPredicate share the same logic,
-    // but it's challenging to unify them, so the code is duplicated.
-    // _judge_counter, _judge_input_rows, _judge_filter_rows, and _always_true
-    // are variables used to implement the _always_true logic, calculated periodically
-    // based on runtime_filter_sampling_frequency. During each period, if _always_true
-    // is evaluated as true, the logic for always_true is applied for the rest of that period
-    // without recalculating. At the beginning of the next period,
-    // reset_judge_selectivity is used to reset these variables.
-    mutable std::atomic_int _judge_counter = 0;
-    mutable std::atomic_uint64_t _judge_input_rows = 0;
-    mutable std::atomic_uint64_t _judge_filter_rows = 0;
-    mutable std::atomic_int _always_true = false;
 
     std::shared_ptr<RuntimeProfile::Counter> _rf_input_rows =
             std::make_shared<RuntimeProfile::Counter>(TUnit::UNIT, 0);

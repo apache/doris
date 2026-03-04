@@ -21,6 +21,7 @@ import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TabletSlidingWindowAccessStats;
 import org.apache.doris.cloud.catalog.CloudTabletRebalancer;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
@@ -29,7 +30,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -79,6 +82,8 @@ public final class MetricRepo {
 
     public static final String TABLET_NUM = "tablet_num";
     public static final String TABLET_MAX_COMPACTION_SCORE = "tablet_max_compaction_score";
+    public static final String TABLET_ACCESS_RECENT = "tablet_access_recent";
+    public static final String TABLET_ACCESS_TOTAL = "tablet_access_total";
     public static final String CLOUD_TAG = "cloud";
 
     public static LongCounterMetric COUNTER_REQUEST_ALL;
@@ -111,6 +116,9 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_SQL_SQL_CACHE_TOTAL_SEARCH_TIMES;
 
     public static LongCounterMetric COUNTER_UPDATE_TABLET_STAT_FAILED;
+
+    public static GaugeMetric<Long> GAUGE_TABLET_ACCESS_RECENT;
+    public static GaugeMetric<Long> GAUGE_TABLET_ACCESS_TOTAL;
 
     public static LongCounterMetric COUNTER_EDIT_LOG_WRITE;
     public static LongCounterMetric COUNTER_EDIT_LOG_READ;
@@ -156,6 +164,17 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_TASK_EXECUTE_TIME;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_TASK_EXECUTE_COUNT;
+
+    // Streaming job
+    public static LongCounterMetric COUNTER_STREAMING_JOB_GET_META_LANTENCY;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_GET_META_COUNT;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_TASK_EXECUTE_TIME;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_TASK_EXECUTE_COUNT;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_TASK_FAILED_COUNT;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_TOTAL_ROWS;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_FILTER_ROWS;
+    public static LongCounterMetric COUNTER_STREAMING_JOB_LOAD_BYTES;
 
     public static LongCounterMetric COUNTER_HIT_SQL_BLOCK_RULE;
 
@@ -301,6 +320,7 @@ public final class MetricRepo {
         }
 
         initRoutineLoadJobMetrics();
+        initStreamingJobMetrics();
 
         // running alter job
         Alter alter = Env.getCurrentEnv().getAlterInstance();
@@ -331,6 +351,37 @@ public final class MetricRepo {
 
         // capacity
         generateBackendsTabletMetrics();
+
+        // tablet sliding window access stats
+        GAUGE_TABLET_ACCESS_RECENT = new GaugeMetric<Long>(TABLET_ACCESS_RECENT, MetricUnit.REQUESTS,
+                "total tablet access count within sliding window") {
+            @Override
+            public Long getValue() {
+                if (!Env.getCurrentEnv().isMaster()) {
+                    return 0L;
+                }
+                if (!Config.enable_active_tablet_sliding_window_access_stats) {
+                    return 0L;
+                }
+                return TabletSlidingWindowAccessStats.getInstance().getRecentAccessCountInWindow();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_TABLET_ACCESS_RECENT);
+
+        GAUGE_TABLET_ACCESS_TOTAL = new GaugeMetric<Long>(TABLET_ACCESS_TOTAL, MetricUnit.REQUESTS,
+                "total tablet access count since FE start") {
+            @Override
+            public Long getValue() {
+                if (!Env.getCurrentEnv().isMaster()) {
+                    return 0L;
+                }
+                if (!Config.enable_active_tablet_sliding_window_access_stats) {
+                    return 0L;
+                }
+                return TabletSlidingWindowAccessStats.getInstance().getTotalAccessCount();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_TABLET_ACCESS_TOTAL);
 
         // connections
         USER_GAUGE_CONNECTIONS = addLabeledMetrics("user", () ->
@@ -635,8 +686,37 @@ public final class MetricRepo {
                 MetricUnit.MILLISECONDS, "task execute time of routine load");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_ROUTINE_LOAD_TASK_EXECUTE_TIME);
         COUNTER_ROUTINE_LOAD_TASK_EXECUTE_COUNT = new LongCounterMetric("routine_load_task_execute_count",
-                MetricUnit.MILLISECONDS, "task execute count of routine load");
+                MetricUnit.NOUNIT, "task execute count of routine load");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_ROUTINE_LOAD_TASK_EXECUTE_COUNT);
+
+        // streaming job metrics
+        COUNTER_STREAMING_JOB_GET_META_LANTENCY = new LongCounterMetric("streaming_job_get_meta_latency",
+                MetricUnit.MILLISECONDS, "get meta lantency of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_GET_META_LANTENCY);
+        COUNTER_STREAMING_JOB_GET_META_COUNT = new LongCounterMetric("streaming_job_get_meta_count",
+                MetricUnit.NOUNIT, "get meta count of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_GET_META_COUNT);
+        COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT = new LongCounterMetric("streaming_job_get_meta_fail_count",
+                MetricUnit.NOUNIT, "get meta fail count of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT);
+        COUNTER_STREAMING_JOB_TASK_EXECUTE_TIME = new LongCounterMetric("streaming_job_task_execute_time",
+                MetricUnit.MILLISECONDS, "task execute time of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_TASK_EXECUTE_TIME);
+        COUNTER_STREAMING_JOB_TASK_EXECUTE_COUNT = new LongCounterMetric("streaming_job_task_execute_count",
+                MetricUnit.NOUNIT, "task execute count of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_TASK_EXECUTE_COUNT);
+        COUNTER_STREAMING_JOB_TASK_FAILED_COUNT = new LongCounterMetric("streaming_job_task_failed_count",
+                MetricUnit.NOUNIT, "task failed count of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_TASK_FAILED_COUNT);
+        COUNTER_STREAMING_JOB_TOTAL_ROWS = new LongCounterMetric("streaming_job_total_rows", MetricUnit.ROWS,
+                "total rows of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_TOTAL_ROWS);
+        COUNTER_STREAMING_JOB_FILTER_ROWS = new LongCounterMetric("streaming_job_filter_rows", MetricUnit.ROWS,
+                "filter rows of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_FILTER_ROWS);
+        COUNTER_STREAMING_JOB_LOAD_BYTES = new LongCounterMetric("streaming_job_load_bytes", MetricUnit.BYTES,
+                "load bytes of streaming job");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_STREAMING_JOB_LOAD_BYTES);
 
         COUNTER_HIT_SQL_BLOCK_RULE = new LongCounterMetric("counter_hit_sql_block_rule", MetricUnit.ROWS,
                 "total hit sql block rule query");
@@ -1056,6 +1136,49 @@ public final class MetricRepo {
         };
         gauge.addLabel(new MetricLabel("job", "load"))
                 .addLabel(new MetricLabel("type", "ROUTINE_LOAD"))
+                .addLabel(new MetricLabel("state", stateLabel));
+        DORIS_METRIC_REGISTER.addMetrics(gauge);
+    }
+
+    private static void initStreamingJobMetrics() {
+        // streaming insert jobs
+        for (JobStatus jobStatus : JobStatus.values()) {
+            if (jobStatus == JobStatus.PAUSED) {
+                addStreamingJobStateGaugeMetric(jobStatus, "USER_PAUSED",
+                        job -> job.getFailureReason() != null
+                                && job.getFailureReason().getCode() == InternalErrorCode.MANUAL_PAUSE_ERR);
+                addStreamingJobStateGaugeMetric(jobStatus, "ABNORMAL_PAUSED",
+                        job -> job.getFailureReason() != null
+                                && job.getFailureReason().getCode() != InternalErrorCode.MANUAL_PAUSE_ERR);
+            }
+            addStreamingJobStateGaugeMetric(jobStatus, jobStatus.name(), job -> true);
+        }
+    }
+
+    private static void addStreamingJobStateGaugeMetric(
+            JobStatus jobStatus, String stateLabel, Predicate<StreamingInsertJob> filter) {
+
+        GaugeMetric<Long> gauge = new GaugeMetric<Long>(
+                "job", MetricUnit.NOUNIT, "streaming job statistics") {
+            @Override
+            public Long getValue() {
+                if (!Env.getCurrentEnv().isMaster()) {
+                    return 0L;
+                }
+                List<org.apache.doris.job.base.AbstractJob> jobs =
+                        Env.getCurrentEnv().getJobManager().queryJobs(org.apache.doris.job.common.JobType.INSERT);
+
+                return jobs.stream()
+                        .filter(job -> job instanceof StreamingInsertJob)
+                        .map(job -> (StreamingInsertJob) job)
+                        .filter(job -> job.getJobStatus() == jobStatus)
+                        .filter(filter)
+                        .count();
+            }
+        };
+
+        gauge.addLabel(new MetricLabel("job", "load"))
+                .addLabel(new MetricLabel("type", "STREAMING_JOB"))
                 .addLabel(new MetricLabel("state", stateLabel));
         DORIS_METRIC_REGISTER.addMetrics(gauge);
     }
@@ -1511,6 +1634,16 @@ public final class MetricRepo {
             return;
         }
         GaugeMetricImpl<Double> gauge = CloudMetrics.CLUSTER_QUERY_ERR_RATE_GAUGE.getOrAdd(clusterId);
+        gauge.setValue(value);
+        gauge.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
+    }
+
+    public static void updateMetaServiceRpcPerSecond(String methodName, double value, List<MetricLabel> labels) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(methodName)) {
+            return;
+        }
+        GaugeMetricImpl<Double> gauge = CloudMetrics.META_SERVICE_RPC_PER_SECOND.getOrAdd(methodName);
         gauge.setValue(value);
         gauge.setLabels(labels);
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);

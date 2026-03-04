@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <roaring/roaring.hh>
 
+#include "common/compiler_util.h"
 #include "common/exception.h"
 #include "decimal12.h"
 #include "exprs/hybrid_set.h"
@@ -28,7 +29,6 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h" // IWYU pragma: keep
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
-#include "olap/wrapper_field.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/type_limit.h"
@@ -70,39 +70,17 @@ public:
     using HybridSetType = std::conditional_t<
             N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE,
             std::conditional_t<
-                    std::is_same_v<T, StringRef>, StringSet<FixedContainer<std::string, N>>,
+                    is_string_type(Type), StringSet<FixedContainer<std::string, N>>,
                     HybridSet<Type, FixedContainer<T, N>,
                               vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>>,
             std::conditional_t<
-                    std::is_same_v<T, StringRef>, StringSet<DynamicContainer<std::string>>,
+                    is_string_type(Type), StringSet<DynamicContainer<std::string>>,
                     HybridSet<Type, DynamicContainer<T>,
                               vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>>>;
-    template <typename ConditionType, typename ConvertFunc>
-    InListPredicateBase(uint32_t column_id, const ConditionType& conditions,
-                        const ConvertFunc& convert, bool is_opposite,
-                        const vectorized::DataTypePtr& data_type, vectorized::Arena& arena)
-            : ColumnPredicate(column_id, Type, is_opposite),
-              _min_value(type_limit<T>::max()),
-              _max_value(type_limit<T>::min()) {
-        _values = std::make_shared<HybridSetType>(false);
-        for (const auto& condition : conditions) {
-            T tmp;
-            if constexpr (Type == TYPE_STRING || Type == TYPE_CHAR) {
-                tmp = convert(data_type, condition, arena);
-            } else if constexpr (Type == TYPE_DECIMAL32 || Type == TYPE_DECIMAL64 ||
-                                 Type == TYPE_DECIMAL128I || Type == TYPE_DECIMAL256) {
-                tmp = convert(data_type, condition);
-            } else {
-                tmp = convert(condition);
-            }
-            _values->insert(&tmp);
-            _update_min_max(tmp);
-        }
-    }
-
-    InListPredicateBase(uint32_t column_id, const std::shared_ptr<HybridSetBase>& hybrid_set,
-                        bool is_opposite, size_t char_length = 0)
-            : ColumnPredicate(column_id, Type, is_opposite),
+    InListPredicateBase(uint32_t column_id, std::string col_name,
+                        const std::shared_ptr<HybridSetBase>& hybrid_set, bool is_opposite,
+                        size_t char_length = 0)
+            : ColumnPredicate(column_id, col_name, Type, is_opposite),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
         CHECK(hybrid_set != nullptr);
@@ -166,6 +144,13 @@ public:
 
     PredicateType type() const override { return PT; }
 
+    bool could_be_erased() const override {
+        if ((PT == PredicateType::NOT_IN_LIST && !_opposite) ||
+            (PT == PredicateType::IN_LIST && _opposite)) {
+            return false;
+        }
+        return true;
+    }
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
                     IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
@@ -261,40 +246,22 @@ public:
         _evaluate_bit<false>(column, sel, size, flags);
     }
 
-    bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        if (statistic.first->is_null() && statistic.second->is_null()) {
+    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
+        if (!zone_map.has_not_null) {
             return false;
         }
         if constexpr (PT == PredicateType::IN_LIST) {
-            return Compare::less_equal(get_zone_map_value<Type, T>(statistic.first->cell_ptr()),
-                                       _max_value) &&
-                   Compare::greater_equal(get_zone_map_value<Type, T>(statistic.second->cell_ptr()),
-                                          _min_value);
+            return Compare::less_equal(zone_map.min_value.template get<Type>(), _max_value) &&
+                   Compare::greater_equal(zone_map.max_value.template get<Type>(), _min_value);
         } else {
             return true;
         }
     }
 
     bool camp_field(const vectorized::Field& min_field, const vectorized::Field& max_field) const {
-        T min_value;
-        T max_value;
-        if constexpr (is_int_or_bool(Type) || is_float_or_double(Type)) {
-            min_value =
-                    (typename PrimitiveTypeTraits<Type>::CppType)min_field
-                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
-            max_value =
-                    (typename PrimitiveTypeTraits<Type>::CppType)max_field
-                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
-        } else {
-            min_value = min_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
-            max_value = max_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
-        }
-
         if constexpr (PT == PredicateType::IN_LIST) {
-            return (Compare::less_equal(min_value, _max_value) &&
-                    Compare::greater_equal(max_value, _min_value)) ||
-                   (Compare::greater_equal(max_value, _min_value) &&
-                    Compare::less_equal(min_value, _max_value));
+            return Compare::less_equal(min_field.template get<Type>(), _max_value) &&
+                   Compare::greater_equal(max_field.template get<Type>(), _min_value);
         } else {
             return true;
         }
@@ -303,15 +270,19 @@ public:
     bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
         bool result = true;
         if ((*statistic->get_stat_func)(statistic, column_id())) {
-            vectorized::Field min_field;
-            vectorized::Field max_field;
-            if (!vectorized::ParquetPredicate::parse_min_max_value(
-                         statistic->col_schema, statistic->encoded_min_value,
-                         statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field)
-                         .ok()) [[unlikely]] {
-                result = true;
+            if (statistic->is_all_null) {
+                result = false;
             } else {
-                result = camp_field(min_field, max_field);
+                vectorized::Field min_field;
+                vectorized::Field max_field;
+                auto st = vectorized::ParquetPredicate::parse_min_max_value(
+                        statistic->col_schema, statistic->encoded_min_value,
+                        statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field);
+                if (LIKELY(st.ok())) {
+                    result = camp_field(min_field, max_field);
+                } else { // status is not ok, return true directly
+                    result = true;
+                }
             }
         }
 
@@ -331,6 +302,7 @@ public:
                       RowRanges* row_ranges) const override {
         vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
         if (!(statistic->get_stat_func)(&stat, column_id())) {
+            row_ranges->add(statistic->row_group_range);
             return true;
         }
 
@@ -368,15 +340,13 @@ public:
         return false;
     }
 
-    bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
-        if (statistic.first->is_null() || statistic.second->is_null()) {
+    bool evaluate_del(const segment_v2::ZoneMap& zone_map) const override {
+        if (zone_map.has_null) {
             return false;
         }
         if constexpr (PT == PredicateType::NOT_IN_LIST) {
-            return Compare::greater(get_zone_map_value<Type, T>(statistic.first->cell_ptr()),
-                                    _max_value) ||
-                   Compare::less(get_zone_map_value<Type, T>(statistic.second->cell_ptr()),
-                                 _min_value);
+            return Compare::greater(zone_map.min_value.template get<Type>(), _max_value) ||
+                   Compare::less(zone_map.max_value.template get<Type>(), _min_value);
         } else {
             return false;
         }
@@ -390,7 +360,7 @@ public:
             }
             HybridSetBase::IteratorBase* iter = _values->begin();
             while (iter->has_next()) {
-                if constexpr (std::is_same_v<T, StringRef>) {
+                if constexpr (is_string_type(Type)) {
                     const auto* value = (const StringRef*)iter->get_value();
                     if (bf->test_bytes(value->data, value->size)) {
                         return true;
@@ -477,9 +447,9 @@ public:
                     if (test_bytes(*value)) {
                         return true;
                     }
-                } else if constexpr (std::is_same_v<T, StringRef>) {
+                } else if constexpr (is_string_type(Type)) {
                     // VARCHAR/STRING -> hash bytes
-                    if (bf->test_bytes(value->data, value->size)) {
+                    if (bf->test_bytes(value->data(), value->size())) {
                         return true;
                     }
                 } else {
@@ -538,7 +508,7 @@ private:
         uint16_t new_size = 0;
 
         if (column->is_column_dictionary()) {
-            if constexpr (std::is_same_v<T, StringRef>) {
+            if constexpr (is_string_type(Type)) {
                 const auto* nested_col_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
                 const auto& data_array = nested_col_ptr->get_data();
@@ -605,7 +575,7 @@ private:
                             const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
                             const uint16_t* sel, uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
-            if constexpr (std::is_same_v<T, StringRef>) {
+            if constexpr (is_string_type(Type)) {
                 const auto* nested_col_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
                 const auto& data_array = nested_col_ptr->get_data();

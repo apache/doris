@@ -27,13 +27,14 @@ suite("test_tvf_anonymous") {
     def uri = context.config.otherConfigs.get("anymousS3Uri")
     def expectDataCount = context.config.otherConfigs.get("anymousS3ExpectDataCount");
     //aws_credentials_provider_version
-    sql """ ADMIN SET FRONTEND CONFIG ("aws_credentials_provider_version"="v1"); """
+   // sql """ ADMIN SET FRONTEND CONFIG ("aws_credentials_provider_version"="v1"); """
 
     def result = sql """
         SELECT count(1) FROM S3 (                  
         "uri"="${uri}",
          "format" = "csv",     
           "s3.region" = "${region}",  
+           "s3.credentials_provider_type"="ANONYMOUS",
            "s3.endpoint" = "https://s3.${region}.amazonaws.com", 
            "column_separator" = ","              );
         """
@@ -47,6 +48,7 @@ suite("test_tvf_anonymous") {
         "uri"="${uri}",
          "format" = "csv",     
           "s3.region" = "${region}",  
+           "s3.credentials_provider_type"="ANONYMOUS",
            "s3.endpoint" = "https://s3.${region}.amazonaws.com", 
            "column_separator" = ","              );
         """

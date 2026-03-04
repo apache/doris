@@ -31,9 +31,9 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/inverted_index_iterator.h" // IWYU pragma: keep
 #include "runtime/define_primitive_type.h"
-#include "udf/udf.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -44,6 +44,7 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/exprs/function_context.h"
 
 namespace doris {
 struct InvertedIndexAnalyzerCtx;
@@ -170,6 +171,8 @@ public:
     virtual const DataTypes& get_argument_types() const = 0;
     virtual const DataTypePtr& get_return_type() const = 0;
 
+    virtual double execute_cost() const { return 1.0; }
+
     /// Do preparations and return executable.
     /// sample_block should contain data types of arguments and values of constants, if relevant.
     virtual PreparedFunctionPtr prepare(FunctionContext* context, const Block& sample_block,
@@ -183,6 +186,16 @@ public:
 
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                    uint32_t result, size_t input_rows_count) const {
+        // Some function implementations may not handle the case where input_rows_count is 0
+        // (e.g., some functions access the 0th row of input columns during execution).
+        // Additionally, some UDF functions may hang if they write 0 rows and then try to read.
+        // Therefore, before executing the function, we first check if input_rows_count is 0.
+        // If it is 0, we directly return an empty result column to avoid executing the function body.
+        if (input_rows_count == 0) {
+            block.get_by_position(result).column =
+                    block.get_by_position(result).type->create_column();
+            return Status::OK();
+        }
         try {
             return prepare(context, block, arguments, result)
                     ->execute(context, block, arguments, result, input_rows_count);
@@ -450,6 +463,8 @@ public:
                                 uint32_t /*result*/) const override {
         return function;
     }
+
+    double execute_cost() const override { return function->execute_cost(); }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return function->open(context, scope);

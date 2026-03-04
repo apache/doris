@@ -173,7 +173,8 @@ void PlainCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* 
 
 CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx)
+                     const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx,
+                     std::shared_ptr<io::IOContext> io_ctx_holder)
         : _profile(profile),
           _params(params),
           _file_reader(nullptr),
@@ -185,7 +186,11 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
           _file_slot_descs(file_slot_descs),
           _line_reader_eof(false),
           _skip_lines(0),
-          _io_ctx(io_ctx) {
+          _io_ctx(io_ctx),
+          _io_ctx_holder(std::move(io_ctx_holder)) {
+    if (_io_ctx == nullptr && _io_ctx_holder) {
+        _io_ctx = _io_ctx_holder.get();
+    }
     _file_format_type = _params.format_type;
     _is_proto_format = _file_format_type == TFileFormatType::FORMAT_PROTO;
     if (_range.__isset.compress_type) {
@@ -472,7 +477,7 @@ Status CsvReader::_deserialize_nullable_string(IColumn& column, Slice& slice) {
             return Status::OK();
         }
     }
-    static DataTypeStringSerDe stringSerDe;
+    static DataTypeStringSerDe stringSerDe(TYPE_STRING);
     auto st = stringSerDe.deserialize_one_cell_from_csv(null_column.get_nested_column(), slice,
                                                         _options);
     if (!st.ok()) {
@@ -553,10 +558,19 @@ Status CsvReader::_create_file_reader(bool need_schema) {
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
         io::FileReaderOptions reader_options =
                 FileFactory::get_reader_options(_state, _file_description);
-        auto file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
-                _profile, _system_properties, _file_description, reader_options,
-                io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
-                io::PrefetchRange(_range.start_offset, _range.start_offset + _range.size)));
+        io::FileReaderSPtr file_reader;
+        if (_io_ctx_holder) {
+            file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                    _profile, _system_properties, _file_description, reader_options,
+                    io::DelegateReader::AccessMode::SEQUENTIAL,
+                    std::static_pointer_cast<const io::IOContext>(_io_ctx_holder),
+                    io::PrefetchRange(_range.start_offset, _range.start_offset + _range.size)));
+        } else {
+            file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                    _profile, _system_properties, _file_description, reader_options,
+                    io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
+                    io::PrefetchRange(_range.start_offset, _range.start_offset + _range.size)));
+        }
         _file_reader = _io_ctx ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
                                                                          _io_ctx->file_reader_stats)
                                : file_reader;
@@ -579,14 +593,13 @@ Status CsvReader::_create_line_reader() {
     } else {
         // in load task, the _file_slot_descs is empty vector, so we need to set col_sep_num to 0
         size_t col_sep_num = _file_slot_descs.size() > 1 ? _file_slot_descs.size() - 1 : 0;
-        text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderCtx>(
+        _enclose_reader_ctx = std::make_shared<EncloseCsvLineReaderCtx>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
                 col_sep_num, _enclose, _escape, _keep_cr);
+        text_line_reader_ctx = _enclose_reader_ctx;
 
         _fields_splitter = std::make_unique<EncloseCsvTextFieldSplitter>(
-                _trim_tailing_spaces, true,
-                std::static_pointer_cast<EncloseCsvLineReaderCtx>(text_line_reader_ctx),
-                _value_separator_length, _enclose);
+                _trim_tailing_spaces, true, _enclose_reader_ctx, _value_separator_length, _enclose);
     }
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
@@ -806,8 +819,15 @@ Status CsvReader::_parse_col_types(size_t col_nums, std::vector<DataTypePtr>* co
 const uint8_t* CsvReader::_remove_bom(const uint8_t* ptr, size_t& size) {
     if (size >= 3 && ptr[0] == 0xEF && ptr[1] == 0xBB && ptr[2] == 0xBF) {
         LOG(INFO) << "remove bom";
-        size -= 3;
-        return ptr + 3;
+        constexpr size_t bom_size = 3;
+        size -= bom_size;
+        // In enclose mode, column_sep_positions were computed on the original line
+        // (including BOM). After shifting the pointer, we must adjust those positions
+        // so they remain correct relative to the new start.
+        if (_enclose_reader_ctx) {
+            _enclose_reader_ctx->adjust_column_sep_positions(bom_size);
+        }
+        return ptr + bom_size;
     }
     return ptr;
 }

@@ -93,7 +93,11 @@ suite("test_streaming_job_alter_offset_restart_fe", "docker") {
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
         assert jobInfo.get(0).get(1) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
-        assert jobInfo.get(0).get(2) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":0,\"fileSize\":0}"
+        def loadStat = parseJson(jobInfo.get(0).get(2))
+        assert loadStat.scannedRows == 10
+        assert loadStat.loadBytes == 218
+        assert loadStat.fileNumber == 1
+        assert loadStat.fileSize == 138
 
         sql """
             PAUSE JOB where jobname =  '${jobName}'
@@ -112,7 +116,11 @@ suite("test_streaming_job_alter_offset_restart_fe", "docker") {
         """
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "{\"fileName\":\"regression/load/data/anoexist1234.csv\"}";
-        assert jobInfo.get(0).get(1) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":0,\"fileSize\":0}"
+        def loadStat1 = parseJson(jobInfo.get(0).get(1))
+        assert loadStat1.scannedRows == 10
+        assert loadStat1.loadBytes == 218
+        assert loadStat1.fileNumber == 1
+        assert loadStat1.fileSize == 138
         assert jobInfo.get(0).get(2) == "{\"offset\":\"{\\\"fileName\\\":\\\"regression/load/data/anoexist1234.csv\\\"}\"}"
 
         // Restart FE
@@ -131,7 +139,11 @@ suite("test_streaming_job_alter_offset_restart_fe", "docker") {
         """
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "{\"fileName\":\"regression/load/data/anoexist1234.csv\"}";
-        assert jobInfo.get(0).get(1) == "{\"scannedRows\":10,\"loadBytes\":218,\"fileNumber\":0,\"fileSize\":0}"
+        def loadStat2 = parseJson(jobInfo.get(0).get(1))
+        assert loadStat2.scannedRows == 10
+        assert loadStat2.loadBytes == 218
+        assert loadStat2.fileNumber == 1
+        assert loadStat2.fileSize == 138
         assert jobInfo.get(0).get(2) == "{\"offset\":\"{\\\"fileName\\\":\\\"regression/load/data/anoexist1234.csv\\\"}\"}"
 
         // resume to check whether consumption will resume
@@ -163,7 +175,11 @@ suite("test_streaming_job_alter_offset_restart_fe", "docker") {
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
         assert jobInfo.get(0).get(1) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
-        assert jobInfo.get(0).get(2) == "{\"scannedRows\":30,\"loadBytes\":643,\"fileNumber\":0,\"fileSize\":0}"
+        def loadStat3 = parseJson(jobInfo.get(0).get(2))
+        assert loadStat3.scannedRows == 30
+        assert loadStat3.loadBytes == 643
+        assert loadStat3.fileNumber == 3
+        assert loadStat3.fileSize == 394
         assert jobInfo.get(0).get(3) == "{\"offset\":\"{\\\"fileName\\\":\\\"regression/load/data/anoexist1234.csv\\\"}\"}"
 
         sql """ DROP JOB IF EXISTS where jobname =  '${jobName}' """

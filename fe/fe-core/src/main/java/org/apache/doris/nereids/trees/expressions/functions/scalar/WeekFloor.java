@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -50,7 +51,12 @@ public class WeekFloor extends ScalarFunction
             FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
             FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(DateV2Type.INSTANCE)
-                    .args(DateV2Type.INSTANCE, IntegerType.INSTANCE, DateV2Type.INSTANCE)
+                    .args(DateV2Type.INSTANCE, IntegerType.INSTANCE, DateV2Type.INSTANCE),
+            FunctionSignature.ret(TimeStampTzType.WILDCARD).args(TimeStampTzType.WILDCARD),
+            FunctionSignature.ret(TimeStampTzType.WILDCARD).args(TimeStampTzType.WILDCARD, TimeStampTzType.WILDCARD),
+            FunctionSignature.ret(TimeStampTzType.WILDCARD).args(TimeStampTzType.WILDCARD, IntegerType.INSTANCE),
+            FunctionSignature.ret(TimeStampTzType.WILDCARD)
+                    .args(TimeStampTzType.WILDCARD, IntegerType.INSTANCE, TimeStampTzType.WILDCARD)
     );
 
     /**

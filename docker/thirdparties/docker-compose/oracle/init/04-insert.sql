@@ -159,4 +159,11 @@ INSERT INTO doris_test.varbinary_test VALUES (1, 'empty', EMPTY_BLOB());
 INSERT INTO doris_test.varbinary_test VALUES (2, 'NULL', NULL);
 INSERT INTO doris_test.varbinary_test VALUES (3, 'normal', HEXTORAW('48656C6C6F20576F726C64'));
 
+
+ALTER SESSION SET TIME_ZONE = '+08:00';
+INSERT INTO doris_test.ltz_test VALUES (1,TIMESTAMP '2025-01-01 12:00:00 +08:00');
+INSERT INTO doris_test.ltz_test VALUES (NULL,NULL);
+ALTER SESSION SET TIME_ZONE = DBTIMEZONE;
+
+
 commit;

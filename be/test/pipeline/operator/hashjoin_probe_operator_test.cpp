@@ -85,7 +85,8 @@ public:
             column.get(i, value);
             ASSERT_EQ(value.get_type(), values[i].get_type())
                     << "row: " << i << " type not match at: " << loc.file_name() << ":"
-                    << loc.line();
+                    << loc.line() << " " << type_to_string(value.get_type()) << " vs "
+                    << type_to_string(values[i].get_type());
             ASSERT_TRUE(value == values[i])
                     << "row: " << i << " value not match at: " << loc.file_name() << ":"
                     << loc.line();
@@ -105,7 +106,8 @@ public:
         }
 
         auto sorted_block = block.clone_empty();
-        sort_block(block, sorted_block, sort_description);
+        HybridSorter hybrid_sorter;
+        sort_block(block, sorted_block, sort_description, hybrid_sorter);
         return sorted_block;
     }
 
@@ -200,8 +202,8 @@ public:
         ASSERT_EQ(sink_operator->should_dry_run(_helper.runtime_state.get()),
                   join_params.is_broadcast_join && !should_build_hash_table);
 
-        ASSERT_EQ(sink_operator->require_data_distribution(), false);
-        ASSERT_EQ(probe_operator->require_data_distribution(), false);
+        ASSERT_EQ(sink_operator->is_colocated_operator(), false);
+        ASSERT_EQ(probe_operator->is_colocated_operator(), false);
         ASSERT_FALSE(sink_operator->is_shuffled_operator());
         ASSERT_FALSE(probe_operator->is_shuffled_operator());
         std::cout << "sink distribution: "
@@ -958,10 +960,10 @@ TEST_F(HashJoinProbeOperatorTest, RightSemiJoinMarkJoin) {
                          vectorized::Field::create_field<TYPE_STRING>("c"),
                          vectorized::Field::create_field<TYPE_STRING>("d"), vectorized::Field()});
     check_column_values(*sorted_block.get_by_position(4).column,
-                        {vectorized::Field::create_field<TYPE_INT>(0), vectorized::Field(),
-                         vectorized::Field::create_field<TYPE_INT>(1),
-                         vectorized::Field::create_field<TYPE_INT>(1),
-                         vectorized::Field::create_field<TYPE_INT>(0)});
+                        {vectorized::Field::create_field<TYPE_BOOLEAN>(0), vectorized::Field(),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(1),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(1),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(0)});
 }
 
 TEST_F(HashJoinProbeOperatorTest, NullAwareLeftAntiJoin) {
@@ -1143,8 +1145,8 @@ TEST_F(HashJoinProbeOperatorTest, NullAwareLeftAntiJoinMark) {
                          vectorized::Field::create_field<TYPE_STRING>("b"),
                          vectorized::Field::create_field<TYPE_STRING>("e")});
     check_column_values(*sorted_block.get_by_position(2).column,
-                        {vectorized::Field(), vectorized::Field::create_field<TYPE_INT>(0),
-                         vectorized::Field::create_field<TYPE_INT>(0), vectorized::Field(),
+                        {vectorized::Field(), vectorized::Field::create_field<TYPE_BOOLEAN>(0),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(0), vectorized::Field(),
                          vectorized::Field()});
 }
 
@@ -1182,8 +1184,8 @@ TEST_F(HashJoinProbeOperatorTest, NullAwareLeftSemiJoinMark) {
                          vectorized::Field::create_field<TYPE_STRING>("b"),
                          vectorized::Field::create_field<TYPE_STRING>("e")});
     check_column_values(*sorted_block.get_by_position(2).column,
-                        {vectorized::Field(), vectorized::Field::create_field<TYPE_INT>(1),
-                         vectorized::Field::create_field<TYPE_INT>(1), vectorized::Field(),
+                        {vectorized::Field(), vectorized::Field::create_field<TYPE_BOOLEAN>(1),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(1), vectorized::Field(),
                          vectorized::Field()});
 }
 
@@ -1220,10 +1222,10 @@ TEST_F(HashJoinProbeOperatorTest, LeftSemiJoinMark) {
                          vectorized::Field::create_field<TYPE_STRING>("b"),
                          vectorized::Field::create_field<TYPE_STRING>("e")});
     check_column_values(*sorted_block.get_by_position(2).column,
-                        {vectorized::Field::create_field<TYPE_INT>(0),
-                         vectorized::Field::create_field<TYPE_INT>(1),
-                         vectorized::Field::create_field<TYPE_INT>(1), vectorized::Field(),
-                         vectorized::Field::create_field<TYPE_INT>(0)});
+                        {vectorized::Field::create_field<TYPE_BOOLEAN>(0),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(1),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(1), vectorized::Field(),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(0)});
 }
 
 TEST_F(HashJoinProbeOperatorTest, LeftAntiJoinMark) {
@@ -1259,10 +1261,10 @@ TEST_F(HashJoinProbeOperatorTest, LeftAntiJoinMark) {
                          vectorized::Field::create_field<TYPE_STRING>("b"),
                          vectorized::Field::create_field<TYPE_STRING>("e")});
     check_column_values(*sorted_block.get_by_position(2).column,
-                        {vectorized::Field::create_field<TYPE_INT>(1),
-                         vectorized::Field::create_field<TYPE_INT>(0),
-                         vectorized::Field::create_field<TYPE_INT>(0), vectorized::Field(),
-                         vectorized::Field::create_field<TYPE_INT>(1)});
+                        {vectorized::Field::create_field<TYPE_BOOLEAN>(1),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(0),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(0), vectorized::Field(),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(1)});
 }
 
 TEST_F(HashJoinProbeOperatorTest, LeftAntiJoinMarkOtherConjuncts) {
@@ -1311,11 +1313,11 @@ TEST_F(HashJoinProbeOperatorTest, LeftAntiJoinMarkOtherConjuncts) {
                          vectorized::Field::create_field<TYPE_INT>(102),
                          vectorized::Field::create_field<TYPE_INT>(99), vectorized::Field()});
     check_column_values(*sorted_block.get_by_position(3).column,
-                        {vectorized::Field::create_field<TYPE_INT>(0),
-                         vectorized::Field::create_field<TYPE_INT>(1),
-                         vectorized::Field::create_field<TYPE_INT>(0),
-                         vectorized::Field::create_field<TYPE_INT>(1),
-                         vectorized::Field::create_field<TYPE_INT>(1)});
+                        {vectorized::Field::create_field<TYPE_BOOLEAN>(0),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(1),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(0),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(1),
+                         vectorized::Field::create_field<TYPE_BOOLEAN>(1)});
 }
 
 } // namespace doris::pipeline

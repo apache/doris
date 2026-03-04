@@ -52,12 +52,15 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -71,6 +74,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -95,7 +99,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     }
 
     public PhysicalProperties getOutputProperties(ConnectContext connectContext, GroupExpression groupExpression) {
-        return groupExpression.getPlan().accept(this, new PlanContext(connectContext, groupExpression));
+        return groupExpression.getPlan().accept(this,
+                new PlanContext(connectContext, groupExpression, Collections.emptyList()));
     }
 
     @Override
@@ -145,6 +150,11 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     @Override
     public PhysicalProperties visitPhysicalFileScan(PhysicalFileScan fileScan, PlanContext context) {
         return PhysicalProperties.STORAGE_ANY;
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalWorkTableReference(PhysicalWorkTableReference cteScan, PlanContext context) {
+        return PhysicalProperties.ANY;
     }
 
     /**
@@ -445,6 +455,55 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         if (childrenDistribution.stream().allMatch(DistributionSpecGather.class::isInstance)) {
             return PhysicalProperties.GATHER;
         }
+
+        // TODO: open comment when support `enable_local_shuffle_planner`
+        // int distributeToChildIndex
+        //         = setOperation.<Integer>getMutableState(PhysicalSetOperation.DISTRIBUTE_TO_CHILD_INDEX).orElse(-1);
+        // if (distributeToChildIndex >= 0
+        //         && childrenDistribution.get(distributeToChildIndex) instanceof DistributionSpecHash) {
+        //     DistributionSpecHash childDistribution
+        //             = (DistributionSpecHash) childrenDistribution.get(distributeToChildIndex);
+        //     List<SlotReference> childToIndex = setOperation.getRegularChildrenOutputs().get(distributeToChildIndex);
+        //     Map<ExprId, Integer> idToOutputIndex = new LinkedHashMap<>();
+        //     for (int j = 0; j < childToIndex.size(); j++) {
+        //         idToOutputIndex.put(childToIndex.get(j).getExprId(), j);
+        //     }
+        //
+        //     List<ExprId> orderedShuffledColumns = childDistribution.getOrderedShuffledColumns();
+        //     List<ExprId> setOperationDistributeColumnIds = new ArrayList<>();
+        //     for (ExprId tableDistributeColumnId : orderedShuffledColumns) {
+        //         Integer index = idToOutputIndex.get(tableDistributeColumnId);
+        //         if (index == null) {
+        //             break;
+        //         }
+        //         setOperationDistributeColumnIds.add(setOperation.getOutput().get(index).getExprId());
+        //     }
+        //     // check whether the set operation output all distribution columns of the child
+        //     if (setOperationDistributeColumnIds.size() == orderedShuffledColumns.size()) {
+        //         boolean isUnion = setOperation instanceof Union;
+        //         boolean shuffleToRight = distributeToChildIndex > 0;
+        //         if (!isUnion && shuffleToRight) {
+        //             return new PhysicalProperties(
+        //                     new DistributionSpecHash(
+        //                             setOperationDistributeColumnIds,
+        //                             ShuffleType.EXECUTION_BUCKETED
+        //                     )
+        //             );
+        //         } else {
+        //             // keep the distribution as the child
+        //             return new PhysicalProperties(
+        //                     new DistributionSpecHash(
+        //                             setOperationDistributeColumnIds,
+        //                             childDistribution.getShuffleType(),
+        //                             childDistribution.getTableId(),
+        //                             childDistribution.getSelectedIndexId(),
+        //                             childDistribution.getPartitionIds()
+        //                     )
+        //             );
+        //         }
+        //     }
+        // }
+
         for (int i = 0; i < childrenDistribution.size(); i++) {
             DistributionSpec childDistribution = childrenDistribution.get(i);
             if (!(childDistribution instanceof DistributionSpecHash)) {
@@ -455,6 +514,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                     return new PhysicalProperties(childDistribution);
                 }
             }
+
             DistributionSpecHash distributionSpecHash = (DistributionSpecHash) childDistribution;
             int[] offsetsOfCurrentChild = new int[distributionSpecHash.getOrderedShuffledColumns().size()];
             for (int j = 0; j < setOperation.getRegularChildOutput(i).size(); j++) {
@@ -482,6 +542,19 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             request.add(setOperation.getOutput().get(offset).getExprId());
         }
         return PhysicalProperties.createHash(request, firstType);
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalRecursiveUnion(
+            PhysicalRecursiveUnion<? extends Plan, ? extends Plan> recursiveCte, PlanContext context) {
+        return PhysicalProperties.GATHER;
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalRecursiveUnionProducer(
+            PhysicalRecursiveUnionProducer<? extends Plan> recursiveChild,
+            PlanContext context) {
+        return PhysicalProperties.MUST_SHUFFLE;
     }
 
     @Override

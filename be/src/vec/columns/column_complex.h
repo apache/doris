@@ -44,7 +44,7 @@ private:
 
 public:
     using Self = ColumnComplexType;
-    using value_type = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using value_type = typename PrimitiveTypeTraits<T>::CppType;
     using Container = std::vector<value_type>;
 
     size_t size() const override { return data.size(); }
@@ -128,7 +128,7 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
 
     void insert(const Field& x) override {
-        const value_type& s = doris::vectorized::get<const value_type&>(x);
+        const value_type& s = x.get<T>();
         data.push_back(s);
     }
 

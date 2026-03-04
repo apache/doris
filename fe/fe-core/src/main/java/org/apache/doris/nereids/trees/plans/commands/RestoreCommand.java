@@ -38,7 +38,6 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Joiner;
@@ -184,7 +183,7 @@ public class RestoreCommand extends Command implements ForwardWithSync {
 
     private void updateTableRefInfos() throws AnalysisException {
         Map<String, TableRefInfo> tblPartsMap;
-        if (GlobalVariable.lowerCaseTableNames == 0) {
+        if (Env.getLowerCaseTableNames(InternalCatalog.INTERNAL_CATALOG_NAME) == 0) {
             // comparisons case sensitive
             tblPartsMap = Maps.newTreeMap();
         } else {

@@ -40,6 +40,7 @@ class IColumn;
 
 class DataTypeDate final : public DataTypeNumberBase<PrimitiveType::TYPE_DATE> {
 public:
+    static constexpr PrimitiveType PType = TYPE_DATE;
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_DATE; }
 
     doris::FieldType get_storage_field_type() const override {
@@ -52,19 +53,18 @@ public:
 /// TODO: remove this in the future
 #ifdef BE_TEST
     using IDataType::to_string;
-    std::string to_string(Int64 int_val) const {
-        doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
+    std::string to_string(VecDateTimeValue value) const {
         char buf[64];
         value.to_string(buf);
         return buf;
     }
 #endif
-    static void cast_to_date(Int64& x);
+    static void cast_to_date(VecDateTimeValue& x);
     Field get_field(const TExprNode& node) const override {
         VecDateTimeValue value;
         if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size())) {
             value.cast_to_date();
-            return Field::create_field<TYPE_DATE>(Int64(*reinterpret_cast<__int64_t*>(&value)));
+            return Field::create_field<TYPE_DATE>(std::move(value));
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Invalid value: {} for type Date", node.date_literal.value);

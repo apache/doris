@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_branch_insert_data", "p0,external,doris,external_docker,external_docker_doris") {
+suite("iceberg_branch_insert_data", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable iceberg test.")
@@ -45,7 +45,6 @@ suite("iceberg_branch_insert_data", "p0,external,doris,external_docker,external_
 
     String tmp_tb1 = catalog_name + "_tmp_tb1"
     String tmp_tb2 = catalog_name + "_tmp_tb2"
-
     // create an unpartitioned table
     sql """ drop table if exists ${tmp_tb1} """
     sql """ create table ${tmp_tb1} (id int, par string) """

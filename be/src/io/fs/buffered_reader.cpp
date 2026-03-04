@@ -635,9 +635,14 @@ void PrefetchBuffer::_collect_profile_before_close() {
 
 // buffered reader
 PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
-                                               PrefetchRange file_range, const IOContext* io_ctx,
+                                               PrefetchRange file_range,
+                                               std::shared_ptr<const IOContext> io_ctx,
                                                int64_t buffer_size)
-        : _reader(std::move(reader)), _file_range(file_range), _io_ctx(io_ctx) {
+        : _reader(std::move(reader)), _file_range(file_range), _io_ctx_holder(std::move(io_ctx)) {
+    if (_io_ctx_holder == nullptr) {
+        _io_ctx_holder = std::make_shared<IOContext>();
+    }
+    _io_ctx = _io_ctx_holder.get();
     if (buffer_size == -1L) {
         buffer_size = config::remote_storage_read_buffer_mb * 1024 * 1024;
     }
@@ -674,8 +679,8 @@ PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::File
     // to make sure the buffer reader will start to read at right position.
     for (int i = 0; i < buffer_num; i++) {
         _pre_buffers.emplace_back(std::make_shared<PrefetchBuffer>(
-                _file_range, s_max_pre_buffer_size, _whole_pre_buffer_size, _reader.get(), _io_ctx,
-                sync_buffer));
+                _file_range, s_max_pre_buffer_size, _whole_pre_buffer_size, _reader.get(),
+                _io_ctx_holder, sync_buffer));
     }
 }
 
@@ -845,6 +850,23 @@ Result<io::FileReaderSPtr> DelegateReader::create_file_reader(
         RuntimeProfile* profile, const FileSystemProperties& system_properties,
         const FileDescription& file_description, const io::FileReaderOptions& reader_options,
         AccessMode access_mode, const IOContext* io_ctx, const PrefetchRange file_range) {
+    std::shared_ptr<const IOContext> io_ctx_holder;
+    if (io_ctx != nullptr) {
+        // Old API: best-effort safety by copying the IOContext onto the heap.
+        io_ctx_holder = std::make_shared<IOContext>(*io_ctx);
+    }
+    return create_file_reader(profile, system_properties, file_description, reader_options,
+                              access_mode, std::move(io_ctx_holder), file_range);
+}
+
+Result<io::FileReaderSPtr> DelegateReader::create_file_reader(
+        RuntimeProfile* profile, const FileSystemProperties& system_properties,
+        const FileDescription& file_description, const io::FileReaderOptions& reader_options,
+        AccessMode access_mode, std::shared_ptr<const IOContext> io_ctx,
+        const PrefetchRange file_range) {
+    if (io_ctx == nullptr) {
+        io_ctx = std::make_shared<IOContext>();
+    }
     return FileFactory::create_file_reader(system_properties, file_description, reader_options,
                                            profile)
             .transform([&](auto&& reader) -> io::FileReaderSPtr {

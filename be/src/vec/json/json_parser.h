@@ -49,8 +49,9 @@ Field getValueAsField(const Element& element) {
         return Field::create_field<TYPE_BIGINT>(element.getInt64());
     }
     // doris only support signed integers at present
+    // use largeint to store unsigned int64
     if (element.isUInt64()) {
-        return Field::create_field<TYPE_BIGINT>(element.getInt64());
+        return Field::create_field<TYPE_LARGEINT>(static_cast<int128_t>(element.getUInt64()));
     }
     if (element.isDouble()) {
         return Field::create_field<TYPE_DOUBLE>(element.getDouble());
@@ -76,8 +77,9 @@ void writeValueAsJsonb(const Element& element, JsonbWriter& writer) {
         return;
     }
     // doris only support signed integers at present
+    // use largeint to store unsigned int64
     if (element.isUInt64()) {
-        writer.writeInt64(element.getInt64());
+        writer.writeInt128(static_cast<int128_t>(element.getUInt64()));
         return;
     }
     if (element.isDouble()) {
@@ -97,33 +99,13 @@ void writeValueAsJsonb(const Element& element, JsonbWriter& writer) {
     }
 }
 
-template <typename Element>
-std::string castValueAsString(const Element& element) {
-    if (element.isBool()) {
-        return element.getBool() ? "1" : "0";
-    }
-    if (element.isInt64()) {
-        return std::to_string(element.getInt64());
-    }
-    if (element.isUInt64()) {
-        return std::to_string(element.getUInt64());
-    }
-    if (element.isDouble()) {
-        return std::to_string(element.getDouble());
-    }
-    if (element.isNull()) {
-        return "";
-    }
-    return "";
-}
-
-enum class ExtractType {
-    ToString = 0,
-    // ...
-};
-
 struct ParseConfig {
     bool enable_flatten_nested = false;
+    enum class ParseTo {
+        OnlySubcolumns = 0,
+        OnlyDocValueColumn = 1,
+    };
+    ParseTo parse_to = ParseTo::OnlySubcolumns;
 };
 /// Result of parsing of a document.
 /// Contains all paths extracted from document

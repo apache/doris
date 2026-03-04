@@ -68,10 +68,27 @@ public class DNSCache {
      * @return The IP address for the given hostname, or an empty string if the hostname cannot be resolved.
      */
     private String resolveHostname(String hostname) {
+        String cachedIp = cache.get(hostname);
         try {
-            return NetUtils.getIpByHost(hostname, 0);
+            String ip = NetUtils.getIpByHost(hostname, 0);
+            if (ip == null || ip.isEmpty()) {
+                if (cachedIp != null && !cachedIp.isEmpty()) {
+                    LOG.warn("Failed to resolve hostname {}, use cached ip: {}", hostname, cachedIp);
+                    return cachedIp;
+                } else {
+                    LOG.warn("Failed to resolve hostname {}, no cached ip available", hostname);
+                    return "";
+                }
+            }
+            return ip;
         } catch (UnknownHostException e) {
-            return "";
+            if (cachedIp != null && !cachedIp.isEmpty()) {
+                LOG.warn("Failed to resolve hostname {}, use cached ip: {}", hostname, cachedIp);
+                return cachedIp;
+            } else {
+                LOG.warn("Failed to resolve hostname {}, no cached ip available", hostname);
+                return "";
+            }
         }
     }
 

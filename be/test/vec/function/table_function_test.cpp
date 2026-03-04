@@ -107,14 +107,15 @@ TEST_F(TableFunctionTest, vexplode_outer) {
     // explode_outer(Array<Decimal>)
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2};
-        TestArray vec = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67)};
+        TestArray vec = {ut_type::DECIMALV2VALUEFROMDOUBLE(17014116.67),
+                         ut_type::DECIMALV2VALUEFROMDOUBLE(-17014116.67)};
         InputDataSet input_set = {{Null()}, {AnyType {TestArray {}}}, {AnyType {vec}}};
 
         InputTypeSet output_types = {PrimitiveType::TYPE_DECIMALV2};
         InputDataSet output_set = {{Null()},
                                    {Null()},
-                                   {ut_type::DECIMALV2(17014116.67)},
-                                   {ut_type::DECIMALV2(-17014116.67)}};
+                                   {ut_type::DECIMALV2VALUEFROMDOUBLE(17014116.67)},
+                                   {ut_type::DECIMALV2VALUEFROMDOUBLE(-17014116.67)}};
 
         check_vec_table_function(&explode_outer, input_types, input_set, output_types, output_set);
     }
@@ -157,15 +158,16 @@ TEST_F(TableFunctionTest, vexplode_outer_v2) {
     // // explode_outer(Array<Decimal>)
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2};
-        TestArray vec = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67)};
+        TestArray vec = {ut_type::DECIMALV2VALUEFROMDOUBLE(17014116.67),
+                         ut_type::DECIMALV2VALUEFROMDOUBLE(-17014116.67)};
         InputDataSet input_set = {{Null()}, {AnyType {TestArray {}}}, {AnyType {vec}}};
 
         InputTypeSet output_types = {PrimitiveType::TYPE_DECIMALV2};
 
         InputDataSet output_set = {{Null()},
                                    {Null()},
-                                   {ut_type::DECIMALV2(17014116.67)},
-                                   {ut_type::DECIMALV2(-17014116.67)}};
+                                   {ut_type::DECIMALV2VALUEFROMDOUBLE(17014116.67)},
+                                   {ut_type::DECIMALV2VALUEFROMDOUBLE(-17014116.67)}};
 
         check_vec_table_function(&explode_outer, input_types, input_set, output_types, output_set);
     }

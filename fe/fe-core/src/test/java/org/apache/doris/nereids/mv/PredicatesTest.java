@@ -20,7 +20,6 @@ package org.apache.doris.nereids.mv;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.ComparisonResult;
 import org.apache.doris.nereids.rules.exploration.mv.HyperGraphComparator;
-import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.ExpressionInfo;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
@@ -34,7 +33,6 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.BitSet;
 import java.util.Map;
 
 /** Test the method in Predicates*/
@@ -107,10 +105,8 @@ public class PredicatesTest extends SqlTestBase {
                 .rewrite()
                 .getAllPlan().get(0).child(0);
 
-        StructInfo mvStructInfo = MaterializedViewUtils.extractStructInfo(mvPlan, mvPlan,
-                mvContext, new BitSet()).get(0);
-        StructInfo queryStructInfo = MaterializedViewUtils.extractStructInfo(queryPlan, queryPlan,
-                queryContext, new BitSet()).get(0);
+        StructInfo mvStructInfo = StructInfo.of(mvPlan, mvPlan, mvContext);
+        StructInfo queryStructInfo = StructInfo.of(queryPlan, queryPlan, queryContext);
         RelationMapping relationMapping = RelationMapping.generate(mvStructInfo.getRelations(),
                         queryStructInfo.getRelations(), 16).get(0);
 
@@ -163,10 +159,8 @@ public class PredicatesTest extends SqlTestBase {
                 .rewrite()
                 .getAllPlan().get(0).child(0);
 
-        StructInfo mvStructInfo = MaterializedViewUtils.extractStructInfo(mvPlan, mvPlan,
-                mvContext, new BitSet()).get(0);
-        StructInfo queryStructInfo = MaterializedViewUtils.extractStructInfo(queryPlan, queryPlan,
-                queryContext, new BitSet()).get(0);
+        StructInfo mvStructInfo = StructInfo.of(mvPlan, mvPlan, mvContext);
+        StructInfo queryStructInfo = StructInfo.of(queryPlan, queryPlan, queryContext);
         RelationMapping relationMapping = RelationMapping.generate(mvStructInfo.getRelations(),
                 queryStructInfo.getRelations(), 16).get(0);
 

@@ -7,7 +7,7 @@ bigint_col	bigint	Yes	false	\N	NONE
 real_col	float	Yes	false	\N	NONE
 double_col	double	Yes	false	\N	NONE
 numeric_col	decimal(20,6)	Yes	false	\N	NONE
-char_col	char(10)	Yes	false	\N	NONE
+char_col	char(30)	Yes	false	\N	NONE
 varchar_col	text	Yes	false	\N	NONE
 text_col	text	Yes	false	\N	NONE
 boolean_col	boolean	Yes	false	\N	NONE

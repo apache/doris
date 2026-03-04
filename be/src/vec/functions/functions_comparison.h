@@ -94,8 +94,6 @@ struct NumComparisonImpl {
     static void constant_vector(A a, const PaddedPODArray<B>& b, PaddedPODArray<UInt8>& c) {
         NumComparisonImpl<B, A, typename Op::SymmetricOp>::vector_constant(b, a, c);
     }
-
-    static void constant_constant(A a, B b, UInt8& c) { c = Op::apply(a, b); }
 };
 
 /// Generic version, implemented for columns of same type.
@@ -116,10 +114,6 @@ struct GenericComparisonImpl {
 
     static void constant_vector(const IColumn& a, const IColumn& b, PaddedPODArray<UInt8>& c) {
         GenericComparisonImpl<typename Op::SymmetricOp>::vector_constant(b, a, c);
-    }
-
-    static void constant_constant(const IColumn& a, const IColumn& b, UInt8& c) {
-        c = Op::apply(a.compare_at(0, 0, b, 1), 0);
     }
 };
 
@@ -272,6 +266,8 @@ public:
 
     FunctionComparison() = default;
 
+    double execute_cost() const override { return 0.5; }
+
 private:
     template <PrimitiveType PT>
     Status execute_num_type(Block& block, uint32_t result, const ColumnPtr& col_left_ptr,
@@ -289,8 +285,8 @@ private:
 
             ColumnUInt8::Container& vec_res = col_res->get_data();
             vec_res.resize(col_left->get_data().size());
-            NumComparisonImpl<typename PrimitiveTypeTraits<PT>::ColumnItemType,
-                              typename PrimitiveTypeTraits<PT>::ColumnItemType,
+            NumComparisonImpl<typename PrimitiveTypeTraits<PT>::CppType,
+                              typename PrimitiveTypeTraits<PT>::CppType,
                               Op<PT>>::vector_vector(col_left->get_data(), col_right->get_data(),
                                                      vec_res);
 
@@ -300,8 +296,8 @@ private:
 
             ColumnUInt8::Container& vec_res = col_res->get_data();
             vec_res.resize(col_left->size());
-            NumComparisonImpl<typename PrimitiveTypeTraits<PT>::ColumnItemType,
-                              typename PrimitiveTypeTraits<PT>::ColumnItemType,
+            NumComparisonImpl<typename PrimitiveTypeTraits<PT>::CppType,
+                              typename PrimitiveTypeTraits<PT>::CppType,
                               Op<PT>>::vector_constant(col_left->get_data(),
                                                        col_right->get_element(0), vec_res);
 
@@ -311,8 +307,8 @@ private:
 
             ColumnUInt8::Container& vec_res = col_res->get_data();
             vec_res.resize(col_right->size());
-            NumComparisonImpl<typename PrimitiveTypeTraits<PT>::ColumnItemType,
-                              typename PrimitiveTypeTraits<PT>::ColumnItemType,
+            NumComparisonImpl<typename PrimitiveTypeTraits<PT>::CppType,
+                              typename PrimitiveTypeTraits<PT>::CppType,
                               Op<PT>>::constant_vector(col_left->get_element(0),
                                                        col_right->get_data(), vec_res);
 
@@ -488,6 +484,9 @@ public:
         }
         Field param_value;
         arguments[0].column->get(0, param_value);
+        if (param_value.is_null()) {
+            return Status::OK();
+        }
         auto param_type = arguments[0].type->get_primitive_type();
         std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(

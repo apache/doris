@@ -35,6 +35,7 @@ import org.apache.doris.nereids.rules.expression.rules.SimplifyConflictCompound;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyInPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
 import org.apache.doris.nereids.rules.expression.rules.SimplifySelfComparison;
+import org.apache.doris.nereids.rules.expression.rules.SimplifyTimeFieldFromUnixtime;
 import org.apache.doris.nereids.rules.expression.rules.TopnToMax;
 
 import com.google.common.collect.ImmutableList;
@@ -56,6 +57,7 @@ public class ExpressionOptimization extends ExpressionRewrite {
                     // compound predicates
                     SimplifyRange.INSTANCE,
                     SimplifyConflictCompound.INSTANCE,
+                    SimplifyTimeFieldFromUnixtime.INSTANCE,
                     DistinctPredicatesRule.INSTANCE,
                     ExtractCommonFactorRule.INSTANCE,
 

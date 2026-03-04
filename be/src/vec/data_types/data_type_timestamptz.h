@@ -51,9 +51,7 @@ public:
         return std::make_shared<DataTypeTimeStampTzSerDe>(_scale, nesting_level);
     };
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_TIMESTAMPTZ; }
-    const std::string get_family_name() const override {
-        return "TimeStampTz(" + std::to_string(_scale) + ")";
-    }
+    const std::string get_family_name() const override { return "TimeStampTz"; }
     std::string do_get_name() const override {
         return "TimeStampTz(" + std::to_string(_scale) + ")";
     }

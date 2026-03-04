@@ -132,7 +132,7 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
         Function<ScanNode, Map<Integer, Long>> bucketBytesSupplier = bucketBytesSupplier();
         // all are olap scan nodes
         if (!scanNodes.isEmpty() && scanNodes.size() == olapScanNodes.size()) {
-            if (olapScanNodes.size() == 1 && fragment.hasBucketShuffleJoin()) {
+            if (olapScanNodes.size() == 1 && fragment.hasBucketShuffleNode()) {
                 return selectForBucket(
                         unassignedJob, scanNodes, bucketScanRangeSupplier,
                         bucketBytesSupplier, orderedScanRangeLocations
@@ -148,7 +148,7 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
                     unassignedJob, scanNodes, bucketScanRangeSupplier, bucketBytesSupplier, orderedScanRangeLocations);
         }
         throw new IllegalStateException(
-                "Illegal bucket shuffle join or colocate join in fragment:\n"
+                "Illegal bucket shuffle or colocate join in fragment:\n"
                         + fragment.getExplainString(TExplainLevel.VERBOSE)
         );
     }

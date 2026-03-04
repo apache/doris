@@ -33,7 +33,7 @@ CONF_String(fdb_cluster_file_path, "./conf/fdb.cluster");
 CONF_Bool(enable_fdb_external_client_directory, "true");
 // The directory path of external foundationdb client library.
 // eg: /path/to/dir1:/path/to/dir2:...
-CONF_String(fdb_external_client_directory, "");
+CONF_String(fdb_external_client_directory, "./lib/fdb/7.3.69/");
 CONF_String(http_token, "greedisgood9999");
 // use volatile mem kv for test. MUST NOT be `true` in production environment.
 CONF_Bool(use_mem_kv, "false");
@@ -87,7 +87,7 @@ CONF_mInt64(packed_file_correction_delay_seconds,
             "259200"); // seconds to wait before correcting packed files
 CONF_Int32(recycle_concurrency, "16");
 CONF_mInt32(recycle_job_lease_expired_ms, "60000");
-CONF_mInt64(compacted_rowset_retention_seconds, "1800");   // 0.5h
+CONF_mInt64(compacted_rowset_retention_seconds, "10800");  // 3h
 CONF_mInt64(dropped_index_retention_seconds, "10800");     // 3h
 CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 // Which instance should be recycled. If empty, recycle all instances.
@@ -245,6 +245,10 @@ CONF_Int32(txn_store_retry_base_intervals_ms, "500");
 CONF_Bool(enable_retry_txn_conflict, "true");
 
 CONF_mBool(enable_s3_rate_limiter, "false");
+// Fault injection: randomly return rate limit error for PUT (delete) operations, for testing recycler.
+// s3_rate_limit_inject_probility is the probability (0-100) of injecting a rate limit error.
+CONF_mBool(enable_s3_rate_limit_inject, "false");
+CONF_mInt32(s3_rate_limit_inject_probility, "30");
 CONF_mInt64(s3_get_bucket_tokens, "1000000000000000000");
 CONF_Validator(s3_get_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
 
@@ -272,6 +276,10 @@ CONF_mBool(enable_distinguish_hdfs_path, "true");
 CONF_mBool(enable_load_txn_status_check, "true");
 
 CONF_mBool(enable_tablet_job_check, "true");
+
+CONF_mBool(enable_recycle_delete_rowset_key_check, "true");
+CONF_mBool(enable_mark_delete_rowset_before_recycle, "true");
+CONF_mBool(enable_abort_txn_and_job_for_delete_rowset_before_recycle, "true");
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -316,6 +324,10 @@ CONF_Int32(parallel_txn_lazy_commit_num_threads, "0"); // hardware concurrency i
 CONF_mInt64(txn_lazy_max_rowsets_per_batch, "1000");
 CONF_mBool(txn_lazy_commit_shuffle_partitions, "true");
 CONF_Int64(txn_lazy_commit_shuffle_seed, "0"); // 0 means generate a random seed
+// WARNING: All meta-servers MUST be upgraded before changing this to true.
+// When enabled, defer deleting pending delete bitmaps until lazy commit completes.
+// This reduces contention during transaction commit by extending delete bitmap locks.
+CONF_mBool(txn_lazy_commit_defer_deleting_pending_delete_bitmaps, "false");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 CONF_Int32(max_restore_job_rowsets_per_batch, "1000");
@@ -379,7 +391,7 @@ CONF_mString(ca_cert_file_paths,
              "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
              "/etc/ssl/ca-bundle.pem");
 
-CONF_Bool(enable_split_rowset_meta_pb, "false");
+CONF_Bool(enable_split_rowset_meta_pb, "true");
 CONF_Int32(split_rowset_meta_pb_size, "10000"); // split rowset meta pb size, default is 10K
 CONF_Bool(enable_split_tablet_schema_pb, "false");
 CONF_Int32(split_tablet_schema_pb_size, "10000"); // split tablet schema pb size, default is 10K

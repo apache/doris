@@ -50,10 +50,11 @@ public:
 
     std::shared_ptr<IDataType> type;
     DataTypeSerDeSPtr serder;
+    MockRuntimeState _state;
 };
 
 TEST_F(DataTypeTimeStampTzTest, test_normal) {
-    EXPECT_EQ(type->get_family_name(), "TimeStampTz(6)");
+    EXPECT_EQ(type->get_family_name(), "TimeStampTz");
     EXPECT_EQ(type->get_primitive_type(), PrimitiveType::TYPE_TIMESTAMPTZ);
     EXPECT_EQ(type->get_scale(), 6);
 
@@ -75,7 +76,7 @@ TEST_F(DataTypeTimeStampTzTest, test_serder) {
         EXPECT_TRUE(serder->from_string(str, *column, options).ok());
         EXPECT_EQ(column->size(), 1);
         auto& col_data = assert_cast<ColumnTimeStampTz&>(*column);
-        EXPECT_EQ(col_data.get_data()[0], 142430890880925696);
+        EXPECT_EQ(col_data.get_data()[0].to_date_int_val(), 142430890880925696);
     }
 
     {
@@ -90,7 +91,7 @@ TEST_F(DataTypeTimeStampTzTest, test_serder) {
         EXPECT_TRUE(serder->from_string_strict_mode(str, *column, options).ok());
         EXPECT_EQ(column->size(), 1);
         auto& col_data = assert_cast<ColumnTimeStampTz&>(*column);
-        EXPECT_EQ(col_data.get_data()[0], 142430890880925696);
+        EXPECT_EQ(col_data.get_data()[0].to_date_int_val(), 142430890880925696);
     }
 
     {
@@ -129,19 +130,19 @@ TEST_F(DataTypeTimeStampTzTest, test_sort) {
             MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeTimeStampTz>());
 
     sorter = FullSorter::create_unique(sort_exec_exprs, 3, 3, &pool, is_asc_order, nulls_first,
-                                       *row_desc, nullptr, nullptr);
+                                       *row_desc, &_state, nullptr);
     sorter->init_profile(&_profile);
     {
         Block block = ColumnHelper::create_block<DataTypeTimeStampTz>(
-                {make_datetime(2024, 1, 1, 4, 0, 0, 0), make_datetime(2023, 1, 1, 4, 0, 0, 0),
-                 make_datetime(2021, 1, 1, 4, 0, 0, 0)});
+                {make_timestamptz(2024, 1, 1, 4, 0, 0, 0), make_timestamptz(2023, 1, 1, 4, 0, 0, 0),
+                 make_timestamptz(2021, 1, 1, 4, 0, 0, 0)});
         EXPECT_TRUE(sorter->append_block(&block).ok());
     }
 
     {
         Block block = ColumnHelper::create_block<DataTypeTimeStampTz>(
-                {make_datetime(2022, 1, 1, 4, 0, 0, 0), make_datetime(2055, 1, 1, 4, 0, 0, 0),
-                 make_datetime(2021, 1, 4, 4, 0, 0, 0)});
+                {make_timestamptz(2022, 1, 1, 4, 0, 0, 0), make_timestamptz(2055, 1, 1, 4, 0, 0, 0),
+                 make_timestamptz(2021, 1, 4, 4, 0, 0, 0)});
         EXPECT_TRUE(sorter->append_block(&block).ok());
     }
 
@@ -176,9 +177,9 @@ TEST_F(DataTypeTimeStampTzTest, test_sort) {
     const auto* result_column =
             assert_cast<const ColumnTimeStampTz*>(result_block.get_by_position(0).column.get());
 
-    EXPECT_EQ(result_column->get_element(0), make_datetime(2023, 1, 1, 4, 0, 0, 0));
-    EXPECT_EQ(result_column->get_element(1), make_datetime(2024, 1, 1, 4, 0, 0, 0));
-    EXPECT_EQ(result_column->get_element(2), make_datetime(2055, 1, 1, 4, 0, 0, 0));
+    EXPECT_EQ(result_column->get_element(0), make_timestamptz(2023, 1, 1, 4, 0, 0, 0));
+    EXPECT_EQ(result_column->get_element(1), make_timestamptz(2024, 1, 1, 4, 0, 0, 0));
+    EXPECT_EQ(result_column->get_element(2), make_timestamptz(2055, 1, 1, 4, 0, 0, 0));
 }
 
 } // namespace doris::vectorized

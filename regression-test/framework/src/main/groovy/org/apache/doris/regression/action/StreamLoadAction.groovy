@@ -285,40 +285,49 @@ class StreamLoadAction implements SuiteAction {
 
     @Override
     void run() {
-        String responseText = null
-        Throwable ex = null
-        long startTime = System.currentTimeMillis()
-        def isHttpStream = headers.containsKey("version")
-        def httpType = enableTLS ? "https" : "http"
         try {
-            def uri = ""
-            if (isHttpStream) {
-                uri = "${httpType}://${address.hostString}:${address.port}/api/_http_stream"
-            } else if (twoPhaseCommit) {
-                uri = "${httpType}://${address.hostString}:${address.port}/api/${db}/_stream_load_2pc"
-            } else {
-                uri = "${httpType}://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
-            }
-
-            buildHttpClient().withCloseable { client ->
-                RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
-                HttpEntity httpEntity = prepareHttpEntity(client)
-                if (!directToBe) {
-                    String beLocation = streamLoadToFe(client, requestBuilder)
-                    log.info("Redirect stream load to ${beLocation}".toString())
-                    requestBuilder.setUri(beLocation)
+            String responseText = null
+            Throwable ex = null
+            long startTime = System.currentTimeMillis()
+            def isHttpStream = headers.containsKey("version")
+            def httpType = enableTLS ? "https" : "http"
+            try {
+                def uri = ""
+                if (isHttpStream) {
+                    uri = "${httpType}://${address.hostString}:${address.port}/api/_http_stream"
+                } else if (twoPhaseCommit) {
+                    uri = "${httpType}://${address.hostString}:${address.port}/api/${db}/_stream_load_2pc"
+                } else {
+                    uri = "${httpType}://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
                 }
-                requestBuilder.setEntity(httpEntity)
-                responseText = streamLoadToBe(client, requestBuilder)
-            }
-        } catch (Throwable t) {
-            ex = t
-        }
-        long endTime = System.currentTimeMillis()
 
-        log.info("Stream load elapsed ${endTime - startTime} ms, is http stream: ${isHttpStream}, " +
-                " response: ${responseText}" + ex.toString())
-        checkResult(isHttpStream, responseText, ex, startTime, System.currentTimeMillis())
+                buildHttpClient().withCloseable { client ->
+                    RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
+                    HttpEntity httpEntity = prepareHttpEntity(client)
+                    if (!directToBe) {
+                        String beLocation = streamLoadToFe(client, requestBuilder)
+                        log.info("Redirect stream load to ${beLocation}".toString())
+                        requestBuilder.setUri(beLocation)
+                    }
+                    requestBuilder.setEntity(httpEntity)
+                    responseText = streamLoadToBe(client, requestBuilder)
+                }
+            } catch (Throwable t) {
+                ex = t
+            }
+            long endTime = System.currentTimeMillis()
+
+            log.info("Stream load elapsed ${endTime - startTime} ms, is http stream: ${isHttpStream}, " +
+                    " response: ${responseText}" + ex.toString())
+            checkResult(isHttpStream, responseText, ex, startTime, System.currentTimeMillis())
+        } finally {
+            // the multiple frontends environment may not see the newest data, so we should sync after stream load
+            try {
+                JdbcUtils.executeToList(context.getConn(), "sync")
+            } catch (Throwable t2) {
+                log.warn("Execute sync failed", t2)
+            }
+        }
     }
 
     private CloseableHttpClient buildHttpClient() {
@@ -575,10 +584,10 @@ class StreamLoadAction implements SuiteAction {
                  long elapsed = endTime - startTime
                  try {
                      // stream load may cost more time than expected in regression test, because of case run in parallel.
-                     // So we allow stream load cost more time, use 4 * time as threshold.
-                     Assert.assertTrue("Stream load Expect elapsed <= 4 * ${time}, but meet ${elapsed}", elapsed <= 4 * time)
+                     // So we allow stream load cost more time, use 20 * time as threshold.
+                     Assert.assertTrue("Stream load Expect elapsed <= 20 * ${time}, but meet ${elapsed}", elapsed <= 20 * time)
                  } catch (Throwable t) {
-                     throw new IllegalStateException("Stream load Expect elapsed <= 4 * ${time}, but meet ${elapsed}")
+                     throw new IllegalStateException("Stream load Expect elapsed <= 20 * ${time}, but meet ${elapsed}")
                  }
             }
         }

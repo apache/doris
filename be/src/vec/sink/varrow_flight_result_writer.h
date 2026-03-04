@@ -35,7 +35,8 @@ class GetArrowResultBatchCtx {
 public:
     using ResultType = vectorized::Block;
     ENABLE_FACTORY_CREATOR(GetArrowResultBatchCtx)
-    GetArrowResultBatchCtx(PFetchArrowDataResult* result) : _result(result) {}
+    GetArrowResultBatchCtx(PFetchArrowDataResult* result, google::protobuf::Closure* done)
+            : _result(result), _done(done) {}
 #ifdef BE_TEST
     GetArrowResultBatchCtx() = default;
 #endif
@@ -53,6 +54,7 @@ private:
     int32_t _max_msg_size = std::numeric_limits<int32_t>::max();
 #endif
     PFetchArrowDataResult* _result = nullptr;
+    google::protobuf::Closure* _done = nullptr;
 };
 
 class ArrowFlightResultBlockBuffer final : public ResultBlockBuffer<GetArrowResultBatchCtx> {

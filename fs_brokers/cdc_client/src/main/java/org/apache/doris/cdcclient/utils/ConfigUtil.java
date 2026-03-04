@@ -21,6 +21,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.time.ZoneId;
 import java.util.Map;
+import java.util.Properties;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -91,6 +92,12 @@ public class ConfigUtil {
             }
         }
         return ZoneId.systemDefault();
+    }
+
+    /** Optimized debezium parameters */
+    public static Properties getDefaultDebeziumProps() {
+        Properties properties = new Properties();
+        return properties;
     }
 
     public static boolean is13Timestamp(String s) {

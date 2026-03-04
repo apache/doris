@@ -3020,3 +3020,14 @@ insert into catalog_pg_test.extreme_test_multi_block select * from catalog_pg_te
 insert into catalog_pg_test.extreme_test_multi_block select * from catalog_pg_test.extreme_test_multi_block;
 insert into catalog_pg_test.extreme_test_multi_block select * from catalog_pg_test.extreme_test_multi_block;
 insert into catalog_pg_test.extreme_test_multi_block select * from catalog_pg_test.extreme_test;
+
+
+SET TIME ZONE 'Asia/Shanghai';
+INSERT INTO test_timestamp_tz_db.ts_test VALUES (1,'2025-01-01 12:00:00+08','2025-01-01 12:00:00');
+INSERT INTO test_timestamp_tz_db.ts_test VALUES (2,NULL,NULL);
+SET TIME ZONE DEFAULT;
+
+-- Test data for array null handling (first row has NULL arrays, second has data)
+INSERT INTO catalog_pg_test.test_array_null VALUES (1, NULL, NULL, NULL);
+INSERT INTO catalog_pg_test.test_array_null VALUES (2, ARRAY['hello', 'world'], ARRAY[1, 2, 3], ARRAY['a', 'b']);
+INSERT INTO catalog_pg_test.test_array_null VALUES (3, ARRAY['foo', NULL], ARRAY[NULL, 4], ARRAY[NULL, 'c']);

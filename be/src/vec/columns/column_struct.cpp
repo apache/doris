@@ -62,6 +62,7 @@ ColumnStruct::ColumnStruct(MutableColumns&& mutable_columns) {
         }
         columns.push_back(std::move(column));
     }
+    check_const_only_in_top_level();
 }
 
 ColumnStruct::MutablePtr ColumnStruct::create(const Columns& columns) {
@@ -109,7 +110,7 @@ void ColumnStruct::get(size_t n, Field& res) const {
     const size_t tuple_size = columns.size();
 
     res = Field::create_field<TYPE_STRUCT>(Tuple());
-    Tuple& res_tuple = res.get<Tuple&>();
+    auto& res_tuple = res.get<TYPE_STRUCT>();
     res_tuple.reserve(tuple_size);
 
     for (size_t i = 0; i < tuple_size; ++i) {
@@ -119,7 +120,7 @@ void ColumnStruct::get(size_t n, Field& res) const {
 
 void ColumnStruct::insert(const Field& x) {
     DCHECK_EQ(x.get_type(), PrimitiveType::TYPE_STRUCT);
-    const auto& tuple = x.get<const Tuple&>();
+    const auto& tuple = x.get<TYPE_STRUCT>();
     const size_t tuple_size = columns.size();
     if (tuple.size() != tuple_size) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
@@ -428,7 +429,7 @@ struct ColumnStruct::less {
 };
 
 void ColumnStruct::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
-                                   IColumn::Permutation& res) const {
+                                   HybridSorter& sorter, IColumn::Permutation& res) const {
     size_t s = size();
     res.resize(s);
     for (size_t i = 0; i < s; ++i) {
@@ -436,9 +437,9 @@ void ColumnStruct::get_permutation(bool reverse, size_t limit, int nan_direction
     }
 
     if (reverse) {
-        pdqsort(res.begin(), res.end(), ColumnStruct::less<false>(*this, nan_direction_hint));
+        sorter.sort(res.begin(), res.end(), ColumnStruct::less<false>(*this, nan_direction_hint));
     } else {
-        pdqsort(res.begin(), res.end(), ColumnStruct::less<true>(*this, nan_direction_hint));
+        sorter.sort(res.begin(), res.end(), ColumnStruct::less<true>(*this, nan_direction_hint));
     }
 }
 

@@ -453,10 +453,12 @@ Status DataTypeArraySerDe::from_string(StringRef& str, IColumn& column,
                                        const FormatOptions& options) const {
     return _from_string<false>(str, column, options);
 }
+
 Status DataTypeArraySerDe::from_string_strict_mode(StringRef& str, IColumn& column,
                                                    const FormatOptions& options) const {
     return _from_string<true>(str, column, options);
 }
+
 void DataTypeArraySerDe::write_one_cell_to_binary(const IColumn& src_column,
                                                   ColumnString::Chars& chars,
                                                   int64_t row_num) const {
@@ -505,7 +507,7 @@ const uint8_t* DataTypeArraySerDe::deserialize_binary_to_field(const uint8_t* da
     data += sizeof(size_t);
     field = Field::create_field<TYPE_ARRAY>(Array(nested_size));
     info.num_dimensions++;
-    auto& array = field.get<Array>();
+    auto& array = field.get<TYPE_ARRAY>();
     PrimitiveType nested_type = PrimitiveType::TYPE_NULL;
     for (size_t i = 0; i < nested_size; ++i) {
         Field nested_field;

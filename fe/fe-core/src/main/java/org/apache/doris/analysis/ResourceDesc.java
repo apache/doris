@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.load.EtlJobType;
 
 import com.google.common.collect.Maps;
@@ -82,15 +81,5 @@ public class ResourceDesc {
         if (resource.getType() == Resource.ResourceType.SPARK) {
             throw new AnalysisException("Spark Resource is no longer supported");
         }
-    }
-
-    public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("WITH RESOURCE '").append(name).append("'");
-        if (properties != null && !properties.isEmpty()) {
-            PrintableMap<String, String> printableMap = new PrintableMap<>(properties, " = ", true, false, true);
-            sb.append(" (").append(printableMap.toString()).append(")");
-        }
-        return sb.toString();
     }
 }
