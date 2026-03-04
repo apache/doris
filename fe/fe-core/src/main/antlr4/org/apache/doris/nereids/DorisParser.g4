@@ -1464,15 +1464,11 @@ propertyClause
     ;
 
 propertyKeyClause
-    : PROPERTIES LEFT_PAREN propertyKeyList RIGHT_PAREN
+    : PROPERTIES LEFT_PAREN keys+=propertyKey (COMMA keys+=propertyKey)* RIGHT_PAREN
     ;
 
 propertyItemList
     : properties+=propertyItem (COMMA properties+=propertyItem)*
-    ;
-
-propertyKeyList
-    : keys+=propertyKey (COMMA keys+=propertyKey)*
     ;
 
 propertyItem

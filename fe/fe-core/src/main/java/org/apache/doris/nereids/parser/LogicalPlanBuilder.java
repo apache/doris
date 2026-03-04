@@ -2121,7 +2121,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Set<String> visitPropertyKeyList(DorisParser.PropertyKeyListContext ctx) {
+    public Set<String> visitPropertyKeyClause(DorisParser.PropertyKeyClauseContext ctx) {
         if (ctx == null || ctx.keys == null) {
             return ImmutableSet.of();
         }
@@ -2130,11 +2130,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             propertyKeys.add(parsePropertyKey(propertyKey));
         }
         return propertyKeys.build();
-    }
-
-    @Override
-    public Set<String> visitPropertyKeyClause(DorisParser.PropertyKeyClauseContext ctx) {
-        return ctx == null ? ImmutableSet.of() : visitPropertyKeyList(ctx.propertyKeyList());
     }
 
     @Override
