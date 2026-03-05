@@ -157,6 +157,35 @@ Status AggSinkLocalState::open(RuntimeState* state) {
         RETURN_IF_ERROR(_create_agg_status(_agg_data->without_key));
         _shared_state->agg_data_created_without_key = true;
     }
+
+    // 判断是否使用简单的 count 聚合。
+    // 对于select xxx , count(*) / count(not null column) from table group by xxx这种查询，count(*) / count(not null column)可以直接在hash表中存储一个uint64的计数器，而不需要存储完整的聚合状态，从而节省内存和计算开销。
+    // 需要满足，
+    // 1. 聚合函数是只有一个 count。
+    // 2. 只对update finalize的算子进行优化（因为这样的算子只有一个阶段，且不需要merge中间状态，不会涉及到多个机器之间传输中间状态的序列化和反序列化）。
+    // 3. group by的key是一个简单的形式（这个是因为目前hashmap的缺陷，未来就去掉这个限制。
+
+    if (!Base::_shared_state->probe_expr_ctxs.empty() && !_should_limit_output &&
+        (!p._have_conjuncts) && p._aggregate_evaluators.size() == 1 &&
+        p._aggregate_evaluators[0]->function()->is_simple_count()) {
+        // 聚合函数是只有一个 count。
+        if (!p._is_merge && p._needs_finalize) {
+            // 对update finalize的算子进行优化
+            std::visit(vectorized::Overload {[&](std::monostate& arg) -> void {
+                                                 throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                                        "uninited hash table");
+                                             },
+                                             [&](auto& agg_method) -> void {
+                                                 if constexpr (requires {
+                                                                   agg_method.begin.get_first();
+                                                               }) {
+                                                     _shared_state->use_simple_count = true;
+                                                 }
+                                             }},
+                       _shared_state->agg_data->method_variant);
+        }
+    }
+
     return Status::OK();
 }
 
@@ -498,7 +527,9 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
             }
         } else {
             _emplace_into_hash_table(_places.data(), key_columns, rows);
-            RETURN_IF_ERROR(do_aggregate_evaluators());
+            if (!_shared_state->use_simple_count) {
+                RETURN_IF_ERROR(do_aggregate_evaluators());
+            }
 
             if (_should_limit_output && !Base::_shared_state->enable_spill) {
                 const size_t hash_table_size = _get_hash_table_size();
@@ -528,6 +559,11 @@ size_t AggSinkLocalState::_get_hash_table_size() const {
 void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                                  vectorized::ColumnRawPtrs& key_columns,
                                                  uint32_t num_rows) {
+    if (_shared_state->use_simple_count) {
+        _emplace_into_hash_table_inline_count(key_columns, num_rows);
+        return;
+    }
+
     std::visit(vectorized::Overload {
                        [&](std::monostate& arg) -> void {
                            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
@@ -568,6 +604,40 @@ void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* p
                            vectorized::lazy_emplace_batch(
                                    agg_method, state, num_rows, creator, creator_for_null_key,
                                    [&](uint32_t row, auto& mapped) { places[row] = mapped; });
+
+                           COUNTER_UPDATE(_hash_table_input_counter, num_rows);
+                       }},
+               _agg_data->method_variant);
+}
+
+void AggSinkLocalState::_emplace_into_hash_table_inline_count(
+        vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows) {
+    std::visit(vectorized::Overload {
+                       [&](std::monostate& arg) -> void {
+                           throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                       },
+                       [&](auto& agg_method) -> void {
+                           SCOPED_TIMER(_hash_table_compute_timer);
+                           using HashMethodType = std::decay_t<decltype(agg_method)>;
+                           using AggState = typename HashMethodType::State;
+                           AggState state(key_columns);
+                           agg_method.init_serialized_keys(key_columns, num_rows);
+
+                           auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                               HashMethodType::try_presis_key_and_origin(
+                                       key, origin, Base::_shared_state->agg_arena_pool);
+                               vectorized::AggregateDataPtr mapped = nullptr;
+                               ctor(key, mapped);
+                           };
+
+                           auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
+
+                           SCOPED_TIMER(_hash_table_emplace_timer);
+                           for (size_t i = 0; i < num_rows; ++i) {
+                               auto* mapped_ptr = agg_method.lazy_emplace(state, i, creator,
+                                                                          creator_for_null_key);
+                               ++reinterpret_cast<vectorized::UInt64&>(*mapped_ptr);
+                           }
 
                            COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                        }},
