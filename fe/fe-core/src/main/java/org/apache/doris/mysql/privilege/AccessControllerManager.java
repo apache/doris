@@ -182,6 +182,21 @@ public class AccessControllerManager {
         return this.auth;
     }
 
+    private PrivilegeContext resolveAuthorizationContext(ConnectContext preferredCtx,
+                                                         UserIdentity currentUser) {
+        Objects.requireNonNull(currentUser, "require currentUser object");
+        ConnectContext ctx = preferredCtx == null ? ConnectContext.get() : preferredCtx;
+        if (ctx == null) {
+            return PrivilegeContext.of(currentUser);
+        }
+        Set<String> currentRoles = ctx.getCurrentRoles();
+        UserIdentity ctxUser = ctx.getCurrentUserIdentity();
+        if (currentRoles == null || ctxUser == null || !ctxUser.equals(currentUser)) {
+            return PrivilegeContext.of(currentUser);
+        }
+        return PrivilegeContext.of(currentUser, currentRoles);
+    }
+
     // ==== Global ====
     public boolean checkGlobalPriv(ConnectContext ctx, PrivPredicate wanted) {
         UserIdentity currentUser = ctx.getCurrentUserIdentity();
