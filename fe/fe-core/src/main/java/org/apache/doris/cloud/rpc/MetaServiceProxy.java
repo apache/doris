@@ -23,6 +23,7 @@ import org.apache.doris.metric.CloudMetrics;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.rpc.RpcException;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
 import io.grpc.StatusRuntimeException;
 import org.apache.logging.log4j.LogManager;
@@ -32,7 +33,10 @@ import java.util.LinkedList;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Random;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
@@ -99,18 +103,22 @@ public class MetaServiceProxy {
             throws RpcException {
         long startTime = System.currentTimeMillis();
         String methodName = "getInstance";
+        int cost = 1;
         if (MetricRepo.isInit && Config.isCloudMode()) {
             CloudMetrics.META_SERVICE_RPC_ALL_TOTAL.increase(1L);
             CloudMetrics.META_SERVICE_RPC_TOTAL.getOrAdd(methodName).increase(1L);
         }
 
+        boolean acquired = false;
         try {
+            acquired = MetaServiceRpcLimiterManager.getInstance().acquire(methodName, cost);
             final MetaServiceClient client = getProxy();
             Cloud.GetInstanceResponse response = client.getInstance(request);
             if (MetricRepo.isInit && Config.isCloudMode()) {
                 CloudMetrics.META_SERVICE_RPC_LATENCY.getOrAdd(methodName)
                         .update(System.currentTimeMillis() - startTime);
             }
+            handleResponseStatus(response.getStatus());
             return response;
         } catch (Exception e) {
             if (MetricRepo.isInit && Config.isCloudMode()) {
@@ -120,6 +128,10 @@ public class MetaServiceProxy {
                         .update(System.currentTimeMillis() - startTime);
             }
             throw new RpcException("", e.getMessage(), e);
+        } finally {
+            if (acquired) {
+                MetaServiceRpcLimiterManager.getInstance().release(methodName, cost);
+            }
         }
     }
 
@@ -194,19 +206,23 @@ public class MetaServiceProxy {
             this.proxy = proxy;
         }
 
-        public <Response> Response executeRequest(String methodName, Function<MetaServiceClient, Response> function)
-                throws RpcException {
+        public <Response> Response executeRequest(String methodName, Function<MetaServiceClient, Response> function,
+                int cost, Function<Response, Cloud.MetaServiceResponseStatus> statusExtractor) throws RpcException {
             long maxRetries = Config.meta_service_rpc_retry_cnt;
             for (long tried = 1; tried <= maxRetries; tried++) {
                 MetaServiceClient client = null;
                 boolean requestFailed = false;
+                boolean acquired = false;
                 try {
+                    acquired = MetaServiceRpcLimiterManager.getInstance().acquire(methodName, cost);
                     client = proxy.getProxy();
                     if (tried > 1 && MetricRepo.isInit && Config.isCloudMode()) {
                         CloudMetrics.META_SERVICE_RPC_ALL_RETRY.increase(1L);
                         CloudMetrics.META_SERVICE_RPC_RETRY.getOrAdd(methodName).increase(1L);
                     }
-                    return function.apply(client);
+                    Response response = function.apply(client);
+                    handleResponseStatus(statusExtractor.apply(response));
+                    return response;
                 } catch (StatusRuntimeException sre) {
                     requestFailed = true;
                     LOG.warn("failed to request meta service code {}, msg {}, trycnt {}", sre.getStatus().getCode(),
@@ -233,6 +249,9 @@ public class MetaServiceProxy {
                         throw new RpcException("", e.getMessage(), e);
                     }
                 } finally {
+                    if (acquired) {
+                        MetaServiceRpcLimiterManager.getInstance().release(methodName, cost);
+                    }
                     if (requestFailed && proxy.needReconn() && client != null) {
                         client.shutdown(true);
                     }
@@ -257,8 +276,8 @@ public class MetaServiceProxy {
      * Execute RPC with comprehensive metrics tracking.
      * Tracks: total calls, failures, latency
      */
-    private <Response> Response executeWithMetrics(String methodName, Function<MetaServiceClient, Response> function)
-            throws RpcException {
+    private <Response> Response executeWithMetrics(String methodName, Function<MetaServiceClient, Response> function,
+            int cost, Function<Response, Cloud.MetaServiceResponseStatus> statusExtractor) throws RpcException {
         long startTime = System.currentTimeMillis();
         if (MetricRepo.isInit && Config.isCloudMode()) {
             CloudMetrics.META_SERVICE_RPC_ALL_TOTAL.increase(1L);
@@ -266,7 +285,7 @@ public class MetaServiceProxy {
         }
 
         try {
-            Response response = w.executeRequest(methodName, function);
+            Response response = w.executeRequest(methodName, function, cost, statusExtractor);
             if (MetricRepo.isInit && Config.isCloudMode()) {
                 CloudMetrics.META_SERVICE_RPC_LATENCY.getOrAdd(methodName)
                         .update(System.currentTimeMillis() - startTime);
@@ -283,18 +302,58 @@ public class MetaServiceProxy {
         }
     }
 
-    public Future<Cloud.GetVersionResponse> getVisibleVersionAsync(Cloud.GetVersionRequest request)
-            throws RpcException {
+    public Cloud.GetVersionResponse getVisibleVersion(Cloud.GetVersionRequest request, int timeoutMs) {
         long startTime = System.currentTimeMillis();
-        String methodName = request.hasIsTableVersion() && request.getIsTableVersion() ? "getTableVersion"
-                : "getPartitionVersion";
-        MetaServiceClient client = null;
-
+        String methodName = request.hasIsTableVersion() && request.getIsTableVersion()
+                ? MetaServiceRpcLimiterManager.GET_TABLE_VERSION_METHOD :
+                MetaServiceRpcLimiterManager.GET_PARTITION_VERSION_METHOD;
+        int cost = 1;
+        if (request.hasBatchMode() && request.getBatchMode()) {
+            cost = MetaServiceRpcLimiterManager.getInstance().getClampedCost(methodName, request.getDbIdsCount());
+        }
+        boolean acquired = false;
         if (MetricRepo.isInit && Config.isCloudMode()) {
             CloudMetrics.META_SERVICE_RPC_ALL_TOTAL.increase(1L);
             CloudMetrics.META_SERVICE_RPC_TOTAL.getOrAdd(methodName).increase(1L);
         }
 
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        Cloud.GetVersionResponse resp = null;
+        try {
+            acquired = MetaServiceRpcLimiterManager.getInstance().acquire(methodName, cost);
+            Future<Cloud.GetVersionResponse> future = getVisibleVersionAsync(request);
+            while (resp == null) {
+                try {
+                    resp = future.get(Math.max(0, deadline - System.currentTimeMillis()), TimeUnit.MILLISECONDS);
+                } catch (InterruptedException e) {
+                    LOG.warn("get version from meta service: future get interrupted exception", e);
+                }
+            }
+        } catch (RpcException | ExecutionException | TimeoutException | RuntimeException e) {
+            LOG.warn("get version from meta service failed, exception: ", e);
+        } finally {
+            if (acquired) {
+                MetaServiceRpcLimiterManager.getInstance().release(methodName, cost);
+            }
+            if (MetricRepo.isInit && Config.isCloudMode()) {
+                CloudMetrics.META_SERVICE_RPC_LATENCY.getOrAdd(methodName)
+                        .update(System.currentTimeMillis() - startTime);
+                if (resp == null) {
+                    CloudMetrics.META_SERVICE_RPC_ALL_FAILED.increase(1L);
+                    CloudMetrics.META_SERVICE_RPC_FAILED.getOrAdd(methodName).increase(1L);
+                }
+            }
+        }
+        if (resp != null) {
+            handleResponseStatus(resp.getStatus());
+        }
+        return resp;
+    }
+
+    @VisibleForTesting
+    protected Future<Cloud.GetVersionResponse> getVisibleVersionAsync(Cloud.GetVersionRequest request)
+            throws RpcException {
+        MetaServiceClient client = null;
         try {
             client = getProxy();
             Future<Cloud.GetVersionResponse> future = client.getVisibleVersionAsync(request);
@@ -306,20 +365,10 @@ public class MetaServiceProxy {
                         new com.google.common.util.concurrent.FutureCallback<Cloud.GetVersionResponse>() {
                             @Override
                             public void onSuccess(Cloud.GetVersionResponse result) {
-                                if (MetricRepo.isInit && Config.isCloudMode()) {
-                                    CloudMetrics.META_SERVICE_RPC_LATENCY.getOrAdd(methodName)
-                                            .update(System.currentTimeMillis() - startTime);
-                                }
                             }
 
                             @Override
                             public void onFailure(Throwable t) {
-                                if (MetricRepo.isInit && Config.isCloudMode()) {
-                                    CloudMetrics.META_SERVICE_RPC_ALL_FAILED.increase(1L);
-                                    CloudMetrics.META_SERVICE_RPC_FAILED.getOrAdd(methodName).increase(1L);
-                                    CloudMetrics.META_SERVICE_RPC_LATENCY.getOrAdd(methodName)
-                                            .update(System.currentTimeMillis() - startTime);
-                                }
                                 if (finalClient != null) {
                                     finalClient.shutdown(true);
                                 }
@@ -328,12 +377,6 @@ public class MetaServiceProxy {
             }
             return future;
         } catch (Exception e) {
-            if (MetricRepo.isInit && Config.isCloudMode()) {
-                CloudMetrics.META_SERVICE_RPC_ALL_FAILED.increase(1L);
-                CloudMetrics.META_SERVICE_RPC_FAILED.getOrAdd(methodName).increase(1L);
-                CloudMetrics.META_SERVICE_RPC_LATENCY.getOrAdd(methodName)
-                        .update(System.currentTimeMillis() - startTime);
-            }
             if (client != null) {
                 client.shutdown(true);
             }
@@ -342,171 +385,193 @@ public class MetaServiceProxy {
     }
 
     public Cloud.GetVersionResponse getVersion(Cloud.GetVersionRequest request) throws RpcException {
-        String methodName = request.hasIsTableVersion() && request.getIsTableVersion() ? "getTableVersion"
-                : "getPartitionVersion";
-        return executeWithMetrics(methodName, (client) -> client.getVersion(request));
+        String methodName = request.hasIsTableVersion() && request.getIsTableVersion()
+                ? MetaServiceRpcLimiterManager.GET_TABLE_VERSION_METHOD
+                : MetaServiceRpcLimiterManager.GET_PARTITION_VERSION_METHOD;
+        return executeWithMetrics(methodName, (client) -> client.getVersion(request), 1,
+                Cloud.GetVersionResponse::getStatus);
     }
 
     public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) throws RpcException {
-        return executeWithMetrics("createTablets", (client) -> client.createTablets(request));
+        return executeWithMetrics("createTablets", (client) -> client.createTablets(request), 1,
+                Cloud.CreateTabletsResponse::getStatus);
     }
 
     public Cloud.UpdateTabletResponse updateTablet(Cloud.UpdateTabletRequest request) throws RpcException {
-        return executeWithMetrics("updateTablet", (client) -> client.updateTablet(request));
+        return executeWithMetrics("updateTablet", (client) -> client.updateTablet(request), 1,
+                Cloud.UpdateTabletResponse::getStatus);
     }
 
-    public Cloud.BeginTxnResponse beginTxn(Cloud.BeginTxnRequest request)
-            throws RpcException {
-        return executeWithMetrics("beginTxn", (client) -> client.beginTxn(request));
+    public Cloud.BeginTxnResponse beginTxn(Cloud.BeginTxnRequest request) throws RpcException {
+        return executeWithMetrics("beginTxn", (client) -> client.beginTxn(request), 1,
+                Cloud.BeginTxnResponse::getStatus);
     }
 
-    public Cloud.PrecommitTxnResponse precommitTxn(Cloud.PrecommitTxnRequest request)
-            throws RpcException {
-        return executeWithMetrics("precommitTxn", (client) -> client.precommitTxn(request));
+    public Cloud.PrecommitTxnResponse precommitTxn(Cloud.PrecommitTxnRequest request) throws RpcException {
+        return executeWithMetrics("precommitTxn", (client) -> client.precommitTxn(request), 1,
+                Cloud.PrecommitTxnResponse::getStatus);
     }
 
-    public Cloud.CommitTxnResponse commitTxn(Cloud.CommitTxnRequest request)
-            throws RpcException {
-        return executeWithMetrics("commitTxn", (client) -> client.commitTxn(request));
+    public Cloud.CommitTxnResponse commitTxn(Cloud.CommitTxnRequest request) throws RpcException {
+        return executeWithMetrics("commitTxn", (client) -> client.commitTxn(request), 1,
+                Cloud.CommitTxnResponse::getStatus);
     }
 
-    public Cloud.AbortTxnResponse abortTxn(Cloud.AbortTxnRequest request)
-            throws RpcException {
-        return executeWithMetrics("abortTxn", (client) -> client.abortTxn(request));
+    public Cloud.AbortTxnResponse abortTxn(Cloud.AbortTxnRequest request) throws RpcException {
+        return executeWithMetrics("abortTxn", (client) -> client.abortTxn(request), 1,
+                Cloud.AbortTxnResponse::getStatus);
     }
 
-    public Cloud.GetTxnResponse getTxn(Cloud.GetTxnRequest request)
-            throws RpcException {
-        return executeWithMetrics("getTxn", (client) -> client.getTxn(request));
+    public Cloud.GetTxnResponse getTxn(Cloud.GetTxnRequest request) throws RpcException {
+        return executeWithMetrics("getTxn", (client) -> client.getTxn(request), 1,
+                Cloud.GetTxnResponse::getStatus);
     }
 
-    public Cloud.GetTxnIdResponse getTxnId(Cloud.GetTxnIdRequest request)
-            throws RpcException {
-        return executeWithMetrics("getTxnId", (client) -> client.getTxnId(request));
+    public Cloud.GetTxnIdResponse getTxnId(Cloud.GetTxnIdRequest request) throws RpcException {
+        return executeWithMetrics("getTxnId", (client) -> client.getTxnId(request), 1,
+                Cloud.GetTxnIdResponse::getStatus);
     }
 
     public Cloud.GetCurrentMaxTxnResponse getCurrentMaxTxnId(Cloud.GetCurrentMaxTxnRequest request)
             throws RpcException {
-        return executeWithMetrics("getCurrentMaxTxnId", (client) -> client.getCurrentMaxTxnId(request));
+        return executeWithMetrics("getCurrentMaxTxnId", (client) -> client.getCurrentMaxTxnId(request), 1,
+                Cloud.GetCurrentMaxTxnResponse::getStatus);
     }
 
     public Cloud.CreateMetaSyncPointResponse createMetaSyncPoint(Cloud.CreateMetaSyncPointRequest request)
             throws RpcException {
-        return executeWithMetrics("createMetaSyncPoint", (client) -> client.createMetaSyncPoint(request));
+        return executeWithMetrics("createMetaSyncPoint", (client) -> client.createMetaSyncPoint(request), 1,
+                Cloud.CreateMetaSyncPointResponse::getStatus);
     }
 
     public Cloud.BeginSubTxnResponse beginSubTxn(Cloud.BeginSubTxnRequest request)
             throws RpcException {
-        return executeWithMetrics("beginSubTxn", (client) -> client.beginSubTxn(request));
+        return executeWithMetrics("beginSubTxn", (client) -> client.beginSubTxn(request), 1,
+                Cloud.BeginSubTxnResponse::getStatus);
     }
 
-    public Cloud.AbortSubTxnResponse abortSubTxn(Cloud.AbortSubTxnRequest request)
-            throws RpcException {
-        return executeWithMetrics("abortSubTxn", (client) -> client.abortSubTxn(request));
+    public Cloud.AbortSubTxnResponse abortSubTxn(Cloud.AbortSubTxnRequest request) throws RpcException {
+        return executeWithMetrics("abortSubTxn", (client) -> client.abortSubTxn(request), 1,
+                Cloud.AbortSubTxnResponse::getStatus);
     }
 
     public Cloud.CheckTxnConflictResponse checkTxnConflict(Cloud.CheckTxnConflictRequest request)
             throws RpcException {
-        return executeWithMetrics("checkTxnConflict", (client) -> client.checkTxnConflict(request));
+        return executeWithMetrics("checkTxnConflict", (client) -> client.checkTxnConflict(request), 1,
+                Cloud.CheckTxnConflictResponse::getStatus);
     }
 
-    public Cloud.CleanTxnLabelResponse cleanTxnLabel(Cloud.CleanTxnLabelRequest request)
-            throws RpcException {
-        return executeWithMetrics("cleanTxnLabel", (client) -> client.cleanTxnLabel(request));
+    public Cloud.CleanTxnLabelResponse cleanTxnLabel(Cloud.CleanTxnLabelRequest request) throws RpcException {
+        return executeWithMetrics("cleanTxnLabel", (client) -> client.cleanTxnLabel(request), 1,
+                Cloud.CleanTxnLabelResponse::getStatus);
     }
 
     public Cloud.GetClusterResponse getCluster(Cloud.GetClusterRequest request) throws RpcException {
-        return executeWithMetrics("getCluster", (client) -> client.getCluster(request));
+        return executeWithMetrics("getCluster", (client) -> client.getCluster(request), 1,
+                Cloud.GetClusterResponse::getStatus);
     }
 
     public Cloud.IndexResponse prepareIndex(Cloud.IndexRequest request) throws RpcException {
-        return executeWithMetrics("prepareIndex", (client) -> client.prepareIndex(request));
+        return executeWithMetrics("prepareIndex", (client) -> client.prepareIndex(request), 1,
+                Cloud.IndexResponse::getStatus);
     }
 
     public Cloud.IndexResponse commitIndex(Cloud.IndexRequest request) throws RpcException {
-        return executeWithMetrics("commitIndex", (client) -> client.commitIndex(request));
+        return executeWithMetrics("commitIndex", (client) -> client.commitIndex(request), 1,
+                Cloud.IndexResponse::getStatus);
     }
 
     public Cloud.CheckKVResponse checkKv(Cloud.CheckKVRequest request) throws RpcException {
-        return executeWithMetrics("checkKv", (client) -> client.checkKv(request));
+        return executeWithMetrics("checkKv", (client) -> client.checkKv(request), 1,
+                Cloud.CheckKVResponse::getStatus);
     }
 
     public Cloud.IndexResponse dropIndex(Cloud.IndexRequest request) throws RpcException {
-        return executeWithMetrics("dropIndex", (client) -> client.dropIndex(request));
+        return executeWithMetrics("dropIndex", (client) -> client.dropIndex(request), 1,
+                Cloud.IndexResponse::getStatus);
     }
 
-    public Cloud.PartitionResponse preparePartition(Cloud.PartitionRequest request)
-            throws RpcException {
-        return executeWithMetrics("preparePartition", (client) -> client.preparePartition(request));
+    public Cloud.PartitionResponse preparePartition(Cloud.PartitionRequest request) throws RpcException {
+        return executeWithMetrics("preparePartition", (client) -> client.preparePartition(request), 1,
+                Cloud.PartitionResponse::getStatus);
     }
 
     public Cloud.PartitionResponse commitPartition(Cloud.PartitionRequest request) throws RpcException {
-        return executeWithMetrics("commitPartition", (client) -> client.commitPartition(request));
+        return executeWithMetrics("commitPartition", (client) -> client.commitPartition(request), 1,
+                Cloud.PartitionResponse::getStatus);
     }
 
     public Cloud.PartitionResponse dropPartition(Cloud.PartitionRequest request) throws RpcException {
-        return executeWithMetrics("dropPartition", (client) -> client.dropPartition(request));
+        return executeWithMetrics("dropPartition", (client) -> client.dropPartition(request), 1,
+                Cloud.PartitionResponse::getStatus);
     }
 
     public Cloud.GetTabletStatsResponse getTabletStats(Cloud.GetTabletStatsRequest request) throws RpcException {
-        return executeWithMetrics("getTabletStats", (client) -> client.getTabletStats(request));
+        return executeWithMetrics("getTabletStats", (client) -> client.getTabletStats(request), 1,
+                Cloud.GetTabletStatsResponse::getStatus);
     }
 
     public Cloud.CreateStageResponse createStage(Cloud.CreateStageRequest request) throws RpcException {
-        return executeWithMetrics("createStage", (client) -> client.createStage(request));
+        return executeWithMetrics("createStage", (client) -> client.createStage(request), 1,
+                Cloud.CreateStageResponse::getStatus);
     }
 
     public Cloud.GetStageResponse getStage(Cloud.GetStageRequest request) throws RpcException {
-        return executeWithMetrics("getStage", (client) -> client.getStage(request));
+        return executeWithMetrics("getStage", (client) -> client.getStage(request), 1,
+                Cloud.GetStageResponse::getStatus);
     }
 
     public Cloud.DropStageResponse dropStage(Cloud.DropStageRequest request) throws RpcException {
-        return executeWithMetrics("dropStage", (client) -> client.dropStage(request));
+        return executeWithMetrics("dropStage", (client) -> client.dropStage(request), 1,
+                Cloud.DropStageResponse::getStatus);
     }
 
     public Cloud.GetIamResponse getIam(Cloud.GetIamRequest request) throws RpcException {
-        return executeWithMetrics("getIam", (client) -> client.getIam(request));
+        return executeWithMetrics("getIam", (client) -> client.getIam(request), 1,
+                Cloud.GetIamResponse::getStatus);
     }
 
     public Cloud.BeginCopyResponse beginCopy(Cloud.BeginCopyRequest request) throws RpcException {
-        return executeWithMetrics("beginCopy", (client) -> client.beginCopy(request));
+        return executeWithMetrics("beginCopy", (client) -> client.beginCopy(request), 1,
+                Cloud.BeginCopyResponse::getStatus);
     }
 
     public Cloud.FinishCopyResponse finishCopy(Cloud.FinishCopyRequest request) throws RpcException {
-        return executeWithMetrics("finishCopy", (client) -> client.finishCopy(request));
+        return executeWithMetrics("finishCopy", (client) -> client.finishCopy(request), 1,
+                Cloud.FinishCopyResponse::getStatus);
     }
 
     public Cloud.GetCopyJobResponse getCopyJob(Cloud.GetCopyJobRequest request) throws RpcException {
-        return executeWithMetrics("getCopyJob", (client) -> client.getCopyJob(request));
+        return executeWithMetrics("getCopyJob", (client) -> client.getCopyJob(request), 1,
+                Cloud.GetCopyJobResponse::getStatus);
     }
 
-    public Cloud.GetCopyFilesResponse getCopyFiles(Cloud.GetCopyFilesRequest request)
-            throws RpcException {
-        return executeWithMetrics("getCopyFiles", (client) -> client.getCopyFiles(request));
+    public Cloud.GetCopyFilesResponse getCopyFiles(Cloud.GetCopyFilesRequest request) throws RpcException {
+        return executeWithMetrics("getCopyFiles", (client) -> client.getCopyFiles(request), 1,
+                Cloud.GetCopyFilesResponse::getStatus);
     }
 
-    public Cloud.FilterCopyFilesResponse filterCopyFiles(Cloud.FilterCopyFilesRequest request)
-            throws RpcException {
-        return executeWithMetrics("filterCopyFiles", (client) -> client.filterCopyFiles(request));
+    public Cloud.FilterCopyFilesResponse filterCopyFiles(Cloud.FilterCopyFilesRequest request) throws RpcException {
+        return executeWithMetrics("filterCopyFiles", (client) -> client.filterCopyFiles(request), 1,
+                Cloud.FilterCopyFilesResponse::getStatus);
     }
 
-    public Cloud.AlterClusterResponse alterCluster(Cloud.AlterClusterRequest request)
-            throws RpcException {
-        return executeWithMetrics("alterCluster", (client) -> client.alterCluster(request));
+    public Cloud.AlterClusterResponse alterCluster(Cloud.AlterClusterRequest request) throws RpcException {
+        return executeWithMetrics("alterCluster", (client) -> client.alterCluster(request), 1,
+                Cloud.AlterClusterResponse::getStatus);
     }
 
     public Cloud.GetDeleteBitmapUpdateLockResponse getDeleteBitmapUpdateLock(
-            Cloud.GetDeleteBitmapUpdateLockRequest request)
-            throws RpcException {
-        return executeWithMetrics("getDeleteBitmapUpdateLock",
-                (client) -> client.getDeleteBitmapUpdateLock(request));
+            Cloud.GetDeleteBitmapUpdateLockRequest request) throws RpcException {
+        return executeWithMetrics("getDeleteBitmapUpdateLock", (client) -> client.getDeleteBitmapUpdateLock(request), 1,
+                Cloud.GetDeleteBitmapUpdateLockResponse::getStatus);
     }
 
     public Cloud.RemoveDeleteBitmapUpdateLockResponse removeDeleteBitmapUpdateLock(
-            Cloud.RemoveDeleteBitmapUpdateLockRequest request)
-            throws RpcException {
+            Cloud.RemoveDeleteBitmapUpdateLockRequest request) throws RpcException {
         return executeWithMetrics("removeDeleteBitmapUpdateLock",
-                (client) -> client.removeDeleteBitmapUpdateLock(request));
+                (client) -> client.removeDeleteBitmapUpdateLock(request), 1,
+                Cloud.RemoveDeleteBitmapUpdateLockResponse::getStatus);
     }
 
     /**
@@ -515,98 +580,126 @@ public class MetaServiceProxy {
     @Deprecated
     public Cloud.AlterObjStoreInfoResponse alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request)
             throws RpcException {
-        return executeWithMetrics("alterObjStoreInfo", (client) -> client.alterObjStoreInfo(request));
+        return executeWithMetrics("alterObjStoreInfo", (client) -> client.alterObjStoreInfo(request), 1,
+                Cloud.AlterObjStoreInfoResponse::getStatus);
     }
 
     public Cloud.AlterObjStoreInfoResponse alterStorageVault(Cloud.AlterObjStoreInfoRequest request)
             throws RpcException {
-        return executeWithMetrics("alterStorageVault", (client) -> client.alterStorageVault(request));
+        return executeWithMetrics("alterStorageVault", (client) -> client.alterStorageVault(request), 1,
+                Cloud.AlterObjStoreInfoResponse::getStatus);
     }
 
     public Cloud.FinishTabletJobResponse finishTabletJob(Cloud.FinishTabletJobRequest request)
             throws RpcException {
-        return executeWithMetrics("finishTabletJob", (client) -> client.finishTabletJob(request));
+        return executeWithMetrics("finishTabletJob", (client) -> client.finishTabletJob(request), 1,
+                Cloud.FinishTabletJobResponse::getStatus);
     }
 
-    public Cloud.GetRLTaskCommitAttachResponse
-            getRLTaskCommitAttach(Cloud.GetRLTaskCommitAttachRequest request)
+    public Cloud.GetRLTaskCommitAttachResponse getRLTaskCommitAttach(Cloud.GetRLTaskCommitAttachRequest request)
             throws RpcException {
-        return executeWithMetrics("getRLTaskCommitAttach",
-                (client) -> client.getRLTaskCommitAttach(request));
+        return executeWithMetrics("getRLTaskCommitAttach", (client) -> client.getRLTaskCommitAttach(request), 1,
+                Cloud.GetRLTaskCommitAttachResponse::getStatus);
     }
 
     public Cloud.ResetRLProgressResponse resetRLProgress(Cloud.ResetRLProgressRequest request)
             throws RpcException {
-        return executeWithMetrics("resetRLProgress", (client) -> client.resetRLProgress(request));
+        return executeWithMetrics("resetRLProgress", (client) -> client.resetRLProgress(request), 1,
+                Cloud.ResetRLProgressResponse::getStatus);
     }
 
-    public Cloud.ResetStreamingJobOffsetResponse resetStreamingJobOffset(Cloud.ResetStreamingJobOffsetRequest request)
-            throws RpcException {
-        return executeWithMetrics("resetStreamingJobOffset",
-                (client) -> client.resetStreamingJobOffset(request));
+    public Cloud.ResetStreamingJobOffsetResponse resetStreamingJobOffset(
+            Cloud.ResetStreamingJobOffsetRequest request) throws RpcException {
+        return executeWithMetrics("resetStreamingJobOffset", (client) -> client.resetStreamingJobOffset(request), 1,
+                Cloud.ResetStreamingJobOffsetResponse::getStatus);
     }
 
-    public Cloud.GetObjStoreInfoResponse
-            getObjStoreInfo(Cloud.GetObjStoreInfoRequest request) throws RpcException {
-        return executeWithMetrics("getObjStoreInfo", (client) -> client.getObjStoreInfo(request));
+    public Cloud.GetObjStoreInfoResponse getObjStoreInfo(Cloud.GetObjStoreInfoRequest request) throws RpcException {
+        return executeWithMetrics("getObjStoreInfo", (client) -> client.getObjStoreInfo(request), 1,
+                Cloud.GetObjStoreInfoResponse::getStatus);
     }
 
-    public Cloud.AbortTxnWithCoordinatorResponse
-            abortTxnWithCoordinator(Cloud.AbortTxnWithCoordinatorRequest request) throws RpcException {
-        return executeWithMetrics("abortTxnWithCoordinator",
-                (client) -> client.abortTxnWithCoordinator(request));
+    public Cloud.AbortTxnWithCoordinatorResponse abortTxnWithCoordinator(
+            Cloud.AbortTxnWithCoordinatorRequest request) throws RpcException {
+        return executeWithMetrics("abortTxnWithCoordinator", (client) -> client.abortTxnWithCoordinator(request), 1,
+                Cloud.AbortTxnWithCoordinatorResponse::getStatus);
     }
 
-    public Cloud.GetPrepareTxnByCoordinatorResponse
-            getPrepareTxnByCoordinator(Cloud.GetPrepareTxnByCoordinatorRequest request) throws RpcException {
+    public Cloud.GetPrepareTxnByCoordinatorResponse getPrepareTxnByCoordinator(
+            Cloud.GetPrepareTxnByCoordinatorRequest request) throws RpcException {
         return executeWithMetrics("getPrepareTxnByCoordinator",
-                (client) -> client.getPrepareTxnByCoordinator(request));
+                (client) -> client.getPrepareTxnByCoordinator(request), 1,
+                Cloud.GetPrepareTxnByCoordinatorResponse::getStatus);
     }
 
     public Cloud.CreateInstanceResponse createInstance(Cloud.CreateInstanceRequest request) throws RpcException {
-        return executeWithMetrics("createInstance", (client) -> client.createInstance(request));
+        return executeWithMetrics("createInstance", (client) -> client.createInstance(request), 1,
+                Cloud.CreateInstanceResponse::getStatus);
     }
 
     public Cloud.GetStreamingTaskCommitAttachResponse getStreamingTaskCommitAttach(
             Cloud.GetStreamingTaskCommitAttachRequest request) throws RpcException {
         return executeWithMetrics("getStreamingTaskCommitAttach",
-                (client) -> client.getStreamingTaskCommitAttach(request));
+                (client) -> client.getStreamingTaskCommitAttach(request), 1,
+                Cloud.GetStreamingTaskCommitAttachResponse::getStatus);
     }
 
     public Cloud.DeleteStreamingJobResponse deleteStreamingJob(Cloud.DeleteStreamingJobRequest request)
             throws RpcException {
-        return executeWithMetrics("deleteStreamingJob", (client) -> client.deleteStreamingJob(request));
+        return executeWithMetrics("deleteStreamingJob", (client) -> client.deleteStreamingJob(request), 1,
+                Cloud.DeleteStreamingJobResponse::getStatus);
     }
 
     public Cloud.AlterInstanceResponse alterInstance(Cloud.AlterInstanceRequest request) throws RpcException {
-        return executeWithMetrics("alterInstance", (client) -> client.alterInstance(request));
+        return executeWithMetrics("alterInstance", (client) -> client.alterInstance(request), 1,
+                Cloud.AlterInstanceResponse::getStatus);
     }
 
     public Cloud.BeginSnapshotResponse beginSnapshot(Cloud.BeginSnapshotRequest request) throws RpcException {
-        return executeWithMetrics("beginSnapshot", (client) -> client.beginSnapshot(request));
+        return executeWithMetrics("beginSnapshot", (client) -> client.beginSnapshot(request), 1,
+                Cloud.BeginSnapshotResponse::getStatus);
     }
 
     public Cloud.UpdateSnapshotResponse updateSnapshot(Cloud.UpdateSnapshotRequest request) throws RpcException {
-        return executeWithMetrics("updateSnapshot", (client) -> client.updateSnapshot(request));
+        return executeWithMetrics("updateSnapshot", (client) -> client.updateSnapshot(request), 1,
+                Cloud.UpdateSnapshotResponse::getStatus);
     }
 
     public Cloud.CommitSnapshotResponse commitSnapshot(Cloud.CommitSnapshotRequest request) throws RpcException {
-        return executeWithMetrics("commitSnapshot", (client) -> client.commitSnapshot(request));
+        return executeWithMetrics("commitSnapshot", (client) -> client.commitSnapshot(request), 1,
+                Cloud.CommitSnapshotResponse::getStatus);
     }
 
     public Cloud.AbortSnapshotResponse abortSnapshot(Cloud.AbortSnapshotRequest request) throws RpcException {
-        return executeWithMetrics("abortSnapshot", (client) -> client.abortSnapshot(request));
+        return executeWithMetrics("abortSnapshot", (client) -> client.abortSnapshot(request), 1,
+                Cloud.AbortSnapshotResponse::getStatus);
     }
 
     public Cloud.ListSnapshotResponse listSnapshot(Cloud.ListSnapshotRequest request) throws RpcException {
-        return executeWithMetrics("listSnapshot", (client) -> client.listSnapshot(request));
+        return executeWithMetrics("listSnapshot", (client) -> client.listSnapshot(request), 1,
+                Cloud.ListSnapshotResponse::getStatus);
     }
 
     public Cloud.DropSnapshotResponse dropSnapshot(Cloud.DropSnapshotRequest request) throws RpcException {
-        return executeWithMetrics("dropSnapshot", (client) -> client.dropSnapshot(request));
+        return executeWithMetrics("dropSnapshot", (client) -> client.dropSnapshot(request), 1,
+                Cloud.DropSnapshotResponse::getStatus);
     }
 
     public Cloud.CloneInstanceResponse cloneInstance(Cloud.CloneInstanceRequest request) throws RpcException {
-        return executeWithMetrics("cloneInstance", (client) -> client.cloneInstance(request));
+        return executeWithMetrics("cloneInstance", (client) -> client.cloneInstance(request), 1,
+                Cloud.CloneInstanceResponse::getStatus);
+    }
+
+    private static void handleResponseStatus(Cloud.MetaServiceResponseStatus status) {
+        if (Config.meta_service_rpc_overload_throttle_enabled) {
+            MetaServiceOverloadThrottle.Signal signal = isMetaServiceBusy(status)
+                    ? MetaServiceOverloadThrottle.Signal.OVERLOAD
+                    : MetaServiceOverloadThrottle.Signal.SUCCESS;
+            MetaServiceOverloadThrottle.getInstance().recordSignal(signal);
+        }
+    }
+
+    private static boolean isMetaServiceBusy(Cloud.MetaServiceResponseStatus status) {
+        return status != null && status.hasCode() && status.getCode() == Cloud.MetaServiceCode.MAX_QPS_LIMIT;
     }
 }

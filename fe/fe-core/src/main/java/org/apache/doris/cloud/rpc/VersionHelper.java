@@ -27,11 +27,6 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-
 public class VersionHelper {
     private static final Logger LOG = LogManager.getLogger(VersionHelper.class);
 
@@ -85,22 +80,7 @@ public class VersionHelper {
     }
 
     public static Cloud.GetVersionResponse getVisibleVersionInternal(Cloud.GetVersionRequest request, int timeoutMs) {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        Cloud.GetVersionResponse resp = null;
-        try {
-            Future<Cloud.GetVersionResponse> future = MetaServiceProxy.getInstance().getVisibleVersionAsync(request);
-
-            while (resp == null) {
-                try {
-                    resp = future.get(Math.max(0, deadline - System.currentTimeMillis()), TimeUnit.MILLISECONDS);
-                } catch (InterruptedException e) {
-                    LOG.warn("get version from meta service: future get interrupted exception");
-                }
-            }
-        } catch (RpcException | ExecutionException | TimeoutException | RuntimeException e) {
-            LOG.warn("get version from meta service failed, exception: ", e);
-        }
-        return resp;
+        return MetaServiceProxy.getInstance().getVisibleVersion(request, timeoutMs);
     }
 
     private static void sleepSeveralMs(int lowerMs, int upperMs) {
