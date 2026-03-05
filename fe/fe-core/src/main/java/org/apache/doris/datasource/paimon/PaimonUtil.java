@@ -105,9 +105,18 @@ public class PaimonUtil {
     private static final String SYS_TABLE_TYPE_AUDIT_LOG = "audit_log";
     private static final String SYS_TABLE_TYPE_BINLOG = "binlog";
     private static final String TABLE_READ_SEQUENCE_NUMBER_ENABLED = "table-read.sequence-number.enabled";
+    private static final String PARTITION_LEGACY_NAME = "partition.legacy-name";
 
     public static boolean isDigitalString(String value) {
         return value != null && DIGITAL_REGEX.matcher(value).matches();
+    }
+
+    /**
+     * Extract the legacy partition name configuration from Paimon table options.
+     */
+    public static boolean isLegacyPartitionName(Table paimonTable) {
+        return Boolean.parseBoolean(
+                paimonTable.options().getOrDefault(PARTITION_LEGACY_NAME, "true"));
     }
 
     public static List<InternalRow> read(
@@ -141,7 +150,7 @@ public class PaimonUtil {
     }
 
     public static PaimonPartitionInfo generatePartitionInfo(List<Column> partitionColumns,
-            List<Partition> paimonPartitions) {
+            List<Partition> paimonPartitions, boolean legacyPartitionName) {
 
         if (CollectionUtils.isEmpty(partitionColumns) || paimonPartitions.isEmpty()) {
             return PaimonPartitionInfo.EMPTY;
@@ -161,8 +170,11 @@ public class PaimonUtil {
             StringBuilder sb = new StringBuilder();
             for (Map.Entry<String, String> entry : spec.entrySet()) {
                 sb.append(entry.getKey()).append("=");
-                // Paimon stores DATE type as days since 1970-01-01 (epoch), so we convert the integer to a date string.
-                if (columnNameToType.getOrDefault(entry.getKey(), Type.NULL).isDateV2()) {
+                // When partition.legacy-name = true (default), Paimon stores DATE type as days since
+                // 1970-01-01 (epoch integer), so we need to convert the integer to a date string.
+                // When partition.legacy-name = false, the value is already a human read date string.
+                if (legacyPartitionName
+                        && columnNameToType.getOrDefault(entry.getKey(), Type.NULL).isDateV2()) {
                     sb.append(DateTimeUtils.formatDate(Integer.parseInt(entry.getValue()))).append("/");
                 } else {
                     sb.append(entry.getValue()).append("/");
@@ -536,10 +548,11 @@ public class PaimonUtil {
         RowDataToObjectArrayConverter toObjectArrayConverter = new RowDataToObjectArrayConverter(
                 partitionType);
         Object[] partitionValuesArray = toObjectArrayConverter.convert(partitionValues);
+        boolean legacyPartitionName = isLegacyPartitionName(table);
         for (int i = 0; i < partitionKeys.size(); i++) {
             try {
                 String partitionValue = serializePartitionValue(partitionType.getFields().get(i).type(),
-                        partitionValuesArray[i], timeZone);
+                        partitionValuesArray[i], timeZone, legacyPartitionName);
                 partitionInfoMap.put(partitionKeys.get(i), partitionValue);
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize table {} partition value for key {}: {}", table.name(),
@@ -551,7 +564,7 @@ public class PaimonUtil {
     }
 
     private static String serializePartitionValue(org.apache.paimon.types.DataType type, Object value,
-            String timeZone) {
+            String timeZone, boolean legacyPartitionName) {
         switch (type.getTypeRoot()) {
             case BOOLEAN:
             case INTEGER:
@@ -565,15 +578,21 @@ public class PaimonUtil {
                     return null;
                 }
                 return value.toString();
-            // case binary, varbinary should not supported, because if return string with utf8,
+            // case binary:
+            // case varbinary: should not supported, because if return string with utf8,
             // the data maybe be corrupted
             case DATE:
                 if (value == null) {
                     return null;
                 }
-                // Paimon date is stored as days since epoch
-                LocalDate date = LocalDate.ofEpochDay((Integer) value);
-                return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
+                // When partition.legacy-name = true (default), Paimon date is stored as days since epoch
+                // When partition.legacy-name = false, the value is already a human read date string
+                if (legacyPartitionName) {
+                    LocalDate date = LocalDate.ofEpochDay((Integer) value);
+                    return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
+                } else {
+                    return value.toString();
+                }
             case TIME_WITHOUT_TIME_ZONE:
                 if (value == null) {
                     return null;
