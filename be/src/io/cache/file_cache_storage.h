@@ -45,6 +45,7 @@ struct FileWriterMapKeyHash {
 
 struct MemBlock {
     std::shared_ptr<char[]> addr;
+    size_t size = 0;
 };
 
 // The interface is for organizing datas in disk
