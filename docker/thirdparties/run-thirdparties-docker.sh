@@ -230,6 +230,59 @@ reserve_ports() {
     fi
 }
 
+JFS_META_FORMATTED=0
+
+run_juicefs_cli() {
+    local bucket_dir="$1"
+    shift
+    if command -v juicefs >/dev/null 2>&1; then
+        juicefs "$@"
+    else
+        sudo docker run --rm --network host -v "${bucket_dir}:${bucket_dir}" \
+            juicedata/juicefs:latest "$@"
+    fi
+}
+
+prepare_juicefs_meta_for_hive() {
+    local jfs_meta="$1"
+    local jfs_cluster_name="${2:-cluster}"
+    if [[ -z "${jfs_meta}" || "${jfs_meta}" != mysql://* ]]; then
+        return 0
+    fi
+    if [[ "${JFS_META_FORMATTED}" -eq 1 ]]; then
+        return 0
+    fi
+
+    local bucket_dir="${JFS_BUCKET_DIR:-/tmp/jfs-bucket}"
+    sudo mkdir -p "${bucket_dir}"
+    sudo chmod 777 "${bucket_dir}"
+
+    # For local mysql_57 metadata DSN, ensure metadata database exists.
+    local mysql_container="${CONTAINER_UID}mysql_57"
+    if [[ "${jfs_meta}" == *"@(127.0.0.1:3316)/"* || "${jfs_meta}" == *"@(localhost:3316)/"* ]]; then
+        local meta_db="${jfs_meta##*/}"
+        meta_db="${meta_db%%\?*}"
+        if sudo docker ps --format '{{.Names}}' | grep -qx "${mysql_container}"; then
+            sudo docker exec "${mysql_container}" \
+                mysql -uroot -p123456 -e "CREATE DATABASE IF NOT EXISTS \`${meta_db}\`;"
+        fi
+    fi
+
+    if run_juicefs_cli "${bucket_dir}" status "${jfs_meta}" >/dev/null 2>&1; then
+        echo "JuiceFS metadata is already formatted."
+        JFS_META_FORMATTED=1
+        return 0
+    fi
+
+    if ! run_juicefs_cli "${bucket_dir}" \
+        format --storage file --bucket "${bucket_dir}" "${jfs_meta}" "${jfs_cluster_name}"; then
+        # If format reports conflict on rerun, verify by status and continue.
+        run_juicefs_cli "${bucket_dir}" status "${jfs_meta}" >/dev/null
+    fi
+
+    JFS_META_FORMATTED=1
+}
+
 start_es() {
     # elasticsearch
     cp "${ROOT}"/docker-compose/elasticsearch/es.yaml.tpl "${ROOT}"/docker-compose/elasticsearch/es.yaml
@@ -722,6 +775,17 @@ for compose in "${!pids[@]}"; do
         exit 1
     fi
 done
+
+if [[ "${STOP}" -ne 1 ]]; then
+    if [[ "${RUN_HIVE2}" -eq 1 ]]; then
+        . "${ROOT}"/docker-compose/hive/hive-2x_settings.env
+        prepare_juicefs_meta_for_hive "${JFS_CLUSTER_META}" "cluster"
+    fi
+    if [[ "${RUN_HIVE3}" -eq 1 ]]; then
+        . "${ROOT}"/docker-compose/hive/hive-3x_settings.env
+        prepare_juicefs_meta_for_hive "${JFS_CLUSTER_META}" "cluster"
+    fi
+fi
 
 echo "docker started"
 sudo docker ps -a --format "{{.ID}} | {{.Image}} | {{.Status}}"

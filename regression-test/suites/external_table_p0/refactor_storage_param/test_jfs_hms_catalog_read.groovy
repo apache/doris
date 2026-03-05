@@ -39,15 +39,15 @@ suite("test_jfs_hms_catalog_read", "p0,external") {
         jfsImpl = "io.juicefs.JuiceFileSystem"
     }
     String jfsMeta = context.config.otherConfigs.get("jfsMeta")
+    if (jfsMeta == null || jfsMeta.trim().isEmpty()) {
+        throw new IllegalStateException("jfsMeta must be configured for JFS data IO regression")
+    }
     String jfsCluster = jfsFs.replaceFirst("^jfs://", "")
     int slashPos = jfsCluster.indexOf("/")
     if (slashPos > 0) {
         jfsCluster = jfsCluster.substring(0, slashPos)
     }
-    String jfsMetaProperty = ""
-    if (jfsMeta != null && !jfsMeta.trim().isEmpty()) {
-        jfsMetaProperty = ",\n                'juicefs.${jfsCluster}.meta' = '${jfsMeta}'"
-    }
+    String jfsMetaProperty = ",\n                'juicefs.${jfsCluster}.meta' = '${jfsMeta}'"
 
     String hdfsUser = context.config.otherConfigs.get("jfsHadoopUser")
     if (hdfsUser == null || hdfsUser.trim().isEmpty()) {
@@ -112,21 +112,17 @@ suite("test_jfs_hms_catalog_read", "p0,external") {
               'file_format'='parquet'
             )
         """
-        if (jfsMeta == null || jfsMeta.trim().isEmpty()) {
-            logger.info("skip JFS data io because jfsMeta is empty. only validate catalog/db/table DDL.")
-        } else {
-            sql """insert into `${tableName}` values (1, 'jfs_1'), (2, 'jfs_2')"""
+        sql """insert into `${tableName}` values (1, 'jfs_1'), (2, 'jfs_2')"""
 
-            def cnt = sql """select count(*) from `${tableName}`"""
-            assertEquals("2", cnt[0][0].toString())
+        def cnt = sql """select count(*) from `${tableName}`"""
+        assertEquals("2", cnt[0][0].toString())
 
-            def rows = sql """select * from `${tableName}` order by id"""
-            assertTrue(rows.size() == 2)
-            assertEquals("1", rows[0][0].toString())
-            assertEquals("jfs_1", rows[0][1].toString())
-            assertEquals("2", rows[1][0].toString())
-            assertEquals("jfs_2", rows[1][1].toString())
-        }
+        def rows = sql """select * from `${tableName}` order by id"""
+        assertTrue(rows.size() == 2)
+        assertEquals("1", rows[0][0].toString())
+        assertEquals("jfs_1", rows[0][1].toString())
+        assertEquals("2", rows[1][0].toString())
+        assertEquals("jfs_2", rows[1][1].toString())
     } finally {
         try {
             sql """switch ${catalogName}"""
