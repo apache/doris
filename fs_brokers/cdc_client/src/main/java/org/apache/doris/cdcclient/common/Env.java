@@ -30,6 +30,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 import com.google.common.base.Preconditions;
+import lombok.Getter;
 import lombok.Setter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,6 +41,8 @@ public class Env {
     private final Map<Long, JobContext> jobContexts;
     private final Map<Long, Lock> jobLocks;
     @Setter private int backendHttpPort;
+    @Setter @Getter private String clusterToken;
+    @Setter @Getter private volatile String feMasterAddress;
 
     private Env() {
         this.jobContexts = new ConcurrentHashMap<>();
@@ -62,6 +65,9 @@ public class Env {
     }
 
     public SourceReader getReader(JobBaseConfig jobConfig) {
+        if (jobConfig.getFrontendAddress() != null && !jobConfig.getFrontendAddress().isEmpty()) {
+            this.feMasterAddress = jobConfig.getFrontendAddress();
+        }
         DataSource ds = resolveDataSource(jobConfig.getDataSource());
         Env manager = Env.getCurrentEnv();
         return manager.getOrCreateReader(jobConfig.getJobId(), ds, jobConfig.getConfig());

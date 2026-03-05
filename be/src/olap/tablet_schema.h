@@ -80,6 +80,8 @@ public:
         bool enable_doc_mode = false;
         int64_t doc_materialization_min_rows = 0;
         int32_t doc_hash_shard_count = 64;
+
+        bool enable_nested_group = false;
     };
 
     TabletColumn();
@@ -278,6 +280,10 @@ public:
     void set_variant_enable_typed_paths_to_sparse(bool variant_enable_typed_paths_to_sparse) {
         _variant.enable_typed_paths_to_sparse = variant_enable_typed_paths_to_sparse;
     }
+
+    bool variant_enable_nested_group() const { return _variant.enable_nested_group; }
+
+    void set_variant_enable_nested_group(bool val) { _variant.enable_nested_group = val; }
 
     bool is_decimal() const { return _is_decimal; }
 

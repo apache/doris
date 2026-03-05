@@ -402,6 +402,8 @@ struct TMasterOpRequest {
 
     // temporary table
     1002: optional string sessionId
+    // propagate client's CLIENT_DEPRECATE_EOF capability for proxy forwarding
+    1003: optional bool clientDeprecatedEOF
 }
 
 struct TColumnDefinition {

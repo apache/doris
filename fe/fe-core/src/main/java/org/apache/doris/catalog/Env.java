@@ -27,6 +27,7 @@ import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.authentication.AuthenticationIntegrationMgr;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
@@ -375,6 +376,7 @@ public class Env {
     private RoutineLoadManager routineLoadManager;
     private GroupCommitManager groupCommitManager;
     private SqlBlockRuleMgr sqlBlockRuleMgr;
+    private AuthenticationIntegrationMgr authenticationIntegrationMgr;
     private ExportMgr exportMgr;
     private Alter alter;
     private ConsistencyChecker consistencyChecker;
@@ -704,6 +706,7 @@ public class Env {
         this.routineLoadManager = EnvFactory.getInstance().createRoutineLoadManager();
         this.groupCommitManager = new GroupCommitManager();
         this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
+        this.authenticationIntegrationMgr = new AuthenticationIntegrationMgr();
         this.exportMgr = new ExportMgr();
         this.alter = new Alter();
         this.consistencyChecker = new ConsistencyChecker();
@@ -2488,6 +2491,17 @@ public class Env {
         return checksum;
     }
 
+    public long loadAuthenticationIntegrations(DataInputStream in, long checksum) throws IOException {
+        // TODO(authentication-integration): Re-enable image persistence
+        // when authentication integration is fully integrated.
+        // Consume persisted bytes to keep image stream alignment,
+        // but do not restore into in-memory state for now.
+        AuthenticationIntegrationMgr.read(in);
+        authenticationIntegrationMgr = new AuthenticationIntegrationMgr();
+        LOG.info("skip replay authentication integrations from image temporarily");
+        return checksum;
+    }
+
     /**
      * Load policy through file.
      **/
@@ -2797,6 +2811,14 @@ public class Env {
 
     public long saveSqlBlockRule(CountingDataOutputStream out, long checksum) throws IOException {
         Env.getCurrentEnv().getSqlBlockRuleMgr().write(out);
+        return checksum;
+    }
+
+    public long saveAuthenticationIntegrations(CountingDataOutputStream out, long checksum) throws IOException {
+        // TODO(authentication-integration): Re-enable image persistence
+        // when authentication integration is fully integrated.
+        // Persist an empty manager temporarily.
+        new AuthenticationIntegrationMgr().write(out);
         return checksum;
     }
 
@@ -5150,6 +5172,10 @@ public class Env {
 
     public SqlBlockRuleMgr getSqlBlockRuleMgr() {
         return sqlBlockRuleMgr;
+    }
+
+    public AuthenticationIntegrationMgr getAuthenticationIntegrationMgr() {
+        return authenticationIntegrationMgr;
     }
 
     public RoutineLoadTaskScheduler getRoutineLoadTaskScheduler() {

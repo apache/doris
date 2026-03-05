@@ -259,6 +259,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT = "variant_max_subcolumns_count";
 
     public static final String PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE = "variant_enable_typed_paths_to_sparse";
+    public static final String PROPERTIES_VARIANT_ENABLE_NESTED_GROUP = "variant_enable_nested_group";
     public static final String PROPERTIES_TDE_ALGORITHM = "tde_algorithm";
     public static final String AES256 = "AES256";
     public static final String SM4 = "SM4";
@@ -2063,6 +2064,21 @@ public class PropertyAnalyzer {
         return enableTypedPathsToSparse;
     }
 
+    public static boolean analyzeEnableNestedGroup(Map<String, String> properties,
+                        boolean defaultValue) throws AnalysisException {
+        boolean enableNestedGroup = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_NESTED_GROUP)) {
+            String enableNestedGroupStr = properties.get(PROPERTIES_VARIANT_ENABLE_NESTED_GROUP);
+            try {
+                enableNestedGroup = Boolean.parseBoolean(enableNestedGroupStr);
+            } catch (Exception e) {
+                throw new AnalysisException("variant_enable_nested_group must be `true` or `false`");
+            }
+            properties.remove(PROPERTIES_VARIANT_ENABLE_NESTED_GROUP);
+        }
+        return enableNestedGroup;
+    }
+
     public static int analyzeVariantMaxSparseColumnStatisticsSize(Map<String, String> properties, int defuatValue)
                                                                                 throws AnalysisException {
         int maxSparseColumnStatisticsSize = defuatValue;
@@ -2174,6 +2190,23 @@ public class PropertyAnalyzer {
             if (properties.containsKey(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT)) {
                 throw new AnalysisException("variant_sparse_hash_shard_count and variant_enable_doc_mode "
                         + "cannot be set together");
+            }
+        }
+        // variant_enable_nested_group=true is mutually exclusive with
+        // variant_enable_doc_mode=true and variant_max_subcolumns_count>0
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_NESTED_GROUP)
+                && "true".equalsIgnoreCase(properties.get(PROPERTIES_VARIANT_ENABLE_NESTED_GROUP))) {
+            if (properties.containsKey(PROPERTIES_VARIANT_ENABLE_DOC_MODE)
+                    && "true".equalsIgnoreCase(properties.get(PROPERTIES_VARIANT_ENABLE_DOC_MODE))) {
+                throw new AnalysisException("variant_enable_nested_group and variant_enable_doc_mode "
+                        + "cannot both be true");
+            }
+            if (properties.containsKey(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT)) {
+                int count = Integer.parseInt(properties.get(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT));
+                if (count > 0) {
+                    throw new AnalysisException("variant_enable_nested_group cannot be true when "
+                            + "variant_max_subcolumns_count > 0");
+                }
             }
         }
     }
