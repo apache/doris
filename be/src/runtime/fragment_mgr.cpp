@@ -923,6 +923,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     if (!params.__isset.need_wait_execution_trigger || !params.need_wait_execution_trigger) {
         query_ctx->set_ready_to_execute_only();
     }
+    query_ctx->set_single_backend_query(params.__isset.query_options &&
+                                        params.query_options.__isset.single_backend_query &&
+                                        params.query_options.single_backend_query);
 
     query_ctx->set_pipeline_context(params.fragment_id, context);
 

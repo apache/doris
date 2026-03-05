@@ -87,6 +87,8 @@ private:
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
+
+    bool _is_single_backend = false;
 };
 
 class DistinctStreamingAggOperatorX final
