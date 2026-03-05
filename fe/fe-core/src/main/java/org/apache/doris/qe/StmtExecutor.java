@@ -67,7 +67,6 @@ import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlEofPacket;
-import org.apache.doris.mysql.MysqlOkPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -771,9 +770,7 @@ public class StmtExecutor {
                         new AnalysisException(e.getMessage(), e));
             } catch (Exception | Error e) {
                 // Maybe our bug
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
-                }
+                LOG.info("Command({}) process failed.", originStmt.originStmt, e);
                 context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
                 throw new NereidsException("Command (" + originStmt.originStmt + ") process failed.",
                         new AnalysisException(e.getMessage() == null ? e.toString() : e.getMessage(), e));
@@ -1597,11 +1594,15 @@ public class StmtExecutor {
             }
             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
-        // send EOF
-        serializer.reset();
-        MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
-        eofPacket.writeTo(serializer);
-        context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+        // When CLIENT_DEPRECATE_EOF is set, the server should not send the intermediate
+        // EOF packet after column definitions. The client will go directly from column
+        // definitions to reading data rows.
+        if (!context.getMysqlChannel().clientDeprecatedEOF()) {
+            serializer.reset();
+            MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
+            eofPacket.writeTo(serializer);
+            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+        }
     }
 
     private List<PrimitiveType> exprToStringType(List<Expr> exprs) {
@@ -1643,15 +1644,15 @@ public class StmtExecutor {
                 serializer.writeField(colNames.get(i), Type.STRING);
                 context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
             }
-            serializer.reset();
+            // When CLIENT_DEPRECATE_EOF is set, no EOF/OK packet should be sent after
+            // parameter definitions. The driver knows how many params to expect from the
+            // prepare OK packet and simply stops reading after that count.
             if (!context.getMysqlChannel().clientDeprecatedEOF()) {
+                serializer.reset();
                 MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
                 eofPacket.writeTo(serializer);
-            } else {
-                MysqlOkPacket okPacket = new MysqlOkPacket(context.getState());
-                okPacket.writeTo(serializer);
+                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
             }
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
         if (numColumns > 0) {
             for (Slot slot : output) {
@@ -1670,15 +1671,15 @@ public class StmtExecutor {
                 }
                 context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
             }
-            serializer.reset();
+            // When CLIENT_DEPRECATE_EOF is set, no EOF/OK packet should be sent after
+            // column definitions. The driver knows how many columns to expect from the
+            // prepare OK packet and simply stops reading after that count.
             if (!context.getMysqlChannel().clientDeprecatedEOF()) {
+                serializer.reset();
                 MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
                 eofPacket.writeTo(serializer);
-            } else {
-                MysqlOkPacket okPacket = new MysqlOkPacket(context.getState());
-                okPacket.writeTo(serializer);
+                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
             }
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
         context.getMysqlChannel().flush();
         context.getState().setNoop();
@@ -1728,11 +1729,15 @@ public class StmtExecutor {
                 context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
             }
         }
-        // send EOF
-        serializer.reset();
-        MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
-        eofPacket.writeTo(serializer);
-        context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+        // When CLIENT_DEPRECATE_EOF is set, the server should not send the intermediate
+        // EOF packet after column definitions. The client will go directly from column
+        // definitions to reading data rows.
+        if (!context.getMysqlChannel().clientDeprecatedEOF()) {
+            serializer.reset();
+            MysqlEofPacket eofPacket = new MysqlEofPacket(context.getState());
+            eofPacket.writeTo(serializer);
+            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+        }
     }
 
     public void sendResultSet(ResultSet resultSet) throws IOException {

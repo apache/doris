@@ -61,6 +61,10 @@ import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
+/**
+ * In PostgreSQL/MySQL, multi-table writes are performed by tasks that only make calls.
+ * The write logic resides in the `cdc_client` and is implemented via `stream_load`.
+ */
 @Log4j2
 @Getter
 public class StreamingMultiTblTask extends AbstractStreamingTask {
@@ -81,7 +85,6 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     public StreamingMultiTblTask(Long jobId,
             long taskId,
             DataSourceType dataSourceType,
-
             SourceOffsetProvider offsetProvider,
             Map<String, String> sourceProperties,
             String targetDb,
@@ -180,8 +183,8 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         WriteRecordRequest request = new WriteRecordRequest();
         request.setJobId(getJobId());
         request.setConfig(sourceProperties);
-        request.setDataSource(dataSourceType.name());
 
+        request.setDataSource(dataSourceType.name());
         request.setTaskId(getTaskId() + "");
         request.setToken(getToken());
         request.setTargetDb(targetDb);
@@ -228,7 +231,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     /**
      * Callback function for offset commit success.
      */
-    public void successCallback(CommitOffsetRequest offsetRequest) {
+    public void successCallback(CommitOffsetRequest offsetRequest) throws JobException {
         if (getIsCanceled().get()) {
             return;
         }

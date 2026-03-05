@@ -29,6 +29,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
@@ -951,6 +952,8 @@ public class SessionVariable implements Serializable, Writable {
             "default_variant_doc_materialization_min_rows";
 
     public static final String DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT = "default_variant_doc_hash_shard_count";
+
+    public static final String DEFAULT_VARIANT_ENABLE_NESTED_GROUP = "default_variant_enable_nested_group";
 
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
@@ -2249,6 +2252,38 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DPHYPER_LIMIT)
     public int dphyperLimit = 1000;
 
+    @VariableMgr.VarAttr(name = "eager_aggregation_mode", needForward = true,
+            description = {"0: 根据统计信息决定是使用eager aggregation，"
+                    + "1: 强制使用 eager aggregation，"
+                    + "-1: 禁止使用 eager aggregation",
+                    "0: Determine eager aggregation by statistics, "
+                            + "1: force eager aggregation, "
+                            + "-1: Prohibit eager aggregation "}
+    )
+    private int eagerAggregationMode = 0;
+
+    public static int getEagerAggregationMode() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().eagerAggregationMode;
+        } else {
+            return VariableMgr.getDefaultSessionVariable().eagerAggregationMode;
+        }
+    }
+
+    public void setEagerAggregationMode(int mode) {
+        this.eagerAggregationMode = mode;
+    }
+
+    @VariableMgr.VarAttr(name = "eager_aggregation_on_join", needForward = true)
+    public boolean eagerAggregationOnJoin = false;
+
+    public static boolean isEagerAggregationOnJoin() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().eagerAggregationOnJoin;
+        } else {
+            return VariableMgr.getDefaultSessionVariable().eagerAggregationOnJoin;
+        }
+    }
 
     @VariableMgr.VarAttr(
             name = ENABLE_PAGE_CACHE,
@@ -3442,6 +3477,13 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true
     )
     public int defaultVariantDocHashShardCount = 64;
+
+    @VariableMgr.VarAttr(
+            name = DEFAULT_VARIANT_ENABLE_NESTED_GROUP,
+            needForward = true,
+            fuzzy = true
+    )
+    public boolean defaultVariantEnableNestedGroup = false;
 
     @VariableMgr.VarAttr(
             name = "use_v3_storage_format",
@@ -6153,6 +6195,10 @@ public class SessionVariable implements Serializable, Writable {
         return defaultVariantDocHashShardCount;
     }
 
+    public boolean getDefaultVariantEnableNestedGroup() {
+        return defaultVariantEnableNestedGroup;
+    }
+
     public void readAffectQueryResultVariables(BiConsumer<String, Object> variablesReader) {
         for (Field affectQueryResultField : affectQueryResultFields) {
             String name = affectQueryResultField.getName();
@@ -6184,6 +6230,13 @@ public class SessionVariable implements Serializable, Writable {
             return ConnectContext.get().getSessionVariable().feDebug;
         } else {
             return false;
+        }
+    }
+
+    public static void throwAnalysisExceptionWhenFeDebug(String msg) {
+        LOG.warn(msg);
+        if (isFeDebug()) {
+            throw new AnalysisException(msg);
         }
     }
 

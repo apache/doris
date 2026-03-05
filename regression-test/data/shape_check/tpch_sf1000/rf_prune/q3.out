@@ -7,9 +7,10 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN colocated] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF1 o_orderkey->[l_orderkey]
---------------PhysicalProject
-----------------filter((lineitem.l_shipdate > '1995-03-15'))
-------------------PhysicalOlapScan[lineitem] apply RFs: RF1
+--------------hashAgg[GLOBAL]
+----------------PhysicalProject
+------------------filter((lineitem.l_shipdate > '1995-03-15'))
+--------------------PhysicalOlapScan[lineitem] apply RFs: RF1
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF0 c_custkey->[o_custkey]
 ------------------PhysicalProject

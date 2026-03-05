@@ -402,7 +402,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     /*variantSparseHashShardCount*/ 0,
                     /*variantEnableDocMode*/ false,
                     /*variantDocMaterializationMinRows*/ 0,
-                    /*variantDocShardCount*/ 0);
+                    /*variantDocShardCount*/ 0,
+                    /*enableNestedGroup*/ false);
             parsedNodes = 1;
         } else {
             type = ScalarType.createType(PrimitiveType.fromThrift(tPrimitiveType),

@@ -186,6 +186,15 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod =
                         Env.class.getDeclaredMethod("saveSqlBlockRule", CountingDataOutputStream.class, long.class);
                 break;
+            // TODO: Re-enable this module once AuthenticationIntegrations should be persisted again.
+            // case "authenticationIntegrations":
+            //     metaPersistMethod.readMethod =
+            //             Env.class.getDeclaredMethod("loadAuthenticationIntegrations", DataInputStream.class,
+            //                     long.class);
+            //     metaPersistMethod.writeMethod =
+            //             Env.class.getDeclaredMethod("saveAuthenticationIntegrations",
+            //                     CountingDataOutputStream.class, long.class);
+            //     break;
             case "policy":
                 metaPersistMethod.readMethod =
                         Env.class.getDeclaredMethod("loadPolicy", DataInputStream.class, long.class);
