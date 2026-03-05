@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
 #include <utility>
 
 #include "vec/columns/column.h"

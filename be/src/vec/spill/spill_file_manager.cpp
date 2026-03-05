@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/spill/spill_stream_manager.h"
+#include "vec/spill/spill_file_manager.h"
 
 #include <fmt/format.h>
 #include <glog/logging.h>
@@ -38,20 +38,20 @@
 #include "util/runtime_profile.h"
 #include "util/time.h"
 #include "util/uid_util.h"
-#include "vec/spill/spill_stream.h"
+#include "vec/spill/spill_file.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-SpillStreamManager::~SpillStreamManager() {
+SpillFileManager::~SpillFileManager() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
 }
-SpillStreamManager::SpillStreamManager(
+SpillFileManager::SpillFileManager(
         std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>>&&
                 spill_store_map)
         : _spill_store_map(std::move(spill_store_map)), _stop_background_threads_latch(1) {}
 
-Status SpillStreamManager::init() {
+Status SpillFileManager::init() {
     LOG(INFO) << "init spill stream manager";
     RETURN_IF_ERROR(_init_spill_store_map());
 
@@ -88,7 +88,7 @@ Status SpillStreamManager::init() {
     return Status::OK();
 }
 
-void SpillStreamManager::_init_metrics() {
+void SpillFileManager::_init_metrics() {
     _entity = DorisMetrics::instance()->metric_registry()->register_entity("spill",
                                                                            {{"name", "spill"}});
 
@@ -104,7 +104,7 @@ void SpillStreamManager::_init_metrics() {
 }
 
 // clean up stale spilled files
-void SpillStreamManager::_spill_gc_thread_callback() {
+void SpillFileManager::_spill_gc_thread_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(config::spill_gc_interval_ms))) {
         gc(config::spill_gc_work_time_ms);
@@ -114,7 +114,7 @@ void SpillStreamManager::_spill_gc_thread_callback() {
     }
 }
 
-Status SpillStreamManager::_init_spill_store_map() {
+Status SpillFileManager::_init_spill_store_map() {
     for (const auto& store : _spill_store_map) {
         RETURN_IF_ERROR(store.second->init());
     }
@@ -122,7 +122,7 @@ Status SpillStreamManager::_init_spill_store_map() {
     return Status::OK();
 }
 
-std::vector<SpillDataDir*> SpillStreamManager::_get_stores_for_spill(
+std::vector<SpillDataDir*> SpillFileManager::_get_stores_for_spill(
         TStorageMedium::type storage_medium) {
     std::vector<std::pair<SpillDataDir*, double>> stores_with_usage;
     for (auto& [_, store] : _spill_store_map) {
@@ -144,11 +144,8 @@ std::vector<SpillDataDir*> SpillStreamManager::_get_stores_for_spill(
     return stores;
 }
 
-Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStreamSPtr& spill_stream,
-                                                 const std::string& query_id,
-                                                 const std::string& operator_name, int32_t node_id,
-                                                 int32_t batch_rows, size_t batch_bytes,
-                                                 RuntimeProfile* operator_profile) {
+Status SpillFileManager::create_spill_file(const std::string& relative_path,
+                                           SpillFileSPtr& spill_file) {
     auto data_dirs = _get_stores_for_spill(TStorageMedium::type::SSD);
     if (data_dirs.empty()) {
         data_dirs = _get_stores_for_spill(TStorageMedium::type::HDD);
@@ -158,37 +155,21 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
                 "no available disk can be used for spill.");
     }
 
-    uint64_t id = id_++;
-    std::string spill_dir;
-    SpillDataDir* data_dir = nullptr;
-    for (auto& dir : data_dirs) {
-        std::string spill_root_dir = dir->get_spill_data_path();
-        // storage_root/spill/query_id/partitioned_hash_join-node_id-task_id-stream_id
-        spill_dir = fmt::format("{}/{}/{}-{}-{}-{}", spill_root_dir, query_id, operator_name,
-                                node_id, state->task_id(), id);
-        auto st = io::global_local_filesystem()->create_directory(spill_dir);
-        if (!st.ok()) {
-            std::cerr << "create spill dir failed: " << st.to_string();
-            continue;
-        }
-        data_dir = dir;
-        break;
-    }
-    if (!data_dir) {
-        return Status::Error<ErrorCode::CE_CMD_PARAMS_ERROR>(
-                "there is no available disk that can be used to spill.");
-    }
-    spill_stream = std::make_shared<SpillStream>(state, id, data_dir, spill_dir, batch_rows,
-                                                 batch_bytes, operator_profile);
-    RETURN_IF_ERROR(spill_stream->prepare());
+    // Select the first available data dir (sorted by usage ascending)
+    SpillDataDir* data_dir = data_dirs.front();
+    spill_file = std::make_shared<SpillFile>(data_dir, relative_path);
     return Status::OK();
 }
 
-void SpillStreamManager::delete_spill_stream(SpillStreamSPtr stream) {
-    stream->gc();
+void SpillFileManager::delete_spill_file(SpillFileSPtr spill_file) {
+    if (!spill_file) {
+        LOG(WARNING) << "[spill][delete] null spill_file";
+        return;
+    }
+    spill_file->gc();
 }
 
-void SpillStreamManager::gc(int32_t max_work_time_ms) {
+void SpillFileManager::gc(int32_t max_work_time_ms) {
     bool exists = true;
     bool has_work = false;
     int64_t max_work_time_ns = max_work_time_ms * 1000L * 1000L;

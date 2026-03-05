@@ -25,8 +25,9 @@
 #include "util/pretty_printer.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/spill/spill_stream.h"
-#include "vec/spill/spill_stream_manager.h"
+#include "vec/spill/spill_file.h"
+#include "vec/spill/spill_file_manager.h"
+#include "vec/spill/spill_file_writer.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -41,22 +42,21 @@ public:
     PartitionedAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
     ~PartitionedAggSinkLocalState() override = default;
 
-    friend class PartitionedAggSinkOperatorX;
-
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
 
-    Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
+    bool is_blockable() const override;
 
-    Status _execute_spill_process(RuntimeState* state, size_t size_to_revoke);
+private:
+    friend class PartitionedAggSinkOperatorX;
 
-    Status setup_in_memory_agg_op(RuntimeState* state);
+    Status _revoke_memory(RuntimeState* state);
+
+    Status _setup_in_memory_agg_op(RuntimeState* state);
 
     template <bool spilled>
-    void update_profile(RuntimeProfile* child_profile);
-
-    bool is_blockable() const override;
+    void _update_profile(RuntimeProfile* child_profile);
 
     template <typename KeyType>
     struct TmpSpillInfo {
@@ -69,15 +69,15 @@ public:
                              HashTableType& hash_table, const size_t size_to_revoke, bool eos);
 
     template <typename HashTableCtxType, typename KeyType>
-    Status _spill_partition(RuntimeState* state, HashTableCtxType& context,
-                            AggSpillPartitionSPtr& spill_partition, std::vector<KeyType>& keys,
+    Status _spill_partition(RuntimeState* state, HashTableCtxType& context, size_t partition_idx,
+                            std::vector<KeyType>& keys,
                             std::vector<vectorized::AggregateDataPtr>& values,
                             const vectorized::AggregateDataPtr null_key_data, bool is_last);
 
     template <typename HashTableCtxType, typename KeyType>
-    Status to_block(HashTableCtxType& context, std::vector<KeyType>& keys,
-                    std::vector<vectorized::AggregateDataPtr>& values,
-                    const vectorized::AggregateDataPtr null_key_data);
+    Status _to_block(HashTableCtxType& context, std::vector<KeyType>& keys,
+                     std::vector<vectorized::AggregateDataPtr>& values,
+                     const vectorized::AggregateDataPtr null_key_data);
 
     void _reset_tmp_data();
     void _clear_tmp_data();
@@ -86,17 +86,19 @@ public:
     std::unique_ptr<RuntimeState> _runtime_state;
 
     // temp structures during spilling
-    vectorized::MutableColumns key_columns_;
-    vectorized::MutableColumns value_columns_;
-    vectorized::DataTypes value_data_types_;
-    vectorized::Block block_;
-    vectorized::Block key_block_;
-    vectorized::Block value_block_;
+    vectorized::MutableColumns _key_columns;
+    vectorized::MutableColumns _value_columns;
+    vectorized::DataTypes _value_data_types;
+    vectorized::Block _block;
+    vectorized::Block _key_block;
+    vectorized::Block _value_block;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
     RuntimeProfile::Counter* _memory_usage_reserved = nullptr;
 
     RuntimeProfile::Counter* _spill_serialize_hash_table_timer = nullptr;
+
+    std::vector<vectorized::SpillFileWriterSPtr> _spill_writers;
 
     std::atomic<bool> _eos = false;
 };
@@ -140,16 +142,15 @@ public:
     }
     size_t revocable_mem_size(RuntimeState* state) const override;
 
-    Status revoke_memory(RuntimeState* state,
-                         const std::shared_ptr<SpillContext>& spill_context) override;
+    Status revoke_memory(RuntimeState* state) override;
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
 private:
     friend class PartitionedAggSinkLocalState;
     std::unique_ptr<AggSinkOperatorX> _agg_sink_operator;
-
-    size_t _spill_partition_count = 32;
+    // each operator tracks its own partition count for spilling
+    size_t _partition_count = 32;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

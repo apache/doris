@@ -47,7 +47,7 @@
 #include "runtime_filter/runtime_filter_definitions.h"
 #include "util/mem_info.h"
 #include "util/uid_util.h"
-#include "vec/spill/spill_stream_manager.h"
+#include "vec/spill/spill_file_manager.h"
 
 namespace doris {
 

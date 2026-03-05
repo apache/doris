@@ -26,7 +26,7 @@
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/sink/vdata_stream_sender.h"
-#include "vec/spill/spill_stream.h"
+#include "vec/spill/spill_file.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -45,8 +45,8 @@ struct MultiCastBlock {
 };
 
 struct SpillingReader {
-    vectorized::SpillReaderUPtr reader;
-    vectorized::SpillStreamSPtr stream;
+    vectorized::SpillFileReaderSPtr reader;
+    vectorized::SpillFileSPtr spill_file;
     int64_t block_offset {0};
     bool all_data_read {false};
 };
@@ -99,7 +99,7 @@ private:
     Status _copy_block(RuntimeState* state, int32_t sender_idx, vectorized::Block* block,
                        MultiCastBlock& multi_cast_block);
 
-    Status _start_spill_task(RuntimeState* state, vectorized::SpillStreamSPtr spill_stream);
+    Status _start_spill_task(RuntimeState* state, vectorized::SpillFileSPtr spill_file);
 
     Status _trigger_spill_if_need(RuntimeState* state, bool* triggered);
 

@@ -51,7 +51,7 @@ class MemoryPool;
 namespace doris {
 namespace vectorized {
 class VDataStreamMgr;
-class SpillStreamManager;
+class SpillFileManager;
 class DeltaWriterV2Pool;
 class DictionaryFactory;
 } // namespace vectorized
@@ -289,7 +289,7 @@ public:
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr.get(); }
     NewLoadStreamMgr* new_load_stream_mgr() { return _new_load_stream_mgr.get(); }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
-    doris::vectorized::SpillStreamManager* spill_stream_mgr() { return _spill_stream_mgr; }
+    doris::vectorized::SpillFileManager* spill_file_mgr() { return _spill_file_mgr; }
     GroupCommitMgr* group_commit_mgr() { return _group_commit_mgr; }
     CdcClientMgr* cdc_client_mgr() { return _cdc_client_mgr; }
 
@@ -567,7 +567,7 @@ private:
 
     std::unique_ptr<pipeline::PipelineTracerContext> _pipeline_tracer_ctx;
     std::unique_ptr<segment_v2::TmpFileDirs> _tmp_file_dirs;
-    doris::vectorized::SpillStreamManager* _spill_stream_mgr = nullptr;
+    doris::vectorized::SpillFileManager* _spill_file_mgr = nullptr;
 
     orc::MemoryPool* _orc_memory_pool = nullptr;
     arrow::MemoryPool* _arrow_memory_pool = nullptr;

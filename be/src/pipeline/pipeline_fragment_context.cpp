@@ -124,7 +124,7 @@
 #include "util/uid_util.h"
 #include "vec/common/sort/topn_sorter.h"
 #include "vec/runtime/vdata_stream_mgr.h"
-#include "vec/spill/spill_stream.h"
+#include "vec/spill/spill_file.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -1341,8 +1341,9 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         const bool is_streaming_agg = tnode.agg_node.__isset.use_streaming_preaggregation &&
                                       tnode.agg_node.use_streaming_preaggregation &&
                                       !tnode.agg_node.grouping_exprs.empty();
+        // TODO: distinct streaming agg does not support spill.
         const bool can_use_distinct_streaming_agg =
-                tnode.agg_node.aggregate_functions.empty() &&
+                (!enable_spill || is_streaming_agg) && tnode.agg_node.aggregate_functions.empty() &&
                 !tnode.agg_node.__isset.agg_sort_info_by_group_key &&
                 _params.query_options.__isset.enable_distinct_streaming_aggregation &&
                 _params.query_options.enable_distinct_streaming_aggregation;
@@ -1424,7 +1425,6 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         if (enable_spill && !is_broadcast_join) {
             auto tnode_ = tnode;
             tnode_.runtime_filters.clear();
-            uint32_t partition_count = _runtime_state->spill_hash_join_partition_count();
             auto inner_probe_operator =
                     std::make_shared<HashJoinProbeOperatorX>(pool, tnode_, 0, descs);
 
@@ -1437,7 +1437,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             RETURN_IF_ERROR(probe_side_inner_sink_operator->init(tnode_, _runtime_state.get()));
 
             auto probe_operator = std::make_shared<PartitionedHashJoinProbeOperatorX>(
-                    pool, tnode_, next_operator_id(), descs, partition_count);
+                    pool, tnode_, next_operator_id(), descs);
             probe_operator->set_inner_operators(probe_side_inner_sink_operator,
                                                 inner_probe_operator);
             op = std::move(probe_operator);
@@ -1453,8 +1453,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             auto inner_sink_operator =
                     std::make_shared<HashJoinBuildSinkOperatorX>(pool, 0, 0, tnode, descs);
             auto sink_operator = std::make_shared<PartitionedHashJoinSinkOperatorX>(
-                    pool, next_sink_operator_id(), op->operator_id(), tnode_, descs,
-                    partition_count);
+                    pool, next_sink_operator_id(), op->operator_id(), tnode_, descs);
             RETURN_IF_ERROR(inner_sink_operator->init(tnode, _runtime_state.get()));
 
             sink_operator->set_inner_operators(inner_sink_operator, inner_probe_operator);
@@ -1964,7 +1963,7 @@ size_t PipelineFragmentContext::get_revocable_size(bool* has_running_task) const
             }
 
             size_t revocable_size = task.first->get_revocable_size();
-            if (revocable_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+            if (revocable_size >= vectorized::SpillFile::MIN_SPILL_WRITE_BATCH_MEM) {
                 res += revocable_size;
             }
         }
@@ -1977,7 +1976,7 @@ std::vector<PipelineTask*> PipelineFragmentContext::get_revocable_tasks() const 
     for (const auto& task_instances : _tasks) {
         for (const auto& task : task_instances) {
             size_t revocable_size_ = task.first->get_revocable_size();
-            if (revocable_size_ >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+            if (revocable_size_ >= vectorized::SpillFile::MIN_SPILL_WRITE_BATCH_MEM) {
                 revocable_tasks.emplace_back(task.first.get());
             }
         }

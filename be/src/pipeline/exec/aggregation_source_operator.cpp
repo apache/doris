@@ -548,6 +548,13 @@ Status AggSourceOperatorX::reset_hash_table(RuntimeState* state) {
     return Status::OK();
 }
 
+Status AggSourceOperatorX::get_serialized_block(RuntimeState* state, vectorized::Block* block,
+                                                bool* eos) {
+    auto& local_state = get_local_state(state);
+    // Always use the serialized intermediate output path, regardless of _needs_finalize.
+    return local_state._get_results_with_serialized_key(state, block, eos);
+}
+
 void AggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                              vectorized::ColumnRawPtrs& key_columns,
                                              uint32_t num_rows) {

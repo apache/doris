@@ -440,6 +440,30 @@ struct TQueryOptions {
   // Use paimon-cpp to read Paimon splits on BE
   201: optional bool enable_paimon_cpp_reader = false;
 
+  // Per-read/per-write buffer size used during spill I/O, in bytes. Controls the
+  // I/O batch size for spill write and merge read. This value can be overridden
+  // per-query by setting the session variable `spill_buffer_size_bytes` in FE.
+  // Default is 8MB.
+  202: optional i64 spill_buffer_size_bytes = 8388608
+
+  // Per-sink memory limit after spill is triggered. When a sink operator's revocable
+  // memory exceeds the corresponding threshold, it proactively spills to disk.
+  // Default is 64MB for all three.
+  203: optional i64 spill_join_build_sink_mem_limit_bytes = 67108864
+  204: optional i64 spill_aggregation_sink_mem_limit_bytes = 67108864
+  205: optional i64 spill_sort_sink_mem_limit_bytes = 67108864
+
+  // Total memory budget for the sort merge phase after spill. Divided by
+  // spill_buffer_size_bytes gives the number of files merged in parallel.
+  // Default is 64MB.
+  206: optional i64 spill_sort_merge_mem_limit_bytes = 67108864
+
+  // Maximum depth for repartitioning recursion. Controls how many recursive
+  // repartition rounds are allowed before giving up and treating a partition
+  // as terminal. This value can be overridden per-query by setting the
+  // session variable `spill_repartition_max_depth` in FE. Default is 8.
+  207: optional i32 spill_repartition_max_depth = 8
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
