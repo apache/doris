@@ -18,7 +18,7 @@
 #include "vec/runtime/vjni_format_transformer.h"
 
 #include "runtime/runtime_state.h"
-#include "vec/exec/jni_connector.h"
+#include "vec/exec/jni_data_bridge.h"
 
 namespace doris::vectorized {
 
@@ -85,11 +85,11 @@ Status VJniFormatTransformer::write(const Block& block) {
     // 1. Convert Block to Java table metadata (column addresses)
     Block* mutable_block = const_cast<Block*>(&block);
     std::unique_ptr<long[]> input_table;
-    RETURN_IF_ERROR(JniConnector::to_java_table(mutable_block, input_table));
+    RETURN_IF_ERROR(JniDataBridge::to_java_table(mutable_block, input_table));
 
     // 2. Cache schema on first call
     if (!_schema_cached) {
-        auto schema = JniConnector::parse_table_schema(mutable_block);
+        auto schema = JniDataBridge::parse_table_schema(mutable_block);
         _cached_required_fields = schema.first;
         _cached_columns_types = schema.second;
         _schema_cached = true;
