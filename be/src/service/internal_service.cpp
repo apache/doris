@@ -41,7 +41,7 @@
 #include <stdint.h>
 #include <sys/stat.h>
 #include <vec/data_types/data_type.h>
-#include <vec/exec/vjdbc_connector.h>
+#include <vec/exec/jni_connector.h>
 #include <vec/sink/varrow_flight_result_writer.h>
 
 #include <algorithm>
@@ -979,6 +979,33 @@ void PInternalService::tablet_fetch_data(google::protobuf::RpcController* contro
     }
 }
 
+// Resolve JDBC driver URL to a file:// path.
+// Handles relative paths by looking in configured/default driver directories.
+static Status _resolve_jdbc_driver_url(const std::string& url, std::string* result_url) {
+    if (url.find(":/") != std::string::npos) {
+        *result_url = url;
+        return Status::OK();
+    }
+    const char* doris_home = std::getenv("DORIS_HOME");
+    std::string default_url = std::string(doris_home) + "/plugins/jdbc_drivers";
+    std::string default_old_url = std::string(doris_home) + "/jdbc_drivers";
+
+    if (config::jdbc_drivers_dir == default_url) {
+        std::string target_path = default_url + "/" + url;
+        std::string old_target_path = default_old_url + "/" + url;
+        if (std::filesystem::exists(target_path)) {
+            *result_url = "file://" + target_path;
+        } else if (std::filesystem::exists(old_target_path)) {
+            *result_url = "file://" + old_target_path;
+        } else {
+            return Status::InternalError("JDBC driver file does not exist: " + url);
+        }
+    } else {
+        *result_url = "file://" + config::jdbc_drivers_dir + "/" + url;
+    }
+    return Status::OK();
+}
+
 void PInternalService::test_jdbc_connection(google::protobuf::RpcController* controller,
                                             const PJdbcTestConnectionRequest* request,
                                             PJdbcTestConnectionResult* result,
@@ -991,7 +1018,6 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
                 fmt::format("InternalService::test_jdbc_connection"));
         SCOPED_ATTACH_TASK(mem_tracker);
         TTableDescriptor table_desc;
-        vectorized::JdbcConnectorParam jdbc_param;
         Status st = Status::OK();
         {
             const uint8_t* buf = (const uint8_t*)request->jdbc_table().data();
@@ -1004,34 +1030,53 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
             }
         }
         TJdbcTable jdbc_table = (table_desc.jdbcTable);
-        jdbc_param.catalog_id = jdbc_table.catalog_id;
-        jdbc_param.driver_class = jdbc_table.jdbc_driver_class;
-        jdbc_param.driver_path = jdbc_table.jdbc_driver_url;
-        jdbc_param.driver_checksum = jdbc_table.jdbc_driver_checksum;
-        jdbc_param.jdbc_url = jdbc_table.jdbc_url;
-        jdbc_param.user = jdbc_table.jdbc_user;
-        jdbc_param.passwd = jdbc_table.jdbc_password;
-        jdbc_param.query_string = request->query_str();
-        jdbc_param.table_type = static_cast<TOdbcTableType::type>(request->jdbc_table_type());
-        jdbc_param.connection_pool_min_size = jdbc_table.connection_pool_min_size;
-        jdbc_param.connection_pool_max_size = jdbc_table.connection_pool_max_size;
-        jdbc_param.connection_pool_max_life_time = jdbc_table.connection_pool_max_life_time;
-        jdbc_param.connection_pool_max_wait_time = jdbc_table.connection_pool_max_wait_time;
-        jdbc_param.connection_pool_keep_alive = jdbc_table.connection_pool_keep_alive;
 
-        std::unique_ptr<vectorized::JdbcConnector> jdbc_connector;
-        jdbc_connector.reset(new (std::nothrow) vectorized::JdbcConnector(jdbc_param));
+        // Resolve driver URL to absolute file:// path
+        std::string driver_url;
+        st = _resolve_jdbc_driver_url(jdbc_table.jdbc_driver_url, &driver_url);
+        if (!st.ok()) {
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
 
-        st = jdbc_connector->test_connection();
+        // Build params for JdbcConnectionTester
+        std::map<String, String> params;
+        params["jdbc_url"] = jdbc_table.jdbc_url;
+        params["jdbc_user"] = jdbc_table.jdbc_user;
+        params["jdbc_password"] = jdbc_table.jdbc_password;
+        params["jdbc_driver_class"] = jdbc_table.jdbc_driver_class;
+        params["jdbc_driver_url"] = driver_url;
+        params["query_sql"] = request->query_str();
+        params["catalog_id"] = std::to_string(jdbc_table.catalog_id);
+        params["connection_pool_min_size"] =
+                std::to_string(jdbc_table.connection_pool_min_size);
+        params["connection_pool_max_size"] =
+                std::to_string(jdbc_table.connection_pool_max_size);
+        params["connection_pool_max_wait_time"] =
+                std::to_string(jdbc_table.connection_pool_max_wait_time);
+        params["connection_pool_max_life_time"] =
+                std::to_string(jdbc_table.connection_pool_max_life_time);
+        params["connection_pool_keep_alive"] =
+                jdbc_table.connection_pool_keep_alive ? "true" : "false";
+        params["clean_datasource"] = "true";
+        // required_fields and columns_types are required by JniConnector
+        params["required_fields"] = "result";
+        params["columns_types"] = "int";
+
+        // Use JniConnector to create JdbcConnectionTester, which tests
+        // the connection in its open() method.
+        auto jni_connector = std::make_unique<vectorized::JniConnector>(
+                "org/apache/doris/jdbc/JdbcConnectionTester", params,
+                std::vector<std::string> {"result"});
+        st = jni_connector->init();
+        if (st.ok()) {
+            st = jni_connector->open(nullptr, nullptr);
+        }
         st.to_protobuf(result->mutable_status());
 
-        Status clean_st = jdbc_connector->clean_datasource();
-        if (!clean_st.ok()) {
-            LOG(WARNING) << "Failed to clean JDBC datasource: " << clean_st.msg();
-        }
-        Status close_st = jdbc_connector->close();
+        Status close_st = jni_connector->close();
         if (!close_st.ok()) {
-            LOG(WARNING) << "Failed to close JDBC connector: " << close_st.msg();
+            LOG(WARNING) << "Failed to close JDBC connection tester: " << close_st.msg();
         }
     });
 

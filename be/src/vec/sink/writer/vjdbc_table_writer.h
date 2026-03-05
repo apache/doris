@@ -37,9 +37,8 @@ class Block;
 /**
  * VJdbcTableWriter writes data to external JDBC targets via JNI.
  *
- * Refactored to use VJniFormatTransformer (same pattern as VMCPartitionWriter for MaxCompute),
- * instead of inheriting from JdbcConnector. The Java side writer is JdbcJniWriter which
- * extends JniWriter.
+ * Refactored to use VJniFormatTransformer (same pattern as VMCPartitionWriter for MaxCompute).
+ * The Java side writer is JdbcJniWriter which extends JniWriter.
  *
  * Transaction control (begin/commit/rollback) is handled through additional JNI method calls
  * to the Java JdbcJniWriter instance.
