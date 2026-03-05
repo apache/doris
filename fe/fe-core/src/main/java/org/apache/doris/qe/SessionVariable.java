@@ -941,6 +941,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT = "default_variant_doc_hash_shard_count";
 
+    public static final String DEFAULT_VARIANT_ENABLE_NESTED_GROUP = "default_variant_enable_nested_group";
+
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
 
@@ -3337,6 +3339,13 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true
     )
     public int defaultVariantDocHashShardCount = 64;
+
+    @VariableMgr.VarAttr(
+            name = DEFAULT_VARIANT_ENABLE_NESTED_GROUP,
+            needForward = true,
+            fuzzy = true
+    )
+    public boolean defaultVariantEnableNestedGroup = false;
 
     @VariableMgr.VarAttr(
             name = "use_v3_storage_format",
@@ -6039,6 +6048,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getDefaultVariantDocHashShardCount() {
         return defaultVariantDocHashShardCount;
+    }
+
+    public boolean getDefaultVariantEnableNestedGroup() {
+        return defaultVariantEnableNestedGroup;
     }
 
     public void readAffectQueryResultVariables(BiConsumer<String, Object> variablesReader) {

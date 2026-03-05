@@ -1066,4 +1066,11 @@ public class ScalarType extends Type {
         // Backward-compatible default bucket count used by BE doc snapshot writer/reader.
         return 128;
     }
+
+    public boolean getVariantEnableNestedGroup() {
+        if (this instanceof VariantType) {
+            return ((VariantType) this).getEnableNestedGroup();
+        }
+        return false; // Default to false for backward compatibility.
+    }
 }
