@@ -142,7 +142,9 @@ public class NereidsParser {
      * for example: select id from tbl return Tokens: ['select', 'id', 'from', 'tbl']
      */
     public static TokenSource scan(String sql) {
-        return new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+        DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+        lexer.isAnsiQuotes = SqlModeHelper.hasAnsiQuotes();
+        return lexer;
     }
 
     /**
@@ -466,6 +468,7 @@ public class NereidsParser {
     private static CommonTokenStream parseAllTokens(String sql) {
         DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
         lexer.isNoBackslashEscapes = SqlModeHelper.hasNoBackSlashEscapes();
+        lexer.isAnsiQuotes = SqlModeHelper.hasAnsiQuotes();
         CommonTokenStream tokenStream = new CommonTokenStream(lexer);
         tokenStream.fill();
         return tokenStream;

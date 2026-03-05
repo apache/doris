@@ -21,6 +21,7 @@ lexer grammar DorisLexer;
 
 @members {
   public boolean isNoBackslashEscapes = false;
+  public boolean isAnsiQuotes = false;
 
   /**
    * Verify whether current token is a valid decimal token (which contains dot).
@@ -655,9 +656,13 @@ COMMENT_START: '/*';
 ATSIGN: '@';
 DOUBLEATSIGN: '@@';
 
+DOUBLE_QUOTED_IDENTIFIER
+    : {isAnsiQuotes}? '"' ( ~'"' | '""' )* '"'
+    ;
+
 STRING_LITERAL
     :  '\'' ( {!isNoBackslashEscapes}? '\\'. | '\'\'' | {!isNoBackslashEscapes}? ~('\'' | '\\') | {isNoBackslashEscapes}? ~('\''))* '\''
-    | '"' ( {!isNoBackslashEscapes}? '\\'. | '""' | {!isNoBackslashEscapes}? ~('"'| '\\') | {isNoBackslashEscapes}? ~('"'))* '"'
+    | {!isAnsiQuotes}? '"' ( {!isNoBackslashEscapes}? '\\'. | '""' | {!isNoBackslashEscapes}? ~('"'| '\\') | {isNoBackslashEscapes}? ~('"'))* '"'
     ;
 
 VARBINARY_LITERAL

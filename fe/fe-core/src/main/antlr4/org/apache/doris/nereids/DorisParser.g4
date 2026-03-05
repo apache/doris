@@ -1928,6 +1928,7 @@ strictIdentifier
 
 quotedIdentifier
     : BACKQUOTED_IDENTIFIER
+    | DOUBLE_QUOTED_IDENTIFIER
     ;
 
 number

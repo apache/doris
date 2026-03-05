@@ -1520,4 +1520,48 @@ public class NereidsParserTest extends ParserTestBase {
         String sql = "SELECT t.* FROM LATERAL unnest([1,2], ['hi','hello']) WITH ORDINALITY AS t(c1,c2);";
         parsePlan(sql).matches(logicalGenerate().when(plan -> plan.getGenerators().get(0) instanceof Unnest));
     }
+
+    @Test
+    public void testAnsiQuotes() {
+        NereidsParser nereidsParser = new NereidsParser();
+
+        try (MockedStatic<SqlModeHelper> helperMockedStatic = Mockito.mockStatic(SqlModeHelper.class)) {
+            helperMockedStatic.when(SqlModeHelper::hasAnsiQuotes).thenReturn(true);
+            helperMockedStatic.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(false);
+            helperMockedStatic.when(SqlModeHelper::hasPipeAsConcat).thenReturn(false);
+
+            // double-quoted identifier should be parsed as identifier, not string
+            LogicalPlan plan = nereidsParser.parseSingle("SELECT \"col1\" FROM \"tbl\"");
+            Assertions.assertTrue(plan instanceof LogicalPlanAdapter);
+
+            // backtick-quoted identifier should still work
+            LogicalPlan plan2 = nereidsParser.parseSingle("SELECT `col1` FROM `tbl`");
+            Assertions.assertTrue(plan2 instanceof LogicalPlanAdapter);
+
+            // single-quoted string should still be a string literal
+            Expression expr = nereidsParser.parseExpression("'hello'");
+            Assertions.assertTrue(expr instanceof StringLikeLiteral);
+            Assertions.assertEquals("hello", ((StringLikeLiteral) expr).getStringValue());
+
+            // double-quoted with escaped quotes: "col""name" -> col"name
+            LogicalPlan plan3 = nereidsParser.parseSingle("SELECT \"col\"\"name\" FROM t");
+            Assertions.assertTrue(plan3 instanceof LogicalPlanAdapter);
+        }
+    }
+
+    @Test
+    public void testAnsiQuotesOff() {
+        NereidsParser nereidsParser = new NereidsParser();
+
+        try (MockedStatic<SqlModeHelper> helperMockedStatic = Mockito.mockStatic(SqlModeHelper.class)) {
+            helperMockedStatic.when(SqlModeHelper::hasAnsiQuotes).thenReturn(false);
+            helperMockedStatic.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(false);
+            helperMockedStatic.when(SqlModeHelper::hasPipeAsConcat).thenReturn(false);
+
+            // without ANSI_QUOTES, double-quoted text should be a string literal
+            Expression expr = nereidsParser.parseExpression("\"hello\"");
+            Assertions.assertTrue(expr instanceof StringLikeLiteral);
+            Assertions.assertEquals("hello", ((StringLikeLiteral) expr).getStringValue());
+        }
+    }
 }
