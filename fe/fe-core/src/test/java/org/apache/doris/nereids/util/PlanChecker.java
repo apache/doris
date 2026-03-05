@@ -43,6 +43,7 @@ import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.pattern.MatchingContext;
+import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.pattern.PatternDescriptor;
 import org.apache.doris.nereids.pattern.PatternMatcher;
 import org.apache.doris.nereids.processor.post.Validator;
@@ -616,8 +617,9 @@ public class PlanChecker {
 
     public PlanChecker matchesFromRoot(PatternDescriptor<? extends Plan> patternDesc) {
         Memo memo = cascadesContext.getMemo();
-        assertMatches(memo, () -> new GroupExpressionMatching(patternDesc.pattern,
-                memo.getRoot().getLogicalExpression()).iterator().hasNext());
+        assertMatchesWithDiagnostic(memo, patternDesc.pattern,
+                () -> new GroupExpressionMatching(patternDesc.pattern,
+                        memo.getRoot().getLogicalExpression()).iterator().hasNext());
         return this;
     }
 
@@ -631,7 +633,8 @@ public class PlanChecker {
     public PlanChecker matches(PatternDescriptor<? extends Plan> patternDesc) {
         Memo memo = cascadesContext.getMemo();
         checkSlotFromChildren(memo);
-        assertMatches(memo, () -> MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        assertMatchesWithDiagnostic(memo, patternDesc.pattern,
+                () -> MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
         return this;
     }
 
@@ -641,7 +644,7 @@ public class PlanChecker {
         Memo memo = cascadesContext.getMemo();
         checkSlotFromChildren(memo);
         matchResult.add(MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
-        assertMatches(memo, () -> matchResult.contains(true));
+        assertMatchesWithDiagnostic(memo, patternDesc.pattern, () -> matchResult.contains(true));
         return this;
     }
 
@@ -655,7 +658,8 @@ public class PlanChecker {
     // TODO: remove it.
     public PlanChecker matchesNotCheck(PatternDescriptor<? extends Plan> patternDesc) {
         Memo memo = cascadesContext.getMemo();
-        assertMatches(memo, () -> MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        assertMatchesWithDiagnostic(memo, patternDesc.pattern,
+                () -> MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
         return this;
     }
 
@@ -682,6 +686,16 @@ public class PlanChecker {
                         + memo.copyOut().treeString()
                         + "\n"
         );
+        return this;
+    }
+
+    private PlanChecker assertMatchesWithDiagnostic(Memo memo,
+            Pattern<? extends Plan> pattern, Supplier<Boolean> asserter) {
+        if (!asserter.get()) {
+            String diagnostic = MatchingUtils.topDownFindMatchingDiagnostic(memo.getRoot(), pattern);
+            Assertions.fail("pattern not match.\nDiagnosis: " + diagnostic
+                    + "\nActual plan:\n" + memo.copyOut().treeString() + "\n");
+        }
         return this;
     }
 
