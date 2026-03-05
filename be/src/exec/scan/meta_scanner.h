@@ -76,6 +76,8 @@ private:
                                                          TFetchSchemaTableDataRequest* request);
     Status _build_catalogs_metadata_request(const TMetaScanRange& meta_scan_range,
                                             TFetchSchemaTableDataRequest* request);
+    Status _build_authentication_integrations_metadata_request(
+            const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request);
     Status _build_materialized_views_metadata_request(const TMetaScanRange& meta_scan_range,
                                                       TFetchSchemaTableDataRequest* request);
     Status _build_partitions_metadata_request(const TMetaScanRange& meta_scan_range,

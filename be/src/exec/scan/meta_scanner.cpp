@@ -264,6 +264,10 @@ Status MetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     case TMetadataType::CATALOGS:
         RETURN_IF_ERROR(_build_catalogs_metadata_request(meta_scan_range, &request));
         break;
+    case TMetadataType::AUTHENTICATION_INTEGRATIONS:
+        RETURN_IF_ERROR(
+                _build_authentication_integrations_metadata_request(meta_scan_range, &request));
+        break;
     case TMetadataType::MATERIALIZED_VIEWS:
         RETURN_IF_ERROR(_build_materialized_views_metadata_request(meta_scan_range, &request));
         break;
@@ -415,6 +419,20 @@ Status MetaScanner::_build_catalogs_metadata_request(const TMetaScanRange& meta_
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::CATALOGS);
+    metadata_table_params.__set_current_user_ident(_user_identity);
+
+    request->__set_metada_table_params(metadata_table_params);
+    return Status::OK();
+}
+
+Status MetaScanner::_build_authentication_integrations_metadata_request(
+        const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "MetaScanner::_build_authentication_integrations_metadata_request";
+
+    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::AUTHENTICATION_INTEGRATIONS);
     metadata_table_params.__set_current_user_ident(_user_identity);
 
     request->__set_metada_table_params(metadata_table_params);

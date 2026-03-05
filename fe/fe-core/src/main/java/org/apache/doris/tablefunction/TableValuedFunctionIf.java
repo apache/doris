@@ -69,6 +69,8 @@ public abstract class TableValuedFunctionIf {
                 return new FrontendsDisksTableValuedFunction(params);
             case CatalogsTableValuedFunction.NAME:
                 return new CatalogsTableValuedFunction(params);
+            case AuthenticationIntegrationsTableValuedFunction.NAME:
+                return new AuthenticationIntegrationsTableValuedFunction(params);
             case MvInfosTableValuedFunction.NAME:
                 return new MvInfosTableValuedFunction(params);
             case PartitionsTableValuedFunction.NAME:

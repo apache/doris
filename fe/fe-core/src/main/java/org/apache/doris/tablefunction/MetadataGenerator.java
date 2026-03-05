@@ -18,6 +18,7 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authentication.AuthenticationIntegrationMeta;
 import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
@@ -43,12 +44,14 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.PartitionsProcDir;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
@@ -129,7 +132,9 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -265,6 +270,9 @@ public class MetadataGenerator {
                 break;
             case CATALOGS:
                 result = catalogsMetadataResult(params);
+                break;
+            case AUTHENTICATION_INTEGRATIONS:
+                result = authenticationIntegrationsMetadataResult(params);
                 break;
             case MATERIALIZED_VIEWS:
                 result = mtmvMetadataResult(params);
@@ -603,6 +611,68 @@ public class MetadataGenerator {
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
+    }
+
+    private static TFetchSchemaTableDataResult authenticationIntegrationsMetadataResult(
+            TMetadataTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+
+        UserIdentity currentUserIdentity = UserIdentity.fromThrift(params.getCurrentUserIdent());
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUserIdentity, PrivPredicate.ADMIN)) {
+            return errorResult(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR.formatErrorMsg("ADMIN"));
+        }
+
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+
+        Map<String, AuthenticationIntegrationMeta> integrationMap = new TreeMap<>(
+                Env.getCurrentEnv().getAuthenticationIntegrationMgr().getAuthenticationIntegrations());
+        for (AuthenticationIntegrationMeta integrationMeta : integrationMap.values()) {
+            String comment = Strings.nullToEmpty(integrationMeta.getComment());
+            TRow trow = new TRow();
+            trow.addToColumnValue(new TCell().setStringVal(integrationMeta.getName()));
+            trow.addToColumnValue(new TCell().setStringVal(integrationMeta.getType()));
+
+            Map<String, String> properties = new TreeMap<>(integrationMeta.getProperties());
+            for (Map.Entry<String, String> entry : properties.entrySet()) {
+                TRow subTrow = new TRow(trow);
+                subTrow.addToColumnValue(new TCell().setStringVal(entry.getKey()));
+                subTrow.addToColumnValue(new TCell().setStringVal(
+                        maskAuthenticationIntegrationPropertyValue(entry.getKey(), entry.getValue())));
+                subTrow.addToColumnValue(new TCell().setStringVal(comment));
+                dataBatch.add(subTrow);
+            }
+            if (properties.isEmpty()) {
+                trow.addToColumnValue(new TCell().setStringVal("NULL"));
+                trow.addToColumnValue(new TCell().setStringVal("NULL"));
+                trow.addToColumnValue(new TCell().setStringVal(comment));
+                dataBatch.add(trow);
+            }
+        }
+
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static String maskAuthenticationIntegrationPropertyValue(String key, String value) {
+        if (isSensitiveAuthenticationIntegrationKey(key)) {
+            return PrintableMap.PASSWORD_MASK;
+        }
+        return Strings.nullToEmpty(value);
+    }
+
+    private static boolean isSensitiveAuthenticationIntegrationKey(String key) {
+        if (PrintableMap.SENSITIVE_KEY.contains(key)) {
+            return true;
+        }
+        String normalized = key.toLowerCase(Locale.ROOT);
+        return normalized.contains("password")
+                || normalized.contains("secret")
+                || normalized.contains("token")
+                || normalized.contains("keytab");
     }
 
     private static TFetchSchemaTableDataResult workloadGroupsMetadataResult(TSchemaTableRequestParams params) {

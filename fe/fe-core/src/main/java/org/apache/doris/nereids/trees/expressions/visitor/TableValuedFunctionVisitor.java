@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
+import org.apache.doris.nereids.trees.expressions.functions.table.AuthenticationIntegrations;
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
 import org.apache.doris.nereids.trees.expressions.functions.table.File;
@@ -46,6 +47,10 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitBackends(Backends backends, C context) {
         return visitTableValuedFunction(backends, context);
+    }
+
+    default R visitAuthenticationIntegrations(AuthenticationIntegrations authenticationIntegrations, C context) {
+        return visitTableValuedFunction(authenticationIntegrations, context);
     }
 
     default R visitCatalogs(Catalogs catalogs, C context) {

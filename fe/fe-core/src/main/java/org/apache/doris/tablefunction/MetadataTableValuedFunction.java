@@ -45,6 +45,8 @@ public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf 
                 return HudiTableValuedFunction.getColumnIndexFromColumnName(columnName);
             case CATALOGS:
                 return CatalogsTableValuedFunction.getColumnIndexFromColumnName(columnName);
+            case AUTHENTICATION_INTEGRATIONS:
+                return AuthenticationIntegrationsTableValuedFunction.getColumnIndexFromColumnName(columnName);
             case MATERIALIZED_VIEWS:
                 return MvInfosTableValuedFunction.getColumnIndexFromColumnName(columnName);
             case PARTITIONS:
