@@ -18,7 +18,6 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -40,6 +39,7 @@
 #include "io/fs/file_reader.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
+#include "util/defer_op.h"
 #include "util/slice.h"
 
 namespace doris::io {
@@ -119,6 +119,31 @@ LockWaitSummary summarize_lock_wait(std::vector<int64_t>* values) {
     return summary;
 }
 
+struct LockWaitWorkloadConfig {
+    size_t file_count {2048};
+    size_t file_size {64 * 1024};
+    size_t warmup_read_bytes {4 * 1024};
+    size_t stress_read_bytes {4 * 1024};
+    size_t ops_per_thread {2000};
+    size_t thread_count {16};
+    uint32_t seed_base {20260228};
+    std::string file_prefix {"default"};
+};
+
+struct LockWaitWorkloadResult {
+    LockWaitSummary summary;
+    size_t populated_keys {0};
+    size_t warmup_failed_reads {0};
+    size_t failed_reads {0};
+    size_t sample_count {0};
+};
+
+size_t calc_thread_count() {
+    const size_t hw_threads =
+            std::thread::hardware_concurrency() == 0 ? 16 : std::thread::hardware_concurrency();
+    return std::min<size_t>(48, std::max<size_t>(16, hw_threads));
+}
+
 } // namespace
 
 class CachedRemoteFileReaderLockWaitTest : public testing::Test {
@@ -155,7 +180,20 @@ public:
         }
     }
 
-    void SetUp() override {
+    void SetUp() override { recreate_memory_cache(); }
+
+    void TearDown() override {
+        auto* factory = FileCacheFactory::instance();
+        if (factory != nullptr) {
+            factory->clear_file_caches(true);
+            factory->_caches.clear();
+            factory->_path_to_cache.clear();
+            factory->_capacity = 0;
+        }
+    }
+
+protected:
+    void recreate_memory_cache() {
         auto* factory = FileCacheFactory::instance();
         ASSERT_NE(factory, nullptr);
         factory->clear_file_caches(true);
@@ -179,17 +217,118 @@ public:
         ASSERT_TRUE(_cache->get_async_open_success());
     }
 
-    void TearDown() override {
-        auto* factory = FileCacheFactory::instance();
-        if (factory != nullptr) {
-            factory->clear_file_caches(true);
-            factory->_caches.clear();
-            factory->_path_to_cache.clear();
-            factory->_capacity = 0;
+    LockWaitWorkloadResult run_lock_wait_workload(const LockWaitWorkloadConfig& config) const {
+        DCHECK(_cache != nullptr);
+        DCHECK(config.file_count > 0);
+        DCHECK(config.file_size >= config.stress_read_bytes);
+        DCHECK(config.thread_count > 0);
+
+        LockWaitWorkloadResult result;
+
+        std::vector<std::shared_ptr<CachedRemoteFileReader>> readers;
+        readers.reserve(config.file_count);
+        std::vector<UInt128Wrapper> cache_keys;
+        cache_keys.reserve(config.file_count);
+
+        FileReaderOptions opts;
+        opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
+        opts.is_doris_table = true;
+
+        for (size_t i = 0; i < config.file_count; ++i) {
+            std::string path =
+                    "/mock/" + config.file_prefix + "_file_" + std::to_string(i) + ".dat";
+            auto remote_reader = std::make_shared<MockPatternFileReader>(path, config.file_size, i);
+            auto cached_reader = std::make_shared<CachedRemoteFileReader>(remote_reader, opts);
+            cache_keys.emplace_back(
+                    BlockFileCache::hash(remote_reader->path().filename().native()));
+            readers.emplace_back(std::move(cached_reader));
         }
+
+        std::vector<char> warmup_buffer(config.warmup_read_bytes, 0);
+        for (auto& reader : readers) {
+            IOContext io_ctx;
+            FileCacheStatistics stats;
+            io_ctx.file_cache_stats = &stats;
+            size_t bytes_read = 0;
+            Status st = reader->read_at(0, Slice(warmup_buffer.data(), warmup_buffer.size()),
+                                        &bytes_read, &io_ctx);
+            if (!st.ok() || bytes_read != warmup_buffer.size()) {
+                ++result.warmup_failed_reads;
+            }
+        }
+
+        for (const auto& hash : cache_keys) {
+            if (!_cache->get_blocks_by_key(hash).empty()) {
+                ++result.populated_keys;
+            }
+        }
+
+        std::atomic<size_t> ready_threads {0};
+        std::atomic<bool> start_flag {false};
+        std::atomic<size_t> failed_reads {0};
+        std::vector<std::vector<int64_t>> thread_samples(config.thread_count);
+        std::vector<std::thread> workers;
+        workers.reserve(config.thread_count);
+
+        for (size_t tid = 0; tid < config.thread_count; ++tid) {
+            workers.emplace_back([&, tid] {
+                SCOPED_INIT_THREAD_CONTEXT();
+                std::mt19937 gen(static_cast<uint32_t>(tid) + config.seed_base);
+                std::uniform_int_distribution<size_t> reader_dist(0, config.file_count - 1);
+                std::uniform_int_distribution<size_t> offset_dist(
+                        0, config.file_size - config.stress_read_bytes);
+                std::vector<char> buffer(config.stress_read_bytes, 0);
+                auto& samples = thread_samples[tid];
+                samples.reserve(config.ops_per_thread);
+
+                ready_threads.fetch_add(1, std::memory_order_release);
+                while (!start_flag.load(std::memory_order_acquire)) {
+                    std::this_thread::yield();
+                }
+
+                for (size_t op = 0; op < config.ops_per_thread; ++op) {
+                    const size_t reader_idx = reader_dist(gen);
+                    const size_t offset = offset_dist(gen);
+
+                    IOContext io_ctx;
+                    FileCacheStatistics stats;
+                    io_ctx.file_cache_stats = &stats;
+                    size_t bytes_read = 0;
+                    Status st = readers[reader_idx]->read_at(
+                            offset, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx);
+                    if (!st.ok() || bytes_read != config.stress_read_bytes) {
+                        failed_reads.fetch_add(1, std::memory_order_relaxed);
+                        continue;
+                    }
+                    samples.push_back(stats.lock_wait_timer);
+                }
+            });
+        }
+
+        while (ready_threads.load(std::memory_order_acquire) < config.thread_count) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        start_flag.store(true, std::memory_order_release);
+
+        for (auto& worker : workers) {
+            if (worker.joinable()) {
+                worker.join();
+            }
+        }
+
+        result.failed_reads = failed_reads.load(std::memory_order_relaxed);
+
+        std::vector<int64_t> merged_samples;
+        merged_samples.reserve(config.thread_count * config.ops_per_thread);
+        for (auto& per_thread : thread_samples) {
+            merged_samples.insert(merged_samples.end(), per_thread.begin(), per_thread.end());
+        }
+
+        result.sample_count = merged_samples.size();
+        result.summary = summarize_lock_wait(&merged_samples);
+        return result;
     }
 
-protected:
     inline static std::unique_ptr<FileCacheFactory> _suite_factory;
     inline static bool _owns_factory = false;
     inline static bool _owns_fd_cache = false;
@@ -198,127 +337,91 @@ protected:
 
 TEST_F(CachedRemoteFileReaderLockWaitTest,
        HighConcurrencyReadViaCachedRemoteFileReaderLockWaitManyFilesMemoryCache) {
-    constexpr size_t kFileCount = 2048;
-    constexpr size_t kFileSize = 64 * 1024;
-    constexpr size_t kWarmupReadBytes = 4 * 1024;
-    constexpr size_t kStressReadBytes = 4 * 1024;
-    constexpr size_t kOpsPerThread = 2000;
-    const size_t hw_threads =
-            std::thread::hardware_concurrency() == 0 ? 16 : std::thread::hardware_concurrency();
-    const size_t thread_count = std::min<size_t>(48, std::max<size_t>(16, hw_threads));
+    constexpr size_t kOpsPerThread = 20000;
 
     const bool original_direct_read = config::enable_read_cache_file_directly;
+    const bool original_async_touch = config::enable_file_cache_async_touch_on_get_or_set;
+    Defer defer {[original_direct_read, original_async_touch] {
+        config::enable_read_cache_file_directly = original_direct_read;
+        config::enable_file_cache_async_touch_on_get_or_set = original_async_touch;
+    }};
+    config::enable_read_cache_file_directly = false;
+    config::enable_file_cache_async_touch_on_get_or_set = false;
+
+    LockWaitWorkloadConfig workload;
+    workload.ops_per_thread = kOpsPerThread;
+    workload.thread_count = calc_thread_count();
+    workload.file_prefix = "perf_lock_wait";
+
+    LockWaitWorkloadResult result = run_lock_wait_workload(workload);
+
+    EXPECT_EQ(result.warmup_failed_reads, 0);
+    EXPECT_EQ(result.populated_keys, workload.file_count);
+    EXPECT_EQ(result.failed_reads, 0);
+    EXPECT_EQ(result.sample_count, workload.thread_count * workload.ops_per_thread);
+
+    LOG(INFO) << "cached_remote_file_reader lock wait summary: samples=" << result.sample_count
+              << " total_ns=" << result.summary.total_ns << " avg_ns=" << result.summary.avg_ns
+              << " p50_ns=" << result.summary.p50_ns << " p95_ns=" << result.summary.p95_ns
+              << " p99_ns=" << result.summary.p99_ns << " max_ns=" << result.summary.max_ns
+              << " non_zero_samples=" << result.summary.non_zero_samples;
+
+    EXPECT_GT(result.summary.total_ns, 0);
+    EXPECT_GT(result.summary.non_zero_samples, 0);
+}
+
+TEST_F(CachedRemoteFileReaderLockWaitTest, AsyncTouchOnGetOrSetReducesLockWait) {
+    const bool original_direct_read = config::enable_read_cache_file_directly;
+    const bool original_async_touch = config::enable_file_cache_async_touch_on_get_or_set;
+    Defer defer {[original_direct_read, original_async_touch] {
+        config::enable_read_cache_file_directly = original_direct_read;
+        config::enable_file_cache_async_touch_on_get_or_set = original_async_touch;
+    }};
+
     config::enable_read_cache_file_directly = false;
 
-    std::vector<std::shared_ptr<CachedRemoteFileReader>> readers;
-    readers.reserve(kFileCount);
-    std::vector<UInt128Wrapper> cache_keys;
-    cache_keys.reserve(kFileCount);
+    LockWaitWorkloadConfig workload;
+    workload.file_count = 1536;
+    workload.ops_per_thread = 12000;
+    workload.thread_count = calc_thread_count();
 
-    FileReaderOptions opts;
-    opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
-    opts.is_doris_table = true;
+    config::enable_file_cache_async_touch_on_get_or_set = false;
+    workload.file_prefix = "sync_touch";
+    LockWaitWorkloadResult sync_result = run_lock_wait_workload(workload);
 
-    for (size_t i = 0; i < kFileCount; ++i) {
-        std::string path = "/mock/file_" + std::to_string(i) + ".dat";
-        auto remote_reader = std::make_shared<MockPatternFileReader>(path, kFileSize, i);
-        auto cached_reader = std::make_shared<CachedRemoteFileReader>(remote_reader, opts);
-        cache_keys.emplace_back(BlockFileCache::hash(remote_reader->path().filename().native()));
-        readers.emplace_back(std::move(cached_reader));
-    }
+    EXPECT_EQ(sync_result.warmup_failed_reads, 0);
+    EXPECT_EQ(sync_result.populated_keys, workload.file_count);
+    EXPECT_EQ(sync_result.failed_reads, 0);
+    EXPECT_EQ(sync_result.sample_count, workload.thread_count * workload.ops_per_thread);
 
-    for (auto& reader : readers) {
-        std::array<char, kWarmupReadBytes> buffer {};
-        IOContext io_ctx;
-        FileCacheStatistics stats;
-        io_ctx.file_cache_stats = &stats;
-        size_t bytes_read = 0;
-        ASSERT_TRUE(
-                reader->read_at(0, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
-        ASSERT_EQ(bytes_read, buffer.size());
-    }
+    recreate_memory_cache();
 
-    size_t populated_keys = 0;
-    for (const auto& hash : cache_keys) {
-        if (!_cache->get_blocks_by_key(hash).empty()) {
-            ++populated_keys;
-        }
-    }
-    EXPECT_EQ(populated_keys, kFileCount);
+    config::enable_file_cache_async_touch_on_get_or_set = true;
+    workload.file_prefix = "async_touch";
+    LockWaitWorkloadResult async_result = run_lock_wait_workload(workload);
 
-    std::atomic<size_t> ready_threads {0};
-    std::atomic<bool> start_flag {false};
-    std::atomic<size_t> failed_reads {0};
-    std::vector<std::vector<int64_t>> thread_samples(thread_count);
-    std::vector<std::thread> workers;
-    workers.reserve(thread_count);
+    EXPECT_EQ(async_result.warmup_failed_reads, 0);
+    EXPECT_EQ(async_result.populated_keys, workload.file_count);
+    EXPECT_EQ(async_result.failed_reads, 0);
+    EXPECT_EQ(async_result.sample_count, workload.thread_count * workload.ops_per_thread);
 
-    for (size_t tid = 0; tid < thread_count; ++tid) {
-        workers.emplace_back([&, tid] {
-            SCOPED_INIT_THREAD_CONTEXT();
-            std::mt19937 gen(static_cast<uint32_t>(tid + 20260228));
-            std::uniform_int_distribution<size_t> reader_dist(0, kFileCount - 1);
-            std::uniform_int_distribution<size_t> offset_dist(0, kFileSize - kStressReadBytes);
-            std::array<char, kStressReadBytes> buffer {};
-            auto& samples = thread_samples[tid];
-            samples.reserve(kOpsPerThread);
+    LOG(INFO) << "sync_touch lock wait: total_ns=" << sync_result.summary.total_ns
+              << " avg_ns=" << sync_result.summary.avg_ns
+              << " p95_ns=" << sync_result.summary.p95_ns
+              << " p99_ns=" << sync_result.summary.p99_ns
+              << " non_zero_samples=" << sync_result.summary.non_zero_samples;
+    LOG(INFO) << "async_touch lock wait: total_ns=" << async_result.summary.total_ns
+              << " avg_ns=" << async_result.summary.avg_ns
+              << " p95_ns=" << async_result.summary.p95_ns
+              << " p99_ns=" << async_result.summary.p99_ns
+              << " non_zero_samples=" << async_result.summary.non_zero_samples;
 
-            ready_threads.fetch_add(1, std::memory_order_release);
-            while (!start_flag.load(std::memory_order_acquire)) {
-                std::this_thread::yield();
-            }
-
-            for (size_t op = 0; op < kOpsPerThread; ++op) {
-                const size_t reader_idx = reader_dist(gen);
-                const size_t offset = offset_dist(gen);
-
-                IOContext io_ctx;
-                FileCacheStatistics stats;
-                io_ctx.file_cache_stats = &stats;
-                size_t bytes_read = 0;
-                Status st = readers[reader_idx]->read_at(
-                        offset, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx);
-                if (!st.ok() || bytes_read != kStressReadBytes) {
-                    failed_reads.fetch_add(1, std::memory_order_relaxed);
-                    continue;
-                }
-                samples.push_back(stats.lock_wait_timer);
-            }
-        });
-    }
-
-    while (ready_threads.load(std::memory_order_acquire) < thread_count) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    start_flag.store(true, std::memory_order_release);
-
-    for (auto& worker : workers) {
-        if (worker.joinable()) {
-            worker.join();
-        }
-    }
-
-    config::enable_read_cache_file_directly = original_direct_read;
-
-    EXPECT_EQ(failed_reads.load(std::memory_order_relaxed), 0);
-
-    std::vector<int64_t> merged_samples;
-    merged_samples.reserve(thread_count * kOpsPerThread);
-    for (auto& per_thread : thread_samples) {
-        merged_samples.insert(merged_samples.end(), per_thread.begin(), per_thread.end());
-    }
-    EXPECT_EQ(merged_samples.size(), thread_count * kOpsPerThread);
-
-    LockWaitSummary summary = summarize_lock_wait(&merged_samples);
-
-    LOG(INFO) << "cached_remote_file_reader lock wait summary: samples=" << merged_samples.size()
-              << " total_ns=" << summary.total_ns << " avg_ns=" << summary.avg_ns
-              << " p50_ns=" << summary.p50_ns << " p95_ns=" << summary.p95_ns
-              << " p99_ns=" << summary.p99_ns << " max_ns=" << summary.max_ns
-              << " non_zero_samples=" << summary.non_zero_samples;
-
-    EXPECT_GT(summary.total_ns, 0);
-    EXPECT_GT(summary.non_zero_samples, 0);
+    EXPECT_GT(sync_result.summary.total_ns, 0);
+    EXPECT_GT(async_result.summary.total_ns, 0);
+    EXPECT_GT(sync_result.summary.non_zero_samples, 0);
+    EXPECT_GT(async_result.summary.non_zero_samples, 0);
+    EXPECT_LT(async_result.summary.total_ns, sync_result.summary.total_ns);
+    EXPECT_LT(async_result.summary.p95_ns, sync_result.summary.p95_ns);
 }
 
 } // namespace doris::io
