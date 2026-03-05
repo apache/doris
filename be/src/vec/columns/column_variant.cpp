@@ -1491,6 +1491,7 @@ void ColumnVariant::Subcolumn::wrapp_array_nullable() {
         }
         result_column = ColumnNullable::create(std::move(result_column), std::move(new_null_map));
         data_types[0] = make_nullable(data_types[0]);
+        data_serdes[0] = generate_data_serdes(data_types[0], is_root);
         least_common_type = LeastCommonType {data_types[0], is_root};
     }
 }
@@ -2116,6 +2117,7 @@ void ColumnVariant::ensure_root_node_type(const DataTypePtr& expected_root_type)
                                           expected_root_type, &casted_column));
         root.data[0] = casted_column;
         root.data_types[0] = expected_root_type;
+        root.data_serdes[0] = Subcolumn::generate_data_serdes(expected_root_type, true);
         root.least_common_type = Subcolumn::LeastCommonType {expected_root_type, true};
         root.num_rows = casted_column->size();
     }
