@@ -68,9 +68,9 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[sum_t(t2)]
 --------filter((sum_t.score > 10))
 ----------PhysicalOlapScan[sum_t]
+--------PhysicalOlapScan[sum_t(t2)]
 
 -- !groupby_pushdown_outer_join --
 PhysicalResultSink
@@ -85,9 +85,9 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[sum_t(t2)]
 --------filter((sum_t.score > 10))
 ----------PhysicalOlapScan[sum_t]
+--------PhysicalOlapScan[sum_t(t2)]
 
 -- !groupby_pushdown_having --
 PhysicalResultSink
@@ -162,9 +162,9 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[sum_t(t2)]
 --------filter((t1.score > 50))
 ----------PhysicalOlapScan[sum_t(t1)]
+--------PhysicalOlapScan[sum_t(t2)]
 
 -- !groupby_pushdown_varied_aggregates --
 PhysicalResultSink
@@ -213,9 +213,9 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------filter((sum_t.id < 100))
-----------PhysicalOlapScan[sum_t]
 --------filter((sum_t.score > 20) and (t1.id < 100))
+----------PhysicalOlapScan[sum_t]
+--------filter((sum_t.id < 100))
 ----------PhysicalOlapScan[sum_t]
 
 -- !with_hint_groupby_pushdown_basic --
@@ -327,9 +327,9 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[sum_t(t2)]
 --------filter((sum_t.score > 10))
 ----------PhysicalOlapScan[sum_t]
+--------PhysicalOlapScan[sum_t(t2)]
 
 Hint log:
 Used:
@@ -354,9 +354,9 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[sum_t(t2)]
 --------filter((sum_t.score > 10))
 ----------PhysicalOlapScan[sum_t]
+--------PhysicalOlapScan[sum_t(t2)]
 
 Hint log:
 Used:
@@ -476,9 +476,9 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------PhysicalOlapScan[sum_t(t2)]
 --------filter((t1.score > 50))
 ----------PhysicalOlapScan[sum_t(t1)]
+--------PhysicalOlapScan[sum_t(t2)]
 
 Hint log:
 Used:
@@ -557,9 +557,9 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------filter((sum_t.id < 100))
-----------PhysicalOlapScan[sum_t]
 --------filter((sum_t.score > 20) and (t1.id < 100))
+----------PhysicalOlapScan[sum_t]
+--------filter((sum_t.id < 100))
 ----------PhysicalOlapScan[sum_t]
 
 Hint log:

@@ -20,7 +20,7 @@ suite("push_down_count_distinct_through_join_one_side") {
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "set be_number_for_test=1"
-
+    sql "set disable_join_reorder=true;"
     sql """
         DROP TABLE IF EXISTS count_with_distinct_t;
     """

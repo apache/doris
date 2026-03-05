@@ -23,7 +23,7 @@ suite("push_down_min_distinct_through_join_one_side") {
     sql """
         DROP TABLE IF EXISTS min_with_distinct_t;
     """
-
+    sql "set disable_join_reorder=true; "
     sql """
     CREATE TABLE IF NOT EXISTS min_with_distinct_t(
       `id` int(32),
