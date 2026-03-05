@@ -126,8 +126,8 @@ public:
     static std::pair<std::string, std::string> parse_table_schema(Block* block);
 
     static std::pair<std::string, std::string> parse_table_schema(Block* block,
-                                                                   const ColumnNumbers& arguments,
-                                                                   bool ignore_column_name = true);
+                                                                  const ColumnNumbers& arguments,
+                                                                  bool ignore_column_name = true);
 
     // =========================================================================
     // Type mapping

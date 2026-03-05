@@ -55,8 +55,8 @@ JdbcJniReader::JdbcJniReader(const std::vector<SlotDescriptor*>& file_slot_descs
     params["required_fields"] = required_fields.str();
     params["columns_types"] = columns_types.str();
 
-    _jni_connector = std::make_unique<JniConnector>(
-            "org/apache/doris/jdbc/JdbcJniScanner", params, column_names);
+    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/jdbc/JdbcJniScanner", params,
+                                                    column_names);
 }
 
 Status JdbcJniReader::init_reader() {

@@ -63,8 +63,7 @@ namespace doris::vectorized {
     M(PrimitiveType::TYPE_IPV4, ColumnIPv4, IPv4)                  \
     M(PrimitiveType::TYPE_IPV6, ColumnIPv6, IPv6)
 
-Status JniDataBridge::fill_block(Block* block, const ColumnNumbers& arguments,
-                                 long table_address) {
+Status JniDataBridge::fill_block(Block* block, const ColumnNumbers& arguments, long table_address) {
     if (table_address == 0) {
         return Status::InternalError("table_address is 0");
     }
@@ -169,8 +168,8 @@ Status JniDataBridge::_fill_varbinary_column(TableMetaAddress& address,
     return Status::OK();
 }
 
-Status JniDataBridge::_fill_string_column(TableMetaAddress& address,
-                                          MutableColumnPtr& doris_column, size_t num_rows) {
+Status JniDataBridge::_fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
+                                          size_t num_rows) {
     auto& string_col = static_cast<ColumnString&>(*doris_column);
     ColumnString::Chars& string_chars = string_col.get_chars();
     ColumnString::Offsets& string_offsets = string_col.get_offsets();
@@ -464,8 +463,7 @@ std::string JniDataBridge::get_jni_type_with_different_string(const DataTypePtr&
     }
 }
 
-Status JniDataBridge::_fill_column_meta(const ColumnPtr& doris_column,
-                                        const DataTypePtr& data_type,
+Status JniDataBridge::_fill_column_meta(const ColumnPtr& doris_column, const DataTypePtr& data_type,
                                         std::vector<long>& meta_data) {
     auto logical_type = data_type->get_primitive_type();
     const IColumn* column = nullptr;
@@ -565,8 +563,7 @@ Status JniDataBridge::to_java_table(Block* block, std::unique_ptr<long[]>& meta)
     return to_java_table(block, block->rows(), arguments, meta);
 }
 
-Status JniDataBridge::to_java_table(Block* block, size_t num_rows,
-                                    const ColumnNumbers& arguments,
+Status JniDataBridge::to_java_table(Block* block, size_t num_rows, const ColumnNumbers& arguments,
                                     std::unique_ptr<long[]>& meta) {
     std::vector<long> meta_data;
     // insert number of rows

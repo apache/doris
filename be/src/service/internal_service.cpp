@@ -1048,10 +1048,8 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
         params["jdbc_driver_url"] = driver_url;
         params["query_sql"] = request->query_str();
         params["catalog_id"] = std::to_string(jdbc_table.catalog_id);
-        params["connection_pool_min_size"] =
-                std::to_string(jdbc_table.connection_pool_min_size);
-        params["connection_pool_max_size"] =
-                std::to_string(jdbc_table.connection_pool_max_size);
+        params["connection_pool_min_size"] = std::to_string(jdbc_table.connection_pool_min_size);
+        params["connection_pool_max_size"] = std::to_string(jdbc_table.connection_pool_max_size);
         params["connection_pool_max_wait_time"] =
                 std::to_string(jdbc_table.connection_pool_max_wait_time);
         params["connection_pool_max_life_time"] =

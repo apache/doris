@@ -93,7 +93,8 @@ Status JdbcScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
 
     _local_state->scanner_profile()->add_info_string("JdbcDriverClass",
                                                      jdbc_table->jdbc_driver_class());
-    _local_state->scanner_profile()->add_info_string("JdbcDriverUrl", jdbc_table->jdbc_driver_url());
+    _local_state->scanner_profile()->add_info_string("JdbcDriverUrl",
+                                                     jdbc_table->jdbc_driver_url());
     _local_state->scanner_profile()->add_info_string("JdbcUrl", jdbc_table->jdbc_url());
     _local_state->scanner_profile()->add_info_string("QuerySql", _query_string);
 

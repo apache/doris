@@ -30,8 +30,7 @@
 namespace doris {
 namespace vectorized {
 
-std::map<std::string, std::string> VJdbcTableWriter::_build_writer_params(
-        const TDataSink& t_sink) {
+std::map<std::string, std::string> VJdbcTableWriter::_build_writer_params(const TDataSink& t_sink) {
     const TJdbcTableSink& t_jdbc_sink = t_sink.jdbc_table_sink;
     std::map<std::string, std::string> params;
 
