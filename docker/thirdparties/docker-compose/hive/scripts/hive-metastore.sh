@@ -27,8 +27,18 @@ for file in "${AUX_LIB}"/*.tar.gz; do
 done
 ls "${AUX_LIB}/"
 
-# copy auxiliary jars to hive lib, avoid jars copy
-cp -r "${AUX_LIB}"/* /opt/hive/lib/
+# Copy auxiliary jars to both Hive and Hadoop classpaths.
+# `hive --service metastore` uses Hive libs, while `hadoop fs` uses Hadoop libs.
+shopt -s nullglob
+jars=("${AUX_LIB}"/*.jar)
+if (( ${#jars[@]} > 0 )); then
+    for target in /opt/hive/lib /opt/hadoop-3.2.1/share/hadoop/common/lib /opt/hadoop/share/hadoop/common/lib; do
+        if [[ -d "${target}" ]]; then
+            cp -f "${jars[@]}" "${target}"/
+        fi
+    done
+fi
+shopt -u nullglob
 
 # start metastore
 nohup /opt/hive/bin/hive --service metastore &

@@ -51,7 +51,7 @@ suite("test_jfs_hms_catalog_read", "p0,external") {
 
     String hdfsUser = context.config.otherConfigs.get("hdfsUser")
     if (hdfsUser == null || hdfsUser.trim().isEmpty()) {
-        hdfsUser = "hive"
+        hdfsUser = "root"
     }
 
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -63,7 +63,17 @@ suite("test_jfs_hms_catalog_read", "p0,external") {
     String catalogName = "test_jfs_hms_catalog_read"
     String dbName = "test_jfs_hms_catalog_read_db"
     String tableName = "test_jfs_hms_catalog_read_tbl"
-    String dbLocation = "${jfsFs}/tmp/${dbName}"
+    String jfsDbBasePath = context.config.otherConfigs.get("jfsDbBasePath")
+    if (jfsDbBasePath == null || jfsDbBasePath.trim().isEmpty()) {
+        jfsDbBasePath = "${jfsFs}/doris_jfs/${hdfsUser}"
+    }
+    jfsDbBasePath = jfsDbBasePath.replaceAll('/+$', '')
+    String jfsStagingDir = context.config.otherConfigs.get("jfsStagingDir")
+    if (jfsStagingDir == null || jfsStagingDir.trim().isEmpty()) {
+        jfsStagingDir = "${jfsDbBasePath}/.doris_staging"
+    }
+    jfsStagingDir = jfsStagingDir.replaceAll('/+$', '')
+    String dbLocation = "${jfsDbBasePath}/${dbName}"
 
     try {
         sql """drop catalog if exists ${catalogName}"""
@@ -74,7 +84,8 @@ suite("test_jfs_hms_catalog_read", "p0,external") {
                 'hive.metastore.uris' = '${hmsUris}',
                 'fs.defaultFS' = '${jfsFs}',
                 'fs.jfs.impl' = '${jfsImpl}',
-                'hadoop.username' = '${hdfsUser}'
+                'hadoop.username' = '${hdfsUser}',
+                'hive.staging_dir' = '${jfsStagingDir}'
                 ${jfsMetaProperty}
             );
         """
