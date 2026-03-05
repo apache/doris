@@ -1748,12 +1748,17 @@ Status FileScanner::_init_expr_ctxes() {
     return Status::OK();
 }
 
+bool FileScanner::_should_enable_condition_cache() {
+    return _condition_cache_digest != 0 && !_is_load &&
+           (!_conjuncts.empty() || !_push_down_conjuncts.empty());
+}
+
 void FileScanner::_init_reader_condition_cache() {
     _condition_cache_hit = false;
     _condition_cache = nullptr;
     _condition_cache_ctx = nullptr;
 
-    if (_condition_cache_digest == 0 || _is_load || _conjuncts.empty() || !_cur_reader) {
+    if (!_should_enable_condition_cache() || !_cur_reader) {
         return;
     }
 
@@ -1797,8 +1802,7 @@ void FileScanner::_init_reader_condition_cache() {
 }
 
 void FileScanner::_finalize_reader_condition_cache() {
-    if (_condition_cache == nullptr || _condition_cache_hit || _condition_cache_digest == 0 ||
-        _is_load) {
+    if (!_should_enable_condition_cache() || _condition_cache == nullptr || _condition_cache_hit) {
         _condition_cache = nullptr;
         _condition_cache_hit = false;
         _condition_cache_ctx = nullptr;

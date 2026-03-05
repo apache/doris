@@ -286,6 +286,7 @@ private:
         _counter.num_rows_filtered = 0;
     }
 
+    bool _should_enable_condition_cache();
     void _init_reader_condition_cache();
     void _finalize_reader_condition_cache();
 
