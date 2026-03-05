@@ -108,11 +108,12 @@ public:
         slot_id_to_expr_ctxs[0].emplace_back(context);
 
         if constexpr (filter) {
-            st = p_reader->init_reader(column_names, &col_name_to_block_idx, conjuncts, tmp, tuple_desc,
-                                       nullptr, nullptr, nullptr, &slot_id_to_expr_ctxs);
+            st = p_reader->init_reader(column_names, &col_name_to_block_idx, conjuncts, tmp,
+                                       tuple_desc, nullptr, nullptr, nullptr,
+                                       &slot_id_to_expr_ctxs);
         } else {
             st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr,
-                                                    nullptr, nullptr, nullptr, nullptr);
+                                       nullptr, nullptr, nullptr, nullptr);
         }
 
         EXPECT_TRUE(st.ok()) << st;

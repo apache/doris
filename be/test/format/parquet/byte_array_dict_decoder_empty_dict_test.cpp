@@ -15,19 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/format/parquet/byte_array_dict_decoder.h"
-
 #include <gtest/gtest.h>
 
-#include "parquet/encoding.h"
-#include "parquet/schema.h"
 #include "parquet/types.h"
-#include "util/slice.h"
-#include "vec/columns/column_dictionary.h"
-#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/custom_allocator.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/exec/format/parquet/byte_array_dict_decoder.h"
 
 namespace doris::vectorized {
 

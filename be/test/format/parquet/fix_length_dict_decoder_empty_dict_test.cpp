@@ -15,14 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/format/parquet/fix_length_dict_decoder.hpp"
-
 #include <gtest/gtest.h>
 
 #include "util/slice.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/custom_allocator.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exec/format/parquet/fix_length_dict_decoder.hpp"
 
 namespace doris::vectorized {
 
