@@ -92,6 +92,7 @@ import org.apache.doris.thrift.TBackendsMetadataParams;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
+import org.apache.doris.thrift.TFrontendsMetadataParams;
 import org.apache.doris.thrift.THudiMetadataParams;
 import org.apache.doris.thrift.THudiQueryType;
 import org.apache.doris.thrift.TJobsMetadataParams;
@@ -533,11 +534,14 @@ public class MetadataGenerator {
             return errorResult("frontends metadata param is not set.");
         }
 
+        TFrontendsMetadataParams frontendsParam = params.getFrontendsMetadataParams();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
 
         List<TRow> dataBatch = Lists.newArrayList();
         List<List<String>> infos = Lists.newArrayList();
-        FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), infos);
+        // `cluster_name` is intentionally reused here as the pass-through FE host from
+        // FrontendsTableValuedFunction#getMetaScanRange(), see the comment there.
+        FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), infos, frontendsParam.getClusterName());
         for (List<String> info : infos) {
             TRow trow = new TRow();
             for (String item : info) {

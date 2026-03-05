@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TFrontendsMetadataParams;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
@@ -105,7 +106,15 @@ public class FrontendsTableValuedFunction extends MetadataTableValuedFunction {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.FRONTENDS);
         TFrontendsMetadataParams frontendsMetadataParams = new TFrontendsMetadataParams();
-        frontendsMetadataParams.setClusterName("");
+        String currentConnectedFe = Env.getCurrentEnv().getSelfNode().getHost();
+        if (ConnectContext.get() != null
+                && !Strings.isNullOrEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
+            currentConnectedFe = ConnectContext.get().getCurrentConnectedFEIp();
+        }
+        // NOTE: TFrontendsMetadataParams currently only has `cluster_name`. Reuse it as a pass-through
+        // field to carry the FE host that accepted the client connection, so FRONTENDS() can compute
+        // "CurrentConnected" correctly even when metadata generation happens on another FE (e.g. master).
+        frontendsMetadataParams.setClusterName(currentConnectedFe);
         metaScanRange.setFrontendsParams(frontendsMetadataParams);
         return metaScanRange;
     }
