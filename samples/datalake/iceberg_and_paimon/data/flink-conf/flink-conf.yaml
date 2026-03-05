@@ -204,6 +204,19 @@ rest.address: 0.0.0.0
 #
 rest.bind-address: 0.0.0.0
 
+#==============================================================================
+# SQL Gateway (Flink 1.20+)
+#==============================================================================
+
+# In Flink 1.20+, sql-client.sh starts an embedded SQL Gateway. Without an
+# explicit port, the gateway inherits rest.bind-port (default 8081) which is
+# already occupied by the JobManager's REST endpoint, causing a BindException:
+#   "Could not start rest endpoint on any port in port range 8081"
+#
+# Setting sql-gateway.endpoint.rest.port to a dedicated port avoids this
+# conflict. Use 0 for a random available port, or specify a fixed port.
+sql-gateway.endpoint.rest.port: 9091
+
 # Flag to specify whether job submission is enabled from the web-based
 # runtime monitor. Uncomment to disable.
 
