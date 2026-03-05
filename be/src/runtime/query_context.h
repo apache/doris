@@ -418,11 +418,7 @@ public:
 
     uint32_t get_stage(int filter_id) {
         std::lock_guard<std::mutex> lock(__filter_id_to_stage_mtx);
-        auto it = _filter_id_to_stage.find(filter_id);
-        if (it != _filter_id_to_stage.end()) {
-            return it->second;
-        }
-        return 0;
+        return _filter_id_to_stage[filter_id];
     }
 
     Status update_filters_stage(uint32_t stage, const std::set<int32_t>& filter_ids) {

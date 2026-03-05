@@ -565,6 +565,8 @@ Status PartitionedHashJoinSinkLocalState::_setup_internal_operator(RuntimeState*
     /// Set these two values after all the work is ready.
     _shared_state->inner_shared_state = std::move(inner_shared_state);
     _shared_state->inner_runtime_state = std::move(inner_runtime_state);
+    state->merge_register_runtime_filter(
+            _shared_state->inner_runtime_state->get_deregister_runtime_filter());
     return Status::OK();
 }
 

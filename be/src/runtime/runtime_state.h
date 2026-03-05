@@ -769,6 +769,8 @@ public:
 
     const std::set<int>& get_deregister_runtime_filter() const;
 
+    void merge_register_runtime_filter(const std::set<int>& runtime_filter_ids);
+
 private:
     Status create_error_log_file();
 

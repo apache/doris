@@ -1541,7 +1541,7 @@ Status FragmentMgr::rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& gu
                 fragment_ctx->listen_wait_close(guard, stage == PRerunFragmentParams::final_close));
         remove_pipeline_context({query_id, fragment});
         return Status::OK();
-    } else if (stage == PRerunFragmentParams::recreate_and_submit) {
+    } else if (stage == PRerunFragmentParams::rebuild) {
         auto q_ctx = get_query_ctx(query_id);
         if (!q_ctx) {
             return Status::NotFound(
@@ -1554,9 +1554,8 @@ Status FragmentMgr::rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& gu
             std::lock_guard<std::mutex> lk(_rerunnable_params_lock);
             auto it = _rerunnable_params_map.find({query_id, fragment});
             if (it == _rerunnable_params_map.end()) {
-                return Status::NotFound(
-                        "recreate_and_submit (query-id: {}, fragment-id: {}) not found",
-                        print_id(query_id), fragment);
+                return Status::NotFound("rebuild (query-id: {}, fragment-id: {}) not found",
+                                        print_id(query_id), fragment);
             }
             it->second.stage++;
             RETURN_IF_ERROR(q_ctx->update_filters_stage(it->second.stage,
@@ -1583,10 +1582,15 @@ Status FragmentMgr::rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& gu
 
         // Update QueryContext mapping (must support overwrite)
         q_ctx->set_pipeline_context(info.params.fragment_id, context);
-
-        RETURN_IF_ERROR(context->submit());
         return Status::OK();
 
+    } else if (stage == PRerunFragmentParams::submit) {
+        auto fragment_ctx = _pipeline_map.find({query_id, fragment});
+        if (!fragment_ctx) {
+            return Status::NotFound("Fragment context (query-id: {}, fragment-id: {}) not found",
+                                    print_id(query_id), fragment);
+        }
+        return fragment_ctx->submit();
     } else {
         return Status::InvalidArgument("Unknown rerun fragment opcode: {}", stage);
     }

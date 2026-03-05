@@ -191,6 +191,10 @@ const std::set<int>& RuntimeState::get_deregister_runtime_filter() const {
     return _registered_runtime_filter_ids;
 }
 
+void RuntimeState::merge_register_runtime_filter(const std::set<int>& runtime_filter_ids) {
+    _registered_runtime_filter_ids.insert(runtime_filter_ids.begin(), runtime_filter_ids.end());
+}
+
 Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
                           const TQueryGlobals& query_globals, ExecEnv* exec_env) {
     _fragment_instance_id = fragment_instance_id;
