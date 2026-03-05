@@ -287,38 +287,45 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TNetworkAddress address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
         try {
             InternalService.PFetchTableSchemaResult result = null;
+            int fileIndex = 0;
 
-            if (getTFileType() == TFileType.FILE_STREAM) {
-                // For stream sources there is a single logical "file"; no retry needed.
-                PFetchTableSchemaRequest request = getFetchTableStructureRequest();
-                if (request != null) {
-                    result = fetchSchema(address, request);
-                }
-            } else {
-                // For file-based sources, iterate through candidates and skip files whose
-                // content is effectively empty (e.g. only newlines in csv_with_names format).
-                // BE returns END_OF_FILE for such files, so we try the next candidate.
-                TFileScanRangeParams params = buildFileScanRangeParams();
-                for (TBrokerFileStatus fileStatus : fileStatuses) {
-                    if (isFileContentEmpty(fileStatus)) {
-                        continue;
-                    }
-                    PFetchTableSchemaRequest request =
-                            buildSchemaRequest(params, buildFileRangeDesc(fileStatus));
-                    InternalService.PFetchTableSchemaResult candidateResult =
-                            fetchSchema(address, request);
-                    TStatusCode code = TStatusCode.findByValue(
-                            candidateResult.getStatus().getStatusCode());
-                    if (code == TStatusCode.END_OF_FILE) {
-                        LOG.info("Skipped file with empty content for schema inference: {}",
-                                fileStatus.getPath());
-                        continue;
-                    }
-                    // fetchSchema() already throws on non-OK/non-END_OF_FILE,
-                    // so reaching here means code is OK.
-                    result = candidateResult;
+            // Try each file until we find one with valid schema or exhaust all files
+            while (fileIndex < fileStatuses.size()) {
+                PFetchTableSchemaRequest request = getFetchTableStructureRequest(fileIndex);
+
+                // `request == null` means we don't need to get schemas from BE,
+                // and we fill a dummy col for this table.
+                if (request == null) {
                     break;
                 }
+
+                Future<InternalService.PFetchTableSchemaResult> future = BackendServiceProxy.getInstance()
+                        .fetchTableStructureAsync(address, request);
+
+                result = future.get();
+                TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+
+                // If BE returns END_OF_FILE, the file content is empty (e.g., only newlines in csv_with_names)
+                // Skip this file and try the next one
+                if (code == TStatusCode.END_OF_FILE) {
+                    LOG.info("Skipped file with empty content for schema inference, trying next file");
+                    fileIndex++;
+                    continue;
+                }
+
+                String errMsg;
+                if (code != TStatusCode.OK) {
+                    if (!result.getStatus().getErrorMsgsList().isEmpty()) {
+                        errMsg = result.getStatus().getErrorMsgsList().get(0);
+                    } else {
+                        errMsg = "fetchTableStructureAsync failed. backend address: "
+                                + NetUtils
+                                .getHostPortInAccessibleFormat(address.getHostname(), address.getPort());
+                    }
+                    throw new AnalysisException(errMsg);
+                }
+
+                break; // Successfully got schema
             }
             fillColumns(result);
         } catch (RpcException e) {
@@ -331,28 +338,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             throw new AnalysisException("getFetchTableStructureRequest exception", e);
         }
         return columns;
-    }
-
-    private InternalService.PFetchTableSchemaResult fetchSchema(TNetworkAddress address,
-            PFetchTableSchemaRequest request)
-            throws RpcException, InterruptedException, ExecutionException, AnalysisException {
-        Future<InternalService.PFetchTableSchemaResult> future =
-                BackendServiceProxy.getInstance().fetchTableStructureAsync(address, request);
-        InternalService.PFetchTableSchemaResult result = future.get();
-        TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
-        if (code != TStatusCode.OK && code != TStatusCode.END_OF_FILE) {
-            throwFetchError(result, address);
-        }
-        return result;
-    }
-
-    private void throwFetchError(InternalService.PFetchTableSchemaResult result,
-            TNetworkAddress address) throws AnalysisException {
-        String errMsg = !result.getStatus().getErrorMsgsList().isEmpty()
-                ? result.getStatus().getErrorMsgsList().get(0)
-                : "fetchTableStructureAsync failed. backend address: "
-                        + NetUtils.getHostPortInAccessibleFormat(address.getHostname(), address.getPort());
-        throw new AnalysisException(errMsg);
     }
 
     protected Backend getBackend() {
@@ -474,7 +459,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 
-    private TFileScanRangeParams buildFileScanRangeParams() {
+    private PFetchTableSchemaRequest getFetchTableStructureRequest(int startIndex) throws TException {
+        // set TFileScanRangeParams
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
         fileScanRangeParams.setFormatType(fileFormatProperties.getFileFormatType());
         Map<String, String> beProperties = new HashMap<>();
@@ -483,6 +469,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());
+        // table function fetch schema, whether to enable mapping varbinary
         fileScanRangeParams.setEnableMappingVarbinary(fileFormatProperties.enableMappingVarbinary);
         fileScanRangeParams.setEnableMappingTimestampTz(fileFormatProperties.enableMappingTimestampTz);
 
@@ -499,37 +486,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             fileScanRangeParams.setHdfsParams(tHdfsParams);
         }
 
-        return fileScanRangeParams;
-    }
-
-    private TFileRangeDesc buildFileRangeDesc(TBrokerFileStatus fileStatus) {
-        TFileRangeDesc fileRangeDesc = new TFileRangeDesc();
-        fileRangeDesc.setLoadId(ConnectContext.get().queryId());
-        fileRangeDesc.setFileType(getTFileType());
-        fileRangeDesc.setCompressType(Util.getOrInferCompressType(
-                fileFormatProperties.getCompressionType(), fileStatus.getPath()));
-        fileRangeDesc.setPath(fileStatus.getPath());
-        fileRangeDesc.setStartOffset(0);
-        fileRangeDesc.setSize(fileStatus.getSize());
-        fileRangeDesc.setFileSize(fileStatus.getSize());
-        fileRangeDesc.setModificationTime(fileStatus.getModificationTime());
-        return fileRangeDesc;
-    }
-
-    private PFetchTableSchemaRequest buildSchemaRequest(
-            TFileScanRangeParams params, TFileRangeDesc fileRangeDesc) throws TException {
-        TFileScanRange fileScanRange = new TFileScanRange();
-        fileScanRange.addToRanges(fileRangeDesc);
-        fileScanRange.setParams(params);
-        return InternalService.PFetchTableSchemaRequest.newBuilder()
-                .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
-    }
-
-    private PFetchTableSchemaRequest getFetchTableStructureRequest() throws TException {
-        TFileScanRangeParams fileScanRangeParams = buildFileScanRangeParams();
-        // get first file, used to parse table schema (for FILE_STREAM this is the dummy entry)
+        // get first file from startIndex, used to parse table schema
         TBrokerFileStatus firstFile = null;
-        for (TBrokerFileStatus fileStatus : fileStatuses) {
+        for (int i = startIndex; i < fileStatuses.size(); i++) {
+            TBrokerFileStatus fileStatus = fileStatuses.get(i);
             if (isFileContentEmpty(fileStatus)) {
                 continue;
             }
@@ -545,7 +505,23 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             return null;
         }
 
-        return buildSchemaRequest(fileScanRangeParams, buildFileRangeDesc(firstFile));
+        // set TFileRangeDesc
+        TFileRangeDesc fileRangeDesc = new TFileRangeDesc();
+        fileRangeDesc.setLoadId(ctx.queryId());
+        fileRangeDesc.setFileType(getTFileType());
+        fileRangeDesc.setCompressType(Util.getOrInferCompressType(
+                fileFormatProperties.getCompressionType(), firstFile.getPath()));
+        fileRangeDesc.setPath(firstFile.getPath());
+        fileRangeDesc.setStartOffset(0);
+        fileRangeDesc.setSize(firstFile.getSize());
+        fileRangeDesc.setFileSize(firstFile.getSize());
+        fileRangeDesc.setModificationTime(firstFile.getModificationTime());
+        // set TFileScanRange
+        TFileScanRange fileScanRange = new TFileScanRange();
+        fileScanRange.addToRanges(fileRangeDesc);
+        fileScanRange.setParams(fileScanRangeParams);
+        return InternalService.PFetchTableSchemaRequest.newBuilder()
+                .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
     }
 
     private boolean isFileContentEmpty(TBrokerFileStatus fileStatus) {
