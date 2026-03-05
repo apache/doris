@@ -75,12 +75,6 @@ under the License.
             <groupId>com.huaweicloud</groupId>
             <artifactId>hadoop-huaweicloud</artifactId>
             <version>3.1.1-hw-46</version>
-            <exclusions>
-                <exclusion>
-                    <artifactId>jackson-databind</artifactId>
-                    <groupId>com.fasterxml.jackson.core</groupId>
-                </exclusion>
-            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.apache.hadoop</groupId>
