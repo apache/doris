@@ -1156,7 +1156,7 @@ DEFINE_mBool(enable_variant_doc_sparse_write_subcolumns, "true");
 // Reserved for future use when NestedGroup expansion moves to storage layer
 // Deeper arrays will be stored as JSONB
 DEFINE_mInt32(variant_nested_group_max_depth, "3");
-DEFINE_mBool(variant_nested_group_discard_scalar_on_conflict, "true");
+DEFINE_mBool(variant_nested_group_discard_scalar_on_conflict, "false");
 
 DEFINE_Validator(variant_max_json_key_length,
                  [](const int config) -> bool { return config > 0 && config <= 65535; });
