@@ -1,0 +1,78 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_authentication_integration_auth", "p0,auth") {
+    String suiteName = "test_authentication_integration_auth"
+    String integrationName = "${suiteName}_ldap"
+
+    try_sql("DROP AUTHENTICATION INTEGRATION IF EXISTS ${integrationName}")
+
+    try {
+        test {
+            sql """
+                CREATE AUTHENTICATION INTEGRATION ${integrationName}
+                 PROPERTIES ('ldap.server'='ldap://127.0.0.1:389')
+            """
+            exception "Property 'type' is required"
+        }
+
+        sql """
+            CREATE AUTHENTICATION INTEGRATION ${integrationName}
+             PROPERTIES (
+                'type'='ldap',
+                'ldap.server'='ldap://127.0.0.1:389',
+                'ldap.admin_password'='123456'
+            )
+            COMMENT 'for regression test'
+        """
+
+        test {
+            sql """
+                CREATE AUTHENTICATION INTEGRATION ${integrationName}
+                 PROPERTIES ('type'='ldap', 'ldap.server'='ldap://127.0.0.1:1389')
+            """
+            exception "already exists"
+        }
+
+        test {
+            sql """
+                ALTER AUTHENTICATION INTEGRATION ${integrationName}
+                SET PROPERTIES ('type'='oidc')
+            """
+            exception "does not allow modifying property 'type'"
+        }
+
+        sql """
+            ALTER AUTHENTICATION INTEGRATION ${integrationName}
+            SET PROPERTIES (
+                'ldap.server'='ldap://127.0.0.1:1389',
+                'ldap.admin_password'='abcdef'
+            )
+        """
+
+        sql """ALTER AUTHENTICATION INTEGRATION ${integrationName} SET COMMENT 'updated comment'"""
+
+        test {
+            sql """DROP AUTHENTICATION INTEGRATION ${integrationName}_not_exist"""
+            exception "does not exist"
+        }
+
+        sql """DROP AUTHENTICATION INTEGRATION IF EXISTS ${integrationName}_not_exist"""
+    } finally {
+        try_sql("DROP AUTHENTICATION INTEGRATION IF EXISTS ${integrationName}")
+    }
+}
