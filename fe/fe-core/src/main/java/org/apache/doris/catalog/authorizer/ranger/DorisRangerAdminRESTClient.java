@@ -39,7 +39,9 @@ import org.apache.ranger.plugin.util.URLEncoderUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.io.UnsupportedEncodingException;
+import java.nio.file.Files;
 import java.util.HashMap;
 import java.util.Map;
 import javax.servlet.http.HttpServletResponse;
@@ -90,6 +92,8 @@ public class DorisRangerAdminRESTClient extends RangerAdminRESTClient {
     private boolean isRangerCookieEnabled;
     private String rangerAdminCookieName;
     private Cookie sessionId;
+    private String cacheDir;
+    private String appId;
 
     @Override
     public void init(String serviceName, String appId, String propertyPrefix, Configuration config) {
@@ -105,6 +109,8 @@ public class DorisRangerAdminRESTClient extends RangerAdminRESTClient {
 
         // Re-compute fields from init params (parent fields are private)
         this.serviceName = serviceName;
+        this.appId = appId;
+        this.cacheDir = config.get(propertyPrefix + ".policy.cache.dir");
         this.pluginId = new RangerRESTUtils().getPluginId(serviceName, appId);
         this.pluginCapabilities = Long.toHexString(new RangerPluginCapability().getPluginCapabilities());
 
@@ -164,12 +170,19 @@ public class DorisRangerAdminRESTClient extends RangerAdminRESTClient {
         this.secureRestClient.setMaxRetryAttempts(maxRetryAttempts);
         this.secureRestClient.setRetryIntervalMs(retryIntervalMs);
 
-        boolean basicAuthConfigured = config.get(propertyPrefix + ".policy.rest.client.username") != null;
+        // RangerRESTClient.init() only calls setBasicAuthFilter() which sets the filter
+        // but NOT mUsername/mPassword fields. Call setBasicAuthInfo() explicitly to
+        // ensure both the filter and credential fields are properly set.
+        String configUsername = config.get(propertyPrefix + ".policy.rest.client.username");
+        String configPassword = config.get(propertyPrefix + ".policy.rest.client.password");
+        if (configUsername != null && configPassword != null) {
+            this.secureRestClient.setBasicAuthInfo(configUsername, configPassword);
+        }
 
         LOG.info("DorisRangerAdminRESTClient: force-secure-url mode initialized."
-                + " serviceName={}, url={}, basicAuthConfigured={}",
-                serviceName, url, basicAuthConfigured);
-        if (!basicAuthConfigured) {
+                + " serviceName={}, url={}, basicAuthUser={}, basicAuthPassword={}",
+                serviceName, url, secureRestClient.getUsername(), configPassword);
+        if (secureRestClient.getUsername() == null) {
             LOG.warn("DorisRangerAdminRESTClient: Basic Auth credentials are NOT configured. "
                     + "Please set '{}.policy.rest.client.username' and '{}.policy.rest.client.password' "
                     + "in ranger security XML config.", propertyPrefix, propertyPrefix);
@@ -234,6 +247,14 @@ public class DorisRangerAdminRESTClient extends RangerAdminRESTClient {
             String exceptionMsg = response.hasEntity() ? response.getEntity(String.class) : null;
             RangerServiceNotFoundException.throwExceptionIfServiceNotFound(serviceName, exceptionMsg);
             LOG.warn("DorisRangerAdminRESTClient: Received 404 with body:[{}], Ignoring", exceptionMsg);
+        } else if (response.getStatus() == HttpServletResponse.SC_UNAUTHORIZED) {
+            LOG.warn("DorisRangerAdminRESTClient: 401 Authentication Failed for policies."
+                    + " Falling back to local cache. serviceName={}", serviceName);
+            ret = loadPoliciesFromCache();
+            if (ret != null) {
+                LOG.info("DorisRangerAdminRESTClient: Successfully loaded policies from cache."
+                        + " serviceName={}", serviceName);
+            }
         } else {
             RESTResponse resp = RESTResponse.fromClientResponse(response);
             LOG.warn("DorisRangerAdminRESTClient: Error getting policies."
@@ -306,6 +327,14 @@ public class DorisRangerAdminRESTClient extends RangerAdminRESTClient {
             String exceptionMsg = response.hasEntity() ? response.getEntity(String.class) : null;
             RangerServiceNotFoundException.throwExceptionIfServiceNotFound(serviceName, exceptionMsg);
             LOG.warn("DorisRangerAdminRESTClient: Received 404 with body:[{}], Ignoring", exceptionMsg);
+        } else if (response.getStatus() == HttpServletResponse.SC_UNAUTHORIZED) {
+            LOG.warn("DorisRangerAdminRESTClient: 401 Authentication Failed for roles."
+                    + " Falling back to local cache. serviceName={}", serviceName);
+            ret = loadRolesFromCache();
+            if (ret != null) {
+                LOG.info("DorisRangerAdminRESTClient: Successfully loaded roles from cache."
+                        + " serviceName={}", serviceName);
+            }
         } else {
             RESTResponse resp = RESTResponse.fromClientResponse(response);
             LOG.warn("DorisRangerAdminRESTClient: Error getting roles."
@@ -462,6 +491,64 @@ public class DorisRangerAdminRESTClient extends RangerAdminRESTClient {
         }
 
         return ret;
+    }
+
+    /**
+     * Load policies from local cache file when Ranger Admin returns 401.
+     * File path: {cacheDir}/{appId}_{serviceName}.json
+     */
+    private ServicePolicies loadPoliciesFromCache() {
+        if (cacheDir == null) {
+            LOG.error("DorisRangerAdminRESTClient: cache dir is not configured, cannot load policies from cache.");
+            return null;
+        }
+        String cacheFileName = String.format("%s_%s.json", appId, serviceName);
+        File cacheFile = new File(cacheDir + File.separator + cacheFileName);
+        if (!cacheFile.exists() || !cacheFile.canRead()) {
+            LOG.error("DorisRangerAdminRESTClient: cache file does not exist or is not readable: {}",
+                    cacheFile.getAbsolutePath());
+            return null;
+        }
+        try {
+            String json = new String(Files.readAllBytes(cacheFile.toPath()));
+            ServicePolicies policies = JsonUtilsV2.jsonToObj(json, ServicePolicies.class);
+            LOG.info("DorisRangerAdminRESTClient: loaded policies from cache file: {}",
+                    cacheFile.getAbsolutePath());
+            return policies;
+        } catch (Exception e) {
+            LOG.error("DorisRangerAdminRESTClient: failed to load policies from cache file: {}",
+                    cacheFile.getAbsolutePath(), e);
+            return null;
+        }
+    }
+
+    /**
+     * Load roles from local cache file when Ranger Admin returns 401.
+     * File path: {cacheDir}/{appId}_{serviceName}_roles.json
+     */
+    private RangerRoles loadRolesFromCache() {
+        if (cacheDir == null) {
+            LOG.error("DorisRangerAdminRESTClient: cache dir is not configured, cannot load roles from cache.");
+            return null;
+        }
+        String cacheFileName = String.format("%s_%s_roles.json", appId, serviceName);
+        File cacheFile = new File(cacheDir + File.separator + cacheFileName);
+        if (!cacheFile.exists() || !cacheFile.canRead()) {
+            LOG.error("DorisRangerAdminRESTClient: cache file does not exist or is not readable: {}",
+                    cacheFile.getAbsolutePath());
+            return null;
+        }
+        try {
+            String json = new String(Files.readAllBytes(cacheFile.toPath()));
+            RangerRoles roles = JsonUtilsV2.jsonToObj(json, RangerRoles.class);
+            LOG.info("DorisRangerAdminRESTClient: loaded roles from cache file: {}",
+                    cacheFile.getAbsolutePath());
+            return roles;
+        } catch (Exception e) {
+            LOG.error("DorisRangerAdminRESTClient: failed to load roles from cache file: {}",
+                    cacheFile.getAbsolutePath(), e);
+            return null;
+        }
     }
 
     /**
