@@ -49,16 +49,19 @@ struct VariantStatistics {
         stats->set_has_nested_group(has_nested_group);
     }
 
-    void from_pb(const VariantStatisticsPB& stats) {
-        subcolumns_non_null_size.clear();
-        sparse_column_non_null_size.clear();
-        doc_value_column_non_null_size.clear();
-        has_nested_group = stats.has_nested_group();
+    // Additive merge: only update sparse_column_non_null_size from pb
+    // without touching other maps (subcolumns, doc_value, has_nested_group).
+    void merge_sparse_from_pb(const VariantStatisticsPB& stats) {
         for (const auto& [path, value] : stats.sparse_column_non_null_size()) {
-            sparse_column_non_null_size[path] = value;
+            sparse_column_non_null_size[path] += value;
         }
+    }
+
+    // Additive merge: only update doc_value_column_non_null_size from pb
+    // without touching other maps.
+    void merge_doc_value_from_pb(const VariantStatisticsPB& stats) {
         for (const auto& [path, value] : stats.doc_value_column_non_null_size()) {
-            doc_value_column_non_null_size[path] = value;
+            doc_value_column_non_null_size[path] += value;
         }
     }
 
