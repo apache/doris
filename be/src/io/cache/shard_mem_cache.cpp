@@ -55,9 +55,9 @@ Status ShardMemHashTable::append(const FileCacheKey& key, const Slice& value) {
         return Status::IOError("key already exists in in-memory cache map");
     }
     // TODO(zhengyu): allocate in mempool
-    auto mem_block = MemBlock {
-            std::shared_ptr<char[]>(new char[value.size], std::default_delete<char[]>()),
-            value.size};
+    auto mem_block =
+            MemBlock {std::shared_ptr<char[]>(new char[value.size], std::default_delete<char[]>()),
+                      value.size};
     DCHECK(mem_block.addr != nullptr);
     _cache_map[map_key] = mem_block;
     char* dst = mem_block.addr.get();
