@@ -58,6 +58,7 @@ std::map<std::string, std::string> JdbcScanner::_build_jdbc_params(
     params["jdbc_driver_url"] = jdbc_table->jdbc_driver_url();
     params["query_sql"] = _query_string;
     params["catalog_id"] = std::to_string(jdbc_table->jdbc_catalog_id());
+    params["table_type"] = _odbc_table_type_to_string(_table_type);
     params["connection_pool_min_size"] = std::to_string(jdbc_table->connection_pool_min_size());
     params["connection_pool_max_size"] = std::to_string(jdbc_table->connection_pool_max_size());
     params["connection_pool_max_wait_time"] =

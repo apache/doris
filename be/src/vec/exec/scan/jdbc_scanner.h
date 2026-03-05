@@ -73,6 +73,25 @@ private:
     // Build JDBC params from TupleDescriptor for JdbcJniReader
     std::map<std::string, std::string> _build_jdbc_params(const TupleDescriptor* tuple_desc);
 
+    // Convert TOdbcTableType enum to string for JdbcTypeHandlerFactory
+    static std::string _odbc_table_type_to_string(TOdbcTableType::type type) {
+        switch (type) {
+            case TOdbcTableType::MYSQL: return "MYSQL";
+            case TOdbcTableType::ORACLE: return "ORACLE";
+            case TOdbcTableType::POSTGRESQL: return "POSTGRESQL";
+            case TOdbcTableType::SQLSERVER: return "SQLSERVER";
+            case TOdbcTableType::CLICKHOUSE: return "CLICKHOUSE";
+            case TOdbcTableType::SAP_HANA: return "SAP_HANA";
+            case TOdbcTableType::TRINO: return "TRINO";
+            case TOdbcTableType::PRESTO: return "PRESTO";
+            case TOdbcTableType::OCEANBASE: return "OCEANBASE";
+            case TOdbcTableType::OCEANBASE_ORACLE: return "OCEANBASE_ORACLE";
+            case TOdbcTableType::DB2: return "DB2";
+            case TOdbcTableType::GBASE: return "GBASE";
+            default: return "MYSQL";
+        }
+    }
+
     bool _jdbc_eos;
 
     // Tuple id resolved in prepare() to set _tuple_desc;

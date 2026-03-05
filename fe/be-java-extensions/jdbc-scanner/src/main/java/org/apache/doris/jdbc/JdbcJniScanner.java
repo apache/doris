@@ -20,28 +20,19 @@ package org.apache.doris.jdbc;
 import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValue;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
-import org.apache.doris.common.jni.vec.VectorColumn;
 
 import com.zaxxer.hikari.HikariDataSource;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
 import java.lang.reflect.Array;
-import java.math.BigDecimal;
-import java.math.BigInteger;
 import java.sql.Connection;
-import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
-import java.sql.Timestamp;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -51,8 +42,9 @@ import java.util.Map;
  * It extends JniScanner to integrate with the JniConnector/JniReader system on the C++ side,
  * following the same pattern as PaimonJniScanner, HudiJniScanner, etc.
  *
- * <p>This is an independent class that does NOT depend on BaseJdbcExecutor. It manages
- * its own connection pool, statement, and result set lifecycle.
+ * <p>This class uses the {@link JdbcTypeHandler} strategy pattern for database-specific
+ * type handling. The appropriate handler is selected via {@link JdbcTypeHandlerFactory}
+ * based on the "table_type" parameter.
  *
  * <p>Parameters (passed via constructor params map):
  * <ul>
@@ -63,6 +55,7 @@ import java.util.Map;
  *   <li>jdbc_driver_url - path to driver JAR</li>
  *   <li>query_sql - the SELECT SQL to execute</li>
  *   <li>catalog_id - catalog ID for connection pool keying</li>
+ *   <li>table_type - database type (MYSQL, ORACLE, POSTGRESQL, etc.)</li>
  *   <li>connection_pool_min_size - min connection pool size</li>
  *   <li>connection_pool_max_size - max connection pool size</li>
  *   <li>connection_pool_max_wait_time - max wait time (ms)</li>
@@ -87,6 +80,11 @@ public class JdbcJniScanner extends JniScanner {
     private final int connectionPoolMaxWaitTime;
     private final int connectionPoolMaxLifeTime;
     private final boolean connectionPoolKeepAlive;
+
+    // Database-specific type handling strategy
+    private final JdbcTypeHandler typeHandler;
+    // Per-column output converters, initialized once per scan
+    private ColumnValueConverter[] outputConverters;
 
     private HikariDataSource hikariDataSource = null;
     private Connection conn = null;
@@ -122,6 +120,10 @@ public class JdbcJniScanner extends JniScanner {
         this.connectionPoolKeepAlive = "true".equalsIgnoreCase(
                 params.getOrDefault("connection_pool_keep_alive", "false"));
 
+        // Select database-specific type handler
+        String tableType = params.getOrDefault("table_type", "");
+        this.typeHandler = JdbcTypeHandlerFactory.create(tableType);
+
         String requiredFields = params.getOrDefault("required_fields", "");
         String columnsTypes = params.getOrDefault("columns_types", "");
         String[] fieldArr = requiredFields.isEmpty() ? new String[0] : requiredFields.split(",");
@@ -142,15 +144,16 @@ public class JdbcJniScanner extends JniScanner {
     public void open() throws IOException {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
+            // Set JVM-level driver properties
+            typeHandler.setSystemProperties();
+
             initializeClassLoaderAndDataSource();
             Thread.currentThread().setContextClassLoader(classLoader);
 
             conn = hikariDataSource.getConnection();
-            conn.setAutoCommit(false);
 
-            stmt = conn.prepareStatement(querySql, ResultSet.TYPE_FORWARD_ONLY,
-                    ResultSet.CONCUR_READ_ONLY);
-            stmt.setFetchSize(batchSize);
+            // Use type handler to create the statement with database-specific settings
+            stmt = typeHandler.initializeStatement(conn, querySql, batchSize);
 
             LOG.info("JdbcJniScanner: Executing query: " + querySql);
             resultSet = stmt.executeQuery();
@@ -158,6 +161,12 @@ public class JdbcJniScanner extends JniScanner {
             resultSetOpened = true;
 
             block = new ArrayList<>(types.length);
+
+            // Initialize per-column output converters once
+            outputConverters = new ColumnValueConverter[types.length];
+            for (int i = 0; i < types.length; i++) {
+                outputConverters[i] = typeHandler.getOutputConverter(types[i], "not_replace");
+            }
         } catch (Exception e) {
             throw new IOException("JdbcJniScanner open failed: " + e.getMessage(), e);
         } finally {
@@ -187,7 +196,14 @@ public class JdbcJniScanner extends JniScanner {
                 }
                 for (int col = 0; col < types.length; col++) {
                     int columnIndex = col + 1; // JDBC columns are 1-indexed
-                    block.get(col)[curRows] = getColumnValue(columnIndex, types[col]);
+                    // Use type handler for database-specific value extraction
+                    Object value = typeHandler.getColumnValue(
+                            resultSet, columnIndex, types[col], resultSetMetaData);
+                    // Apply output converter if present
+                    if (value != null && outputConverters[col] != null) {
+                        value = outputConverters[col].convert(value);
+                    }
+                    block.get(col)[curRows] = value;
                 }
                 curRows++;
             }
@@ -216,6 +232,14 @@ public class JdbcJniScanner extends JniScanner {
 
     @Override
     public void close() throws IOException {
+        try {
+            // Use type handler for database-specific connection abort
+            if (conn != null && resultSet != null) {
+                typeHandler.abortReadConnection(conn, resultSet);
+            }
+        } catch (SQLException e) {
+            LOG.warn("JdbcJniScanner abort connection error: " + e.getMessage(), e);
+        }
         try {
             if (resultSet != null && !resultSet.isClosed()) {
                 resultSet.close();
@@ -248,76 +272,6 @@ public class JdbcJniScanner extends JniScanner {
         return stats;
     }
 
-    // =====================================================================
-    // Private helpers — reading column values from ResultSet
-    // Adapted from BaseJdbcExecutor.getColumnValue() logic
-    // =====================================================================
-
-    private Object getColumnValue(int columnIndex, ColumnType type) throws SQLException {
-        Object value = null;
-        switch (type.getType()) {
-            case BOOLEAN:
-                value = resultSet.getBoolean(columnIndex);
-                break;
-            case TINYINT:
-                value = resultSet.getByte(columnIndex);
-                break;
-            case SMALLINT:
-                value = resultSet.getShort(columnIndex);
-                break;
-            case INT:
-                value = resultSet.getInt(columnIndex);
-                break;
-            case BIGINT:
-                value = resultSet.getLong(columnIndex);
-                break;
-            case LARGEINT:
-                value = resultSet.getObject(columnIndex);
-                if (value instanceof BigDecimal) {
-                    value = ((BigDecimal) value).toBigInteger();
-                } else if (value != null && !(value instanceof BigInteger)) {
-                    value = new BigInteger(value.toString());
-                }
-                break;
-            case FLOAT:
-                value = resultSet.getFloat(columnIndex);
-                break;
-            case DOUBLE:
-                value = resultSet.getDouble(columnIndex);
-                break;
-            case DECIMALV2:
-            case DECIMAL32:
-            case DECIMAL64:
-            case DECIMAL128:
-                value = resultSet.getBigDecimal(columnIndex);
-                break;
-            case DATEV2:
-                Date sqlDate = resultSet.getDate(columnIndex);
-                if (sqlDate != null) {
-                    value = sqlDate.toLocalDate();
-                }
-                break;
-            case DATETIMEV2:
-                Timestamp ts = resultSet.getTimestamp(columnIndex);
-                if (ts != null) {
-                    value = ts.toLocalDateTime();
-                }
-                break;
-            case CHAR:
-            case VARCHAR:
-            case STRING:
-                value = resultSet.getString(columnIndex);
-                break;
-            default:
-                value = resultSet.getString(columnIndex);
-                break;
-        }
-        if (resultSet.wasNull()) {
-            return null;
-        }
-        return value;
-    }
-
     private void initializeClassLoaderAndDataSource() throws Exception {
         java.net.URL[] urls = {new java.net.URL(jdbcDriverUrl)};
         ClassLoader parent = getClass().getClassLoader();
@@ -339,7 +293,8 @@ public class JdbcJniScanner extends JniScanner {
                     ds.setConnectionTimeout(connectionPoolMaxWaitTime);
                     ds.setMaxLifetime(connectionPoolMaxLifeTime);
                     ds.setIdleTimeout(connectionPoolMaxLifeTime / 2L);
-                    ds.setConnectionTestQuery("SELECT 1");
+                    // Use type handler for database-specific validation query
+                    typeHandler.setValidationQuery(ds);
                     if (connectionPoolKeepAlive) {
                         ds.setKeepaliveTime(connectionPoolMaxLifeTime / 5L);
                     }
