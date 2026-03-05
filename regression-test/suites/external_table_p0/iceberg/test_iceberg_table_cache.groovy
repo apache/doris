@@ -206,9 +206,45 @@ suite("test_iceberg_table_cache", "p0,external") {
         // ==================== Test 2: Schema Change Operations ====================
         logger.info("========== Test 2: Schema Change Operations ==========")
 
-        // Keep representative schema changes only to reduce Spark execution cost.
-        // Test 2.1: RENAME COLUMN
-        logger.info("--- Test 2.1: External RENAME COLUMN ---")
+        // Keep representative schema changes and one column-count-change case
+        // to reduce Spark execution cost while preserving key coverage.
+        // Test 2.1: ADD COLUMN
+        logger.info("--- Test 2.1: External ADD COLUMN ---")
+        spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_add_column"
+        spark_iceberg "CREATE TABLE demo.${testDb}.test_add_column (id INT, name STRING) USING iceberg"
+        spark_iceberg "INSERT INTO demo.${testDb}.test_add_column VALUES (1, 'test')"
+
+        // Cache the schema
+        sql """switch ${catalogWithCache}"""
+        def add_col_desc1 = sql """desc ${testDb}.test_add_column"""
+        logger.info("Initial schema (with cache): ${add_col_desc1}")
+        assertEquals(2, add_col_desc1.size())
+
+        sql """switch ${catalogNoCache}"""
+        def add_col_desc1_nc = sql """desc ${testDb}.test_add_column"""
+        assertEquals(2, add_col_desc1_nc.size())
+
+        // External ADD COLUMN via Spark
+        spark_iceberg "ALTER TABLE demo.${testDb}.test_add_column ADD COLUMN new_col INT"
+
+        // Verify cache behavior
+        sql """switch ${catalogWithCache}"""
+        def add_col_desc2 = sql """desc ${testDb}.test_add_column"""
+        logger.info("After external ADD COLUMN (with cache, no refresh): ${add_col_desc2}")
+        assertEquals(2, add_col_desc2.size())  // Should still see 2 columns
+
+        sql """switch ${catalogNoCache}"""
+        def add_col_desc2_nc = sql """desc ${testDb}.test_add_column"""
+        logger.info("After external ADD COLUMN (no cache): ${add_col_desc2_nc}")
+        assertEquals(3, add_col_desc2_nc.size())  // Should see 3 columns
+
+        sql """switch ${catalogWithCache}"""
+        sql """refresh table ${testDb}.test_add_column"""
+        def add_col_desc3 = sql """desc ${testDb}.test_add_column"""
+        assertEquals(3, add_col_desc3.size())
+
+        // Test 2.2: RENAME COLUMN
+        logger.info("--- Test 2.2: External RENAME COLUMN ---")
         spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_rename_column"
         spark_iceberg "CREATE TABLE demo.${testDb}.test_rename_column (id INT, old_name STRING) USING iceberg"
         spark_iceberg "INSERT INTO demo.${testDb}.test_rename_column VALUES (1, 'test')"
@@ -238,8 +274,8 @@ suite("test_iceberg_table_cache", "p0,external") {
         def rename_col_desc3 = sql """desc ${testDb}.test_rename_column"""
         assertTrue(rename_col_desc3.toString().contains("new_name"))
 
-        // Test 2.2: ALTER COLUMN TYPE
-        logger.info("--- Test 2.2: External ALTER COLUMN TYPE ---")
+        // Test 2.3: ALTER COLUMN TYPE
+        logger.info("--- Test 2.3: External ALTER COLUMN TYPE ---")
         spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_alter_type"
         spark_iceberg "CREATE TABLE demo.${testDb}.test_alter_type (id INT, value INT) USING iceberg"
         spark_iceberg "INSERT INTO demo.${testDb}.test_alter_type VALUES (1, 100)"
