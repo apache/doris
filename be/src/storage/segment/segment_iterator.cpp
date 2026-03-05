@@ -1144,6 +1144,25 @@ Status SegmentIterator::_apply_index_expr() {
         }
     }
 
+    // Evaluate inverted index for virtual column MATCH expressions (projections).
+    // Unlike common exprs which filter rows, these only compute index result bitmaps
+    // for later materialization via fast_execute().
+    for (auto& [cid, expr_ctx] : _virtual_column_exprs) {
+        if (expr_ctx->get_index_context() == nullptr) {
+            continue;
+        }
+        if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
+            if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+                continue;
+            } else {
+                LOG(WARNING) << "failed to evaluate inverted index for virtual column expr: "
+                             << expr_ctx->root()->debug_string()
+                             << ", error msg: " << st.to_string();
+                return st;
+            }
+        }
+    }
+
     // Apply ann range search
     segment_v2::AnnIndexStats ann_index_stats;
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
@@ -2834,9 +2853,20 @@ void SegmentIterator::_output_index_result_column_for_expr(uint16_t* sel_rowid_i
     if (block->rows() == 0) {
         return;
     }
+    // Collect all expr contexts that may have index results:
+    // common pushed-down exprs + virtual column exprs (MATCH projections).
+    std::vector<vectorized::VExprContext*> all_index_contexts;
     for (auto& expr_ctx : _common_expr_ctxs_push_down) {
+        all_index_contexts.push_back(expr_ctx.get());
+    }
+    for (auto& [cid, expr_ctx] : _virtual_column_exprs) {
+        if (expr_ctx->get_index_context() != nullptr) {
+            all_index_contexts.push_back(expr_ctx.get());
+        }
+    }
+    for (auto* expr_ctx_ptr : all_index_contexts) {
         for (auto& inverted_index_result_bitmap_for_expr :
-             expr_ctx->get_index_context()->get_index_result_bitmap()) {
+             expr_ctx_ptr->get_index_context()->get_index_result_bitmap()) {
             const auto* expr = inverted_index_result_bitmap_for_expr.first;
             const auto& result_bitmap = inverted_index_result_bitmap_for_expr.second;
             const auto& index_result_bitmap = result_bitmap.get_data_bitmap();
@@ -2874,11 +2904,11 @@ void SegmentIterator::_output_index_result_column_for_expr(uint16_t* sel_rowid_i
             DCHECK(block->rows() == vec_match_pred.size());
 
             if (null_map_column) {
-                expr_ctx->get_index_context()->set_index_result_column_for_expr(
+                expr_ctx_ptr->get_index_context()->set_index_result_column_for_expr(
                         expr, ColumnNullable::create(std::move(index_result_column),
                                                      std::move(null_map_column)));
             } else {
-                expr_ctx->get_index_context()->set_index_result_column_for_expr(
+                expr_ctx_ptr->get_index_context()->set_index_result_column_for_expr(
                         expr, std::move(index_result_column));
             }
         }
@@ -2948,6 +2978,11 @@ Status SegmentIterator::_construct_compound_expr_context() {
         RETURN_IF_ERROR(expr_ctx->clone(_opts.runtime_state, context));
         context->set_index_context(inverted_index_context);
         _common_expr_ctxs_push_down.emplace_back(context);
+    }
+    // Set IndexExecContext on virtual column exprs so that MATCH projections
+    // can leverage inverted index evaluation via fast_execute().
+    for (auto& [cid, expr_ctx] : _virtual_column_exprs) {
+        expr_ctx->set_index_context(inverted_index_context);
     }
     return Status::OK();
 }
