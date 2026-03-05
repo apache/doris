@@ -237,6 +237,18 @@ run_juicefs_cli() {
     shift
     if command -v juicefs >/dev/null 2>&1; then
         juicefs "$@"
+        return
+    fi
+
+    local metastore_container=""
+    for c in "${CONTAINER_UID}hive3-metastore" "${CONTAINER_UID}hive2-metastore"; do
+        if sudo docker ps --format '{{.Names}}' | grep -qx "${c}"; then
+            metastore_container="${c}"
+            break
+        fi
+    done
+    if [[ -n "${metastore_container}" ]] && sudo docker exec "${metastore_container}" sh -c 'command -v juicefs >/dev/null 2>&1'; then
+        sudo docker exec "${metastore_container}" juicefs "$@"
     else
         sudo docker run --rm --network host -v "${bucket_dir}:${bucket_dir}" \
             juicedata/juicefs:latest "$@"
