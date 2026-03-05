@@ -27,14 +27,16 @@ for file in "${AUX_LIB}"/*.tar.gz; do
 done
 ls "${AUX_LIB}/"
 
-# Copy auxiliary jars to both Hive and Hadoop classpaths.
-# `hive --service metastore` uses Hive libs, while `hadoop fs` uses Hadoop libs.
+# Keep existing behavior for Hive metastore classpath.
+cp -r "${AUX_LIB}"/* /opt/hive/lib/
+
+# Add JuiceFS jar into Hadoop classpath for `hadoop fs jfs://...`.
 shopt -s nullglob
-jars=("${AUX_LIB}"/*.jar)
-if (( ${#jars[@]} > 0 )); then
-    for target in /opt/hive/lib /opt/hadoop-3.2.1/share/hadoop/common/lib /opt/hadoop/share/hadoop/common/lib; do
+juicefs_jars=("${AUX_LIB}"/juicefs-hadoop-*.jar)
+if (( ${#juicefs_jars[@]} > 0 )); then
+    for target in /opt/hadoop-3.2.1/share/hadoop/common/lib /opt/hadoop/share/hadoop/common/lib; do
         if [[ -d "${target}" ]]; then
-            cp -f "${jars[@]}" "${target}"/
+            cp -f "${juicefs_jars[@]}" "${target}"/
         fi
     done
 fi
