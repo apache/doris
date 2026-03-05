@@ -206,6 +206,10 @@ public class FEOpExecutor {
             }
         }
 
+        // Propagate the client's CLIENT_DEPRECATE_EOF capability so the master FE
+        // generates packets matching the original client's protocol expectations.
+        params.setClientDeprecatedEOF(ctx.getMysqlChannel().clientDeprecatedEOF());
+
         return params;
     }
 

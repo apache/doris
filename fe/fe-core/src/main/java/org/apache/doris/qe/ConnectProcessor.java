@@ -654,6 +654,12 @@ public abstract class ConnectProcessor {
         // set compute group
         ctx.setComputeGroup(Env.getCurrentEnv().getAuth().getComputeGroup(ctx.getQualifiedUser()));
 
+        // Propagate the client's CLIENT_DEPRECATE_EOF capability to the proxy channel.
+        // This ensures the master generates packets matching the original client's protocol.
+        if (request.isSetClientDeprecatedEOF() && request.isClientDeprecatedEOF()) {
+            ctx.getMysqlChannel().setClientDeprecatedEOF();
+        }
+
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;
         try {
