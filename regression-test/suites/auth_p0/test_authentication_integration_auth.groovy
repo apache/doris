@@ -18,8 +18,11 @@
 suite("test_authentication_integration_auth", "p0,auth") {
     String suiteName = "test_authentication_integration_auth"
     String integrationName = "${suiteName}_ldap"
+    String user = "${suiteName}_user"
+    String pwd = 'C123_567p'
 
     try_sql("DROP AUTHENTICATION INTEGRATION IF EXISTS ${integrationName}")
+    try_sql("DROP USER ${user}")
 
     try {
         test {
@@ -39,6 +42,25 @@ suite("test_authentication_integration_auth", "p0,auth") {
             )
             COMMENT 'for regression test'
         """
+
+        def typeRes = sql """
+            SELECT Type
+            FROM authentication_integrations()
+            WHERE IntegrationName = '${integrationName}'
+            ORDER BY Type
+            LIMIT 1
+        """
+        assertTrue(typeRes.size() == 1)
+        assertTrue(typeRes[0][0] == "ldap")
+
+        def maskedRes = sql """
+            SELECT Value
+            FROM authentication_integrations()
+            WHERE IntegrationName = '${integrationName}' AND Property = 'ldap.admin_password'
+            ORDER BY Property
+        """
+        assertTrue(maskedRes.size() == 1)
+        assertTrue(maskedRes[0][0] == "*XXX")
 
         test {
             sql """
@@ -66,6 +88,35 @@ suite("test_authentication_integration_auth", "p0,auth") {
 
         sql """ALTER AUTHENTICATION INTEGRATION ${integrationName} SET COMMENT 'updated comment'"""
 
+        def updatedRes = sql """
+            SELECT Value, Comment
+            FROM authentication_integrations()
+            WHERE IntegrationName = '${integrationName}' AND Property = 'ldap.server'
+            ORDER BY Property
+        """
+        assertTrue(updatedRes.size() == 1)
+        assertTrue(updatedRes[0][0] == "ldap://127.0.0.1:1389")
+        assertTrue(updatedRes[0][1] == "updated comment")
+
+        sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+
+        // cloud-mode
+        if (isCloudMode()) {
+            def clusters = sql " SHOW CLUSTERS; "
+            assertTrue(!clusters.isEmpty())
+            def validCluster = clusters[0][0]
+            sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
+        }
+
+        sql """grant select_priv on regression_test to ${user}"""
+
+        connect(user, "${pwd}", context.config.jdbcUrl) {
+            test {
+                sql """SELECT * FROM authentication_integrations()"""
+                exception "denied"
+            }
+        }
+
         test {
             sql """DROP AUTHENTICATION INTEGRATION ${integrationName}_not_exist"""
             exception "does not exist"
@@ -73,6 +124,7 @@ suite("test_authentication_integration_auth", "p0,auth") {
 
         sql """DROP AUTHENTICATION INTEGRATION IF EXISTS ${integrationName}_not_exist"""
     } finally {
+        try_sql("DROP USER ${user}")
         try_sql("DROP AUTHENTICATION INTEGRATION IF EXISTS ${integrationName}")
     }
 }
