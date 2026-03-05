@@ -192,6 +192,8 @@ private:
                              }},
                    _agg_data->method_variant);
     }
+
+    bool _is_single_backend = false;
 };
 
 class StreamingAggOperatorX MOCK_REMOVE(final) : public StatefulOperatorX<StreamingAggLocalState> {
