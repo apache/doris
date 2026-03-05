@@ -24,13 +24,17 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
-public class BackendPortHolder {
+public class SystemEnvInitializer {
 
     @Value("${backend.http.port}")
     private int port;
 
+    @Value("${cluster.token}")
+    private String clusterToken;
+
     @PostConstruct
     public void init() {
         Env.getCurrentEnv().setBackendHttpPort(port);
+        Env.getCurrentEnv().setClusterToken(clusterToken);
     }
 }
