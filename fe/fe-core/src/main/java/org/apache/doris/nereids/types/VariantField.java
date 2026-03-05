@@ -53,6 +53,10 @@ public class VariantField {
         TPatternType type;
         if (TPatternType.MATCH_NAME.name().equalsIgnoreCase(patternType)) {
             type = TPatternType.MATCH_NAME;
+        } else if (TPatternType.SKIP_NAME.name().equalsIgnoreCase(patternType)) {
+            type = TPatternType.SKIP_NAME;
+        } else if (TPatternType.SKIP_NAME_GLOB.name().equalsIgnoreCase(patternType)) {
+            type = TPatternType.SKIP_NAME_GLOB;
         } else {
             type = TPatternType.MATCH_NAME_GLOB;
         }
@@ -71,6 +75,14 @@ public class VariantField {
         return comment;
     }
 
+    public boolean isSkipPatternType() {
+        return patternType == TPatternType.SKIP_NAME || patternType == TPatternType.SKIP_NAME_GLOB;
+    }
+
+    public boolean isTypedPathPatternType() {
+        return patternType == TPatternType.MATCH_NAME || patternType == TPatternType.MATCH_NAME_GLOB;
+    }
+
     /**
      * Check if the given field name matches this field's pattern.
      * This method uses a restricted glob syntax converted to regex.
@@ -86,6 +98,9 @@ public class VariantField {
      * @return true if the field name matches the pattern
      */
     public boolean matches(String fieldName) {
+        if (!isTypedPathPatternType()) {
+            return false;
+        }
         if (patternType == TPatternType.MATCH_NAME) {
             return pattern.equals(fieldName);
         }
@@ -93,7 +108,7 @@ public class VariantField {
             return false;
         }
         try {
-            Pattern compiled = GlobRegexUtil.getOrCompilePattern(pattern);
+            Pattern compiled = GlobRegexUtil.compilePattern(pattern);
             return compiled.matcher(fieldName).matches();
         } catch (PatternSyntaxException | IllegalArgumentException e) {
             return false;
@@ -111,6 +126,14 @@ public class VariantField {
      */
     public String toSql() {
         StringBuilder sb = new StringBuilder();
+        if (isSkipPatternType()) {
+            sb.append("SKIP ");
+            if (patternType == TPatternType.SKIP_NAME) {
+                sb.append("MATCH_NAME ");
+            }
+            sb.append("'").append(pattern).append("'");
+            return sb.toString();
+        }
         if (patternType == TPatternType.MATCH_NAME) {
             sb.append(patternType.toString()).append(" ");
         }
@@ -137,12 +160,12 @@ public class VariantField {
         }
         VariantField that = (VariantField) o;
         return Objects.equals(pattern, that.pattern) && Objects.equals(dataType,
-                that.dataType);
+                that.dataType) && patternType == that.patternType;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(pattern, dataType);
+        return Objects.hash(pattern, dataType, patternType);
     }
 
     @Override

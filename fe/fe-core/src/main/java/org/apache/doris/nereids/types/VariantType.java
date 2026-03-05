@@ -49,7 +49,7 @@ public class VariantType extends PrimitiveType {
 
     private final int variantMaxSparseColumnStatisticsSize;
 
-    private final List<VariantField> predefinedFields;
+    private final List<VariantField> variantPredefinedFields;
     private final int variantSparseHashShardCount;
 
     private final boolean enableVariantDocMode;
@@ -57,13 +57,13 @@ public class VariantType extends PrimitiveType {
     private final int variantDocShardCount;
 
     /**
-     * Creates a Variant type without predefined fields and only configures the max subcolumn limit.
+     * Creates a Variant type without variant predefined fields and only configures the max subcolumn limit.
      *
      * @param variantMaxSubcolumnsCount max number of subcolumns allowed (0 means unlimited)
      */
     public VariantType(int variantMaxSubcolumnsCount) {
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
-        this.predefinedFields = Lists.newArrayList();
+        this.variantPredefinedFields = Lists.newArrayList();
         this.enableTypedPathsToSparse = false;
         this.variantMaxSparseColumnStatisticsSize = 10000;
         this.variantSparseHashShardCount = 0;
@@ -73,10 +73,11 @@ public class VariantType extends PrimitiveType {
     }
 
     /**
-     *   Contains predefined fields like struct
+     * Variant predefined fields, including typed paths and skip patterns.
      */
     public VariantType(List<VariantField> fields) {
-        this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
+        this.variantPredefinedFields = ImmutableList.copyOf(
+                Objects.requireNonNull(fields, "fields should not be null"));
         this.variantMaxSubcolumnsCount = 0;
         this.enableTypedPathsToSparse = false;
         this.variantMaxSparseColumnStatisticsSize = 10000;
@@ -87,9 +88,9 @@ public class VariantType extends PrimitiveType {
     }
 
     /**
-     * Creates a Variant type with predefined fields and advanced optional properties.
+     * Creates a Variant type with variant predefined fields and advanced optional properties.
      *
-     * @param fields predefined variant path fields
+     * @param variantPredefinedFields variant predefined fields, including typed paths and skip patterns
      * @param variantMaxSubcolumnsCount max number of subcolumns allowed
      * @param enableTypedPathsToSparse whether typed paths should be materialized as sparse columns
      * @param variantMaxSparseColumnStatisticsSize upper bound of sparse path statistics entries
@@ -97,11 +98,13 @@ public class VariantType extends PrimitiveType {
      * @param enableVariantDocMode whether to enable variant doc snapshot writing mode
      * @param variantDocMaterializationMinRows minimum rows to generate doc snapshot columns
      */
-    public VariantType(List<VariantField> fields, int variantMaxSubcolumnsCount,
+    public VariantType(List<VariantField> variantPredefinedFields,
+            int variantMaxSubcolumnsCount,
             boolean enableTypedPathsToSparse, int variantMaxSparseColumnStatisticsSize,
             int variantSparseHashShardCount, boolean enableVariantDocMode,
             long variantDocMaterializationMinRows, int variantDocShardCount) {
-        this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
+        this.variantPredefinedFields = ImmutableList.copyOf(
+                Objects.requireNonNull(variantPredefinedFields, "variantPredefinedFields should not be null"));
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.enableTypedPathsToSparse = enableTypedPathsToSparse;
         this.variantMaxSparseColumnStatisticsSize = variantMaxSparseColumnStatisticsSize;
@@ -113,8 +116,9 @@ public class VariantType extends PrimitiveType {
 
     @Override
     public DataType conversion() {
-        return new VariantType(predefinedFields.stream().map(VariantField::conversion)
-                                .collect(Collectors.toList()), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+        return new VariantType(variantPredefinedFields.stream().map(VariantField::conversion)
+                                .collect(Collectors.toList()),
+                                    variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                                     variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                                     enableVariantDocMode, variantDocMaterializationMinRows,
                                     variantDocShardCount);
@@ -122,9 +126,11 @@ public class VariantType extends PrimitiveType {
 
     @Override
     public Type toCatalogDataType() {
-        org.apache.doris.catalog.VariantType type = new org.apache.doris.catalog.VariantType(predefinedFields.stream()
+        org.apache.doris.catalog.VariantType type =
+                new org.apache.doris.catalog.VariantType(variantPredefinedFields.stream()
                 .map(VariantField::toCatalogDataType)
-                .collect(Collectors.toCollection(ArrayList::new)), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+                .collect(Collectors.toCollection(ArrayList::new)),
+                variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                      variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
                      variantDocMaterializationMinRows, variantDocShardCount);
         return type;
@@ -150,8 +156,8 @@ public class VariantType extends PrimitiveType {
         StringBuilder sb = new StringBuilder();
         sb.append("variant");
         sb.append("<");
-        if (!predefinedFields.isEmpty()) {
-            sb.append(predefinedFields.stream().map(VariantField::toSql).collect(Collectors.joining(",")));
+        if (!variantPredefinedFields.isEmpty()) {
+            sb.append(variantPredefinedFields.stream().map(VariantField::toSql).collect(Collectors.joining(",")));
             sb.append(",");
         }
 
@@ -197,7 +203,7 @@ public class VariantType extends PrimitiveType {
                     && this.enableTypedPathsToSparse == other.enableTypedPathsToSparse
                     && this.enableVariantDocMode == other.enableVariantDocMode
                     && this.variantDocMaterializationMinRows == other.variantDocMaterializationMinRows
-                    && Objects.equals(predefinedFields, other.predefinedFields);
+                    && Objects.equals(variantPredefinedFields, other.variantPredefinedFields);
     }
 
     @Override
@@ -209,12 +215,14 @@ public class VariantType extends PrimitiveType {
             return false;
         }
         VariantType other = (VariantType) o;
-        if (predefinedFields.size() != other.predefinedFields.size()) {
+        List<VariantField> typedPredefinedFields = getVariantTypedPredefinedFields();
+        List<VariantField> otherTypedPredefinedFields = other.getVariantTypedPredefinedFields();
+        if (typedPredefinedFields.size() != otherTypedPredefinedFields.size()) {
             return false;
         }
-        for (int i = 0; i < predefinedFields.size(); ++i) {
-            if (!predefinedFields.get(i).getDataType()
-                    .equalsForRecursiveCte(other.predefinedFields.get(i).getDataType())) {
+        for (int i = 0; i < typedPredefinedFields.size(); ++i) {
+            if (!typedPredefinedFields.get(i).getDataType()
+                    .equalsForRecursiveCte(otherTypedPredefinedFields.get(i).getDataType())) {
                 return false;
             }
         }
@@ -226,7 +234,7 @@ public class VariantType extends PrimitiveType {
         return Objects.hash(super.hashCode(), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                             variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                             enableVariantDocMode, variantDocMaterializationMinRows, variantDocShardCount,
-                            predefinedFields);
+                            variantPredefinedFields);
     }
 
     @Override
@@ -239,8 +247,14 @@ public class VariantType extends PrimitiveType {
         return toSql();
     }
 
-    public List<VariantField> getPredefinedFields() {
-        return predefinedFields;
+    public List<VariantField> getVariantPredefinedFields() {
+        return variantPredefinedFields;
+    }
+
+    public List<VariantField> getVariantTypedPredefinedFields() {
+        return variantPredefinedFields.stream()
+                .filter(VariantField::isTypedPathPatternType)
+                .collect(ImmutableList.toImmutableList());
     }
 
     /**
@@ -251,7 +265,7 @@ public class VariantType extends PrimitiveType {
      * @return Optional containing the matching VariantField, or empty if no match
      */
     public Optional<VariantField> findMatchingField(String fieldName) {
-        for (VariantField field : predefinedFields) {
+        for (VariantField field : getVariantTypedPredefinedFields()) {
             if (field.matches(fieldName)) {
                 return Optional.of(field);
             }

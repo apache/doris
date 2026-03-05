@@ -24,12 +24,14 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <bit>
 #include <cassert>
 #include <string_view>
 
 #include "common/cast_set.h"
 // IWYU pragma: keep
 #include "common/status.h"
+#include "vec/common/variant_util.h"
 #include "vec/json/path_in_data.h"
 #include "vec/json/simd_json_parser.h"
 
@@ -48,6 +50,7 @@ std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, 
     // NestedGroup expansion is now handled at storage layer
     context.enable_flatten_nested = config.enable_flatten_nested;
     context.is_top_array = document.isArray();
+    context.parse_config = &config;
     traverse(document, context);
     ParseResult result;
     result.values = std::move(context.values);
@@ -90,6 +93,9 @@ template <typename ParserImpl>
 void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseContext& ctx) {
     ctx.paths.reserve(ctx.paths.size() + object.size());
     ctx.values.reserve(ctx.values.size() + object.size());
+    const bool has_skip_patterns = ctx.parse_config != nullptr &&
+                                   ctx.parse_config->skip_patterns != nullptr &&
+                                   !ctx.parse_config->skip_patterns->empty();
     for (auto it = object.begin(); it != object.end(); ++it) {
         const auto& [key, value] = *it;
         const size_t max_key_length = cast_set<size_t>(config::variant_max_json_key_length);
@@ -99,9 +105,33 @@ void JSONDataParser<ParserImpl>::traverseObject(const JSONObject& object, ParseC
                     fmt::format("Key length exceeds maximum allowed size of {} bytes.",
                                 max_key_length));
         }
-        ctx.builder.append(key, false);
-        traverse(value, ctx);
-        ctx.builder.pop_back();
+        // Check skip patterns: build the dot-separated path and test against patterns.
+        if (has_skip_patterns) {
+            const size_t old_length = ctx.current_path.size();
+            const size_t required_capacity = old_length + (old_length ? 1 : 0) + key.size();
+            if (ctx.current_path.capacity() < required_capacity) {
+                ctx.current_path.reserve(required_capacity);
+            }
+            if (!ctx.current_path.empty()) {
+                ctx.current_path.push_back('.');
+            }
+            ctx.current_path.append(key.data(), key.size());
+
+            bool is_skipped = variant_util::should_skip_path(*ctx.parse_config, ctx.current_path);
+
+            if (is_skipped) {
+                ctx.current_path.resize(old_length);
+                continue; // skip this key and its entire subtree
+            }
+            ctx.builder.append(key, false);
+            traverse(value, ctx);
+            ctx.builder.pop_back();
+            ctx.current_path.resize(old_length);
+        } else {
+            ctx.builder.append(key, false);
+            traverse(value, ctx);
+            ctx.builder.pop_back();
+        }
     }
 }
 
@@ -205,8 +235,11 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
     ParseContext element_ctx;
     element_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
     element_ctx.is_top_array = ctx.is_top_array;
+    element_ctx.parse_config = nullptr;
     traverse(element, element_ctx);
-    auto& [_, paths, values, flatten_nested, __, is_top_array] = element_ctx;
+    auto& paths = element_ctx.paths;
+    auto& values = element_ctx.values;
+    const bool is_top_array = element_ctx.is_top_array;
 
     if (element_ctx.has_nested_in_flatten && is_top_array) {
         checkAmbiguousStructure(ctx, paths);

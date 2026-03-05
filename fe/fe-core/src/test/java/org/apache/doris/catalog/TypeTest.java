@@ -17,10 +17,13 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.thrift.TPatternType;
+
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 
 public class TypeTest {
 
@@ -126,6 +129,58 @@ public class TypeTest {
         fields4.add(new VariantField("a", Type.INT, ""));
         VariantType v4 = new VariantType(fields4);
         Assert.assertFalse(Type.matchExactType(v1, v4, false));
+    }
+
+    @Test
+    public void testVariantSkipPatternsIgnoredInExactMatch() {
+        ArrayList<VariantField> fields1 = new ArrayList<>();
+        fields1.add(new VariantField("typed_a", Type.INT, "", TPatternType.MATCH_NAME));
+        fields1.add(new VariantField("debug_*", Type.STRING, "", TPatternType.SKIP_NAME_GLOB));
+        fields1.add(new VariantField("secret", Type.STRING, "", TPatternType.SKIP_NAME));
+        VariantType v1 = new VariantType(fields1);
+
+        ArrayList<VariantField> fields2 = new ArrayList<>();
+        fields2.add(new VariantField("typed_b", Type.INT, "", TPatternType.MATCH_NAME));
+        fields2.add(new VariantField("tmp_*", Type.STRING, "", TPatternType.SKIP_NAME_GLOB));
+        fields2.add(new VariantField("pwd", Type.STRING, "", TPatternType.SKIP_NAME));
+        VariantType v2 = new VariantType(fields2);
+
+        // Exact type check should only compare typed-path fields and ignore skip patterns.
+        Assert.assertTrue(Type.matchExactType(v1, v2, false));
+
+        ArrayList<VariantField> fields3 = new ArrayList<>();
+        fields3.add(new VariantField("typed_a", Type.BIGINT, "", TPatternType.MATCH_NAME));
+        fields3.add(new VariantField("debug_*", Type.STRING, "", TPatternType.SKIP_NAME_GLOB));
+        VariantType v3 = new VariantType(fields3);
+        Assert.assertFalse(Type.matchExactType(v1, v3, false));
+    }
+
+    @Test
+    public void testVariantFieldSkipSqlAndMatchesField() {
+        VariantField skipExact = new VariantField("secret", Type.STRING, "", TPatternType.SKIP_NAME);
+        VariantField skipGlob = new VariantField("debug_*", Type.STRING, "", TPatternType.SKIP_NAME_GLOB);
+        VariantField typed = new VariantField("secret", Type.STRING, "", TPatternType.MATCH_NAME);
+
+        Assert.assertEquals("SKIP MATCH_NAME 'secret'", skipExact.toSql(0));
+        Assert.assertEquals("SKIP 'debug_*'", skipGlob.toSql(0));
+        Assert.assertFalse(skipExact.matchesField(typed));
+        Assert.assertFalse(typed.matchesField(skipExact));
+        Assert.assertFalse(skipExact.equals(typed));
+    }
+
+    @Test
+    public void testVariantFieldEqualsAndHashCodeContract() {
+        VariantField field1 = new VariantField("secret", Type.STRING, "", TPatternType.SKIP_NAME);
+        VariantField field2 = new VariantField("secret", Type.STRING, "", TPatternType.SKIP_NAME);
+        VariantField field3 = new VariantField("secret", Type.STRING, "", TPatternType.MATCH_NAME);
+
+        Assert.assertEquals(field1, field2);
+        Assert.assertEquals(field1.hashCode(), field2.hashCode());
+
+        HashSet<VariantField> fields = new HashSet<>();
+        fields.add(field1);
+        Assert.assertTrue(fields.contains(field2));
+        Assert.assertFalse(fields.contains(field3));
     }
 
     // ===================== Mixed Nesting & Precision =====================

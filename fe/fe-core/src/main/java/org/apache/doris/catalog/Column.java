@@ -108,6 +108,10 @@ public class Column implements GsonPostProcessable {
     @SerializedName(value = "comment")
     private String comment;
     @SerializedName(value = "children")
+    // Generic sub-columns for complex types.
+    // For VARIANT, this list stores both typed-path templates and skip patterns.
+    // Caller should filter by fieldPatternType:
+    // MATCH_* -> typed path, SKIP_* -> skip pattern.
     private List<Column> children;
     /**
      * This is similar as `defaultValue`. Differences are:
@@ -355,9 +359,10 @@ public class Column implements GsonPostProcessable {
                 column.addChildrenColumn(c);
             }
         } else if (type.isVariantType() && type instanceof VariantType) {
-            // variant may contain predefined structured fields
-            ArrayList<VariantField> fields = ((VariantType) type).getPredefinedFields();
-            for (VariantField field : fields) {
+            // Variant stores typed-path templates and skip patterns as sibling children,
+            // distinguished by fieldPatternType.
+            ArrayList<VariantField> variantPredefinedFields = ((VariantType) type).getVariantPredefinedFields();
+            for (VariantField field : variantPredefinedFields) {
                 // set column name as pattern
                 Column c = new Column(field.pattern, field.getType());
                 c.setIsAllowNull(true);
@@ -369,6 +374,22 @@ public class Column implements GsonPostProcessable {
 
     public List<Column> getChildren() {
         return children;
+    }
+
+    public List<Column> getVariantTypedPathChildrenOrEmpty() {
+        if (!(type instanceof VariantType)) {
+            return Lists.newArrayList();
+        }
+        if (CollectionUtils.isEmpty(children)) {
+            return Lists.newArrayList();
+        }
+        List<Column> typedPathChildren = Lists.newArrayListWithCapacity(children.size());
+        for (Column child : children) {
+            if (isVariantTypedPathPatternType(child.fieldPatternType)) {
+                typedPathChildren.add(child);
+            }
+        }
+        return typedPathChildren;
     }
 
     private void addChildrenColumn(Column column) {
@@ -697,22 +718,85 @@ public class Column implements GsonPostProcessable {
         toChildrenThrift(children, childrenTColumn);
     }
 
-    private void addChildren(Column column, TColumn tColumn) {
-        if (column.getChildren() != null) {
-            List<Column> childrenColumns = column.getChildren();
-            tColumn.setChildrenColumn(new ArrayList<>());
-            for (Column c : childrenColumns) {
-                setChildrenTColumn(c, tColumn);
-            }
+    private void appendVariantTypedPathChildren(Column column, TColumn tColumn) {
+        List<Column> typedPathChildren = column.getVariantTypedPathChildrenOrEmpty();
+        if (typedPathChildren.isEmpty()) {
+            return;
+        }
+        ensureChildrenColumnInitialized(tColumn);
+        for (Column typedPathChild : typedPathChildren) {
+            setChildrenTColumn(typedPathChild, tColumn);
         }
     }
 
-    private void addChildren(OlapFile.ColumnPB.Builder builder) throws DdlException {
-        if (this.getChildren() != null) {
-            List<Column> childrenColumns = this.getChildren();
-            for (Column c : childrenColumns) {
-                builder.addChildrenColumns(c.toPb(Sets.newHashSet(), Lists.newArrayList()));
+    private void appendVariantTypedPathChildren(OlapFile.ColumnPB.Builder builder) throws DdlException {
+        List<Column> typedPathChildren = getVariantTypedPathChildrenOrEmpty();
+        if (typedPathChildren.isEmpty()) {
+            return;
+        }
+        for (Column typedPathChild : typedPathChildren) {
+            builder.addChildrenColumns(typedPathChild.toPb(Sets.newHashSet(), Lists.newArrayList()));
+        }
+    }
+
+    private static PatternTypePB toPatternTypeForColumnPb(TPatternType patternType) {
+        if (patternType == null) {
+            return PatternTypePB.MATCH_NAME_GLOB;
+        }
+        PatternTypePB patternTypePb = PatternTypePB.forNumber(patternType.getValue());
+        if (patternTypePb == null) {
+            throw new IllegalArgumentException("Unknown pattern type: " + patternType);
+        }
+        return patternTypePb;
+    }
+
+    private static boolean isVariantTypedPathPatternType(TPatternType patternType) {
+        return patternType == null
+                || patternType == TPatternType.MATCH_NAME
+                || patternType == TPatternType.MATCH_NAME_GLOB;
+    }
+
+    private static boolean isVariantSkipPatternType(TPatternType patternType) {
+        return patternType == TPatternType.SKIP_NAME || patternType == TPatternType.SKIP_NAME_GLOB;
+    }
+
+    public List<Column> getVariantSkipPatternChildrenOrEmpty() {
+        if (!(type instanceof VariantType) || CollectionUtils.isEmpty(children)) {
+            return Lists.newArrayList();
+        }
+        List<Column> skipPatternChildren = Lists.newArrayList();
+        for (Column child : children) {
+            if (isVariantSkipPatternType(child.fieldPatternType)) {
+                skipPatternChildren.add(child);
             }
+        }
+        return skipPatternChildren;
+    }
+
+    private void appendVariantSkipPatternChildren(Column column, TColumn tColumn) {
+        List<Column> skipPatternChildren = column.getVariantSkipPatternChildrenOrEmpty();
+        if (skipPatternChildren.isEmpty()) {
+            return;
+        }
+        ensureChildrenColumnInitialized(tColumn);
+        for (Column skipPatternChild : skipPatternChildren) {
+            setChildrenTColumn(skipPatternChild, tColumn);
+        }
+    }
+
+    private void appendVariantSkipPatternChildren(OlapFile.ColumnPB.Builder builder) throws DdlException {
+        List<Column> skipPatternChildren = getVariantSkipPatternChildrenOrEmpty();
+        if (skipPatternChildren.isEmpty()) {
+            return;
+        }
+        for (Column skipPatternChild : skipPatternChildren) {
+            builder.addChildrenColumns(skipPatternChild.toPb(Sets.newHashSet(), Lists.newArrayList()));
+        }
+    }
+
+    private static void ensureChildrenColumnInitialized(TColumn tColumn) {
+        if (tColumn.children_column == null) {
+            tColumn.setChildrenColumn(new ArrayList<>());
         }
     }
 
@@ -734,8 +818,10 @@ public class Column implements GsonPostProcessable {
                 setChildrenTColumn(children, tColumn);
             }
         } else if (column.type.isVariantType()) {
-            // variant may contain predefined structured fields
-            addChildren(column, tColumn);
+            // Variant children are persisted as two peer groups:
+            // predefined fields: 1) typed paths, 2) skip patterns.
+            appendVariantTypedPathChildren(column, tColumn);
+            appendVariantSkipPatternChildren(column, tColumn);
         }
     }
 
@@ -819,11 +905,7 @@ public class Column implements GsonPostProcessable {
         builder.setType(this.getDataType().toThrift().name());
         builder.setIsKey(this.isKey);
         if (fieldPatternType != null) {
-            if (fieldPatternType == TPatternType.MATCH_NAME) {
-                builder.setPatternType(PatternTypePB.MATCH_NAME);
-            } else {
-                builder.setPatternType(PatternTypePB.MATCH_NAME_GLOB);
-            }
+            builder.setPatternType(toPatternTypeForColumnPb(fieldPatternType));
         }
         if (null != this.aggregationType) {
             if (type.isAggStateType()) {
@@ -886,8 +968,9 @@ public class Column implements GsonPostProcessable {
             builder.setVariantEnableDocMode(this.getVariantEnableDocMode());
             builder.setVariantDocMaterializationMinRows(this.getvariantDocMaterializationMinRows());
             builder.setVariantDocHashShardCount(this.getVariantDocShardCount());
-            // variant may contain predefined structured fields
-            addChildren(builder);
+            // Keep typed paths and skip patterns as sibling children entries.
+            appendVariantTypedPathChildren(builder);
+            appendVariantSkipPatternChildren(builder);
         }
 
         OlapFile.ColumnPB col = builder.build();
@@ -977,8 +1060,13 @@ public class Column implements GsonPostProcessable {
             if (this.getVariantDocShardCount() != other.getVariantDocShardCount()) {
                 throw new DdlException("Can not change variant doc snapshot shard count");
             }
-            if (CollectionUtils.isNotEmpty(this.getChildren()) || CollectionUtils.isNotEmpty(other.getChildren())) {
+            if (CollectionUtils.isNotEmpty(this.getVariantTypedPathChildrenOrEmpty())
+                    || CollectionUtils.isNotEmpty(other.getVariantTypedPathChildrenOrEmpty())) {
                 throw new DdlException("Can not change variant schema templates");
+            }
+            if (CollectionUtils.isNotEmpty(this.getVariantSkipPatternChildrenOrEmpty())
+                    || CollectionUtils.isNotEmpty(other.getVariantSkipPatternChildrenOrEmpty())) {
+                throw new DdlException("Can not change variant skip patterns");
             }
         }
     }

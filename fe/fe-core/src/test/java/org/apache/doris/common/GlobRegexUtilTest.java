@@ -105,9 +105,9 @@ public class GlobRegexUtilTest {
     }
 
     @Test
-    public void testGetOrCompilePatternCache() {
-        Pattern first = GlobRegexUtil.getOrCompilePattern("num_*");
-        Pattern second = GlobRegexUtil.getOrCompilePattern("num_*");
-        Assertions.assertSame(first, second);
+    public void testCompilePattern() {
+        Pattern pattern = GlobRegexUtil.compilePattern("num_*");
+        Assertions.assertTrue(pattern.matcher("num_123").matches());
+        Assertions.assertFalse(pattern.matcher("str_123").matches());
     }
 }

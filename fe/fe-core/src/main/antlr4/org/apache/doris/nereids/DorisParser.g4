@@ -1880,6 +1880,7 @@ variantSubColTypeList
     ;
 variantSubColType
     : variantSubColMatchType? STRING_LITERAL COLON dataType commentSpec?
+    | SKIP_ variantSubColMatchType? STRING_LITERAL
     ;
 variantSubColMatchType
     : (MATCH_NAME | MATCH_NAME_GLOB)
@@ -2265,6 +2266,7 @@ nonReserved
     | SESSION_USER
     | SHAPE
     | SKEW
+    | SKIP_
     | SNAPSHOT
     | SNAPSHOTS
     | SONAME

@@ -1749,7 +1749,7 @@ std::vector<const TabletIndex*> TabletSchema::inverted_indexs(const TabletColumn
         !result.empty()) {
         return result;
     }
-    // variant's typed column has it's own index
+    // variant's typed path has it's own index
     else if (col.is_extracted_column() && col.path_info_ptr()->get_is_typed()) {
         std::string relative_path = col.path_info_ptr()->copy_pop_front().get_path();
         if (_path_set_info_map.find(col_unique_id) == _path_set_info_map.end()) {

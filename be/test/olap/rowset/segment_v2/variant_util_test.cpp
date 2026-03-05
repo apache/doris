@@ -17,15 +17,21 @@
 
 #include "testutil/variant_util.h"
 
+#include <chrono>
+#include <cstdint>
+#include <cstdlib>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "gen_cpp/olap_file.pb.h"
+#include "glog/logging.h"
 #include "gtest/gtest.h"
 #include "olap/tablet_schema.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_variant.h"
+#include "vec/common/variant_glob_regex_util.h"
 #include "vec/common/variant_util.h"
 #include "vec/core/block.h"
 #include "vec/core/field.h"
@@ -40,6 +46,173 @@ static vectorized::ColumnString::MutablePtr _make_json_column(
         col->insert_data(s.data(), s.size());
     }
     return col;
+}
+
+static uint64_t _splitmix64(uint64_t x) {
+    x += 0x9e3779b97f4a7c15ULL;
+    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+    return x ^ (x >> 31);
+}
+
+static constexpr size_t kPerfNestedDim = 10;
+static constexpr size_t kPerfNestedLeafCount =
+        kPerfNestedDim * kPerfNestedDim * kPerfNestedDim * kPerfNestedDim;
+
+static std::string _path_of_leaf_id(size_t leaf_id) {
+    const size_t g = leaf_id / (kPerfNestedDim * kPerfNestedDim * kPerfNestedDim);
+    const size_t s = (leaf_id / (kPerfNestedDim * kPerfNestedDim)) % kPerfNestedDim;
+    const size_t t = (leaf_id / kPerfNestedDim) % kPerfNestedDim;
+    const size_t k = leaf_id % kPerfNestedDim;
+    std::string path;
+    path.reserve(16);
+    path += "g";
+    path.push_back(static_cast<char>('0' + g));
+    path += ".s";
+    path.push_back(static_cast<char>('0' + s));
+    path += ".t";
+    path.push_back(static_cast<char>('0' + t));
+    path += ".k";
+    path.push_back(static_cast<char>('0' + k));
+    return path;
+}
+
+static std::string _build_nested_json_row(size_t row_idx, uint64_t seed) {
+    std::string root;
+    root.reserve(220000);
+    root.push_back('{');
+    bool first_g = true;
+    for (size_t g = 0; g < kPerfNestedDim; ++g) {
+        std::string g_obj;
+        g_obj.push_back('{');
+        bool first_s = true;
+        for (size_t s = 0; s < kPerfNestedDim; ++s) {
+            std::string s_obj;
+            s_obj.push_back('{');
+            bool first_t = true;
+            for (size_t t = 0; t < kPerfNestedDim; ++t) {
+                std::string t_obj;
+                t_obj.push_back('{');
+                bool first_k = true;
+                for (size_t k = 0; k < kPerfNestedDim; ++k) {
+                    const size_t leaf_id =
+                            ((g * kPerfNestedDim + s) * kPerfNestedDim + t) * kPerfNestedDim + k;
+                    // Keep many nested columns per row to stress skip-pattern matching.
+                    if (!first_k) {
+                        t_obj.push_back(',');
+                    }
+                    first_k = false;
+                    const uint64_t value =
+                            _splitmix64(seed ^ (static_cast<uint64_t>(row_idx) << 32) ^ leaf_id) %
+                            1000003ULL;
+                    t_obj += "\"k";
+                    t_obj.push_back(static_cast<char>('0' + k));
+                    t_obj += "\":";
+                    t_obj += std::to_string(value);
+                }
+                if (!first_k) {
+                    t_obj.push_back('}');
+                    if (!first_t) {
+                        s_obj.push_back(',');
+                    }
+                    first_t = false;
+                    s_obj += "\"t";
+                    s_obj.push_back(static_cast<char>('0' + t));
+                    s_obj += "\":";
+                    s_obj += t_obj;
+                }
+            }
+            if (!first_t) {
+                s_obj.push_back('}');
+                if (!first_s) {
+                    g_obj.push_back(',');
+                }
+                first_s = false;
+                g_obj += "\"s";
+                g_obj.push_back(static_cast<char>('0' + s));
+                g_obj += "\":";
+                g_obj += s_obj;
+            }
+        }
+        if (!first_s) {
+            g_obj.push_back('}');
+            if (!first_g) {
+                root.push_back(',');
+            }
+            first_g = false;
+            root += "\"g";
+            root.push_back(static_cast<char>('0' + g));
+            root += "\":";
+            root += g_obj;
+        }
+    }
+    root += ",\"meta\":{\"row_id\":";
+    root += std::to_string(row_idx);
+    root += ",\"rand\":";
+    root += std::to_string(_splitmix64(seed + row_idx) % 9973ULL);
+    root += "}}";
+    return root;
+}
+
+static std::vector<std::string> _build_nested_json_rows(size_t rows, uint64_t seed) {
+    std::vector<std::string> result;
+    result.reserve(rows);
+    for (size_t i = 0; i < rows; ++i) {
+        result.emplace_back(_build_nested_json_row(i, seed));
+    }
+    return result;
+}
+
+static vectorized::ColumnString::MutablePtr _make_json_column(
+        const std::vector<std::string>& rows) {
+    auto col = vectorized::ColumnString::create();
+    for (const auto& row : rows) {
+        col->insert_data(row.data(), row.size());
+    }
+    return col;
+}
+
+static std::vector<std::pair<std::string, PatternTypePB>> _build_skip_patterns_for_perf() {
+    std::vector<std::pair<std::string, PatternTypePB>> patterns;
+    patterns.reserve(96);
+
+    // Exact match patterns.
+    for (size_t leaf_id = 0; leaf_id < kPerfNestedLeafCount; leaf_id += 211) {
+        patterns.emplace_back(_path_of_leaf_id(leaf_id), PatternTypePB::SKIP_NAME);
+    }
+
+    // Unmatched glob patterns to amplify old per-pattern matching cost.
+    for (int i = 0; i < 30; ++i) {
+        patterns.emplace_back("x" + std::to_string(i) + "*.s?.t?.k?",
+                              PatternTypePB::SKIP_NAME_GLOB);
+    }
+
+    // Matched glob patterns.
+    for (size_t g = 0; g < kPerfNestedDim; ++g) {
+        std::string pattern = "g";
+        pattern.push_back(static_cast<char>('0' + g));
+        pattern += ".s?.t?.k[02468]";
+        patterns.emplace_back(std::move(pattern), PatternTypePB::SKIP_NAME_GLOB);
+    }
+
+    return patterns;
+}
+
+struct PerfParseResult {
+    vectorized::ColumnVariant::MutablePtr column;
+    int64_t elapsed_ms = 0;
+};
+
+static PerfParseResult _run_parse_perf(const vectorized::ColumnString& json_column,
+                                       const vectorized::ParseConfig& config) {
+    auto variant = vectorized::ColumnVariant::create(0);
+    const auto start = std::chrono::steady_clock::now();
+    parse_json_to_variant(*variant, json_column, config);
+    const auto end = std::chrono::steady_clock::now();
+    PerfParseResult result;
+    result.column = std::move(variant);
+    result.elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    return result;
 }
 
 TEST(VariantUtilTest, ParseDocValueToSubcolumns_FillsDefaultsAndValues) {
@@ -233,8 +406,10 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeBinaryToSubcolumns) {
     vectorized::ParseConfig parse_cfg;
     parse_cfg.enable_flatten_nested = false;
     parse_cfg.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
-    Status st =
-            parse_and_materialize_variant_columns(block, std::vector<uint32_t> {0}, {parse_cfg});
+    std::vector<vectorized::ParseConfig> parse_cfgs(1);
+    parse_cfgs[0].enable_flatten_nested = parse_cfg.enable_flatten_nested;
+    parse_cfgs[0].parse_to = parse_cfg.parse_to;
+    Status st = parse_and_materialize_variant_columns(block, std::vector<uint32_t> {0}, parse_cfgs);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     const auto& out =
@@ -287,8 +462,10 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeRejectOnlySubcolumnsConfig) {
     vectorized::ParseConfig parse_cfg;
     parse_cfg.enable_flatten_nested = false;
     parse_cfg.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
-    Status st =
-            parse_and_materialize_variant_columns(block, std::vector<uint32_t> {0}, {parse_cfg});
+    std::vector<vectorized::ParseConfig> parse_cfgs(1);
+    parse_cfgs[0].enable_flatten_nested = parse_cfg.enable_flatten_nested;
+    parse_cfgs[0].parse_to = parse_cfg.parse_to;
+    Status st = parse_and_materialize_variant_columns(block, std::vector<uint32_t> {0}, parse_cfgs);
     EXPECT_TRUE(st.ok()) << st.to_string();
 }
 
@@ -422,6 +599,220 @@ TEST(VariantUtilTest, GlobMatchRe2) {
 
     EXPECT_FALSE(glob_match_re2("int_[0-9", "int_1"));
     EXPECT_FALSE(glob_match_re2("a[\\]b", "a]b"));
+}
+
+TEST(VariantUtilTest, PatternTypeHelpers) {
+    EXPECT_TRUE(is_typed_path_pattern_type(PatternTypePB::MATCH_NAME));
+    EXPECT_TRUE(is_typed_path_pattern_type(PatternTypePB::MATCH_NAME_GLOB));
+    EXPECT_FALSE(is_typed_path_pattern_type(PatternTypePB::SKIP_NAME));
+    EXPECT_FALSE(is_typed_path_pattern_type(PatternTypePB::SKIP_NAME_GLOB));
+
+    EXPECT_TRUE(is_skip_exact_path_pattern_type(PatternTypePB::SKIP_NAME));
+    EXPECT_FALSE(is_skip_exact_path_pattern_type(PatternTypePB::SKIP_NAME_GLOB));
+    EXPECT_TRUE(is_skip_glob_path_pattern_type(PatternTypePB::SKIP_NAME_GLOB));
+    EXPECT_FALSE(is_skip_glob_path_pattern_type(PatternTypePB::MATCH_NAME_GLOB));
+}
+
+TEST(VariantUtilTest, BuildCompiledSkipPatternsRejectsNullConfig) {
+    std::vector<std::pair<std::string, PatternTypePB>> skip_patterns = {
+            {"secret", PatternTypePB::SKIP_NAME},
+    };
+    Status st = build_compiled_skip_patterns(skip_patterns, true, nullptr);
+    EXPECT_FALSE(st.ok());
+}
+
+TEST(VariantUtilTest, BuildCompiledSkipPatternsMixedPatterns) {
+    std::vector<std::pair<std::string, PatternTypePB>> skip_patterns = {
+            {"secret", PatternTypePB::SKIP_NAME},
+            {"debug_*", PatternTypePB::SKIP_NAME_GLOB},
+            {"[invalid", PatternTypePB::SKIP_NAME_GLOB},
+            {"typed_*", PatternTypePB::MATCH_NAME_GLOB},
+    };
+
+    vectorized::ParseConfig config;
+    config.skip_patterns = &skip_patterns;
+    Status st = build_compiled_skip_patterns(skip_patterns, false, &config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+
+    EXPECT_TRUE(should_skip_path(config, "secret"));
+    EXPECT_TRUE(should_skip_path(config, "debug_field"));
+    EXPECT_FALSE(should_skip_path(config, "typed_field"));
+    EXPECT_FALSE(should_skip_path(config, "other"));
+}
+
+TEST(VariantUtilTest, BuildCompiledSkipPatternsWithRe2Set) {
+    std::vector<std::pair<std::string, PatternTypePB>> skip_patterns;
+    for (int i = 0; i < 40; ++i) {
+        skip_patterns.emplace_back("k" + std::to_string(i) + "_*", PatternTypePB::SKIP_NAME_GLOB);
+    }
+
+    vectorized::ParseConfig config;
+    config.skip_patterns = &skip_patterns;
+    Status st = build_compiled_skip_patterns(skip_patterns, true, &config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+
+    EXPECT_TRUE(should_skip_path(config, "k1_abc"));
+    EXPECT_TRUE(should_skip_path(config, "k39_abc"));
+    EXPECT_FALSE(should_skip_path(config, "unknown_abc"));
+}
+
+TEST(VariantUtilTest, ParseVariantColumnsApplySkipPatternsFromSchemaChildren) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    auto* c = schema_pb.add_column();
+    c->set_unique_id(1);
+    c->set_name("v");
+    c->set_type("VARIANT");
+    c->set_is_key(false);
+    c->set_is_nullable(false);
+    c->set_variant_enable_doc_mode(false);
+
+    // Typed path: should not be skipped.
+    auto* typed = c->add_children_columns();
+    typed->set_unique_id(2);
+    typed->set_name("num_*");
+    typed->set_type("BIGINT");
+    typed->set_is_key(false);
+    typed->set_is_nullable(true);
+    typed->set_pattern_type(PatternTypePB::MATCH_NAME_GLOB);
+
+    // Skip exact.
+    auto* skip_exact = c->add_children_columns();
+    skip_exact->set_unique_id(3);
+    skip_exact->set_name("secret");
+    skip_exact->set_type("STRING");
+    skip_exact->set_is_key(false);
+    skip_exact->set_is_nullable(true);
+    skip_exact->set_pattern_type(PatternTypePB::SKIP_NAME);
+
+    // Skip glob.
+    auto* skip_glob = c->add_children_columns();
+    skip_glob->set_unique_id(4);
+    skip_glob->set_name("debug_*");
+    skip_glob->set_type("STRING");
+    skip_glob->set_is_key(false);
+    skip_glob->set_is_nullable(true);
+    skip_glob->set_pattern_type(PatternTypePB::SKIP_NAME_GLOB);
+
+    TabletSchema tablet_schema;
+    tablet_schema.init_from_pb(schema_pb);
+
+    auto variant = vectorized::ColumnVariant::create(0);
+    doris::VariantUtil::insert_root_scalar_field(
+            *variant, vectorized::Field::create_field<TYPE_STRING>(
+                              String(R"({"secret":1,"debug_a":2,"keep":3,"num_a":4})")));
+    doris::VariantUtil::insert_root_scalar_field(
+            *variant, vectorized::Field::create_field<TYPE_STRING>(
+                              String(R"({"secret":5,"debug_b":6,"keep":7,"num_b":8})")));
+
+    vectorized::Block block;
+    block.insert({variant->get_ptr(), std::make_shared<vectorized::DataTypeVariant>(0), "v"});
+
+    Status st =
+            parse_and_materialize_variant_columns(block, tablet_schema, std::vector<uint32_t> {0});
+    EXPECT_TRUE(st.ok()) << st.to_string();
+
+    const auto& col0 = *block.get_by_position(0).column;
+    const auto& out = assert_cast<const vectorized::ColumnVariant&>(col0);
+
+    EXPECT_EQ(nullptr, out.get_subcolumn(vectorized::PathInData("secret")));
+    EXPECT_EQ(nullptr, out.get_subcolumn(vectorized::PathInData("debug_a")));
+    EXPECT_EQ(nullptr, out.get_subcolumn(vectorized::PathInData("debug_b")));
+
+    const auto* sub_keep = out.get_subcolumn(vectorized::PathInData("keep"));
+    const auto* sub_num_a = out.get_subcolumn(vectorized::PathInData("num_a"));
+    const auto* sub_num_b = out.get_subcolumn(vectorized::PathInData("num_b"));
+    ASSERT_TRUE(sub_keep != nullptr);
+    ASSERT_TRUE(sub_num_a != nullptr);
+    ASSERT_TRUE(sub_num_b != nullptr);
+}
+
+TEST(VariantUtilTest, SkipPatternPerfCompareOptimizationMatrix) {
+    if (std::getenv("DORIS_RUN_VARIANT_SKIP_PERF_UT") == nullptr) {
+        GTEST_SKIP() << "Set DORIS_RUN_VARIANT_SKIP_PERF_UT=1 to run this heavy perf test.";
+    }
+
+    constexpr size_t kRows = 1000;
+    constexpr uint64_t kSeed = 0x20260211ULL;
+    const auto json_rows = _build_nested_json_rows(kRows, kSeed);
+    const auto json_column = _make_json_column(json_rows);
+    const auto skip_patterns = _build_skip_patterns_for_perf();
+
+    vectorized::ParseConfig no_skip_config;
+    no_skip_config.enable_flatten_nested = false;
+    no_skip_config.parse_to = vectorized::ParseConfig::ParseTo::OnlySubcolumns;
+
+    vectorized::ParseConfig legacy_config;
+    legacy_config.enable_flatten_nested = false;
+    legacy_config.parse_to = vectorized::ParseConfig::ParseTo::OnlySubcolumns;
+    legacy_config.skip_patterns = &skip_patterns;
+    Status st = build_compiled_skip_patterns(skip_patterns, false, &legacy_config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+
+    // 3) current optimization - RE2::Set disabled.
+    vectorized::ParseConfig optimized_no_re2set_config;
+    optimized_no_re2set_config.enable_flatten_nested = false;
+    optimized_no_re2set_config.parse_to = vectorized::ParseConfig::ParseTo::OnlySubcolumns;
+    optimized_no_re2set_config.skip_patterns = &skip_patterns;
+    st = build_compiled_skip_patterns(skip_patterns, false, &optimized_no_re2set_config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+
+    // 4) current optimization.
+    vectorized::ParseConfig optimized_config;
+    optimized_config.enable_flatten_nested = false;
+    optimized_config.parse_to = vectorized::ParseConfig::ParseTo::OnlySubcolumns;
+    optimized_config.skip_patterns = &skip_patterns;
+    st = build_compiled_skip_patterns(skip_patterns, true, &optimized_config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+
+    auto no_skip_result = _run_parse_perf(*json_column, no_skip_config);
+    auto legacy_result = _run_parse_perf(*json_column, legacy_config);
+    auto optimized_no_re2set_result = _run_parse_perf(*json_column, optimized_no_re2set_config);
+    auto optimized_result = _run_parse_perf(*json_column, optimized_config);
+
+    ASSERT_EQ(no_skip_result.column->size(), kRows);
+    ASSERT_EQ(legacy_result.column->size(), kRows);
+    ASSERT_EQ(optimized_no_re2set_result.column->size(), kRows);
+    ASSERT_EQ(optimized_result.column->size(), kRows);
+
+    vectorized::DataTypeSerDe::FormatOptions options;
+    bool found_no_skip_difference = false;
+    for (size_t row = 0; row < kRows; row += 97) {
+        std::string no_skip_row;
+        std::string legacy_row;
+        std::string optimized_no_re2set_row;
+        std::string optimized_row;
+        no_skip_result.column->serialize_one_row_to_string(row, &no_skip_row, options);
+        legacy_result.column->serialize_one_row_to_string(row, &legacy_row, options);
+        optimized_no_re2set_result.column->serialize_one_row_to_string(
+                row, &optimized_no_re2set_row, options);
+        optimized_result.column->serialize_one_row_to_string(row, &optimized_row, options);
+        if (!found_no_skip_difference && no_skip_row != legacy_row) {
+            found_no_skip_difference = true;
+        }
+        ASSERT_EQ(legacy_row, optimized_no_re2set_row) << "row=" << row;
+        ASSERT_EQ(legacy_row, optimized_row) << "row=" << row;
+    }
+    ASSERT_TRUE(found_no_skip_difference)
+            << "no-skip output should differ from skip-enabled output on sampled rows";
+
+    const auto safe_speedup = [](int64_t faster, int64_t slower) -> double {
+        return slower > 0 ? static_cast<double>(faster) / static_cast<double>(slower) : 0.0;
+    };
+
+    LOG(INFO) << "skip-pattern perf matrix (" << kRows << " rows, " << kPerfNestedLeafCount
+              << " nested columns, same random data): "
+              << "no_skip_ms=" << no_skip_result.elapsed_ms << ", "
+              << "legacy_ms=" << legacy_result.elapsed_ms << ", "
+              << "opt_no_re2set_ms=" << optimized_no_re2set_result.elapsed_ms
+              << ", optimized_ms=" << optimized_result.elapsed_ms
+              << ", speedup_opt_no_re2set_vs_legacy="
+              << safe_speedup(legacy_result.elapsed_ms, optimized_no_re2set_result.elapsed_ms)
+              << ", speedup_optimized_vs_opt_no_re2set="
+              << safe_speedup(optimized_no_re2set_result.elapsed_ms, optimized_result.elapsed_ms)
+              << ", speedup_optimized_vs_legacy="
+              << safe_speedup(legacy_result.elapsed_ms, optimized_result.elapsed_ms)
+              << ", skip_patterns=" << skip_patterns.size();
 }
 
 } // namespace doris::vectorized::variant_util

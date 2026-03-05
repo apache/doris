@@ -19,14 +19,26 @@
 
 #include <gtest/gtest.h>
 
+#include <set>
+#include <string>
 #include <vector>
 
 #include "common/config.h"
 #include "vec/common/string_ref.h"
+#include "vec/common/variant_util.h"
 
 using doris::vectorized::JSONDataParser;
 using doris::vectorized::SimdJSONParser;
 using doris::vectorized::ParseConfig;
+using doris::PatternTypePB;
+
+static std::set<std::string> collect_paths(const doris::vectorized::ParseResult& result) {
+    std::set<std::string> paths;
+    for (const auto& path : result.paths) {
+        paths.insert(path.get_path());
+    }
+    return paths;
+}
 
 TEST(JsonParserTest, ParseSimpleTypes) {
     JSONDataParser<SimdJSONParser> parser;
@@ -481,4 +493,88 @@ TEST(JsonParserTest, KeyLengthLimitByConfig) {
         ASSERT_EQ(result->values.size(), 1);
         EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_JSONB);
     }
+}
+
+TEST(JsonParserTest, ParseWithSkipPatternsLegacyAndCompiledConfig) {
+    JSONDataParser<SimdJSONParser> parser;
+
+    std::vector<std::pair<std::string, PatternTypePB>> skip_patterns = {
+            {"secret", PatternTypePB::SKIP_NAME},
+            {"debug_*", PatternTypePB::SKIP_NAME_GLOB},
+    };
+
+    std::string json = R"({"secret":1,"debug_x":2,"keep":3})";
+    ParseConfig legacy_config;
+    legacy_config.skip_patterns = &skip_patterns;
+    auto st = doris::vectorized::variant_util::build_compiled_skip_patterns(skip_patterns, false,
+                                                                            &legacy_config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    auto legacy_result = parser.parse(json.c_str(), json.size(), legacy_config);
+    ASSERT_TRUE(legacy_result.has_value());
+    std::set<std::string> legacy_paths = collect_paths(legacy_result.value());
+    EXPECT_EQ(legacy_paths.find("secret"), legacy_paths.end());
+    EXPECT_EQ(legacy_paths.find("debug_x"), legacy_paths.end());
+    EXPECT_NE(legacy_paths.find("keep"), legacy_paths.end());
+
+    ParseConfig compiled_config;
+    compiled_config.skip_patterns = &skip_patterns;
+    st = doris::vectorized::variant_util::build_compiled_skip_patterns(skip_patterns, true,
+                                                                       &compiled_config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    auto compiled_result = parser.parse(json.c_str(), json.size(), compiled_config);
+    ASSERT_TRUE(compiled_result.has_value());
+    std::set<std::string> compiled_paths = collect_paths(compiled_result.value());
+    EXPECT_EQ(legacy_paths, compiled_paths);
+}
+
+TEST(JsonParserTest, ParseWithInvalidSkipGlobDoesNotDropPaths) {
+    JSONDataParser<SimdJSONParser> parser;
+    std::vector<std::pair<std::string, PatternTypePB>> skip_patterns = {
+            {"[invalid", PatternTypePB::SKIP_NAME_GLOB},
+    };
+    std::string json = R"({"invalid":1,"keep":2})";
+
+    ParseConfig config;
+    config.skip_patterns = &skip_patterns;
+    auto st = doris::vectorized::variant_util::build_compiled_skip_patterns(skip_patterns, false,
+                                                                            &config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    auto result = parser.parse(json.c_str(), json.size(), config);
+    ASSERT_TRUE(result.has_value());
+    std::set<std::string> paths = collect_paths(result.value());
+    EXPECT_NE(paths.find("invalid"), paths.end());
+    EXPECT_NE(paths.find("keep"), paths.end());
+
+    ParseConfig compiled_config;
+    compiled_config.skip_patterns = &skip_patterns;
+    st = doris::vectorized::variant_util::build_compiled_skip_patterns(skip_patterns, true,
+                                                                       &compiled_config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    auto compiled_result = parser.parse(json.c_str(), json.size(), compiled_config);
+    ASSERT_TRUE(compiled_result.has_value());
+    std::set<std::string> compiled_paths = collect_paths(compiled_result.value());
+    EXPECT_NE(compiled_paths.find("invalid"), compiled_paths.end());
+    EXPECT_NE(compiled_paths.find("keep"), compiled_paths.end());
+}
+
+TEST(JsonParserTest, SkipPatternsDoNotApplyInsideArrayElements) {
+    JSONDataParser<SimdJSONParser> parser;
+    std::vector<std::pair<std::string, PatternTypePB>> skip_patterns = {
+            {"secret", PatternTypePB::SKIP_NAME},
+    };
+    std::string json = R"([{"secret":1,"keep":2},{"secret":3,"keep":4}])";
+
+    ParseConfig config;
+    config.enable_flatten_nested = true;
+    config.skip_patterns = &skip_patterns;
+    auto st = doris::vectorized::variant_util::build_compiled_skip_patterns(skip_patterns, true,
+                                                                            &config);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    auto result = parser.parse(json.c_str(), json.size(), config);
+    ASSERT_TRUE(result.has_value());
+
+    std::set<std::string> paths = collect_paths(result.value());
+    // Skip is disabled in traverseArrayElement; element object paths should remain.
+    EXPECT_NE(paths.find("secret"), paths.end());
+    EXPECT_NE(paths.find("keep"), paths.end());
 }

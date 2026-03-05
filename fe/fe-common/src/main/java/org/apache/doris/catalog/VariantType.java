@@ -38,7 +38,7 @@ public class VariantType extends ScalarType {
     private final HashMap<String, VariantField> fieldMap = Maps.newHashMap();
 
     @SerializedName(value = "fields")
-    private final ArrayList<VariantField> predefinedFields;
+    private final ArrayList<VariantField> variantPredefinedFields;
 
     @SerializedName(value = "variantMaxSubcolumnsCount")
     private final int variantMaxSubcolumnsCount;
@@ -65,7 +65,7 @@ public class VariantType extends ScalarType {
 
     public VariantType() {
         super(PrimitiveType.VARIANT);
-        this.predefinedFields = Lists.newArrayList();
+        this.variantPredefinedFields = Lists.newArrayList();
         this.variantMaxSubcolumnsCount = 0;
         this.enableTypedPathsToSparse = false;
         this.variantMaxSparseColumnStatisticsSize = 10000;
@@ -78,10 +78,8 @@ public class VariantType extends ScalarType {
     public VariantType(ArrayList<VariantField> fields) {
         super(PrimitiveType.VARIANT);
         Preconditions.checkNotNull(fields);
-        this.predefinedFields = fields;
-        for (VariantField predefinedField : this.predefinedFields) {
-            fieldMap.put(predefinedField.getPattern(), predefinedField);
-        }
+        this.variantPredefinedFields = fields;
+        addTypedPredefinedFieldsToFieldMap();
         this.variantMaxSubcolumnsCount = 0;
         this.enableTypedPathsToSparse = false;
         this.variantMaxSparseColumnStatisticsSize = 10000;
@@ -93,7 +91,7 @@ public class VariantType extends ScalarType {
 
     public VariantType(Map<String, String> properties) {
         super(PrimitiveType.VARIANT);
-        this.predefinedFields = Lists.newArrayList();
+        this.variantPredefinedFields = Lists.newArrayList();
         this.properties = properties;
         this.variantMaxSubcolumnsCount = 0;
         this.enableTypedPathsToSparse = false;
@@ -107,10 +105,8 @@ public class VariantType extends ScalarType {
     public VariantType(ArrayList<VariantField> fields, Map<String, String> properties) {
         super(PrimitiveType.VARIANT);
         Preconditions.checkNotNull(fields);
-        this.predefinedFields = fields;
-        for (VariantField predefinedField : this.predefinedFields) {
-            fieldMap.put(predefinedField.getPattern(), predefinedField);
-        }
+        this.variantPredefinedFields = fields;
+        addTypedPredefinedFieldsToFieldMap();
         this.properties = properties;
         this.variantMaxSubcolumnsCount = 0;
         this.enableTypedPathsToSparse = false;
@@ -121,7 +117,8 @@ public class VariantType extends ScalarType {
         this.variantDocShardCount = 64;
     }
 
-    public VariantType(ArrayList<VariantField> fields, int variantMaxSubcolumnsCount,
+    public VariantType(ArrayList<VariantField> variantPredefinedFields,
+                                                        int variantMaxSubcolumnsCount,
                                                         boolean enableTypedPathsToSparse,
                                                         int variantMaxSparseColumnStatisticsSize,
                                                         int variantSparseHashShardCount,
@@ -129,11 +126,9 @@ public class VariantType extends ScalarType {
                                                         long variantDocMaterializationMinRows,
                                                         int variantDocShardCount) {
         super(PrimitiveType.VARIANT);
-        Preconditions.checkNotNull(fields);
-        this.predefinedFields = fields;
-        for (VariantField predefinedField : this.predefinedFields) {
-            fieldMap.put(predefinedField.getPattern(), predefinedField);
-        }
+        Preconditions.checkNotNull(variantPredefinedFields);
+        this.variantPredefinedFields = variantPredefinedFields;
+        addTypedPredefinedFieldsToFieldMap();
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.enableTypedPathsToSparse = enableTypedPathsToSparse;
         this.variantMaxSparseColumnStatisticsSize = variantMaxSparseColumnStatisticsSize;
@@ -143,13 +138,21 @@ public class VariantType extends ScalarType {
         this.variantDocShardCount = variantDocShardCount;
     }
 
+    private void addTypedPredefinedFieldsToFieldMap() {
+        for (VariantField predefinedFields : variantPredefinedFields) {
+            if (predefinedFields.isTypedPathPatternType()) {
+                fieldMap.put(predefinedFields.getPattern(), predefinedFields);
+            }
+        }
+    }
+
     @Override
     public String toSql(int depth) {
         StringBuilder sb = new StringBuilder();
         sb.append("variant");
         sb.append("<");
-        if (!predefinedFields.isEmpty()) {
-            sb.append(predefinedFields.stream()
+        if (!variantPredefinedFields.isEmpty()) {
+            sb.append(variantPredefinedFields.stream()
                                 .map(variantField -> variantField.toSql(depth)).collect(Collectors.joining(",")));
             sb.append(",");
         }
@@ -181,8 +184,18 @@ public class VariantType extends ScalarType {
         return sb.toString();
     }
 
-    public ArrayList<VariantField> getPredefinedFields() {
-        return predefinedFields;
+    public ArrayList<VariantField> getVariantPredefinedFields() {
+        return variantPredefinedFields;
+    }
+
+    public ArrayList<VariantField> getVariantTypedPredefinedFields() {
+        ArrayList<VariantField> typedPredefinedFields = Lists.newArrayList();
+        for (VariantField variantPredefinedField : variantPredefinedFields) {
+            if (variantPredefinedField.isTypedPathPatternType()) {
+                typedPredefinedFields.add(variantPredefinedField);
+            }
+        }
+        return typedPredefinedFields;
     }
 
     @Override
@@ -214,7 +227,7 @@ public class VariantType extends ScalarType {
             return false;
         }
         VariantType otherVariantType = (VariantType) other;
-        return Objects.equals(otherVariantType.getPredefinedFields(), predefinedFields)
+        return Objects.equals(otherVariantType.getVariantPredefinedFields(), variantPredefinedFields)
                 && variantMaxSubcolumnsCount == otherVariantType.variantMaxSubcolumnsCount
                 && enableTypedPathsToSparse == otherVariantType.enableTypedPathsToSparse
                 && enableVariantDocMode == otherVariantType.enableVariantDocMode

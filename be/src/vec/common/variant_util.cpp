@@ -37,7 +37,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <list>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -64,6 +64,7 @@
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
 #include "re2/re2.h"
+#include "re2/set.h"
 #include "runtime/client_cache.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/exec_env.h"
@@ -80,6 +81,7 @@
 #include "vec/common/field_visitors.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/common/variant_glob_regex_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -103,161 +105,124 @@
 namespace doris::vectorized::variant_util {
 #include "common/compile_check_begin.h"
 
-inline void append_escaped_regex_char(std::string* regex_output, char ch) {
-    switch (ch) {
-    case '.':
-    case '^':
-    case '$':
-    case '+':
-    case '*':
-    case '?':
-    case '(':
-    case ')':
-    case '|':
-    case '{':
-    case '}':
-    case '[':
-    case ']':
-    case '\\':
-        regex_output->push_back('\\');
-        regex_output->push_back(ch);
-        break;
-    default:
-        regex_output->push_back(ch);
-        break;
-    }
-}
+// Enable RE2::Set when glob pattern count is large enough to amortize setup cost.
+constexpr size_t kSkipRe2SetThreshold = 32;
 
-// Small LRU to cap compiled glob patterns
-constexpr size_t kGlobRegexCacheCapacity = 256;
-
-struct GlobRegexCacheEntry {
-    std::shared_ptr<RE2> re2;
-    std::list<std::string>::iterator lru_it;
-};
-
-static std::mutex g_glob_regex_cache_mutex;
-static std::list<std::string> g_glob_regex_cache_lru;
-static std::unordered_map<std::string, GlobRegexCacheEntry> g_glob_regex_cache;
-
-std::shared_ptr<RE2> get_or_build_re2(const std::string& glob_pattern) {
-    {
-        std::lock_guard<std::mutex> lock(g_glob_regex_cache_mutex);
-        auto it = g_glob_regex_cache.find(glob_pattern);
-        if (it != g_glob_regex_cache.end()) {
-            g_glob_regex_cache_lru.splice(g_glob_regex_cache_lru.begin(), g_glob_regex_cache_lru,
-                                          it->second.lru_it);
-            return it->second.re2;
-        }
+Status build_compiled_skip_patterns(
+        const std::vector<std::pair<std::string, PatternTypePB>>& skip_patterns,
+        bool enable_re2_set, ParseConfig* parse_config) {
+    if (parse_config == nullptr) {
+        return Status::InvalidArgument("ParseConfig for compiled skip patterns is null");
     }
-    std::string regex_pattern;
-    Status st = glob_to_regex(glob_pattern, &regex_pattern);
-    if (!st.ok()) {
-        return nullptr;
-    }
-    auto compiled = std::make_shared<RE2>(regex_pattern);
-    if (!compiled->ok()) {
-        return nullptr;
-    }
-    {
-        std::lock_guard<std::mutex> lock(g_glob_regex_cache_mutex);
-        auto it = g_glob_regex_cache.find(glob_pattern);
-        if (it != g_glob_regex_cache.end()) {
-            g_glob_regex_cache_lru.splice(g_glob_regex_cache_lru.begin(), g_glob_regex_cache_lru,
-                                          it->second.lru_it);
-            return it->second.re2;
-        }
-        g_glob_regex_cache_lru.push_front(glob_pattern);
-        g_glob_regex_cache.emplace(glob_pattern,
-                                   GlobRegexCacheEntry {compiled, g_glob_regex_cache_lru.begin()});
-        if (g_glob_regex_cache.size() > kGlobRegexCacheCapacity) {
-            const std::string& evict_key = g_glob_regex_cache_lru.back();
-            g_glob_regex_cache.erase(evict_key);
-            g_glob_regex_cache_lru.pop_back();
-        }
-    }
-    return compiled;
-}
 
-// Convert a restricted glob pattern into a regex.
-// Supported: '*', '?', '[...]', '\\' escape. Others are treated as literals.
-Status glob_to_regex(const std::string& glob_pattern, std::string* regex_pattern) {
-    regex_pattern->clear();
-    regex_pattern->append("^");
-    bool is_escaped = false;
-    size_t pattern_length = glob_pattern.size();
-    for (size_t index = 0; index < pattern_length; ++index) {
-        char current_char = glob_pattern[index];
-        if (is_escaped) {
-            append_escaped_regex_char(regex_pattern, current_char);
-            is_escaped = false;
+    parse_config->skip_exact_patterns.clear();
+    parse_config->compiled_skip_glob_regexes.clear();
+    parse_config->compiled_skip_glob_regex_set.reset();
+    parse_config->compiled_skip_use_re2_set = false;
+    parse_config->skip_exact_patterns.reserve(skip_patterns.size());
+
+    std::vector<std::string> glob_regex_patterns;
+    glob_regex_patterns.reserve(skip_patterns.size());
+    for (const auto& [pattern, pt] : skip_patterns) {
+        if (is_skip_exact_path_pattern_type(pt)) {
+            parse_config->skip_exact_patterns.insert(pattern);
             continue;
         }
-        if (current_char == '\\') {
-            is_escaped = true;
+        if (!is_skip_glob_path_pattern_type(pt)) {
             continue;
         }
-        if (current_char == '*') {
-            regex_pattern->append(".*");
+
+        std::string regex_pattern;
+        auto st = glob_to_regex(pattern, &regex_pattern);
+        if (!st.ok()) {
             continue;
         }
-        if (current_char == '?') {
-            regex_pattern->append(".");
-            continue;
-        }
-        if (current_char == '[') {
-            size_t class_index = index + 1;
-            bool class_closed = false;
-            bool is_class_escaped = false;
-            std::string class_buffer;
-            if (class_index < pattern_length &&
-                (glob_pattern[class_index] == '!' || glob_pattern[class_index] == '^')) {
-                class_buffer.push_back('^');
-                ++class_index;
+        glob_regex_patterns.emplace_back(std::move(regex_pattern));
+    }
+
+    if (glob_regex_patterns.empty()) {
+        return Status::OK();
+    }
+
+    if (enable_re2_set && glob_regex_patterns.size() >= kSkipRe2SetThreshold) {
+        RE2::Options options;
+        auto set = std::make_unique<RE2::Set>(options, RE2::ANCHOR_BOTH);
+        for (const auto& regex_pattern : glob_regex_patterns) {
+            if (set->Add(regex_pattern, nullptr) < 0) {
+                return Status::InvalidArgument(
+                        "Failed to add regexp '{}' into skip pattern matcher set", regex_pattern);
             }
-            for (; class_index < pattern_length; ++class_index) {
-                char class_char = glob_pattern[class_index];
-                if (is_class_escaped) {
-                    class_buffer.push_back(class_char);
-                    is_class_escaped = false;
-                    continue;
-                }
-                if (class_char == '\\') {
-                    is_class_escaped = true;
-                    continue;
-                }
-                if (class_char == ']') {
-                    class_closed = true;
-                    break;
-                }
-                class_buffer.push_back(class_char);
-            }
-            if (!class_closed) {
-                return Status::InvalidArgument("Unclosed character class in glob pattern: {}",
-                                               glob_pattern);
-            }
-            regex_pattern->append("[");
-            regex_pattern->append(class_buffer);
-            regex_pattern->append("]");
-            index = class_index;
-            continue;
         }
-        append_escaped_regex_char(regex_pattern, current_char);
+        if (!set->Compile()) {
+            return Status::InvalidArgument("Failed to compile skip pattern matcher set");
+        }
+        parse_config->compiled_skip_glob_regex_set = std::move(set);
+        parse_config->compiled_skip_use_re2_set = true;
+    } else {
+        parse_config->compiled_skip_glob_regexes.reserve(glob_regex_patterns.size());
+        for (const auto& regex_pattern : glob_regex_patterns) {
+            auto compiled = std::make_unique<RE2>(regex_pattern);
+            if (!compiled->ok()) {
+                return Status::InvalidArgument(
+                        "Invalid regexp '{}' generated from skip glob pattern: {}", regex_pattern,
+                        compiled->error());
+            }
+            parse_config->compiled_skip_glob_regexes.emplace_back(std::move(compiled));
+        }
     }
-    if (is_escaped) {
-        append_escaped_regex_char(regex_pattern, '\\');
-    }
-    regex_pattern->append("$");
+
     return Status::OK();
 }
 
-bool glob_match_re2(const std::string& glob_pattern, const std::string& candidate_path) {
-    auto compiled = get_or_build_re2(glob_pattern);
-    if (compiled == nullptr) {
-        return false;
+bool should_skip_path(const ParseConfig& parse_config, const std::string& path) {
+    if (parse_config.skip_exact_patterns.find(path) != parse_config.skip_exact_patterns.end()) {
+        return true;
     }
-    return RE2::FullMatch(candidate_path, *compiled);
+
+    if (parse_config.compiled_skip_use_re2_set &&
+        parse_config.compiled_skip_glob_regex_set != nullptr) {
+        if (parse_config.compiled_skip_glob_regex_set->Match(path, nullptr)) {
+            return true;
+        }
+    } else {
+        for (const auto& regex : parse_config.compiled_skip_glob_regexes) {
+            if (RE2::FullMatch(path, *regex)) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
+
+namespace {
+
+inline bool is_variant_skip_path_pattern_type(PatternTypePB pattern_type) {
+    return pattern_type == PatternTypePB::SKIP_NAME ||
+           pattern_type == PatternTypePB::SKIP_NAME_GLOB;
+}
+
+void collect_variant_skip_patterns_from_children(
+        const TabletColumn& column,
+        std::vector<std::pair<std::string, PatternTypePB>>* skip_patterns) {
+    skip_patterns->clear();
+    for (const auto& sub_column : column.get_sub_columns()) {
+        if (!is_variant_skip_path_pattern_type(sub_column->pattern_type())) {
+            continue;
+        }
+        skip_patterns->emplace_back(sub_column->name(), sub_column->pattern_type());
+    }
+}
+
+bool has_variant_typed_path_children(const TabletColumn& column) {
+    for (const auto& sub_column : column.get_sub_columns()) {
+        if (is_typed_path_pattern_type(sub_column->pattern_type())) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
 
 size_t get_number_of_dimensions(const IDataType& type) {
     if (const auto* type_array = typeid_cast<const DataTypeArray*>(&type)) {
@@ -470,10 +435,11 @@ Status check_variant_has_no_ambiguous_paths(const PathsInData& tuple_paths) {
     return Status::OK();
 }
 
-Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
-                                    TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
-                                    const std::map<std::string, TabletColumnPtr>& typed_columns,
-                                    std::set<PathInData>* path_set) {
+Status update_least_schema_internal(
+        const std::map<PathInData, DataTypes>& subcolumns_types, TabletSchemaSPtr& common_schema,
+        int32_t variant_col_unique_id,
+        const std::map<std::string, TabletColumnPtr>& typed_path_columns,
+        std::set<PathInData>* path_set) {
     PathsInData tuple_paths;
     DataTypes tuple_types;
     CHECK(common_schema.use_count() == 1);
@@ -509,10 +475,10 @@ Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subco
     // Append all common type columns of this variant
     for (int i = 0; i < tuple_paths.size(); ++i) {
         TabletColumn common_column;
-        // typed path not contains root part
+        // typed path does not include root part
         auto path_without_root = tuple_paths[i].copy_pop_front().get_path();
-        if (typed_columns.contains(path_without_root) && !tuple_paths[i].has_nested_part()) {
-            common_column = *typed_columns.at(path_without_root);
+        if (typed_path_columns.contains(path_without_root) && !tuple_paths[i].has_nested_part()) {
+            common_column = *typed_path_columns.at(path_without_root);
             // parent unique id and path may not be init in write path
             common_column.set_parent_unique_id(variant_col_unique_id);
             common_column.set_path_info(tuple_paths[i]);
@@ -535,10 +501,13 @@ Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subco
 Status update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                                   TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
                                   std::set<PathInData>* path_set) {
-    std::map<std::string, TabletColumnPtr> typed_columns;
+    std::map<std::string, TabletColumnPtr> typed_path_columns;
     for (const TabletColumnPtr& col :
          common_schema->column_by_uid(variant_col_unique_id).get_sub_columns()) {
-        typed_columns[col->name()] = col;
+        if (!is_typed_path_pattern_type(col->pattern_type())) {
+            continue;
+        }
+        typed_path_columns[col->name()] = col;
     }
     // Types of subcolumns by path from all tuples.
     std::map<PathInData, DataTypes> subcolumns_types;
@@ -562,7 +531,7 @@ Status update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
     RETURN_IF_ERROR(check_variant_has_no_ambiguous_paths(all_paths));
 
     return update_least_schema_internal(subcolumns_types, common_schema, variant_col_unique_id,
-                                        typed_columns, path_set);
+                                        typed_path_columns, path_set);
 }
 
 // Keep variant subcolumn BF support aligned with FE DDL checks.
@@ -1045,7 +1014,7 @@ Status VariantCompactionUtil::get_compaction_typed_columns(
             inherit_column_attributes(*parent_column, sub_column_info.column);
             output_schema->append_column(sub_column_info.column);
             paths_set_info.typed_path_set.insert({path, std::move(sub_column_info)});
-            VLOG_DEBUG << "append typed column " << path;
+            VLOG_DEBUG << "append typed path " << path;
         } else {
             return Status::InternalError("Failed to generate sub column info for path {}", path);
         }
@@ -1113,7 +1082,7 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
             inherit_column_attributes(*parent_column, sub_column_info.column);
             output_schema->append_column(sub_column_info.column);
             paths_set_info.subcolumn_indexes.emplace(subpath, std::move(sub_column_info.indexes));
-            VLOG_DEBUG << "append typed column " << subpath;
+            VLOG_DEBUG << "append typed path " << subpath;
         } else if (find_data_types == path_to_data_types.end() || find_data_types->second.empty() ||
                    sparse_paths.find(std::string(subpath)) != sparse_paths.end() ||
                    sparse_paths.size() >=
@@ -1180,7 +1149,7 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
 
 // Build the temporary schema for compaction
 // 1. aggregate path stats and data types from all rowsets
-// 2. append typed columns and nested columns to the output schema
+// 2. append typed paths and nested columns to the output schema
 // 3. sort the subpaths and sparse paths for each unique id
 // 4. append the subpaths and sparse paths to the output schema
 // 5. set the path set info for each unique id
@@ -1227,7 +1196,7 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
             continue;
         }
 
-        // 1. append typed columns
+        // 1. append typed paths
         RETURN_IF_ERROR(get_compaction_typed_columns(
                 target, uid_to_variant_extended_info[column->unique_id()].typed_paths, column,
                 output_schema, uid_to_paths_set_info[column->unique_id()]));
@@ -1243,7 +1212,8 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                      uid_to_paths_set_info[column->unique_id()]);
 
         // 4. append subcolumns
-        if (column->variant_max_subcolumns_count() > 0 || !column->get_sub_columns().empty()) {
+        if (column->variant_max_subcolumns_count() > 0 ||
+            has_variant_typed_path_children(*column)) {
             get_compaction_subcolumns_from_subpaths(
                     uid_to_paths_set_info[column->unique_id()], column, target,
                     uid_to_variant_extended_info[column->unique_id()].path_to_data_types,
@@ -2154,12 +2124,21 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
     }
 
     std::vector<ParseConfig> configs(variant_column_pos.size());
+    std::vector<std::vector<std::pair<std::string, PatternTypePB>>> variant_skip_patterns(
+            variant_column_pos.size());
     for (size_t i = 0; i < variant_column_pos.size(); ++i) {
         configs[i].enable_flatten_nested = tablet_schema.variant_flatten_nested();
         const auto& column = tablet_schema.column(variant_schema_pos[i]);
         if (!column.is_variant_type()) {
             return Status::InternalError("column is not variant type, column name: {}",
                                          column.name());
+        }
+        // Set skip patterns if configured on variant children.
+        collect_variant_skip_patterns_from_children(column, &variant_skip_patterns[i]);
+        if (!variant_skip_patterns[i].empty()) {
+            configs[i].skip_patterns = &variant_skip_patterns[i];
+            RETURN_IF_ERROR(
+                    build_compiled_skip_patterns(variant_skip_patterns[i], true, &configs[i]));
         }
         // if doc mode is not enabled, no need to parse to doc value column
         if (!column.variant_enable_doc_mode()) {

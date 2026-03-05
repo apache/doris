@@ -477,7 +477,6 @@ import org.apache.doris.nereids.DorisParser.UserVariableContext;
 import org.apache.doris.nereids.DorisParser.VariantContext;
 import org.apache.doris.nereids.DorisParser.VariantPredefinedFieldsContext;
 import org.apache.doris.nereids.DorisParser.VariantSubColTypeContext;
-import org.apache.doris.nereids.DorisParser.VariantSubColTypeListContext;
 import org.apache.doris.nereids.DorisParser.VariantTypeDefinitionsContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
 import org.apache.doris.nereids.DorisParser.WindowFrameContext;
@@ -1067,6 +1066,7 @@ import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -5133,8 +5133,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                         "Unsupported variant definition: " + variantDef.getText());
         VariantContext variantCtx = (VariantContext) variantDef;
 
-        List<VariantField> fields = variantCtx.variantSubColTypeList() != null
-                ? visitVariantSubColTypeList(variantCtx.variantSubColTypeList()) : Lists.newArrayList();
+        List<VariantField> variantPredefinedFields = Lists.newArrayList();
+        if (variantCtx.variantSubColTypeList() != null) {
+            for (VariantSubColTypeContext subCtx : variantCtx.variantSubColTypeList().variantSubColType()) {
+                if (subCtx.SKIP_() != null) {
+                    String skipPattern = subCtx.STRING_LITERAL().getText();
+                    skipPattern = skipPattern.substring(1, skipPattern.length() - 1);
+                    String skipMatchType = subCtx.variantSubColMatchType() == null
+                            ? null
+                            : subCtx.variantSubColMatchType().getText();
+                    String skipPatternType = "MATCH_NAME".equalsIgnoreCase(skipMatchType)
+                            ? "SKIP_NAME" : "SKIP_NAME_GLOB";
+                    variantPredefinedFields.add(
+                            new VariantField(skipPattern, StringType.INSTANCE, "", skipPatternType));
+                } else {
+                    variantPredefinedFields.add(visitVariantSubColType(subCtx));
+                }
+            }
+        }
         Map<String, String> properties = variantCtx.properties != null
                 ? Maps.newHashMap(visitPropertyClause(variantCtx.properties)) : Maps.newHashMap();
 
@@ -5186,7 +5202,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             variantSparseHashShardCount = 0;
             // Validate that all typed fields use data types supported in doc mode
             // document mode only supports string, integral, float, and boolean types
-            for (VariantField field : fields) {
+            for (VariantField field : variantPredefinedFields) {
+                if (field.isSkipPatternType()) {
+                    continue;
+                }
                 DataType dataType = field.getDataType();
                 if (dataType.isArrayType()) {
                     ArrayType arrayType = (ArrayType) dataType;
@@ -5217,19 +5236,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
         }
 
-        return new VariantType(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+        return new VariantType(variantPredefinedFields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                     variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                     enableVariantDocMode, variantDocMaterializationMinRows, variantDocHashShardCount);
     }
 
     private static boolean isSupportedVariantDocModeType(DataType type) {
         return type.isStringLikeType() || type.isIntegralType() || type.isFloatLikeType() || type.isBooleanType();
-    }
-
-    @Override
-    public List<VariantField> visitVariantSubColTypeList(VariantSubColTypeListContext ctx) {
-        return ctx.variantSubColType().stream().map(
-                this::visitVariantSubColType).collect(ImmutableList.toImmutableList());
     }
 
     @Override

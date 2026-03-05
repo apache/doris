@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -65,11 +66,26 @@ const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";
 const std::string DOC_VALUE_COLUMN_PATH = "__DORIS_VARIANT_DOC_VALUE__";
 namespace doris::vectorized::variant_util {
 
-// Convert a restricted glob pattern into a regex (for tests/internal use).
-Status glob_to_regex(const std::string& glob_pattern, std::string* regex_pattern);
+inline bool is_typed_path_pattern_type(PatternTypePB pattern_type) {
+    return pattern_type == PatternTypePB::MATCH_NAME ||
+           pattern_type == PatternTypePB::MATCH_NAME_GLOB;
+}
 
-// Match a glob pattern against a path using RE2.
-bool glob_match_re2(const std::string& glob_pattern, const std::string& candidate_path);
+inline bool is_skip_exact_path_pattern_type(PatternTypePB pattern_type) {
+    return pattern_type == PatternTypePB::SKIP_NAME;
+}
+
+inline bool is_skip_glob_path_pattern_type(PatternTypePB pattern_type) {
+    return pattern_type == PatternTypePB::SKIP_NAME_GLOB;
+}
+
+// Build an immutable matcher for skip patterns used in hot parsing paths.
+Status build_compiled_skip_patterns(
+        const std::vector<std::pair<std::string, PatternTypePB>>& skip_patterns,
+        bool enable_re2_set, ParseConfig* parse_config);
+
+// Match a dot-separated path against precompiled skip patterns in ParseConfig.
+bool should_skip_path(const ParseConfig& parse_config, const std::string& path);
 
 using PathToNoneNullValues = std::unordered_map<std::string, int64_t>;
 using PathToDataTypes = std::unordered_map<PathInData, std::vector<DataTypePtr>, PathInData::Hash>;
@@ -167,10 +183,11 @@ bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
                    TabletIndexes& sub_column_indexes, const segment_v2::ColumnMetaPB& column_pb);
 
-Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
-                                    TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,
-                                    const std::map<std::string, TabletColumnPtr>& typed_columns,
-                                    std::set<PathInData>* path_set = nullptr);
+Status update_least_schema_internal(
+        const std::map<PathInData, DataTypes>& subcolumns_types, TabletSchemaSPtr& common_schema,
+        int32_t variant_col_unique_id,
+        const std::map<std::string, TabletColumnPtr>& typed_path_columns,
+        std::set<PathInData>* path_set = nullptr);
 
 bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
                               const std::string& path,

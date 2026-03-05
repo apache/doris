@@ -94,7 +94,7 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
                              TabletIndexes& subcolumn_indexes, ColumnWriterOptions* opt,
                              int64_t none_null_value_size, bool need_record_none_null_value_size) {
     _init_column_meta(opt->meta, cid, column, opt->compression_type);
-    // no need to record none null value size for typed column or nested column, since it's compaction stage
+    // no need to record none null value size for typed path or nested column, since it's compaction stage
     // will directly pick it as sub column
     if (need_record_none_null_value_size) {
         // record none null value size for statistics

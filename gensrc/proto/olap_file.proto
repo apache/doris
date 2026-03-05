@@ -346,6 +346,8 @@ message AlterTabletPB {
 enum PatternTypePB {
     MATCH_NAME = 1;
     MATCH_NAME_GLOB = 2;
+    SKIP_NAME = 3;
+    SKIP_NAME_GLOB = 4;
 }
 
 message ColumnPB {

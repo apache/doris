@@ -82,6 +82,23 @@ bvar::Window<bvar::Adder<uint64_t>> g_contains_agg_with_cache_if_eligible_full_h
         "g_contains_agg_with_cache_if_eligible_full_hit_1m",
         &g_contains_agg_with_cache_if_eligible_full_hit, 60);
 
+namespace {
+
+static_assert(static_cast<int>(TPatternType::MATCH_NAME) ==
+              static_cast<int>(PatternTypePB::MATCH_NAME));
+static_assert(static_cast<int>(TPatternType::MATCH_NAME_GLOB) ==
+              static_cast<int>(PatternTypePB::MATCH_NAME_GLOB));
+static_assert(static_cast<int>(TPatternType::SKIP_NAME) ==
+              static_cast<int>(PatternTypePB::SKIP_NAME));
+static_assert(static_cast<int>(TPatternType::SKIP_NAME_GLOB) ==
+              static_cast<int>(PatternTypePB::SKIP_NAME_GLOB));
+
+inline PatternTypePB to_pattern_type_pb(TPatternType::type pattern_type) {
+    return static_cast<PatternTypePB>(pattern_type);
+}
+
+} // namespace
+
 TabletMetaSharedPtr TabletMeta::create(
         const TCreateTabletReq& request, const TabletUid& tablet_uid, uint64_t shard_id,
         uint32_t next_unique_id,
@@ -533,13 +550,7 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
         column->set_variant_max_subcolumns_count(tcolumn.column_type.variant_max_subcolumns_count);
     }
     if (tcolumn.__isset.pattern_type) {
-        switch (tcolumn.pattern_type) {
-        case TPatternType::MATCH_NAME:
-            column->set_pattern_type(PatternTypePB::MATCH_NAME);
-            break;
-        case TPatternType::MATCH_NAME_GLOB:
-            column->set_pattern_type(PatternTypePB::MATCH_NAME_GLOB);
-        }
+        column->set_pattern_type(to_pattern_type_pb(tcolumn.pattern_type));
     }
     if (tcolumn.__isset.variant_enable_typed_paths_to_sparse) {
         column->set_variant_enable_typed_paths_to_sparse(

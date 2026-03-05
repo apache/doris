@@ -28,7 +28,12 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.proto.OlapFile;
+import org.apache.doris.thrift.TColumn;
+import org.apache.doris.thrift.TPatternType;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -37,6 +42,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 
 public class ColumnTest {
 
@@ -179,5 +185,62 @@ public class ColumnTest {
         Column mvColumnComplex = new Column("mv_b", ArrayType.create(Type.INT, true), false, null, true, "0", "");
         mvColumnComplex.setDefineExpr(add);
         Assert.assertTrue(mvColumnComplex.tryGetBaseColumnName().equalsIgnoreCase("mv_b"));
+    }
+
+    @Test
+    public void testVariantSkipPatternChildrenSerialization() throws Exception {
+        ArrayList<VariantField> variantPredefinedFields = new ArrayList<>();
+        // Deliberately interleave skip and typed paths to verify grouped output order.
+        variantPredefinedFields.add(new VariantField("debug_*", Type.STRING, "", TPatternType.SKIP_NAME_GLOB));
+        variantPredefinedFields.add(new VariantField("num_*", Type.BIGINT, "", TPatternType.MATCH_NAME_GLOB));
+        variantPredefinedFields.add(new VariantField("secret", Type.STRING, "", TPatternType.SKIP_NAME));
+        variantPredefinedFields.add(new VariantField("id", Type.INT, "", TPatternType.MATCH_NAME));
+        VariantType variantType = new VariantType(variantPredefinedFields);
+
+        Column variantColumn = new Column("v", variantType, true);
+        Assert.assertEquals(4, variantColumn.getChildren().size());
+        Assert.assertEquals(2, variantColumn.getVariantTypedPathChildrenOrEmpty().size());
+        Assert.assertEquals(2, variantColumn.getVariantSkipPatternChildrenOrEmpty().size());
+
+        TColumn thriftColumn = variantColumn.toThrift();
+        Assert.assertNotNull(thriftColumn.getChildrenColumn());
+        Assert.assertEquals(4, thriftColumn.getChildrenColumnSize());
+        Assert.assertEquals("num_*", thriftColumn.getChildrenColumn().get(0).getColumnName());
+        Assert.assertEquals(TPatternType.MATCH_NAME_GLOB, thriftColumn.getChildrenColumn().get(0).getPatternType());
+        Assert.assertEquals("id", thriftColumn.getChildrenColumn().get(1).getColumnName());
+        Assert.assertEquals(TPatternType.MATCH_NAME, thriftColumn.getChildrenColumn().get(1).getPatternType());
+        Assert.assertEquals("debug_*", thriftColumn.getChildrenColumn().get(2).getColumnName());
+        Assert.assertEquals(TPatternType.SKIP_NAME_GLOB, thriftColumn.getChildrenColumn().get(2).getPatternType());
+        Assert.assertEquals("secret", thriftColumn.getChildrenColumn().get(3).getColumnName());
+        Assert.assertEquals(TPatternType.SKIP_NAME, thriftColumn.getChildrenColumn().get(3).getPatternType());
+
+        OlapFile.ColumnPB pbColumn = variantColumn.toPb(Sets.newHashSet(), Lists.newArrayList());
+        Assert.assertEquals(4, pbColumn.getChildrenColumnsCount());
+        Assert.assertEquals("num_*", pbColumn.getChildrenColumns(0).getName());
+        Assert.assertEquals(OlapFile.PatternTypePB.MATCH_NAME_GLOB,
+                pbColumn.getChildrenColumns(0).getPatternType());
+        Assert.assertEquals("id", pbColumn.getChildrenColumns(1).getName());
+        Assert.assertEquals(OlapFile.PatternTypePB.MATCH_NAME, pbColumn.getChildrenColumns(1).getPatternType());
+        Assert.assertEquals("debug_*", pbColumn.getChildrenColumns(2).getName());
+        Assert.assertEquals(OlapFile.PatternTypePB.SKIP_NAME_GLOB,
+                pbColumn.getChildrenColumns(2).getPatternType());
+        Assert.assertEquals("secret", pbColumn.getChildrenColumns(3).getName());
+        Assert.assertEquals(OlapFile.PatternTypePB.SKIP_NAME, pbColumn.getChildrenColumns(3).getPatternType());
+    }
+
+    @Test
+    public void testVariantSchemaChangeRejectsSkipPatternMutation() {
+        ArrayList<VariantField> oldPatterns = new ArrayList<>();
+        oldPatterns.add(new VariantField("secret", Type.STRING, "", TPatternType.SKIP_NAME));
+        Column oldColumn = new Column("v", new VariantType(oldPatterns), true);
+
+        Column newColumn = new Column("v", new VariantType(new ArrayList<>()), true);
+
+        try {
+            oldColumn.checkSchemaChangeAllowed(newColumn);
+            Assert.fail("No exception throws.");
+        } catch (DdlException e) {
+            Assert.assertTrue(e.getMessage().contains("Can not change variant skip patterns"));
+        }
     }
 }

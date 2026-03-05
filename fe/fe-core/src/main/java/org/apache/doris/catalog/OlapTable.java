@@ -3798,25 +3798,23 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 : filteredInvertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         }
 
-        // subPath is not empty, means it is a variant column, find the field pattern from children
+        // subPath is not empty, means it is a variant column, find the field pattern from typed-path templates
         String subPathString = String.join(".", subPath);
         String fieldPattern = "";
-        if (column.getChildren() != null) {
-            for (Column child : column.getChildren()) {
-                String childName = child.getName();
-                if (child.getFieldPatternType() == TPatternType.MATCH_NAME_GLOB) {
-                    try {
-                        com.google.re2j.Pattern compiled = GlobRegexUtil.getOrCompilePattern(childName);
-                        if (compiled.matcher(subPathString).matches()) {
-                            fieldPattern = childName;
-                        }
-                    } catch (com.google.re2j.PatternSyntaxException | IllegalArgumentException e) {
-                        continue;
-                    }
-                } else if (child.getFieldPatternType() == TPatternType.MATCH_NAME) {
-                    if (childName.equals(subPathString)) {
+        for (Column child : column.getVariantTypedPathChildrenOrEmpty()) {
+            String childName = child.getName();
+            if (child.getFieldPatternType() == TPatternType.MATCH_NAME_GLOB) {
+                try {
+                    com.google.re2j.Pattern compiled = GlobRegexUtil.compilePattern(childName);
+                    if (compiled.matcher(subPathString).matches()) {
                         fieldPattern = childName;
                     }
+                } catch (com.google.re2j.PatternSyntaxException | IllegalArgumentException e) {
+                    continue;
+                }
+            } else if (child.getFieldPatternType() == TPatternType.MATCH_NAME) {
+                if (childName.equals(subPathString)) {
+                    fieldPattern = childName;
                 }
             }
         }

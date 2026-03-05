@@ -24,6 +24,8 @@ import org.apache.doris.thrift.TTypeNode;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
+import java.util.Objects;
+
 public class VariantField {
 
     @SerializedName(value = "fp")
@@ -66,15 +68,34 @@ public class VariantField {
         return patternType;
     }
 
+    public boolean isSkipPatternType() {
+        return patternType == TPatternType.SKIP_NAME || patternType == TPatternType.SKIP_NAME_GLOB;
+    }
+
+    public boolean isTypedPathPatternType() {
+        return patternType == null
+                || patternType == TPatternType.MATCH_NAME
+                || patternType == TPatternType.MATCH_NAME_GLOB;
+    }
+
     public String toSql(int depth) {
         StringBuilder sb = new StringBuilder();
+        if (isSkipPatternType()) {
+            sb.append("SKIP ");
+            if (patternType == TPatternType.SKIP_NAME) {
+                sb.append("MATCH_NAME ");
+            }
+            sb.append("'").append(pattern).append("'");
+            return sb.toString();
+        }
+
         if (patternType == TPatternType.MATCH_NAME) {
             sb.append(patternType.toString()).append(" ");
         }
 
         sb.append("'").append(pattern).append("'");
         sb.append(":").append(type.toSql(depth + 1));
-        if (!comment.isEmpty()) {
+        if (comment != null && !comment.isEmpty()) {
             sb.append(" COMMENT '").append(comment).append("'");
         }
         return sb.toString();
@@ -98,6 +119,9 @@ public class VariantField {
     }
 
     public boolean matchesField(VariantField f) {
+        if (!isTypedPathPatternType() || !f.isTypedPathPatternType()) {
+            return false;
+        }
         if (equals(f)) {
             return true;
         }
@@ -110,11 +134,21 @@ public class VariantField {
 
     @Override
     public boolean equals(Object other) {
+        if (this == other) {
+            return true;
+        }
         if (!(other instanceof VariantField)) {
             return false;
         }
-        VariantField otherFiled = (VariantField) other;
-        return otherFiled.pattern.equals(pattern) && otherFiled.type.equals(type);
+        VariantField otherField = (VariantField) other;
+        return Objects.equals(pattern, otherField.pattern)
+                && Objects.equals(type, otherField.type)
+                && Objects.equals(patternType, otherField.patternType);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(pattern, type, patternType);
     }
 
     @Override

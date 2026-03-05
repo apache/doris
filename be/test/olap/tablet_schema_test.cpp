@@ -102,6 +102,51 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_thrift) {
     EXPECT_FALSE(tablet_column.variant_enable_typed_paths_to_sparse());
 }
 
+TEST_F(TabletSchemaTest, test_tablet_column_init_from_thrift_skip_pattern_type) {
+    auto check_pattern_type = [](TPatternType::type thrift_pattern_type,
+                                 PatternTypePB expected_pattern_type) {
+        TColumn tcolumn;
+        tcolumn.__set_column_name("thrift_column");
+        tcolumn.__set_col_unique_id(1001);
+        TColumnType column_type;
+        column_type.__set_type(TPrimitiveType::STRING);
+        column_type.__set_len(255);
+        tcolumn.__set_column_type(column_type);
+        tcolumn.__set_is_key(false);
+        tcolumn.__set_is_allow_null(true);
+        tcolumn.__set_pattern_type(thrift_pattern_type);
+
+        TabletColumn tablet_column;
+        tablet_column.init_from_thrift(tcolumn);
+        EXPECT_EQ(expected_pattern_type, tablet_column.pattern_type());
+    };
+
+    check_pattern_type(TPatternType::SKIP_NAME, PatternTypePB::SKIP_NAME);
+    check_pattern_type(TPatternType::SKIP_NAME_GLOB, PatternTypePB::SKIP_NAME_GLOB);
+}
+
+TEST_F(TabletSchemaTest, test_tablet_column_pattern_type_roundtrip_skip) {
+    ColumnPB column_pb;
+    column_pb.set_unique_id(2001);
+    column_pb.set_name("variant_skip_col");
+    column_pb.set_type("STRING");
+    column_pb.set_is_key(false);
+    column_pb.set_is_nullable(true);
+    column_pb.set_length(255);
+    column_pb.set_aggregation("NONE");
+    column_pb.set_visible(true);
+    column_pb.set_pattern_type(PatternTypePB::SKIP_NAME_GLOB);
+
+    TabletColumn tablet_column;
+    tablet_column.init_from_pb(column_pb);
+    EXPECT_EQ(PatternTypePB::SKIP_NAME_GLOB, tablet_column.pattern_type());
+
+    ColumnPB roundtrip_pb;
+    tablet_column.to_schema_pb(&roundtrip_pb);
+    EXPECT_TRUE(roundtrip_pb.has_pattern_type());
+    EXPECT_EQ(PatternTypePB::SKIP_NAME_GLOB, roundtrip_pb.pattern_type());
+}
+
 TEST_F(TabletSchemaTest, test_tablet_index_init_from_pb) {
     TabletIndexPB index_pb;
     index_pb.set_index_id(12345);
