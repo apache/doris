@@ -681,12 +681,16 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
      * If an operator's is followed by a local exchange without shuffle (e.g. passthrough), a
      * shuffled local exchanger will be used before join so it is not followed by shuffle join.
      */
-    auto require_shuffled_data_distribution =
-            cur_pipe->operators().empty() ? cur_pipe->sink()->require_shuffled_data_distribution()
-                                          : op->require_shuffled_data_distribution();
+    auto required_data_distribution =
+            cur_pipe->operators().empty() ? cur_pipe->sink()->required_data_distribution()
+                                          : op->required_data_distribution();
     current_followed_by_shuffled_operator =
-            (followed_by_shuffled_operator || op->is_shuffled_operator()) &&
-            require_shuffled_data_distribution;
+            ((followed_by_shuffled_operator ||
+              (cur_pipe->operators().empty() ? cur_pipe->sink()->is_shuffled_operator()
+                                             : op->is_shuffled_operator())) &&
+             Pipeline::is_hash_exchange(required_data_distribution.distribution_type)) ||
+            (followed_by_shuffled_operator &&
+             required_data_distribution.distribution_type == ExchangeType::NOOP);
 
     if (num_children == 0) {
         _use_serial_source = op->is_serial_operator();
