@@ -66,13 +66,24 @@ struct StreamingHtMinReductionEntry {
 // of the machine that we're running on.
 static constexpr StreamingHtMinReductionEntry STREAMING_HT_MIN_REDUCTION[] = {
         // Expand up to L2 cache always.
-        {0, 0.0},
+        {.min_ht_mem = 0, .streaming_ht_min_reduction = 0.0},
         // Expand into L3 cache if we look like we're getting some reduction.
         // At present, The L2 cache is generally 1024k or more
-        {1024 * 1024, 1.1},
+        {.min_ht_mem = 256 * 1024, .streaming_ht_min_reduction = 1.1},
         // Expand into main memory if we're getting a significant reduction.
         // The L3 cache is generally 16MB or more
-        {16 * 1024 * 1024, 2.0},
+        {.min_ht_mem = 16 * 1024 * 1024, .streaming_ht_min_reduction = 2.0},
+};
+
+static constexpr StreamingHtMinReductionEntry SINGLE_BE_STREAMING_HT_MIN_REDUCTION[] = {
+        // Expand up to L2 cache always.
+        {.min_ht_mem = 0, .streaming_ht_min_reduction = 0.0},
+        // Expand into L3 cache if we look like we're getting some reduction.
+        // At present, The L2 cache is generally 1024k or more
+        {.min_ht_mem = 256 * 1024, .streaming_ht_min_reduction = 5.0},
+        // Expand into main memory if we're getting a significant reduction.
+        // The L3 cache is generally 16MB or more
+        {.min_ht_mem = 16 * 1024 * 1024, .streaming_ht_min_reduction = 10.0},
 };
 
 static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
@@ -81,6 +92,7 @@ static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
 StreamingAggLocalState::StreamingAggLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent),
           _agg_data(std::make_unique<AggregatedDataVariants>()),
+          _is_single_backend(state->get_query_ctx()->is_single_backend_query()),
           _child_block(Block::create_unique()),
           _pre_aggregated_block(Block::create_unique()) {}
 
@@ -220,62 +232,64 @@ bool StreamingAggLocalState::_should_expand_preagg_hash_tables() {
     }
 
     return std::visit(
-            Overload {
-                    [&](std::monostate& arg) -> bool {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                        return false;
-                    },
-                    [&](auto& agg_method) -> bool {
-                        auto& hash_tbl = *agg_method.hash_table;
-                        auto [ht_mem, ht_rows] =
-                                std::pair {hash_tbl.get_buffer_size_in_bytes(), hash_tbl.size()};
+            Overload {[&](std::monostate& arg) -> bool {
+                          throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                          return false;
+                      },
+                      [&](auto& agg_method) -> bool {
+                          auto& hash_tbl = *agg_method.hash_table;
+                          auto [ht_mem, ht_rows] =
+                                  std::pair {hash_tbl.get_buffer_size_in_bytes(), hash_tbl.size()};
 
-                        // Need some rows in tables to have valid statistics.
-                        if (ht_rows == 0) {
-                            return true;
-                        }
+                          // Need some rows in tables to have valid statistics.
+                          if (ht_rows == 0) {
+                              return true;
+                          }
 
-                        // Find the appropriate reduction factor in our table for the current hash table sizes.
-                        int cache_level = 0;
-                        while (cache_level + 1 < STREAMING_HT_MIN_REDUCTION_SIZE &&
-                               ht_mem >= STREAMING_HT_MIN_REDUCTION[cache_level + 1].min_ht_mem) {
-                            ++cache_level;
-                        }
+                          const auto* reduction = _is_single_backend
+                                                          ? SINGLE_BE_STREAMING_HT_MIN_REDUCTION
+                                                          : STREAMING_HT_MIN_REDUCTION;
 
-                        // Compare the number of rows in the hash table with the number of input rows that
-                        // were aggregated into it. Exclude passed through rows from this calculation since
-                        // they were not in hash tables.
-                        const int64_t input_rows = _input_num_rows;
-                        const int64_t aggregated_input_rows = input_rows - _cur_num_rows_returned;
-                        // TODO chenhao
-                        //  const int64_t expected_input_rows = estimated_input_cardinality_ - num_rows_returned_;
-                        double current_reduction = static_cast<double>(aggregated_input_rows) /
-                                                   static_cast<double>(ht_rows);
+                          // Find the appropriate reduction factor in our table for the current hash table sizes.
+                          int cache_level = 0;
+                          while (cache_level + 1 < STREAMING_HT_MIN_REDUCTION_SIZE &&
+                                 ht_mem >= reduction[cache_level + 1].min_ht_mem) {
+                              ++cache_level;
+                          }
 
-                        // TODO: workaround for IMPALA-2490: subplan node rows_returned counter may be
-                        // inaccurate, which could lead to a divide by zero below.
-                        if (aggregated_input_rows <= 0) {
-                            return true;
-                        }
+                          // Compare the number of rows in the hash table with the number of input rows that
+                          // were aggregated into it. Exclude passed through rows from this calculation since
+                          // they were not in hash tables.
+                          const int64_t input_rows = _input_num_rows;
+                          const int64_t aggregated_input_rows = input_rows - _cur_num_rows_returned;
+                          // TODO chenhao
+                          //  const int64_t expected_input_rows = estimated_input_cardinality_ - num_rows_returned_;
+                          double current_reduction = static_cast<double>(aggregated_input_rows) /
+                                                     static_cast<double>(ht_rows);
 
-                        // Extrapolate the current reduction factor (r) using the formula
-                        // R = 1 + (N / n) * (r - 1), where R is the reduction factor over the full input data
-                        // set, N is the number of input rows, excluding passed-through rows, and n is the
-                        // number of rows inserted or merged into the hash tables. This is a very rough
-                        // approximation but is good enough to be useful.
-                        // TODO: consider collecting more statistics to better estimate reduction.
-                        //  double estimated_reduction = aggregated_input_rows >= expected_input_rows
-                        //      ? current_reduction
-                        //      : 1 + (expected_input_rows / aggregated_input_rows) * (current_reduction - 1);
-                        double min_reduction =
-                                STREAMING_HT_MIN_REDUCTION[cache_level].streaming_ht_min_reduction;
+                          // TODO: workaround for IMPALA-2490: subplan node rows_returned counter may be
+                          // inaccurate, which could lead to a divide by zero below.
+                          if (aggregated_input_rows <= 0) {
+                              return true;
+                          }
 
-                        //  COUNTER_SET(preagg_estimated_reduction_, estimated_reduction);
-                        //    COUNTER_SET(preagg_streaming_ht_min_reduction_, min_reduction);
-                        //  return estimated_reduction > min_reduction;
-                        _should_expand_hash_table = current_reduction > min_reduction;
-                        return _should_expand_hash_table;
-                    }},
+                          // Extrapolate the current reduction factor (r) using the formula
+                          // R = 1 + (N / n) * (r - 1), where R is the reduction factor over the full input data
+                          // set, N is the number of input rows, excluding passed-through rows, and n is the
+                          // number of rows inserted or merged into the hash tables. This is a very rough
+                          // approximation but is good enough to be useful.
+                          // TODO: consider collecting more statistics to better estimate reduction.
+                          //  double estimated_reduction = aggregated_input_rows >= expected_input_rows
+                          //      ? current_reduction
+                          //      : 1 + (expected_input_rows / aggregated_input_rows) * (current_reduction - 1);
+                          double min_reduction = reduction[cache_level].streaming_ht_min_reduction;
+
+                          //  COUNTER_SET(preagg_estimated_reduction_, estimated_reduction);
+                          //    COUNTER_SET(preagg_streaming_ht_min_reduction_, min_reduction);
+                          //  return estimated_reduction > min_reduction;
+                          _should_expand_hash_table = current_reduction > min_reduction;
+                          return _should_expand_hash_table;
+                      }},
             _agg_data->method_variant);
 }
 

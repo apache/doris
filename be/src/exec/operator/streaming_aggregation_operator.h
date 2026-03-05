@@ -110,6 +110,7 @@ private:
     std::vector<uint8_t> cmp_res;
     std::vector<int> order_directions;
     std::vector<int> null_directions;
+    bool _is_single_backend = false;
 
     struct HeapLimitCursor {
         HeapLimitCursor(int row_id, MutableColumns& limit_columns,
