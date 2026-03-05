@@ -30,7 +30,6 @@ suite("test_partition_instance_query_cache") {
     sql "set enable_nereids_planner=true"
     sql "set enable_nereids_distribute_planner=true"
     sql "set enable_query_cache=true"
-    sql "set query_cache_type=1"
     sql "set parallel_pipeline_task_num=3"
     sql "set enable_sql_cache=false"
 
