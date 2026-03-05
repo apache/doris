@@ -2229,10 +2229,13 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
 }
 
 void OrcReader::_filter_rows_by_condition_cache(size_t* read_rows, bool* eof) {
-    // Condition cache HIT: skip consecutive false granules before reading
+    // Condition cache HIT: skip consecutive false granules before reading.
+    // Uses _current_read_position which tracks where the *next* batch will
+    // start, as opposed to _last_read_row_number which is the start of the
+    // most recently read batch (set after nextBatch returns).
     if (_condition_cache_ctx && _condition_cache_ctx->is_hit) {
         auto& cache = *_condition_cache_ctx->filter_result;
-        uint64_t granule = _last_read_row_number / ConditionCacheContext::GRANULE_SIZE;
+        uint64_t granule = _current_read_position / ConditionCacheContext::GRANULE_SIZE;
         auto max_granule = cache.size();
         while (granule < max_granule && !cache[granule]) {
             granule++;
@@ -2242,13 +2245,14 @@ void OrcReader::_filter_rows_by_condition_cache(size_t* read_rows, bool* eof) {
             // granules, so no more surviving rows exist in this file.
             *eof = true;
             *read_rows = 0;
-            _statistics.condition_cache_filtered_rows += get_total_rows() - _last_read_row_number;
+            _statistics.condition_cache_filtered_rows += get_total_rows() - _current_read_position;
             return;
         }
         uint64_t target_row = granule * ConditionCacheContext::GRANULE_SIZE;
-        if (target_row > _last_read_row_number) {
+        if (target_row > _current_read_position) {
             _row_reader->seekToRow(target_row);
-            _statistics.condition_cache_filtered_rows += target_row - _last_read_row_number;
+            _statistics.condition_cache_filtered_rows += target_row - _current_read_position;
+            _current_read_position = target_row;
         }
     }
 }
@@ -2280,9 +2284,6 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
         return Status::OK();
     }
 
-    _last_read_row_number = _row_reader->getRowNumber() == std::numeric_limits<uint64_t>::max()
-                                    ? 0
-                                    : _row_reader->getRowNumber();
     if (_lazy_read_ctx.can_lazy_read) {
         std::vector<uint32_t> columns_to_filter;
         int column_to_keep = block->columns();
@@ -2307,6 +2308,9 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
                     *read_rows = 0;
                     return Status::OK();
                 }
+                // After nextBatch(), getRowNumber() returns the start of the batch just read.
+                _last_read_row_number = _row_reader->getRowNumber();
+                _current_read_position = _last_read_row_number + rr;
             } catch (std::exception& e) {
                 std::string _err_msg = e.what();
                 if (_io_ctx && _io_ctx->should_stop && _err_msg == "stop") {
@@ -2317,6 +2321,24 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
                 }
                 return Status::InternalError("Orc row reader nextBatch failed. reason = {}",
                                              _err_msg);
+            }
+        }
+
+        // Condition cache MISS: mark granules with surviving rows (lazy-read path).
+        // This is done here (after nextBatch) instead of in the filter() callback because
+        // getRowNumber() only returns the correct batch-start row after nextBatch() returns.
+        if (_condition_cache_ctx && !_condition_cache_ctx->is_hit && _filter) {
+            auto& cache = *_condition_cache_ctx->filter_result;
+            auto* filter_data = _filter->data();
+            size_t filter_size = _filter->size();
+            for (size_t i = 0; i < filter_size; i++) {
+                if (filter_data[i]) {
+                    size_t granule =
+                            (_last_read_row_number + i) / ConditionCacheContext::GRANULE_SIZE;
+                    if (granule < cache.size()) {
+                        cache[granule] = true;
+                    }
+                }
             }
         }
 
@@ -2410,6 +2432,9 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
                     *read_rows = 0;
                     return Status::OK();
                 }
+                // After nextBatch(), getRowNumber() returns the start of the batch just read.
+                _last_read_row_number = _row_reader->getRowNumber();
+                _current_read_position = _last_read_row_number + rr;
             } catch (std::exception& e) {
                 std::string _err_msg = e.what();
                 if (_io_ctx && _io_ctx->should_stop && _err_msg == "stop") {
@@ -2756,18 +2781,11 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
         new_size += result_filter_data[i] ? 1 : 0;
     }
 
-    // Condition cache MISS: mark granules with surviving rows
-    if (_condition_cache_ctx && !_condition_cache_ctx->is_hit && new_size > 0) {
-        auto& cache = *_condition_cache_ctx->filter_result;
-        for (uint16_t i = 0; i < size; i++) {
-            if (result_filter_data[i]) {
-                size_t granule = (_last_read_row_number + i) / ConditionCacheContext::GRANULE_SIZE;
-                if (granule < cache.size()) {
-                    cache[granule] = true;
-                }
-            }
-        }
-    }
+    // NOTE: Condition cache MISS marking for the lazy-read path is done
+    // in _get_next_block_impl after nextBatch() returns, where
+    // _last_read_row_number has been correctly set via getRowNumber().
+    // We cannot do it here because this callback fires *during* nextBatch()
+    // when getRowNumber() still returns the previous batch's start row.
 
     _statistics.lazy_read_filtered_rows += static_cast<int64_t>(size - new_size);
     data.numElements = new_size;

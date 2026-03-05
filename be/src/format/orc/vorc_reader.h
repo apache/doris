@@ -716,7 +716,12 @@ private:
     std::unique_ptr<orc::Reader> _reader = nullptr;
     std::unique_ptr<orc::RowReader> _row_reader;
 
+    // The absolute row number where the most recent batch started (set after nextBatch).
+    // Used by the condition-cache code to map in-batch indices to granules.
     uint64_t _last_read_row_number = 0;
+    // The absolute row number where the *next* nextBatch call will start reading.
+    // Used by _filter_rows_by_condition_cache to decide which granule to seek to.
+    uint64_t _current_read_position = 0;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     std::unique_ptr<ORCFilterImpl> _orc_filter;
     orc::RowReaderOptions _row_reader_options;
