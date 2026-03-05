@@ -23,26 +23,20 @@
 #include <stdint.h>
 #include <util/jni-util.h>
 
-#include <map>
 #include <string>
-#include <vector>
 
 #include "common/status.h"
-#include "exec/table_connector.h"
-#include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/data_types/data_type.h"
 
 namespace doris {
-class RuntimeState;
-class SlotDescriptor;
-class TupleDescriptor;
-
 namespace vectorized {
 
-class Block;
-class IColumn;
-class VExprContext;
-
+/**
+ * JdbcConnectorParam holds JDBC connection parameters.
+ *
+ * Note: After Phase 3 refactoring, JdbcConnectorParam is only used by
+ * internal_service.cpp for test_jdbc_connection(). JDBC read/write
+ * now goes through JdbcJniReader/JdbcJniWriter respectively.
+ */
 struct JdbcConnectorParam {
     // use -1 as default value to find error earlier.
     int64_t catalog_id = -1;
@@ -57,118 +51,56 @@ struct JdbcConnectorParam {
     std::string table_name;
     bool use_transaction = false;
     TOdbcTableType::type table_type;
-    bool is_tvf = false;
     int32_t connection_pool_min_size = -1;
     int32_t connection_pool_max_size = -1;
     int32_t connection_pool_max_wait_time = -1;
     int32_t connection_pool_max_life_time = -1;
     bool connection_pool_keep_alive = false;
-
-    const TupleDescriptor* tuple_desc = nullptr;
 };
 
-class JdbcConnector : public TableConnector {
+/**
+ * JdbcConnector is now a reduced utility class used ONLY for:
+ * - test_connection() — called by PInternalService::test_jdbc_connection
+ * - clean_datasource() — called after test_connection
+ *
+ * All JDBC read operations have been moved to JdbcJniReader + JdbcJniScanner.
+ * All JDBC write operations have been moved to VJdbcTableWriter + JdbcJniWriter.
+ *
+ * @deprecated This class should be further simplified or removed when
+ * test_jdbc_connection is refactored to use the new JNI framework.
+ */
+class JdbcConnector {
 public:
-    struct JdbcStatistic {
-        int64_t _load_jar_timer = 0;
-        int64_t _init_connector_timer = 0;
-        int64_t _get_data_timer = 0;
-        int64_t _read_and_fill_vector_table_timer = 0;
-        int64_t _jni_setup_timer = 0;
-        int64_t _has_next_timer = 0;
-        int64_t _prepare_params_timer = 0;
-        int64_t _fill_block_timer = 0;
-        int64_t _cast_timer = 0;
-        int64_t _check_type_timer = 0;
-        int64_t _execte_read_timer = 0;
-        int64_t _connector_close_timer = 0;
-    };
-
     JdbcConnector(const JdbcConnectorParam& param);
+    ~JdbcConnector();
 
-    ~JdbcConnector() override;
+    Status open();
+    Status close();
 
-    Status open(RuntimeState* state, bool read = false);
-
-    Status query() override;
-
-    Status get_next(bool* eos, Block* block, int batch_size);
-
-    Status append(vectorized::Block* block, const vectorized::VExprContextSPtrs& _output_vexpr_ctxs,
-                  uint32_t start_send_row, uint32_t* num_rows_sent,
-                  TOdbcTableType::type table_type = TOdbcTableType::MYSQL) override;
-
-    Status exec_stmt_write(Block* block, const VExprContextSPtrs& output_vexpr_ctxs,
-                           uint32_t* num_rows_sent) override;
-
-    // use in JDBC transaction
-    Status begin_trans() override; // should be call after connect and before query or init_to_write
-    Status abort_trans() override; // should be call after transaction abort
-    Status finish_trans() override; // should be call after transaction commit
-
-    Status init_to_write(doris::RuntimeProfile* operator_profile) override {
-        init_profile(operator_profile);
-        return Status::OK();
-    }
-
-    JdbcStatistic& get_jdbc_statistic() { return _jdbc_statistic; }
-
-    Status close(Status s = Status::OK()) override;
-
+    // Test JDBC connection by opening a connection and calling testConnection()
     Status test_connection();
+    // Clean connection pool data source
     Status clean_datasource();
-
-protected:
-    JdbcConnectorParam _conn_param;
 
 private:
     Status _register_func_id(JNIEnv* env);
-
-    Status _get_reader_params(Block* block, JNIEnv* env, size_t column_size, Jni::LocalObject* ans);
-
-    Status _cast_string_to_special(Block* block, JNIEnv* env, size_t column_size);
-    Status _cast_string_to_hll(const SlotDescriptor* slot_desc, Block* block, int column_index,
-                               int rows);
-    Status _cast_string_to_bitmap(const SlotDescriptor* slot_desc, Block* block, int column_index,
-                                  int rows);
-    Status _cast_string_to_json(const SlotDescriptor* slot_desc, Block* block, int column_index,
-                                int rows);
-
     Status _get_java_table_type(JNIEnv* env, TOdbcTableType::type table_type,
                                 Jni::LocalObject* java_enum_obj);
-
     Status _get_real_url(const std::string& url, std::string* result_url);
     Status _check_and_return_default_driver_url(const std::string& url, std::string* result_url);
 
     bool _closed = false;
+    bool _is_open = false;
+    JdbcConnectorParam _conn_param;
 
     Jni::GlobalClass _executor_factory_clazz;
     Jni::GlobalClass _executor_clazz;
     Jni::GlobalObject _executor_obj;
     Jni::MethodId _executor_factory_ctor_id;
     Jni::MethodId _executor_ctor_id;
-    Jni::MethodId _executor_stmt_write_id;
-    Jni::MethodId _executor_read_id;
-    Jni::MethodId _executor_has_next_id;
-    Jni::MethodId _executor_get_block_address_id;
-    Jni::MethodId _executor_block_rows_id;
     Jni::MethodId _executor_close_id;
-    Jni::MethodId _executor_begin_trans_id;
-    Jni::MethodId _executor_finish_trans_id;
-    Jni::MethodId _executor_abort_trans_id;
     Jni::MethodId _executor_test_connection_id;
     Jni::MethodId _executor_clean_datasource_id;
-
-    std::map<int, int> _map_column_idx_to_cast_idx_hll;
-    std::vector<DataTypePtr> _input_hll_string_types;
-
-    std::map<int, int> _map_column_idx_to_cast_idx_bitmap;
-    std::vector<DataTypePtr> _input_bitmap_string_types;
-
-    std::map<int, int> _map_column_idx_to_cast_idx_json;
-    std::vector<DataTypePtr> _input_json_string_types;
-
-    JdbcStatistic _jdbc_statistic;
 };
 
 } // namespace vectorized
