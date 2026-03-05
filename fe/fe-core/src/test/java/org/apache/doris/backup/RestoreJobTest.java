@@ -242,6 +242,12 @@ public class RestoreJobTest {
             }
         };
 
+        new MockUp<AgentTaskExecutor>() {
+            @Mock
+            public void submit(AgentBatchTask task) {
+            }
+        };
+
         // gen BackupJobInfo
         jobInfo = new BackupJobInfo();
         jobInfo.backupTime = System.currentTimeMillis();
@@ -2227,12 +2233,6 @@ public class RestoreJobTest {
     }
 
     private void invokeCheckAndPrepareMeta(String storageMedium, String allocationMode) {
-        new MockUp<AgentTaskExecutor>() {
-            @Mock
-            public void submit(AgentBatchTask task) {
-            }
-        };
-
         RestoreJob testJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
                 jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
                 false, false, false, false, storageMedium, allocationMode, env, repo.getId());
