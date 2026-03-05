@@ -35,6 +35,8 @@ public class DataSourceConfigKeys {
     public static final String SNAPSHOT_SPLIT_SIZE = "snapshot_split_size";
     public static final String SNAPSHOT_PARALLELISM = "snapshot_parallelism";
     public static final String SNAPSHOT_PARALLELISM_DEFAULT = "1";
+    public static final String SSL_MODE = "ssl_mode";
+    public static final String SSL_ROOTCERT = "ssl_rootcert";
 
     // target properties
     public static final String TABLE_PROPS_PREFIX = "table.create.properties.";
