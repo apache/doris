@@ -137,13 +137,12 @@ public class LineageInfoExtractor {
                 new ExpressionLineageReplacer.ExpressionReplaceContext(outputs);
 
         // Resolve CTE consumer exprIds to producer slots before generic alias replacement.
-        // This makes direct lineage expressions stable for CTE queries, especially when a CTE
-        // output slot is projected directly as the sink output.
         collectCteConsumerExprMappings(plan, replaceContext);
 
         plan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
 
         List<? extends Expression> shuttledExpressions = replaceContext.getReplacedExpressions();
+        Map<ExprId, Expression> exprIdExpressionMap = replaceContext.getExprIdExpressionMap();
         for (int i = 0; i < outputs.size(); i++) {
             Slot outputSlot = outputs.get(i);
             if (!(outputSlot instanceof SlotReference)) {
@@ -151,6 +150,13 @@ public class LineageInfoExtractor {
             }
             SlotReference outputSlotRef = (SlotReference) outputSlot;
             Expression shuttledExpr = shuttledExpressions.get(i);
+            // Re-resolve through exprIdExpressionMap to handle CTE producer slots
+            // that weren't fully resolved during the initial replacement pass.
+            // This is needed because the ExpressionLineageReplacer traversal visits
+            // the CTE producer subtree (via CTEAnchor left child) which populates
+            // producer-internal alias mappings, but the initial replacement of
+            // consumer slots may stop at producer slots before those mappings exist.
+            shuttledExpr = shuttledExpr.accept(ExpressionReplacer.INSTANCE, exprIdExpressionMap);
             // Determine direct lineage type based on expression structure
             DirectLineageType type = determineDirectLineageType(shuttledExpr);
             lineageInfo.addDirectLineage(outputSlotRef, type, shuttledExpr);
@@ -160,6 +166,8 @@ public class LineageInfoExtractor {
 
     /**
      * Collect exprId mappings from CTE consumer output slots to producer slots.
+     * Ensures producer slot exprIds are in usedExprIdSet so the subsequent
+     * ExpressionLineageReplacer traversal will resolve producer-internal aliases.
      */
     private static void collectCteConsumerExprMappings(Plan plan,
             ExpressionLineageReplacer.ExpressionReplaceContext replaceContext) {
@@ -171,6 +179,12 @@ public class LineageInfoExtractor {
 
     /**
      * Visitor that registers CTE consumer-slot -> producer-slot mapping into exprIdExpressionMap.
+     *
+     * <p>The CTE anchor's left child (producer) is visited before the right child (consumer side)
+     * by DefaultPlanVisitor. At that point, the producer's alias exprIds are not yet in usedExprIdSet,
+     * so ExpressionLineageReplacer would normally skip them. By running this collector first,
+     * producer slot exprIds are pre-populated in usedExprIdSet, enabling the main traversal
+     * to resolve producer aliases (e.g. orderkey -> o.o_orderkey from the source table).
      */
     private static class CteConsumerExprIdCollector
             extends DefaultPlanVisitor<Void, ExpressionLineageReplacer.ExpressionReplaceContext> {
