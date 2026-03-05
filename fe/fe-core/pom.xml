@@ -787,6 +787,12 @@ under the License.
             <artifactId>mockito-inline</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- fastutil for memory-efficient primitive collections -->
+        <dependency>
+            <groupId>it.unimi.dsi</groupId>
+            <artifactId>fastutil-core</artifactId>
+            <version>8.5.18</version>
+        </dependency>
     </dependencies>
     <repositories>
         <!-- for hive-catalog-shade -->
