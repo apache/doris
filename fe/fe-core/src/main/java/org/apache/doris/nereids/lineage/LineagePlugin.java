@@ -38,11 +38,19 @@ public interface LineagePlugin extends Plugin {
     /**
      * Returns {@code true} if this plugin should receive lineage events
      * under the current configuration. Called before each event dispatch.
+     *
+     * <p><b>Thread-safety:</b> This method is called from both the single
+     * lineage worker thread and arbitrary query threads (via
+     * {@code hasActivePlugins()}). Implementations must be thread-safe.
      */
     boolean eventFilter();
 
     /**
      * Processes a lineage event.
+     *
+     * <p><b>Thread-safety:</b> This method is called from a single worker
+     * thread only, but may execute concurrently with {@link #eventFilter()}
+     * calls from query threads.
      *
      * @param lineageInfo the extracted lineage information
      * @return {@code true} if processing succeeded

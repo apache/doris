@@ -31,12 +31,15 @@ import org.apache.logging.log4j.Logger;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.ServiceConfigurationError;
+import java.util.Set;
 import java.util.ServiceLoader;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -165,9 +168,14 @@ public class LineageEventProcessor {
         }
 
         // 3. Create and initialize plugin instances from all discovered factories
+        Set<String> activeNames = new HashSet<>(Arrays.asList(Config.activate_lineage_plugin));
         List<LineagePlugin> plugins = new ArrayList<>();
         for (Map.Entry<String, LineagePluginFactory> entry : factories.entrySet()) {
             String pluginName = entry.getKey();
+            if (!activeNames.isEmpty() && !activeNames.contains(pluginName)) {
+                LOG.info("Skip lineage plugin not in activate_lineage_plugin: {}", pluginName);
+                continue;
+            }
             try {
                 Map<String, String> props = new HashMap<>();
                 props.put("plugin.path", resolvePluginPath(pluginName));
@@ -295,8 +303,6 @@ public class LineageEventProcessor {
         public void run() {
             LineageInfo lineageInfo;
             while (true) {
-                List<LineagePlugin> currentPlugins = lineagePlugins.get();
-
                 try {
                     lineageInfo = eventQueue.poll(EVENT_POLL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                     if (lineageInfo == null) {
@@ -306,6 +312,7 @@ public class LineageEventProcessor {
                     LOG.warn("encounter exception when getting lineage event from queue, ignore", e);
                     continue;
                 }
+                List<LineagePlugin> currentPlugins = lineagePlugins.get();
                 for (LineagePlugin lineagePlugin : currentPlugins) {
                     try {
                         if (lineagePlugin == null) {

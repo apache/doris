@@ -3607,7 +3607,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int audit_event_log_queue_size = 250000;
 
-    @ConfField(mutable = true, description = {"血缘事件队列最大长度，超过长度事件会被舍弃",
+    @ConfField(description = {"血缘事件队列最大长度，超过长度事件会被舍弃",
             "Max size of lineage event queue， events will be discarded when exceeded"})
     public static int lineage_event_queue_size = 50000;
 
