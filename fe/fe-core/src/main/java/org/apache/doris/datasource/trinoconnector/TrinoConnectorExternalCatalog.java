@@ -238,7 +238,13 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
                     return;
                 }
                 for (Thread hook : hooks.keySet()) {
-                    if (hook.getContextClassLoader() == targetClassLoader) {
+                    ClassLoader hookClassLoader = hook.getContextClassLoader();
+                    if (hookClassLoader == null) {
+                        continue;
+                    }
+                    // Match HdfsClassLoader instances whose parent is the connector's classloader
+                    if ("io.trino.filesystem.manager.HdfsClassLoader".equals(hookClassLoader.getClass().getName())
+                            && hookClassLoader.getParent() == targetClassLoader) {
                         toRemove.add(hook);
                     }
                 }
