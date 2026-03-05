@@ -47,8 +47,8 @@
 #include "cpp/aws_logger.h"
 #include "cpp/custom_aws_credentials_provider_chain.h"
 #include "cpp/obj_retry_strategy.h"
-#include "cpp/s3_rate_limiter.h"
 #include "cpp/sync_point.h"
+#include "cpp/token_bucket_rate_limiter.h"
 #include "cpp/util.h"
 #ifdef USE_AZURE
 #include "recycler/azure_obj_client.h"

@@ -64,6 +64,10 @@ public class CloudMetrics {
     public static LongCounterMetric META_SERVICE_RPC_ALL_RETRY;
     public static GaugeMetricImpl<Double> META_SERVICE_RPC_ALL_PER_SECOND;
 
+    // Per-method meta-service RPC Rate limiting metrics
+    public static AutoMappedMetric<LongCounterMetric> META_SERVICE_RPC_RATE_LIMIT_THROTTLED;
+    public static AutoMappedMetric<Histogram> META_SERVICE_RPC_RATE_LIMIT_THROTTLED_LATENCY;
+
     protected static void init() {
         if (Config.isNotCloudMode()) {
             return;
@@ -173,5 +177,14 @@ public class CloudMetrics {
         META_SERVICE_RPC_ALL_PER_SECOND = new GaugeMetricImpl<>("meta_service_rpc_all_per_second",
             MetricUnit.NOUNIT, "meta service RPC requests per second (all methods)", 0.0);
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(META_SERVICE_RPC_ALL_PER_SECOND);
+
+        META_SERVICE_RPC_RATE_LIMIT_THROTTLED = MetricRepo.addLabeledMetrics("method", () ->
+                new LongCounterMetric("meta_service_rpc_rate_limit_throttled", MetricUnit.NOUNIT,
+                        "meta service RPC rate limit throttled count"));
+        META_SERVICE_RPC_RATE_LIMIT_THROTTLED_LATENCY = new AutoMappedMetric<>(methodName -> {
+            String metricName = MetricRegistry.name("meta_service", "rpc", "rate_limit_throttled", "latency", "ms",
+                    "method=" + methodName);
+            return MetricRepo.METRIC_REGISTER.histogram(metricName);
+        });
     }
 }

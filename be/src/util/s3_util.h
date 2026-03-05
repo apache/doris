@@ -35,7 +35,7 @@
 #include "common/status.h"
 #include "core/string_ref.h"
 #include "cpp/aws_common.h"
-#include "cpp/s3_rate_limiter.h"
+#include "cpp/token_bucket_rate_limiter.h"
 #include "io/fs/obj_storage_client.h"
 
 namespace Aws::S3 {

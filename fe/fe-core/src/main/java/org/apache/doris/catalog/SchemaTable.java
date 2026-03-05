@@ -44,19 +44,22 @@ import java.util.Map;
  * Doris's representation of MySQL information schema table metadata.
  */
 public class SchemaTable extends Table {
-    private static final int FN_REFLEN = 512;
-    private static final int NAME_CHAR_LEN = 64;
-    private static final int MY_CS_NAME_SIZE = 32;
-    private static final int GRANTEE_len = 81;
-    private static final int PRIVILEGE_TYPE_LEN = 64;
-    private static final int IS_GRANTABLE_LEN = 3;
+        private static final int FN_REFLEN = 512;
+        private static final int NAME_CHAR_LEN = 64;
+        private static final int MY_CS_NAME_SIZE = 32;
+        private static final int GRANTEE_len = 81;
+        private static final int PRIVILEGE_TYPE_LEN = 64;
+        private static final int IS_GRANTABLE_LEN = 3;
 
-    public static final String BLACKHOLE_TABLE_NAME = "blackhole";
+        public static final String BLACKHOLE_TABLE_NAME = "blackhole";
 
-    // Now we just mock tables, table_privileges, referential_constraints, key_column_usage and routines table
-    // Because in MySQL ODBC, these tables are used.
-    // TODO(zhaochun): Review some commercial BI to check if we need support where clause in show statement
-    // like 'show table where_clause'. If we decide to support it, we must mock these related table here.
+        // Now we just mock tables, table_privileges, referential_constraints,
+        // key_column_usage and routines table
+        // Because in MySQL ODBC, these tables are used.
+        // TODO(zhaochun): Review some commercial BI to check if we need support where
+        // clause in show statement
+        // like 'show table where_clause'. If we decide to support it, we must mock
+        // these related table here.
     public static Map<String, Table> TABLE_MAP = ImmutableMap.<String, Table>builder().put("tables",
                     new SchemaTable(SystemIdGenerator.getNextId(), "tables", TableType.SCHEMA,
                             builder().column("TABLE_CATALOG", ScalarType.createVarchar(FN_REFLEN))
@@ -927,116 +930,126 @@ public class SchemaTable extends Table {
                                     .column("VERTICAL_COMPLETED_GROUPS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("STATUS_MSG", ScalarType.createVarchar(1024))
                                     .build()))
+            .put("backend_ms_rpc_table_throttlers",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "backend_ms_rpc_table_throttlers", TableType.SCHEMA,
+                            builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TABLE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("RPC_TYPE", ScalarType.createVarchar(64))
+                                    .column("QPS_LIMIT", ScalarType.createType(PrimitiveType.DOUBLE))
+                                    .column("CURRENT_QPS", ScalarType.createType(PrimitiveType.DOUBLE))
+                                    .build())
+            )
             .build();
 
-    private boolean fetchAllFe = false;
+        private boolean fetchAllFe = false;
 
-    protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {
-        super(id, name, type, baseSchema);
-    }
-
-    protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema, boolean fetchAllFe) {
-        this(id, name, type, baseSchema);
-        this.fetchAllFe = fetchAllFe;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        throw new UnsupportedOperationException("Do not allow to write SchemaTable to image.");
-    }
-
-    public static Builder builder() {
-        return new Builder();
-    }
-
-    public boolean shouldFetchAllFe() {
-        return ConnectContext.get().getSessionVariable().isFetchAllFeForSystemTable() && fetchAllFe;
-    }
-
-    public boolean shouldAddAgg() {
-        if (!shouldFetchAllFe()) {
-            return false;
-        }
-        List<Column> columns = getColumns();
-        for (Column column : columns) {
-            SchemaColumn schemaColumn = (SchemaColumn) column;
-            if (schemaColumn.isKey() || schemaColumn.getSchemaTableAggregateType() != null) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    public enum SchemaTableAggregateType {
-        SUM,
-        AVG,
-        MAX,
-        MIN
-    }
-
-    public static class SchemaColumn extends Column {
-        private SchemaTableAggregateType schemaTableAggregateType;
-
-        public SchemaColumn(String name, ScalarType type, SchemaTableAggregateType schemaTableAggregateType,
-                boolean isKey) {
-            super(name, type, true);
-            this.schemaTableAggregateType = schemaTableAggregateType;
-            setIsKey(isKey);
+        protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {
+                super(id, name, type, baseSchema);
         }
 
-        public SchemaTableAggregateType getSchemaTableAggregateType() {
-            return schemaTableAggregateType;
-        }
-    }
-
-    /**
-     * For TABLE_MAP.
-     **/
-    public static class Builder {
-        List<Column> columns;
-
-        public Builder() {
-            columns = Lists.newArrayList();
+        protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema, boolean fetchAllFe) {
+                this(id, name, type, baseSchema);
+                this.fetchAllFe = fetchAllFe;
         }
 
-        public Builder column(String name, ScalarType type) {
-            columns.add(new SchemaColumn(name, type, null, false));
-            return this;
+        @Override
+        public void write(DataOutput out) throws IOException {
+                throw new UnsupportedOperationException("Do not allow to write SchemaTable to image.");
         }
 
-        public Builder column(String name, ScalarType type, SchemaTableAggregateType schemaTableAggregateType,
-                boolean isKey) {
-            columns.add(new SchemaColumn(name, type, schemaTableAggregateType, isKey));
-            return this;
+        public static Builder builder() {
+                return new Builder();
         }
 
-        public List<Column> build() {
-            return columns;
+        public boolean shouldFetchAllFe() {
+                return ConnectContext.get().getSessionVariable().isFetchAllFeForSystemTable() && fetchAllFe;
         }
-    }
 
-    public static Expression generateAggBySchemaAggType(Slot slot, SchemaTableAggregateType schemaTableAggregateType) {
-        Expression res;
-        if (schemaTableAggregateType == SchemaTableAggregateType.AVG) {
-            res = new Avg(slot);
-        } else if (schemaTableAggregateType == SchemaTableAggregateType.MAX) {
-            res = new Max(slot);
-        } else if (schemaTableAggregateType == SchemaTableAggregateType.MIN) {
-            res = new Min(slot);
-        } else if (schemaTableAggregateType == SchemaTableAggregateType.SUM) {
-            res = new Sum(slot);
-        } else {
-            res = new AnyValue(slot);
+        public boolean shouldAddAgg() {
+                if (!shouldFetchAllFe()) {
+                        return false;
+                }
+                List<Column> columns = getColumns();
+                for (Column column : columns) {
+                        SchemaColumn schemaColumn = (SchemaColumn) column;
+                        if (schemaColumn.isKey() || schemaColumn.getSchemaTableAggregateType() != null) {
+                                return true;
+                        }
+                }
+                return false;
         }
-        return TypeCoercionUtils.castIfNotSameType(res, slot.getDataType());
-    }
 
-    @Override
-    public TTableDescriptor toThrift() {
-        TSchemaTable tSchemaTable = new TSchemaTable(SchemaTableType.getThriftType(this.name));
-        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.SCHEMA_TABLE,
-                TABLE_MAP.get(this.name).getBaseSchema().size(), 0, this.name, "");
-        tTableDescriptor.setSchemaTable(tSchemaTable);
-        return tTableDescriptor;
-    }
+        public enum SchemaTableAggregateType {
+                SUM,
+                AVG,
+                MAX,
+                MIN
+        }
+
+        public static class SchemaColumn extends Column {
+                private SchemaTableAggregateType schemaTableAggregateType;
+
+                public SchemaColumn(String name, ScalarType type, SchemaTableAggregateType schemaTableAggregateType,
+                                boolean isKey) {
+                        super(name, type, true);
+                        this.schemaTableAggregateType = schemaTableAggregateType;
+                        setIsKey(isKey);
+                }
+
+                public SchemaTableAggregateType getSchemaTableAggregateType() {
+                        return schemaTableAggregateType;
+                }
+        }
+
+        /**
+         * For TABLE_MAP.
+         **/
+        public static class Builder {
+                List<Column> columns;
+
+                public Builder() {
+                        columns = Lists.newArrayList();
+                }
+
+                public Builder column(String name, ScalarType type) {
+                        columns.add(new SchemaColumn(name, type, null, false));
+                        return this;
+                }
+
+                public Builder column(String name, ScalarType type, SchemaTableAggregateType schemaTableAggregateType,
+                                boolean isKey) {
+                        columns.add(new SchemaColumn(name, type, schemaTableAggregateType, isKey));
+                        return this;
+                }
+
+                public List<Column> build() {
+                        return columns;
+                }
+        }
+
+        public static Expression generateAggBySchemaAggType(Slot slot,
+                        SchemaTableAggregateType schemaTableAggregateType) {
+                Expression res;
+                if (schemaTableAggregateType == SchemaTableAggregateType.AVG) {
+                        res = new Avg(slot);
+                } else if (schemaTableAggregateType == SchemaTableAggregateType.MAX) {
+                        res = new Max(slot);
+                } else if (schemaTableAggregateType == SchemaTableAggregateType.MIN) {
+                        res = new Min(slot);
+                } else if (schemaTableAggregateType == SchemaTableAggregateType.SUM) {
+                        res = new Sum(slot);
+                } else {
+                        res = new AnyValue(slot);
+                }
+                return TypeCoercionUtils.castIfNotSameType(res, slot.getDataType());
+        }
+
+        @Override
+        public TTableDescriptor toThrift() {
+                TSchemaTable tSchemaTable = new TSchemaTable(SchemaTableType.getThriftType(this.name));
+                TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.SCHEMA_TABLE,
+                                TABLE_MAP.get(this.name).getBaseSchema().size(), 0, this.name, "");
+                tTableDescriptor.setSchemaTable(tSchemaTable);
+                return tTableDescriptor;
+        }
 }

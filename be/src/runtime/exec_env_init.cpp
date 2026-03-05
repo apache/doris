@@ -32,6 +32,9 @@
 #include <vector>
 
 #include "cloud/cloud_cluster_info.h"
+#include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_ms_backpressure_handler.h"
+#include "cloud/cloud_ms_rpc_rate_limiters.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_stream_load_executor.h"
 #include "cloud/cloud_tablet_hotspot.h"
@@ -44,7 +47,7 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/multi_version.h"
 #include "common/status.h"
-#include "cpp/s3_rate_limiter.h"
+#include "cpp/token_bucket_rate_limiter.h"
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/pipeline/task_queue.h"
 #include "exec/pipeline/task_scheduler.h"
@@ -430,6 +433,21 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
         // Start cluster info background worker for compaction read-write separation
         static_cast<CloudClusterInfo*>(_cluster_info)->start_bg_worker();
+
+        // Initialize host-level MS RPC rate limiters for cloud mode
+        _host_level_ms_rpc_rate_limiters = std::make_unique<cloud::HostLevelMSRpcRateLimiters>();
+        static_cast<CloudStorageEngine*>(_storage_engine.get())
+                ->meta_mgr()
+                .set_host_level_ms_rpc_rate_limiters(_host_level_ms_rpc_rate_limiters.get());
+
+        // Initialize table-level backpressure handling components
+        _table_rpc_qps_registry = std::make_unique<cloud::TableRpcQpsRegistry>();
+        _table_rpc_throttler = std::make_unique<cloud::TableRpcThrottler>();
+        _ms_backpressure_handler = std::make_unique<cloud::MSBackpressureHandler>(
+                _table_rpc_qps_registry.get(), _table_rpc_throttler.get());
+        static_cast<CloudStorageEngine*>(_storage_engine.get())
+                ->meta_mgr()
+                .set_ms_backpressure_handler(_ms_backpressure_handler.get());
     }
 
     _index_policy_mgr = new IndexPolicyMgr();
@@ -988,6 +1006,38 @@ void ExecEnv::destroy() {
 } // namespace doris
 
 namespace doris::config {
+namespace {
+
+void refresh_ms_rpc_rate_limiters() {
+    auto* rate_limiters = ExecEnv::GetInstance()->host_level_ms_rpc_rate_limiters();
+    if (rate_limiters != nullptr) {
+        rate_limiters->reset_all();
+    }
+}
+
+void refresh_ms_backpressure_throttle_params() {
+    auto* handler = ExecEnv::GetInstance()->ms_backpressure_handler();
+    if (handler != nullptr) {
+        handler->update_throttle_params({
+                .top_k = ms_backpressure_upgrade_top_k,
+                .ratio = ms_backpressure_throttle_ratio,
+                .floor_qps = ms_rpc_table_qps_limit_floor,
+        });
+    }
+}
+
+void refresh_ms_backpressure_coordinator_params() {
+    auto* handler = ExecEnv::GetInstance()->ms_backpressure_handler();
+    if (handler != nullptr) {
+        handler->update_coordinator_params({
+                .upgrade_cooldown_ticks = ms_backpressure_upgrade_interval_ms,
+                .downgrade_after_ticks = ms_backpressure_downgrade_interval_ms,
+        });
+    }
+}
+
+} // namespace
+
 // Callback to update warmup download rate limiter when config changes is registered
 DEFINE_ON_UPDATE(file_cache_warmup_download_rate_limit_bytes_per_second,
                  [](int64_t old_val, int64_t new_val) {
@@ -1005,4 +1055,45 @@ DEFINE_ON_UPDATE(file_cache_warmup_download_rate_limit_bytes_per_second,
                          }
                      }
                  });
+
+DEFINE_ON_UPDATE(ms_rpc_qps_default, [](int32_t old_val, int32_t new_val) {
+    if (old_val != new_val) {
+        refresh_ms_rpc_rate_limiters();
+    }
+});
+
+#define DEFINE_MS_RPC_QPS_ON_UPDATE(enum_name, config_suffix, display_name)             \
+    DEFINE_ON_UPDATE(ms_rpc_qps_##config_suffix, [](int32_t old_val, int32_t new_val) { \
+        if (old_val != new_val) {                                                       \
+            refresh_ms_rpc_rate_limiters();                                             \
+        }                                                                               \
+    });
+META_SERVICE_RPC_TYPES(DEFINE_MS_RPC_QPS_ON_UPDATE)
+#undef DEFINE_MS_RPC_QPS_ON_UPDATE
+
+DEFINE_ON_UPDATE(ms_backpressure_upgrade_interval_ms, [](int32_t old_val, int32_t new_val) {
+    if (old_val != new_val) {
+        refresh_ms_backpressure_coordinator_params();
+    }
+});
+DEFINE_ON_UPDATE(ms_backpressure_downgrade_interval_ms, [](int32_t old_val, int32_t new_val) {
+    if (old_val != new_val) {
+        refresh_ms_backpressure_coordinator_params();
+    }
+});
+DEFINE_ON_UPDATE(ms_backpressure_upgrade_top_k, [](int32_t old_val, int32_t new_val) {
+    if (old_val != new_val) {
+        refresh_ms_backpressure_throttle_params();
+    }
+});
+DEFINE_ON_UPDATE(ms_backpressure_throttle_ratio, [](double old_val, double new_val) {
+    if (old_val != new_val) {
+        refresh_ms_backpressure_throttle_params();
+    }
+});
+DEFINE_ON_UPDATE(ms_rpc_table_qps_limit_floor, [](double old_val, double new_val) {
+    if (old_val != new_val) {
+        refresh_ms_backpressure_throttle_params();
+    }
+});
 } // namespace doris::config
