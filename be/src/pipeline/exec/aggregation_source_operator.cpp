@@ -21,6 +21,7 @@
 #include <string>
 
 #include "common/exception.h"
+#include "common/logging.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
@@ -259,6 +260,50 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vecto
                         const auto size = std::min(data.size(), size_t(state->batch_size()));
                         using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
+
+                        if (shared_state.use_simple_count) {
+                            if constexpr (requires { agg_method.begin.get_first(); }) {
+                                // Inline count: mapped slot stores UInt64 count directly
+                                // (not a real AggregateDataPtr). Iterate hash table directly.
+                                // NOTE: must insert into value_columns[0] in-place (not replace it
+                                // with a new column), because when mem_reuse=true the block holds
+                                // the same underlying column object. Replacing it would leave the
+                                // block's column empty (0 rows).
+                                DCHECK_EQ(value_columns.size(), 1);
+                                auto& count_column = assert_cast<vectorized::ColumnInt64&>(
+                                        *value_columns[0]);
+                                uint32_t num_rows = 0;
+                                {
+                                    SCOPED_TIMER(_hash_table_iterate_timer);
+                                    auto& it = agg_method.begin;
+                                    while (it != agg_method.end && num_rows < state->batch_size()) {
+                                        keys[num_rows] = it.get_first();
+                                        auto& mapped = it.get_second();
+                                        count_column.insert_value(static_cast<vectorized::Int64>(
+                                                reinterpret_cast<const vectorized::UInt64&>(
+                                                        mapped)));
+                                        ++it;
+                                        ++num_rows;
+                                    }
+                                }
+                                {
+                                    SCOPED_TIMER(_insert_keys_to_column_timer);
+                                    agg_method.insert_keys_into_columns(keys, key_columns,
+                                                                        num_rows);
+                                }
+
+                                if (agg_method.begin == agg_method.end) {
+                                    *eos = true;
+                                }
+                                return;
+                            } else {
+                                throw doris::Exception(
+                                        ErrorCode::INTERNAL_ERROR,
+                                        "simple count not supported for this hash table type");
+                            }
+                        }
+
+                        // Normal (non-simple-count) path
                         if (shared_state.values.size() < size) {
                             shared_state.values.resize(size);
                         }
