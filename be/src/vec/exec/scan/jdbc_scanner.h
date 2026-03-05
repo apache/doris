@@ -20,6 +20,7 @@
 #include <gen_cpp/Types_types.h>
 #include <stdint.h>
 
+#include <map>
 #include <memory>
 #include <string>
 
@@ -29,7 +30,6 @@
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/scan/scanner.h"
-#include "vec/exec/vjdbc_connector.h"
 
 namespace doris {
 class RuntimeState;
@@ -38,12 +38,25 @@ class TupleDescriptor;
 namespace vectorized {
 class Block;
 class VExprContext;
+class JdbcJniReader;
 
+/**
+ * JdbcScanner is the pipeline-level scanner for JDBC data sources.
+ *
+ * In the transitional phase (Phase 3), it delegates to JdbcJniReader internally,
+ * which routes through the unified JniConnector → JdbcJniScanner (Java) path.
+ *
+ * This keeps FE unchanged (still uses TJdbcScanNode), while the actual
+ * data reading is unified with the JniReader/GenericReader framework.
+ *
+ * In Phase 4, this class will be eliminated and JDBC will flow through
+ * FileScanner directly.
+ */
 class JdbcScanner : public Scanner {
     ENABLE_FACTORY_CREATOR(JdbcScanner);
 
 public:
-    friend class JdbcConnector;
+    friend class JdbcJniReader;
 
     JdbcScanner(RuntimeState* state, doris::pipeline::JDBCScanLocalState* parent, int64_t limit,
                 const TupleId& tuple_id, const std::string& query_string,
@@ -56,22 +69,9 @@ public:
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
-    RuntimeProfile::Counter* _load_jar_timer = nullptr;
-    RuntimeProfile::Counter* _init_connector_timer = nullptr;
-    RuntimeProfile::Counter* _get_data_timer = nullptr;
-    RuntimeProfile::Counter* _jni_setup_timer = nullptr;
-    RuntimeProfile::Counter* _has_next_timer = nullptr;
-    RuntimeProfile::Counter* _prepare_params_timer = nullptr;
-    RuntimeProfile::Counter* _cast_timer = nullptr;
-    RuntimeProfile::Counter* _read_and_fill_vector_table_timer = nullptr;
-    RuntimeProfile::Counter* _fill_block_timer = nullptr;
-    RuntimeProfile::Counter* _check_type_timer = nullptr;
-    RuntimeProfile::Counter* _execte_read_timer = nullptr;
-    RuntimeProfile::Counter* _connector_close_timer = nullptr;
-
 private:
-    void _init_profile(const std::shared_ptr<RuntimeProfile>& profile);
-    void _update_profile();
+    // Build JDBC params from TupleDescriptor for JdbcJniReader
+    std::map<std::string, std::string> _build_jdbc_params(const TupleDescriptor* tuple_desc);
 
     bool _jdbc_eos;
 
@@ -81,12 +81,11 @@ private:
     std::string _query_string;
     // Descriptor of tuples read from JDBC table.
     const TupleDescriptor* _tuple_desc = nullptr;
-    // the sql query database type: like mysql, PG...
+    // the sql query database type: like mysql, PG..
     TOdbcTableType::type _table_type;
     bool _is_tvf;
-    // Scanner of JDBC.
-    std::unique_ptr<JdbcConnector> _jdbc_connector;
-    JdbcConnectorParam _jdbc_param;
+    // Unified JNI reader
+    std::unique_ptr<JdbcJniReader> _jni_reader;
 };
 } // namespace vectorized
 } // namespace doris
