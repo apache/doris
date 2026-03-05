@@ -36,6 +36,10 @@ prompts:
     hint: 'your doris password, if no password, just Enter'
     hide_input: true
     default: ''
+  session_variables:
+    hint: 'optional session variables to set after connection (e.g. time_zone: "Asia/Shanghai", exec_mem_limit: 8589934592)'
+    type: 'dict'
+    default: null
   threads:
     hint: "1 or more"
     type: "int"

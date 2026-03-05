@@ -22,9 +22,13 @@ default:
   outputs:
     dev:
       type: doris
-        host: <host>
-        port: <port_num>
-        username: <user>
-        password: <pass>
-        database: <db>
+      host: <host>
+      port: <port_num>
+      username: <user>
+      password: <pass>
+      database: <db>
+      # optional: set session variables for each connection
+      # session_variables:
+      #   time_zone: "Asia/Shanghai"
+      #   exec_mem_limit: 8589934592
   target: dev
