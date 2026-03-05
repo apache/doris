@@ -832,17 +832,25 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, PlanTranslatorContext context) {
         List<Slot> slots = jdbcScan.getOutput();
-        TableIf table = jdbcScan.getTable();
+        ExternalTable table = (ExternalTable) jdbcScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
         JdbcScanNode jdbcScanNode = new JdbcScanNode(context.nextPlanNodeId(), tupleDescriptor,
                 table instanceof JdbcExternalTable);
         jdbcScanNode.setNereidsId(jdbcScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(jdbcScan.getId(), jdbcScanNode.getId());
+
+        TableNameInfo tableNameInfo = new TableNameInfo(null, "", "");
+        TableRefInfo ref = new TableRefInfo(tableNameInfo, null, null);
+        BaseTableRefInfo tableRefInfo = new BaseTableRefInfo(ref, tableNameInfo, table);
+        tupleDescriptor.setRef(tableRefInfo);
+        if (jdbcScan.getStats() != null) {
+            jdbcScanNode.setCardinality((long) jdbcScan.getStats().getRowCount());
+        }
         Utils.execWithUncheckedException(jdbcScanNode::init);
         context.addScanNode(jdbcScanNode, jdbcScan);
         translateRuntimeFilter(jdbcScan, jdbcScanNode, context);
         DataPartition dataPartition = DataPartition.RANDOM;
-        PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), jdbcScanNode, dataPartition);
+        PlanFragment planFragment = createPlanFragment(jdbcScanNode, dataPartition, jdbcScan);
         context.addPlanFragment(planFragment);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), jdbcScan);
         return planFragment;

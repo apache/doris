@@ -74,6 +74,7 @@
 #include "vec/exec/format/table/remote_doris_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/format/table/trino_connector_jni_reader.h"
+#include "vec/exec/format/table/jdbc_jni_reader.h"
 #include "vec/exec/format/text/text_reader.h"
 #include "vec/exec/format/wal/wal_reader.h"
 #include "vec/exec/scan/scan_node.h"
@@ -1027,6 +1028,15 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = TrinoConnectorJniReader::create_unique(_file_slot_descs, _state,
                                                                      _profile, range);
                 init_status = ((TrinoConnectorJniReader*)(_cur_reader.get()))->init_reader();
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "jdbc") {
+                // Extract jdbc params from table_format_params
+                std::map<std::string, std::string> jdbc_params(
+                        range.table_format_params.jdbc_params.begin(),
+                        range.table_format_params.jdbc_params.end());
+                _cur_reader = JdbcJniReader::create_unique(
+                        _file_slot_descs, _state, _profile, jdbc_params);
+                init_status = ((JdbcJniReader*)(_cur_reader.get()))->init_reader();
             }
             // Set col_name_to_block_idx for JNI readers to avoid repeated map creation
             if (_cur_reader) {
