@@ -65,8 +65,8 @@ private:
     std::string _gen_csv_header_types();
 
     std::string _csv_header;
-    std::string_view _column_separator;
-    std::string_view _line_delimiter;
+    std::string _column_separator;
+    std::string _line_delimiter;
 
     doris::io::FileWriter* _file_writer = nullptr;
     // Used to buffer the export data of plain text

@@ -193,9 +193,18 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 outputExpressions, child);
         Optional<LogicalRepeat<?>> childRepeat =
                 copiedAggregate.collectFirst(LogicalRepeat.class::isInstance);
-        return childRepeat.isPresent() ? aggregate.withChildGroupByAndOutputAndSourceRepeat(
-                groupByExpressions, outputExpressions, child, childRepeat)
-                : aggregate.withChildGroupByAndOutput(groupByExpressions, outputExpressions, child);
+        List<Expression> partitionExpressions = ImmutableList.of();
+        if (aggregate.getPartitionExpressions().isPresent()) {
+            partitionExpressions = aggregate.getPartitionExpressions().get().stream()
+                    .map(k -> ExpressionDeepCopier.INSTANCE.deepCopy(k, context))
+                    .collect(ImmutableList.toImmutableList());
+        }
+        Optional<List<Expression>> optionalPartitionExpressions = partitionExpressions.isEmpty()
+                ? Optional.empty() : Optional.of(partitionExpressions);
+        return childRepeat.isPresent() ? aggregate.withChildGroupByAndOutputAndSourceRepeatAndPartitionExpr(
+                groupByExpressions, outputExpressions, optionalPartitionExpressions, child, childRepeat)
+                : aggregate.withChildGroupByAndOutputAndPartitionExpr(groupByExpressions, outputExpressions,
+                        optionalPartitionExpressions, child);
     }
 
     @Override
@@ -211,7 +220,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .collect(ImmutableList.toImmutableList());
         SlotReference groupingId = (SlotReference) ExpressionDeepCopier.INSTANCE
                 .deepCopy(repeat.getGroupingId().get(), context);
-        return new LogicalRepeat<>(groupingSets, outputExpressions, groupingId, child);
+        return new LogicalRepeat<>(groupingSets, outputExpressions, groupingId, repeat.getRepeatType(), child);
     }
 
     @Override

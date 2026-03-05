@@ -34,7 +34,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
+import java.util.function.BiFunction;
 
 public abstract class StorageProperties extends ConnectionProperties {
 
@@ -42,6 +42,7 @@ public abstract class StorageProperties extends ConnectionProperties {
     public static final String FS_S3_SUPPORT = "fs.s3.support";
     public static final String FS_GCS_SUPPORT = "fs.gcs.support";
     public static final String FS_MINIO_SUPPORT = "fs.minio.support";
+    public static final String FS_OZONE_SUPPORT = "fs.ozone.support";
     public static final String FS_BROKER_SUPPORT = "fs.broker.support";
     public static final String FS_AZURE_SUPPORT = "fs.azure.support";
     public static final String FS_OSS_SUPPORT = "fs.oss.support";
@@ -67,6 +68,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         GCS,
         OSS_HDFS,
         MINIO,
+        OZONE,
         AZURE,
         BROKER,
         LOCAL,
@@ -134,14 +136,19 @@ public abstract class StorageProperties extends ConnectionProperties {
      */
     public static List<StorageProperties> createAll(Map<String, String> origProps) throws UserException {
         List<StorageProperties> result = new ArrayList<>();
-        for (Function<Map<String, String>, StorageProperties> func : PROVIDERS) {
-            StorageProperties p = func.apply(origProps);
+        // If the user has explicitly specified any fs.xx.support=true, disable guessIsMe heuristics
+        // for all providers to avoid false-positive matches from ambiguous endpoint strings.
+        boolean useGuess = !hasAnyExplicitFsSupport(origProps);
+        for (BiFunction<Map<String, String>, Boolean, StorageProperties> func : PROVIDERS) {
+            StorageProperties p = func.apply(origProps, useGuess);
             if (p != null) {
                 result.add(p);
             }
         }
-        // Add default HDFS storage if not explicitly configured
-        if (result.stream().noneMatch(HdfsProperties.class::isInstance)) {
+        // When no explicit fs.xx.support flag is set, add a default HDFS storage as fallback.
+        // When the user has explicitly declared providers via fs.xx.support=true, skip the
+        // default HDFS to avoid injecting an unwanted provider into the result.
+        if (useGuess && result.stream().noneMatch(HdfsProperties.class::isInstance)) {
             result.add(0, new HdfsProperties(origProps, false));
         }
 
@@ -163,8 +170,11 @@ public abstract class StorageProperties extends ConnectionProperties {
      * @throws RuntimeException if no supported storage type is found
      */
     public static StorageProperties createPrimary(Map<String, String> origProps) {
-        for (Function<Map<String, String>, StorageProperties> func : PROVIDERS) {
-            StorageProperties p = func.apply(origProps);
+        // If the user has explicitly specified any fs.xx.support=true, disable guessIsMe heuristics
+        // for all providers to avoid false-positive matches from ambiguous endpoint strings.
+        boolean useGuess = !hasAnyExplicitFsSupport(origProps);
+        for (BiFunction<Map<String, String>, Boolean, StorageProperties> func : PROVIDERS) {
+            StorageProperties p = func.apply(origProps, useGuess);
             if (p != null) {
                 p.initNormalizeAndCheckProps();
                 p.buildHadoopStorageConfig();
@@ -174,42 +184,57 @@ public abstract class StorageProperties extends ConnectionProperties {
         throw new StoragePropertiesException("No supported storage type found. Please check your configuration.");
     }
 
-    private static final List<Function<Map<String, String>, StorageProperties>> PROVIDERS =
+    /**
+     * Registry of all supported storage provider detection functions.
+     * <p>
+     * Each entry is a {@link BiFunction} that takes:
+     * <ul>
+     *   <li>{@code props} — the user-supplied property map</li>
+     *   <li>{@code guess} — whether heuristic-based {@code guessIsMe} detection is enabled.
+     *       When {@code false}, only explicit {@code fs.xx.support=true} flags are honored,
+     *       preventing endpoint-based heuristics from causing false-positive matches
+     *       across providers (e.g., an {@code aliyuncs.com} endpoint accidentally
+     *       matching both OSS and S3).</li>
+     * </ul>
+     * Returns a {@link StorageProperties} instance if the provider matches, or {@code null} otherwise.
+     */
+    private static final List<BiFunction<Map<String, String>, Boolean, StorageProperties>> PROVIDERS =
             Arrays.asList(
-                    props -> (isFsSupport(props, FS_HDFS_SUPPORT)
-                            || HdfsProperties.guessIsMe(props)) ? new HdfsProperties(props) : null,
-                    props -> {
+                    (props, guess) -> (isFsSupport(props, FS_HDFS_SUPPORT)
+                            || (guess && HdfsProperties.guessIsMe(props))) ? new HdfsProperties(props) : null,
+                    (props, guess) -> {
                         // OSS-HDFS and OSS are mutually exclusive - check OSS-HDFS first
                         if ((isFsSupport(props, FS_OSS_HDFS_SUPPORT)
                                 || isFsSupport(props, DEPRECATED_OSS_HDFS_SUPPORT))
-                                || OSSHdfsProperties.guessIsMe(props)) {
+                                || (guess && OSSHdfsProperties.guessIsMe(props))) {
                             return new OSSHdfsProperties(props);
                         }
                         // Only check for regular OSS if OSS-HDFS is not enabled
                         if (isFsSupport(props, FS_OSS_SUPPORT)
-                                || OSSProperties.guessIsMe(props)) {
+                                || (guess && OSSProperties.guessIsMe(props))) {
                             return new OSSProperties(props);
                         }
                         return null;
                     },
-                    props -> (isFsSupport(props, FS_S3_SUPPORT)
-                            || S3Properties.guessIsMe(props)) ? new S3Properties(props) : null,
-                    props -> (isFsSupport(props, FS_OBS_SUPPORT)
-                            || OBSProperties.guessIsMe(props)) ? new OBSProperties(props) : null,
-                    props -> (isFsSupport(props, FS_COS_SUPPORT)
-                            || COSProperties.guessIsMe(props)) ? new COSProperties(props) : null,
-                    props -> (isFsSupport(props, FS_GCS_SUPPORT)
-                            || GCSProperties.guessIsMe(props)) ? new GCSProperties(props) : null,
-                    props -> (isFsSupport(props, FS_AZURE_SUPPORT)
-                            || AzureProperties.guessIsMe(props)) ? new AzureProperties(props) : null,
-                    props -> (isFsSupport(props, FS_MINIO_SUPPORT)
-                            || MinioProperties.guessIsMe(props)) ? new MinioProperties(props) : null,
-                    props -> (isFsSupport(props, FS_BROKER_SUPPORT)
-                            || BrokerProperties.guessIsMe(props)) ? new BrokerProperties(props) : null,
-                    props -> (isFsSupport(props, FS_LOCAL_SUPPORT)
-                            || LocalProperties.guessIsMe(props)) ? new LocalProperties(props) : null,
-                    props -> (isFsSupport(props, FS_HTTP_SUPPORT)
-                            || HttpProperties.guessIsMe(props)) ? new HttpProperties(props) : null
+                    (props, guess) -> (isFsSupport(props, FS_S3_SUPPORT)
+                            || (guess && S3Properties.guessIsMe(props))) ? new S3Properties(props) : null,
+                    (props, guess) -> (isFsSupport(props, FS_OBS_SUPPORT)
+                            || (guess && OBSProperties.guessIsMe(props))) ? new OBSProperties(props) : null,
+                    (props, guess) -> (isFsSupport(props, FS_COS_SUPPORT)
+                            || (guess && COSProperties.guessIsMe(props))) ? new COSProperties(props) : null,
+                    (props, guess) -> (isFsSupport(props, FS_GCS_SUPPORT)
+                            || (guess && GCSProperties.guessIsMe(props))) ? new GCSProperties(props) : null,
+                    (props, guess) -> (isFsSupport(props, FS_AZURE_SUPPORT)
+                            || (guess && AzureProperties.guessIsMe(props))) ? new AzureProperties(props) : null,
+                    (props, guess) -> (isFsSupport(props, FS_MINIO_SUPPORT)
+                            || (guess && MinioProperties.guessIsMe(props))) ? new MinioProperties(props) : null,
+                    (props, guess) -> isFsSupport(props, FS_OZONE_SUPPORT) ? new OzoneProperties(props) : null,
+                    (props, guess) -> (isFsSupport(props, FS_BROKER_SUPPORT)
+                            || (guess && BrokerProperties.guessIsMe(props))) ? new BrokerProperties(props) : null,
+                    (props, guess) -> (isFsSupport(props, FS_LOCAL_SUPPORT)
+                            || (guess && LocalProperties.guessIsMe(props))) ? new LocalProperties(props) : null,
+                    (props, guess) -> (isFsSupport(props, FS_HTTP_SUPPORT)
+                            || (guess && HttpProperties.guessIsMe(props))) ? new HttpProperties(props) : null
             );
 
     protected StorageProperties(Type type, Map<String, String> origProps) {
@@ -219,6 +244,35 @@ public abstract class StorageProperties extends ConnectionProperties {
 
     private static boolean isFsSupport(Map<String, String> origProps, String fsEnable) {
         return origProps.getOrDefault(fsEnable, "false").equalsIgnoreCase("true");
+    }
+
+    /**
+     * Checks whether the user has explicitly set any {@code fs.xx.support=true} property.
+     * <p>
+     * When at least one explicit {@code fs.xx.support} flag is present, the system should
+     * rely solely on these flags for provider matching and skip the heuristic-based
+     * {@code guessIsMe} inference. This prevents ambiguous endpoint strings (e.g.,
+     * {@code aliyuncs.com}) from accidentally triggering multiple providers (e.g.,
+     * both OSS and S3) at the same time.
+     *
+     * @param props the raw property map from user configuration
+     * @return {@code true} if any {@code fs.xx.support} property is explicitly set to "true"
+     */
+    private static boolean hasAnyExplicitFsSupport(Map<String, String> props) {
+        return isFsSupport(props, FS_HDFS_SUPPORT)
+                || isFsSupport(props, FS_S3_SUPPORT)
+                || isFsSupport(props, FS_GCS_SUPPORT)
+                || isFsSupport(props, FS_MINIO_SUPPORT)
+                || isFsSupport(props, FS_BROKER_SUPPORT)
+                || isFsSupport(props, FS_AZURE_SUPPORT)
+                || isFsSupport(props, FS_OSS_SUPPORT)
+                || isFsSupport(props, FS_OBS_SUPPORT)
+                || isFsSupport(props, FS_COS_SUPPORT)
+                || isFsSupport(props, FS_OSS_HDFS_SUPPORT)
+                || isFsSupport(props, FS_LOCAL_SUPPORT)
+                || isFsSupport(props, FS_HTTP_SUPPORT)
+                || isFsSupport(props, FS_OZONE_SUPPORT)
+                || isFsSupport(props, DEPRECATED_OSS_HDFS_SUPPORT);
     }
 
     protected static boolean checkIdentifierKey(Map<String, String> origProps, List<Field> fields) {

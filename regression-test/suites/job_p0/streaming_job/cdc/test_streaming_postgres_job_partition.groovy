@@ -111,11 +111,12 @@ suite("test_streaming_postgres_job_partition", "p0,external,pg,external_docker,e
 
         // 4. mock insert, update, delete and create new partition
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
-            sql """SET search_path TO ${pgSchema}"""
-
             // insert
             sql """INSERT INTO ${pgSchema}.${table1} (id, user_id, order_date)
                    VALUES (3, 1003, DATE '2024-01-20');"""
+		
+            def xminResult = sql """SELECT xmin, xmax , * FROM ${pgSchema}.${table1} WHERE id = 3"""
+            log.info("xminResult: " + xminResult)
 
             // update
             sql """UPDATE ${pgSchema}.${table1}
@@ -132,6 +133,9 @@ suite("test_streaming_postgres_job_partition", "p0,external,pg,external_docker,e
 
             sql """INSERT INTO ${pgSchema}.${table1} (id, user_id, order_date)
                    VALUES (4, 1004, DATE '2024-03-15');"""
+
+            def xminResult1 = sql """SELECT xmin, xmax , * FROM ${pgSchema}.${table1} WHERE id = 4"""
+            log.info("xminResult1: " + xminResult1)
         }
 
         // wait for all incremental data 

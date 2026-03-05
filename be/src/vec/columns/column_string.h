@@ -166,7 +166,8 @@ public:
     bool is_column_string64() const override { return sizeof(T) == sizeof(uint64_t); }
 
     void insert_from(const IColumn& src_, size_t n) override {
-        const ColumnStr<T>& src = assert_cast<const ColumnStr<T>&>(src_);
+        const ColumnStr<T>& src =
+                assert_cast<const ColumnStr<T>&, TypeCheckOnRelease::DISABLE>(src_);
         const size_t size_to_append =
                 src.offsets[n] - src.offsets[n - 1]; /// -1th index is Ok, see PaddedPODArray.
 

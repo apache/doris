@@ -80,6 +80,8 @@ public:
         bool enable_doc_mode = false;
         int64_t doc_materialization_min_rows = 0;
         int32_t doc_hash_shard_count = 64;
+
+        bool enable_nested_group = false;
     };
 
     TabletColumn();
@@ -278,6 +280,10 @@ public:
     void set_variant_enable_typed_paths_to_sparse(bool variant_enable_typed_paths_to_sparse) {
         _variant.enable_typed_paths_to_sparse = variant_enable_typed_paths_to_sparse;
     }
+
+    bool variant_enable_nested_group() const { return _variant.enable_nested_group; }
+
+    void set_variant_enable_nested_group(bool val) { _variant.enable_nested_group = val; }
 
     bool is_decimal() const { return _is_decimal; }
 
@@ -578,7 +584,7 @@ public:
     vectorized::Block create_block(
             const std::vector<uint32_t>& return_columns,
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
-    vectorized::Block create_block(bool ignore_dropped_col = true) const;
+    vectorized::Block create_block() const;
     void set_schema_version(int32_t version) { _schema_version = version; }
     void set_auto_increment_column(const std::string& auto_increment_column) {
         _auto_increment_column = auto_increment_column;

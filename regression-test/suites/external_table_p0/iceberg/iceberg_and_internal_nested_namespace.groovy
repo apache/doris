@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_and_internal_nested_namespace", "p0,external,doris,external_docker,external_docker_doris") {
+suite("iceberg_and_internal_nested_namespace", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {

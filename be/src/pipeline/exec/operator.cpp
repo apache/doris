@@ -45,6 +45,7 @@
 #include "pipeline/exec/jdbc_table_sink_operator.h"
 #include "pipeline/exec/local_merge_sort_source_operator.h"
 #include "pipeline/exec/materialization_opertor.h"
+#include "pipeline/exec/maxcompute_table_sink_operator.h"
 #include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/mock_operator.h"
@@ -76,10 +77,12 @@
 #include "pipeline/exec/set_source_operator.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
+#include "pipeline/exec/spill_iceberg_table_sink_operator.h"
 #include "pipeline/exec/spill_sort_sink_operator.h"
 #include "pipeline/exec/spill_sort_source_operator.h"
 #include "pipeline/exec/streaming_aggregation_operator.h"
 #include "pipeline/exec/table_function_operator.h"
+#include "pipeline/exec/tvf_table_sink_operator.h"
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
@@ -175,7 +178,7 @@ std::string OperatorXBase::debug_string(RuntimeState* state, int indentation_lev
     return state->get_local_state(operator_id())->debug_string(indentation_level);
 }
 
-Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
+Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* state) {
     std::string node_name = print_plan_node_type(tnode.node_type);
     _nereids_id = tnode.nereids_id;
     if (!tnode.intermediate_output_tuple_id_list.empty()) {
@@ -195,11 +198,9 @@ Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
     _op_name = substr + "_OPERATOR";
 
     if (tnode.__isset.vconjunct) {
-        vectorized::VExprContextSPtr context;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(tnode.vconjunct, context));
-        _conjuncts.emplace_back(context);
+        return Status::InternalError("vconjunct is not supported yet");
     } else if (tnode.__isset.conjuncts) {
-        for (auto& conjunct : tnode.conjuncts) {
+        for (const auto& conjunct : tnode.conjuncts) {
             vectorized::VExprContextSPtr context;
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(conjunct, context));
             _conjuncts.emplace_back(context);
@@ -207,7 +208,6 @@ Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
     }
 
     // create the projections expr
-
     if (tnode.__isset.projections) {
         DCHECK(tnode.__isset.output_tuple_id);
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(tnode.projections, _projections));
@@ -228,6 +228,12 @@ Status OperatorXBase::prepare(RuntimeState* state) {
     for (auto& conjunct : _conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, intermediate_row_desc()));
     }
+    if (state->enable_adjust_conjunct_order_by_cost()) {
+        std::ranges::sort(_conjuncts, [](const auto& a, const auto& b) {
+            return a->execute_cost() < b->execute_cost();
+        });
+    };
+
     for (int i = 0; i < _intermediate_projections.size(); i++) {
         RETURN_IF_ERROR(vectorized::VExpr::prepare(_intermediate_projections[i], state,
                                                    intermediate_row_desc(i)));
@@ -285,8 +291,8 @@ void PipelineXLocalStateBase::clear_origin_block() {
 }
 
 Status PipelineXLocalStateBase::filter_block(const vectorized::VExprContextSPtrs& expr_contexts,
-                                             vectorized::Block* block, size_t column_to_keep) {
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(expr_contexts, block, column_to_keep));
+                                             vectorized::Block* block) {
+    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(expr_contexts, block, block->columns()));
 
     _estimate_memory_usage += vectorized::VExprContext::get_memory_usage(expr_contexts);
     return Status::OK();
@@ -814,7 +820,10 @@ DECLARE_OPERATOR(ResultFileSinkLocalState)
 DECLARE_OPERATOR(OlapTableSinkLocalState)
 DECLARE_OPERATOR(OlapTableSinkV2LocalState)
 DECLARE_OPERATOR(HiveTableSinkLocalState)
+DECLARE_OPERATOR(TVFTableSinkLocalState)
 DECLARE_OPERATOR(IcebergTableSinkLocalState)
+DECLARE_OPERATOR(SpillIcebergTableSinkLocalState)
+DECLARE_OPERATOR(MCTableSinkLocalState)
 DECLARE_OPERATOR(AnalyticSinkLocalState)
 DECLARE_OPERATOR(BlackholeSinkLocalState)
 DECLARE_OPERATOR(SortSinkLocalState)
@@ -933,6 +942,10 @@ template class AsyncWriterSink<doris::vectorized::VTabletWriter, OlapTableSinkOp
 template class AsyncWriterSink<doris::vectorized::VTabletWriterV2, OlapTableSinkV2OperatorX>;
 template class AsyncWriterSink<doris::vectorized::VHiveTableWriter, HiveTableSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VIcebergTableWriter, IcebergTableSinkOperatorX>;
+template class AsyncWriterSink<doris::vectorized::VIcebergTableWriter,
+                               SpillIcebergTableSinkOperatorX>;
+template class AsyncWriterSink<doris::vectorized::VMCTableWriter, MCTableSinkOperatorX>;
+template class AsyncWriterSink<doris::vectorized::VTVFTableWriter, TVFTableSinkOperatorX>;
 
 #ifdef BE_TEST
 template class OperatorX<DummyOperatorLocalState>;

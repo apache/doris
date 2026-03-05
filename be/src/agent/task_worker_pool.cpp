@@ -88,6 +88,7 @@
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/snapshot_loader.h"
+#include "runtime/user_function_cache.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
@@ -2396,12 +2397,17 @@ void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
 }
 
 void clean_udf_cache_callback(const TAgentTaskRequest& req) {
+    const auto& clean_req = req.clean_udf_cache_req;
+
     if (doris::config::enable_java_support) {
-        LOG(INFO) << "clean udf cache start: " << req.clean_udf_cache_req.function_signature;
-        static_cast<void>(
-                Jni::Util::clean_udf_class_load_cache(req.clean_udf_cache_req.function_signature));
-        LOG(INFO) << "clean udf cache  finish: " << req.clean_udf_cache_req.function_signature;
+        static_cast<void>(Jni::Util::clean_udf_class_load_cache(clean_req.function_signature));
     }
+
+    if (clean_req.__isset.function_id && clean_req.function_id > 0) {
+        UserFunctionCache::instance()->drop_function_cache(clean_req.function_id);
+    }
+
+    LOG(INFO) << "clean udf cache finish: function_signature=" << clean_req.function_signature;
 }
 
 void report_index_policy_callback(const ClusterInfo* cluster_info) {

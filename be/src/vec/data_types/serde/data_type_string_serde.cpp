@@ -437,6 +437,12 @@ void DataTypeStringSerDeBase<ColumnType>::to_string(const IColumn& column, size_
 }
 
 template <typename ColumnType>
+std::string DataTypeStringSerDeBase<ColumnType>::to_olap_string(
+        const vectorized::Field& field) const {
+    return field.get<TYPE_STRING>();
+}
+
+template <typename ColumnType>
 bool DataTypeStringSerDeBase<ColumnType>::write_column_to_presto_text(
         const IColumn& column, BufferWritable& bw, int64_t row_idx,
         const FormatOptions& options) const {

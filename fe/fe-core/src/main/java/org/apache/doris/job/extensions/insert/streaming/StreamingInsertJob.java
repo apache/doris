@@ -102,6 +102,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 @Log4j2
 public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, Map<Object, Object>> implements
         TxnStateChangeCallback, GsonPostProcessable {
+    public static final String JOB_FILE_CATALOG = "streaming_job";
     private long dbId;
     // Streaming job statistics, all persisted in txn attachment
     private StreamingJobStatistic jobStatistic = new StreamingJobStatistic();
@@ -224,7 +225,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 String includeTables = String.join(",", createTbls);
                 sourceProperties.put(DataSourceConfigKeys.INCLUDE_TABLES, includeTables);
             }
-            this.offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType, sourceProperties);
+            this.offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType,
+                    StreamingJobUtils.convertCertFile(getDbId(), sourceProperties));
             JdbcSourceOffsetProvider rdsOffsetProvider = (JdbcSourceOffsetProvider) this.offsetProvider;
             rdsOffsetProvider.splitChunks(createTbls);
         } catch (Exception ex) {
@@ -459,7 +461,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return newTasks;
     }
 
-    protected AbstractStreamingTask createStreamingTask() {
+    protected AbstractStreamingTask createStreamingTask() throws JobException {
         if (tvfType != null) {
             this.runningStreamTask = createStreamingInsertTask();
         } else {
@@ -477,9 +479,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      * for From MySQL TO Database
      * @return
      */
-    private AbstractStreamingTask createStreamingMultiTblTask() {
+    private AbstractStreamingTask createStreamingMultiTblTask() throws JobException {
+        Map<String, String> convertSourceProps = StreamingJobUtils.convertCertFile(getDbId(), sourceProperties);
         return new StreamingMultiTblTask(getJobId(), Env.getCurrentEnv().getNextId(), dataSourceType,
-                offsetProvider, sourceProperties, targetDb, targetProperties, jobProperties, getCreateUser());
+                offsetProvider, convertSourceProps, targetDb, targetProperties, jobProperties, getCreateUser());
     }
 
     protected AbstractStreamingTask createStreamingInsertTask() {
@@ -599,7 +602,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         updateJobStatus(JobStatus.PAUSED);
     }
 
-    public void onStreamTaskSuccess(AbstractStreamingTask task) {
+    public void onStreamTaskSuccess(AbstractStreamingTask task) throws JobException {
         try {
             resetFailureInfo(null);
             succeedTaskCount.incrementAndGet();

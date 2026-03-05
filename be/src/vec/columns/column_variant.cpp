@@ -20,7 +20,6 @@
 
 #include "vec/columns/column_variant.h"
 
-#include <assert.h>
 #include <fmt/core.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
@@ -29,6 +28,7 @@
 #include <rapidjson/writer.h>
 
 #include <algorithm>
+#include <cassert>
 #include <cstdlib>
 #include <functional>
 #include <limits>
@@ -40,6 +40,7 @@
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -129,6 +130,45 @@ size_t get_number_of_dimensions(const IDataType& type) {
     }
     return num_dimensions;
 }
+
+// ============================================================================
+// NestedGroup (NG) type-conflict helpers
+// ============================================================================
+// These helpers encapsulate the NG-specific logic that must run inside
+// Subcolumn::insert_range_from and Subcolumn::finalize.  Keeping them here
+// avoids spreading NG semantics throughout the generic column code.
+
+// Returns true if the base element type of `type` is DataTypeVariant,
+// which indicates NG-originated array<object> data.
+bool is_nested_group_type(const DataTypePtr& type) {
+    auto base = get_base_type_of_array(type);
+    return typeid_cast<const DataTypeVariant*>(base.get()) != nullptr;
+}
+
+// Resolve a type conflict between dst (current LCT) and src types when one
+// side is an NG type (Array<Variant>) and the other is a scalar type.
+//
+// Under DISCARD_SCALAR policy: returns the NG side's type (NG wins).
+// Under ERROR policy: throws an exception.
+//
+// Returns nullptr if neither side is an NG type (caller should fall through
+// to the normal get_least_supertype_jsonb path).
+DataTypePtr resolve_ng_type_conflict(const DataTypePtr& dst_type, const DataTypePtr& src_type) {
+    bool dst_is_ng = is_nested_group_type(dst_type);
+    bool src_is_ng = is_nested_group_type(src_type);
+    if (!dst_is_ng && !src_is_ng) {
+        return nullptr; // Not an NG conflict — use normal type resolution.
+    }
+    if (!config::variant_nested_group_discard_scalar_on_conflict) {
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                               "NestedGroup type conflict: cannot merge Array<Variant> with "
+                               "scalar type. dst={}, src={}",
+                               dst_type->get_name(), src_type->get_name());
+    }
+    // NG wins: keep whichever side is the NG type.
+    return dst_is_ng ? dst_type : src_type;
+}
+
 } // namespace
 
 // current nested level is 2, inside column object
@@ -157,7 +197,7 @@ ColumnVariant::Subcolumn::Subcolumn(MutableColumnPtr&& data_, DataTypePtr type, 
 }
 
 ColumnVariant::Subcolumn::Subcolumn(size_t size_, bool is_nullable_, bool is_root_)
-        : least_common_type(std::make_shared<DataTypeNothing>()),
+        : least_common_type(LeastCommonType::nothing(is_root_)),
           is_nullable(is_nullable_),
           num_of_defaults_in_prefix(size_),
           is_root(is_root_),
@@ -324,9 +364,14 @@ void ColumnVariant::Subcolumn::insert_range_from(const Subcolumn& src, size_t st
     if (data.empty()) {
         add_new_column_part(src.get_least_common_type());
     } else if (!least_common_type.get()->equals(*src.get_least_common_type())) {
-        DataTypePtr new_least_common_type;
-        get_least_supertype_jsonb(DataTypes {least_common_type.get(), src.get_least_common_type()},
-                                  &new_least_common_type);
+        DataTypePtr new_least_common_type =
+                resolve_ng_type_conflict(least_common_type.get(), src.get_least_common_type());
+        if (new_least_common_type == nullptr) {
+            // Normal (non-NG) type promotion.
+            get_least_supertype_jsonb(
+                    DataTypes {least_common_type.get(), src.get_least_common_type()},
+                    &new_least_common_type);
+        }
         if (!new_least_common_type->equals(*least_common_type.get())) {
             add_new_column_part(std::move(new_least_common_type));
         }
@@ -348,6 +393,18 @@ void ColumnVariant::Subcolumn::insert_range_from(const Subcolumn& src, size_t st
         }
         if (column_type->equals(*least_common_type.get())) {
             data.back()->insert_range_from(*column, from, n);
+            return;
+        }
+        // When LCT is Array<Variant> (NG data) and the part is scalar, cast
+        // would crash.  Under DISCARD_SCALAR the scalar part becomes defaults.
+        if (is_nested_group_type(least_common_type.get())) {
+            if (!config::variant_nested_group_discard_scalar_on_conflict) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "NestedGroup type conflict: cannot cast scalar type {} to "
+                                       "Array<Variant>",
+                                       column_type->get_name());
+            }
+            data.back()->insert_many_defaults(n);
             return;
         }
         /// If we need to insert large range, there is no sense to cut part of column and cast it.
@@ -488,6 +545,19 @@ void ColumnVariant::Subcolumn::finalize(FinalizeMode mode) {
         part = part->convert_to_full_column_if_const();
         size_t part_size = part->size();
         if (!from_type->equals(*to_type)) {
+            // NG vs scalar mismatch: casting Array(Variant) ↔ scalar is not
+            // supported.  Under DISCARD_SCALAR the non-NG part becomes defaults.
+            if (is_nested_group_type(to_type) != is_nested_group_type(from_type)) {
+                if (!config::variant_nested_group_discard_scalar_on_conflict) {
+                    throw doris::Exception(
+                            ErrorCode::INVALID_ARGUMENT,
+                            "NestedGroup type conflict in finalize: cannot cast {} to {}",
+                            from_type->get_name(), to_type->get_name());
+                }
+                result_column->insert_many_defaults(part_size);
+                continue;
+            }
+
             ColumnPtr ptr;
             Status st = variant_util::cast_column({part, from_type, ""}, to_type, &ptr);
             if (!st.ok()) {
@@ -589,6 +659,14 @@ void ColumnVariant::Subcolumn::remove_nullable() {
     }
     data[0] = doris::vectorized::remove_nullable(data[0]);
     least_common_type.remove_nullable();
+}
+
+const ColumnVariant::Subcolumn::LeastCommonType& ColumnVariant::Subcolumn::LeastCommonType::nothing(
+        bool is_root) {
+    static const auto nothing_type = std::make_shared<DataTypeNothing>();
+    static const LeastCommonType root(nothing_type, true);
+    static const LeastCommonType non_root(nothing_type, false);
+    return is_root ? root : non_root;
 }
 
 ColumnVariant::Subcolumn::LeastCommonType::LeastCommonType(DataTypePtr type_, bool is_root)
@@ -1413,6 +1491,7 @@ void ColumnVariant::Subcolumn::wrapp_array_nullable() {
         }
         result_column = ColumnNullable::create(std::move(result_column), std::move(new_null_map));
         data_types[0] = make_nullable(data_types[0]);
+        data_serdes[0] = generate_data_serdes(data_types[0], is_root);
         least_common_type = LeastCommonType {data_types[0], is_root};
     }
 }
@@ -1812,6 +1891,8 @@ Status ColumnVariant::serialize_sparse_columns(
     return Status::OK();
 }
 
+/// @deprecated This function is deprecated. Array<Variant> subcolumns are now handled
+/// directly as NestedGroup data by the writer (VariantColumnWriterImpl).
 void ColumnVariant::unnest(Subcolumns::NodePtr& entry, Subcolumns& res_subcolumns) const {
     entry->data.finalize();
     auto nested_column = entry->data.get_finalized_column_ptr()->assume_mutable();
@@ -1998,9 +2079,10 @@ void ColumnVariant::finalize(FinalizeMode mode) {
             continue;
         }
 
-        // unnest all nested columns, add them to new_subcolumns
+        // [DEPRECATED] unnest path - Array<Variant> subcolumns are now handled
+        // directly as NestedGroup by the writer. This branch exists only for
+        // backward compatibility with the exact NESTED_TYPE wrapper.
         if (mode == FinalizeMode::WRITE_MODE && least_common_type->equals(*NESTED_TYPE)) {
-            // reset counter
             unnest(entry, new_subcolumns);
             continue;
         }
@@ -2015,6 +2097,7 @@ void ColumnVariant::finalize(FinalizeMode mode) {
             std::count_if(new_subcolumns.begin(), new_subcolumns.end(),
                           [](const auto& entry) { return entry->path.has_nested_part(); });
     std::swap(subcolumns, new_subcolumns);
+
     _prev_positions.clear();
     ENABLE_CHECK_CONSISTENCY(this);
 }
@@ -2034,6 +2117,7 @@ void ColumnVariant::ensure_root_node_type(const DataTypePtr& expected_root_type)
                                           expected_root_type, &casted_column));
         root.data[0] = casted_column;
         root.data_types[0] = expected_root_type;
+        root.data_serdes[0] = Subcolumn::generate_data_serdes(expected_root_type, true);
         root.least_common_type = Subcolumn::LeastCommonType {expected_root_type, true};
         root.num_rows = casted_column->size();
     }
@@ -2483,25 +2567,23 @@ void ColumnVariant::Subcolumn::deserialize_from_binary_column(const ColumnString
         DCHECK_EQ(end_ptr - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
     };
 
-    // check if the type is same as least common type
-    // if the type is same as least common type, we can directly deserialize to the subcolumn
-    // if not, we need to deserialize to the field first, then insert to the subcolumn
-    bool same_as_least_common_type = type != least_common_type.get_type_id();
-
-    // array needs to check nested type is same as least common type's nested type
-    if (!same_as_least_common_type && type == PrimitiveType::TYPE_ARRAY) {
-        // |PrimitiveType::TYPE_ARRAY| + |size_t| + |nested_type|
-        // skip the first 1 byte for PrimitiveType::TYPE_ARRAY and the next sizeof(size_t) bytes for the size of the array
-        const auto* nested_start_data = start_data + 1 + sizeof(size_t);
-        const PrimitiveType nested_type = TabletColumn::get_primitive_type_by_field_type(
-                static_cast<FieldType>(*nested_start_data));
-        same_as_least_common_type = (nested_type != least_common_type.get_base_type_id());
+    bool need_deserialize_to_field = (type != least_common_type.get_type_id());
+    if (!need_deserialize_to_field && type == PrimitiveType::TYPE_ARRAY) {
+        need_deserialize_to_field = true;
     }
 
-    if (same_as_least_common_type) {
+    if (need_deserialize_to_field) {
         Field res;
         FieldInfo info;
         const uint8_t* end_data = DataTypeSerDe::deserialize_binary_to_field(start_data, res, info);
+        if (res.is_complex_field()) {
+            FieldInfo recomputed;
+            variant_util::get_field_info(res, &recomputed);
+            info.scalar_type_id = recomputed.scalar_type_id;
+            info.have_nulls = recomputed.have_nulls;
+            info.need_convert = recomputed.need_convert;
+            info.num_dimensions = recomputed.num_dimensions;
+        }
         check_end(end_data);
         insert(std::move(res), std::move(info));
     } else {
@@ -2576,42 +2658,9 @@ MutableColumnPtr ColumnVariant::clone() const {
     auto doc_value_column = std::move(*new_doc_value_column).mutate();
     res->serialized_doc_value_column = doc_value_column->assume_mutable();
     res->set_num_rows(num_rows);
+
     ENABLE_CHECK_CONSISTENCY(res.get());
     return res;
-}
-
-void ColumnVariant::sort_doc_value_column() {
-    const auto& offset = serialized_doc_value_column_offsets();
-
-    auto sort_map_by_row_paths = [&](const ColumnString& in_paths, const ColumnString& in_values,
-                                     const ColumnArray::Offsets64& in_offsets) -> MutableColumnPtr {
-        auto sorted = create_binary_column_fn();
-        auto& sorted_map = assert_cast<ColumnMap&>(*sorted);
-        auto& out_paths = assert_cast<ColumnString&>(sorted_map.get_keys());
-        auto& out_values = assert_cast<ColumnString&>(sorted_map.get_values());
-        auto& out_offsets = sorted_map.get_offsets();
-        out_offsets.reserve(num_rows);
-
-        for (int64_t i = 0; i < num_rows; ++i) {
-            size_t start = in_offsets[i - 1];
-            size_t end = in_offsets[i];
-            std::vector<std::tuple<std::string_view, size_t>> order;
-            order.reserve(end - start);
-            for (size_t j = start; j < end; ++j) {
-                order.emplace_back(in_paths.get_data_at(j).to_string_view(), j);
-            }
-            std::sort(order.begin(), order.end());
-            for (const auto& [p, j] : order) {
-                out_paths.insert_data(p.data(), p.size());
-                out_values.insert_from(in_values, j);
-            }
-            out_offsets.push_back(out_paths.size());
-        }
-        return sorted;
-    };
-
-    auto [path, value] = get_doc_value_data_paths_and_values();
-    serialized_doc_value_column = sort_map_by_row_paths(*path, *value, offset);
 }
 
 bool ColumnVariant::is_doc_mode() const {

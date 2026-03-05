@@ -1050,8 +1050,9 @@ Status BaseBetaRowsetWriter::_build_tmp(RowsetSharedPtr& rowset_ptr) {
 }
 
 Status BaseBetaRowsetWriter::_create_file_writer(const std::string& path,
-                                                 io::FileWriterPtr& file_writer) {
-    io::FileWriterOptions opts = _context.get_file_writer_options();
+                                                 io::FileWriterPtr& file_writer,
+                                                 bool is_index_file) {
+    io::FileWriterOptions opts = _context.get_file_writer_options(is_index_file);
     Status st = _context.fs()->create_file(path, &file_writer, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
@@ -1069,9 +1070,9 @@ Status BaseBetaRowsetWriter::create_file_writer(uint32_t segment_id, io::FileWri
         std::string prefix =
                 std::string {InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
         std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(prefix);
-        return _create_file_writer(index_path, file_writer);
+        return _create_file_writer(index_path, file_writer, true /* is_index_file */);
     } else if (file_type == FileType::SEGMENT_FILE) {
-        return _create_file_writer(segment_path, file_writer);
+        return _create_file_writer(segment_path, file_writer, false /* is_index_file */);
     }
     return Status::Error<ErrorCode::INTERNAL_ERROR>(
             fmt::format("failed to create file = {}, file type = {}", segment_path, file_type));
@@ -1081,7 +1082,8 @@ Status BaseBetaRowsetWriter::create_index_file_writer(uint32_t segment_id,
                                                       IndexFileWriterPtr* index_file_writer) {
     RETURN_IF_ERROR(RowsetWriter::create_index_file_writer(segment_id, index_file_writer));
     // used for inverted index format v1
-    (*index_file_writer)->set_file_writer_opts(_context.get_file_writer_options());
+    (*index_file_writer)
+            ->set_file_writer_opts(_context.get_file_writer_options(true /* is_index_file */));
     return Status::OK();
 }
 
@@ -1091,7 +1093,7 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     std::string path = BetaRowset::local_segment_path_segcompacted(_context.tablet_path,
                                                                    _context.rowset_id, begin, end);
     io::FileWriterPtr file_writer;
-    RETURN_IF_ERROR(_create_file_writer(path, file_writer));
+    RETURN_IF_ERROR(_create_file_writer(path, file_writer, false /* is_index_file */));
 
     IndexFileWriterPtr index_file_writer;
     if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
@@ -1100,7 +1102,8 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
         if (_context.tablet_schema->get_inverted_index_storage_format() !=
             InvertedIndexStorageFormatPB::V1) {
             std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(prefix);
-            RETURN_IF_ERROR(_create_file_writer(index_path, idx_file_writer));
+            RETURN_IF_ERROR(
+                    _create_file_writer(index_path, idx_file_writer, true /* is_index_file */));
         }
         index_file_writer = std::make_unique<IndexFileWriter>(
                 _context.fs(), prefix, _context.rowset_id.to_string(), _num_segcompacted,

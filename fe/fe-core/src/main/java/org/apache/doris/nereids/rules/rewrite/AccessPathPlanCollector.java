@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.analysis.AccessPathInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.CollectAccessPathResult;
 import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.CollectorContext;
@@ -69,6 +68,10 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
         return scanSlotToAccessPaths;
     }
 
+    private boolean shouldCollectAccessPath(Slot slot) {
+        return slot.getDataType() instanceof NestedColumnPrunable || slot.getDataType().isVariantType();
+    }
+
     @Override
     public Void visitLogicalGenerate(LogicalGenerate<? extends Plan> generate, StatementContext context) {
         List<Function> generators = generate.getGenerators();
@@ -94,9 +97,14 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                             // $c$1.VALUES.b
                             CollectorContext argumentContext = new CollectorContext(context, false);
                             argumentContext.setType(accessPath.getType());
-                            argumentContext.getAccessPathBuilder()
-                                    .addSuffix(AccessPathInfo.ACCESS_ALL)
-                                    .addSuffix(path.subList(1, path.size()));
+                            if (function.child(0).getDataType().isVariantType()) {
+                                argumentContext.getAccessPathBuilder()
+                                        .addSuffix(path.subList(1, path.size()));
+                            } else {
+                                argumentContext.getAccessPathBuilder()
+                                        .addSuffix(AccessPathInfo.ACCESS_ALL)
+                                        .addSuffix(path.subList(1, path.size()));
+                            }
                             function.child(0).accept(exprCollector, argumentContext);
                             continue;
                         } else if (path.size() >= 2) {
@@ -106,9 +114,14 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                             int colIndex = Integer.parseInt(colName.substring(StructLiteral.COL_PREFIX.length())) - 1;
                             CollectorContext argumentContext = new CollectorContext(context, false);
                             argumentContext.setType(accessPath.getType());
-                            argumentContext.getAccessPathBuilder()
-                                    .addSuffix(AccessPathInfo.ACCESS_ALL)
-                                    .addSuffix(path.subList(2, path.size()));
+                            if (function.child(colIndex).getDataType().isVariantType()) {
+                                argumentContext.getAccessPathBuilder()
+                                        .addSuffix(path.subList(2, path.size()));
+                            } else {
+                                argumentContext.getAccessPathBuilder()
+                                        .addSuffix(AccessPathInfo.ACCESS_ALL)
+                                        .addSuffix(path.subList(2, path.size()));
+                            }
                             function.child(colIndex).accept(exprCollector, argumentContext);
                             continue;
                         }
@@ -267,7 +280,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
         for (Entry<Slot, Slot> slots : cteConsumer.getConsumerToProducerOutputMap().entrySet()) {
             Slot outerSlot = slots.getKey();
 
-            if (outerSlot.getDataType() instanceof NestedColumnPrunable) {
+            if (shouldCollectAccessPath(outerSlot)) {
                 int outerSlotId = outerSlot.getExprId().asInt();
                 int innerSlotId = slots.getValue().getExprId().asInt();
                 allSlotToAccessPaths.putAll(innerSlotId, allSlotToAccessPaths.get(outerSlotId));
@@ -303,7 +316,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
     @Override
     public Void visitLogicalOlapScan(LogicalOlapScan olapScan, StatementContext context) {
         for (Slot slot : olapScan.getOutput()) {
-            if (!(slot.getDataType() instanceof NestedColumnPrunable)) {
+            if (!shouldCollectAccessPath(slot)) {
                 continue;
             }
             Collection<CollectAccessPathResult> accessPaths = allSlotToAccessPaths.get(slot.getExprId().asInt());
@@ -317,7 +330,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
     @Override
     public Void visitLogicalFileScan(LogicalFileScan fileScan, StatementContext context) {
         for (Slot slot : fileScan.getOutput()) {
-            if (!(slot.getDataType() instanceof NestedColumnPrunable)) {
+            if (!shouldCollectAccessPath(slot)) {
                 continue;
             }
             Collection<CollectAccessPathResult> accessPaths = allSlotToAccessPaths.get(slot.getExprId().asInt());
@@ -331,7 +344,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
     @Override
     public Void visitLogicalTVFRelation(LogicalTVFRelation tvfRelation, StatementContext context) {
         for (Slot slot : tvfRelation.getOutput()) {
-            if (!(slot.getDataType() instanceof NestedColumnPrunable)) {
+            if (!shouldCollectAccessPath(slot)) {
                 continue;
             }
             Collection<CollectAccessPathResult> accessPaths = allSlotToAccessPaths.get(slot.getExprId().asInt());

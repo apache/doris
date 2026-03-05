@@ -53,6 +53,7 @@
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/rowset/segment_v2/segment_prefetcher.h"
 #include "olap/rowset/segment_v2/variant/variant_column_reader.h"
 #include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema.h"
@@ -62,6 +63,7 @@
 #include "util/binary_cast.hpp"
 #include "util/bitmap.h"
 #include "util/block_compression.h"
+#include "util/concurrency_stats.h"
 #include "util/rle_encoding.h" // for RleDecoder
 #include "util/slice.h"
 #include "vec/columns/column.h"
@@ -328,10 +330,10 @@ void ColumnReader::check_data_by_zone_map_for_test(const vectorized::MutableColu
         return;
     }
 
-    ZoneMapInfo zone_map_info;
-    THROW_IF_ERROR(_parse_zone_map(*_segment_zone_map, zone_map_info));
+    ZoneMap zone_map;
+    THROW_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
 
-    if (zone_map_info.has_null) {
+    if (zone_map.has_null) {
         return;
     }
 
@@ -340,8 +342,8 @@ void ColumnReader::check_data_by_zone_map_for_test(const vectorized::MutableColu
         dst->get(i, field);
         DCHECK(!field.is_null());
         const auto v = field.get<TYPE_INT>();
-        DCHECK_GE(v, zone_map_info.min_value.get<TYPE_INT>());
-        DCHECK_LE(v, zone_map_info.max_value.get<TYPE_INT>());
+        DCHECK_GE(v, zone_map.min_value.get<TYPE_INT>());
+        DCHECK_LE(v, zone_map.max_value.get<TYPE_INT>());
     }
 }
 #endif
@@ -376,6 +378,8 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
         case BLOOM_FILTER_INDEX:
             _bloom_filter_index.reset(
                     new BloomFilterIndexReader(_file_reader, index_meta.bloom_filter_index()));
+            break;
+        case NESTED_OFFSETS_INDEX:
             break;
         default:
             return Status::Corruption("Bad file {}: invalid column index type {}",
@@ -413,6 +417,7 @@ Status ColumnReader::new_index_iterator(const std::shared_ptr<IndexFileReader>& 
 Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
                                BlockCompressionCodec* codec, bool is_dict_page) const {
+    SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().column_reader_read_page);
     iter_opts.sanity_check();
     PageReadOptions opts(iter_opts.io_ctx);
     opts.verify_checksum = _opts.verify_checksum;
@@ -445,17 +450,17 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
         return Status::InternalError("segment zonemap not exist");
     }
     // TODO: this work to get min/max value seems should only do once
-    ZoneMapInfo zone_map_info;
-    RETURN_IF_ERROR(_parse_zone_map(*_segment_zone_map, zone_map_info));
+    ZoneMap zone_map;
+    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
 
     dst->reserve(*n);
-    if (zone_map_info.is_all_null) {
+    if (!zone_map.has_not_null) {
         assert_cast<vectorized::ColumnNullable&>(*dst).insert_many_defaults(*n);
         return Status::OK();
     }
-    dst->insert(zone_map_info.max_value);
+    dst->insert(zone_map.max_value);
     for (int i = 1; i < *n; ++i) {
-        dst->insert(zone_map_info.min_value);
+        dst->insert(zone_map.min_value);
     }
     return Status::OK();
 }
@@ -466,10 +471,10 @@ Status ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicat
     if (_zone_map_index == nullptr) {
         return Status::OK();
     }
-    ZoneMapInfo zone_map_info;
-    RETURN_IF_ERROR(_parse_zone_map(*_segment_zone_map, zone_map_info));
+    ZoneMap zone_map;
+    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
 
-    *matched = _zone_map_match_condition(*_segment_zone_map, zone_map_info, col_predicates);
+    *matched = _zone_map_match_condition(zone_map, col_predicates);
     return Status::OK();
 }
 
@@ -481,12 +486,15 @@ Status ColumnReader::prune_predicates_by_zone_map(
         return Status::OK();
     }
 
-    ZoneMapInfo zone_map_info;
-    RETURN_IF_ERROR(_parse_zone_map(*_segment_zone_map, zone_map_info));
+    ZoneMap zone_map;
+    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
+    if (zone_map.pass_all) {
+        return Status::OK();
+    }
 
     for (auto it = predicates.begin(); it != predicates.end();) {
         auto predicate = *it;
-        if (predicate->column_id() == column_id && predicate->is_always_true(zone_map_info)) {
+        if (predicate->column_id() == column_id && predicate->is_always_true(zone_map)) {
             *pruned = true;
             it = predicates.erase(it);
         } else {
@@ -496,70 +504,13 @@ Status ColumnReader::prune_predicates_by_zone_map(
     return Status::OK();
 }
 
-Status ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, ZoneMapInfo& zone_map_info) const {
-    zone_map_info.has_null = zone_map.has_null();
-    zone_map_info.is_all_null = !zone_map.has_not_null();
-    // min value and max value are valid if has_not_null is true
-    if (zone_map.has_not_null()) {
-        if (zone_map.has_negative_inf()) {
-            if (FieldType::OLAP_FIELD_TYPE_FLOAT == _meta_type) {
-                static auto constexpr float_neg_inf = -std::numeric_limits<float>::infinity();
-                zone_map_info.min_value =
-                        vectorized::Field::create_field<TYPE_FLOAT>(float_neg_inf);
-            } else if (FieldType::OLAP_FIELD_TYPE_DOUBLE == _meta_type) {
-                static auto constexpr double_neg_inf = -std::numeric_limits<double>::infinity();
-                zone_map_info.min_value =
-                        vectorized::Field::create_field<TYPE_DOUBLE>(double_neg_inf);
-            } else {
-                return Status::InternalError("invalid zone map with negative Infinity");
-            }
-        } else {
-            vectorized::DataTypeSerDe::FormatOptions opt;
-            opt.ignore_scale = true;
-            RETURN_IF_ERROR(_data_type->get_serde()->from_olap_string(
-                    zone_map.min(), zone_map_info.min_value, opt));
-        }
-
-        if (zone_map.has_nan()) {
-            if (FieldType::OLAP_FIELD_TYPE_FLOAT == _meta_type) {
-                static auto constexpr float_nan = std::numeric_limits<float>::quiet_NaN();
-                zone_map_info.max_value = vectorized::Field::create_field<TYPE_FLOAT>(float_nan);
-            } else if (FieldType::OLAP_FIELD_TYPE_DOUBLE == _meta_type) {
-                static auto constexpr double_nan = std::numeric_limits<double>::quiet_NaN();
-                zone_map_info.max_value = vectorized::Field::create_field<TYPE_DOUBLE>(double_nan);
-            } else {
-                return Status::InternalError("invalid zone map with NaN");
-            }
-        } else if (zone_map.has_positive_inf()) {
-            if (FieldType::OLAP_FIELD_TYPE_FLOAT == _meta_type) {
-                static auto constexpr float_pos_inf = std::numeric_limits<float>::infinity();
-                zone_map_info.max_value =
-                        vectorized::Field::create_field<TYPE_FLOAT>(float_pos_inf);
-            } else if (FieldType::OLAP_FIELD_TYPE_DOUBLE == _meta_type) {
-                static auto constexpr double_pos_inf = std::numeric_limits<double>::infinity();
-                zone_map_info.max_value =
-                        vectorized::Field::create_field<TYPE_DOUBLE>(double_pos_inf);
-            } else {
-                return Status::InternalError("invalid zone map with positive Infinity");
-            }
-        } else {
-            vectorized::DataTypeSerDe::FormatOptions opt;
-            opt.ignore_scale = true;
-            RETURN_IF_ERROR(_data_type->get_serde()->from_olap_string(
-                    zone_map.max(), zone_map_info.max_value, opt));
-        }
-    }
-    return Status::OK();
-}
-
-bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
-                                             const ZoneMapInfo& zone_map_info,
+bool ColumnReader::_zone_map_match_condition(const ZoneMap& zone_map,
                                              const AndBlockColumnPredicate* col_predicates) const {
-    if (zone_map.pass_all()) {
+    if (zone_map.pass_all) {
         return true;
     }
 
-    return col_predicates->evaluate_and(zone_map_info);
+    return col_predicates->evaluate_and(zone_map);
 }
 
 Status ColumnReader::_get_filtered_pages(
@@ -574,15 +525,15 @@ Status ColumnReader::_get_filtered_pages(
         if (zone_maps[i].pass_all()) {
             page_indexes->push_back(cast_set<uint32_t>(i));
         } else {
-            ZoneMapInfo zone_map_info;
-            RETURN_IF_ERROR(_parse_zone_map(zone_maps[i], zone_map_info));
-            if (_zone_map_match_condition(zone_maps[i], zone_map_info, col_predicates)) {
+            segment_v2::ZoneMap zone_map;
+            RETURN_IF_ERROR(ZoneMap::from_proto(zone_maps[i], _data_type, zone_map));
+            if (_zone_map_match_condition(zone_map, col_predicates)) {
                 bool should_read = true;
                 if (delete_predicates != nullptr) {
                     for (auto del_pred : *delete_predicates) {
                         // TODO: Both `min_value` and `max_value` should be 0 or neither should be 0.
                         //  So nullable only need to judge once.
-                        if (del_pred->evaluate_del(zone_map_info)) {
+                        if (del_pred->evaluate_del(zone_map)) {
                             should_read = false;
                             break;
                         }
@@ -755,6 +706,16 @@ Status ColumnReader::seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterat
     if (!iter->valid()) {
         return Status::NotFound("Failed to seek to ordinal {}, ", ordinal);
     }
+    return Status::OK();
+}
+
+Status ColumnReader::get_ordinal_index_reader(OrdinalIndexReader*& reader,
+                                              OlapReaderStatistics* index_load_stats) {
+    CHECK(_ordinal_index) << fmt::format("ordinal index is null for column reader of type {}",
+                                         std::to_string(int(_meta_type)));
+    RETURN_IF_ERROR(
+            _ordinal_index->load(_use_index_page_cache, _opts.kept_in_memory, index_load_stats));
+    reader = _ordinal_index.get();
     return Status::OK();
 }
 
@@ -961,6 +922,29 @@ Status MapFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     RETURN_IF_ERROR(_key_iterator->seek_to_ordinal(offset));
     RETURN_IF_ERROR(_val_iterator->seek_to_ordinal(offset));
     return Status::OK();
+}
+
+Status MapFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+    RETURN_IF_ERROR(_offsets_iterator->init_prefetcher(params));
+    if (_map_reader->is_nullable()) {
+        RETURN_IF_ERROR(_null_iterator->init_prefetcher(params));
+    }
+    RETURN_IF_ERROR(_key_iterator->init_prefetcher(params));
+    RETURN_IF_ERROR(_val_iterator->init_prefetcher(params));
+    return Status::OK();
+}
+
+void MapFileColumnIterator::collect_prefetchers(
+        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+        PrefetcherInitMethod init_method) {
+    _offsets_iterator->collect_prefetchers(prefetchers, init_method);
+    if (_map_reader->is_nullable()) {
+        _null_iterator->collect_prefetchers(prefetchers, init_method);
+    }
+    // the actual data pages to read of key/value column depends on the read result of offset column,
+    // so we can't init prefetch blocks according to rowids, just prefetch all data blocks here.
+    _key_iterator->collect_prefetchers(prefetchers, PrefetcherInitMethod::ALL_DATA_BLOCKS);
+    _val_iterator->collect_prefetchers(prefetchers, PrefetcherInitMethod::ALL_DATA_BLOCKS);
 }
 
 Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
@@ -1363,6 +1347,27 @@ Status StructFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     return Status::OK();
 }
 
+Status StructFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+    for (auto& column_iterator : _sub_column_iterators) {
+        RETURN_IF_ERROR(column_iterator->init_prefetcher(params));
+    }
+    if (_struct_reader->is_nullable()) {
+        RETURN_IF_ERROR(_null_iterator->init_prefetcher(params));
+    }
+    return Status::OK();
+}
+
+void StructFileColumnIterator::collect_prefetchers(
+        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+        PrefetcherInitMethod init_method) {
+    for (auto& column_iterator : _sub_column_iterators) {
+        column_iterator->collect_prefetchers(prefetchers, init_method);
+    }
+    if (_struct_reader->is_nullable()) {
+        _null_iterator->collect_prefetchers(prefetchers, init_method);
+    }
+}
+
 Status StructFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
                                                 vectorized::MutableColumnPtr& dst) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
@@ -1508,6 +1513,16 @@ Status OffsetFileColumnIterator::_peek_one_offset(ordinal_t* offset) {
     return Status::OK();
 }
 
+Status OffsetFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+    return _offset_iterator->init_prefetcher(params);
+}
+
+void OffsetFileColumnIterator::collect_prefetchers(
+        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+        PrefetcherInitMethod init_method) {
+    _offset_iterator->collect_prefetchers(prefetchers, init_method);
+}
+
 /**
  *  first_storage_offset read from page should smaller than next_storage_offset which here call _peek_one_offset from page,
     and first_column_offset is keep in memory data which is different dimension with (first_storage_offset and next_storage_offset)
@@ -1642,6 +1657,27 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
     return Status::OK();
 }
 
+Status ArrayFileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+    RETURN_IF_ERROR(_offset_iterator->init_prefetcher(params));
+    RETURN_IF_ERROR(_item_iterator->init_prefetcher(params));
+    if (_array_reader->is_nullable()) {
+        RETURN_IF_ERROR(_null_iterator->init_prefetcher(params));
+    }
+    return Status::OK();
+}
+
+void ArrayFileColumnIterator::collect_prefetchers(
+        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+        PrefetcherInitMethod init_method) {
+    _offset_iterator->collect_prefetchers(prefetchers, init_method);
+    // the actual data pages to read of item column depends on the read result of offset column,
+    // so we can't init prefetch blocks according to rowids, just prefetch all data blocks here.
+    _item_iterator->collect_prefetchers(prefetchers, PrefetcherInitMethod::ALL_DATA_BLOCKS);
+    if (_array_reader->is_nullable()) {
+        _null_iterator->collect_prefetchers(prefetchers, init_method);
+    }
+}
+
 Status ArrayFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
                                                vectorized::MutableColumnPtr& dst) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
@@ -1751,10 +1787,26 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
 
 FileColumnIterator::~FileColumnIterator() = default;
 
+void FileColumnIterator::_trigger_prefetch_if_eligible(ordinal_t ord) {
+    std::vector<BlockRange> ranges;
+    if (_prefetcher->need_prefetch(cast_set<uint32_t>(ord), &ranges)) {
+        for (const auto& range : ranges) {
+            _cached_remote_file_reader->prefetch_range(range.offset, range.size, &_opts.io_ctx);
+        }
+    }
+}
+
 Status FileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     if (_reading_flag == ReadingFlag::SKIP_READING) {
         DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
         return Status::OK();
+    }
+
+    LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
+            "[verbose] FileColumnIterator::seek_to_ordinal seek to ordinal {}, enable_prefetch={}",
+            ord, _enable_prefetch);
+    if (_enable_prefetch) {
+        _trigger_prefetch_if_eligible(ord);
     }
 
     // if current page contains this row, we don't need to seek
@@ -1976,9 +2028,14 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     RETURN_IF_ERROR(
             _reader->read_page(_opts, iter.page(), &handle, &page_body, &footer, _compress_codec));
     // parse data page
-    RETURN_IF_ERROR(ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
-                                       _reader->encoding_info(), iter.page(), iter.page_index(),
-                                       &_page));
+    auto st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
+                                 _reader->encoding_info(), iter.page(), iter.page_index(), &_page);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to create ParsedPage, file=" << _opts.file_reader->path().native()
+                     << ", page_offset=" << iter.page().offset << ", page_size=" << iter.page().size
+                     << ", page_index=" << iter.page_index() << ", error=" << st;
+        return st;
+    }
 
     // dictionary page is read when the first data page that uses it is read,
     // this is to optimize the memory usage: when there is no query on one column, we could
@@ -2056,6 +2113,26 @@ Status FileColumnIterator::get_row_ranges_by_dict(const AndBlockColumnPredicate*
         row_ranges->clear();
     }
     return Status::OK();
+}
+
+Status FileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+    if (_cached_remote_file_reader =
+                std::dynamic_pointer_cast<io::CachedRemoteFileReader>(_reader->_file_reader);
+        !_cached_remote_file_reader) {
+        return Status::OK();
+    }
+    _enable_prefetch = true;
+    _prefetcher = std::make_unique<SegmentPrefetcher>(params.config);
+    RETURN_IF_ERROR(_prefetcher->init(_reader, params.read_options));
+    return Status::OK();
+}
+
+void FileColumnIterator::collect_prefetchers(
+        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+        PrefetcherInitMethod init_method) {
+    if (_prefetcher) {
+        prefetchers[init_method].emplace_back(_prefetcher.get());
+    }
 }
 
 Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {

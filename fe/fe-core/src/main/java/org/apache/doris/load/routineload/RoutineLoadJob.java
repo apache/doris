@@ -1056,6 +1056,8 @@ public abstract class RoutineLoadJob
                 ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
             } else {
                 setComputeGroup();
+                // Set user identity for privilege check in expression rewrite (e.g., EncryptKeyRef)
+                ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
             }
             if (ConnectContext.get().getEnv() == null) {
                 ConnectContext.get().setEnv(Env.getCurrentEnv());

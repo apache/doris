@@ -36,7 +36,7 @@ suite("test_partial_update_after_delete", "p0") {
                     `v1` INT NULL,
                     `v2` INT NULL
                     )UNIQUE KEY(k1)
-                CLUSTER BY(v2, v1)
+                ORDER BY(v2, v1)
                 DISTRIBUTED BY HASH(k1) BUCKETS 1
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
@@ -62,7 +62,7 @@ suite("test_partial_update_after_delete", "p0") {
                     `v1` INT NULL,
                     `v2` INT NULL
                     )UNIQUE KEY(k1)
-                CLUSTER BY(v2, v1, k1)    
+                ORDER BY(v2, v1, k1)    
                 DISTRIBUTED BY HASH(k1) BUCKETS 1
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",

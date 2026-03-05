@@ -638,7 +638,7 @@ build_lz4() {
 build_crc32c() {
     check_if_source_exist "${CRC32C_SOURCE}"
     cd "${TP_SOURCE_DIR}/${CRC32C_SOURCE}"
-    
+
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
@@ -1090,6 +1090,10 @@ build_arrow() {
         -DARROW_BUILD_STATIC=ON -DARROW_WITH_BROTLI=ON -DARROW_WITH_LZ4=ON -DARROW_USE_GLOG=ON \
         -DARROW_WITH_SNAPPY=ON -DARROW_WITH_ZLIB=ON -DARROW_WITH_ZSTD=ON -DARROW_JSON=ON \
         -DARROW_WITH_UTF8PROC=OFF -DARROW_WITH_RE2=ON -DARROW_ORC=ON \
+        -DARROW_COMPUTE=ON \
+        -DARROW_FILESYSTEM=ON \
+        -DARROW_DATASET=ON \
+        -DARROW_ACERO=ON \
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_INSTALL_LIBDIR=lib64 \
         -DARROW_BOOST_USE_SHARED=OFF \
@@ -1137,6 +1141,8 @@ build_arrow() {
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${TP_INSTALL_DIR}/lib64/libbrotlicommon.a"
     strip_lib libarrow.a
     strip_lib libparquet.a
+    strip_lib libarrow_dataset.a
+    strip_lib libarrow_acero.a
 }
 
 # abseil
@@ -1814,7 +1820,7 @@ build_libdeflate() {
     cd "${BUILD_DIR}"
 
     "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-    -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
@@ -1914,8 +1920,12 @@ build_azure() {
         AZURE_PORTS="vcpkg-custom-ports"
         AZURE_MANIFEST_DIR="."
 
+        # Add -ldl for clang compatibility (libcrypto.a requires dlopen/dlsym/dlclose/dlerror)
         "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-        -DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized" -DDISABLE_RUST_IN_BUILD=ON -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+        -DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized" \
+        -DCMAKE_EXE_LINKER_FLAGS="-ldl" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-ldl" \
+        -DDISABLE_RUST_IN_BUILD=ON -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
         "${BUILD_SYSTEM}" -j "${PARALLEL}"
         "${BUILD_SYSTEM}" install
     fi
@@ -1983,6 +1993,89 @@ build_pugixml() {
 
     cp "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/pugixml.hpp" "${TP_INSTALL_DIR}/include/"
     cp "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/pugiconfig.hpp" "${TP_INSTALL_DIR}/include/"
+}
+
+# paimon-cpp
+build_paimon_cpp() {
+    check_if_source_exist "${PAIMON_CPP_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    # Darwin doesn't build GNU libunwind in this script, so don't force -lunwind there.
+    local paimon_linker_flags="-L${TP_LIB_DIR} -lbrotlienc -lbrotlidec -lbrotlicommon -llzma"
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        paimon_linker_flags="${paimon_linker_flags} -lunwind"
+    fi
+
+    CXXFLAGS="-Wno-nontrivial-memcall" \
+    "${CMAKE_CMD}" -C "${TP_DIR}/paimon-cpp-cache.cmake" \
+        -G "${GENERATOR}" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DPAIMON_BUILD_SHARED=OFF \
+        -DPAIMON_BUILD_STATIC=ON \
+        -DPAIMON_BUILD_TESTS=OFF \
+        -DPAIMON_ENABLE_ORC=ON \
+        -DPAIMON_ENABLE_AVRO=OFF \
+        -DPAIMON_ENABLE_LANCE=OFF \
+        -DPAIMON_ENABLE_JINDO=OFF \
+        -DPAIMON_ENABLE_LUMINA=OFF \
+        -DPAIMON_ENABLE_LUCENE=OFF \
+        -DCMAKE_EXE_LINKER_FLAGS="${paimon_linker_flags}" \
+        -DCMAKE_SHARED_LINKER_FLAGS="${paimon_linker_flags}" \
+        ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+
+    # Install paimon-cpp internal dependencies with renamed versions
+    # These libraries are built but not installed by default
+    echo "Installing paimon-cpp internal dependencies..."
+
+    # Arrow deps: When PAIMON_USE_EXTERNAL_ARROW=ON (Plan B), paimon-cpp
+    # reuses Doris's Arrow and does NOT build arrow_ep, so the paimon_deps
+    # directory is not needed.  When building its own Arrow (legacy), copy
+    # arrow artefacts into an isolated directory to avoid clashing with Doris.
+    local paimon_deps_dir="${TP_INSTALL_DIR}/paimon-cpp/lib64/paimon_deps"
+    if [ -d "arrow_ep-install/lib" ]; then
+        mkdir -p "${paimon_deps_dir}"
+        for paimon_arrow_dep in \
+            libarrow.a \
+            libarrow_filesystem.a \
+            libarrow_dataset.a \
+            libarrow_acero.a \
+            libparquet.a; do
+            if [ -f "arrow_ep-install/lib/${paimon_arrow_dep}" ]; then
+                cp -v "arrow_ep-install/lib/${paimon_arrow_dep}" "${paimon_deps_dir}/${paimon_arrow_dep}"
+            fi
+        done
+    else
+        echo "  arrow_ep-install not found (PAIMON_USE_EXTERNAL_ARROW=ON?) – skipping paimon_deps Arrow copy"
+    fi
+
+    # Install roaring_bitmap, renamed to avoid conflict with Doris's croaringbitmap
+    if [ -f "release/libroaring_bitmap.a" ]; then
+        cp -v "release/libroaring_bitmap.a" "${TP_INSTALL_DIR}/lib64/libroaring_bitmap_paimon.a"
+    fi
+
+    # Install xxhash, renamed to avoid conflict with Doris's xxhash
+    if [ -f "release/libxxhash.a" ]; then
+        cp -v "release/libxxhash.a" "${TP_INSTALL_DIR}/lib64/libxxhash_paimon.a"
+    fi
+
+    # Install fmt v11 (from fmt_ep-install directory, renamed to avoid conflict with Doris's fmt v7)
+    if [ -f "fmt_ep-install/lib/libfmt.a" ]; then
+        cp -v "fmt_ep-install/lib/libfmt.a" "${TP_INSTALL_DIR}/lib64/libfmt_paimon.a"
+    fi
+
+    # Install tbb (from tbb_ep-install directory, renamed to avoid conflict with Doris's tbb)
+    if [ -f "tbb_ep-install/lib/libtbb.a" ]; then
+        cp -v "tbb_ep-install/lib/libtbb.a" "${TP_INSTALL_DIR}/lib64/libtbb_paimon.a"
+    fi
+
+    echo "Paimon-cpp internal dependencies installed successfully"
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
@@ -2058,6 +2151,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         brotli
         icu
         pugixml
+        paimon_cpp
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
@@ -2067,6 +2161,122 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
     fi
 fi
 
+# Map a package name to its source directory variable(s) and remove them to free disk space.
+# This is called after each package is built and installed successfully.
+cleanup_package_source() {
+    local pkg="$1"
+    local src_var
+    local src_dir
+
+    # Map package name to the uppercase *_SOURCE variable name
+    case "${pkg}" in
+        libevent)        src_var="LIBEVENT_SOURCE" ;;
+        openssl)         src_var="OPENSSL_SOURCE" ;;
+        thrift)          src_var="THRIFT_SOURCE" ;;
+        protobuf)        src_var="PROTOBUF_SOURCE" ;;
+        gflags)          src_var="GFLAGS_SOURCE" ;;
+        glog)            src_var="GLOG_SOURCE" ;;
+        gtest)           src_var="GTEST_SOURCE" ;;
+        rapidjson)       src_var="RAPIDJSON_SOURCE" ;;
+        snappy)          src_var="SNAPPY_SOURCE" ;;
+        gperftools)      src_var="GPERFTOOLS_SOURCE" ;;
+        zlib)            src_var="ZLIB_SOURCE" ;;
+        crc32c)          src_var="CRC32C_SOURCE" ;;
+        lz4)             src_var="LZ4_SOURCE" ;;
+        bzip)            src_var="BZIP_SOURCE" ;;
+        lzo2)            src_var="LZO2_SOURCE" ;;
+        zstd)            src_var="ZSTD_SOURCE" ;;
+        #boost)           src_var="BOOST_SOURCE" ;; // boost is used for mysql later
+        abseil)          src_var="ABSEIL_SOURCE" ;;
+        curl)            src_var="CURL_SOURCE" ;;
+        re2)             src_var="RE2_SOURCE" ;;
+        hyperscan)
+            # hyperscan also builds ragel, clean both
+            if [[ -n "${RAGEL_SOURCE}" && -d "${TP_SOURCE_DIR}/${RAGEL_SOURCE}" ]]; then
+                echo "Cleaning up source: ${RAGEL_SOURCE}"
+                rm -rf "${TP_SOURCE_DIR}/${RAGEL_SOURCE}"
+            fi
+            src_var="HYPERSCAN_SOURCE"
+            ;;
+        mysql)           src_var="MYSQL_SOURCE" ;;
+        odbc)            src_var="ODBC_SOURCE" ;;
+        leveldb)         src_var="LEVELDB_SOURCE" ;;
+        brpc)            src_var="BRPC_SOURCE" ;;
+        rocksdb)         src_var="ROCKSDB_SOURCE" ;;
+        cyrus_sasl)      src_var="CYRUS_SASL_SOURCE" ;;
+        librdkafka)      src_var="LIBRDKAFKA_SOURCE" ;;
+        flatbuffers)     src_var="FLATBUFFERS_SOURCE" ;;
+        arrow)           src_var="ARROW_SOURCE" ;;
+        brotli)          src_var="BROTLI_SOURCE" ;;
+        cares)           src_var="CARES_SOURCE" ;;
+        grpc)            src_var="GRPC_SOURCE" ;;
+        s2)              src_var="S2_SOURCE" ;;
+        bitshuffle)      src_var="BITSHUFFLE_SOURCE" ;;
+        croaringbitmap)  src_var="CROARINGBITMAP_SOURCE" ;;
+        fmt)             src_var="FMT_SOURCE" ;;
+        parallel_hashmap) src_var="PARALLEL_HASHMAP_SOURCE" ;;
+        orc)             src_var="ORC_SOURCE" ;;
+        cctz)            src_var="CCTZ_SOURCE" ;;
+        jemalloc_doris)  src_var="JEMALLOC_DORIS_SOURCE" ;;
+        libunwind)       src_var="LIBUNWIND_SOURCE" ;;
+        benchmark)       src_var="BENCHMARK_SOURCE" ;;
+        simdjson)        src_var="SIMDJSON_SOURCE" ;;
+        nlohmann_json)   src_var="NLOHMANN_JSON_SOURCE" ;;
+        libbacktrace)    src_var="LIBBACKTRACE_SOURCE" ;;
+        sse2neon)        src_var="SSE2NEON_SOURCE" ;;
+        xxhash)          src_var="XXHASH_SOURCE" ;;
+        concurrentqueue) src_var="CONCURRENTQUEUE_SOURCE" ;;
+        fast_float)      src_var="FAST_FLOAT_SOURCE" ;;
+        hadoop_libs)     src_var="HADOOP_LIBS_SOURCE" ;;
+        hadoop_libs_3_4) src_var="HADOOP_LIBS_3_4_SOURCE" ;;
+        avx2neon)        src_var="AVX2NEON_SOURCE" ;;
+        libdeflate)      src_var="LIBDEFLATE_SOURCE" ;;
+        streamvbyte)     src_var="STREAMVBYTE_SOURCE" ;;
+        ali_sdk)
+            # ali_sdk internally builds jsoncpp and libuuid, clean all three
+            for dep_var in JSONCPP_SOURCE LIBUUID_SOURCE ALI_SDK_SOURCE; do
+                dep_dir="${!dep_var}"
+                if [[ -n "${dep_dir}" && -d "${TP_SOURCE_DIR}/${dep_dir}" ]]; then
+                    echo "Cleaning up source: ${dep_dir}"
+                    rm -rf "${TP_SOURCE_DIR}/${dep_dir}"
+                fi
+            done
+            return
+            ;;
+        base64)          src_var="BASE64_SOURCE" ;;
+        azure)           src_var="AZURE_SOURCE" ;;
+        dragonbox)       src_var="DRAGONBOX_SOURCE" ;;
+        icu)             src_var="ICU_SOURCE" ;;
+        jindofs)         src_var="JINDOFS_SOURCE" ;;
+        pugixml)         src_var="PUGIXML_SOURCE" ;;
+        paimon_cpp)      src_var="PAIMON_CPP_SOURCE" ;;
+        aws_sdk)         src_var="AWS_SDK_SOURCE" ;;
+        lzma)            src_var="LZMA_SOURCE" ;;
+        xml2)            src_var="XML2_SOURCE" ;;
+        idn)             src_var="IDN_SOURCE" ;;
+        gsasl)           src_var="GSASL_SOURCE" ;;
+        krb5)            src_var="KRB5_SOURCE" ;;
+        hdfs3)           src_var="HDFS3_SOURCE" ;;
+        libdivide)       src_var="LIBDIVIDE_SOURCE" ;;
+        binutils)        src_var="BINUTILS_SOURCE" ;;
+        gettext)         src_var="GETTEXT_SOURCE" ;;
+        # Header-only files, skip cleanup
+        pdqsort|timsort|tsan_header|js_and_css)
+            return
+            ;;
+        *)
+            echo "Warning: no source mapping for package '${pkg}', skipping cleanup"
+            return
+            ;;
+    esac
+
+    src_dir="${!src_var}"
+    if [[ -n "${src_dir}" && -d "${TP_SOURCE_DIR}/${src_dir}" ]]; then
+        echo "Cleaning up source: ${src_dir}"
+        rm -rf "${TP_SOURCE_DIR}/${src_dir}"
+    fi
+}
+
 for package in "${packages[@]}"; do
     if [[ "${package}" == "${start_package}" ]]; then
         PACKAGE_FOUND=1
@@ -2074,6 +2284,11 @@ for package in "${packages[@]}"; do
     if [[ "${CONTINUE}" -eq 0 ]] || [[ "${PACKAGE_FOUND}" -eq 1 ]]; then
         command="build_${package}"
         ${command}
+        cd "${TP_DIR}"
+        cleanup_package_source "${package}"
+        echo "debug after clean: ${package}"
+        df -h
+        du -sh "${TP_DIR}"
     fi
 done
 

@@ -824,7 +824,6 @@ StreamingAggOperatorX::StreamingAggOperatorX(ObjectPool* pool, int operator_id,
           _output_tuple_id(tnode.agg_node.output_tuple_id),
           _needs_finalize(tnode.agg_node.need_finalize),
           _is_first_phase(tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase),
-          _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()),
           _agg_fn_output_row_descriptor(descs, tnode.row_tuples) {}
 
 void StreamingAggOperatorX::update_operator(const TPlanNode& tnode,
@@ -1025,7 +1024,7 @@ Status StreamingAggOperatorX::pull(RuntimeState* state, vectorized::Block* block
         RETURN_IF_ERROR(local_state._get_results_with_serialized_key(state, block, eos));
         local_state.make_nullable_output_key(block);
         // dispose the having clause, should not be execute in prestreaming agg
-        RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block, block->columns()));
+        RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block));
     }
     local_state.reached_limit(block, eos);
 

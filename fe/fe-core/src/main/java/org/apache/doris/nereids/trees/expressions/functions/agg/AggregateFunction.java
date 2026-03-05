@@ -79,7 +79,7 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
 
     /** getIntermediateTypes */
     public final PartialAggType getIntermediateTypes() {
-        return new PartialAggType(getArguments(), intermediateTypes());
+        return new PartialAggType(intermediateTypes());
     }
 
     public boolean isDistinct() {

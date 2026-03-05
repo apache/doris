@@ -46,6 +46,12 @@ namespace doris::cloud {
 template <typename Func>
 auto s3_rate_limit(S3RateLimitType op, Func callback) -> decltype(callback()) {
     using T = decltype(callback());
+    // Fault injection for testing rate limit handling in recycler
+    if (config::enable_s3_rate_limit_inject && op == S3RateLimitType::PUT) {
+        if (rand() % 100 < config::s3_rate_limit_inject_probility) {
+            return T(s3_error_factory());
+        }
+    }
     if (!config::enable_s3_rate_limiter) {
         return callback();
     }
@@ -140,8 +146,21 @@ public:
                 const_cast<std::string&&>(outcome.GetResult().GetNextContinuationToken())));
 
         auto&& content = outcome.GetResult().GetContents();
-        DCHECK(!(has_more_ && content.empty()))
-                << has_more_ << ' ' << content.empty() << " request_id=" << request_id;
+        // clang-format off
+        DCHECK(!(has_more_ && req_.GetContinuationToken().empty()))
+                << "has_more=" << has_more_
+                << " token=" << req_.GetContinuationToken()
+                << " request_id=" << request_id;
+        // clang-format on
+        if (has_more_ && req_.GetContinuationToken().empty()) {
+            LOG(ERROR) << "it is impossible to have more results but no continuation token";
+            has_more_ = false;
+        }
+        if (has_more_ && content.empty()) {
+            LOG(INFO) << "Empty page with more results (possible concurrent deletion), continuing"
+                      << " request_id=" << request_id;
+            return has_next();
+        }
 
         results_.reserve(content.size());
         for (auto&& obj : std::ranges::reverse_view(content)) {

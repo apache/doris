@@ -39,6 +39,7 @@
 #include "olap/inverted_index_parser.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/tablet_column_object_pool.h"
 #include "olap/types.h"
 #include "olap/utils.h"
@@ -677,6 +678,9 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_variant_doc_hash_shard_count()) {
         _variant.doc_hash_shard_count = column.variant_doc_hash_shard_count();
     }
+    if (column.has_variant_enable_nested_group()) {
+        _variant.enable_nested_group = column.variant_enable_nested_group();
+    }
     if (column.has_pattern_type()) {
         _pattern_type = column.pattern_type();
     }
@@ -763,6 +767,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_variant_enable_doc_mode(_variant.enable_doc_mode);
     column->set_variant_doc_materialization_min_rows(_variant.doc_materialization_min_rows);
     column->set_variant_doc_hash_shard_count(_variant.doc_hash_shard_count);
+    column->set_variant_enable_nested_group(_variant.enable_nested_group);
 }
 
 void TabletColumn::add_sub_column(TabletColumn& sub_column) {
@@ -955,9 +960,16 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
 
     DBUG_EXECUTE_IF("tablet_schema.to_schema_pb", { return; })
 
-    // lowercase by default
-    if (!_properties.empty()) {
-        if (!_properties.contains(INVERTED_INDEX_PARSER_LOWERCASE_KEY)) {
+    // Only add lower_case=true default for built-in analyzers/parsers, NOT for custom analyzers
+    // Custom analyzer: lower_case is determined by analyzer's internal token filter
+    if (!_properties.empty() && !_properties.contains(INVERTED_INDEX_PARSER_LOWERCASE_KEY)) {
+        bool has_parser = _properties.contains(INVERTED_INDEX_PARSER_KEY) ||
+                          _properties.contains(INVERTED_INDEX_PARSER_KEY_ALIAS);
+        std::string analyzer_name = get_analyzer_name_from_properties(_properties);
+        bool is_builtin = analyzer_name.empty() ||
+                          segment_v2::inverted_index::InvertedIndexAnalyzer::is_builtin_analyzer(
+                                  analyzer_name);
+        if (has_parser || is_builtin) {
             (*index->mutable_properties())[INVERTED_INDEX_PARSER_LOWERCASE_KEY] =
                     INVERTED_INDEX_PARSER_TRUE;
         }
@@ -1862,10 +1874,10 @@ vectorized::Block TabletSchema::create_block(
     return block;
 }
 
-vectorized::Block TabletSchema::create_block(bool ignore_dropped_col) const {
+vectorized::Block TabletSchema::create_block() const {
     vectorized::Block block;
     for (const auto& col : _cols) {
-        if (ignore_dropped_col && is_dropped_column(*col)) {
+        if (is_dropped_column(*col)) {
             continue;
         }
 

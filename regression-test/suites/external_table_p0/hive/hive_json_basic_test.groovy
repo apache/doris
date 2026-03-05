@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("hive_json_basic_test",  "p0,external,hive,external_docker,external_docker_hive") {
+suite("hive_json_basic_test", "p0,external") {
 
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")

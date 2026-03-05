@@ -510,6 +510,9 @@ message TxnInfoPB {
     // This is used for lazy commit to reduce contention during transaction commit.
     // The delete bitmap locks will be extended and removed during lazy commit phase.
     optional bool defer_deleting_pending_delete_bitmaps = 21;
+    // The cluster_id of the compute cluster that performed the load
+    // Set by FE during begin_txn, used by commit_txn for compaction read-write separation
+    optional string load_cluster_id = 22;
 }
 
 // For check txn conflict and txn timeout
@@ -888,6 +891,17 @@ message TabletStatsPB {
     optional int64 last_full_compaction_time_ms = 13;
     optional int64 index_size = 14;
     optional int64 segment_size = 15;
+    // The cluster ID that most recently performed load or compaction on this tablet
+    optional string last_active_cluster_id = 16;
+    // Timestamp (ms) when the last_active_cluster was updated
+    optional int64 last_active_time_ms = 17;
+    // Current status of the last_active_cluster (filled by MS at get_rowset time)
+    // NORMAL means available, other states (SUSPENDED/MANUAL_SHUTDOWN) or UNKNOWN means unavailable
+    optional ClusterStatus last_active_cluster_status = 18;
+    // Timestamp for timeout judgment
+    // - Normal case: dynamically filled with ClusterPB.mtime (not persisted)
+    // - Deleted case: persisted when first detected as deleted, reused thereafter
+    optional int64 last_active_cluster_status_mtime_ms = 19;
 }
 
 message ObjectFilePB {
@@ -998,12 +1012,13 @@ message SubTxnInfo {
 message TableStatsPB {
     optional int64 table_id = 1;
     optional int64 updated_row_count = 2;
+    optional int64 table_version = 3;
 }
 
 message CommitTxnResponse {
     optional MetaServiceResponseStatus status = 1;
     optional TxnInfoPB txn_info = 2;
-    // <tablet_id, partition_id> --> version
+    // <table_id, partition_id> --> version
     repeated int64 table_ids = 3;
     repeated int64 partition_ids = 4;
     repeated int64 versions = 5;
@@ -1097,6 +1112,17 @@ message GetCurrentMaxTxnRequest {
 message GetCurrentMaxTxnResponse {
     optional MetaServiceResponseStatus status = 1;
     optional int64 current_max_txn_id = 2;
+}
+
+message CreateMetaSyncPointRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional string request_ip = 2;
+}
+
+message CreateMetaSyncPointResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional int64 committed_version = 2;
+    optional string versionstamp = 3;
 }
 
 message AbortTxnWithCoordinatorRequest {
@@ -1338,6 +1364,8 @@ message GetRowsetResponse {
     optional SchemaCloudDictionary schema_dict = 4;
     // The current max version of the partition
     optional int64 partition_max_version = 5;
+    // The cluster_id of the requester
+    optional string requester_cluster_id = 6;
 }
 
 message GetSchemaDictRequest {
@@ -1364,6 +1392,7 @@ message IndexRequest {
 
 message IndexResponse {
     optional MetaServiceResponseStatus status = 1;
+    optional int64 table_version = 2;
 }
 
 message PartitionRequest {
@@ -1380,6 +1409,7 @@ message PartitionRequest {
 
 message PartitionResponse {
     optional MetaServiceResponseStatus status = 1;
+    optional int64 table_version = 2;
 }
 
 message RestoreJobRequest {
@@ -1524,6 +1554,8 @@ message GetClusterStatusResponse {
     }
     optional MetaServiceResponseStatus status = 1;
     repeated GetClusterStatusResponseDetail details = 2;
+    // The cluster_id of the requesting node (resolved from cloud_unique_id)
+    optional string requester_cluster_id = 3;
 }
 
 message GetClusterResponse {
@@ -1824,6 +1856,7 @@ enum MetaServiceCode {
 message DeleteBitmapStoragePB {
     optional bool store_in_fdb = 1;
     optional DeleteBitmapPB delete_bitmap = 2;
+    optional PackedSliceLocationPB packed_slice_location = 3;
 }
 
 message UpdateDeleteBitmapRequest {
@@ -2216,6 +2249,7 @@ service MetaService {
     rpc abort_txn(AbortTxnRequest) returns (AbortTxnResponse);
     rpc get_txn(GetTxnRequest) returns (GetTxnResponse);
     rpc get_current_max_txn_id(GetCurrentMaxTxnRequest) returns (GetCurrentMaxTxnResponse);
+    rpc create_meta_sync_point(CreateMetaSyncPointRequest) returns (CreateMetaSyncPointResponse);
     rpc check_txn_conflict(CheckTxnConflictRequest) returns (CheckTxnConflictResponse);
     rpc clean_txn_label(CleanTxnLabelRequest) returns (CleanTxnLabelResponse);
     rpc get_txn_id(GetTxnIdRequest) returns (GetTxnIdResponse);

@@ -148,12 +148,30 @@ DEFINE_mBool(enable_standby_passive_compaction, "true");
 
 DEFINE_mDouble(standby_compaction_version_ratio, "0.8");
 
+// Compaction read-write separation: only the "last active" cluster (the one that most recently
+// performed load) is allowed to compact a tablet
+DEFINE_mBool(enable_compaction_rw_separation, "true");
+// Timeout in ms for takeover when last active cluster becomes unavailable (default 5 min)
+DEFINE_mInt64(compaction_cluster_takeover_timeout_ms, "300000");
+// Interval in seconds to refresh cluster status cache (default 1 min)
+DEFINE_mInt64(cluster_status_cache_refresh_interval_sec, "60");
+// When version count exceeds this ratio of max_tablet_version_num, force compaction
+// even on read-only clusters (safety valve)
+DEFINE_mDouble(compaction_rw_separation_version_threshold_ratio, "0.8");
+
 DEFINE_mBool(enable_cache_read_from_peer, "true");
+
+// Rate limit for warmup download in bytes per second, default 100MB/s
+// <= 0 means no limit
+DEFINE_mInt64(file_cache_warmup_download_rate_limit_bytes_per_second, "104857600");
 
 // Cache the expiration time of the peer address.
 // This can be configured to be less than the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration.
 // If the value is -1, use the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration as the expiration time.
 DEFINE_mInt64(cache_read_from_peer_expired_seconds, "-1");
+
+DEFINE_mBool(enable_file_cache_write_base_compaction_index_only, "false");
+DEFINE_mBool(enable_file_cache_write_cumu_compaction_index_only, "false");
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

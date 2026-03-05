@@ -68,8 +68,8 @@ public class AzureResource extends Resource {
 
         // the endpoint for ping need add uri scheme.
         String pingEndpoint = this.properties.get(S3Properties.ENDPOINT);
-        if (!pingEndpoint.startsWith("http://")) {
-            pingEndpoint = "http://" + this.properties.get(S3Properties.ENDPOINT);
+        if (!pingEndpoint.contains("://")) {
+            pingEndpoint = "https://" + pingEndpoint;
             this.properties.put(S3Properties.ENDPOINT, pingEndpoint);
             this.properties.put(S3Properties.Env.ENDPOINT, pingEndpoint);
         }

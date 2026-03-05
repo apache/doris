@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <roaring/roaring.hh>
 
+#include "common/compiler_util.h"
 #include "common/exception.h"
 #include "decimal12.h"
 #include "exprs/hybrid_set.h"
@@ -245,13 +246,13 @@ public:
         _evaluate_bit<false>(column, sel, size, flags);
     }
 
-    bool evaluate_and(const ZoneMapInfo& zone_map_info) const override {
-        if (zone_map_info.is_all_null) {
+    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
+        if (!zone_map.has_not_null) {
             return false;
         }
         if constexpr (PT == PredicateType::IN_LIST) {
-            return Compare::less_equal(zone_map_info.min_value.template get<Type>(), _max_value) &&
-                   Compare::greater_equal(zone_map_info.max_value.template get<Type>(), _min_value);
+            return Compare::less_equal(zone_map.min_value.template get<Type>(), _max_value) &&
+                   Compare::greater_equal(zone_map.max_value.template get<Type>(), _min_value);
         } else {
             return true;
         }
@@ -259,10 +260,8 @@ public:
 
     bool camp_field(const vectorized::Field& min_field, const vectorized::Field& max_field) const {
         if constexpr (PT == PredicateType::IN_LIST) {
-            return (Compare::less_equal(min_field.template get<Type>(), _max_value) &&
-                    Compare::greater_equal(max_field.template get<Type>(), _min_value)) ||
-                   (Compare::greater_equal(max_field.template get<Type>(), _min_value) &&
-                    Compare::less_equal(min_field.template get<Type>(), _max_value));
+            return Compare::less_equal(min_field.template get<Type>(), _max_value) &&
+                   Compare::greater_equal(max_field.template get<Type>(), _min_value);
         } else {
             return true;
         }
@@ -271,18 +270,19 @@ public:
     bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
         bool result = true;
         if ((*statistic->get_stat_func)(statistic, column_id())) {
-            vectorized::Field min_field;
-            vectorized::Field max_field;
             if (statistic->is_all_null) {
                 result = false;
-            } else if (!vectorized::ParquetPredicate::parse_min_max_value(
-                                statistic->col_schema, statistic->encoded_min_value,
-                                statistic->encoded_max_value, *statistic->ctz, &min_field,
-                                &max_field)
-                                .ok()) [[unlikely]] {
-                result = true;
             } else {
-                result = camp_field(min_field, max_field);
+                vectorized::Field min_field;
+                vectorized::Field max_field;
+                auto st = vectorized::ParquetPredicate::parse_min_max_value(
+                        statistic->col_schema, statistic->encoded_min_value,
+                        statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field);
+                if (LIKELY(st.ok())) {
+                    result = camp_field(min_field, max_field);
+                } else { // status is not ok, return true directly
+                    result = true;
+                }
             }
         }
 
@@ -340,13 +340,13 @@ public:
         return false;
     }
 
-    bool evaluate_del(const ZoneMapInfo& zone_map_info) const override {
-        if (zone_map_info.has_null) {
+    bool evaluate_del(const segment_v2::ZoneMap& zone_map) const override {
+        if (zone_map.has_null) {
             return false;
         }
         if constexpr (PT == PredicateType::NOT_IN_LIST) {
-            return Compare::greater(zone_map_info.min_value.template get<Type>(), _max_value) ||
-                   Compare::less(zone_map_info.max_value.template get<Type>(), _min_value);
+            return Compare::greater(zone_map.min_value.template get<Type>(), _max_value) ||
+                   Compare::less(zone_map.max_value.template get<Type>(), _min_value);
         } else {
             return false;
         }

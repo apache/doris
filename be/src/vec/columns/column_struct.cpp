@@ -62,6 +62,7 @@ ColumnStruct::ColumnStruct(MutableColumns&& mutable_columns) {
         }
         columns.push_back(std::move(column));
     }
+    check_const_only_in_top_level();
 }
 
 ColumnStruct::MutablePtr ColumnStruct::create(const Columns& columns) {

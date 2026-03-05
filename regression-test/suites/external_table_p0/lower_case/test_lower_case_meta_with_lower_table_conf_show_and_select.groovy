@@ -19,7 +19,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
-suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external") {
 
     String jdbcUrl = context.config.jdbcUrl
     String jdbcUser = "test_lower_with_conf"
@@ -27,6 +27,7 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
+    // String driver_url = "mysql-connector-j-8.4.0.jar"
 
     def wait_table_sync = { String db ->
         Awaitility.await().atMost(10, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until{
@@ -414,7 +415,7 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
 
         // Verification results include lower and UPPER
         check { result, ex, startTime, endTime ->
-            def expectedTables = ["lower_with_conf", "upper_with_conf"]
+            def expectedTables = ["lower_with_conf", "UPPER_with_conf"]
             expectedTables.each { tableName ->
                 assertTrue(result.collect { it[0] }.contains(tableName), "Expected table '${tableName}' not found in result")
             }
@@ -519,7 +520,7 @@ suite("test_lower_case_meta_with_lower_table_conf_show_and_select", "p0,external
 
         // Verification results include lower and UPPER
         check { result, ex, startTime, endTime ->
-            def expectedTables = ["lower_with_conf", "upper_with_conf"]
+            def expectedTables = ["lower_with_conf", "UPPER_with_conf"]
             expectedTables.each { tableName ->
                 assertTrue(result.collect { it[0] }.contains(tableName), "Expected table '${tableName}' not found in result")
             }

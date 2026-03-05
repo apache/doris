@@ -140,10 +140,11 @@ LZO2_SOURCE=lzo-2.10
 LZO2_MD5SUM="39d3f3f9c55c87b1e5d6888e1420f4b5"
 
 # rapidjson
-RAPIDJSON_DOWNLOAD="https://github.com/Tencent/rapidjson/archive/1a803826f1197b5e30703afe4b9c0e7dd48074f5.zip"
-RAPIDJSON_NAME=rapidjson-1a803826f1197b5e30703afe4b9c0e7dd48074f5.zip
-RAPIDJSON_SOURCE=rapidjson-1a803826f1197b5e30703afe4b9c0e7dd48074f5
-RAPIDJSON_MD5SUM="f2212a77e055a15501477f1e390007ea"
+# Updated to match paimon-cpp version (commit 232389d4f1012dddec4ef84861face2d2ba85709)
+RAPIDJSON_DOWNLOAD="https://github.com/miloyip/rapidjson/archive/232389d4f1012dddec4ef84861face2d2ba85709.tar.gz"
+RAPIDJSON_NAME=rapidjson-232389d4f1012dddec4ef84861face2d2ba85709.tar.gz
+RAPIDJSON_SOURCE=rapidjson-232389d4f1012dddec4ef84861face2d2ba85709
+RAPIDJSON_MD5SUM="577d3495a07b66fcd4a2866c93831bc4"
 
 # curl
 CURL_DOWNLOAD="https://curl.se/download/curl-8.2.1.tar.gz"
@@ -419,7 +420,6 @@ TIMSORT_NAME="timsort.hpp"
 TIMSORT_FILE="timsort.hpp"
 TIMSORT_MD5SUM="000db489fb9c39a1cfb64a034f16b04d"
 
-
 # benchmark
 BENCHMARK_DOWNLOAD="https://github.com/google/benchmark/archive/refs/tags/v1.8.0.tar.gz"
 BENCHMARK_NAME=benchmark-v1.8.0.tar.gz
@@ -548,16 +548,22 @@ ICU_SOURCE=icu-release-69-1
 ICU_MD5SUM="135125f633864285d637db5c01e0388b"
 
 # jindofs
-JINDOFS_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/alibabacloud-jindodata-releases/jindofs-6.8.2-libs-0.1.tar.gz"
-JINDOFS_NAME=jindofs-6.8.2-libs-0.1.tar.gz
-JINDOFS_SOURCE=jindofs-6.8.2-libs-0.1
-JINDOFS_MD5SUM="0e5b0f71e636b8ed3f09e0bf16208fd1"
+JINDOFS_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/alibabacloud-jindodata-releases/jindofs-6.10.4-libs-0.1.tar.gz"
+JINDOFS_NAME=jindofs-6.10.4-libs-0.1.tar.gz
+JINDOFS_SOURCE=jindofs-6.10.4-libs-0.1
+JINDOFS_MD5SUM="bd30b4c5fe97c4367eeb3bb228b317d9"
 
 # pugixml
 PUGIXML_DOWNLOAD="https://github.com/zeux/pugixml/releases/download/v1.15/pugixml-1.15.tar.gz"
 PUGIXML_NAME=pugixml-1.15.tar.gz
 PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
+
+# paimon-cpp
+PAIMON_CPP_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/paimon-cpp-0a4f4e2.tar.gz"
+PAIMON_CPP_NAME="paimon-cpp-0a4f4e2.tar.gz"
+PAIMON_CPP_SOURCE="doris-thirdparty-paimon-cpp-0a4f4e2"
+PAIMON_CPP_MD5SUM="b8599a0421dbf1ec05e2f1a481d64e87"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -642,6 +648,7 @@ export TP_ARCHIVES=(
     'ICU'
     'JINDOFS'
     'PUGIXML'
+    'PAIMON_CPP'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

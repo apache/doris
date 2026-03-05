@@ -448,7 +448,7 @@ Status AggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* blo
     RETURN_IF_ERROR(local_state._executor.get_result(state, block, eos));
     local_state.make_nullable_output_key(block);
     // dispose the having clause, should not be execute in prestreaming agg
-    RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block, block->columns()));
+    RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block));
     local_state.do_agg_limit(block, eos);
     return Status::OK();
 }
@@ -500,9 +500,6 @@ Status AggLocalState::merge_with_serialized_key_helper(vectorized::Block* block)
     for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
         auto col_id = Base::_shared_state->probe_expr_ctxs.size() + i;
         auto column = block->get_by_position(col_id).column;
-        if (column->is_nullable()) {
-            column = ((vectorized::ColumnNullable*)column.get())->get_nested_column_ptr();
-        }
 
         size_t buffer_size =
                 Base::_shared_state->aggregate_evaluators[i]->function()->size_of_data() * rows;

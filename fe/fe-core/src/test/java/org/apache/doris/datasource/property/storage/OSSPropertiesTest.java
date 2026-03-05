@@ -70,8 +70,7 @@ public class OSSPropertiesTest {
         origProps.put("oss.connection.timeout", "1000");
         origProps.put("oss.use_path_style", "true");
         origProps.put("test_non_storage_param", "6000");
-        OSSProperties ossProperties = (OSSProperties) StorageProperties.createAll(origProps).get(1);
-        Assertions.assertEquals(HdfsProperties.class, StorageProperties.createAll(origProps).get(0).getClass());
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createAll(origProps).get(0);
         Map<String, String> s3Props;
 
         Map<String, String> ossConfig = ossProperties.getMatchedProperties();
@@ -94,7 +93,7 @@ public class OSSPropertiesTest {
         Assertions.assertEquals("1000", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
         origProps.remove("oss.use_path_style");
-        ossProperties = (OSSProperties) StorageProperties.createAll(origProps).get(1);
+        ossProperties = (OSSProperties) StorageProperties.createAll(origProps).get(0);
         s3Props = ossProperties.generateBackendS3Configuration();
         Assertions.assertEquals("false", s3Props.get("use_path_style"));
     }
@@ -246,10 +245,14 @@ public class OSSPropertiesTest {
         ossProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
         OSSProperties ossStorageProperties = (OSSProperties) StorageProperties.createPrimary(ossProps);
         Assertions.assertEquals(AnonymousCredentialsProvider.class, ossStorageProperties.getAwsCredentialsProvider().getClass());
+        Map<String, String> backendProps = ossStorageProperties.getBackendConfigProperties();
+        Assertions.assertEquals("ANONYMOUS", backendProps.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
         ossProps.put("oss.access_key", "myAccessKey");
         ossProps.put("oss.secret_key", "mySecretKey");
         ossStorageProperties = (OSSProperties) StorageProperties.createPrimary(ossProps);
         Assertions.assertEquals(StaticCredentialsProvider.class, ossStorageProperties.getAwsCredentialsProvider().getClass());
+        backendProps = ossStorageProperties.getBackendConfigProperties();
+        Assertions.assertNull(backendProps.get("AWS_CREDENTIALS_PROVIDER_TYPE"));
     }
 
     @Test

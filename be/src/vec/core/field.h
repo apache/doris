@@ -36,6 +36,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "olap/hll.h"
+#include "runtime/primitive_type.h"
 #include "util/bitmap_value.h"
 #include "util/quantile_state.h"
 #include "vec/common/string_view.h"
@@ -204,6 +205,31 @@ public:
     static Field create_field(typename PrimitiveTypeTraits<T>::CppType&& data) {
         auto f = Field(T);
         f.template create_concrete<T>(std::move(data));
+        return f;
+    }
+
+    template <PrimitiveType PType, typename ValType = std::conditional_t<
+                                           doris::is_string_type(PType), StringRef,
+                                           typename PrimitiveTypeTraits<PType>::StorageFieldType>>
+    static Field create_field_from_olap_value(const ValType& data) {
+        auto f = Field(PType);
+        typename PrimitiveTypeTraits<PType>::CppType cpp_value;
+        if constexpr (is_string_type(PType)) {
+            auto min_size =
+                    MAX_ZONE_MAP_INDEX_SIZE >= data.size ? data.size : MAX_ZONE_MAP_INDEX_SIZE;
+            cpp_value = String(data.data, min_size);
+        } else if constexpr (is_date_or_datetime(PType)) {
+            if constexpr (PType == TYPE_DATE) {
+                cpp_value.from_olap_date(data);
+            } else {
+                cpp_value.from_olap_datetime(data);
+            }
+        } else if constexpr (is_decimalv2(PType)) {
+            cpp_value = DecimalV2Value(data.integer, data.fraction);
+        } else {
+            cpp_value = typename PrimitiveTypeTraits<PType>::CppType(data);
+        }
+        f.template create_concrete<PType>(std::move(cpp_value));
         return f;
     }
 

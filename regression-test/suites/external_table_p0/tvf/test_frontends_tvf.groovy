@@ -16,7 +16,7 @@
 // under the License.
 
 // This suit test the `frontends` tvf
-suite("test_frontends_tvf","p0,external,tvf,external_docker") {
+suite("test_frontends_tvf", "p0,external") {
     List<List<Object>> table =  sql """ select * from `frontends`(); """
     logger.info("${table}")
     assertTrue(table.size() > 0)

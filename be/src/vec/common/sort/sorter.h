@@ -202,14 +202,16 @@ public:
         _max_buffered_block_bytes = max_buffered_block_bytes;
     }
 
+    auto merge_sort_state() { return _state.get(); }
+
+    Status do_sort();
+
 private:
     bool _reach_limit() {
         return _state->unsorted_block()->allocated_bytes() >= _max_buffered_block_bytes;
     }
 
     bool has_enough_capacity(Block* input_block, Block* unsorted_block) const;
-
-    Status _do_sort();
 
     std::unique_ptr<MergeSorterState> _state;
 

@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,external_docker_sqlserver") {
+suite("test_sqlserver_jdbc_catalog", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest");
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mssql-jdbc-11.2.3.jre8.jar"
+    // String driver_url = "mssql-jdbc-11.2.3.jre8.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "sqlserver_catalog";
         String internal_db_name = "sqlserver_jdbc_catalog_p0";
@@ -84,6 +85,29 @@ suite("test_sqlserver_jdbc_catalog", "p0,external,sqlserver,external_docker,exte
         order_qt_all_types_tvf """ select * from query('catalog' = '${catalog_name}', 'query' = 'select * from all_type;') order by 1"""
 
         order_qt_identity_decimal """ select * from test_identity_decimal order by id; """
+
+        // Test cases for SQL Server date format pushdown (handleSQLServerDateFormat)
+        // Uses test_date_filter table which has diverse date/datetime values across rows
+        // to verify that filters genuinely include/exclude the correct rows.
+
+        // Case 1: datetime equality — BinaryPredicate triggers CONVERT(DATETIME, '...', 121)
+        // Should return only rows matching '2023-01-17 10:30:00' (id=1)
+        order_qt_datetime_eq """ select * from test_date_filter where datetime_value = '2023-01-17 10:30:00' order by id; """
+        // Case 2: datetime range — two BinaryPredicates trigger CONVERT(DATETIME, ..., 121)
+        // Should return rows with datetime between '2023-06-25 14:30:45' and '2024-12-31 23:59:59' (id=2,3)
+        order_qt_datetime_range """ select * from test_date_filter where datetime_value >= '2023-06-25 14:30:45' and datetime_value <= '2024-12-31 23:59:59' order by id; """
+        // Case 3: datetime IN — InPredicate triggers CONVERT(DATETIME, ..., 121) for each item
+        // Should return rows matching either value (id=1,5)
+        order_qt_datetime_in """ select * from test_date_filter where datetime_value in ('2023-01-17 10:30:00', '2025-03-15 12:00:00') order by id; """
+        // Case 4: date equality — BinaryPredicate triggers CONVERT(DATE, '...', 23)
+        // Should return rows with date_value='2023-01-17' (id=1,4)
+        order_qt_date_eq """ select * from test_date_filter where date_value = '2023-01-17' order by id; """
+        // Case 5: date range — two BinaryPredicates trigger CONVERT(DATE, ..., 23)
+        // Should return rows with date between '2023-06-25' and '2024-12-31' (id=2,3)
+        order_qt_date_range """ select * from test_date_filter where date_value >= '2023-06-25' and date_value <= '2024-12-31' order by id; """
+        // Case 6: date IN — InPredicate triggers CONVERT(DATE, ..., 23) for each item
+        // Should return rows with date_value in the list (id=1,3,4)
+        order_qt_date_in """ select * from test_date_filter where date_value in ('2023-01-17', '2024-12-31') order by id; """
 
         sql """ drop catalog if exists ${catalog_name} """
 

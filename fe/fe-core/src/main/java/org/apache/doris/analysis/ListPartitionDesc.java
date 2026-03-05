@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.analysis.PartitionKeyDesc.PartitionKeyValueType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.PartitionInfo;
@@ -52,19 +51,6 @@ public class ListPartitionDesc extends PartitionDesc {
         this.singlePartitionDescs = handleAllPartitionDesc(allPartitionDescs);
         this.type = PartitionType.LIST;
         this.isAutoCreatePartitions = true;
-    }
-
-    public static ListPartitionDesc createListPartitionDesc(ArrayList<Expr> exprs,
-            List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
-        List<String> colNames = getColNamesFromExpr(exprs, true, true);
-        return new ListPartitionDesc(exprs, colNames, allPartitionDescs);
-    }
-
-    @Override
-    public void checkPartitionKeyValueType(PartitionKeyDesc partitionKeyDesc) throws AnalysisException {
-        if (partitionKeyDesc.getPartitionType() != PartitionKeyValueType.IN) {
-            throw new AnalysisException("You can only use in values to create list partitions");
-        }
     }
 
     @Override

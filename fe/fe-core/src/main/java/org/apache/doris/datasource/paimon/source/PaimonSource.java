@@ -21,16 +21,21 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.thrift.TFileAttributes;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 
+import java.util.Optional;
 
 public class PaimonSource {
-    private final PaimonExternalTable paimonExtTable;
+    private final ExternalTable paimonExtTable;
     private final Table originTable;
     private final TupleDescriptor desc;
 
@@ -43,8 +48,8 @@ public class PaimonSource {
 
     public PaimonSource(TupleDescriptor desc) {
         this.desc = desc;
-        this.paimonExtTable = (PaimonExternalTable) desc.getTable();
-        this.originTable = paimonExtTable.getPaimonTable(MvccUtil.getSnapshotFromContext(paimonExtTable));
+        this.paimonExtTable = (ExternalTable) desc.getTable();
+        this.originTable = resolvePaimonTable(paimonExtTable);
     }
 
     public TupleDescriptor getDesc() {
@@ -59,6 +64,22 @@ public class PaimonSource {
         return paimonExtTable;
     }
 
+    public ExternalTable getExternalTable() {
+        return paimonExtTable;
+    }
+
+    private Table resolvePaimonTable(ExternalTable table) {
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(table);
+        if (table instanceof PaimonExternalTable) {
+            return ((PaimonExternalTable) table).getPaimonTable(snapshot);
+        }
+        if (table instanceof PaimonSysExternalTable) {
+            return ((PaimonSysExternalTable) table).getSysPaimonTable();
+        }
+        throw new IllegalArgumentException(
+                "Expected Paimon table but got " + table.getClass().getSimpleName());
+    }
+
     public TFileAttributes getFileAttributes() throws UserException {
         return new TFileAttributes();
     }
@@ -69,5 +90,13 @@ public class PaimonSource {
 
     public String getFileFormatFromTableProperties() {
         return originTable.options().getOrDefault("file.format", "parquet");
+    }
+
+    public String getTableLocation() {
+        if (originTable instanceof FileStoreTable) {
+            return ((FileStoreTable) originTable).location().toString();
+        }
+        // Fallback to path option
+        return originTable.options().get("path");
     }
 }

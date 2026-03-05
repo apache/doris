@@ -378,9 +378,9 @@ Status DistinctStreamingAggOperatorX::push(RuntimeState* state, vectorized::Bloc
 
     RETURN_IF_ERROR(local_state._distinct_pre_agg_with_serialized_key(
             in_block, local_state._aggregated_block.get()));
-    // set limit and reach limit
+    // Prevents exceeding the row limit when the aggregated block reaches or equals the threshold.
     if (_limit != -1 &&
-        (local_state._num_rows_returned + local_state._aggregated_block->rows()) > _limit) {
+        (local_state._num_rows_returned + local_state._aggregated_block->rows()) >= _limit) {
         auto limit_rows = _limit - local_state._num_rows_returned;
         local_state._aggregated_block->set_num_rows(limit_rows);
         local_state._reach_limit = true;
@@ -403,7 +403,7 @@ Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, vectorized::Bloc
     local_state._make_nullable_output_key(block);
     if (!_is_streaming_preagg) {
         // dispose the having clause, should not be execute in prestreaming agg
-        RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block, block->columns()));
+        RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block));
     }
     local_state.add_num_rows_returned(block->rows());
     // If the limit is not reached, it is important to ensure that _aggregated_block is empty

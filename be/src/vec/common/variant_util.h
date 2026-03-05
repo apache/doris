@@ -81,6 +81,7 @@ struct VariantExtendedInfo {
     std::unordered_set<vectorized::PathInData, vectorized::PathInData::Hash>
             nested_paths;               // nested paths in this variant column
     PathToDataTypes path_to_data_types; // key: path, value: data types
+    bool has_nested_group = false;      // whether this variant column has nested group
 };
 
 /// Returns number of dimensions in Array type. 0 if type is not array.
@@ -255,7 +256,7 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
 // Parse doc snapshot column (paths/values/offsets stored in ColumnVariant) into per-path subcolumns.
 // NOTE: Returned map keys are `std::string_view` pointing into the underlying doc snapshot paths
 // column, so the input `variant` must outlive the returned map.
-std::unordered_map<std::string_view, ColumnVariant::Subcolumn> materialize_docs_to_subcolumns_map(
+phmap::flat_hash_map<std::string_view, ColumnVariant::Subcolumn> materialize_docs_to_subcolumns_map(
         const ColumnVariant& variant);
 
 } // namespace  doris::vectorized::variant_util

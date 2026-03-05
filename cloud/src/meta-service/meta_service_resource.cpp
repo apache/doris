@@ -4585,6 +4585,9 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
             } else {
                 pb.set_cluster_status(ClusterStatus::NORMAL);
             }
+            if (cluster.has_mtime()) {
+                pb.set_mtime(cluster.mtime());
+            }
             detail.add_clusters()->CopyFrom(pb);
         }
         if (detail.clusters().size() == 0) {
@@ -4594,6 +4597,16 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
     };
 
     std::for_each(instance_ids.begin(), instance_ids.end(), get_clusters_info);
+
+    // Resolve the requesting node's cluster_id from cloud_unique_id
+    if (!request->cloud_unique_ids().empty()) {
+        const auto& cloud_unique_id = request->cloud_unique_ids(0);
+        std::vector<NodeInfo> nodes;
+        std::string node_err = resource_mgr_->get_node(cloud_unique_id, &nodes);
+        if (node_err.empty() && !nodes.empty()) {
+            response->set_requester_cluster_id(nodes[0].cluster_id);
+        }
+    }
 
     msg = proto_to_json(*response);
 }

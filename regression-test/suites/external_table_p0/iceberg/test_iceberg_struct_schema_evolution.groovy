@@ -27,7 +27,7 @@
 // Prerequisites: 
 // - Tables created by run24.sql in docker iceberg scripts
 
-suite("test_iceberg_struct_schema_evolution", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_struct_schema_evolution", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {

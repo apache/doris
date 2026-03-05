@@ -18,6 +18,7 @@
 #include "python_env.h"
 
 #include <fmt/core.h>
+#include <rapidjson/document.h>
 
 #include <filesystem>
 #include <memory>
@@ -25,12 +26,23 @@
 #include <vector>
 
 #include "common/status.h"
+#include "gen_cpp/BackendService_types.h"
 #include "udf/python/python_server.h"
 #include "util/string_util.h"
 
 namespace doris {
 
 namespace fs = std::filesystem;
+
+static std::string _python_env_type_to_string(PythonEnvType env_type) {
+    switch (env_type) {
+    case PythonEnvType::CONDA:
+        return "conda";
+    case PythonEnvType::VENV:
+        return "venv";
+    }
+    return "unknown";
+}
 
 // extract python version by executing `python --version` and extract "3.9.16" from "Python 3.9.16"
 // @param python_path: path to python executable, e.g. "/opt/miniconda3/envs/myenv/bin/python"
@@ -285,6 +297,90 @@ Status PythonVersionManager::init(PythonEnvType env_type, const fs::path& python
     std::vector<PythonVersion> versions;
     RETURN_IF_ERROR(_env_scanner->scan());
     RETURN_IF_ERROR(_env_scanner->get_versions(&versions));
+    return Status::OK();
+}
+
+std::vector<TPythonEnvInfo> PythonVersionManager::env_infos_to_thrift() const {
+    std::vector<TPythonEnvInfo> infos;
+    const auto& envs = _env_scanner->get_envs();
+    infos.reserve(envs.size());
+
+    const auto env_type_str = _python_env_type_to_string(_env_scanner->env_type());
+    for (const auto& env : envs) {
+        TPythonEnvInfo info;
+        info.__set_env_name(env.env_name);
+        info.__set_full_version(env.python_version.full_version);
+        info.__set_env_type(env_type_str);
+        info.__set_base_path(env.python_version.base_path);
+        info.__set_executable_path(env.python_version.executable_path);
+        infos.emplace_back(std::move(info));
+    }
+
+    return infos;
+}
+
+std::vector<TPythonPackageInfo> PythonVersionManager::package_infos_to_thrift(
+        const std::vector<std::pair<std::string, std::string>>& packages) const {
+    std::vector<TPythonPackageInfo> infos;
+    infos.reserve(packages.size());
+    for (const auto& [name, ver] : packages) {
+        TPythonPackageInfo info;
+        info.__set_package_name(name);
+        info.__set_version(ver);
+        infos.emplace_back(std::move(info));
+    }
+    return infos;
+}
+
+Status list_installed_packages(const PythonVersion& version,
+                               std::vector<std::pair<std::string, std::string>>* packages) {
+    DCHECK(packages != nullptr);
+    if (!version.is_valid()) {
+        return Status::InvalidArgument("Invalid python version: {}", version.to_string());
+    }
+
+    // Run pip list --format=json to get installed packages
+    std::string cmd =
+            fmt::format("\"{}\" -m pip list --format=json 2>/dev/null", version.executable_path);
+    FILE* pipe = popen(cmd.c_str(), "r");
+    if (!pipe) {
+        return Status::InternalError("Failed to run pip list for python version: {}",
+                                     version.full_version);
+    }
+
+    std::string result;
+    char buf[4096];
+    while (fgets(buf, sizeof(buf), pipe)) {
+        result += buf;
+    }
+    int ret = pclose(pipe);
+    if (ret != 0) {
+        return Status::InternalError(
+                "pip list failed for python version: {}, exit code: {}, output: {}",
+                version.full_version, ret, result);
+    }
+
+    // Parse JSON output: [{"name": "pkg", "version": "1.0"}, ...]
+    // Simple JSON parsing without external library
+    // Each entry looks like: {"name": "package_name", "version": "1.2.3"}
+    rapidjson::Document doc;
+    if (doc.Parse(result.data(), result.size()).HasParseError() || !doc.IsArray()) [[unlikely]] {
+        return Status::InternalError("Failed to parse pip list json output for python version: {}",
+                                     version.full_version);
+    }
+
+    packages->reserve(packages->size() + doc.Size());
+    for (const auto& item : doc.GetArray()) {
+        auto name_it = item.FindMember("name");
+        auto version_it = item.FindMember("version");
+        if (name_it == item.MemberEnd() || version_it == item.MemberEnd() ||
+            !name_it->value.IsString() || !version_it->value.IsString()) [[unlikely]] {
+            return Status::InternalError("Invalid pip list json format for python version: {}",
+                                         version.full_version);
+        }
+        packages->emplace_back(name_it->value.GetString(), version_it->value.GetString());
+    }
+
     return Status::OK();
 }
 

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_upper_case_column_name", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_upper_case_column_name", "p0,external") {
     def hiveParquet1 = """select * from hive_upper_case_parquet;"""
     def hiveParquet2 = """select * from hive_upper_case_parquet where id=1;"""
     def hiveParquet3 = """select * from hive_upper_case_parquet where id>1;"""

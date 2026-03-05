@@ -26,7 +26,9 @@
 
 #include <boost/asio.hpp>
 #include <boost/process.hpp>
+#include <fstream>
 
+#include "arrow/flight/client.h"
 #include "common/config.h"
 #include "udf/python/python_udaf_client.h"
 #include "udf/python/python_udf_client.h"
@@ -191,7 +193,7 @@ Status PythonServerManager::fork(const PythonVersion& version, ProcessPtr* proce
 void PythonServerManager::_start_health_check_thread() {
     if (_health_check_thread) return;
 
-    LOG(INFO) << "Starting Python process health check thread (interval: 60 seconds)";
+    LOG(INFO) << "Starting Python process health check thread (interval: 30 seconds)";
 
     _health_check_thread = std::make_unique<std::thread>([this]() {
         // Health check loop
@@ -199,56 +201,60 @@ void PythonServerManager::_start_health_check_thread() {
             // Wait for interval or shutdown signal
             {
                 std::unique_lock<std::mutex> lock(_health_check_mutex);
-                _health_check_cv.wait_for(lock, std::chrono::seconds(60), [this]() {
+                _health_check_cv.wait_for(lock, std::chrono::seconds(30), [this]() {
                     return _shutdown_flag.load(std::memory_order_acquire);
                 });
             }
 
             if (_shutdown_flag.load(std::memory_order_acquire)) break;
 
-            std::lock_guard<std::mutex> lock(_pools_mutex);
-
-            int total_checked = 0;
-            int total_dead = 0;
-            int total_recreated = 0;
-
-            for (auto& [version, pool] : _process_pools) {
-                for (size_t i = 0; i < pool.size(); ++i) {
-                    auto& process = pool[i];
-                    if (!process) continue;
-
-                    total_checked++;
-                    if (!process->is_alive()) {
-                        total_dead++;
-                        LOG(WARNING)
-                                << "Detected dead Python process (pid=" << process->get_child_pid()
-                                << ", version=" << version.to_string() << "), recreating...";
-
-                        ProcessPtr new_process;
-                        Status s = fork(version, &new_process);
-                        if (s.ok()) {
-                            pool[i] = std::move(new_process);
-                            total_recreated++;
-                            LOG(INFO) << "Successfully recreated Python process for version "
-                                      << version.to_string();
-                        } else {
-                            LOG(ERROR) << "Failed to recreate Python process for version "
-                                       << version.to_string() << ": " << s.to_string();
-                            pool.erase(pool.begin() + i);
-                            --i;
-                        }
-                    }
-                }
-            }
-
-            if (total_dead > 0) {
-                LOG(INFO) << "Health check completed: checked=" << total_checked
-                          << ", dead=" << total_dead << ", recreated=" << total_recreated;
-            }
+            _check_and_recreate_processes();
+            _refresh_memory_stats();
         }
 
         LOG(INFO) << "Python process health check thread exiting";
     });
+}
+
+void PythonServerManager::_check_and_recreate_processes() {
+    std::lock_guard<std::mutex> lock(_pools_mutex);
+
+    int total_checked = 0;
+    int total_dead = 0;
+    int total_recreated = 0;
+
+    for (auto& [version, pool] : _process_pools) {
+        for (size_t i = 0; i < pool.size(); ++i) {
+            auto& process = pool[i];
+            if (!process) continue;
+
+            total_checked++;
+            if (!process->is_alive()) {
+                total_dead++;
+                LOG(WARNING) << "Detected dead Python process (pid=" << process->get_child_pid()
+                             << ", version=" << version.to_string() << "), recreating...";
+
+                ProcessPtr new_process;
+                Status s = fork(version, &new_process);
+                if (s.ok()) {
+                    pool[i] = std::move(new_process);
+                    total_recreated++;
+                    LOG(INFO) << "Successfully recreated Python process for version "
+                              << version.to_string();
+                } else {
+                    LOG(ERROR) << "Failed to recreate Python process for version "
+                               << version.to_string() << ": " << s.to_string();
+                    pool.erase(pool.begin() + i);
+                    --i;
+                }
+            }
+        }
+    }
+
+    if (total_dead > 0) {
+        LOG(INFO) << "Health check completed: checked=" << total_checked << ", dead=" << total_dead
+                  << ", recreated=" << total_recreated;
+    }
 }
 
 void PythonServerManager::shutdown() {
@@ -271,6 +277,133 @@ void PythonServerManager::shutdown() {
         }
     }
     _process_pools.clear();
+}
+
+Status PythonServerManager::_read_process_memory(pid_t pid, size_t* rss_bytes) {
+    // Read from /proc/{pid}/statm
+    // Format: size resident shared text lib data dt
+    std::string statm_path = fmt::format("/proc/{}/statm", pid);
+    std::ifstream statm_file(statm_path);
+
+    if (!statm_file.is_open()) {
+        return Status::InternalError("Cannot open {}", statm_path);
+    }
+
+    size_t size_pages = 0, rss_pages = 0;
+    // we only care about RSS, read and ignore the total size field
+    statm_file >> size_pages >> rss_pages;
+
+    if (statm_file.fail()) {
+        return Status::InternalError("Failed to read {}", statm_path);
+    }
+
+    // Convert pages to bytes
+    long page_size = sysconf(_SC_PAGESIZE);
+    *rss_bytes = rss_pages * page_size;
+
+    return Status::OK();
+}
+
+void PythonServerManager::_refresh_memory_stats() {
+    std::lock_guard<std::mutex> lock(_pools_mutex);
+
+    int64_t total_rss = 0;
+
+    for (const auto& [version, pool] : _process_pools) {
+        for (const auto& process : pool) {
+            if (!process || !process->is_alive()) continue;
+
+            size_t rss_bytes = 0;
+            Status s = _read_process_memory(process->get_child_pid(), &rss_bytes);
+
+            if (s.ok()) {
+                total_rss += rss_bytes;
+            } else [[unlikely]] {
+                LOG(WARNING) << "Failed to read memory info for Python process (pid="
+                             << process->get_child_pid() << "): " << s.to_string();
+            }
+        }
+    }
+    _mem_tracker.set_consumption(total_rss);
+    LOG(INFO) << _mem_tracker.log_usage();
+
+    if (config::python_udf_processes_memory_limit_bytes > 0 &&
+        total_rss > config::python_udf_processes_memory_limit_bytes) {
+        LOG(WARNING) << "Python UDF process memory usage exceeds limit: rss_bytes=" << total_rss
+                     << ", limit_bytes=" << config::python_udf_processes_memory_limit_bytes;
+    }
+}
+
+Status PythonServerManager::clear_module_cache(const std::string& location) {
+    if (location.empty()) {
+        return Status::InvalidArgument("Empty location for clear_module_cache");
+    }
+
+    std::lock_guard<std::mutex> lock(_pools_mutex);
+
+    std::string body = fmt::format(R"({{"location": "{}"}})", location);
+
+    int success_count = 0;
+    int fail_count = 0;
+    bool has_active_process = false;
+
+    for (auto& [version, pool] : _process_pools) {
+        for (auto& process : pool) {
+            if (!process || !process->is_alive()) {
+                continue;
+            }
+            has_active_process = true;
+            try {
+                auto loc_result = arrow::flight::Location::Parse(process->get_uri());
+                if (!loc_result.ok()) [[unlikely]] {
+                    fail_count++;
+                    continue;
+                }
+
+                auto client_result = arrow::flight::FlightClient::Connect(*loc_result);
+                if (!client_result.ok()) [[unlikely]] {
+                    fail_count++;
+                    continue;
+                }
+                auto client = std::move(*client_result);
+
+                arrow::flight::Action action;
+                action.type = "clear_module_cache";
+                action.body = arrow::Buffer::FromString(body);
+
+                auto result_stream = client->DoAction(action);
+                if (!result_stream.ok()) {
+                    fail_count++;
+                    continue;
+                }
+
+                auto result = (*result_stream)->Next();
+                if (result.ok() && *result) {
+                    success_count++;
+                } else {
+                    fail_count++;
+                }
+
+            } catch (...) {
+                fail_count++;
+            }
+        }
+    }
+
+    if (!has_active_process) {
+        return Status::OK();
+    }
+
+    LOG(INFO) << "clear_module_cache completed for location=" << location
+              << ", success=" << success_count << ", failed=" << fail_count;
+
+    if (fail_count > 0) {
+        return Status::InternalError(
+                "clear_module_cache failed for location={}, success={}, failed={}", location,
+                success_count, fail_count);
+    }
+
+    return Status::OK();
 }
 
 // Explicit template instantiation for UDF, UDAF and UDTF clients

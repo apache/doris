@@ -1293,6 +1293,20 @@ public class DateTimeExtractAndTransform {
     }
 
     /**
+     * date arithmetic function previous_day
+     */
+    @ExecFunction(name = "previous_day")
+    public static Expression previousDay(DateV2Literal date, StringLiteral day) {
+        int dayOfWeek = getDayOfWeek(day.getValue());
+        if (dayOfWeek == 0) {
+            throw new RuntimeException("Invalid day of week: " + day.getValue());
+        }
+        int daysToSub = (date.getDayOfWeek() - dayOfWeek + 7) % 7;
+        daysToSub = daysToSub == 0 ? 7 : daysToSub;
+        return date.plusDays(-daysToSub);
+    }
+
+    /**
      * date transform function sec_to_time
      */
     @ExecFunction(name = "sec_to_time")

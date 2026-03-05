@@ -109,13 +109,13 @@ TEST_F(FullSorterTest, test_full_sorter3) {
     {
         Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
         EXPECT_TRUE(sorter->append_block(&block).ok());
-        EXPECT_TRUE(sorter->_do_sort());
+        EXPECT_TRUE(sorter->do_sort());
     }
 
     {
         Block block = ColumnHelper::create_block<DataTypeInt64>({4, 5, 6, 7});
         EXPECT_TRUE(sorter->append_block(&block).ok());
-        EXPECT_TRUE(sorter->_do_sort());
+        EXPECT_TRUE(sorter->do_sort());
     }
     EXPECT_EQ(sorter->_state->get_sorted_block()[0]->rows(), 6);
     EXPECT_EQ(sorter->_state->get_sorted_block()[1]->rows(), 4);

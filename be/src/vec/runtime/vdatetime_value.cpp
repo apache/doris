@@ -2285,19 +2285,24 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
         }
     }
 
+    // When called as a sub-parser (e.g. %T -> "%H:%i:%S"), only time parts are parsed,
+    // year/month/day remain 0. Skip date validation in that case to avoid false rejection.
+    bool only_time_part = sub_val_end && !(part_used & (NORMAL_DATE_PART | SPECIAL_DATE_PART));
+
     if (already_set_time_part) {
         if constexpr (is_datetime) {
             return check_range_and_set_time(year, month, day, date_v2_value_.hour_,
                                             date_v2_value_.minute_, date_v2_value_.second_,
-                                            microsecond);
+                                            microsecond, only_time_part);
         } else {
-            return check_range_and_set_time(year, month, day, 0, 0, 0, 0);
+            return check_range_and_set_time(year, month, day, 0, 0, 0, 0, only_time_part);
         }
     }
     if constexpr (is_datetime) {
-        return check_range_and_set_time(year, month, day, hour, minute, second, microsecond);
+        return check_range_and_set_time(year, month, day, hour, minute, second, microsecond,
+                                        only_time_part);
     } else {
-        return check_range_and_set_time(year, month, day, 0, 0, 0, 0);
+        return check_range_and_set_time(year, month, day, 0, 0, 0, 0, only_time_part);
     }
 }
 

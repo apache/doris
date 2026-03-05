@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 //import com.mysql.cj.jdbc.Driver
-suite("test_external_catalog_mysql", "p2,external,mysql,external_remote,external_remote_mysql") {
+suite("test_external_catalog_mysql", "p2,external") {
 
     Boolean ignoreP2 = true;
     if (ignoreP2) {

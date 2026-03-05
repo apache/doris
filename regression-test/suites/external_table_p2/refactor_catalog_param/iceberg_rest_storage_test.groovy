@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("iceberg_rest_storage_test", "p2,external,iceberg,external_docker,external_docker_iceberg_rest,new_catalog_property") {
+suite("iceberg_rest_storage_test", "p2,external") {
 
     def testQueryAndInsert = { String catalogProperties, String prefix ->
 

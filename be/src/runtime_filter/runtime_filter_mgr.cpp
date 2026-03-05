@@ -126,7 +126,10 @@ Status RuntimeFilterMgr::get_local_merge_producer_filters(int filter_id,
                 filter_id);
     }
     *local_merge_filters = &iter->second;
-    DCHECK(iter->second.merger);
+    if (!iter->second.merger) {
+        return Status::InternalError("local merge context merger is nullptr for filter_id: {}",
+                                     filter_id);
+    }
     return Status::OK();
 }
 
@@ -354,7 +357,11 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext
                                                               int64_t merge_time,
                                                               PUniqueId query_id,
                                                               int execution_timeout) {
-    DCHECK_GT(cnt_val.targetv2_info.size(), 0);
+    if (cnt_val.targetv2_info.empty()) {
+        return Status::InternalError(
+                "_send_rf_to_target called with empty targetv2_info, filter: {}",
+                cnt_val.merger ? cnt_val.merger->debug_string() : "unknown");
+    }
 
     if (cnt_val.done) {
         return Status::InternalError("Runtime filter has been sent",

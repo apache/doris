@@ -48,6 +48,7 @@
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/cache/mem_file_cache_storage.h"
+#include "util/concurrency_stats.h"
 #include "util/runtime_profile.h"
 #include "util/stack_util.h"
 #include "util/stopwatch.hpp"
@@ -817,7 +818,9 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
     DCHECK(stats != nullptr);
     MonotonicStopWatch sw;
     sw.start();
+    ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->increment();
     std::lock_guard cache_lock(_mutex);
+    ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->decrement();
     stats->lock_wait_timer += sw.elapsed_time();
     FileBlocks file_blocks;
     int64_t duration = 0;
