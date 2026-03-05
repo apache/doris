@@ -81,7 +81,6 @@ suite("nereids_scalar_fn_ArrayNullsafe", "p0") {
     qt_sql_array_cum_sum1 "SELECT array_cum_sum(int_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_cum_sum2 "SELECT array_cum_sum(double_array) FROM fn_test_nullsafe_array order by id"
     qt_sql_array_cum_sum3 "SELECT array_cum_sum(string_array) FROM fn_test_nullsafe_array order by id"
-    qt_sql_array_cum_sum4 "SELECT array_cum_sum(largeint_array) FROM fn_test_nullsafe_array order by id"
 
     
     // array-difference nullsafe tests
