@@ -80,7 +80,7 @@ public class FrontendsTableValuedFunctionTest {
         mockContext("self-fe-host", "connected-fe-host");
         FrontendsTableValuedFunction tvf = new FrontendsTableValuedFunction(new HashMap<>());
         TMetaScanRange range = tvf.getMetaScanRange(Collections.emptyList());
-        Assert.assertEquals("connected-fe-host", range.getFrontendsParams().getClusterName());
+        Assert.assertEquals("connected-fe-host", range.getFrontendsParams().getCurrentConnectedFeHost());
     }
 
     @Test
@@ -88,6 +88,6 @@ public class FrontendsTableValuedFunctionTest {
         mockContext("self-fe-host", "");
         FrontendsTableValuedFunction tvf = new FrontendsTableValuedFunction(new HashMap<>());
         TMetaScanRange range = tvf.getMetaScanRange(Collections.emptyList());
-        Assert.assertEquals("self-fe-host", range.getFrontendsParams().getClusterName());
+        Assert.assertEquals("self-fe-host", range.getFrontendsParams().getCurrentConnectedFeHost());
     }
 }

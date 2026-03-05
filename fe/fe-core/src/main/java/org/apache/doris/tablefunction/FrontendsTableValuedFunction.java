@@ -111,10 +111,7 @@ public class FrontendsTableValuedFunction extends MetadataTableValuedFunction {
                 && !Strings.isNullOrEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
             currentConnectedFe = ConnectContext.get().getCurrentConnectedFEIp();
         }
-        // NOTE: TFrontendsMetadataParams currently only has `cluster_name`. Reuse it as a pass-through
-        // field to carry the FE host that accepted the client connection, so FRONTENDS() can compute
-        // "CurrentConnected" correctly even when metadata generation happens on another FE (e.g. master).
-        frontendsMetadataParams.setClusterName(currentConnectedFe);
+        frontendsMetadataParams.setCurrentConnectedFeHost(currentConnectedFe);
         metaScanRange.setFrontendsParams(frontendsMetadataParams);
         return metaScanRange;
     }

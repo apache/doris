@@ -539,9 +539,7 @@ public class MetadataGenerator {
 
         List<TRow> dataBatch = Lists.newArrayList();
         List<List<String>> infos = Lists.newArrayList();
-        // `cluster_name` is intentionally reused here as the pass-through FE host from
-        // FrontendsTableValuedFunction#getMetaScanRange(), see the comment there.
-        FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), infos, frontendsParam.getClusterName());
+        FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), infos, frontendsParam.getCurrentConnectedFeHost());
         for (List<String> info : infos) {
             TRow trow = new TRow();
             for (String item : info) {
