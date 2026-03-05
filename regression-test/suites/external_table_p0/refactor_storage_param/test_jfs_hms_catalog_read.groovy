@@ -49,7 +49,10 @@ suite("test_jfs_hms_catalog_read", "p0,external") {
         jfsMetaProperty = ",\n                'juicefs.${jfsCluster}.meta' = '${jfsMeta}'"
     }
 
-    String hdfsUser = context.config.otherConfigs.get("hdfsUser")
+    String hdfsUser = context.config.otherConfigs.get("jfsHadoopUser")
+    if (hdfsUser == null || hdfsUser.trim().isEmpty()) {
+        hdfsUser = context.config.otherConfigs.get("hdfsUser")
+    }
     if (hdfsUser == null || hdfsUser.trim().isEmpty()) {
         hdfsUser = "root"
     }
