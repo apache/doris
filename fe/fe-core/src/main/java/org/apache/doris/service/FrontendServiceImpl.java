@@ -363,11 +363,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private ExecuteEnv exeEnv;
     // key is txn id,value is index of plan fragment instance, it's used by multi
     // table request plan
-    private ConcurrentHashMap<Long, AtomicInteger> multiTableFragmentInstanceIdIndexMap =
-            new ConcurrentHashMap<>(64);
+    private ConcurrentHashMap<Long, AtomicInteger> multiTableFragmentInstanceIdIndexMap = new ConcurrentHashMap<>(64);
 
-    private final Map<TUniqueId, ConnectContext> proxyQueryIdToConnCtx =
-            new ConcurrentHashMap<>(64);
+    private final Map<TUniqueId, ConnectContext> proxyQueryIdToConnCtx = new ConcurrentHashMap<>(64);
 
     private static TNetworkAddress getMasterAddress() {
         Env env = Env.getCurrentEnv();
@@ -528,10 +526,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             } else {
                 currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
             }
+            Set<String> currentRoles = params.isSetCurrentRoles() ? params.getCurrentRoles() : null;
             for (DatabaseIf db : dbs) {
                 String dbName = db.getFullName();
                 if (!env.getAccessManager()
-                        .checkDbPriv(PrivilegeContext.of(currentUser), catalog.getName(), dbName, PrivPredicate.SHOW)) {
+                        .checkDbPriv(PrivilegeContext.of(currentUser, currentRoles), catalog.getName(), dbName,
+                                PrivPredicate.SHOW)) {
                     continue;
                 }
 
@@ -600,6 +600,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             } else {
                 currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
             }
+            Set<String> currentRoles = params.isSetCurrentRoles() ? params.getCurrentRoles() : null;
             String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
                     : params.catalog;
             String dbName = getDbNameFromMysqlTableSchema(catalogName, params.db);
@@ -616,7 +617,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             LOG.debug("get table: {}, wait to check", tableName);
                         }
                         if (!Env.getCurrentEnv().getAccessManager()
-                                .checkTblPriv(PrivilegeContext.of(currentUser), catalogName, dbName, tableName,
+                                .checkTblPriv(PrivilegeContext.of(currentUser, currentRoles), catalogName, dbName,
+                                        tableName,
                                         PrivPredicate.SHOW)) {
                             continue;
                         }
@@ -665,6 +667,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
+        Set<String> currentRoles = params.isSetCurrentRoles() ? params.getCurrentRoles() : null;
 
         String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
         if (params.isSetCatalog()) {
@@ -693,7 +696,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             continue;
                         }
                         if (!Env.getCurrentEnv().getAccessManager()
-                                .checkTblPriv(PrivilegeContext.of(currentUser), catalogName, dbName,
+                                .checkTblPriv(PrivilegeContext.of(currentUser, currentRoles), catalogName, dbName,
                                         table.getName(), PrivPredicate.SHOW)) {
                             continue;
                         }
@@ -765,6 +768,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
+        Set<String> currentRoles = params.isSetCurrentRoles() ? params.getCurrentRoles() : null;
 
         String catalogName;
         if (params.isSetCatalog()) {
@@ -795,7 +799,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     List<TableIf> tables = db.getTables();
                     for (TableIf table : tables) {
                         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
-                                PrivilegeContext.of(currentUser),
+                                PrivilegeContext.of(currentUser, currentRoles),
                                 catalogName,
                                 dbName,
                                 table.getName(),
@@ -912,11 +916,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
+        Set<String> currentRoles = params.isSetCurrentRoles() ? params.getCurrentRoles() : null;
         String dbName = getDbNameFromMysqlTableSchema(params.catalog, params.db);
         for (String tableName : tables) {
             if (!Env.getCurrentEnv().getAccessManager()
                     .checkTblPriv(
-                            PrivilegeContext.of(currentUser),
+                            PrivilegeContext.of(currentUser, currentRoles),
                             params.catalog,
                             dbName,
                             tableName,
@@ -1024,8 +1029,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TFetchSplitBatchResult fetchSplitBatch(TFetchSplitBatchRequest request) throws TException {
         TFetchSplitBatchResult result = new TFetchSplitBatchResult();
-        SplitSource splitSource =
-                Env.getCurrentEnv().getSplitSourceManager().getSplitSource(request.getSplitSourceId());
+        SplitSource splitSource = Env.getCurrentEnv().getSplitSourceManager()
+                .getSplitSource(request.getSplitSourceId());
         if (splitSource == null) {
             throw new TException("Split source " + request.getSplitSourceId() + " is released");
         }
@@ -1148,7 +1153,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             throw new TException("unknown ConnectType: " + context.getConnectType());
         }
-        Runnable clearCallback = () -> {};
+        Runnable clearCallback = () -> {
+        };
         if (params.isSetQueryId()) {
             proxyQueryIdToConnCtx.put(params.getQueryId(), context);
             clearCallback = () -> proxyQueryIdToConnCtx.remove(params.getQueryId());
@@ -1471,7 +1477,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         return result;
     }
-
 
     public TGetEncryptionKeysResult getEncryptionKeys(TGetEncryptionKeysRequest request) {
         String clientAddr = getClientAddrAsString();
@@ -2111,7 +2116,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         request.getTbl(), clientAddr, PrivPredicate.LOAD);
             }
             result.setMasterAddress(new TNetworkAddress(Env.getCurrentEnv().getMasterHost(),
-                                    Env.getCurrentEnv().getMasterRpcPort()));
+                    Env.getCurrentEnv().getMasterRpcPort()));
             if (status.getStatusCode() != TStatusCode.OK) {
                 return result;
             }
@@ -2249,7 +2254,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         clientAddr, PrivPredicate.LOAD);
             }
             result.setMasterAddress(new TNetworkAddress(Env.getCurrentEnv().getMasterHost(),
-                                    Env.getCurrentEnv().getMasterRpcPort()));
+                    Env.getCurrentEnv().getMasterRpcPort()));
             if (status.getStatusCode() != TStatusCode.OK) {
                 return result;
             }
@@ -2669,7 +2674,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (DdlException e) {
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
-        }  catch (Throwable e) {
+        } catch (Throwable e) {
             LOG.warn("unknown exception when add or drop insert overwrite record", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
@@ -2750,9 +2755,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private void recordFinishedLoadJobRequestImpl(String label, long txnId, String db, String tbl,
-                                                  long createTime, String failMsg, String trackingUrl,
-                                                  String firstErrorMsg, UserIdentity userIdentity,
-                                                  long jobId) throws Exception {
+            long createTime, String failMsg, String trackingUrl,
+            String firstErrorMsg, UserIdentity userIdentity,
+            long jobId) throws Exception {
         DatabaseIf database = Env.getCurrentInternalCatalog().getDbNullable(db);
         if (database == null) {
             throw new DdlException("Database not found: " + db);
@@ -2840,14 +2845,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         multiTableFragmentInstanceIdIndexMap.putIfAbsent(request.getTxnId(), new AtomicInteger(1));
         AtomicInteger index = multiTableFragmentInstanceIdIndexMap.get(request.getTxnId());
         StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, index, null,
-                                                                    getClientAddrAsString());
+                getClientAddrAsString());
         try {
             streamLoadHandler.generatePlan();
             planFragmentParamsList.addAll(streamLoadHandler.getFragmentParams());
             if (LOG.isDebugEnabled()) {
                 LOG.debug("receive stream load multi table put request result: {}", result);
             }
-        }  catch (UserException exception) {
+        } catch (UserException exception) {
             LOG.warn("failed to get stream load plan: {}", exception.getMessage());
             status = new TStatus(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(exception.getMessage());
@@ -2856,7 +2861,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 RoutineLoadJob routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager()
                         .getRoutineLoadJobByMultiLoadTaskTxnId(request.getTxnId());
                 routineLoadJob.updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.INTERNAL_ERR,
-                            "failed to get stream load plan, " + exception.getMessage()), false);
+                        "failed to get stream load plan, " + exception.getMessage()), false);
             } catch (Throwable e) {
                 LOG.warn("catch update routine load job error.", e);
             }
@@ -3027,7 +3032,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         boolean isReady = Env.getCurrentEnv().isReady();
         TFrontendPingFrontendResult result = new TFrontendPingFrontendResult();
         // The following fields are required in thrift.
-        // So must give them a default value to avoid "Required field xx was not present" error.
+        // So must give them a default value to avoid "Required field xx was not
+        // present" error.
         result.setStatus(TFrontendPingFrontendStatusCode.OK);
         result.setMsg("");
         result.setQueryPort(0);
@@ -3533,7 +3539,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     } else {
                         // On the cloud, the PrimaryBackend of a tablet
                         // indicates the BE where the tablet is stably located,
-                        // while the SecondBackend refers to a BE selected by a new hash when the PrimaryBackend
+                        // while the SecondBackend refers to a BE selected by a new hash when the
+                        // PrimaryBackend
                         // is temporarily unavailable. Once the PrimaryBackend recovers,
                         // the system will switch back to using it. During the preheating phase,
                         // data needs to be synchronized downstream, which requires a stable BE,
@@ -3906,9 +3913,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         String repoName = request.getRepoName();
         Map<String, String> properties = request.getProperties();
 
-        // Restore requires that all properties are known, so the old version of FE will not be able
-        // to recognize the properties of the new version. Therefore, request parameters are used here
-        // instead of directly putting them in properties to avoid compatibility issues of cross-version
+        // Restore requires that all properties are known, so the old version of FE will
+        // not be able
+        // to recognize the properties of the new version. Therefore, request parameters
+        // are used here
+        // instead of directly putting them in properties to avoid compatibility issues
+        // of cross-version
         // synchronization.
         if (request.isCleanPartitions()) {
             properties.put(RestoreCommand.PROP_CLEAN_PARTITIONS, "true");
@@ -3968,7 +3978,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
 
-        //instantiate RestoreCommand
+        // instantiate RestoreCommand
         LabelNameInfo labelNameInfo = new LabelNameInfo(label.getDb(), label.getLabel());
         RestoreCommand restoreCommand = new RestoreCommand(labelNameInfo, repoName, tableRefs, properties, false);
         restoreCommand.setMeta(backupMeta);
@@ -4312,19 +4322,24 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
         // Cache tablet location only when needed:
-        // 1. From a requirement perspective: Only multi-instance ingestion may trigger inconsistent replica
-        //    distribution issues due to concurrent createPartition RPCs.
-        // 2. From a necessity perspective: For BE-initiated loads (e.g., stream load commit/abort from BE),
-        //    if a BE crashes, the cache for the related transaction may remain in memory and cannot be cleaned up.
-        //    So we skip caching for them.
+        // 1. From a requirement perspective: Only multi-instance ingestion may trigger
+        // inconsistent replica
+        // distribution issues due to concurrent createPartition RPCs.
+        // 2. From a necessity perspective: For BE-initiated loads (e.g., stream load
+        // commit/abort from BE),
+        // if a BE crashes, the cache for the related transaction may remain in memory
+        // and cannot be cleaned up.
+        // So we skip caching for them.
         boolean needUseCache = false;
         boolean mockRebalance = false;
         if (request.isSetQueryId()) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(request.getQueryId());
             if (coordinator != null) {
                 int instanceNum = 0;
-                // For single-instance imports (like stream load from FE), we don't need cache either
-                // Only multi-instance imports need to ensure consistent tablet replica information
+                // For single-instance imports (like stream load from FE), we don't need cache
+                // either
+                // Only multi-instance imports need to ensure consistent tablet replica
+                // information
                 // Coordinator may be null for stream load or other BE-initiated loads
                 if (coordinator instanceof NereidsCoordinator) {
                     NereidsCoordinator nereidsCoordinator = (NereidsCoordinator) coordinator;
@@ -4399,9 +4414,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
 
-        // check partition's number limit. because partitions in addPartitionClauseMap may be duplicated with existing
-        // partitions, which would lead to false positive. so we should check the partition number AFTER adding new
-        // partitions using its ACTUAL NUMBER, rather than the sum of existing and requested partitions.
+        // check partition's number limit. because partitions in addPartitionClauseMap
+        // may be duplicated with existing
+        // partitions, which would lead to false positive. so we should check the
+        // partition number AFTER adding new
+        // partitions using its ACTUAL NUMBER, rather than the sum of existing and
+        // requested partitions.
         if (olapTable.getPartitionNum() > Config.max_auto_partition_num) {
             String errorMessage = String.format(
                     "partition numbers %d exceeded limit of variable max_auto_partition_num %d",
@@ -4419,7 +4437,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TOlapTablePartition> partitions = Lists.newArrayList();
         for (String partitionName : addPartitionClauseMap.keySet()) {
             Partition partition = table.getPartition(partitionName);
-            // For thread safety, we preserve the tablet distribution information of each partition
+            // For thread safety, we preserve the tablet distribution information of each
+            // partition
             // before calling getOrSetAutoPartitionInfo, but not check the partition first
             List<TTabletLocation> partitionTablets = new ArrayList<>();
             List<TTabletLocation> partitionSlaveTablets = new ArrayList<>();
@@ -4586,11 +4605,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         OlapTable olapTable = (OlapTable) table;
         // Cache tablet location only when needed:
-        // 1. From a requirement perspective: Only multi-instance ingestion may trigger inconsistent replica
-        //    distribution issues due to concurrent replacePartition RPCs.
-        // 2. From a necessity perspective: For BE-initiated loads (e.g., stream load commit/abort from BE),
-        //    if a BE crashes, the cache for the related transaction may remain in memory and cannot be cleaned up.
-        //    So we skip caching for them.
+        // 1. From a requirement perspective: Only multi-instance ingestion may trigger
+        // inconsistent replica
+        // distribution issues due to concurrent replacePartition RPCs.
+        // 2. From a necessity perspective: For BE-initiated loads (e.g., stream load
+        // commit/abort from BE),
+        // if a BE crashes, the cache for the related transaction may remain in memory
+        // and cannot be cleaned up.
+        // So we skip caching for them.
         boolean needUseCache = false;
         boolean mockRebalance = false;
         long txnId = 0;
@@ -4598,8 +4620,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(request.getQueryId());
             if (coordinator != null) {
                 int instanceNum = 0;
-                // For single-instance imports (like stream load from FE), we don't need cache either
-                // Only multi-instance imports need to ensure consistent tablet replica information
+                // For single-instance imports (like stream load from FE), we don't need cache
+                // either
+                // Only multi-instance imports need to ensure consistent tablet replica
+                // information
                 // Coordinator may be null for stream load or other BE-initiated loads
                 if (coordinator instanceof NereidsCoordinator) {
                     NereidsCoordinator nereidsCoordinator = (NereidsCoordinator) coordinator;
@@ -4649,7 +4673,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         boolean needReplace = false;
         try {
             taskLock.lock();
-            // double check lock. maybe taskLock is not null, but has been removed from the Map. means the task failed.
+            // double check lock. maybe taskLock is not null, but has been removed from the
+            // Map. means the task failed.
             if (overwriteManager.getLock(taskGroupId) == null) {
                 errorStatus.setErrorMsgs(Lists
                         .newArrayList(new String("cannot find task group " + taskGroupId + ", maybe already failed.")));
@@ -4658,17 +4683,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 return result;
             }
 
-            // we dont lock the table. other thread in this txn will be controled by taskLock.
-            // if we have already replaced, dont do it again, but acquire the recorded new partition directly.
+            // we dont lock the table. other thread in this txn will be controled by
+            // taskLock.
+            // if we have already replaced, dont do it again, but acquire the recorded new
+            // partition directly.
             // if not by this txn, just let it fail naturally is ok.
             needReplace = overwriteManager.tryReplacePartitionIds(taskGroupId, reqPartitionIds, resultPartitionIds);
             // request: [1 2 3 4] result: [1 2 5 6] means ONLY 1 and 2 need replace.
             if (needReplace) {
-                // names for [1 2]. if another txn dropped origin partitions, we will fail here. return the exception.
-                // that's reasonable because we want iot-auto-detect txn has as less impact as possible. so only when we
-                // detected the conflict in this RPC, we will fail the txn. it allows more concurrent transactions.
+                // names for [1 2]. if another txn dropped origin partitions, we will fail here.
+                // return the exception.
+                // that's reasonable because we want iot-auto-detect txn has as less impact as
+                // possible. so only when we
+                // detected the conflict in this RPC, we will fail the txn. it allows more
+                // concurrent transactions.
                 List<String> pendingPartitionNames = olapTable.getEqualPartitionNames(reqPartitionIds,
-                                resultPartitionIds);
+                        resultPartitionIds);
                 for (String name : pendingPartitionNames) {
                     pendingPartitionIds.add(olapTable.getPartition(name).getId()); // put [1 2]
                 }
@@ -4680,7 +4710,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 long taskId = overwriteManager.registerTask(dbId, tableId, newTempNames);
                 overwriteManager.registerTaskInGroup(taskGroupId, taskId);
                 InsertOverwriteUtil.addTempPartitions(olapTable, pendingPartitionNames, newTempNames);
-                // now temp partitions are bumped up and use new names. we get their ids and record them.
+                // now temp partitions are bumped up and use new names. we get their ids and
+                // record them.
                 for (String newPartName : newTempNames) {
                     newPartitionIds.add(olapTable.getPartition(newPartName).getId()); // put [7 8]
                 }
@@ -4728,15 +4759,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     + ']');
         }
 
-        // build partition & tablets. now all partitions in allReqPartNames are replaced an recorded.
-        // so they won't be changed again. if other transaction changing it. just let it fail.
+        // build partition & tablets. now all partitions in allReqPartNames are replaced
+        // an recorded.
+        // so they won't be changed again. if other transaction changing it. just let it
+        // fail.
         List<TOlapTablePartition> partitions = new ArrayList<>();
         List<TTabletLocation> tablets = new ArrayList<>();
         List<TTabletLocation> slaveTablets = new ArrayList<>();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         for (long partitionId : resultPartitionIds) {
             Partition partition = olapTable.getPartition(partitionId);
-            // For thread safety, we preserve the tablet distribution information of each partition
+            // For thread safety, we preserve the tablet distribution information of each
+            // partition
             // before calling getOrSetAutoPartitionInfo, but not check the partition first
             List<TTabletLocation> partitionTablets = new ArrayList<>();
             List<TTabletLocation> partitionSlaveTablets = new ArrayList<>();
@@ -4945,7 +4979,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
 
                     if (table == null) {
-                        // Since Database.getTableNullable is lock-free, we need to take lock and check again,
+                        // Since Database.getTableNullable is lock-free, we need to take lock and check
+                        // again,
                         // to ensure the visibility of the table.
                         db.readLock();
                         try {
@@ -5351,6 +5386,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     /**
      * only copy basic meta about table
      * do not copy the partitions
+     *
      * @param request
      * @return
      * @throws TException

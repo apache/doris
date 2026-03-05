@@ -25,6 +25,8 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
@@ -78,6 +80,18 @@ public class SuCommand extends Command implements NoForward {
             roleOverride.add(roleName);
         }
         ctx.setCurrentRoles(roleOverride);
+
+        // Refresh computeGroup for the SU target user.
+        // If the target user doesn't exist in UserPropertyMgr (returns INVALID),
+        // fallback to the default compute group.
+        ComputeGroup computeGroup = Env.getCurrentEnv().getAuth()
+                .getComputeGroup(user.getQualifiedUser());
+        if (ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup)) {
+            computeGroup = Env.getCurrentEnv().getComputeGroupMgr()
+                    .getComputeGroupByName(Tag.VALUE_DEFAULT_TAG);
+        }
+        ctx.setComputeGroup(computeGroup);
+
         ctx.getState().setOk();
     }
 

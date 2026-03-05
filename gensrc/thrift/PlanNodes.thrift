@@ -828,6 +828,7 @@ struct TSchemaScanNode {
   14: optional string catalog
   15: optional list<Types.TNetworkAddress> fe_addr_list
   16: optional string frontend_conjuncts
+  17: optional set<string> current_roles
 }
 
 struct TMetaScanNode {

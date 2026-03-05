@@ -59,6 +59,9 @@ Status SchemaWorkloadSchedulePolicyScanner::_get_workload_schedule_policy_block_
         schema_table_request_params.columns_name.emplace_back(_s_tbls_columns[i].name);
     }
     schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
+    if (nullptr != _param->common_param->current_roles) {
+        schema_table_request_params.__set_current_roles(*(_param->common_param->current_roles));
+    }
 
     TFetchSchemaTableDataRequest request;
     request.__set_schema_table_name(TSchemaTableName::WORKLOAD_SCHEDULE_POLICY);

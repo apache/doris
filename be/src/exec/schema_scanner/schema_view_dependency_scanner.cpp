@@ -62,6 +62,9 @@ Status SchemaViewDependencyScanner::_get_view_dependency_block_from_fe() {
         schema_table_request_params.columns_name.emplace_back(_s_view_dependency_columns[i].name);
     }
     schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
+    if (nullptr != _param->common_param->current_roles) {
+        schema_table_request_params.__set_current_roles(*(_param->common_param->current_roles));
+    }
     schema_table_request_params.__set_frontend_conjuncts(*_param->common_param->frontend_conjuncts);
     TFetchSchemaTableDataRequest request;
     request.__set_schema_table_name(TSchemaTableName::VIEW_DEPENDENCY);

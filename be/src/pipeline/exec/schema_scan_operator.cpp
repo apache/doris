@@ -137,6 +137,11 @@ Status SchemaScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
         _common_scanner_param->frontend_conjuncts =
                 state->obj_pool()->add(new std::string(tnode.schema_scan_node.frontend_conjuncts));
     }
+
+    if (tnode.schema_scan_node.__isset.current_roles) {
+        _common_scanner_param->current_roles = state->obj_pool()->add(
+                new std::set<std::string>(tnode.schema_scan_node.current_roles));
+    }
     return Status::OK();
 }
 

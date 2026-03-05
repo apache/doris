@@ -65,6 +65,7 @@ struct TDescribeTablesParams {
   5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
   6: optional bool show_hidden_columns = false
   7: optional string catalog
+  8: optional set<string> current_roles
 }
 
 // Results of a call to describeTable()
@@ -95,6 +96,7 @@ struct TGetDbsParams {
   4: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
   5: optional string catalog
   6: optional bool get_null_catalog  //if catalog is empty , get dbName ="NULL" and dbId = -1.
+  7: optional set<string> current_roles
 }
 
 // getDbNames returns a list of database names , database ids and catalog names ,catalog ids
@@ -119,6 +121,7 @@ struct TGetTablesParams {
   6: optional string type
   7: optional string catalog
   8: optional string table
+  9: optional set<string> current_roles
 }
 
 struct TTableStatus {
@@ -886,6 +889,7 @@ struct TMetadataTableRequestParams {
   12: optional PlanNodes.TMetaCacheStatsParams meta_cache_stats_params
   13: optional PlanNodes.TPartitionValuesMetadataParams partition_values_metadata_params
   14: optional PlanNodes.THudiMetadataParams hudi_metadata_params
+  15: optional set<string> current_roles
 }
 
 struct TSchemaTableRequestParams {
@@ -897,6 +901,7 @@ struct TSchemaTableRequestParams {
     6: optional string time_zone // used for DATETIME field
     7: optional string frontend_conjuncts
     8: optional i64 thread_id // mysql connection id for fetching ConnectContext if needed
+    9: optional set<string> current_roles
 }
 
 struct TFetchSchemaTableDataRequest {

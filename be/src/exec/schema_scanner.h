@@ -73,6 +73,7 @@ struct SchemaScannerCommonParam {
     int64_t thread_id;
     const std::string* catalog = nullptr;
     std::set<TNetworkAddress> fe_addr_list;
+    const std::set<std::string>* current_roles = nullptr;
 };
 
 // scanner parameter from frontend
