@@ -3863,6 +3863,16 @@ public class Config extends ConfigBase {
     })
     public static int first_error_msg_max_length = 256;
 
+    @ConfField(mutable = true, description = {
+        "Insert 操作失败时，返回给客户端的错误信息的最大长度，默认 1024 字节。"
+                + "错误信息超过该长度会被截断。增大该值有助于在写入失败时保留完整的诊断信息。",
+        "The maximum length of the error message returned to client when insert operation fails, default is 1024 bytes."
+                + " Error messages exceeding this length will be truncated."
+                + " Increasing this value helps preserve complete diagnostic information"
+                + " when writing to tables fails."
+    })
+    public static int insert_error_msg_max_length = 1024;
+
     @ConfField
     public static String cloud_snapshot_handler_class = "org.apache.doris.cloud.snapshot.CloudSnapshotHandler";
     @ConfField

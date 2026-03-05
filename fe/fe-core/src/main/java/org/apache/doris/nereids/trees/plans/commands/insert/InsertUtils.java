@@ -716,7 +716,7 @@ public class InsertUtils {
      * @return the final truncated error message
      */
     public static String getFinalErrorMsg(String msg, String firstErrorMsg, String url) {
-        int maxTotalBytes = 512;
+        int maxTotalBytes = Config.insert_error_msg_max_length;
 
         // For test
         // 1. error msg length > 512, we will truncate it first to make sure the URL
