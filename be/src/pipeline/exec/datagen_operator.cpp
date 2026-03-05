@@ -103,7 +103,6 @@ Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 }
 
 Status DataGenLocalState::close(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();

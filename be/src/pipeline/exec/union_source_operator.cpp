@@ -193,7 +193,6 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
 }
 
 Status UnionSourceLocalState::close(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();

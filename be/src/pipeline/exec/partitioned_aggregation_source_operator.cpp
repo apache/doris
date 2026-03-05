@@ -82,7 +82,6 @@ void PartitionedAggLocalState::update_profile(RuntimeProfile* child_profile) {
 #undef UPDATE_COUNTER_FROM_INNER
 
 Status PartitionedAggLocalState::close(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();

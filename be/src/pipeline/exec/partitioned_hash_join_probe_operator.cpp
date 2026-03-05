@@ -156,7 +156,6 @@ Status PartitionedHashJoinProbeLocalState::open(RuntimeState* state) {
                                                                                   _partitioner);
 }
 Status PartitionedHashJoinProbeLocalState::close(RuntimeState* state) {
-    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();

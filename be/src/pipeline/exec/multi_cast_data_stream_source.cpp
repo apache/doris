@@ -70,7 +70,6 @@ Status MultiCastDataStreamSourceLocalState::close(RuntimeState* state) {
     }
 
     SCOPED_TIMER(_close_timer);
-    SCOPED_TIMER(exec_time_counter());
     int64_t rf_time = 0;
     for (auto& dep : _filter_dependencies) {
         rf_time += dep->watcher_elapse_time();
