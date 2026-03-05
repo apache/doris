@@ -317,7 +317,7 @@ protected:
             return;
         }
 
-        segment_v2::ConditionCache::ExternalCacheKey key(path, -1, 0, digest);
+        segment_v2::ConditionCache::ExternalCacheKey key(path, -1, 0, digest, 0, -1);
 
         segment_v2::ConditionCacheHandle handle;
         cache_hit = cc->lookup(key, &handle);
@@ -334,7 +334,7 @@ protected:
 
     // Inserts a pre-populated entry into the cache for the given path/digest.
     void prepopulate_cache(const std::string& path, uint64_t digest) {
-        segment_v2::ConditionCache::ExternalCacheKey key(path, -1, 0, digest);
+        segment_v2::ConditionCache::ExternalCacheKey key(path, -1, 0, digest, 0, -1);
         auto filter = std::make_shared<std::vector<bool>>(std::vector<bool> {true, false, true});
         _cache->insert(key, filter);
     }

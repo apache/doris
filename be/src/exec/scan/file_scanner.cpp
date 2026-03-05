@@ -1774,7 +1774,9 @@ void FileScanner::_init_reader_condition_cache() {
             _current_range.path,
             _current_range.__isset.modification_time ? _current_range.modification_time : 0,
             _current_range.__isset.file_size ? _current_range.file_size : -1,
-            _condition_cache_digest);
+            _condition_cache_digest,
+            _current_range.__isset.start_offset ? _current_range.start_offset : 0,
+            _current_range.__isset.size ? _current_range.size : -1);
 
     segment_v2::ConditionCacheHandle handle;
     _condition_cache_hit = cache->lookup(cache_key, &handle);
@@ -1823,7 +1825,9 @@ void FileScanner::_finalize_reader_condition_cache() {
             _current_range.path,
             _current_range.__isset.modification_time ? _current_range.modification_time : 0,
             _current_range.__isset.file_size ? _current_range.file_size : -1,
-            _condition_cache_digest);
+            _condition_cache_digest,
+            _current_range.__isset.start_offset ? _current_range.start_offset : 0,
+            _current_range.__isset.size ? _current_range.size : -1);
 
     cache->insert(cache_key, std::move(_condition_cache));
     _condition_cache = nullptr;

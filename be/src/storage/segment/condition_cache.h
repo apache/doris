@@ -72,23 +72,29 @@ public:
     // Cache key for external tables (Hive ORC/Parquet)
     struct ExternalCacheKey {
         ExternalCacheKey(const std::string& path_, int64_t modification_time_, int64_t file_size_,
-                         uint64_t digest_)
+                         uint64_t digest_, int64_t start_offset_, int64_t size_)
                 : path(path_),
                   modification_time(modification_time_),
                   file_size(file_size_),
-                  digest(digest_) {}
+                  digest(digest_),
+                  start_offset(start_offset_),
+                  size(size_) {}
         std::string path;
         int64_t modification_time;
         int64_t file_size;
         uint64_t digest;
+        int64_t start_offset;
+        int64_t size;
 
         [[nodiscard]] std::string encode() const {
             std::string key = path;
-            char buf[24];
+            char buf[40];
             memcpy(buf, &modification_time, 8);
             memcpy(buf + 8, &file_size, 8);
             memcpy(buf + 16, &digest, 8);
-            key.append(buf, 24);
+            memcpy(buf + 24, &start_offset, 8);
+            memcpy(buf + 32, &size, 8);
+            key.append(buf, 40);
             return key;
         }
     };
