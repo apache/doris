@@ -59,7 +59,7 @@ public class AccessControllerManagerTest {
 
         new Expectations() {
             {
-                defaultAccessController.checkGlobalPriv((UserIdentity) any, (PrivPredicate) any);
+                defaultAccessController.checkGlobalPriv(PrivilegeContext.of((UserIdentity) any), (PrivPredicate) any);
                 minTimes = 0;
                 result = false;
 
@@ -85,7 +85,7 @@ public class AccessControllerManagerTest {
             }
         };
 
-        Assert.assertTrue(accessControllerManager.checkCtlPriv(userIdentity, "custom_catalog", PrivPredicate.SELECT));
+        Assert.assertTrue(accessControllerManager.checkCtlPriv(PrivilegeContext.of(userIdentity), "custom_catalog", PrivPredicate.SELECT));
     }
 
     @Test
@@ -100,11 +100,11 @@ public class AccessControllerManagerTest {
 
         new Expectations() {
             {
-                defaultAccessController.checkGlobalPriv((UserIdentity) any, (PrivPredicate) any);
+                defaultAccessController.checkGlobalPriv(PrivilegeContext.of((UserIdentity) any), (PrivPredicate) any);
                 minTimes = 0;
                 result = false;
 
-                defaultAccessController.checkCtlPriv(anyBoolean, (UserIdentity) any, anyString, (PrivPredicate) any);
+                defaultAccessController.checkCtlPriv(anyBoolean, PrivilegeContext.of((UserIdentity) any), anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = false;
 
@@ -130,7 +130,7 @@ public class AccessControllerManagerTest {
             }
         };
 
-        Assert.assertFalse(accessControllerManager.checkCtlPriv(userIdentity, "custom_catalog", PrivPredicate.SELECT));
+        Assert.assertFalse(accessControllerManager.checkCtlPriv(PrivilegeContext.of(userIdentity), "custom_catalog", PrivPredicate.SELECT));
     }
 
     @Test
@@ -144,7 +144,7 @@ public class AccessControllerManagerTest {
 
         new Expectations() {
             {
-                defaultAccessController.checkGlobalPriv((UserIdentity) any, (PrivPredicate) any);
+                defaultAccessController.checkGlobalPriv(PrivilegeContext.of((UserIdentity) any), (PrivPredicate) any);
                 minTimes = 0;
                 result = false;
 
@@ -162,7 +162,7 @@ public class AccessControllerManagerTest {
             }
         };
 
-        Assert.assertFalse(accessControllerManager.checkCtlPriv(userIdentity,
+        Assert.assertFalse(accessControllerManager.checkCtlPriv(PrivilegeContext.of(userIdentity),
                 "not_exist_catalog", PrivPredicate.SELECT));
     }
 
