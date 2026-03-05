@@ -5155,6 +5155,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         int variantDocHashShardCount = ConnectContext.get() == null ? 128 :
                 ConnectContext.get().getSessionVariable().getDefaultVariantDocHashShardCount();
 
+        boolean enableNestedGroup = ConnectContext.get() == null ? true :
+                ConnectContext.get().getSessionVariable().getDefaultVariantEnableNestedGroup();
+
         try {
             // validate properties: variant_enable_doc_mode cannot be set together with other properties
             PropertyAnalyzer.validateVariantProperties(properties);
@@ -5173,8 +5176,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     .analyzeVariantDocMaterializationMinRows(properties, variantDocMaterializationMinRows);
             variantDocHashShardCount = PropertyAnalyzer
                     .analyzeVariantDocHashShardCount(properties, variantDocHashShardCount);
+            enableNestedGroup = PropertyAnalyzer
+                    .analyzeEnableNestedGroup(properties, enableNestedGroup);
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new NotSupportedException(e.getMessage());
+        }
+
+        if (enableNestedGroup) {
+            throw new NotSupportedException(
+                    "variant_enable_nested_group is not supported now");
         }
 
         // When doc mode is enabled, disable subcolumn extraction and sparse column features
@@ -5214,12 +5224,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_DOC_MODE
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS
-                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_NESTED_GROUP);
         }
 
         return new VariantType(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                     variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
-                    enableVariantDocMode, variantDocMaterializationMinRows, variantDocHashShardCount);
+                    enableVariantDocMode, variantDocMaterializationMinRows, variantDocHashShardCount,
+                    enableNestedGroup);
     }
 
     private static boolean isSupportedVariantDocModeType(DataType type) {

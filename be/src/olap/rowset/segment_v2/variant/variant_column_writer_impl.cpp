@@ -1308,11 +1308,13 @@ Status VariantColumnWriterImpl::finalize() {
                        column->parent_unique_id() == current_variant_uid;
             });
     if (!has_extracted_columns) {
-        RETURN_IF_ERROR(build_nested_group_routing_plan(*ptr, &_nested_group_routing_plan));
+        if (_tablet_column->variant_enable_nested_group()) {
+            RETURN_IF_ERROR(build_nested_group_routing_plan(*ptr, &_nested_group_routing_plan));
 
-        // Root NG dedup is handled in _process_root_column() — see the
-        // has_root_ng check there. We intentionally do NOT modify the in-memory
-        // root data here because _nested_group_provider->prepare() needs it.
+            // Root NG dedup is handled in _process_root_column() — see the
+            // has_root_ng check there. We intentionally do NOT modify the in-memory
+            // root data here because _nested_group_provider->prepare() needs it.
+        }
     }
 
     RETURN_IF_ERROR(ptr->pick_subcolumns_to_sparse_column(
@@ -1341,9 +1343,12 @@ Status VariantColumnWriterImpl::finalize() {
     }
 
     // NestedGroup write behavior is determined by the injected provider implementation.
-    RETURN_IF_ERROR(_nested_group_provider->prepare(
-            *ptr, /*include_jsonb_subcolumns=*/true, _tablet_column, _opts,
-            olap_data_convertor.get(), num_rows, &column_id, &_statistics));
+    // Only invoke the provider when nested group writing is enabled.
+    if (_tablet_column->variant_enable_nested_group()) {
+        RETURN_IF_ERROR(_nested_group_provider->prepare(
+                *ptr, /*include_jsonb_subcolumns=*/true, _tablet_column, _opts,
+                olap_data_convertor.get(), num_rows, &column_id, &_statistics));
+    }
     if (_binary_writer) {
         _binary_writer->merge_stats_to(&_statistics);
     }
@@ -1558,9 +1563,11 @@ Status VariantSubcolumnWriter::finalize() {
     _opts.meta->set_num_rows(ptr->rows());
     ++column_id;
 
-    RETURN_IF_ERROR(_nested_group_provider->prepare(*ptr, /*include_jsonb_subcolumns=*/false,
-                                                    &flush_column, _opts, olap_data_convertor.get(),
-                                                    ptr->rows(), &column_id, &_statistics));
+    if (parent_column.variant_enable_nested_group()) {
+        RETURN_IF_ERROR(_nested_group_provider->prepare(
+                *ptr, /*include_jsonb_subcolumns=*/false, &flush_column, _opts,
+                olap_data_convertor.get(), ptr->rows(), &column_id, &_statistics));
+    }
     _statistics.to_pb(_opts.meta->mutable_variant_statistics());
 
     _is_finalized = true;
