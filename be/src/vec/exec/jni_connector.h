@@ -40,6 +40,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exec/jni_data_bridge.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -61,31 +62,8 @@ namespace doris::vectorized {
  */
 class JniConnector : public ProfileCollector {
 public:
-    class TableMetaAddress {
-    private:
-        long* _meta_ptr;
-        int _meta_index;
-
-    public:
-        TableMetaAddress() {
-            _meta_ptr = nullptr;
-            _meta_index = 0;
-        }
-
-        TableMetaAddress(long meta_addr) {
-            _meta_ptr = static_cast<long*>(reinterpret_cast<void*>(meta_addr));
-            _meta_index = 0;
-        }
-
-        void set_meta(long meta_addr) {
-            _meta_ptr = static_cast<long*>(reinterpret_cast<void*>(meta_addr));
-            _meta_index = 0;
-        }
-
-        long next_meta_as_long() { return _meta_ptr[_meta_index++]; }
-
-        void* next_meta_as_ptr() { return reinterpret_cast<void*>(_meta_ptr[_meta_index++]); }
-    };
+    // TableMetaAddress is now in JniDataBridge. Alias for backward compatibility.
+    using TableMetaAddress = JniDataBridge::TableMetaAddress;
 
     /**
      * The predicates that can be pushed down to java side.
@@ -265,21 +243,34 @@ public:
         _col_name_to_block_idx = col_name_to_block_idx;
     }
 
-    static std::string get_jni_type(const DataTypePtr& data_type);
-    static std::string get_jni_type_with_different_string(const DataTypePtr& data_type);
-
+    // =========================================================================
+    // Backward-compatible static methods that delegate to JniDataBridge.
+    // New code should use JniDataBridge directly.
+    // =========================================================================
+    static std::string get_jni_type(const DataTypePtr& data_type) {
+        return JniDataBridge::get_jni_type(data_type);
+    }
+    static std::string get_jni_type_with_different_string(const DataTypePtr& data_type) {
+        return JniDataBridge::get_jni_type_with_different_string(data_type);
+    }
     static Status to_java_table(Block* block, size_t num_rows, const ColumnNumbers& arguments,
-                                std::unique_ptr<long[]>& meta);
-
-    static Status to_java_table(Block* block, std::unique_ptr<long[]>& meta);
-
+                                std::unique_ptr<long[]>& meta) {
+        return JniDataBridge::to_java_table(block, num_rows, arguments, meta);
+    }
+    static Status to_java_table(Block* block, std::unique_ptr<long[]>& meta) {
+        return JniDataBridge::to_java_table(block, meta);
+    }
     static std::pair<std::string, std::string> parse_table_schema(Block* block,
                                                                   const ColumnNumbers& arguments,
-                                                                  bool ignore_column_name = true);
-
-    static std::pair<std::string, std::string> parse_table_schema(Block* block);
-
-    static Status fill_block(Block* block, const ColumnNumbers& arguments, long table_address);
+                                                                  bool ignore_column_name = true) {
+        return JniDataBridge::parse_table_schema(block, arguments, ignore_column_name);
+    }
+    static std::pair<std::string, std::string> parse_table_schema(Block* block) {
+        return JniDataBridge::parse_table_schema(block);
+    }
+    static Status fill_block(Block* block, const ColumnNumbers& arguments, long table_address) {
+        return JniDataBridge::fill_block(block, arguments, table_address);
+    }
 
 protected:
     void _collect_profile_before_close() override;
@@ -323,7 +314,7 @@ private:
     Jni::MethodId _jni_scanner_release_table;
     Jni::MethodId _jni_scanner_get_statistics;
 
-    TableMetaAddress _table_meta;
+    JniDataBridge::TableMetaAddress _table_meta;
 
     int _predicates_length = 0;
     std::unique_ptr<char[]> _predicates;
@@ -339,96 +330,6 @@ private:
     Status _init_jni_scanner(JNIEnv* env, int batch_size);
 
     Status _fill_block(Block* block, size_t num_rows);
-
-    static Status _fill_column(TableMetaAddress& address, ColumnPtr& doris_column,
-                               const DataTypePtr& data_type, size_t num_rows);
-
-    static Status _fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                      size_t num_rows);
-
-    static Status _fill_varbinary_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                         size_t num_rows);
-
-    static Status _fill_map_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                   const DataTypePtr& data_type, size_t num_rows);
-
-    static Status _fill_array_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                     const DataTypePtr& data_type, size_t num_rows);
-
-    static Status _fill_struct_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
-                                      const DataTypePtr& data_type, size_t num_rows);
-
-    static Status _fill_column_meta(const ColumnPtr& doris_column, const DataTypePtr& data_type,
-                                    std::vector<long>& meta_data);
-
-    template <typename COLUMN_TYPE, typename CPP_TYPE>
-        requires(!std::is_same_v<COLUMN_TYPE, ColumnDecimal128V2> &&
-                 !std::is_same_v<COLUMN_TYPE, ColumnDate> &&
-                 !std::is_same_v<COLUMN_TYPE, ColumnDateTime> &&
-                 !std::is_same_v<COLUMN_TYPE, ColumnDateV2> &&
-                 !std::is_same_v<COLUMN_TYPE, ColumnDateTimeV2> &&
-                 !std::is_same_v<COLUMN_TYPE, ColumnTimeStampTz>)
-    static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
-                                            size_t num_rows) {
-        auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();
-        size_t origin_size = column_data.size();
-        column_data.resize(origin_size + num_rows);
-        memcpy(column_data.data() + origin_size, ptr, sizeof(CPP_TYPE) * num_rows);
-        return Status::OK();
-    }
-
-    template <typename COLUMN_TYPE, typename CPP_TYPE>
-        requires(std::is_same_v<COLUMN_TYPE, ColumnDate> ||
-                 std::is_same_v<COLUMN_TYPE, ColumnDateTime>)
-    static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
-                                            size_t num_rows) {
-        auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();
-        size_t origin_size = column_data.size();
-        column_data.resize(origin_size + num_rows);
-        memcpy((int64_t*)column_data.data() + origin_size, ptr, sizeof(CPP_TYPE) * num_rows);
-        return Status::OK();
-    }
-
-    template <typename COLUMN_TYPE, typename CPP_TYPE>
-        requires(std::is_same_v<COLUMN_TYPE, ColumnDateV2>)
-    static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
-                                            size_t num_rows) {
-        auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();
-        size_t origin_size = column_data.size();
-        column_data.resize(origin_size + num_rows);
-        memcpy((uint32_t*)column_data.data() + origin_size, ptr, sizeof(CPP_TYPE) * num_rows);
-        return Status::OK();
-    }
-
-    template <typename COLUMN_TYPE, typename CPP_TYPE>
-        requires(std::is_same_v<COLUMN_TYPE, ColumnDateTimeV2> ||
-                 std::is_same_v<COLUMN_TYPE, ColumnTimeStampTz>)
-    static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
-                                            size_t num_rows) {
-        auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();
-        size_t origin_size = column_data.size();
-        column_data.resize(origin_size + num_rows);
-        memcpy((uint64_t*)column_data.data() + origin_size, ptr, sizeof(CPP_TYPE) * num_rows);
-        return Status::OK();
-    }
-
-    template <typename COLUMN_TYPE, typename CPP_TYPE>
-        requires(std::is_same_v<COLUMN_TYPE, ColumnDecimal128V2>)
-    static Status _fill_fixed_length_column(MutableColumnPtr& doris_column, CPP_TYPE* ptr,
-                                            size_t num_rows) {
-        auto& column_data = assert_cast<COLUMN_TYPE&>(*doris_column).get_data();
-        size_t origin_size = column_data.size();
-        column_data.resize(origin_size + num_rows);
-        for (size_t i = 0; i < num_rows; i++) {
-            column_data[origin_size + i] = DecimalV2Value(ptr[i]);
-        }
-        return Status::OK();
-    }
-
-    template <typename COLUMN_TYPE>
-    static long _get_fixed_length_column_address(const IColumn& doris_column) {
-        return (long)assert_cast<const COLUMN_TYPE&>(doris_column).get_data().data();
-    }
 
     template <PrimitiveType primitive_type>
     void _parse_value_range(const ColumnValueRange<primitive_type>& col_val_range,
