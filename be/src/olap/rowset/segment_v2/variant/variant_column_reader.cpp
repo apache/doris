@@ -1039,16 +1039,15 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
     DCHECK(opts.tablet_schema != nullptr) << "tablet_schema is nullptr";
     _tablet_schema = opts.tablet_schema;
 
-    const bool has_root_stats = self_column_pb.has_variant_statistics();
-    if (has_root_stats) {
-        _statistics->from_pb(self_column_pb.variant_statistics());
+    // Only extract scalar flags from root stats; sparse/doc maps come from
+    // their respective column metas via additive merge methods.
+    if (self_column_pb.has_variant_statistics()) {
+        _statistics->has_nested_group = self_column_pb.variant_statistics().has_nested_group();
     }
 
     // collect bucketized binary column readers for this variant column
     std::map<uint32_t, std::shared_ptr<ColumnReader>> tmp_sparse_readers;
     std::map<uint32_t, std::shared_ptr<ColumnReader>> tmp_doc_value_readers;
-    std::map<std::string, uint32_t> aggregated_sparse_column_stats;
-    std::map<std::string, uint32_t> aggregated_doc_value_column_stats;
 
     // helper to handle sparse meta (single or bucket) from a ColumnMetaPB
     auto handle_sparse_meta = [&](const ColumnMetaPB& col, bool* handled) -> Status {
@@ -1067,9 +1066,10 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
         std::string rel_str = relative.get_path();
         if (rel_str == SPARSE_COLUMN_PATH) {
             DCHECK(col.has_variant_statistics()) << col.DebugString();
-            if (!has_root_stats) {
-                _statistics->from_pb(col.variant_statistics());
-            }
+            // Always load sparse stats from the sparse column's own meta.
+            // This is the authoritative source; root stats may duplicate these
+            // but the sparse column meta is canonical.
+            _statistics->merge_sparse_from_pb(col.variant_statistics());
             std::shared_ptr<ColumnReader> single_reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, col, footer->num_rows(), file_reader,
                                                  &single_reader));
@@ -1090,10 +1090,8 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
             uint32_t idx =
                     static_cast<uint32_t>(atoi(rel_str.substr(bucket_prefix.size()).c_str()));
             DCHECK(col.has_variant_statistics()) << col.DebugString();
-            const auto& variant_stats = col.variant_statistics();
-            for (const auto& [subpath, size] : variant_stats.sparse_column_non_null_size()) {
-                aggregated_sparse_column_stats[subpath] += size;
-            }
+            // Additively merge per-bucket sparse stats into the unified statistics.
+            _statistics->merge_sparse_from_pb(col.variant_statistics());
             std::shared_ptr<ColumnReader> reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, col, num_rows, file_reader, &reader));
             tmp_sparse_readers[idx] = std::move(reader);
@@ -1108,10 +1106,8 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
             std::shared_ptr<ColumnReader> column_reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, col, num_rows, file_reader, &column_reader));
             tmp_doc_value_readers[bucket_value] = std::move(column_reader);
-            const auto& variant_stats = col.variant_statistics();
-            for (const auto& [subpath, size] : variant_stats.doc_value_column_non_null_size()) {
-                aggregated_doc_value_column_stats[subpath] += size;
-            }
+            // Additively merge per-bucket doc value stats into the unified statistics.
+            _statistics->merge_doc_value_from_pb(col.variant_statistics());
             *handled = true;
             return Status::OK();
         }
@@ -1189,20 +1185,19 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
     }
 
     // finalize bucket readers if any
+    // Stats have already been merged additively as each bucket column was processed.
     if (!tmp_sparse_readers.empty()) {
         _binary_column_reader = std::make_shared<MultipleSparseColumnReader>();
         for (auto& [index, reader] : tmp_sparse_readers) {
             RETURN_IF_ERROR(
                     _binary_column_reader->add_binary_column_reader(std::move(reader), index));
         }
-        _statistics->sparse_column_non_null_size = aggregated_sparse_column_stats;
     } else if (!tmp_doc_value_readers.empty()) {
         _binary_column_reader = std::make_shared<MultipleDocColumnReader>();
         for (auto& [index, reader] : tmp_doc_value_readers) {
             RETURN_IF_ERROR(
                     _binary_column_reader->add_binary_column_reader(std::move(reader), index));
         }
-        _statistics->doc_value_column_non_null_size = aggregated_doc_value_column_stats;
     }
 
     // old version variant column without any binary data.

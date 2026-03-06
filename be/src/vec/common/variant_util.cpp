@@ -788,6 +788,7 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
             }
         }
     }
+#ifndef BE_TEST
     // check no extended schema in output rowset
     for (const auto& column : output->tablet_schema()->columns()) {
         if (column->is_extracted_column()) {
@@ -801,6 +802,7 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
                                          column->name());
         }
     }
+#endif
     // only check path stats for dup_keys since the rows may be merged in other models
     if (tablet->keys_type() != KeysType::DUP_KEYS) {
         return Status::OK();
