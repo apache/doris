@@ -235,9 +235,32 @@ DORIS_ROOT="$(cd "${ROOT}/../.." &>/dev/null && pwd)"
 JUICEFS_DEFAULT_VERSION="1.3.1"
 JUICEFS_LOCAL_BIN="${DORIS_ROOT}/thirdparty/installed/juicefs_bin/juicefs"
 
+find_juicefs_hadoop_jar() {
+    local juicefs_jar=""
+    local -a jar_globs=(
+        "${DORIS_ROOT}/thirdparty/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/output/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/output/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/../../../clusterEnv/*/Cluster*/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/../../../clusterEnv/*/Cluster*/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
+    )
+
+    for jar_glob in "${jar_globs[@]}"; do
+        juicefs_jar=$(compgen -G "${jar_glob}" | head -n 1 || true)
+        if [[ -n "${juicefs_jar}" ]]; then
+            echo "${juicefs_jar}"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 detect_juicefs_version() {
     local juicefs_jar
-    juicefs_jar=$(compgen -G "${DORIS_ROOT}/thirdparty/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar" | head -n 1 || true)
+    juicefs_jar=$(find_juicefs_hadoop_jar || true)
     if [[ -z "${juicefs_jar}" ]]; then
         echo "${JUICEFS_DEFAULT_VERSION}"
         return
@@ -324,6 +347,21 @@ run_juicefs_cli() {
     local juicefs_cli
     juicefs_cli=$(resolve_juicefs_cli)
     "${juicefs_cli}" "$@"
+}
+
+ensure_juicefs_hadoop_jar_for_hive() {
+    local auxlib_dir="${ROOT}/docker-compose/hive/scripts/auxlib"
+    local source_jar
+
+    source_jar=$(find_juicefs_hadoop_jar || true)
+    if [[ -z "${source_jar}" ]]; then
+        echo "WARN: skip syncing juicefs-hadoop jar for hive, not found in thirdparty/installed or output/."
+        return 0
+    fi
+
+    mkdir -p "${auxlib_dir}"
+    cp -f "${source_jar}" "${auxlib_dir}/"
+    echo "Synced JuiceFS Hadoop jar to hive auxlib: $(basename "${source_jar}")"
 }
 
 prepare_juicefs_meta_for_hive() {
@@ -729,6 +767,12 @@ fi
 if [[ $need_prepare_hive_data -eq 1 ]]; then
     echo "prepare hive2/hive3 data"
     bash "${ROOT}/docker-compose/hive/scripts/prepare-hive-data.sh"
+fi
+
+if [[ "${STOP}" -ne 1 ]]; then
+    if [[ "${RUN_HIVE2}" -eq 1 ]] || [[ "${RUN_HIVE3}" -eq 1 ]]; then
+        ensure_juicefs_hadoop_jar_for_hive
+    fi
 fi
 
 declare -A pids
