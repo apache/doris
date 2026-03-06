@@ -56,8 +56,7 @@ IcebergSysTableJniReader::IcebergSysTableJniReader(
                           names.emplace_back(desc->col_name());
                       }
                       return names;
-                  }()),
-          _meta_scan_range(meta_scan_range) {}
+                  }()) {}
 
 Status IcebergSysTableJniReader::init_reader() {
     return open(_state, _profile);

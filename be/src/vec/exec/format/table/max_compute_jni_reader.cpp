@@ -86,11 +86,7 @@ MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_des
                           names.emplace_back(desc->col_name());
                       }
                       return names;
-                  }()),
-          _max_compute_params(max_compute_params),
-          _range(range) {
-    _table_desc = mc_desc;
-}
+                  }()) {}
 
 Status MaxComputeJniReader::init_reader() {
     return open(_state, _profile);
