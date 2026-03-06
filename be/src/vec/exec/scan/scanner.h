@@ -79,9 +79,10 @@ public:
         _has_prepared = true;
         return Status::OK();
     }
-    virtual Status open(RuntimeState* state) {
-        _block_avg_bytes = state->batch_size() * 8;
-        return Status::OK();
+
+    Status open(RuntimeState* state) {
+        SCOPED_RAW_TIMER(&_per_scanner_timer);
+        return _open_impl(state);
     }
 
     Status get_block(RuntimeState* state, Block* block, bool* eos);
@@ -99,6 +100,11 @@ public:
     virtual std::string get_current_scan_range_name() { return "not implemented"; }
 
 protected:
+    virtual Status _open_impl(RuntimeState* state) {
+        _block_avg_bytes = state->batch_size() * 8;
+        return Status::OK();
+    }
+
     // Subclass should implement this to return data.
     virtual Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) = 0;
 

@@ -70,7 +70,7 @@ public:
                 RuntimeProfile* profile, ShardedKVCache* kv_cache,
                 const std::unordered_map<std::string, int>* colname_to_slot_id);
 
-    Status open(RuntimeState* state) override;
+    Status _open_impl(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
 
