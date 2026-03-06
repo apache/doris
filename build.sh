@@ -582,6 +582,7 @@ FE_MODULES=''
 modules=("")
 if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-common")
+    modules+=("fe-catalog")
     modules+=("fe-core")
     if [[ "${WITH_TDE_DIR}" != "" ]]; then
         modules+=("fe-${WITH_TDE_DIR}")

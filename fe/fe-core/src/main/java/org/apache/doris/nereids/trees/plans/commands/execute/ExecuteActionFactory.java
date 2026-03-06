@@ -18,11 +18,11 @@
 package org.apache.doris.nereids.trees.plans.commands.execute;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.action.IcebergExecuteActionFactory;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import java.util.Map;

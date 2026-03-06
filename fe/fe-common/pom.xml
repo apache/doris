@@ -108,6 +108,13 @@ under the License.
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-iostreams</artifactId>
         </dependency>
+        <!-- antl4 The version of antlr-runtime in trino parser is need to be consistent with doris,
+    when upgrade doris antlr-runtime version, should take care of trino-parser.-->
+        <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr4-runtime</artifactId>
+            <version>${antlr4.version}</version>
+        </dependency>
         <dependency>
             <groupId>com.aliyun.odps</groupId>
             <artifactId>odps-sdk-core</artifactId>
@@ -131,6 +138,26 @@ under the License.
         <finalName>doris-fe-common</finalName>
         <directory>${project.basedir}/target/</directory>
         <plugins>
+            <!--antlr-->
+            <plugin>
+                <groupId>org.antlr</groupId>
+                <artifactId>antlr4-maven-plugin</artifactId>
+                <version>${antlr4.version}</version>
+                <executions>
+                    <execution>
+                        <id>antlr</id>
+                        <goals>
+                            <goal>antlr4</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <visitor>true</visitor>
+                    <sourceDirectory>src/main/antlr4</sourceDirectory>
+                    <treatWarningsAsErrors>true</treatWarningsAsErrors>
+                    <libDirectory>src/main/antlr4/org/apache/doris/parser</libDirectory>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-source-plugin</artifactId>

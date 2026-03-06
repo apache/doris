@@ -15,9 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.info;
-
-import org.apache.doris.nereids.exceptions.AnalysisException;
+package org.apache.doris.catalog.info;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -82,19 +80,19 @@ public class PartitionNamesInfo {
     /**
      * validate
      */
-    public void validate() throws AnalysisException {
+    public void validate() {
         if (isStar && count > 0) {
-            throw new AnalysisException("All partition and partition count couldn't be set at the same time.");
+            throw new RuntimeException("All partition and partition count couldn't be set at the same time.");
         }
         if (isStar || count > 0) {
             return;
         }
         if (partitionNames == null || partitionNames.isEmpty()) {
-            throw new AnalysisException("No partition specified in partition lists");
+            throw new RuntimeException("No partition specified in partition lists");
         }
         // check if partition name is not empty string
         if (partitionNames.stream().anyMatch(Strings::isNullOrEmpty)) {
-            throw new AnalysisException("there are empty partition name");
+            throw new RuntimeException("there are empty partition name");
         }
     }
 

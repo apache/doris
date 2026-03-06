@@ -161,7 +161,7 @@ TEST(DefaultNestedGroupReadProviderTest, InitReadersCEBehavior) {
 
     ColumnReaderOptions opts;
     NestedGroupReaders out_readers;
-    auto status = provider->init_readers(opts, nullptr, nullptr, 0, out_readers);
+    auto status = provider->init_readers(opts, nullptr, nullptr, nullptr, 0, out_readers);
     EXPECT_TRUE(status.ok());
     EXPECT_TRUE(out_readers.empty());
 }

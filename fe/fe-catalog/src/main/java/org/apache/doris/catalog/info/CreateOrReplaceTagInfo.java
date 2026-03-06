@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands.info;
+package org.apache.doris.catalog.info;
 
 /**
  * Represents the information needed to create or replace a tag in the system.

@@ -17,24 +17,21 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
+import org.apache.doris.catalog.info.DropBranchInfo;
+import org.apache.doris.catalog.info.DropTagInfo;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.info.PartitionNamesInfo;
-import org.apache.doris.info.TableNameInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
-import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -157,9 +154,7 @@ public interface CatalogIf<T extends DatabaseIf> {
     }
 
     // Called when catalog is dropped
-    default void onClose() {
-        Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(getId());
-    }
+    void onClose();
 
     String getComment();
 
@@ -180,7 +175,7 @@ public interface CatalogIf<T extends DatabaseIf> {
         return log;
     }
 
-    TableNameInfo getTableNameByTableId(Long tableId);
+    List<String> getTableNameByTableId(long tableId);
 
     // Return a copy of all db collection.
     Collection<DatabaseIf<? extends TableIf>> getAllDbs();
@@ -209,10 +204,7 @@ public interface CatalogIf<T extends DatabaseIf> {
                        String rawTruncateSql)
             throws DdlException;
 
-    /** 0=case-sensitive, 1=stored lowercase, 2=case-insensitive comparison */
-    default int getLowerCaseTableNames() {
-        return GlobalVariable.lowerCaseTableNames;
-    }
+    int getLowerCaseTableNames();
 
     /** For InternalCatalog, DB names are always case-sensitive (return 0). */
     default int getLowerCaseDatabaseNames() {
