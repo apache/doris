@@ -54,7 +54,7 @@ public:
                 const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile,
                 TUserIdentity user_identity);
 
-    Status open(RuntimeState* state) override;
+    Status _open_impl(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     Status init(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
 
