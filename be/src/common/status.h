@@ -765,7 +765,7 @@ using ResultError = unexpected<Status>;
         if (_result_.has_value()) [[unlikely]] {                                                  \
             ASSERT_FALSE(_result_.has_value()) << "Expected ResultError, but got success result"; \
         }                                                                                         \
-        std::forward<T>(_result_t).error();                                                       \
+        std::forward<_result_t>(_result_).error();                                                \
     })
 
 // core in Debug mode, exception in Release mode.
