@@ -29,13 +29,29 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
     }
 
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
+    String minioPort = context.config.otherConfigs.get("paimon_jdbc_minio_port")
+    if (minioPort == null || minioPort.isEmpty()) {
+        minioPort = context.config.otherConfigs.get("iceberg_minio_port")
+    }
     String jdbcPort = context.config.otherConfigs.get("pg_14_port")
     if (externalEnvIp == null || externalEnvIp.isEmpty()
             || minioPort == null || minioPort.isEmpty()
             || jdbcPort == null || jdbcPort.isEmpty()) {
         logger.info("Paimon JDBC catalog test environment is not fully configured, skip this test")
         return
+    }
+
+    String minioAk = context.config.otherConfigs.get("paimon_jdbc_minio_ak")
+    if (minioAk == null || minioAk.isEmpty()) {
+        minioAk = "admin"
+    }
+    String minioSk = context.config.otherConfigs.get("paimon_jdbc_minio_sk")
+    if (minioSk == null || minioSk.isEmpty()) {
+        minioSk = "password"
+    }
+    String warehouseBucket = context.config.otherConfigs.get("paimon_jdbc_warehouse_bucket")
+    if (warehouseBucket == null || warehouseBucket.isEmpty()) {
+        warehouseBucket = "warehouse"
     }
 
     String catalogName = "test_paimon_jdbc_catalog"
@@ -64,25 +80,12 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
         }
     }
 
-    def hostIps = new ArrayList()
-    String[][] backends = sql """ show backends """
-    for (def backend in backends) {
-        hostIps.add(backend[1])
-    }
-    String[][] frontends = sql """ show frontends """
-    for (def frontend in frontends) {
-        hostIps.add(frontend[1])
-    }
-    hostIps = hostIps.unique()
-
     executeCommand("mkdir -p ${localDriverDir}", false)
+    executeCommand("mkdir -p ${jdbcDriversDir}", true)
     if (!new File(localDriverPath).exists()) {
         executeCommand("/usr/bin/curl --max-time 600 ${driverDownloadUrl} --output ${localDriverPath}", true)
     }
-    for (def ip in hostIps) {
-        executeCommand("ssh -o StrictHostKeyChecking=no root@${ip} \"mkdir -p ${jdbcDriversDir}\"", false)
-        scpFiles("root", ip, localDriverPath, jdbcDriversDir, false)
-    }
+    executeCommand("cp -f ${localDriverPath} ${jdbcDriversDir}/${driverName}", true)
 
     try {
         sql """switch internal"""
@@ -92,17 +95,17 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
                 'type' = 'paimon',
                 'paimon.catalog.type' = 'jdbc',
                 'uri' = 'jdbc:postgresql://${externalEnvIp}:${jdbcPort}/postgres',
-                'warehouse' = 's3://warehouse/paimon_jdbc_catalog/',
+                'warehouse' = 's3://${warehouseBucket}/paimon_jdbc_catalog/',
                 'paimon.catalog-key' = '${catalogName}',
                 'paimon.jdbc.driver_url' = 'file://${jdbcDriversDir}/${driverName}',
                 'paimon.jdbc.driver_class' = 'org.postgresql.Driver',
                 'paimon.jdbc.user' = 'postgres',
                 'paimon.jdbc.password' = '123456',
                 's3.endpoint' = 'http://${externalEnvIp}:${minioPort}',
-                's3.access_key' = 'admin',
-                's3.secret_key' = 'password',
+                's3.access_key' = '${minioAk}',
+                's3.secret_key' = '${minioSk}',
                 's3.region' = 'us-east-1',
-                's3.path.style.access' = 'true'
+                'use_path_style' = 'true'
             )
         """
 
@@ -132,13 +135,13 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
         def tables = sql """SHOW TABLES"""
         assertTrue(tables.toString().contains("paimon_jdbc_tbl"))
 
+        def emptyResult = sql """SELECT * FROM paimon_jdbc_tbl LIMIT 0"""
+        assertEquals(0, emptyResult.size())
+
         def descResult = sql """DESC paimon_jdbc_tbl"""
         assertTrue(descResult.toString().contains("id"))
         assertTrue(descResult.toString().contains("name"))
         assertTrue(descResult.toString().contains("dt"))
-
-        def emptyResult = sql """SELECT * FROM paimon_jdbc_tbl LIMIT 0"""
-        assertEquals(0, emptyResult.size())
 
         def rowCount = sql """SELECT COUNT(*) FROM paimon_jdbc_tbl"""
         assertEquals(1, rowCount.size())
