@@ -25,17 +25,17 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "olap/olap_define.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet_manager.h"
+#include "exec/exchange/vdata_stream_mgr.h"
+#include "exec/sink/delta_writer_v2_pool.h"
+#include "exec/sink/load_stream_map_pool.h"
+#include "load/channel/load_stream_mgr.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/frontend_info.h"
-#include "runtime/load_stream_mgr.h"
+#include "storage/olap_define.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet_manager.h"
 #include "util/debug_util.h"
 #include "util/time.h"
-#include "vec/runtime/vdata_stream_mgr.h"
-#include "vec/sink/delta_writer_v2_pool.h"
-#include "vec/sink/load_stream_map_pool.h"
 
 namespace doris {
 

@@ -17,11 +17,12 @@
 
 #pragma once
 
+#include <gen_cpp/BackendService_types.h>
+
 #include <filesystem>
 #include <utility>
 
 #include "common/status.h"
-#include "gen_cpp/BackendService_types.h"
 
 namespace doris {
 

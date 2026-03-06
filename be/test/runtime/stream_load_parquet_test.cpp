@@ -16,9 +16,9 @@
 // under the License.
 
 #include "gtest/gtest.h"
-#include "olap/storage_engine.h"
+#include "load/load_path_mgr.h"
 #include "runtime/exec_env.h"
-#include "runtime/load_path_mgr.h"
+#include "storage/storage_engine.h"
 namespace doris {
 
 class LoadPathMgrTest : public testing::Test {

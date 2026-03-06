@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "mock_slot_ref.h"
+#include "testutil/mock/mock_slot_ref.h"
 
 #include <gtest/gtest.h>
 
+#include "core/data_type/data_type_number.h"
+#include "exprs/vexpr_context.h"
 #include "testutil/mock/mock_runtime_state.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 

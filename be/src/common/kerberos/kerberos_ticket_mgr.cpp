@@ -22,9 +22,9 @@
 #include <sstream>
 
 #include "common/logging.h"
-#include "exec/schema_scanner/schema_scanner_helper.h"
+#include "core/block/block.h"
+#include "information_schema/schema_scanner_helper.h"
 #include "service/backend_options.h"
-#include "vec/core/block.h"
 
 namespace doris::kerberos {
 
