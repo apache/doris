@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.cloud.catalog.PointQueryVersionCache;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
@@ -57,12 +58,10 @@ import org.apache.thrift.TException;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -90,18 +89,14 @@ public class PointQueryExecutor implements CoordInterface {
 
     private void updateCloudPartitionVersions() throws RpcException {
         OlapScanNode scanNode = shortCircuitQueryContext.scanNode;
-        List<CloudPartition> partitions = new ArrayList<>();
-        Set<Long> partitionSet = new HashSet<>();
         OlapTable table = scanNode.getOlapTable();
-        for (Long id : scanNode.getSelectedPartitionIds()) {
-            if (!partitionSet.contains(id)) {
-                partitionSet.add(id);
-                partitions.add((CloudPartition) table.getPartition(id));
-            }
-        }
-        snapshotVisibleVersions = CloudPartition.getSnapshotVisibleVersion(partitions);
         // Only support single partition at present
-        Preconditions.checkState(snapshotVisibleVersions.size() == 1);
+        Preconditions.checkState(scanNode.getSelectedPartitionIds().size() == 1);
+        Long partitionId = scanNode.getSelectedPartitionIds().iterator().next();
+        CloudPartition partition = (CloudPartition) table.getPartition(partitionId);
+        long ttlMs = ConnectContext.get().getSessionVariable().pointQueryVersionCacheTtlMs;
+        long version = PointQueryVersionCache.getInstance().getVersion(partition, ttlMs);
+        snapshotVisibleVersions = Lists.newArrayList(version);
         LOG.debug("set cloud version {}", snapshotVisibleVersions.get(0));
     }
 
@@ -119,7 +114,6 @@ public class PointQueryExecutor implements CoordInterface {
         // update partition version if cloud mode
         if (Config.isCloudMode()
                 && ConnectContext.get().getSessionVariable().enableSnapshotPointQuery) {
-            // TODO: Optimize to reduce the frequency of version checks in the meta service.
             updateCloudPartitionVersions();
         }
 
