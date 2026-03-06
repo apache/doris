@@ -27,9 +27,15 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * A request-coalescing version cache for point queries in cloud mode.
@@ -41,7 +47,7 @@ import java.util.concurrent.ExecutionException;
  * <p>This cache optimizes the version fetching by:
  * <ul>
  *   <li><b>Short TTL caching</b>: Partition versions are cached for a configurable duration
- *       ({@code point_query_version_cache_ttl_ms}, default 500ms). Within the TTL window,
+ *       ({@code point_query_version_cache_ttl_ms}, default 0 i.e. disabled). Within the TTL window,
  *       concurrent queries reuse the cached version.</li>
  *   <li><b>Request coalescing</b>: When the cache expires, only the first request issues
  *       the MetaService RPC. Concurrent requests for the same partition wait on the inflight
@@ -51,6 +57,17 @@ import java.util.concurrent.ExecutionException;
  */
 public class PointQueryVersionCache {
     private static final Logger LOG = LogManager.getLogger(PointQueryVersionCache.class);
+
+    /**
+     * Maximum number of partition entries in the cache.
+     * When exceeded, expired entries are cleaned up first;
+     * if still over capacity, the oldest entries are evicted.
+     */
+    @VisibleForTesting
+    static final int DEFAULT_MAX_CACHE_SIZE = 1_000_000;
+
+    /** Timeout in milliseconds when waiting for a coalesced (inflight) request. */
+    private static final long COALESCING_TIMEOUT_MS = 10_000;
 
     private static volatile PointQueryVersionCache instance;
 
@@ -76,12 +93,19 @@ public class PointQueryVersionCache {
 
     // partitionId -> cached VersionEntry
     private final ConcurrentHashMap<Long, VersionEntry> cache = new ConcurrentHashMap<>();
+    private final int maxCacheSize;
 
     // partitionId -> inflight RPC future (for request coalescing)
     private final ConcurrentHashMap<Long, CompletableFuture<Long>> inflightRequests = new ConcurrentHashMap<>();
 
     @VisibleForTesting
     public PointQueryVersionCache() {
+        this(DEFAULT_MAX_CACHE_SIZE);
+    }
+
+    @VisibleForTesting
+    public PointQueryVersionCache(int maxCacheSize) {
+        this.maxCacheSize = maxCacheSize;
     }
 
     public static PointQueryVersionCache getInstance() {
@@ -142,10 +166,13 @@ public class PointQueryVersionCache {
                         partitionId);
             }
             try {
-                return existingFuture.get();
+                return existingFuture.get(COALESCING_TIMEOUT_MS, TimeUnit.MILLISECONDS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new RpcException("get version", "interrupted while waiting for coalesced request");
+            } catch (TimeoutException e) {
+                throw new RpcException("get version",
+                        "timed out after " + COALESCING_TIMEOUT_MS + "ms waiting for coalesced request");
             } catch (ExecutionException e) {
                 Throwable cause = e.getCause();
                 if (cause instanceof RpcException) {
@@ -158,17 +185,32 @@ public class PointQueryVersionCache {
         // We are the leader — fetch version from MetaService
         try {
             long version = fetchVersionFromMs(partition);
-            // Update cache
-            cache.put(partitionId, new VersionEntry(version, System.currentTimeMillis()));
+            // Update cache with monotonicity enforcement:
+            // only advance the cached version, never regress it.
+            long now = System.currentTimeMillis();
+            cache.compute(partitionId, (key, existing) -> {
+                if (existing == null || version >= existing.version) {
+                    return new VersionEntry(version, now);
+                }
+                // Fetched version is older — keep the existing higher version
+                // but refresh the timestamp so TTL is extended.
+                LOG.warn("point query version cache: fetched version {} is older than cached version {}"
+                        + " for partition {}, keeping cached version",
+                        version, existing.version, key);
+                return new VersionEntry(existing.version, now);
+            });
+            // Evict if cache is over capacity
+            evictIfNeeded(ttlMs);
             // Also update the partition's cached version
-            partition.setCachedVisibleVersion(version, System.currentTimeMillis());
+            long cachedVersion = cache.get(partitionId).version;
+            partition.setCachedVisibleVersion(cachedVersion, now);
             // Complete the future so waiting requests get the result
-            myFuture.complete(version);
+            myFuture.complete(cachedVersion);
             if (LOG.isDebugEnabled()) {
-                LOG.debug("point query version fetched from MS, partition={}, version={}",
-                        partitionId, version);
+                LOG.debug("point query version fetched from MS, partition={}, version={}, cachedVersion={}",
+                        partitionId, version, cachedVersion);
             }
-            return version;
+            return cachedVersion;
         } catch (Exception e) {
             // Complete exceptionally so waiting requests also get the error
             myFuture.completeExceptionally(e);
@@ -207,6 +249,32 @@ public class PointQueryVersionCache {
     }
 
     /**
+     * Evict entries if the cache exceeds {@link #maxCacheSize}.
+     * First removes expired entries; if still over capacity, evicts the oldest entries.
+     */
+    private void evictIfNeeded(long ttlMs) {
+        if (cache.size() <= maxCacheSize) {
+            return;
+        }
+        // Phase 1: remove expired entries
+        cache.entrySet().removeIf(e -> e.getValue().isExpired(ttlMs));
+        if (cache.size() <= maxCacheSize) {
+            return;
+        }
+        // Phase 2: evict oldest entries until we are within bounds
+        int toEvict = cache.size() - maxCacheSize;
+        List<Map.Entry<Long, VersionEntry>> entries = new ArrayList<>(cache.entrySet());
+        entries.sort(Comparator.comparingLong(e -> e.getValue().cachedTimeMs));
+        for (int i = 0; i < toEvict && i < entries.size(); i++) {
+            cache.remove(entries.get(i).getKey(), entries.get(i).getValue());
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("point query version cache eviction: evicted {} entries, cache size now {}",
+                    toEvict, cache.size());
+        }
+    }
+
+    /**
      * Clear all cached entries. Primarily for testing.
      */
     @VisibleForTesting
@@ -221,5 +289,13 @@ public class PointQueryVersionCache {
     @VisibleForTesting
     public int cacheSize() {
         return cache.size();
+    }
+
+    /**
+     * Get the max cache size. Primarily for testing.
+     */
+    @VisibleForTesting
+    public int maxCacheSize() {
+        return maxCacheSize;
     }
 }

@@ -44,6 +44,14 @@ public class PointQueryVersionCacheTest {
         volatile long rpcDelayMs = 0; // simulate RPC latency
         volatile RpcException exceptionToThrow = null;
 
+        TestableVersionCache() {
+            super();
+        }
+
+        TestableVersionCache(int maxCacheSize) {
+            super(maxCacheSize);
+        }
+
         @Override
         protected long fetchVersionFromMs(CloudPartition partition) throws RpcException {
             rpcCallCount.incrementAndGet();
@@ -300,5 +308,90 @@ public class PointQueryVersionCacheTest {
 
         // Version should never go backwards in the cache
         Assertions.assertTrue(v2 >= v1);
+    }
+
+    @Test
+    public void testVersionMonotonicityRejectLowerVersion() throws RpcException, InterruptedException {
+        long ttlMs = 100;
+
+        // Cache version 15
+        cache.versionToReturn = 15L;
+        long v1 = cache.getVersion(partition1, ttlMs);
+        Assertions.assertEquals(15L, v1);
+
+        // Wait for expiry
+        Thread.sleep(150);
+
+        // MetaService returns an older version (e.g. stale node)
+        cache.versionToReturn = 10L;
+        long v2 = cache.getVersion(partition1, ttlMs);
+        // Cache should NOT regress — must still return 15
+        Assertions.assertEquals(15L, v2, "Cache should not regress to a lower version");
+    }
+
+    @Test
+    public void testCacheSizeBound() throws RpcException {
+        int maxSize = 5;
+        cache = new TestableVersionCache(maxSize);
+        PointQueryVersionCache.setInstance(cache);
+        long ttlMs = 1000;
+
+        // Insert more entries than the max cache size
+        for (int i = 0; i < maxSize + 3; i++) {
+            CloudPartition p = CloudPartitionTest.createPartition(1000 + i, i + 1, i + 1);
+            cache.versionToReturn = 100L + i;
+            cache.getVersion(p, ttlMs);
+        }
+
+        // Cache should not exceed maxSize
+        Assertions.assertTrue(cache.cacheSize() <= maxSize,
+                "Cache size " + cache.cacheSize() + " exceeds max " + maxSize);
+    }
+
+    @Test
+    public void testCoalescingTimeout() throws Exception {
+        long ttlMs = 1000;
+        // Make the leader request hang for longer than the coalescing timeout
+        cache.rpcDelayMs = 15_000; // 15 seconds, well beyond the 10s timeout
+
+        // Start a leader request in a background thread
+        CountDownLatch leaderStarted = new CountDownLatch(1);
+        CountDownLatch followerDone = new CountDownLatch(1);
+        AtomicReference<Exception> followerError = new AtomicReference<>();
+
+        // Leader thread
+        new Thread(() -> {
+            try {
+                leaderStarted.countDown();
+                cache.getVersion(partition1, ttlMs);
+            } catch (Exception e) {
+                // expected — leader will eventually finish or be interrupted
+            }
+        }).start();
+
+        // Wait for leader to start
+        leaderStarted.await();
+        Thread.sleep(50); // brief pause so leader registers the inflight future
+
+        // Follower thread — should time out
+        new Thread(() -> {
+            try {
+                cache.getVersion(partition1, ttlMs);
+            } catch (RpcException e) {
+                if (e.getMessage().contains("timed out")) {
+                    followerError.set(e);
+                }
+            } catch (Exception e) {
+                // unexpected
+            } finally {
+                followerDone.countDown();
+            }
+        }).start();
+
+        // Wait for follower to complete (should timeout after ~10s)
+        boolean completed = followerDone.await(20, java.util.concurrent.TimeUnit.SECONDS);
+        Assertions.assertTrue(completed, "Follower thread should have completed");
+        Assertions.assertNotNull(followerError.get(),
+                "Follower should have received a timeout RpcException");
     }
 }
