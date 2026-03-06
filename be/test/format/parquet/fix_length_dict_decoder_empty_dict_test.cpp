@@ -36,10 +36,19 @@ protected:
 };
 
 TEST_F(FixLengthDictDecoderEmptyDictDataTest,
-       test_convert_dict_column_to_string_column_with_empty_dict_data) {
+       test_convert_dict_column_to_string_column_with_empty_dict_data_error) {
     MutableColumnPtr dict_column = ColumnInt32::create();
     dict_column->insert(vectorized::Field::create_field<TYPE_INT>(0));
     dict_column->insert(vectorized::Field::create_field<TYPE_INT>(1));
+
+    auto io_error = TEST_RESULT_ERROR(_decoder.convert_dict_column_to_string_column(
+            assert_cast<ColumnInt32*>(dict_column.get())));
+    ASSERT_TRUE(io_error.is<ErrorCode::IO_ERROR>());
+}
+
+TEST_F(FixLengthDictDecoderEmptyDictDataTest,
+       test_convert_dict_column_to_string_column_with_empty_dict_data_success) {
+    MutableColumnPtr dict_column = ColumnInt32::create();
 
     auto string_column = TEST_TRY(_decoder.convert_dict_column_to_string_column(
             assert_cast<ColumnInt32*>(dict_column.get())));
