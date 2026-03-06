@@ -3566,6 +3566,191 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_error_handle) {
     FileCacheFactory::instance()->_capacity = 0;
 }
 
+extern bvar::Adder<uint64_t> g_read_cache_self_heal_on_not_found;
+
+TEST_F(BlockFileCacheTest, cached_remote_file_reader_self_heal_on_downloaded_not_found) {
+    bool origin_enable_direct_read = config::enable_read_cache_file_directly;
+    config::enable_read_cache_file_directly = false;
+    Defer reset_direct_read {
+            [&] { config::enable_read_cache_file_directly = origin_enable_direct_read; }};
+
+    std::string cache_base_path =
+            caches_dir / "cached_remote_reader_self_heal_on_downloaded_not_found" / "";
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 6291456;
+    settings.query_queue_elements = 6;
+    settings.index_queue_size = 1048576;
+    settings.index_queue_elements = 1;
+    settings.disposable_queue_size = 1048576;
+    settings.disposable_queue_elements = 1;
+    settings.capacity = 8388608;
+    settings.max_file_block_size = 1048576;
+    settings.max_query_cache_size = 0;
+    ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(cache_base_path, settings).ok());
+    auto cache = FileCacheFactory::instance()->_path_to_cache[cache_base_path];
+    for (int i = 0; i < 100; i++) {
+        if (cache->get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    FileReaderSPtr local_reader;
+    ASSERT_TRUE(global_local_filesystem()->open_file(tmp_file, &local_reader));
+    io::FileReaderOptions opts;
+    opts.cache_type = io::cache_type_from_string("file_block_cache");
+    opts.is_doris_table = true;
+    CachedRemoteFileReader reader(local_reader, opts);
+
+    uint64_t before_self_heal = g_read_cache_self_heal_on_not_found.get_value();
+
+    std::string buffer(64_kb, '\0');
+    IOContext io_ctx;
+    FileCacheStatistics stats;
+    io_ctx.file_cache_stats = &stats;
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader.read_at(0, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+    EXPECT_EQ(std::string(64_kb, '0'), buffer);
+
+    auto key = io::BlockFileCache::hash("tmp_file");
+    {
+        io::CacheContext inspect_ctx;
+        ReadStatistics inspect_stats;
+        inspect_ctx.stats = &inspect_stats;
+        inspect_ctx.cache_type = io::FileCacheType::NORMAL;
+        auto inspect_holder = cache->get_or_set(key, 0, 64_kb, inspect_ctx);
+        auto inspect_blocks = fromHolder(inspect_holder);
+        ASSERT_EQ(inspect_blocks.size(), 1);
+        ASSERT_EQ(inspect_blocks[0]->state(), io::FileBlock::State::DOWNLOADED);
+        std::string cache_file = inspect_blocks[0]->get_cache_file();
+        ASSERT_TRUE(fs::exists(cache_file));
+        ASSERT_TRUE(global_local_filesystem()->delete_file(cache_file).ok());
+        ASSERT_FALSE(fs::exists(cache_file));
+    }
+
+    ASSERT_TRUE(reader.read_at(0, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+    EXPECT_EQ(std::string(64_kb, '0'), buffer);
+
+    bool self_healed = false;
+    for (int i = 0; i < 100; ++i) {
+        io::CacheContext verify_ctx;
+        ReadStatistics verify_stats;
+        verify_ctx.stats = &verify_stats;
+        verify_ctx.cache_type = io::FileCacheType::NORMAL;
+        auto verify_holder = cache->get_or_set(key, 0, 64_kb, verify_ctx);
+        auto verify_blocks = fromHolder(verify_holder);
+        if (verify_blocks.size() == 1 && verify_blocks[0]->state() == io::FileBlock::State::EMPTY) {
+            self_healed = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_TRUE(self_healed);
+    EXPECT_EQ(g_read_cache_self_heal_on_not_found.get_value(), before_self_heal + 1);
+
+    EXPECT_TRUE(reader.close().ok());
+    EXPECT_TRUE(reader.closed());
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    FileCacheFactory::instance()->_caches.clear();
+    FileCacheFactory::instance()->_path_to_cache.clear();
+    FileCacheFactory::instance()->_capacity = 0;
+}
+
+TEST_F(BlockFileCacheTest, cached_remote_file_reader_no_self_heal_on_non_not_found_error) {
+    bool origin_enable_direct_read = config::enable_read_cache_file_directly;
+    config::enable_read_cache_file_directly = false;
+    Defer reset_direct_read {
+            [&] { config::enable_read_cache_file_directly = origin_enable_direct_read; }};
+
+    std::string cache_base_path =
+            caches_dir / "cached_remote_reader_no_self_heal_on_non_not_found_error" / "";
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 6291456;
+    settings.query_queue_elements = 6;
+    settings.index_queue_size = 1048576;
+    settings.index_queue_elements = 1;
+    settings.disposable_queue_size = 1048576;
+    settings.disposable_queue_elements = 1;
+    settings.capacity = 8388608;
+    settings.max_file_block_size = 1048576;
+    settings.max_query_cache_size = 0;
+    ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(cache_base_path, settings).ok());
+    auto cache = FileCacheFactory::instance()->_path_to_cache[cache_base_path];
+    for (int i = 0; i < 100; i++) {
+        if (cache->get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    FileReaderSPtr local_reader;
+    ASSERT_TRUE(global_local_filesystem()->open_file(tmp_file, &local_reader));
+    io::FileReaderOptions opts;
+    opts.cache_type = io::cache_type_from_string("file_block_cache");
+    opts.is_doris_table = true;
+    CachedRemoteFileReader reader(local_reader, opts);
+
+    std::string buffer(64_kb, '\0');
+    IOContext io_ctx;
+    FileCacheStatistics stats;
+    io_ctx.file_cache_stats = &stats;
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader.read_at(0, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx).ok());
+
+    uint64_t before_self_heal = g_read_cache_self_heal_on_not_found.get_value();
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    Defer defer {[&] {
+        sp->clear_call_back("LocalFileReader::read_at_impl");
+        sp->disable_processing();
+    }};
+    sp->set_call_back("LocalFileReader::read_at_impl", [&](auto&& values) {
+        std::pair<Status, bool>* pair = try_any_cast<std::pair<Status, bool>*>(values.back());
+        pair->first = Status::IOError("inject io error for cache read");
+        pair->second = true;
+    });
+
+    auto st = reader.read_at(0, Slice(buffer.data(), buffer.size()), &bytes_read, &io_ctx);
+    ASSERT_FALSE(st.ok());
+    EXPECT_EQ(g_read_cache_self_heal_on_not_found.get_value(), before_self_heal);
+
+    sp->clear_call_back("LocalFileReader::read_at_impl");
+    sp->disable_processing();
+
+    io::CacheContext verify_ctx;
+    ReadStatistics verify_stats;
+    verify_ctx.stats = &verify_stats;
+    verify_ctx.cache_type = io::FileCacheType::NORMAL;
+    auto key = io::BlockFileCache::hash("tmp_file");
+    auto verify_holder = cache->get_or_set(key, 0, 64_kb, verify_ctx);
+    auto verify_blocks = fromHolder(verify_holder);
+    ASSERT_EQ(verify_blocks.size(), 1);
+    EXPECT_EQ(verify_blocks[0]->state(), io::FileBlock::State::DOWNLOADED);
+
+    EXPECT_TRUE(reader.close().ok());
+    EXPECT_TRUE(reader.closed());
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    FileCacheFactory::instance()->_caches.clear();
+    FileCacheFactory::instance()->_path_to_cache.clear();
+    FileCacheFactory::instance()->_capacity = 0;
+}
+
 TEST_F(BlockFileCacheTest, cached_remote_file_reader_init) {
     std::string cache_base_path = caches_dir / "cached_remote_file_reader_init" / "";
     if (fs::exists(cache_base_path)) {
