@@ -43,6 +43,8 @@ class Block;
 
 namespace doris::vectorized {
 
+const std::vector<SlotDescriptor*> JniReader::_s_empty_slot_descs;
+
 // =========================================================================
 // JniReader constructors
 // =========================================================================
@@ -62,7 +64,7 @@ JniReader::JniReader(const std::vector<SlotDescriptor*>& file_slot_descs, Runtim
 }
 
 JniReader::JniReader(std::string connector_class, std::map<std::string, std::string> scanner_params)
-        : _file_slot_descs(*(new std::vector<SlotDescriptor*>())),
+        : _file_slot_descs(_s_empty_slot_descs),
           _connector_class(std::move(connector_class)),
           _scanner_params(std::move(scanner_params)) {
     _is_table_schema = true;

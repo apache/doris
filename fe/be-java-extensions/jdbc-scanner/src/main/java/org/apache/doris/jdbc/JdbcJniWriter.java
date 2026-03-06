@@ -128,7 +128,7 @@ public class JdbcJniWriter extends JniWriter {
                 conn.setAutoCommit(false);
             }
 
-            LOG.info("JdbcJniWriter: Preparing insert statement: " + insertSql);
+            LOG.debug("JdbcJniWriter: Preparing insert statement: " + insertSql);
             preparedStatement = conn.prepareStatement(insertSql);
         } catch (Exception e) {
             throw new IOException("JdbcJniWriter open failed: " + e.getMessage(), e);
@@ -370,7 +370,8 @@ public class JdbcJniWriter extends JniWriter {
                     ds.setConnectionTimeout(connectionPoolMaxWaitTime);
                     ds.setMaxLifetime(connectionPoolMaxLifeTime);
                     ds.setIdleTimeout(connectionPoolMaxLifeTime / 2L);
-                    ds.setConnectionTestQuery("SELECT 1");
+                    // Do not set connectionTestQuery — HikariCP defaults to JDBC4 isValid()
+                    // which works across all databases (Oracle, MySQL, PostgreSQL, etc.)
                     if (connectionPoolKeepAlive) {
                         ds.setKeepaliveTime(connectionPoolMaxLifeTime / 5L);
                     }

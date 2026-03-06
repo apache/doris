@@ -139,6 +139,8 @@ protected:
     RuntimeProfile* _profile = nullptr;
 
 private:
+    static const std::vector<SlotDescriptor*> _s_empty_slot_descs;
+
     Status _init_jni_scanner(JNIEnv* env, int batch_size);
     Status _fill_block(Block* block, size_t num_rows);
     Status _get_statistics(JNIEnv* env, std::map<std::string, std::string>* result);
