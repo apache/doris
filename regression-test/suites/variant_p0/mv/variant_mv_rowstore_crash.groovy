@@ -84,7 +84,7 @@ suite("variant_mv_rowstore_crash", "variant_type") {
         );
     """
     // Insert variant subcolumn (array type) into rowstore table
-    sql """INSERT INTO ${tbl3} SELECT k, v['arr'] FROM ${tbl}"""
+    sql """INSERT INTO ${tbl3} SELECT k, cast(v['arr'] as string) FROM ${tbl}"""
     order_qt_direct "SELECT * FROM ${tbl3} ORDER BY k"
 
     sql "DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"
