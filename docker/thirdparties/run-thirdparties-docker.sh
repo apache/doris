@@ -296,6 +296,30 @@ resolve_juicefs_cli() {
     echo "${JUICEFS_LOCAL_BIN}"
 }
 
+ensure_juicefs_meta_database() {
+    local jfs_meta="$1"
+    local meta_db
+    local mysql_container
+
+    if [[ "${jfs_meta}" != *"@(127.0.0.1:3316)/"* && "${jfs_meta}" != *"@(localhost:3316)/"* ]]; then
+        return 0
+    fi
+
+    meta_db="${jfs_meta##*/}"
+    meta_db="${meta_db%%\?*}"
+
+    if command -v mysql >/dev/null 2>&1; then
+        mysql -h127.0.0.1 -P3316 -uroot -p123456 -e "CREATE DATABASE IF NOT EXISTS \`${meta_db}\`;"
+        return 0
+    fi
+
+    mysql_container=$(sudo docker ps --format '{{.Names}}' | grep -E "(^|-)${CONTAINER_UID}mysql_57(-[0-9]+)?$" | head -n 1 || true)
+    if [[ -n "${mysql_container}" ]]; then
+        sudo docker exec "${mysql_container}" \
+            mysql -uroot -p123456 -e "CREATE DATABASE IF NOT EXISTS \`${meta_db}\`;"
+    fi
+}
+
 run_juicefs_cli() {
     local juicefs_cli
     juicefs_cli=$(resolve_juicefs_cli)
@@ -317,15 +341,7 @@ prepare_juicefs_meta_for_hive() {
     sudo chmod 777 "${bucket_dir}"
 
     # For local mysql_57 metadata DSN, ensure metadata database exists.
-    local mysql_container="${CONTAINER_UID}mysql_57"
-    if [[ "${jfs_meta}" == *"@(127.0.0.1:3316)/"* || "${jfs_meta}" == *"@(localhost:3316)/"* ]]; then
-        local meta_db="${jfs_meta##*/}"
-        meta_db="${meta_db%%\?*}"
-        if sudo docker ps --format '{{.Names}}' | grep -qx "${mysql_container}"; then
-            sudo docker exec "${mysql_container}" \
-                mysql -uroot -p123456 -e "CREATE DATABASE IF NOT EXISTS \`${meta_db}\`;"
-        fi
-    fi
+    ensure_juicefs_meta_database "${jfs_meta}"
 
     if run_juicefs_cli status "${jfs_meta}" >/dev/null 2>&1; then
         echo "JuiceFS metadata is already formatted."
