@@ -12,6 +12,10 @@ Complete code review work to ensure code quality. Due to the length of content, 
 
 Use this when you need to review code, whether it's code you just completed or directly reviewing target code.
 
+## How to use me
+
+Since this article is long, you must read and respond to the content of part 1. The other specific details can be referred to as needed when reviewing the code modules (not required).
+
 ---
 
 ## Part 1: General Principles
@@ -27,15 +31,15 @@ Always focus on the following core invariants during review:
 
 ### 1.2 Review Principles
 
-- **Defensive Programming Prohibited**: Do not use `if(valid)` style defensive checks to mask logic errors. If logically A=true should imply B=true, write `if(A) { DORIS_CHECK(B); ... }`, never `if(A && B)`
 - **Follow Context Conventions**: When adding code, strictly follow patterns in adjacent code—same error handling, same interface call order, same lock acquisition patterns, unless a clearly correct and more reasonable approach is identified.
 - **Prioritize Reuse**: Before adding new functionality, search for similar implementations that can be reused or extended; after adding, ensure good abstraction for shared code.
 - **Code First**: When this SKILL conflicts with actual code behavior, defer to your understanding of actual code behavior and explain
 - **Performance First**: All obviously redundant operations should be optimized away, all obvious performance optimizations must be applied, and obvious anti-patterns must be eliminated.
+- **Evidence Speaks**: All issues with code itself (not memory or environment) must be clearly identified as either having problems or not. For any erroneous situation, if it cannot be confirmed locally, you must provide the specific path or logic where the error occurs. That is, if you believe that if A then B, you must specify a clear scenario where A occurs.
 
 ### 1.3 Critical Checkpoints (Self-Review and Review Priority)
 
-The following checkpoints must be **individually confirmed with conclusions** during self-review and review:
+The following checkpoints must be **individually confirmed with conclusions** during self-review and review. If the code is too long or too complex, you should delve into the code again as needed when analyzing specific issues, especially the entire logic chain where there are doubts:
 
 - What is the goal of the current task? Does the current code accomplish this goal? Is there a test that proves it?
 - Is this modification as small, clear, and focused as possible?
@@ -839,3 +843,7 @@ BE extensively uses bthread, following are easily overlooked bthread-specific co
 
 - [ ] **Lock-protected data**: Comment next to member variables `// protected by xxx_lock`
 - [ ] **TODO/FIXME**: Include author, date, brief description, e.g., `// TODO(zhaochangle, 2026-03-01): optimize this path`
+
+## Finally
+
+In general, the content mentioned in 1.3 Critical Checkpoints is what you must check and respond to item by item. Of course, your ultimate goal is still to discover bugs, so you can conduct any investigation on suspicious parts and provide conclusions.

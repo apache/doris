@@ -10,7 +10,7 @@ When working in worktree mode, all operations must be confined to the current wo
 
 ## Coding Standards
 
-Assert correctness only—never use defensive programming with `if` or similar constructs. Any `if` check for errors must have a clearly known inevitable failure path (not speculation). If no such scenario is found, strictly avoid using `if(valid)` checks. However, you may use the `DORIS_CHECK` macro for precondition assertions. For example, if logically A=true should always imply B=true, then strictly avoid `if(A&&B)` and instead use `if(A){DORIS_CHECK(B);...}`. In short, the principle is: upon discovering errors or unexpected situations, report errors or crash—never allow the process to continue.
+Assert correctness only—never use defensive programming with `if` or similar constructs. Any `if` check for errors must have a clearly known inevitable failure path (not speculation). If no such scenario is found, strictly avoid using `if(valid)` checks. However, you may use the `DORIS_CHECK` macro for precondition assertions (If inside performance-sensitive areas like loops, it can only be `DCHECK`). For example, if logically A=true should always imply B=true, then strictly avoid `if(A&&B)` and instead use `if(A){DORIS_CHECK(B);...}`. In short, the principle is: upon discovering errors or unexpected situations, report errors or crash—never allow the process to continue.
 
 When adding code, strictly follow existing similar code in similar contexts, including interface usage, error handling, etc., maintaining consistency. When adding any code, first try to reference existing functionality. Second, you must examine the relevant context paragraphs to fully understand the logic.
 
