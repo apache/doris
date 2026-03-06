@@ -517,7 +517,8 @@ void BlockFileCache::use_cell(const FileBlockCell& cell, FileBlocks* result, boo
 
     auto& queue = get_queue(cell.file_block->cache_type());
     /// Move to the end of the queue. The iterator remains valid.
-    if (cell.queue_iterator && move_iter_flag) {
+    if (!config::enable_file_cache_async_touch_on_get_or_set && cell.queue_iterator &&
+        move_iter_flag) {
         queue.move_to_end(*cell.queue_iterator, cache_lock);
         _lru_recorder->record_queue_event(cell.file_block->cache_type(),
                                           CacheLRULogType::MOVETOBACK, cell.file_block->_key.hash,
@@ -818,13 +819,15 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
     DCHECK(stats != nullptr);
     MonotonicStopWatch sw;
     sw.start();
-    ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->increment();
-    std::lock_guard cache_lock(_mutex);
-    ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->decrement();
-    stats->lock_wait_timer += sw.elapsed_time();
     FileBlocks file_blocks;
+    std::vector<FileBlockSPtr> need_update_lru_blocks;
+    const bool async_touch_on_get_or_set = config::enable_file_cache_async_touch_on_get_or_set;
     int64_t duration = 0;
     {
+        ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->increment();
+        std::lock_guard cache_lock(_mutex);
+        ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->decrement();
+        stats->lock_wait_timer += sw.elapsed_time();
         SCOPED_RAW_TIMER(&duration);
         /// Get all blocks which intersect with the given range.
         {
@@ -845,6 +848,9 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
         if (!context.is_warmup) {
             *_no_warmup_num_read_blocks << file_blocks.size();
         }
+        if (async_touch_on_get_or_set) {
+            need_update_lru_blocks.reserve(file_blocks.size());
+        }
         for (auto& block : file_blocks) {
             size_t block_size = block->range().size();
             *_total_read_size_metrics << block_size;
@@ -854,9 +860,20 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
                 if (!context.is_warmup) {
                     *_no_warmup_num_hit_blocks << 1;
                 }
+                if (async_touch_on_get_or_set &&
+                    need_to_move(block->cache_type(), context.cache_type)) {
+                    need_update_lru_blocks.emplace_back(block);
+                }
             }
         }
     }
+
+    if (async_touch_on_get_or_set) {
+        for (auto& block : need_update_lru_blocks) {
+            add_need_update_lru_block(std::move(block));
+        }
+    }
+
     *_get_or_set_latency_us << (duration / 1000);
     return FileBlocksHolder(std::move(file_blocks));
 }
