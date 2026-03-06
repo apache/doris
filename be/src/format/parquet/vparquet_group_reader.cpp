@@ -1136,7 +1136,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
     return Status::OK();
 }
 
-void RowGroupReader::_convert_dict_cols_to_string_cols(Block* block) {
+Status RowGroupReader::_convert_dict_cols_to_string_cols(Block* block) {
     for (auto& dict_filter_cols : _dict_filter_cols) {
         if (!_col_name_to_block_idx->contains(dict_filter_cols.first)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -1151,9 +1151,9 @@ void RowGroupReader::_convert_dict_cols_to_string_cols(Block* block) {
             const auto* dict_column = assert_cast<const ColumnInt32*>(nested_column.get());
             DCHECK(dict_column);
 
-            MutableColumnPtr string_column =
+            auto string_column = DORIS_TRY(
                     _column_readers[dict_filter_cols.first]->convert_dict_column_to_string_column(
-                            dict_column);
+                            dict_column));
 
             column_with_type_and_name.type =
                     std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
@@ -1163,15 +1163,16 @@ void RowGroupReader::_convert_dict_cols_to_string_cols(Block* block) {
                                            nullable_column->get_null_map_column_ptr()));
         } else {
             const auto* dict_column = assert_cast<const ColumnInt32*>(column.get());
-            MutableColumnPtr string_column =
+            auto string_column = DORIS_TRY(
                     _column_readers[dict_filter_cols.first]->convert_dict_column_to_string_column(
-                            dict_column);
+                            dict_column));
 
             column_with_type_and_name.type = std::make_shared<DataTypeString>();
             block->replace_by_position((*_col_name_to_block_idx)[dict_filter_cols.first],
                                        std::move(string_column));
         }
     }
+    return Status::OK();
 }
 
 ParquetColumnReader::ColumnStatistics RowGroupReader::merged_column_statistics() {

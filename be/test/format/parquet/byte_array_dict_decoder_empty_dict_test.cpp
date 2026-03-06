@@ -17,10 +17,7 @@
 
 #include <gtest/gtest.h>
 
-#include "parquet/types.h"
 #include "vec/columns/column_vector.h"
-#include "vec/common/custom_allocator.h"
-#include "vec/data_types/data_type_string.h"
 #include "vec/exec/format/parquet/byte_array_dict_decoder.h"
 
 namespace doris::vectorized {
@@ -41,8 +38,8 @@ TEST_F(ByteArrayDictDecoderEmptyDictDataTest,
     dict_column->insert(vectorized::Field::create_field<TYPE_INT>(0));
     dict_column->insert(vectorized::Field::create_field<TYPE_INT>(1));
 
-    MutableColumnPtr string_column = _decoder.convert_dict_column_to_string_column(
-            assert_cast<ColumnInt32*>(dict_column.get()));
+    auto string_column = TEST_TRY(_decoder.convert_dict_column_to_string_column(
+            assert_cast<ColumnInt32*>(dict_column.get())));
 
     ASSERT_EQ(string_column->size(), 0);
 }

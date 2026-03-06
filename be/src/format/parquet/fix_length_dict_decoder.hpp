@@ -211,12 +211,14 @@ protected:
         return Status::OK();
     }
 
-    MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override {
+    Result<MutableColumnPtr> convert_dict_column_to_string_column(
+            const ColumnInt32* dict_column) override {
         auto res = ColumnString::create();
         if (_dict_items.empty()) {
             if (dict_column->size() > 0) {
                 LOG(ERROR) << "Attempt to convert dict column with empty dictionary, column size: "
                            << dict_column->size();
+                return ResultError(Status::IOError("empty dictionary"));
             }
             return res;
         }

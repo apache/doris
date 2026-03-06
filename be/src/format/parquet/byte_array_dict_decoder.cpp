@@ -78,13 +78,14 @@ Status ByteArrayDictDecoder::read_dict_values_to_column(MutableColumnPtr& doris_
     return Status::OK();
 }
 
-MutableColumnPtr ByteArrayDictDecoder::convert_dict_column_to_string_column(
+Result<MutableColumnPtr> ByteArrayDictDecoder::convert_dict_column_to_string_column(
         const ColumnInt32* dict_column) {
     auto res = ColumnString::create();
     if (_dict_items.empty()) {
         if (dict_column->size() > 0) {
             LOG(ERROR) << "Attempt to convert dict column with empty dictionary, column size: "
                        << dict_column->size();
+            return ResultError(Status::IOError("empty dictionary"));
         }
         return res;
     }
