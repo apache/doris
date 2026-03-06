@@ -27,6 +27,7 @@
 #include "runtime/primitive_type.h"
 #include "runtime/types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
 
