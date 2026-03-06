@@ -17,9 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.constraint.Constraint;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -56,23 +58,39 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        TableIf table = extractTable(ctx, plan);
-        table.readLock();
+        TableNameInfo tableNameInfo;
         try {
-            Constraint constraint = table.getConstraintsMapUnsafe().get(name);
-            if (constraint == null) {
-                throw new AnalysisException(
-                        String.format("Unknown constraint %s on table %s.", name, table.getName()));
-            }
-        } finally {
-            table.readUnlock();
+            TableIf table = extractTable(ctx, plan);
+            tableNameInfo = new TableNameInfo(table);
+        } catch (Exception e) {
+            // Table may no longer exist (e.g., external table deleted by another system).
+            // Fall back to extracting the table name from the unresolved plan.
+            LOG.warn("Table resolution failed for dropping constraint {}, "
+                    + "falling back to name-based lookup: {}", name, e.getMessage());
+            tableNameInfo = extractTableNameFromPlan(ctx);
         }
-        table.writeLock();
-        try {
-            table.dropConstraint(name, false);
-        } finally {
-            table.writeUnlock();
+        Env.getCurrentEnv().getConstraintManager().dropConstraint(
+                tableNameInfo, name, false);
+    }
+
+    private TableNameInfo extractTableNameFromPlan(ConnectContext ctx) {
+        if (!(plan instanceof UnboundRelation)) {
+            throw new AnalysisException(
+                    "Cannot resolve table for dropping constraint " + name);
         }
+        UnboundRelation unbound = (UnboundRelation) plan;
+        List<String> parts = unbound.getNameParts();
+        String ctl = ctx.getCurrentCatalog() != null
+                ? ctx.getCurrentCatalog().getName()
+                : "internal";
+        String db = ctx.getDatabase();
+        // Fill in default catalog/db from connect context if not specified
+        if (parts.size() == 1) {
+            return new TableNameInfo(ctl, db, parts.get(0));
+        } else if (parts.size() == 2) {
+            return new TableNameInfo(ctl, parts.get(0), parts.get(1));
+        }
+        return new TableNameInfo(parts);
     }
 
     private TableIf extractTable(ConnectContext ctx, LogicalPlan plan) {

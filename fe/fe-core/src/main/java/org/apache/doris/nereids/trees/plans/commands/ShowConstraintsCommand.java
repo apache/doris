@@ -19,8 +19,11 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.Constraint;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -32,11 +35,12 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.hadoop.util.Lists;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * add constraint command
+ * show constraints command
  */
 public class ShowConstraintsCommand extends ShowCommand {
 
@@ -65,17 +69,14 @@ public class ShowConstraintsCommand extends ShowCommand {
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         TableIf tableIf = RelationUtil.getDbAndTable(
                 RelationUtil.getQualifierName(ctx, nameParts), ctx.getEnv(), Optional.empty()).value();
-        tableIf.readLock();
-        List<List<String>> res;
-        try {
-            res = tableIf.getConstraintsMap().entrySet().stream()
-                    .map(e -> Lists.newArrayList(e.getKey(),
-                            e.getValue().getType().getName(),
-                            e.getValue().toString()))
-                    .collect(Collectors.toList());
-        } finally {
-            tableIf.readUnlock();
-        }
+        TableNameInfo tableNameInfo = new TableNameInfo(tableIf);
+        Map<String, Constraint> constraints = Env.getCurrentEnv().getConstraintManager()
+                .getConstraints(tableNameInfo);
+        List<List<String>> res = constraints.entrySet().stream()
+                .map(e -> Lists.newArrayList(e.getKey(),
+                        e.getValue().getType().getName(),
+                        e.getValue().toString()))
+                .collect(Collectors.toList());
         return new ShowResultSet(META_DATA, res);
     }
 

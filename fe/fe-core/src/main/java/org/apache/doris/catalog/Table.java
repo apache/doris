@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
-import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -121,6 +120,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     @SerializedName(value = "comment")
     protected String comment = "";
 
+    @Deprecated
     @SerializedName(value = "ta")
     protected TableAttributes tableAttributes = new TableAttributes();
 
@@ -385,13 +385,13 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         return isTemporary ? Util.getTempTableDisplayName(name) : name;
     }
 
-    public Constraint getConstraint(String name) {
-        return getConstraintsMap().get(name);
-    }
-
-    @Override
-    public Map<String, Constraint> getConstraintsMapUnsafe() {
-        return tableAttributes.getConstraintsMap();
+    /**
+     * @deprecated Use ConstraintManager for constraint access.
+     *             This method will be removed in a future version.
+     */
+    @Deprecated
+    public TableAttributes getTableAttributes() {
+        return tableAttributes;
     }
 
     public TableType getType() {

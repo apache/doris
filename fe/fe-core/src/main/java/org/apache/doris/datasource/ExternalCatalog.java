@@ -58,6 +58,7 @@ import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -1109,6 +1110,9 @@ public abstract class ExternalCatalog
         }
         try {
             metadataOps.renameTable(dbName, oldTableName, newTableName);
+            Env.getCurrentEnv().getConstraintManager().renameTable(
+                    new TableNameInfo(getName(), dbName, oldTableName),
+                    new TableNameInfo(getName(), dbName, newTableName));
             Env.getCurrentEnv().getEditLog()
                     .logRefreshExternalTable(
                             ExternalObjectLog.createForRenameTable(getId(), dbName, oldTableName, newTableName));
