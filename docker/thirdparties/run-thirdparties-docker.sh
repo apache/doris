@@ -271,6 +271,28 @@ detect_juicefs_version() {
     echo "${juicefs_jar%.jar}"
 }
 
+download_juicefs_hadoop_jar() {
+    local juicefs_version="$1"
+    local cache_dir="${DORIS_ROOT}/thirdparty/installed/juicefs_libs"
+    local jar_name="juicefs-hadoop-${juicefs_version}.jar"
+    local target_jar="${cache_dir}/${jar_name}"
+    local download_url="https://github.com/juicedata/juicefs/releases/download/v${juicefs_version}/${jar_name}"
+
+    mkdir -p "${cache_dir}"
+    if [[ -s "${target_jar}" ]]; then
+        echo "${target_jar}"
+        return 0
+    fi
+
+    echo "Downloading JuiceFS Hadoop jar ${juicefs_version} from ${download_url}" >&2
+    if ! curl -fL --retry 3 --retry-delay 2 --connect-timeout 10 -o "${target_jar}" "${download_url}"; then
+        rm -f "${target_jar}"
+        return 1
+    fi
+
+    echo "${target_jar}"
+}
+
 install_juicefs_cli() {
     local juicefs_version="$1"
     local cache_dir="${DORIS_ROOT}/thirdparty/installed/juicefs_bin"
@@ -352,10 +374,16 @@ run_juicefs_cli() {
 ensure_juicefs_hadoop_jar_for_hive() {
     local auxlib_dir="${ROOT}/docker-compose/hive/scripts/auxlib"
     local source_jar
+    local juicefs_version
 
     source_jar=$(find_juicefs_hadoop_jar || true)
     if [[ -z "${source_jar}" ]]; then
-        echo "WARN: skip syncing juicefs-hadoop jar for hive, not found in thirdparty/installed or output/."
+        juicefs_version=$(detect_juicefs_version)
+        source_jar=$(download_juicefs_hadoop_jar "${juicefs_version}" || true)
+    fi
+
+    if [[ -z "${source_jar}" ]]; then
+        echo "WARN: skip syncing juicefs-hadoop jar for hive, not found and download failed."
         return 0
     fi
 
