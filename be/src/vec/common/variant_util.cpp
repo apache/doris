@@ -1240,7 +1240,18 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                 output_schema, uid_to_paths_set_info[column->unique_id()]));
 
         // 3. get the subpaths
-        get_subpaths(column->variant_max_subcolumns_count(),
+        int32_t declared_max_subcolumns_count = column->variant_max_subcolumns_count();
+        const int32_t runtime_max_subcolumns_count =
+                config::variant_compaction_max_subcolumns_count;
+        int32_t max_subcolumns_count = declared_max_subcolumns_count;
+        if (runtime_max_subcolumns_count > 0) {
+            max_subcolumns_count =
+                    declared_max_subcolumns_count == 0
+                            ? runtime_max_subcolumns_count
+                            : std::min(declared_max_subcolumns_count,
+                                       runtime_max_subcolumns_count);
+        }
+        get_subpaths(max_subcolumns_count,
                      uid_to_variant_extended_info[column->unique_id()].path_to_none_null_values,
                      uid_to_paths_set_info[column->unique_id()]);
 
