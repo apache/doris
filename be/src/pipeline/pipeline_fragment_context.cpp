@@ -1809,7 +1809,7 @@ void PipelineFragmentContext::_close_fragment_instance() {
     _fragment_level_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     if (!_need_notify_close) {
         auto st = send_report(true);
-        if (!st && !st.is<ErrorCode::NEED_SEND_AGAIN>()) {
+        if (!st) {
             LOG(WARNING) << fmt::format("Failed to send report for query {}, fragment {}: {}",
                                         print_id(_query_id), _fragment_id, st.to_string());
         }
@@ -1914,6 +1914,10 @@ Status PipelineFragmentContext::send_report(bool done) {
     // When limit is reached the fragment is also cancelled, but _is_report_on_cancel will
     // be set to false, to avoid sending fault report to FE.
     if (!_is_report_success && !_is_report_on_cancel) {
+        if (done) {
+            // if done is true, which means the query is finished successfully, we can safely close the fragment instance without sending report to FE, and just return OK status here.
+            return Status::OK();
+        }
         return Status::NeedSendAgain("");
     }
 
