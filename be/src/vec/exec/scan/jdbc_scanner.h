@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "util/runtime_profile.h"
+#include "vec/exec/format/table/jdbc_jni_reader.h"
 #include "vec/exec/scan/scanner.h"
 
 namespace doris {
@@ -38,7 +39,6 @@ class TupleDescriptor;
 namespace vectorized {
 class Block;
 class VExprContext;
-class JdbcJniReader;
 
 /**
  * DEPRECATED: This class is transitional and should be removed once JDBC scanning
