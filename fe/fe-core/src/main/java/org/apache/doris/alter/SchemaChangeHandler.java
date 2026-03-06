@@ -18,7 +18,6 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AnnIndexPropertiesChecker;
-import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.SlotRef;
@@ -55,6 +54,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
