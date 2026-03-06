@@ -144,6 +144,7 @@ public class NereidsParser {
      */
     public static TokenSource scan(String sql) {
         DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+        lexer.isNoBackslashEscapes = SqlModeHelper.hasNoBackSlashEscapes();
         lexer.isAnsiQuotes = SqlModeHelper.hasAnsiQuotes();
         if (lexer.isAnsiQuotes != lastAnsiQuotesState) {
             lexer.getInterpreter().clearDFA();
@@ -394,6 +395,8 @@ public class NereidsParser {
             if (hintToken.getChannel() == 2 && sql.charAt(hintToken.getStartIndex() + 2) == '+') {
                 String hintSql = sql.substring(hintToken.getStartIndex() + 3, hintToken.getStopIndex() + 1);
                 DorisLexer newHintLexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(hintSql)));
+                newHintLexer.isNoBackslashEscapes = SqlModeHelper.hasNoBackSlashEscapes();
+                newHintLexer.isAnsiQuotes = SqlModeHelper.hasAnsiQuotes();
                 CommonTokenStream newHintTokenStream = new CommonTokenStream(newHintLexer);
                 DorisParser hintParser = new DorisParser(newHintTokenStream);
                 ParserRuleContext hintContext = parseFunction.apply(hintParser);
