@@ -22,7 +22,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "vec/core/types.h"
-#include "vec/exec/jni_connector.h"
+#include "vec/exec/jni_data_bridge.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -30,38 +30,43 @@ namespace doris::vectorized {
 JdbcJniReader::JdbcJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
                              RuntimeState* state, RuntimeProfile* profile,
                              const std::map<std::string, std::string>& jdbc_params)
-        : JniReader(file_slot_descs, state, profile), _jdbc_params(jdbc_params) {
-    std::vector<std::string> column_names;
-    std::ostringstream required_fields;
-    std::ostringstream columns_types;
-
-    int index = 0;
-    for (const auto& desc : _file_slot_descs) {
-        std::string field = desc->col_name();
-        std::string type = JniConnector::get_jni_type_with_different_string(desc->type());
-        column_names.emplace_back(field);
-        if (index == 0) {
-            required_fields << field;
-            columns_types << type;
-        } else {
-            required_fields << "," << field;
-            columns_types << "#" << type;
-        }
-        index++;
-    }
-
-    // Merge JDBC-specific params with schema params
-    std::map<String, String> params = _jdbc_params;
-    params["required_fields"] = required_fields.str();
-    params["columns_types"] = columns_types.str();
-
-    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/jdbc/JdbcJniScanner", params,
-                                                    column_names);
-}
+        : JniReader(file_slot_descs, state, profile,
+                    "org/apache/doris/jdbc/JdbcJniScanner",
+                    [&]() {
+                        std::ostringstream required_fields;
+                        std::ostringstream columns_types;
+                        int index = 0;
+                        for (const auto& desc : file_slot_descs) {
+                            std::string field = desc->col_name();
+                            std::string type =
+                                    JniDataBridge::get_jni_type_with_different_string(
+                                            desc->type());
+                            if (index == 0) {
+                                required_fields << field;
+                                columns_types << type;
+                            } else {
+                                required_fields << "," << field;
+                                columns_types << "#" << type;
+                            }
+                            index++;
+                        }
+                        // Merge JDBC-specific params with schema params
+                        std::map<String, String> params = jdbc_params;
+                        params["required_fields"] = required_fields.str();
+                        params["columns_types"] = columns_types.str();
+                        return params;
+                    }(),
+                    [&]() {
+                        std::vector<std::string> names;
+                        for (const auto& desc : file_slot_descs) {
+                            names.emplace_back(desc->col_name());
+                        }
+                        return names;
+                    }()),
+          _jdbc_params(jdbc_params) {}
 
 Status JdbcJniReader::init_reader() {
-    RETURN_IF_ERROR(_jni_connector->init());
-    return _jni_connector->open(_state, _profile);
+    return open(_state, _profile);
 }
 
 #include "common/compile_check_end.h"

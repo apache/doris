@@ -43,18 +43,14 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 /**
- * JdbcJniReader reads data from JDBC data sources via the unified JniReader/JniConnector
+ * JdbcJniReader reads data from JDBC data sources via the unified JniReader
  * framework. It delegates scanning to Java-side JdbcJniScanner (extends JniScanner).
  *
  * This reader follows the same pattern as PaimonJniReader, HudiJniReader, etc:
- * - Constructs a JniConnector with the Java scanner class name and parameters
- * - init() + open() starts the Java scanner
- * - get_next_block() reads data batch by batch
- * - close() releases Java resources
- *
- * In the transitional phase (Phase 3), this reader is used internally by JdbcScanner
- * (which remains the pipeline-level scanner). In a future phase (Phase 4), JdbcScanner
- * can be eliminated and JDBC will flow through FileScanner directly.
+ * - Passes Java scanner class path and parameters to JniReader base constructor
+ * - init_reader() calls open() to start the Java scanner
+ * - get_next_block() reads data batch by batch (inherited from JniReader)
+ * - close() releases Java resources (inherited from JniReader)
  */
 class JdbcJniReader : public JniReader {
     ENABLE_FACTORY_CREATOR(JdbcJniReader);

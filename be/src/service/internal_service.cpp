@@ -41,7 +41,7 @@
 #include <stdint.h>
 #include <sys/stat.h>
 #include <vec/data_types/data_type.h>
-#include <vec/exec/jni_connector.h>
+#include <vec/exec/format/jni_reader.h>
 #include <vec/sink/varrow_flight_result_writer.h>
 
 #include <algorithm>
@@ -119,7 +119,7 @@
 #include "util/uid_util.h"
 #include "vec/common/variant_util.h"
 #include "vec/core/block.h"
-#include "vec/exec/format/avro//avro_jni_reader.h"
+
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
@@ -867,11 +867,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
                                                               file_slots, io_ctx.get(), io_ctx);
             break;
         }
-        case TFileFormatType::FORMAT_AVRO: {
-            reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
-                                                              file_slots);
-            break;
-        }
+
         default:
             st = Status::InternalError("Not supported file format in fetch table schema: {}",
                                        params.format_type);
@@ -1057,22 +1053,18 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
         params["connection_pool_keep_alive"] =
                 jdbc_table.connection_pool_keep_alive ? "true" : "false";
         params["clean_datasource"] = "true";
-        // required_fields and columns_types are required by JniConnector
+        // required_fields and columns_types are required by JniReader
         params["required_fields"] = "result";
         params["columns_types"] = "int";
 
-        // Use JniConnector to create JdbcConnectionTester, which tests
+        // Use JniReader to create JdbcConnectionTester, which tests
         // the connection in its open() method.
-        auto jni_connector = std::make_unique<vectorized::JniConnector>(
-                "org/apache/doris/jdbc/JdbcConnectionTester", params,
-                std::vector<std::string> {"result"});
-        st = jni_connector->init();
-        if (st.ok()) {
-            st = jni_connector->open(nullptr, nullptr);
-        }
+        auto jni_reader = std::make_unique<vectorized::JniReader>(
+                "org/apache/doris/jdbc/JdbcConnectionTester", params);
+        st = jni_reader->open(nullptr, nullptr);
         st.to_protobuf(result->mutable_status());
 
-        Status close_st = jni_connector->close();
+        Status close_st = jni_reader->close();
         if (!close_st.ok()) {
             LOG(WARNING) << "Failed to close JDBC connection tester: " << close_st.msg();
         }
