@@ -285,8 +285,8 @@ void VfileScannerExceptionTest::generate_scanner(std::shared_ptr<VFileScanner>& 
             split_source, _profile, _kv_cache.get());
     scanner->_is_load = false;
     vectorized::VExprContextSPtrs _conjuncts;
-    WARN_IF_ERROR(scanner->prepare(_conjuncts, &_colname_to_value_range,
-                  &_colname_to_slot_id), "fail to prepare scanner");
+    WARN_IF_ERROR(scanner->prepare(_conjuncts, &_colname_to_value_range, &_colname_to_slot_id),
+                  "fail to prepare scanner");
 }
 
 TEST_F(VfileScannerExceptionTest, failure_case) {
