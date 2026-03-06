@@ -61,8 +61,7 @@ JniReader::JniReader(const std::vector<SlotDescriptor*>& file_slot_descs, Runtim
     _connector_name = split(_connector_class, "/").back();
 }
 
-JniReader::JniReader(std::string connector_class,
-                     std::map<std::string, std::string> scanner_params)
+JniReader::JniReader(std::string connector_class, std::map<std::string, std::string> scanner_params)
         : _file_slot_descs(*(new std::vector<SlotDescriptor*>())),
           _connector_class(std::move(connector_class)),
           _scanner_params(std::move(scanner_params)) {
@@ -79,8 +78,7 @@ Status JniReader::open(RuntimeState* state, RuntimeProfile* profile) {
     _profile = profile;
     if (_profile) {
         ADD_TIMER(_profile, _connector_name.c_str());
-        _open_scanner_time =
-                ADD_CHILD_TIMER(_profile, "OpenScannerTime", _connector_name.c_str());
+        _open_scanner_time = ADD_CHILD_TIMER(_profile, "OpenScannerTime", _connector_name.c_str());
         _java_scan_time = ADD_CHILD_TIMER(_profile, "JavaScanTime", _connector_name.c_str());
         _java_append_data_time =
                 ADD_CHILD_TIMER(_profile, "JavaAppendDataTime", _connector_name.c_str());
@@ -179,9 +177,9 @@ Status JniReader::close() {
 
             RETURN_ERROR_IF_EXC(env);
             jlong _append = 0;
-            RETURN_IF_ERROR(_jni_scanner_obj
-                                    .call_long_method(env, _jni_scanner_get_append_data_time)
-                                    .call(&_append));
+            RETURN_IF_ERROR(
+                    _jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
+                            .call(&_append));
 
             if (_profile) {
                 COUNTER_UPDATE(_java_append_data_time, _append);
@@ -341,37 +339,36 @@ void JniReader::_collect_profile_before_close() {
 
 MockJniReader::MockJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
                              RuntimeState* state, RuntimeProfile* profile)
-        : JniReader(file_slot_descs, state, profile,
-                    "org/apache/doris/common/jni/MockJniScanner",
-                    [&]() {
-                        std::ostringstream required_fields;
-                        std::ostringstream columns_types;
-                        int index = 0;
-                        for (const auto& desc : file_slot_descs) {
-                            std::string field = desc->col_name();
-                            std::string type =
-                                    JniDataBridge::get_jni_type_with_different_string(desc->type());
-                            if (index == 0) {
-                                required_fields << field;
-                                columns_types << type;
-                            } else {
-                                required_fields << "," << field;
-                                columns_types << "#" << type;
-                            }
-                            index++;
-                        }
-                        return std::map<String, String> {
-                                {"mock_rows", "10240"},
-                                {"required_fields", required_fields.str()},
-                                {"columns_types", columns_types.str()}};
-                    }(),
-                    [&]() {
-                        std::vector<std::string> names;
-                        for (const auto& desc : file_slot_descs) {
-                            names.emplace_back(desc->col_name());
-                        }
-                        return names;
-                    }()) {}
+        : JniReader(
+                  file_slot_descs, state, profile, "org/apache/doris/common/jni/MockJniScanner",
+                  [&]() {
+                      std::ostringstream required_fields;
+                      std::ostringstream columns_types;
+                      int index = 0;
+                      for (const auto& desc : file_slot_descs) {
+                          std::string field = desc->col_name();
+                          std::string type =
+                                  JniDataBridge::get_jni_type_with_different_string(desc->type());
+                          if (index == 0) {
+                              required_fields << field;
+                              columns_types << type;
+                          } else {
+                              required_fields << "," << field;
+                              columns_types << "#" << type;
+                          }
+                          index++;
+                      }
+                      return std::map<String, String> {{"mock_rows", "10240"},
+                                                       {"required_fields", required_fields.str()},
+                                                       {"columns_types", columns_types.str()}};
+                  }(),
+                  [&]() {
+                      std::vector<std::string> names;
+                      for (const auto& desc : file_slot_descs) {
+                          names.emplace_back(desc->col_name());
+                      }
+                      return names;
+                  }()) {}
 
 Status MockJniReader::init_reader() {
     return open(_state, _profile);

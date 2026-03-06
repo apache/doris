@@ -37,7 +37,6 @@
 #include "util/timezone_utils.h"
 #include "vec/core/block.h"
 
-
 namespace doris::vectorized {
 
 PythonFunctionCall::PythonFunctionCall(const TFunction& fn, const DataTypes& argument_types,

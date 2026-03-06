@@ -43,55 +43,53 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
                                  RuntimeState* state, RuntimeProfile* profile,
                                  const TFileRangeDesc& range,
                                  const TFileScanRangeParams* range_params)
-        : JniReader(file_slot_descs, state, profile,
-                    "org/apache/doris/paimon/PaimonJniScanner",
-                    [&]() {
-                        std::vector<std::string> column_names;
-                        std::vector<std::string> column_types;
-                        for (const auto& desc : file_slot_descs) {
-                            column_names.emplace_back(desc->col_name());
-                            column_types.emplace_back(
-                                    JniDataBridge::get_jni_type_with_different_string(
-                                            desc->type()));
-                        }
-                        const auto& paimon_params = range.table_format_params.paimon_params;
-                        std::map<String, String> params;
-                        params["paimon_split"] = paimon_params.paimon_split;
-                        if (range_params->__isset.paimon_predicate &&
-                            !range_params->paimon_predicate.empty()) {
-                            params["paimon_predicate"] = range_params->paimon_predicate;
-                        } else if (paimon_params.__isset.paimon_predicate) {
-                            params["paimon_predicate"] = paimon_params.paimon_predicate;
-                        }
-                        params["required_fields"] = join(column_names, ",");
-                        params["columns_types"] = join(column_types, "#");
-                        params["time_zone"] = state->timezone();
-                        if (range_params->__isset.serialized_table) {
-                            params["serialized_table"] = range_params->serialized_table;
-                        }
-                        for (const auto& kv : paimon_params.paimon_options) {
-                            params[PAIMON_OPTION_PREFIX + kv.first] = kv.second;
-                        }
-                        if (range_params->__isset.properties &&
-                            !range_params->properties.empty()) {
-                            for (const auto& kv : range_params->properties) {
-                                params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
-                            }
-                        } else if (paimon_params.__isset.hadoop_conf) {
-                            for (const auto& kv : paimon_params.hadoop_conf) {
-                                params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
-                            }
-                        }
-                        return params;
-                    }(),
-                    [&]() {
-                        std::vector<std::string> names;
-                        for (const auto& desc : file_slot_descs) {
-                            names.emplace_back(desc->col_name());
-                        }
-                        return names;
-                    }(),
-                    range.__isset.self_split_weight ? range.self_split_weight : -1) {
+        : JniReader(
+                  file_slot_descs, state, profile, "org/apache/doris/paimon/PaimonJniScanner",
+                  [&]() {
+                      std::vector<std::string> column_names;
+                      std::vector<std::string> column_types;
+                      for (const auto& desc : file_slot_descs) {
+                          column_names.emplace_back(desc->col_name());
+                          column_types.emplace_back(
+                                  JniDataBridge::get_jni_type_with_different_string(desc->type()));
+                      }
+                      const auto& paimon_params = range.table_format_params.paimon_params;
+                      std::map<String, String> params;
+                      params["paimon_split"] = paimon_params.paimon_split;
+                      if (range_params->__isset.paimon_predicate &&
+                          !range_params->paimon_predicate.empty()) {
+                          params["paimon_predicate"] = range_params->paimon_predicate;
+                      } else if (paimon_params.__isset.paimon_predicate) {
+                          params["paimon_predicate"] = paimon_params.paimon_predicate;
+                      }
+                      params["required_fields"] = join(column_names, ",");
+                      params["columns_types"] = join(column_types, "#");
+                      params["time_zone"] = state->timezone();
+                      if (range_params->__isset.serialized_table) {
+                          params["serialized_table"] = range_params->serialized_table;
+                      }
+                      for (const auto& kv : paimon_params.paimon_options) {
+                          params[PAIMON_OPTION_PREFIX + kv.first] = kv.second;
+                      }
+                      if (range_params->__isset.properties && !range_params->properties.empty()) {
+                          for (const auto& kv : range_params->properties) {
+                              params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
+                          }
+                      } else if (paimon_params.__isset.hadoop_conf) {
+                          for (const auto& kv : paimon_params.hadoop_conf) {
+                              params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
+                          }
+                      }
+                      return params;
+                  }(),
+                  [&]() {
+                      std::vector<std::string> names;
+                      for (const auto& desc : file_slot_descs) {
+                          names.emplace_back(desc->col_name());
+                      }
+                      return names;
+                  }(),
+                  range.__isset.self_split_weight ? range.self_split_weight : -1) {
     if (range.table_format_params.__isset.table_level_row_count) {
         _remaining_table_level_row_count = range.table_format_params.table_level_row_count;
     } else {

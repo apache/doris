@@ -119,7 +119,6 @@
 #include "util/uid_util.h"
 #include "vec/common/variant_util.h"
 #include "vec/core/block.h"
-
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
