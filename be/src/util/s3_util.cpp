@@ -37,10 +37,12 @@
 
 #ifdef USE_AZURE
 #include <azure/core/diagnostics/logger.hpp>
+#include <azure/core/http/curl_transport.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
 #endif
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <memory>
 #include <ostream>
@@ -108,6 +110,33 @@ bool to_int(std::string_view str, int& res) {
     auto [_, ec] = std::from_chars(str.data(), str.data() + str.size(), res);
     return ec == std::errc {};
 }
+
+#ifdef USE_AZURE
+std::string env_or_empty(const char* env_name) {
+    if (const char* value = std::getenv(env_name); value != nullptr) {
+        return value;
+    }
+    return "";
+}
+
+std::string build_azure_tls_debug_context(const std::string& selected_ca_file) {
+    bool selected_ca_exists = false;
+    bool selected_ca_readable = false;
+    if (!selected_ca_file.empty()) {
+        std::error_code ec;
+        selected_ca_exists = std::filesystem::exists(selected_ca_file, ec) && !ec;
+        std::ifstream input(selected_ca_file);
+        selected_ca_readable = input.good();
+    }
+
+    return fmt::format(
+            "tls_debug(ca_cert_file_paths='{}', selected_ca_file='{}', selected_ca_exists={}, "
+            "selected_ca_readable={}, SSL_CERT_FILE='{}', CURL_CA_BUNDLE='{}', SSL_CERT_DIR='{}')",
+            config::ca_cert_file_paths, selected_ca_file, selected_ca_exists, selected_ca_readable,
+            env_or_empty("SSL_CERT_FILE"), env_or_empty("CURL_CA_BUNDLE"),
+            env_or_empty("SSL_CERT_DIR"));
+}
+#endif
 
 constexpr char USE_PATH_STYLE[] = "use_path_style";
 
@@ -327,14 +356,25 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
     options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
     options.Retry.MaxRetries = config::max_s3_client_retry;
     options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
+    if (_ca_cert_file_path.empty()) {
+        _ca_cert_file_path = get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
+    }
+    if (!_ca_cert_file_path.empty()) {
+        Azure::Core::Http::CurlTransportOptions curl_options;
+        curl_options.CAInfo = _ca_cert_file_path;
+        options.Transport.Transport =
+                std::make_shared<Azure::Core::Http::CurlTransport>(std::move(curl_options));
+    }
 
     std::string normalized_uri = normalize_http_uri(uri);
     VLOG_DEBUG << "uri:" << uri << ", normalized_uri:" << normalized_uri;
+    std::string tls_debug_context = build_azure_tls_debug_context(_ca_cert_file_path);
 
     auto containerClient = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
             uri, cred, std::move(options));
     LOG_INFO("create one azure client with {}", s3_conf.to_string());
-    return std::make_shared<io::AzureObjStorageClient>(std::move(containerClient));
+    return std::make_shared<io::AzureObjStorageClient>(std::move(containerClient),
+                                                       std::move(tls_debug_context));
 #else
     LOG_FATAL("BE is not compiled with azure support, export BUILD_AZURE=ON before building");
     return nullptr;
