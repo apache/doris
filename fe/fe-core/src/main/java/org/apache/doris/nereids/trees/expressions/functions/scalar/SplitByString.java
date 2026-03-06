@@ -77,8 +77,13 @@ public class SplitByString extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        checkLegalityAfterRewrite();
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
         if (children().size() == 3) {
-            if (!child(2).isConstant() || !(child(2) instanceof IntegerLikeLiteral)) {
+            if (!(child(2) instanceof IntegerLikeLiteral)) {
                 throw new AnalysisException("the third parameter of "
                         + getName() + " function must be a constant integer: " + toSql());
             }
