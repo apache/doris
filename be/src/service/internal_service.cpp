@@ -106,6 +106,7 @@
 #include "util/async_io.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
+#include "util/jdbc_utils.h"
 #include "util/doris_metrics.h"
 #include "util/md5.h"
 #include "util/metrics.h"
@@ -974,33 +975,6 @@ void PInternalService::tablet_fetch_data(google::protobuf::RpcController* contro
     }
 }
 
-// Resolve JDBC driver URL to a file:// path.
-// Handles relative paths by looking in configured/default driver directories.
-static Status _resolve_jdbc_driver_url(const std::string& url, std::string* result_url) {
-    if (url.find(":/") != std::string::npos) {
-        *result_url = url;
-        return Status::OK();
-    }
-    const char* doris_home = std::getenv("DORIS_HOME");
-    std::string default_url = std::string(doris_home) + "/plugins/jdbc_drivers";
-    std::string default_old_url = std::string(doris_home) + "/jdbc_drivers";
-
-    if (config::jdbc_drivers_dir == default_url) {
-        std::string target_path = default_url + "/" + url;
-        std::string old_target_path = default_old_url + "/" + url;
-        if (std::filesystem::exists(target_path)) {
-            *result_url = "file://" + target_path;
-        } else if (std::filesystem::exists(old_target_path)) {
-            *result_url = "file://" + old_target_path;
-        } else {
-            return Status::InternalError("JDBC driver file does not exist: " + url);
-        }
-    } else {
-        *result_url = "file://" + config::jdbc_drivers_dir + "/" + url;
-    }
-    return Status::OK();
-}
-
 void PInternalService::test_jdbc_connection(google::protobuf::RpcController* controller,
                                             const PJdbcTestConnectionRequest* request,
                                             PJdbcTestConnectionResult* result,
@@ -1028,7 +1002,7 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
 
         // Resolve driver URL to absolute file:// path
         std::string driver_url;
-        st = _resolve_jdbc_driver_url(jdbc_table.jdbc_driver_url, &driver_url);
+        st = JdbcUtils::resolve_driver_url(jdbc_table.jdbc_driver_url, &driver_url);
         if (!st.ok()) {
             st.to_protobuf(result->mutable_status());
             return;

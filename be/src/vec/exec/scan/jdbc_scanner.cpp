@@ -25,6 +25,7 @@
 #include "common/logging.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "util/jdbc_utils.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/table/jdbc_jni_reader.h"
@@ -55,7 +56,15 @@ std::map<std::string, std::string> JdbcScanner::_build_jdbc_params(
     params["jdbc_user"] = jdbc_table->jdbc_user();
     params["jdbc_password"] = jdbc_table->jdbc_passwd();
     params["jdbc_driver_class"] = jdbc_table->jdbc_driver_class();
-    params["jdbc_driver_url"] = jdbc_table->jdbc_driver_url();
+    // Resolve jdbc_driver_url to absolute file:// URL
+    // FE sends just the JAR filename; we need to resolve it to a full path.
+    std::string driver_url;
+    auto resolve_st = JdbcUtils::resolve_driver_url(jdbc_table->jdbc_driver_url(), &driver_url);
+    if (!resolve_st.ok()) {
+        LOG(WARNING) << "Failed to resolve JDBC driver URL: " << resolve_st.to_string();
+        driver_url = jdbc_table->jdbc_driver_url();
+    }
+    params["jdbc_driver_url"] = driver_url;
     params["query_sql"] = _query_string;
     params["catalog_id"] = std::to_string(jdbc_table->jdbc_catalog_id());
     params["table_type"] = _odbc_table_type_to_string(_table_type);

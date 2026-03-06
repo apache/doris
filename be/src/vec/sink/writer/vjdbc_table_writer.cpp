@@ -22,7 +22,9 @@
 
 #include <sstream>
 
+#include "common/logging.h"
 #include "runtime/runtime_state.h"
+#include "util/jdbc_utils.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -38,7 +40,16 @@ std::map<std::string, std::string> VJdbcTableWriter::_build_writer_params(const 
     params["jdbc_user"] = t_jdbc_sink.jdbc_table.jdbc_user;
     params["jdbc_password"] = t_jdbc_sink.jdbc_table.jdbc_password;
     params["jdbc_driver_class"] = t_jdbc_sink.jdbc_table.jdbc_driver_class;
-    params["jdbc_driver_url"] = t_jdbc_sink.jdbc_table.jdbc_driver_url;
+    // Resolve jdbc_driver_url to absolute file:// URL
+    std::string driver_url;
+    auto resolve_st = JdbcUtils::resolve_driver_url(t_jdbc_sink.jdbc_table.jdbc_driver_url,
+                                                     &driver_url);
+    if (!resolve_st.ok()) {
+        LOG(WARNING) << "Failed to resolve JDBC driver URL: " << resolve_st.to_string();
+        driver_url = t_jdbc_sink.jdbc_table.jdbc_driver_url;
+    }
+    params["jdbc_driver_url"] = driver_url;
+
     params["jdbc_driver_checksum"] = t_jdbc_sink.jdbc_table.jdbc_driver_checksum;
     params["insert_sql"] = t_jdbc_sink.insert_sql;
     params["use_transaction"] = t_jdbc_sink.use_transaction ? "true" : "false";

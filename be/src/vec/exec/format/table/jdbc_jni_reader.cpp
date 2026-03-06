@@ -50,7 +50,7 @@ JdbcJniReader::JdbcJniReader(const std::vector<SlotDescriptor*>& file_slot_descs
                           index++;
                       }
                       // Merge JDBC-specific params with schema params
-                      std::map<String, String> params = jdbc_params;
+                      std::map<std::string, std::string> params = jdbc_params;
                       params["required_fields"] = required_fields.str();
                       params["columns_types"] = columns_types.str();
                       return params;
