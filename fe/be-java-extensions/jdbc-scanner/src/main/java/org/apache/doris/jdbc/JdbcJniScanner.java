@@ -144,11 +144,9 @@ public class JdbcJniScanner extends JniScanner {
     public void open() throws IOException {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
-            // Set JVM-level driver properties
-            typeHandler.setSystemProperties();
-
+            // HikariCP's setDriverClassName() uses the thread context classloader
+            // to load the driver class.
             initializeClassLoaderAndDataSource();
-            Thread.currentThread().setContextClassLoader(classLoader);
 
             conn = hikariDataSource.getConnection();
 
@@ -168,6 +166,7 @@ public class JdbcJniScanner extends JniScanner {
                 outputConverters[i] = typeHandler.getOutputConverter(types[i], "not_replace");
             }
         } catch (Exception e) {
+            LOG.warn("JdbcJniScanner " + jdbcUrl + " open failed: " + e.getMessage(), e);
             throw new IOException("JdbcJniScanner open failed: " + e.getMessage(), e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
@@ -276,6 +275,10 @@ public class JdbcJniScanner extends JniScanner {
         java.net.URL[] urls = {new java.net.URL(jdbcDriverUrl)};
         ClassLoader parent = getClass().getClassLoader();
         this.classLoader = java.net.URLClassLoader.newInstance(urls, parent);
+        // Must set thread context classloader BEFORE creating HikariDataSource,
+        // because HikariCP's setDriverClassName() loads the driver class from
+        // the thread context classloader.
+        Thread.currentThread().setContextClassLoader(classLoader);
 
         String cacheKey = createCacheKey();
         hikariDataSource = JdbcDataSource.getDataSource().getSource(cacheKey);
