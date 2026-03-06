@@ -61,7 +61,7 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
     String jdbcDriversDir = getFeConfig("jdbc_drivers_dir")
     String localDriverDir = "${context.config.dataPath}/jdbc_driver"
     String localDriverPath = "${localDriverDir}/${driverName}"
-    String sparkDriverPath = "/tmp/${driverName}"
+    String sparkSeedCatalogName = "${catalogName}_seed"
 
     assertTrue(jdbcDriversDir != null && !jdbcDriversDir.isEmpty(), "jdbc_drivers_dir must be configured")
 
@@ -96,26 +96,19 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
         logger.info("spark-iceberg container not found, skip this test")
         return
     }
-    executeCommand("docker cp ${localDriverPath} ${sparkContainerName}:${sparkDriverPath}", true)
 
     def sparkPaimonJdbc = { String sqlText ->
         String escapedSql = sqlText.replaceAll('"', '\\\\"')
         String command = """docker exec ${sparkContainerName} spark-sql --master spark://${sparkContainerName}:7077 \
---jars ${sparkDriverPath} \
---driver-class-path ${sparkDriverPath} \
 --conf spark.sql.extensions=org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions \
---conf spark.sql.catalog.${catalogName}=org.apache.paimon.spark.SparkCatalog \
---conf spark.sql.catalog.${catalogName}.warehouse=s3://${warehouseBucket}/paimon_jdbc_catalog/ \
---conf spark.sql.catalog.${catalogName}.metastore=jdbc \
---conf spark.sql.catalog.${catalogName}.uri=jdbc:postgresql://${externalEnvIp}:${jdbcPort}/postgres \
---conf spark.sql.catalog.${catalogName}.jdbc.user=postgres \
---conf spark.sql.catalog.${catalogName}.jdbc.password=123456 \
---conf spark.sql.catalog.${catalogName}.catalog-key=${catalogName} \
---conf spark.sql.catalog.${catalogName}.s3.endpoint=http://${externalEnvIp}:${minioPort} \
---conf spark.sql.catalog.${catalogName}.s3.access-key=${minioAk} \
---conf spark.sql.catalog.${catalogName}.s3.secret-key=${minioSk} \
---conf spark.sql.catalog.${catalogName}.s3.region=us-east-1 \
---conf spark.sql.catalog.${catalogName}.s3.path.style.access=true \
+--conf spark.sql.catalog.${sparkSeedCatalogName}=org.apache.paimon.spark.SparkCatalog \
+--conf spark.sql.catalog.${sparkSeedCatalogName}.warehouse=s3://${warehouseBucket}/paimon_jdbc_catalog/ \
+--conf spark.sql.catalog.${sparkSeedCatalogName}.metastore=filesystem \
+--conf spark.sql.catalog.${sparkSeedCatalogName}.s3.endpoint=http://${externalEnvIp}:${minioPort} \
+--conf spark.sql.catalog.${sparkSeedCatalogName}.s3.access-key=${minioAk} \
+--conf spark.sql.catalog.${sparkSeedCatalogName}.s3.secret-key=${minioSk} \
+--conf spark.sql.catalog.${sparkSeedCatalogName}.s3.region=us-east-1 \
+--conf spark.sql.catalog.${sparkSeedCatalogName}.s3.path.style.access=true \
 -e "${escapedSql}" """
         executeCommand(command, true)
     }
@@ -169,7 +162,7 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
         assertTrue(tables.toString().contains("paimon_jdbc_tbl"))
 
         sparkPaimonJdbc """
-            INSERT INTO ${catalogName}.${dbName}.paimon_jdbc_tbl VALUES
+            INSERT INTO ${sparkSeedCatalogName}.${dbName}.paimon_jdbc_tbl VALUES
             (1, 'alice', DATE '2025-01-01'),
             (2, 'bob', DATE '2025-01-02')
         """
