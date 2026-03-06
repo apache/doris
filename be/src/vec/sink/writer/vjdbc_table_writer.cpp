@@ -42,8 +42,8 @@ std::map<std::string, std::string> VJdbcTableWriter::_build_writer_params(const 
     params["jdbc_driver_class"] = t_jdbc_sink.jdbc_table.jdbc_driver_class;
     // Resolve jdbc_driver_url to absolute file:// URL
     std::string driver_url;
-    auto resolve_st = JdbcUtils::resolve_driver_url(t_jdbc_sink.jdbc_table.jdbc_driver_url,
-                                                     &driver_url);
+    auto resolve_st =
+            JdbcUtils::resolve_driver_url(t_jdbc_sink.jdbc_table.jdbc_driver_url, &driver_url);
     if (!resolve_st.ok()) {
         LOG(WARNING) << "Failed to resolve JDBC driver URL: " << resolve_st.to_string();
         driver_url = t_jdbc_sink.jdbc_table.jdbc_driver_url;
