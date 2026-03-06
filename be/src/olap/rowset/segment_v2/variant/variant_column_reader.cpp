@@ -1219,8 +1219,8 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
     // NestedGroup initialization is provider-driven. Disabled providers keep fallback behavior,
     // while enabled providers populate nested group readers from segment footer.
     if (_can_use_nested_group_read_path()) {
-        RETURN_IF_ERROR(_nested_group_read_provider->init_readers(opts, footer, file_reader,
-                                                                  num_rows, _nested_group_readers));
+        RETURN_IF_ERROR(_nested_group_read_provider->init_readers(
+                opts, footer, file_reader, accessor, num_rows, _nested_group_readers));
     }
 
     return Status::OK();
