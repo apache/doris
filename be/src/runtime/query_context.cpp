@@ -475,10 +475,6 @@ QueryContext::_collect_realtime_query_profile() {
                 continue;
             }
 
-            if (fragment_ctx->need_notify_close()) {
-                continue;
-            }
-
             auto profile = fragment_ctx->collect_realtime_profile();
 
             if (profile.empty()) {

@@ -128,8 +128,6 @@ public:
     std::string get_load_error_url();
     std::string get_first_error_msg();
 
-    bool need_notify_close() const { return _need_notify_close; }
-
     std::set<int> get_deregister_runtime_filter() const;
 
     Status listen_wait_close(const std::shared_ptr<brpc::ClosureGuard>& guard,
@@ -137,10 +135,14 @@ public:
         if (_wait_close_guard) {
             return Status::InternalError("Already listening wait close");
         }
-        _wait_close_guard = guard;
+        if (!_need_notify_close) {
+            return Status::InternalError("Not need to listen wait close");
+        }
         if (need_send_report_on_destruction) {
-            _need_notify_close = true;
+            _need_notify_close = false;
             return send_report(true);
+        } else {
+            _wait_close_guard = guard;
         }
         return Status::OK();
     }
