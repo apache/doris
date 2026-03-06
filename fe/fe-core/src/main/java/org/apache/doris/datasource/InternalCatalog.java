@@ -112,6 +112,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.foundation.type.ResultOr;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -551,7 +552,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         LOG.info("finish drop database[{}], is force : {}", dbName, force);
     }
 
-    public void unprotectDropDb(Database db, boolean isForeDrop, boolean isReplay, long recycleTime) {
+    public void unprotectDropDb(Database db, boolean isForeDrop, boolean isReplay, long recycleTime)
+            throws DdlException {
         for (Table table : db.getTables()) {
             unprotectDropTable(db, table, isForeDrop, isReplay, recycleTime);
         }
@@ -1009,7 +1011,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
-            long recycleTime) {
+            long recycleTime) throws DdlException {
         if (table.getType() == TableType.ELASTICSEARCH) {
             esRepository.deRegisterTable(table.getId());
         }
@@ -1022,7 +1024,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), table.getId());
-        table.removeTableIdentifierFromPrimaryTable();
+        Env.getCurrentEnv().getConstraintManager().checkAndDropTableConstraints(
+                new TableNameInfo(table), !isForceDrop && !isReplay);
         db.unregisterTable(table.getId());
         StopWatch watch = StopWatch.createStarted();
         Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, isForceDrop, recycleTime);
@@ -1033,7 +1036,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     private void dropTable(Database db, long tableId, boolean isForceDrop, boolean isReplay,
-                          Long recycleTime) throws MetaNotFoundException {
+                          Long recycleTime) throws MetaNotFoundException, DdlException {
         Table table = db.getTableOrMetaException(tableId);
         db.writeLock();
         table.writeLock();
@@ -1046,7 +1049,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public void replayDropTable(Database db, long tableId, boolean isForceDrop,
-            Long recycleTime) throws MetaNotFoundException {
+            Long recycleTime) throws MetaNotFoundException, DdlException {
         dropTable(db, tableId, isForceDrop, true, recycleTime);
     }
 
