@@ -2778,13 +2778,13 @@ public class SessionVariable implements Serializable, Writable {
     public int createTablePartitionMaxNum = 10000;
 
 
-    @VariableMgr.VarAttr(name = HIVE_PARQUET_USE_COLUMN_NAMES,
+    @VariableMgr.VarAttr(name = HIVE_PARQUET_USE_COLUMN_NAMES, affectQueryResultInExecution = true,
             description = {"默认情况下按名称访问 Parquet 列。将此属性设置为“false”可按 Hive 表定义中的序号位置访问列。",
                     "Access Parquet columns by name by default. Set this property to `false` to access columns "
                             + "by their ordinal position in the Hive table definition."})
     public boolean hiveParquetUseColumnNames = true;
 
-    @VariableMgr.VarAttr(name = HIVE_ORC_USE_COLUMN_NAMES,
+    @VariableMgr.VarAttr(name = HIVE_ORC_USE_COLUMN_NAMES, affectQueryResultInExecution = true,
             description = {"默认情况下按名称访问 Orc 列。将此属性设置为“false”可按 Hive 表定义中的序号位置访问列。",
                     "Access Parquet columns by name by default. Set this property to `false` to access columns "
                             + "by their ordinal position in the Hive table definition."})

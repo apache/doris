@@ -2310,7 +2310,14 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
                 }
                 // After nextBatch(), getRowNumber() returns the start of the batch just read.
                 _last_read_row_number = _row_reader->getRowNumber();
-                _current_read_position = _last_read_row_number + rr;
+                // Use _batch->numElements (not rr) because ORC's nextBatch has an
+                // internal do-while loop: when the filter callback rejects an entire
+                // batch, the loop retries with the next batch.  The return value (rr)
+                // accumulates rows across ALL iterations, but getRowNumber() returns
+                // the start of the LAST iteration's batch.  _batch->numElements is set
+                // to that iteration's batch size (Reader.cc:1427), giving the correct
+                // next-read position.
+                _current_read_position = _last_read_row_number + _batch->numElements;
             } catch (std::exception& e) {
                 std::string _err_msg = e.what();
                 if (_io_ctx && _io_ctx->should_stop && _err_msg == "stop") {
@@ -2434,7 +2441,7 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
                 }
                 // After nextBatch(), getRowNumber() returns the start of the batch just read.
                 _last_read_row_number = _row_reader->getRowNumber();
-                _current_read_position = _last_read_row_number + rr;
+                _current_read_position = _last_read_row_number + _batch->numElements;
             } catch (std::exception& e) {
                 std::string _err_msg = e.what();
                 if (_io_ctx && _io_ctx->should_stop && _err_msg == "stop") {
