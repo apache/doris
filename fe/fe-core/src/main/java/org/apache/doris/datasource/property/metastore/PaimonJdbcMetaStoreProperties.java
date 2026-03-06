@@ -26,13 +26,13 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.jdbc.JdbcCatalogFactory;
 import org.apache.paimon.options.CatalogOptions;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -43,6 +43,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class PaimonJdbcMetaStoreProperties extends AbstractPaimonProperties {
     private static final Logger LOG = LogManager.getLogger(PaimonJdbcMetaStoreProperties.class);
+    private static final String JDBC_PREFIX = "jdbc.";
     private static final Map<URL, ClassLoader> DRIVER_CLASS_LOADER_CACHE = new ConcurrentHashMap<>();
 
     @ConnectorProperty(
@@ -68,7 +69,7 @@ public class PaimonJdbcMetaStoreProperties extends AbstractPaimonProperties {
     private String jdbcPassword;
 
     @ConnectorProperty(
-            names = {"paimon.jdbc.driver_url"},
+            names = {"paimon.jdbc.driver_url", "jdbc.driver_url"},
             required = false,
             description = "JDBC driver JAR file path or URL. "
                     + "Can be a local file name (will look in $DORIS_HOME/plugins/jdbc_drivers/) "
@@ -77,7 +78,7 @@ public class PaimonJdbcMetaStoreProperties extends AbstractPaimonProperties {
     private String driverUrl;
 
     @ConnectorProperty(
-            names = {"paimon.jdbc.driver_class"},
+            names = {"paimon.jdbc.driver_class", "jdbc.driver_class"},
             required = false,
             description = "JDBC driver class name. If specified with paimon.jdbc.driver_url, "
                     + "the driver will be loaded dynamically."
@@ -132,6 +133,7 @@ public class PaimonJdbcMetaStoreProperties extends AbstractPaimonProperties {
         catalogOptions.set(CatalogOptions.URI.key(), uri);
         addIfNotBlank("jdbc.user", jdbcUser);
         addIfNotBlank("jdbc.password", jdbcPassword);
+        appendRawJdbcCatalogOptions();
     }
 
     @Override
@@ -143,6 +145,14 @@ public class PaimonJdbcMetaStoreProperties extends AbstractPaimonProperties {
         if (StringUtils.isNotBlank(value)) {
             catalogOptions.set(key, value);
         }
+    }
+
+    private void appendRawJdbcCatalogOptions() {
+        origProps.forEach((key, value) -> {
+            if (key != null && key.startsWith(JDBC_PREFIX) && !catalogOptions.keySet().contains(key)) {
+                catalogOptions.set(key, value);
+            }
+        });
     }
 
     /**
@@ -161,7 +171,8 @@ public class PaimonJdbcMetaStoreProperties extends AbstractPaimonProperties {
 
             if (StringUtils.isBlank(driverClassName)) {
                 throw new IllegalArgumentException(
-                        "paimon.jdbc.driver_class is required when paimon.jdbc.driver_url is specified");
+                        "jdbc.driver_class or paimon.jdbc.driver_class is required when jdbc.driver_url "
+                                + "or paimon.jdbc.driver_url is specified");
             }
 
             Class<?> loadedDriverClass = Class.forName(driverClassName, true, classLoader);

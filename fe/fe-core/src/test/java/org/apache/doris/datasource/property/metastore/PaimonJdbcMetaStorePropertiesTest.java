@@ -70,6 +70,28 @@ public class PaimonJdbcMetaStorePropertiesTest {
     }
 
     @Test
+    public void testRawJdbcPrefixPassthrough() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "paimon");
+        props.put("paimon.catalog.type", "jdbc");
+        props.put("uri", "jdbc:mysql://localhost:3306/paimon");
+        props.put("warehouse", "s3://warehouse/path");
+        props.put("jdbc.user", "raw_user");
+        props.put("jdbc.password", "raw_password");
+        props.put("jdbc.useSSL", "true");
+        props.put("jdbc.verifyServerCertificate", "true");
+
+        PaimonJdbcMetaStoreProperties jdbcProps = (PaimonJdbcMetaStoreProperties) MetastoreProperties.create(props);
+        jdbcProps.initNormalizeAndCheckProps();
+        jdbcProps.buildCatalogOptions();
+
+        Assertions.assertEquals("raw_user", jdbcProps.getCatalogOptions().get("jdbc.user"));
+        Assertions.assertEquals("raw_password", jdbcProps.getCatalogOptions().get("jdbc.password"));
+        Assertions.assertEquals("true", jdbcProps.getCatalogOptions().get("jdbc.useSSL"));
+        Assertions.assertEquals("true", jdbcProps.getCatalogOptions().get("jdbc.verifyServerCertificate"));
+    }
+
+    @Test
     public void testFactoryCreateJdbcType() throws Exception {
         Map<String, String> props = new HashMap<>();
         props.put("type", "paimon");
@@ -109,6 +131,21 @@ public class PaimonJdbcMetaStorePropertiesTest {
         props.put("uri", "jdbc:mysql://localhost:3306/paimon");
         props.put("warehouse", "s3://warehouse/path");
         props.put("paimon.jdbc.driver_url", "https://example.com/mysql-connector-java.jar");
+
+        PaimonJdbcMetaStoreProperties jdbcProps = (PaimonJdbcMetaStoreProperties) MetastoreProperties.create(props);
+        jdbcProps.initNormalizeAndCheckProps();
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> jdbcProps.initializeCatalog("paimon_catalog", Collections.emptyList()));
+    }
+
+    @Test
+    public void testRawDriverClassRequiredWhenDriverUrlIsSet() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "paimon");
+        props.put("paimon.catalog.type", "jdbc");
+        props.put("uri", "jdbc:mysql://localhost:3306/paimon");
+        props.put("warehouse", "s3://warehouse/path");
+        props.put("jdbc.driver_url", "https://example.com/mysql-connector-java.jar");
 
         PaimonJdbcMetaStoreProperties jdbcProps = (PaimonJdbcMetaStoreProperties) MetastoreProperties.create(props);
         jdbcProps.initNormalizeAndCheckProps();
