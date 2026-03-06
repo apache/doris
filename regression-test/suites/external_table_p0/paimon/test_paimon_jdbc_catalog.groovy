@@ -61,6 +61,7 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
     String jdbcDriversDir = getFeConfig("jdbc_drivers_dir")
     String localDriverDir = "${context.config.dataPath}/jdbc_driver"
     String localDriverPath = "${localDriverDir}/${driverName}"
+    String sparkDriverPath = "/tmp/${driverName}"
 
     assertTrue(jdbcDriversDir != null && !jdbcDriversDir.isEmpty(), "jdbc_drivers_dir must be configured")
 
@@ -69,12 +70,14 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
             logger.info("execute ${cmd}")
             def proc = new ProcessBuilder("/bin/bash", "-c", cmd).redirectErrorStream(true).start()
             int exitcode = proc.waitFor()
+            String output = proc.text
             if (exitcode != 0) {
-                logger.info("exit code: ${exitcode}, output\n: ${proc.text}")
+                logger.info("exit code: ${exitcode}, output\n: ${output}")
                 if (mustSuc) {
                     assertTrue(false, "Execute failed: ${cmd}")
                 }
             }
+            return output
         } catch (IOException e) {
             assertTrue(false, "Execute timeout: ${cmd}")
         }
@@ -86,6 +89,36 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
         executeCommand("/usr/bin/curl --max-time 600 ${driverDownloadUrl} --output ${localDriverPath}", true)
     }
     executeCommand("cp -f ${localDriverPath} ${jdbcDriversDir}/${driverName}", true)
+
+    String sparkContainerName = executeCommand("docker ps --filter name=spark-iceberg --format {{.Names}}", false)
+            ?.trim()
+    if (sparkContainerName == null || sparkContainerName.isEmpty()) {
+        logger.info("spark-iceberg container not found, skip this test")
+        return
+    }
+    executeCommand("docker cp ${localDriverPath} ${sparkContainerName}:${sparkDriverPath}", true)
+
+    def sparkPaimonJdbc = { String sqlText ->
+        String escapedSql = sqlText.replaceAll('"', '\\\\"')
+        String command = """docker exec ${sparkContainerName} spark-sql --master spark://${sparkContainerName}:7077 \
+--jars ${sparkDriverPath} \
+--driver-class-path ${sparkDriverPath} \
+--conf spark.sql.extensions=org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions \
+--conf spark.sql.catalog.${catalogName}=org.apache.paimon.spark.SparkCatalog \
+--conf spark.sql.catalog.${catalogName}.warehouse=s3://${warehouseBucket}/paimon_jdbc_catalog/ \
+--conf spark.sql.catalog.${catalogName}.metastore=jdbc \
+--conf spark.sql.catalog.${catalogName}.uri=jdbc:postgresql://${externalEnvIp}:${jdbcPort}/postgres \
+--conf spark.sql.catalog.${catalogName}.jdbc.user=postgres \
+--conf spark.sql.catalog.${catalogName}.jdbc.password=123456 \
+--conf spark.sql.catalog.${catalogName}.catalog-key=${catalogName} \
+--conf spark.sql.catalog.${catalogName}.s3.endpoint=http://${externalEnvIp}:${minioPort} \
+--conf spark.sql.catalog.${catalogName}.s3.access-key=${minioAk} \
+--conf spark.sql.catalog.${catalogName}.s3.secret-key=${minioSk} \
+--conf spark.sql.catalog.${catalogName}.s3.region=us-east-1 \
+--conf spark.sql.catalog.${catalogName}.s3.path.style.access=true \
+-e "${escapedSql}" """
+        executeCommand(command, true)
+    }
 
     try {
         sql """switch internal"""
@@ -135,17 +168,22 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
         def tables = sql """SHOW TABLES"""
         assertTrue(tables.toString().contains("paimon_jdbc_tbl"))
 
-        def emptyResult = sql """SELECT * FROM paimon_jdbc_tbl LIMIT 0"""
-        assertEquals(0, emptyResult.size())
+        sparkPaimonJdbc """
+            INSERT INTO ${catalogName}.${dbName}.paimon_jdbc_tbl VALUES
+            (1, 'alice', DATE '2025-01-01'),
+            (2, 'bob', DATE '2025-01-02')
+        """
 
         def descResult = sql """DESC paimon_jdbc_tbl"""
         assertTrue(descResult.toString().contains("id"))
         assertTrue(descResult.toString().contains("name"))
         assertTrue(descResult.toString().contains("dt"))
 
+        order_qt_paimon_jdbc_select """SELECT * FROM paimon_jdbc_tbl ORDER BY id"""
+
         def rowCount = sql """SELECT COUNT(*) FROM paimon_jdbc_tbl"""
         assertEquals(1, rowCount.size())
-        assertEquals("0", rowCount[0][0].toString())
+        assertEquals("2", rowCount[0][0].toString())
 
         def schemaDesc = sql """DESC paimon_jdbc_tbl\$schemas"""
         assertTrue(schemaDesc.toString().contains("schema_id"))
