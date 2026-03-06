@@ -1904,7 +1904,7 @@ Status PipelineFragmentContext::send_report(bool done) {
     // Load will set _is_report_success to true because load wants to know
     // the process.
     if (!_is_report_success && done && exec_status.ok()) {
-        return Status::NeedSendAgain("");
+        return Status::OK();
     }
 
     // If both _is_report_success and _is_report_on_cancel are false,
