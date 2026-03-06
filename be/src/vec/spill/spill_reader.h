@@ -61,7 +61,7 @@ public:
         RuntimeProfile* custom_profile = operator_profile->get_child("CustomCounters");
         DCHECK(custom_profile != nullptr);
         _read_file_timer = custom_profile->get_counter("SpillReadFileTime");
-        _deserialize_timer = custom_profile->get_counter("SpillReadDerializeBlockTime");
+        _deserialize_timer = custom_profile->get_counter("SpillReadDeserializeBlockTime");
         _read_block_count = custom_profile->get_counter("SpillReadBlockCount");
         _read_block_data_size = custom_profile->get_counter("SpillReadBlockBytes");
         _read_file_size = custom_profile->get_counter("SpillReadFileBytes");
