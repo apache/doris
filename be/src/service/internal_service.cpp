@@ -1035,7 +1035,7 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
         }
 
         // Build params for JdbcConnectionTester
-        std::map<String, String> params;
+        std::map<std::string, std::string> params;
         params["jdbc_url"] = jdbc_table.jdbc_url;
         params["jdbc_user"] = jdbc_table.jdbc_user;
         params["jdbc_password"] = jdbc_table.jdbc_password;

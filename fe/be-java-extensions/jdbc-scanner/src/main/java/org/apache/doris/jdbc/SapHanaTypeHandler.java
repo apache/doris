@@ -18,7 +18,6 @@
 package org.apache.doris.jdbc;
 
 import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValueConverter;
 
 import com.zaxxer.hikari.HikariDataSource;
 
@@ -26,8 +25,6 @@ import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 
 /**
  * SAP HANA-specific type handler.

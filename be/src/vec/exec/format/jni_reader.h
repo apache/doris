@@ -57,7 +57,7 @@ namespace doris::vectorized {
  *
  * This class replaces the old JniConnector intermediary.
  */
-class JniReader : public GenericReader, public ProfileCollector {
+class JniReader : public GenericReader {
 public:
     /**
      * Constructor for scan mode.

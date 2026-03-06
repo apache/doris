@@ -163,17 +163,12 @@ public class DefaultTypeHandler implements JdbcTypeHandler {
      */
     protected static ColumnValueConverter createConverter(
             java.util.function.Function<Object, ?> converterFunction, Class<?> type) {
-        return new ColumnValueConverter() {
-
-            @Override
-            public Object convert(Object value) {
-                return converterFunction.apply(value);
+        return column -> {
+            Object[] result = (Object[]) java.lang.reflect.Array.newInstance(type, column.length);
+            for (int i = 0; i < column.length; i++) {
+                result[i] = column[i] != null ? converterFunction.apply(column[i]) : null;
             }
-
-            @Override
-            public Class<?> getType() {
-                return type;
-            }
+            return result;
         };
     }
 }

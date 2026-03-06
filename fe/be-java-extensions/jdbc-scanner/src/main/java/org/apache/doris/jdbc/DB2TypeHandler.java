@@ -18,7 +18,6 @@
 package org.apache.doris.jdbc;
 
 import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValueConverter;
 
 import com.zaxxer.hikari.HikariDataSource;
 

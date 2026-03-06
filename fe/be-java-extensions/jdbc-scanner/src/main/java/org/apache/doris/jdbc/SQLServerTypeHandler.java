@@ -22,7 +22,6 @@ import org.apache.doris.common.jni.vec.ColumnValueConverter;
 
 import com.google.common.util.concurrent.MoreExecutors;
 
-import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.Date;
 import java.sql.ResultSet;

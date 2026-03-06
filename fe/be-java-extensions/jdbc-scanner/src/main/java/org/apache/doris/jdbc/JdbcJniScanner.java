@@ -199,10 +199,6 @@ public class JdbcJniScanner extends JniScanner {
                     // Use type handler for database-specific value extraction
                     Object value = typeHandler.getColumnValue(
                             resultSet, columnIndex, types[col], resultSetMetaData);
-                    // Apply output converter if present
-                    if (value != null && outputConverters[col] != null) {
-                        value = outputConverters[col].convert(value);
-                    }
                     block.get(col)[curRows] = value;
                 }
                 curRows++;
@@ -217,6 +213,10 @@ public class JdbcJniScanner extends JniScanner {
                         Object[] trimmed = (Object[]) Array.newInstance(componentType, curRows);
                         System.arraycopy(columnData, 0, trimmed, 0, curRows);
                         columnData = trimmed;
+                    }
+                    // Apply column-level output converter if present
+                    if (outputConverters[col] != null) {
+                        columnData = outputConverters[col].convert(columnData);
                     }
                     vectorTable.appendData(col, columnData, null, true);
                 }
