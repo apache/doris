@@ -33,7 +33,7 @@ protected:
 };
 
 TEST_F(ByteArrayDictDecoderEmptyDictDataTest,
-       test_convert_dict_column_to_string_column_with_empty_dict_data1) {
+       test_convert_dict_column_to_string_column_with_empty_dict_data_error) {
     MutableColumnPtr dict_column = ColumnInt32::create();
     dict_column->insert(vectorized::Field::create_field<TYPE_INT>(0));
     dict_column->insert(vectorized::Field::create_field<TYPE_INT>(1));
@@ -43,7 +43,7 @@ TEST_F(ByteArrayDictDecoderEmptyDictDataTest,
 }
 
 TEST_F(ByteArrayDictDecoderEmptyDictDataTest,
-       test_convert_dict_column_to_string_column_with_empty_dict_data2) {
+       test_convert_dict_column_to_string_column_with_empty_dict_data_success) {
     MutableColumnPtr dict_column = ColumnInt32::create();
     auto string_column = TEST_TRY(_decoder.convert_dict_column_to_string_column(
             assert_cast<ColumnInt32*>(dict_column.get())));
