@@ -50,5 +50,4 @@ TEST_F(ByteArrayDictDecoderEmptyDictDataTest,
     ASSERT_EQ(string_column->size(), 0);
 }
 
-
 } // namespace doris::vectorized
