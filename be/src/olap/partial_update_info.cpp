@@ -1114,13 +1114,9 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
 }
 
 Status BlockAggregator::filter_block(vectorized::Block* block, size_t num_rows,
-                                     vectorized::MutableColumnPtr filter_column, int duplicate_rows,
+                                     vectorized::ColumnPtr filter_column, int duplicate_rows,
                                      std::string col_name) {
-    auto num_cols = block->columns();
-    block->insert(
-            {std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(), col_name});
-    RETURN_IF_ERROR(vectorized::Block::filter_block(block, num_cols, num_cols));
-    DCHECK_EQ(num_cols, block->columns());
+    RETURN_IF_ERROR(vectorized::Block::filter_block_with_filter_column(block, filter_column));
     size_t merged_rows = num_rows - block->rows();
     if (duplicate_rows != merged_rows) {
         auto msg = fmt::format(

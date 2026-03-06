@@ -216,7 +216,7 @@ private:
             const std::vector<RowsetSharedPtr>& specified_rowsets,
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
     Status filter_block(vectorized::Block* block, size_t num_rows,
-                        vectorized::MutableColumnPtr filter_column, int duplicate_rows,
+                        vectorized::ColumnPtr filter_column, int duplicate_rows,
                         std::string col_name);
 
     Status fill_sequence_column(vectorized::Block* block, size_t num_rows,

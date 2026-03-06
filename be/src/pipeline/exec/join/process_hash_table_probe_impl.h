@@ -361,10 +361,10 @@ uint32_t ProcessHashTableProbe<JoinOpType>::_process_probe_null_key(uint32_t pro
 
 template <int JoinOpType>
 Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(
-        vectorized::Block* output_block, size_t filter_column_id, size_t column_to_keep) {
-    vectorized::ColumnPtr filter_ptr = output_block->get_by_position(filter_column_id).column;
-    RETURN_IF_ERROR(
-            vectorized::Block::filter_block(output_block, filter_column_id, column_to_keep));
+        vectorized::Block* output_block, const vectorized::ColumnPtr& filter_ptr,
+        size_t column_to_keep) {
+    vectorized::Block::erase_useless_column(output_block, column_to_keep);
+    RETURN_IF_ERROR(vectorized::Block::filter_block_with_filter_column(output_block, filter_ptr));
     if (!_parent_operator->can_do_lazy_materialized()) {
         return Status::OK();
     }
@@ -591,10 +591,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
             }
         }
 
-        auto result_column_id = output_block->columns();
-        output_block->insert(
-                {std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(), ""});
-        return finalize_block_with_filter(output_block, result_column_id, result_column_id);
+        return finalize_block_with_filter(output_block, std::move(filter_column),
+                                          output_block->columns());
     }
 }
 
@@ -709,7 +707,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(vectorized::Bl
             orig_columns = _right_col_idx;
         }
 
-        return finalize_block_with_filter(output_block, result_column_id, orig_columns);
+        return finalize_block_with_filter(output_block, std::move(filter_column), orig_columns);
     }
 
     return Status::OK();

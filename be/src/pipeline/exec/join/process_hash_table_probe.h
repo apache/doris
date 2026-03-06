@@ -72,7 +72,8 @@ struct ProcessHashTableProbe {
 
     Status do_mark_join_conjuncts(vectorized::Block* output_block, const uint8_t* null_map);
 
-    Status finalize_block_with_filter(vectorized::Block* output_block, size_t filter_column_id,
+    Status finalize_block_with_filter(vectorized::Block* output_block,
+                                      const vectorized::ColumnPtr& filter_ptr,
                                       size_t column_to_keep);
 
     template <typename HashTableType>
