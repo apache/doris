@@ -21,6 +21,7 @@
 
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
+#include "util/jdbc_utils.h"
 #include "vec/core/types.h"
 #include "vec/exec/jni_data_bridge.h"
 
@@ -53,6 +54,13 @@ JdbcJniReader::JdbcJniReader(const std::vector<SlotDescriptor*>& file_slot_descs
                       std::map<std::string, std::string> params = jdbc_params;
                       params["required_fields"] = required_fields.str();
                       params["columns_types"] = columns_types.str();
+                      // Resolve jdbc_driver_url to absolute file:// URL
+                      if (params.count("jdbc_driver_url")) {
+                          std::string resolved;
+                          if (JdbcUtils::resolve_driver_url(params["jdbc_driver_url"], &resolved).ok()) {
+                              params["jdbc_driver_url"] = resolved;
+                          }
+                      }
                       return params;
                   }(),
                   [&]() {
