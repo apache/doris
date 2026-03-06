@@ -94,9 +94,7 @@ void AnalysisFactoryMgr::registerFactory(const std::string& name, FactoryCreator
 template <typename FactoryType>
 std::shared_ptr<FactoryType> AnalysisFactoryMgr::create(const std::string& name,
                                                         const Settings& params) {
-    if (registry_.empty()) {
-        initialise();
-    }
+    initialise();
 
     RegistryKey key = {std::type_index(typeid(FactoryType)), name};
     auto it = registry_.find(key);
