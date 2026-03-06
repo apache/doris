@@ -105,7 +105,7 @@ Status JdbcScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
     const auto& slots = _tuple_desc->slots();
     std::vector<SlotDescriptor*> slot_descs(slots.begin(), slots.end());
 
-    _jni_reader = std::make_unique<JdbcJniReader>(slot_descs, state, _profile, jdbc_params);
+    _jni_reader = JdbcJniReader::create_unique(slot_descs, state, _profile, jdbc_params);
 
     return Status::OK();
 }
