@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -55,7 +54,8 @@ public class PushDownMatchProjectionAsVirtualColumn implements RewriteRuleFactor
 
     private boolean canPushDown(LogicalOlapScan scan) {
         boolean dupTblOrMOW = scan.getTable().getKeysType() == KeysType.DUP_KEYS
-                || scan.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite();
+                || (scan.getTable().getTableProperty() != null
+                    && scan.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite());
         return dupTblOrMOW && scan.getVirtualColumns().isEmpty();
     }
 
@@ -92,8 +92,7 @@ public class PushDownMatchProjectionAsVirtualColumn implements RewriteRuleFactor
 
         for (NamedExpression projection : projections) {
             Expression matchExpr = unwrapMatch(projection);
-            if (matchExpr != null && matchExpr.child(0) instanceof SlotReference
-                    && !replaceMap.containsKey(matchExpr)) {
+            if (matchExpr != null && !replaceMap.containsKey(matchExpr)) {
                 Alias alias = new Alias(matchExpr);
                 replaceMap.put(matchExpr, alias.toSlot());
                 virtualColumns.add(alias);
