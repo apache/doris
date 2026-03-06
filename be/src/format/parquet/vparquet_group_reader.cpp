@@ -342,7 +342,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
 #endif
 
         if (block->rows() == 0) {
-            _convert_dict_cols_to_string_cols(block);
+            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block));
             *read_rows = block->rows();
 #ifndef NDEBUG
             for (auto col : *block) {
@@ -382,7 +382,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
                         std::move(*block->get_by_position(col).column).assume_mutable()->clear();
                     }
                     Block::erase_useless_column(block, column_to_keep);
-                    _convert_dict_cols_to_string_cols(block);
+                    RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block));
                     return Status::OK();
                 }
 
@@ -393,7 +393,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
                 RETURN_IF_CATCH_EXCEPTION(
                         RETURN_IF_ERROR(_filter_block(block, column_to_keep, columns_to_filter)));
             }
-            _convert_dict_cols_to_string_cols(block);
+            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block));
         }
 #ifndef NDEBUG
         for (auto col : *block) {
@@ -598,7 +598,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
                 _cached_filtered_rows += pre_read_rows;
                 if (pre_raw_read_rows >= config::doris_scanner_row_num) {
                     *read_rows = 0;
-                    _convert_dict_cols_to_string_cols(block);
+                    RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block));
                     return Status::OK();
                 }
             } else { // pre_eof
@@ -606,7 +606,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
                 *read_rows = 0;
                 *batch_eof = true;
                 _lazy_read_filtered_rows += (pre_read_rows + _cached_filtered_rows);
-                _convert_dict_cols_to_string_cols(block);
+                RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block));
                 return Status::OK();
             }
         } else {
@@ -657,7 +657,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         }
     }
 
-    _convert_dict_cols_to_string_cols(block);
+    RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block));
 
     size_t column_num = block->columns();
     size_t column_size = 0;
