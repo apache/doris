@@ -231,16 +231,75 @@ reserve_ports() {
 }
 
 JFS_META_FORMATTED=0
+DORIS_ROOT="$(cd "${ROOT}/../.." &>/dev/null && pwd)"
+JUICEFS_DEFAULT_VERSION="1.3.1"
+JUICEFS_LOCAL_BIN="${DORIS_ROOT}/thirdparty/installed/juicefs_bin/juicefs"
+
+detect_juicefs_version() {
+    local juicefs_jar
+    juicefs_jar=$(compgen -G "${DORIS_ROOT}/thirdparty/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar" | head -n 1 || true)
+    if [[ -z "${juicefs_jar}" ]]; then
+        echo "${JUICEFS_DEFAULT_VERSION}"
+        return
+    fi
+
+    juicefs_jar=$(basename "${juicefs_jar}")
+    juicefs_jar=${juicefs_jar#juicefs-hadoop-}
+    echo "${juicefs_jar%.jar}"
+}
+
+install_juicefs_cli() {
+    local juicefs_version="$1"
+    local cache_dir="${DORIS_ROOT}/thirdparty/installed/juicefs_bin"
+    local archive_name="juicefs-${juicefs_version}-linux-amd64.tar.gz"
+    local download_url="https://github.com/juicedata/juicefs/releases/download/v${juicefs_version}/${archive_name}"
+    local tmp_dir
+    local extracted_bin
+
+    mkdir -p "${cache_dir}"
+    tmp_dir=$(mktemp -d "${cache_dir}/tmp.XXXXXX")
+
+    echo "Downloading JuiceFS CLI ${juicefs_version} from ${download_url}" >&2
+    if ! curl -fL --retry 3 --retry-delay 2 -o "${tmp_dir}/${archive_name}" "${download_url}"; then
+        rm -rf "${tmp_dir}"
+        echo "ERROR: failed to download JuiceFS CLI from ${download_url}" >&2
+        return 1
+    fi
+
+    tar -xzf "${tmp_dir}/${archive_name}" -C "${tmp_dir}"
+    extracted_bin=$(find "${tmp_dir}" -maxdepth 2 -type f -name juicefs | head -n 1)
+    if [[ -z "${extracted_bin}" ]]; then
+        rm -rf "${tmp_dir}"
+        echo "ERROR: failed to locate extracted JuiceFS CLI in ${archive_name}" >&2
+        return 1
+    fi
+
+    install -m 0755 "${extracted_bin}" "${JUICEFS_LOCAL_BIN}"
+    rm -rf "${tmp_dir}"
+}
+
+resolve_juicefs_cli() {
+    local juicefs_version
+
+    if command -v juicefs >/dev/null 2>&1; then
+        command -v juicefs
+        return 0
+    fi
+
+    if [[ -x "${JUICEFS_LOCAL_BIN}" ]]; then
+        echo "${JUICEFS_LOCAL_BIN}"
+        return 0
+    fi
+
+    juicefs_version=$(detect_juicefs_version)
+    install_juicefs_cli "${juicefs_version}" || return 1
+    echo "${JUICEFS_LOCAL_BIN}"
+}
 
 run_juicefs_cli() {
-    local bucket_dir="$1"
-    shift
-    if command -v juicefs >/dev/null 2>&1; then
-        juicefs "$@"
-    else
-        sudo docker run --rm --network host -v "${bucket_dir}:${bucket_dir}" \
-            juicedata/juicefs:latest "$@"
-    fi
+    local juicefs_cli
+    juicefs_cli=$(resolve_juicefs_cli)
+    "${juicefs_cli}" "$@"
 }
 
 prepare_juicefs_meta_for_hive() {
@@ -268,16 +327,16 @@ prepare_juicefs_meta_for_hive() {
         fi
     fi
 
-    if run_juicefs_cli "${bucket_dir}" status "${jfs_meta}" >/dev/null 2>&1; then
+    if run_juicefs_cli status "${jfs_meta}" >/dev/null 2>&1; then
         echo "JuiceFS metadata is already formatted."
         JFS_META_FORMATTED=1
         return 0
     fi
 
-    if ! run_juicefs_cli "${bucket_dir}" \
+    if ! run_juicefs_cli \
         format --storage file --bucket "${bucket_dir}" "${jfs_meta}" "${jfs_cluster_name}"; then
         # If format reports conflict on rerun, verify by status and continue.
-        run_juicefs_cli "${bucket_dir}" status "${jfs_meta}" >/dev/null
+        run_juicefs_cli status "${jfs_meta}" >/dev/null
     fi
 
     JFS_META_FORMATTED=1
