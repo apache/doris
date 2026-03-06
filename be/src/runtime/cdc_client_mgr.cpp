@@ -42,6 +42,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "http/http_client.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 
@@ -159,6 +160,7 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
             "--server.port=" + std::to_string(doris::config::cdc_client_port);
     const std::string backend_http_port =
             "--backend.http.port=" + std::to_string(config::webserver_port);
+    const std::string cluster_token = "--cluster.token=" + ExecEnv::GetInstance()->token();
     const std::string java_opts = "-Dlog.path=" + std::string(log_dir);
 
     // check cdc jar exists
@@ -215,7 +217,7 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
 
         // java -jar -Dlog.path=xx cdc-client.jar --server.port=9096 --backend.http.port=8040
         execlp(java_bin.c_str(), "java", java_opts.c_str(), "-jar", cdc_jar_path.c_str(),
-               cdc_jar_port.c_str(), backend_http_port.c_str(), (char*)NULL);
+               cdc_jar_port.c_str(), backend_http_port.c_str(), cluster_token.c_str(), (char*)NULL);
         // If execlp returns, it means it failed
         perror("Cdc client child process error");
         exit(1);

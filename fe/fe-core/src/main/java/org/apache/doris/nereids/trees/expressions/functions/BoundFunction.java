@@ -155,4 +155,8 @@ public abstract class BoundFunction extends Function implements ComputeSignature
             });
         }
     }
+
+    //public void rebuildSignature() {
+    //    this.signatureCache = buildSignatureCache(null);
+    //}
 }

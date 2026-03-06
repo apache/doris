@@ -61,6 +61,9 @@ public class VariantType extends ScalarType {
     @SerializedName(value = "variantDocShardCount")
     private final int variantDocShardCount;
 
+    @SerializedName(value = "enableNestedGroup")
+    private final boolean enableNestedGroup;
+
     private Map<String, String> properties = Maps.newHashMap();
 
     public VariantType() {
@@ -73,6 +76,7 @@ public class VariantType extends ScalarType {
         this.enableVariantDocMode = false;
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
+        this.enableNestedGroup = false;
     }
 
     public VariantType(ArrayList<VariantField> fields) {
@@ -89,6 +93,7 @@ public class VariantType extends ScalarType {
         this.enableVariantDocMode = false;
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
+        this.enableNestedGroup = false;
     }
 
     public VariantType(Map<String, String> properties) {
@@ -102,6 +107,7 @@ public class VariantType extends ScalarType {
         this.enableVariantDocMode = false;
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
+        this.enableNestedGroup = false;
     }
 
     public VariantType(ArrayList<VariantField> fields, Map<String, String> properties) {
@@ -119,6 +125,7 @@ public class VariantType extends ScalarType {
         this.enableVariantDocMode = false;
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
+        this.enableNestedGroup = false;
     }
 
     public VariantType(ArrayList<VariantField> fields, int variantMaxSubcolumnsCount,
@@ -127,7 +134,8 @@ public class VariantType extends ScalarType {
                                                         int variantSparseHashShardCount,
                                                         boolean enableVariantDocMode,
                                                         long variantDocMaterializationMinRows,
-                                                        int variantDocShardCount) {
+                                                        int variantDocShardCount,
+                                                        boolean enableNestedGroup) {
         super(PrimitiveType.VARIANT);
         Preconditions.checkNotNull(fields);
         this.predefinedFields = fields;
@@ -141,6 +149,7 @@ public class VariantType extends ScalarType {
         this.enableVariantDocMode = enableVariantDocMode;
         this.variantDocMaterializationMinRows = variantDocMaterializationMinRows;
         this.variantDocShardCount = variantDocShardCount;
+        this.enableNestedGroup = enableNestedGroup;
     }
 
     @Override
@@ -218,7 +227,8 @@ public class VariantType extends ScalarType {
                 && variantMaxSubcolumnsCount == otherVariantType.variantMaxSubcolumnsCount
                 && enableTypedPathsToSparse == otherVariantType.enableTypedPathsToSparse
                 && enableVariantDocMode == otherVariantType.enableVariantDocMode
-                && variantDocMaterializationMinRows == otherVariantType.variantDocMaterializationMinRows;
+                && variantDocMaterializationMinRows == otherVariantType.variantDocMaterializationMinRows
+                && enableNestedGroup == otherVariantType.enableNestedGroup;
     }
 
     @Override
@@ -256,5 +266,9 @@ public class VariantType extends ScalarType {
 
     public int getVariantDocShardCount() {
         return variantDocShardCount;
+    }
+
+    public boolean getEnableNestedGroup() {
+        return enableNestedGroup;
     }
 }

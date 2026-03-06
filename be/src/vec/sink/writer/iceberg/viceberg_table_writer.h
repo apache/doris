@@ -60,9 +60,15 @@ public:
 
     Status close(Status) override;
 
-    std::shared_ptr<IPartitionWriterBase> _current_writer;
+    // Getter for the current partition writer.
+    // Used by SpillIcebergTableSinkLocalState to access the current writer for
+    // memory management operations (get_reserve_mem_size, revocable_mem_size, etc.).
+    const std::shared_ptr<IPartitionWriterBase>& current_writer() const { return _current_writer; }
 
 private:
+    // The currently active partition writer (may be VIcebergPartitionWriter or VIcebergSortWriter).
+    // Updated during write() to track which writer received the most recent data.
+    std::shared_ptr<IPartitionWriterBase> _current_writer;
     class IcebergPartitionColumn {
     public:
         IcebergPartitionColumn(const iceberg::PartitionField& field,
