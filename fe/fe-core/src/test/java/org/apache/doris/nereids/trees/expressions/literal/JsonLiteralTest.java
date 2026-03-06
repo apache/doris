@@ -111,4 +111,13 @@ class JsonLiteralTest {
         StringLiteral str = new StringLiteral("[1,2]");
         Assertions.assertThrows(RuntimeException.class, () -> json.compareTo(str));
     }
+
+    @Test
+    public void testLegacyCompareWithDifferentTypeThrows() throws Exception {
+        org.apache.doris.analysis.JsonLiteral json =
+                new org.apache.doris.analysis.JsonLiteral("[1,2]");
+        org.apache.doris.analysis.StringLiteral str =
+                new org.apache.doris.analysis.StringLiteral("[1,2]");
+        Assertions.assertThrows(RuntimeException.class, () -> json.compareLiteral(str));
+    }
 }
