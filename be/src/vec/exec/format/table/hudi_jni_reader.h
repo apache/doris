@@ -53,10 +53,6 @@ public:
 
     Status init_reader();
 
-private:
-    const TFileScanRangeParams& _scan_params;
-    const THudiFileDesc& _hudi_params;
 };
-
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

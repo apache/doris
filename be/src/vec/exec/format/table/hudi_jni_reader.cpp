@@ -76,9 +76,7 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
                           names.emplace_back(desc->col_name());
                       }
                       return names;
-                  }()),
-          _scan_params(scan_params),
-          _hudi_params(hudi_params) {}
+                  }()) {}
 
 Status HudiJniReader::init_reader() {
     return open(_state, _profile);
