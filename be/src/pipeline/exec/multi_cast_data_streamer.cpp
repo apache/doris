@@ -148,17 +148,10 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, vectoriz
         }
     }
 
-    return _copy_block(state, sender_idx, block, *multi_cast_block);
+    return _finish_pull(state, *multi_cast_block);
 }
 
-Status MultiCastDataStreamer::_copy_block(RuntimeState* state, int32_t sender_idx,
-                                          vectorized::Block* block,
-                                          MultiCastBlock& multi_cast_block) {
-    const auto rows = block->rows();
-    for (int i = 0; i < block->columns(); ++i) {
-        block->get_by_position(i).column = block->get_by_position(i).column->clone_resized(rows);
-    }
-
+Status MultiCastDataStreamer::_finish_pull(RuntimeState* state, MultiCastBlock& multi_cast_block) {
     INJECT_MOCK_SLEEP(std::lock_guard l(_mutex));
     multi_cast_block._un_finish_copy--;
     auto copying_count = _copying_count.fetch_sub(1) - 1;
