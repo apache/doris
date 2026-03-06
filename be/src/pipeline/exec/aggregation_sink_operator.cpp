@@ -26,6 +26,7 @@
 #include "runtime/primitive_type.h"
 #include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
+#include "vec/aggregate_functions/aggregate_function_count.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/exprs/vectorized_agg_fn.h"
@@ -78,6 +79,7 @@ Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     _memory_usage_container = ADD_COUNTER(custom_profile(), "MemoryUsageContainer", TUnit::BYTES);
     _memory_usage_arena = ADD_COUNTER(custom_profile(), "MemoryUsageArena", TUnit::BYTES);
 
+    _shared_state->is_simple_count = _parent->cast<AggSinkOperatorX>()._is_simple_count;
     return Status::OK();
 }
 
@@ -175,6 +177,12 @@ Status AggSinkLocalState::_create_agg_status(vectorized::AggregateDataPtr data) 
         }
     }
     return Status::OK();
+}
+
+void AggSinkLocalState::_create_agg_status_inline_count(
+        vectorized::AggregateDataPtr __restrict data) {
+    DCHECK_EQ(Base::_shared_state->aggregate_evaluators.size(), 1);
+    new (data) vectorized::AggregateFunctionCountData;
 }
 
 Status AggSinkLocalState::_execute_without_key(vectorized::Block* block) {
@@ -498,7 +506,9 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
             }
         } else {
             _emplace_into_hash_table(_places.data(), key_columns, rows);
-            RETURN_IF_ERROR(do_aggregate_evaluators());
+            if (!_parent->cast<AggSinkOperatorX>()._is_simple_count) {
+                RETURN_IF_ERROR(do_aggregate_evaluators());
+            }
 
             if (_should_limit_output && !Base::_shared_state->enable_spill) {
                 const size_t hash_table_size = _get_hash_table_size();
@@ -528,6 +538,11 @@ size_t AggSinkLocalState::_get_hash_table_size() const {
 void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                                  vectorized::ColumnRawPtrs& key_columns,
                                                  uint32_t num_rows) {
+    if (_parent->cast<AggSinkOperatorX>()._is_simple_count) {
+        _emplace_into_hash_table_inline_count(key_columns, num_rows);
+        return;
+    }
+
     std::visit(vectorized::Overload {
                        [&](std::monostate& arg) -> void {
                            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
@@ -568,6 +583,40 @@ void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* p
                            for (size_t i = 0; i < num_rows; ++i) {
                                places[i] = *agg_method.lazy_emplace(state, i, creator,
                                                                     creator_for_null_key);
+                           }
+
+                           COUNTER_UPDATE(_hash_table_input_counter, num_rows);
+                       }},
+               _agg_data->method_variant);
+}
+
+void AggSinkLocalState::_emplace_into_hash_table_inline_count(
+        vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows) {
+    std::visit(vectorized::Overload {
+                       [&](std::monostate& arg) -> void {
+                           throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                       },
+                       [&](auto& agg_method) -> void {
+                           SCOPED_TIMER(_hash_table_compute_timer);
+                           using HashMethodType = std::decay_t<decltype(agg_method)>;
+                           using AggState = typename HashMethodType::State;
+                           AggState state(key_columns);
+                           agg_method.init_serialized_keys(key_columns, num_rows);
+
+                           auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                               HashMethodType::try_presis_key_and_origin(
+                                       key, origin, Base::_shared_state->agg_arena_pool);
+                               vectorized::AggregateDataPtr mapped = nullptr;
+                               ctor(key, mapped);
+                           };
+
+                           auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
+
+                           SCOPED_TIMER(_hash_table_emplace_timer);
+                           for (size_t i = 0; i < num_rows; ++i) {
+                               auto* mapped_ptr = agg_method.lazy_emplace(state, i, creator,
+                                                                          creator_for_null_key);
+                               ++reinterpret_cast<vectorized::UInt64&>(*mapped_ptr);
                            }
 
                            COUNTER_UPDATE(_hash_table_input_counter, num_rows);
@@ -829,6 +878,12 @@ Status AggSinkOperatorX::_init_aggregate_evaluators(RuntimeState* state) {
     for (auto& _aggregate_evaluator : _aggregate_evaluators) {
         RETURN_IF_ERROR(_aggregate_evaluator->open(state));
     }
+
+    if (_aggregate_evaluators.size() == 1 &&
+        _aggregate_evaluators[0]->function()->is_simple_count()) {
+        _is_simple_count = true;
+    }
+
     return Status::OK();
 }
 
