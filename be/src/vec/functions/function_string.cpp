@@ -68,6 +68,64 @@ struct StringASCII {
     }
 };
 
+struct NameStringOrd {
+    static constexpr auto name = "ord";
+};
+
+struct StringOrd {
+    using ReturnType = DataTypeInt64;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
+    using Type = String;
+    using ReturnColumnType = ColumnInt64;
+
+    // Helper function to check if a byte is a valid UTF-8 continuation byte (10xxxxxx)
+    static inline bool is_valid_continuation_byte(unsigned char byte) {
+        return (byte & 0xC0) == 0x80;
+    }
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         PaddedPODArray<Int64>& res) {
+        auto size = offsets.size();
+        res.resize(size);
+        for (int i = 0; i < size; ++i) {
+            const unsigned char* raw_str =
+                    reinterpret_cast<const unsigned char*>(&data[offsets[i - 1]]);
+            int str_size = offsets[i] - offsets[i - 1];
+            if (str_size == 0) {
+                res[i] = 0;
+            } else {
+                // Decode UTF-8 to get Unicode code point
+                unsigned char first_byte = raw_str[0];
+                if ((first_byte & 0x80) == 0) {
+                    // ASCII character (0xxxxxxx)
+                    res[i] = first_byte;
+                } else if ((first_byte & 0xE0) == 0xC0 && str_size >= 2 &&
+                           is_valid_continuation_byte(raw_str[1])) {
+                    // 2-byte UTF-8 (110xxxxx 10xxxxxx)
+                    res[i] = ((first_byte & 0x1F) << 6) | (raw_str[1] & 0x3F);
+                } else if ((first_byte & 0xF0) == 0xE0 && str_size >= 3 &&
+                           is_valid_continuation_byte(raw_str[1]) &&
+                           is_valid_continuation_byte(raw_str[2])) {
+                    // 3-byte UTF-8 (1110xxxx 10xxxxxx 10xxxxxx)
+                    res[i] = ((first_byte & 0x0F) << 12) | ((raw_str[1] & 0x3F) << 6) |
+                             (raw_str[2] & 0x3F);
+                } else if ((first_byte & 0xF8) == 0xF0 && str_size >= 4 &&
+                           is_valid_continuation_byte(raw_str[1]) &&
+                           is_valid_continuation_byte(raw_str[2]) &&
+                           is_valid_continuation_byte(raw_str[3])) {
+                    // 4-byte UTF-8 (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
+                    res[i] = ((first_byte & 0x07) << 18) | ((raw_str[1] & 0x3F) << 12) |
+                             ((raw_str[2] & 0x3F) << 6) | (raw_str[3] & 0x3F);
+                } else {
+                    // Invalid UTF-8 sequence, return 0 to indicate error
+                    res[i] = 0;
+                }
+            }
+        }
+        return Status::OK();
+    }
+};
+
 struct NameParseDataSize {
     static constexpr auto name = "parse_data_size";
 };
@@ -1312,6 +1370,7 @@ using StringFindInSetImpl = StringFunctionImpl<LeftDataType, RightDataType, Find
 // ready for regist function
 using FunctionStringParseDataSize = FunctionUnaryToType<ParseDataSize, NameParseDataSize>;
 using FunctionStringASCII = FunctionUnaryToType<StringASCII, NameStringASCII>;
+using FunctionStringOrd = FunctionUnaryToType<StringOrd, NameStringOrd>;
 using FunctionStringLength = FunctionUnaryToType<StringLengthImpl, NameStringLength>;
 using FunctionCrc32 = FunctionUnaryToType<Crc32Impl, NameCrc32>;
 using FunctionStringUTF8Length = FunctionUnaryToType<StringUtf8LengthImpl, NameStringUtf8Length>;
@@ -1351,6 +1410,7 @@ using FunctionMakeSet = FunctionNeedsToHandleNull<MakeSetImpl, PrimitiveType::TY
 void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringParseDataSize>();
     factory.register_function<FunctionStringASCII>();
+    factory.register_function<FunctionStringOrd>();
     factory.register_function<FunctionStringLength>();
     factory.register_function<FunctionCrc32>();
     factory.register_function<FunctionStringUTF8Length>();
@@ -1460,6 +1520,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionStringLocatePos::name, "position");
     factory.register_alias(FunctionStringLength::name, "octet_length");
     factory.register_alias(FunctionOverlay::name, "insert");
+    factory.register_alias(FunctionStringOrd::name, "unicode");
 }
 
 } // namespace doris::vectorized

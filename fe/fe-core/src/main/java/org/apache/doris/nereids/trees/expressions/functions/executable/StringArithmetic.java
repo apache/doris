@@ -418,6 +418,30 @@ public class StringArithmetic {
     }
 
     /**
+     * Executable arithmetic functions Ord
+     * Returns the Unicode code point of the first character.
+     */
+    @ExecFunction(name = "ord")
+    public static Expression ord(StringLikeLiteral first) {
+        String value = first.getValue();
+        if (value.isEmpty()) {
+            return new BigIntLiteral(0L);
+        }
+        // Get the Unicode code point of the first character
+        int codePoint = value.codePointAt(0);
+        return new BigIntLiteral((long) codePoint);
+    }
+
+    /**
+     * Executable arithmetic functions Unicode (alias for ord)
+     * Returns the Unicode code point of the first character.
+     */
+    @ExecFunction(name = "unicode")
+    public static Expression unicode(StringLikeLiteral first) {
+        return ord(first);
+    }
+
+    /**
      * Executable arithmetic functions Bin
      */
     @ExecFunction(name = "bin")

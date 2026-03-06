@@ -994,6 +994,49 @@ TEST(function_string_test, function_ascii_test) {
     check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
+TEST(function_string_test, function_ord_test) {
+    std::string func_name = "ord";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+
+    DataSet data_set = {
+            // ASCII characters
+            {{std::string("A")}, std::int64_t(65)},
+            {{std::string("a")}, std::int64_t(97)},
+            {{std::string("1")}, std::int64_t(49)},
+            {{std::string("!")}, std::int64_t(33)},
+            {{std::string(" ")}, std::int64_t(32)},
+            // Empty string
+            {{std::string("")}, std::int64_t(0)},
+            // Multi-character strings (should return first character's code point)
+            {{std::string("hello")}, std::int64_t(104)},
+            {{std::string("ABC")}, std::int64_t(65)},
+            // 2-byte UTF-8 characters (e.g., Latin letters with diacritics, Greek, etc.)
+            // 'ñ' (U+00F1) = 241 in Unicode
+            {{std::string("\xc3\xb1")}, std::int64_t(241)},
+            // 'é' (U+00E9) = 233 in Unicode
+            {{std::string("\xc3\xa9")}, std::int64_t(233)},
+            // 3-byte UTF-8 characters (e.g., Chinese, Japanese, Korean)
+            // '你' (U+4F60) = 20320 in Unicode
+            {{std::string("\xe4\xbd\xa0")}, std::int64_t(20320)},
+            // '好' (U+597D) = 22909 in Unicode
+            {{std::string("\xe5\xa5\xbd")}, std::int64_t(22909)},
+            // '€' (U+20AC) = 8364 in Unicode (Euro sign)
+            {{std::string("\xe2\x82\xac")}, std::int64_t(8364)},
+            // 4-byte UTF-8 characters (e.g., emojis)
+            // '😀' (U+1F600) = 128512 in Unicode
+            {{std::string("\xf0\x9f\x98\x80")}, std::int64_t(128512)},
+            // '🎉' (U+1F389) = 127881 in Unicode
+            {{std::string("\xf0\x9f\x8e\x89")}, std::int64_t(127881)},
+            // Multi-character strings with UTF-8 (should return first character's code point)
+            {{std::string("\xe4\xbd\xa0\xe5\xa5\xbd")}, std::int64_t(20320)}, // "你好" -> '你'
+            // Null input
+            {{Null()}, Null()},
+    };
+
+    check_function_all_arg_comb<DataTypeInt64, true>(func_name, input_types, data_set);
+}
+
 TEST(function_string_test, function_char_length_test) {
     std::string func_name = "char_length";
 
