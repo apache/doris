@@ -72,6 +72,7 @@ public class NereidsParser {
     public static final Logger LOG = LogManager.getLogger(NereidsParser.class);
     private static final ParseErrorListener PARSE_ERROR_LISTENER = new ParseErrorListener();
     private static final PostProcessor POST_PROCESSOR = new PostProcessor();
+    private static volatile boolean lastAnsiQuotesState = false;
 
     private static final BitSet EXPLAIN_TOKENS = new BitSet();
 
@@ -144,6 +145,10 @@ public class NereidsParser {
     public static TokenSource scan(String sql) {
         DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
         lexer.isAnsiQuotes = SqlModeHelper.hasAnsiQuotes();
+        if (lexer.isAnsiQuotes != lastAnsiQuotesState) {
+            lexer.getInterpreter().clearDFA();
+            lastAnsiQuotesState = lexer.isAnsiQuotes;
+        }
         return lexer;
     }
 
@@ -469,6 +474,10 @@ public class NereidsParser {
         DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
         lexer.isNoBackslashEscapes = SqlModeHelper.hasNoBackSlashEscapes();
         lexer.isAnsiQuotes = SqlModeHelper.hasAnsiQuotes();
+        if (lexer.isAnsiQuotes != lastAnsiQuotesState) {
+            lexer.getInterpreter().clearDFA();
+            lastAnsiQuotesState = lexer.isAnsiQuotes;
+        }
         CommonTokenStream tokenStream = new CommonTokenStream(lexer);
         tokenStream.fill();
         return tokenStream;
