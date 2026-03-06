@@ -121,8 +121,83 @@ suite("test_match_projection_virtual_column") {
         FROM ${tableA} FULL OUTER JOIN ${tableB} ON ${tableA}.k1 = ${tableB}.k1
     """
     def explainStr = explainResult.collect { it.toString() }.join("\n")
-    assertTrue(explainStr.contains("MATCH_ANY"), "EXPLAIN should contain MATCH_ANY in virtual column")
-    assertTrue(explainStr.contains("virtualColumn="), "EXPLAIN should show virtualColumn for MATCH projection")
+    // The SlotDescriptor for the virtual column should show: virtualColumn=content... MATCH_ANY 'hello'
+    assertTrue(explainStr.contains("MATCH_ANY"), "EXPLAIN should contain MATCH_ANY")
+    assertTrue(explainStr.contains("__DORIS_VIRTUAL_COL__"),
+            "EXPLAIN should show virtual column slot for MATCH projection")
+
+    // =========================================================================
+    // Extended tests: edge cases and graceful degradation
+    // =========================================================================
+
+    // Test 9: MATCH projection on table WITHOUT inverted index (graceful degradation via slow path)
+    def tableNoIdx = "test_match_proj_no_idx"
+    sql "DROP TABLE IF EXISTS ${tableNoIdx}"
+    sql """
+        CREATE TABLE ${tableNoIdx} (
+            k1 INT,
+            content TEXT
+        ) ENGINE=OLAP
+        DUPLICATE KEY(k1)
+        DISTRIBUTED BY HASH(k1) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        )
+    """
+    sql """ INSERT INTO ${tableNoIdx} VALUES
+        (1, 'hello world'),
+        (2, 'foo bar baz'),
+        (3, 'hello doris')
+    """
+    order_qt_match_proj_no_index """
+        SELECT k1, content MATCH_ANY 'hello' as m FROM ${tableNoIdx} ORDER BY k1
+    """
+    sql "DROP TABLE IF EXISTS ${tableNoIdx}"
+
+    // Test 10: UNIQUE_KEYS table (MOW) — rule SHOULD fire (MOW is supported).
+    // Verify MATCH projection works correctly on MOW UNIQUE table.
+    def tableUniq = "test_match_proj_uniq"
+    sql "DROP TABLE IF EXISTS ${tableUniq}"
+    sql """
+        CREATE TABLE ${tableUniq} (
+            k1 INT,
+            content VARCHAR(200),
+            INDEX idx_content (content) USING INVERTED PROPERTIES("parser" = "english")
+        ) ENGINE=OLAP
+        UNIQUE KEY(k1)
+        DISTRIBUTED BY HASH(k1) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "enable_unique_key_merge_on_write" = "true"
+        )
+    """
+    sql """ INSERT INTO ${tableUniq} VALUES
+        (1, 'hello world'),
+        (2, 'foo bar'),
+        (3, 'hello doris')
+    """
+    order_qt_match_proj_unique_mow """
+        SELECT k1, content MATCH_ANY 'hello' as m FROM ${tableUniq} ORDER BY k1
+    """
+    sql "DROP TABLE IF EXISTS ${tableUniq}"
+
+    // Test 12: Compound MATCH expression — (MATCH AND MATCH) is not a bare Match,
+    // so unwrapMatch returns null and it won't be pushed as virtual column.
+    // Verify correct results via slow path expression evaluation.
+    order_qt_match_proj_compound """
+        SELECT k1,
+               (content MATCH_ANY 'hello') AND (content MATCH_ANY 'world') as m
+        FROM ${tableA} ORDER BY k1
+    """
+
+    // Test 13: MATCH projection coexisting with regular filter on same table
+    // This exercises the Project -> Filter -> OlapScan pattern.
+    order_qt_match_proj_with_direct_filter """
+        SELECT k1, content MATCH_ANY 'hello' as m
+        FROM ${tableA}
+        WHERE k1 BETWEEN 2 AND 4
+        ORDER BY k1
+    """
 
     sql "DROP TABLE IF EXISTS ${tableA}"
     sql "DROP TABLE IF EXISTS ${tableB}"

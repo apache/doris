@@ -25,6 +25,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
@@ -34,6 +36,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * Push down MATCH expressions in projections as virtual columns on OlapScan.
@@ -50,27 +53,41 @@ import java.util.Map;
  */
 public class PushDownMatchProjectionAsVirtualColumn implements RewriteRuleFactory {
 
+    private boolean canPushDown(LogicalOlapScan scan) {
+        boolean dupTblOrMOW = scan.getTable().getKeysType() == KeysType.DUP_KEYS
+                || scan.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite();
+        return dupTblOrMOW && scan.getVirtualColumns().isEmpty();
+    }
+
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalProject(logicalOlapScan()
-                        .when(scan -> {
-                            boolean dupTblOrMOW = scan.getTable().getKeysType() == KeysType.DUP_KEYS
-                                    || scan.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite();
-                            return dupTblOrMOW && scan.getVirtualColumns().isEmpty();
-                        }))
+                // Pattern 1: Project -> OlapScan
+                logicalProject(logicalOlapScan().when(this::canPushDown))
                         .then(project -> {
                             LogicalOlapScan scan = project.child();
-                            return pushDown(project, scan);
+                            return pushDown(project, scan, newScan -> newScan);
+                        }).toRule(RuleType.PUSH_DOWN_MATCH_PROJECTION_AS_VIRTUAL_COLUMN),
+                // Pattern 2: Project -> Filter -> OlapScan
+                logicalProject(logicalFilter(logicalOlapScan().when(this::canPushDown)))
+                        .then(project -> {
+                            LogicalFilter<LogicalOlapScan> filter = project.child();
+                            LogicalOlapScan scan = filter.child();
+                            return pushDown(project, scan,
+                                    newScan -> filter.withChildren(newScan));
                         }).toRule(RuleType.PUSH_DOWN_MATCH_PROJECTION_AS_VIRTUAL_COLUMN)
         );
     }
 
+    /**
+     * Extract MATCH projections and push them as virtual columns on the scan.
+     * @param childRebuilder rebuilds the project's child tree with the new scan
+     */
     private LogicalProject<?> pushDown(
-            LogicalProject<LogicalOlapScan> project, LogicalOlapScan scan) {
+            LogicalProject<?> project, LogicalOlapScan scan,
+            Function<LogicalOlapScan, ? extends Plan> childRebuilder) {
         List<NamedExpression> projections = project.getProjects();
         List<NamedExpression> virtualColumns = new ArrayList<>();
-        // Map from original Match expression to its alias slot
         Map<Expression, Expression> replaceMap = new HashMap<>();
 
         for (NamedExpression projection : projections) {
@@ -87,14 +104,12 @@ public class PushDownMatchProjectionAsVirtualColumn implements RewriteRuleFactor
             return null;
         }
 
-        // Build new projections replacing Match expressions with virtual column slots
         ImmutableList.Builder<NamedExpression> newProjections = ImmutableList.builder();
         for (NamedExpression projection : projections) {
             Expression matchExpr = unwrapMatch(projection);
             if (matchExpr != null && replaceMap.containsKey(matchExpr)) {
                 Expression slot = replaceMap.get(matchExpr);
                 if (projection instanceof Alias) {
-                    // Preserve the original alias name
                     newProjections.add(new Alias(((Alias) projection).getExprId(),
                             slot, ((Alias) projection).getName()));
                 } else {
@@ -107,7 +122,7 @@ public class PushDownMatchProjectionAsVirtualColumn implements RewriteRuleFactor
 
         LogicalOlapScan newScan = scan.withVirtualColumns(virtualColumns);
         return (LogicalProject<?>) project.withProjectsAndChild(
-                newProjections.build(), newScan);
+                newProjections.build(), childRebuilder.apply(newScan));
     }
 
     /**

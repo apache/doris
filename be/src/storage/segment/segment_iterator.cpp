@@ -2668,6 +2668,19 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
 
     // step5: output columns
     RETURN_IF_ERROR(_output_non_pred_columns(block));
+    // Convert inverted index bitmaps to result columns for virtual column exprs
+    // (e.g., MATCH projections). This must run before _materialization_of_virtual_column
+    // so that fast_execute() can find the pre-computed result columns.
+    if (!_virtual_column_exprs.empty()) {
+        bool use_sel = _is_need_vec_eval || _is_need_short_eval || _is_need_expr_eval;
+        uint16_t* sel_rowid_idx = use_sel ? _sel_rowid_idx.data() : nullptr;
+        std::vector<VExprContext*> vir_ctxs;
+        vir_ctxs.reserve(_virtual_column_exprs.size());
+        for (auto& [cid, ctx] : _virtual_column_exprs) {
+            vir_ctxs.push_back(ctx.get());
+        }
+        _output_index_result_column(vir_ctxs, sel_rowid_idx, _selected_size, block);
+    }
     RETURN_IF_ERROR(_materialization_of_virtual_column(block));
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
@@ -2774,7 +2787,12 @@ Status SegmentIterator::_process_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
                            _selected_size));
     }
 
-    _output_index_result_column_for_expr(_sel_rowid_idx.data(), _selected_size, block);
+    std::vector<VExprContext*> common_ctxs;
+    common_ctxs.reserve(_common_expr_ctxs_push_down.size());
+    for (auto& ctx : _common_expr_ctxs_push_down) {
+        common_ctxs.push_back(ctx.get());
+    }
+    _output_index_result_column(common_ctxs, _sel_rowid_idx.data(), _selected_size, block);
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
     RETURN_IF_ERROR(_execute_common_expr(_sel_rowid_idx.data(), _selected_size, block));
 
@@ -2847,26 +2865,19 @@ uint16_t SegmentIterator::_evaluate_common_expr_filter(uint16_t* sel_rowid_idx,
     }
 }
 
-void SegmentIterator::_output_index_result_column_for_expr(uint16_t* sel_rowid_idx,
-                                                           uint16_t select_size, Block* block) {
+void SegmentIterator::_output_index_result_column(const std::vector<VExprContext*>& expr_ctxs,
+                                                  uint16_t* sel_rowid_idx, uint16_t select_size,
+                                                  Block* block) {
     SCOPED_RAW_TIMER(&_opts.stats->output_index_result_column_timer);
     if (block->rows() == 0) {
         return;
     }
-    // Collect all expr contexts that may have index results:
-    // common pushed-down exprs + virtual column exprs (MATCH projections).
-    std::vector<vectorized::VExprContext*> all_index_contexts;
-    for (auto& expr_ctx : _common_expr_ctxs_push_down) {
-        all_index_contexts.push_back(expr_ctx.get());
-    }
-    for (auto& [cid, expr_ctx] : _virtual_column_exprs) {
-        if (expr_ctx->get_index_context() != nullptr) {
-            all_index_contexts.push_back(expr_ctx.get());
+    for (auto* expr_ctx_ptr : expr_ctxs) {
+        auto index_ctx = expr_ctx_ptr->get_index_context();
+        if (index_ctx == nullptr) {
+            continue;
         }
-    }
-    for (auto* expr_ctx_ptr : all_index_contexts) {
-        for (auto& inverted_index_result_bitmap_for_expr :
-             expr_ctx_ptr->get_index_context()->get_index_result_bitmap()) {
+        for (auto& inverted_index_result_bitmap_for_expr : index_ctx->get_index_result_bitmap()) {
             const auto* expr = inverted_index_result_bitmap_for_expr.first;
             const auto& result_bitmap = inverted_index_result_bitmap_for_expr.second;
             const auto& index_result_bitmap = result_bitmap.get_data_bitmap();
@@ -2904,12 +2915,11 @@ void SegmentIterator::_output_index_result_column_for_expr(uint16_t* sel_rowid_i
             DCHECK(block->rows() == vec_match_pred.size());
 
             if (null_map_column) {
-                expr_ctx_ptr->get_index_context()->set_index_result_column_for_expr(
+                index_ctx->set_index_result_column_for_expr(
                         expr, ColumnNullable::create(std::move(index_result_column),
                                                      std::move(null_map_column)));
             } else {
-                expr_ctx_ptr->get_index_context()->set_index_result_column_for_expr(
-                        expr, std::move(index_result_column));
+                index_ctx->set_index_result_column_for_expr(expr, std::move(index_result_column));
             }
         }
     }
