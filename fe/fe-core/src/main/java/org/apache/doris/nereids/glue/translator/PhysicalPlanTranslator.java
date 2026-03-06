@@ -2692,7 +2692,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         materializeNode.setLazyColumns(materialize.getLazyColumns());
         materializeNode.setLocations(materialize.getLazySlotLocations());
-        materializeNode.setIdxs(materialize.getlazyTableIdxs());
+        materializeNode.setColumnIdxsLists(materialize.getLazyBaseColumnIndices());
 
         List<Boolean> rowStoreFlags = new ArrayList<>();
         for (Relation relation : materialize.getRelations()) {
