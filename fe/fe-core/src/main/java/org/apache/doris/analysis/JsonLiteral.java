@@ -72,7 +72,10 @@ public class JsonLiteral extends LiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
-        throw new RuntimeException("Not support comparison between JSONB literals");
+        if (expr instanceof JsonLiteral) {
+            return value.compareTo(((JsonLiteral) expr).value);
+        }
+        return value.compareTo(expr.getStringValue());
     }
 
     public String getValue() {
