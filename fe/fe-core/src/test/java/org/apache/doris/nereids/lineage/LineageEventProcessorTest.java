@@ -52,46 +52,46 @@ public class LineageEventProcessorTest {
     }
 
     @Test
-    public void testRefreshPluginsWithOnePlugin() {
+    public void testInitPluginsWithOnePlugin() {
         LineageEventProcessor processor = new LineageEventProcessor();
         LineagePlugin mockPlugin = new NoOpLineagePlugin("test-plugin");
 
-        processor.refreshPlugins(Collections.singletonList(mockPlugin));
+        processor.initPlugins(Collections.singletonList(mockPlugin));
         Assertions.assertTrue(processor.hasActivePlugins(),
                 "Should have active plugins after refresh with one plugin");
     }
 
     @Test
-    public void testRefreshPluginsWithNull() {
+    public void testInitPluginsWithNull() {
         LineageEventProcessor processor = new LineageEventProcessor();
-        processor.refreshPlugins(Collections.singletonList(new NoOpLineagePlugin("p1")));
+        processor.initPlugins(Collections.singletonList(new NoOpLineagePlugin("p1")));
         Assertions.assertTrue(processor.hasActivePlugins());
 
-        processor.refreshPlugins(null);
+        processor.initPlugins(null);
         Assertions.assertFalse(processor.hasActivePlugins(),
                 "Refreshing with null should clear plugins");
     }
 
     @Test
-    public void testRefreshPluginsWithEmptyList() {
+    public void testInitPluginsWithEmptyList() {
         LineageEventProcessor processor = new LineageEventProcessor();
-        processor.refreshPlugins(Collections.singletonList(new NoOpLineagePlugin("p1")));
+        processor.initPlugins(Collections.singletonList(new NoOpLineagePlugin("p1")));
         Assertions.assertTrue(processor.hasActivePlugins());
 
-        processor.refreshPlugins(Collections.emptyList());
+        processor.initPlugins(Collections.emptyList());
         Assertions.assertFalse(processor.hasActivePlugins(),
                 "Refreshing with empty list should clear plugins");
     }
 
     @Test
-    public void testRefreshPluginsWithMultiplePlugins() {
+    public void testInitPluginsWithMultiplePlugins() {
         LineageEventProcessor processor = new LineageEventProcessor();
         List<LineagePlugin> plugins = Arrays.asList(
                 new NoOpLineagePlugin("plugin-a"),
                 new NoOpLineagePlugin("plugin-b"),
                 new NoOpLineagePlugin("plugin-c")
         );
-        processor.refreshPlugins(plugins);
+        processor.initPlugins(plugins);
         Assertions.assertTrue(processor.hasActivePlugins());
     }
 
@@ -100,7 +100,7 @@ public class LineageEventProcessorTest {
         LineageEventProcessor processor = new LineageEventProcessor();
         LineagePlugin filterPlugin = new TrackingLineagePlugin("filter-out",
                 false, new AtomicInteger(), new ArrayList<>(), new CountDownLatch(SINGLE_LATCH_COUNT));
-        processor.refreshPlugins(Collections.singletonList(filterPlugin));
+        processor.initPlugins(Collections.singletonList(filterPlugin));
         Assertions.assertFalse(processor.hasActivePlugins(),
                 "Should be false when all plugins are filtered out");
     }
@@ -108,7 +108,7 @@ public class LineageEventProcessorTest {
     @Test
     public void testHasActivePluginsWhenFilterThrows() {
         LineageEventProcessor processor = new LineageEventProcessor();
-        processor.refreshPlugins(Collections.singletonList(new EventFilterExceptionLineagePlugin("boom")));
+        processor.initPlugins(Collections.singletonList(new EventFilterExceptionLineagePlugin("boom")));
         Assertions.assertFalse(processor.hasActivePlugins(),
                 "Should be false when plugin filter throws exception");
     }
@@ -151,7 +151,7 @@ public class LineageEventProcessorTest {
         LineagePlugin trackingPlugin = new TrackingLineagePlugin("tracker",
                 true, execCount, processedQueryIds, latch);
 
-        processor.refreshPlugins(Collections.singletonList(trackingPlugin));
+        processor.initPlugins(Collections.singletonList(trackingPlugin));
 
         // Start processor (without SPI discovery, since we already set plugins via refreshPlugins)
         Thread workerThread = new Thread(processor.new Worker(), "test-worker");
@@ -185,7 +185,7 @@ public class LineageEventProcessorTest {
         LineagePlugin acceptPlugin = new TrackingLineagePlugin("accept",
                 true, acceptExecCount, new ArrayList<>(), acceptLatch);
 
-        processor.refreshPlugins(Arrays.asList(filterPlugin, acceptPlugin));
+        processor.initPlugins(Arrays.asList(filterPlugin, acceptPlugin));
 
         Thread workerThread = new Thread(processor.new Worker(), "test-worker-filter");
         workerThread.setDaemon(true);
@@ -213,7 +213,7 @@ public class LineageEventProcessorTest {
         LineagePlugin goodPlugin = new TrackingLineagePlugin("good-plugin",
                 true, goodExecCount, new ArrayList<>(), latch);
 
-        processor.refreshPlugins(Arrays.asList(badPlugin, goodPlugin));
+        processor.initPlugins(Arrays.asList(badPlugin, goodPlugin));
 
         Thread workerThread = new Thread(processor.new Worker(), "test-worker-exception");
         workerThread.setDaemon(true);

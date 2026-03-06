@@ -191,7 +191,7 @@ public class LineageEventProcessor {
                 LOG.warn("Failed to create/initialize lineage plugin: {}", pluginName, e);
             }
         }
-        refreshPlugins(plugins);
+        initPlugins(plugins);
     }
 
     private String safeFactoryName(LineagePluginFactory factory) {
@@ -221,7 +221,7 @@ public class LineageEventProcessor {
     /**
      * Update the active lineage plugin list.
      */
-    public void refreshPlugins(List<LineagePlugin> plugins) {
+    public void initPlugins(List<LineagePlugin> plugins) {
         List<LineagePlugin> safePlugins = plugins == null ? Collections.emptyList() : plugins;
         lineagePlugins.set(safePlugins);
         if (safePlugins.isEmpty()) {
