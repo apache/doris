@@ -52,7 +52,6 @@ public:
     ~IcebergSysTableJniReader() override = default;
 
     Status init_reader();
-
 };
 
 #include "common/compile_check_end.h"

@@ -52,7 +52,6 @@ public:
     ~HudiJniReader() override = default;
 
     Status init_reader();
-
 };
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized
