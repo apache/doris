@@ -155,6 +155,9 @@ public:
     IntGauge* tablet_cumulative_max_compaction_score = nullptr;
     IntGauge* tablet_base_max_compaction_score = nullptr;
 
+    // tablet report
+    IntGauge* tablet_report_continuous_failure_duration_s = nullptr;
+
     IntGauge* all_rowsets_num = nullptr;
     IntGauge* all_segments_num = nullptr;
 
