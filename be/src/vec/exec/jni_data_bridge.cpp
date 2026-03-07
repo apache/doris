@@ -348,7 +348,7 @@ std::string JniDataBridge::get_jni_type(const DataTypePtr& data_type) {
     case TYPE_VARBINARY:
         return "varbinary";
     // bitmap, hll, quantile_state, jsonb are transferred as strings via JNI
-    case TYPE_OBJECT:
+    case TYPE_BITMAP:
         [[fallthrough]];
     case TYPE_HLL:
         [[fallthrough]];
@@ -468,7 +468,7 @@ std::string JniDataBridge::get_jni_type_with_different_string(const DataTypePtr&
         return buffer.str();
     }
     // bitmap, hll, quantile_state, jsonb are transferred as strings via JNI
-    case TYPE_OBJECT:
+    case TYPE_BITMAP:
         [[fallthrough]];
     case TYPE_HLL:
         [[fallthrough]];

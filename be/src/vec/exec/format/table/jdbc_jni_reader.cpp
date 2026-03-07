@@ -121,8 +121,8 @@ Status JdbcJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         auto ptype = slot->type()->get_primitive_type();
         if (_is_special_type(ptype)) {
             // Find the block index for this column
-            auto& col_with_type = block->get_by_name(slot->col_name());
             int block_idx = block->get_position_by_name(slot->col_name());
+            auto& col_with_type = block->get_by_position(block_idx);
 
             SpecialColumnInfo info;
             info.block_idx = block_idx;
