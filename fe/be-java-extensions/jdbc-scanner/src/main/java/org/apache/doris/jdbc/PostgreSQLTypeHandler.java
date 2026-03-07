@@ -64,10 +64,13 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
             case DECIMAL128:
                 return rs.getObject(columnIndex, BigDecimal.class);
             case DATE:
-            case DATEV2:
-                return rs.getObject(columnIndex, LocalDate.class);
+            case DATEV2: {
+                java.sql.Date sqlDate = rs.getDate(columnIndex);
+                return sqlDate != null ? sqlDate.toLocalDate() : null;
+            }
             case DATETIME:
             case DATETIMEV2:
+                return rs.getObject(columnIndex);
             case CHAR:
             case VARCHAR:
             case STRING:
@@ -90,6 +93,14 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
     @Override
     public ColumnValueConverter getOutputConverter(ColumnType columnType, String replaceString) {
         switch (columnType.getType()) {
+            case DATE:
+            case DATEV2:
+                return createConverter(input -> {
+                    if (input instanceof java.sql.Date) {
+                        return ((java.sql.Date) input).toLocalDate();
+                    }
+                    return input;
+                }, LocalDate.class);
             case DATETIME:
             case DATETIMEV2:
                 return createConverter(input -> {
@@ -97,6 +108,8 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
                         return ((Timestamp) input).toLocalDateTime();
                     } else if (input instanceof OffsetDateTime) {
                         return ((OffsetDateTime) input).toLocalDateTime();
+                    } else if (input instanceof java.sql.Date) {
+                        return ((java.sql.Date) input).toLocalDate().atStartOfDay();
                     }
                     return input;
                 }, LocalDateTime.class);
