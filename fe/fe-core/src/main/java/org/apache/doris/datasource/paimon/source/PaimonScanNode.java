@@ -541,7 +541,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 .newScan();
         PaimonMetricRegistry registry = new PaimonMetricRegistry();
         if (scan instanceof InnerTableScan) {
-            scan = ((InnerTableScan) scan).withMetricsRegistry(registry);
+            scan = ((InnerTableScan) scan).withMetricRegistry(registry);
         }
         List<org.apache.paimon.table.source.Split> splits = scan.plan().splits();
         PaimonScanMetricsReporter.report(source.getTargetTable(), paimonTable.name(), registry);
