@@ -230,8 +230,22 @@ struct DateV2ValueType {
     uint32_t month_ : 4;
     uint32_t year_ : 23;
 
-    DateV2ValueType(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
-                    uint8_t second, uint32_t microsecond)
+    /// The library restructuring (splitting Vec into Core, Exprs, Format, Storage) changed the   order of static variable initialization. Here's the dependency chain:
+    /// TimestampTzValue::FIRST_DAY (timestamptz_value.cpp:24-25) — non-inline, dynamic initialization — depends on:
+    /// DateV2Value<DateTimeV2ValueType>::FIRST_DAY (vdatetime_value.h:1489) — inline, also dynamic initialization because the constructors were NOT constexpr
+    /// Since both are dynamically initialized, the C++ standard provides no ordering guarantee when one static variable's initializer uses another static variable (uses from within initialization are not "non-initialization odr-uses"). The old Vec library happened to initialize them in the correct order; the new Core library does not.
+    ///
+    /// When TimestampTzValue::FIRST_DAY is initialized first, it reads a zero-initialized DateV2Value::FIRST_DAY → constructs a zero date (0000-00-00) → is_valid_date() fails on !day → date_add_interval returns false → "Operation week_ceil out of range".
+
+    /// Fix : Made the DateV2ValueType,
+    /// DateTimeV2ValueType,
+    ///and DateV2Value(year, month, day, ...) constructors constexpr in
+    ///     vdatetime_value.h.This makes DateV2Value<T>::FIRST_DAY and DEFAULT_VALUE constant
+    ///  - initialized(guaranteed to happen before any dynamic initialization),
+    /// so TimestampTzValue::FIRST_DAY always sees the correct value
+    /// regardless of library link order.** /
+    constexpr DateV2ValueType(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
+                              uint8_t minute, uint8_t second, uint32_t microsecond)
             : day_(day), month_(month), year_(year) {}
 };
 
@@ -244,8 +258,8 @@ struct DateTimeV2ValueType {
     uint64_t month_ : 4;
     uint64_t year_ : 18;
 
-    DateTimeV2ValueType(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
-                        uint8_t second, uint32_t microsecond)
+    constexpr DateTimeV2ValueType(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
+                                  uint8_t minute, uint8_t second, uint32_t microsecond)
             : microsecond_(microsecond),
               second_(second),
               minute_(minute),
@@ -1471,8 +1485,8 @@ private:
         underlying_value int_val_;
     };
 
-    DateV2Value(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
-                uint8_t second, uint32_t microsecond)
+    constexpr DateV2Value(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
+                          uint8_t second, uint32_t microsecond)
             : date_v2_value_(year, month, day, hour, minute, second, microsecond) {}
 };
 
