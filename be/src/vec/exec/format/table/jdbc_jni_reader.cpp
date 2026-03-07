@@ -95,7 +95,6 @@ JdbcJniReader::JdbcJniReader(const std::vector<SlotDescriptor*>& file_slot_descs
                   }()),
           _jdbc_params(jdbc_params) {}
 
-
 Status JdbcJniReader::init_reader() {
     return open(_state, _profile);
 }
