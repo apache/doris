@@ -1032,19 +1032,44 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
         if (request->has_jdbc_table_type()) {
             std::string type_name;
             switch (request->jdbc_table_type()) {
-            case 0:  type_name = "MYSQL"; break;
-            case 1:  type_name = "ORACLE"; break;
-            case 2:  type_name = "POSTGRESQL"; break;
-            case 3:  type_name = "SQLSERVER"; break;
-            case 6:  type_name = "CLICKHOUSE"; break;
-            case 7:  type_name = "SAP_HANA"; break;
-            case 8:  type_name = "TRINO"; break;
-            case 9:  type_name = "PRESTO"; break;
-            case 10: type_name = "OCEANBASE"; break;
-            case 11: type_name = "OCEANBASE_ORACLE"; break;
-            case 13: type_name = "DB2"; break;
-            case 14: type_name = "GBASE"; break;
-            default: break;
+            case 0:
+                type_name = "MYSQL";
+                break;
+            case 1:
+                type_name = "ORACLE";
+                break;
+            case 2:
+                type_name = "POSTGRESQL";
+                break;
+            case 3:
+                type_name = "SQLSERVER";
+                break;
+            case 6:
+                type_name = "CLICKHOUSE";
+                break;
+            case 7:
+                type_name = "SAP_HANA";
+                break;
+            case 8:
+                type_name = "TRINO";
+                break;
+            case 9:
+                type_name = "PRESTO";
+                break;
+            case 10:
+                type_name = "OCEANBASE";
+                break;
+            case 11:
+                type_name = "OCEANBASE_ORACLE";
+                break;
+            case 13:
+                type_name = "DB2";
+                break;
+            case 14:
+                type_name = "GBASE";
+                break;
+            default:
+                break;
             }
             if (!type_name.empty()) {
                 params["table_type"] = type_name;
