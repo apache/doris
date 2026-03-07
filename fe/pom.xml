@@ -248,6 +248,8 @@ under the License.
         <module>fe-extension-loader</module>
         <module>fe-extension-spi</module>
         <module>fe-authentication</module>
+        <module>fe-thrift</module>
+        <module>fe-type</module>
     </modules>
     <properties>
         <doris.hive.catalog.shade.version>3.1.0</doris.hive.catalog.shade.version>
