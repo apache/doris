@@ -96,6 +96,8 @@ public class JdbcJniScanner extends JniScanner {
     // Read state
     private boolean resultSetOpened = false;
     private List<Object[]> block = null;
+    // Per-column replace strings for special type handling (bitmap, hll)
+    private String[] replaceStringList;
 
     // Statistics
     private long readRows = 0;
@@ -138,6 +140,17 @@ public class JdbcJniScanner extends JniScanner {
             }
         }
         initTableInfo(typeArr, fieldArr, batchSize);
+
+        // Parse replace_string for special type handling (bitmap, hll, etc.)
+        String replaceString = params.getOrDefault("replace_string", "");
+        if (!replaceString.isEmpty()) {
+            replaceStringList = replaceString.split(",");
+        } else {
+            replaceStringList = new String[fieldArr.length];
+            for (int i = 0; i < fieldArr.length; i++) {
+                replaceStringList[i] = "not_replace";
+            }
+        }
     }
 
     @Override
@@ -163,7 +176,9 @@ public class JdbcJniScanner extends JniScanner {
             // Initialize per-column output converters once
             outputConverters = new ColumnValueConverter[types.length];
             for (int i = 0; i < types.length; i++) {
-                outputConverters[i] = typeHandler.getOutputConverter(types[i], "not_replace");
+                String replaceStr = (replaceStringList != null && i < replaceStringList.length)
+                        ? replaceStringList[i] : "not_replace";
+                outputConverters[i] = typeHandler.getOutputConverter(types[i], replaceStr);
             }
         } catch (Exception e) {
             LOG.warn("JdbcJniScanner " + jdbcUrl + " open failed: " + e.getMessage(), e);
@@ -185,7 +200,12 @@ public class JdbcJniScanner extends JniScanner {
             // Initialize block arrays for this batch
             block.clear();
             for (int i = 0; i < types.length; i++) {
-                if (outputConverters[i] != null) {
+                String replaceStr = (replaceStringList != null && i < replaceStringList.length)
+                        ? replaceStringList[i] : "not_replace";
+                if ("bitmap".equals(replaceStr) || "hll".equals(replaceStr)) {
+                    // bitmap/hll columns: use byte[][] for raw binary data
+                    block.add(new byte[batchSize][]);
+                } else if (outputConverters[i] != null) {
                     // When a converter exists, the raw value from getColumnValue() may have a
                     // different type than the final column type. For example, MySQL returns ARRAY
                     // columns as JSON Strings, but newObjectContainerArray() creates ArrayList[].
@@ -204,10 +224,18 @@ public class JdbcJniScanner extends JniScanner {
                 }
                 for (int col = 0; col < types.length; col++) {
                     int columnIndex = col + 1; // JDBC columns are 1-indexed
-                    // Use type handler for database-specific value extraction
-                    Object value = typeHandler.getColumnValue(
-                            resultSet, columnIndex, types[col], resultSetMetaData);
-                    block.get(col)[curRows] = value;
+                    String replaceStr = (replaceStringList != null && col < replaceStringList.length)
+                            ? replaceStringList[col] : "not_replace";
+                    if ("bitmap".equals(replaceStr) || "hll".equals(replaceStr)) {
+                        // bitmap/hll: read raw bytes directly
+                        byte[] data = resultSet.getBytes(columnIndex);
+                        block.get(col)[curRows] = resultSet.wasNull() ? null : data;
+                    } else {
+                        // Use type handler for database-specific value extraction
+                        Object value = typeHandler.getColumnValue(
+                                resultSet, columnIndex, types[col], resultSetMetaData);
+                        block.get(col)[curRows] = value;
+                    }
                 }
                 curRows++;
             }

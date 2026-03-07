@@ -51,6 +51,11 @@ namespace doris::vectorized {
  * - init_reader() calls open() to start the Java scanner
  * - get_next_block() reads data batch by batch (inherited from JniReader)
  * - close() releases Java resources (inherited from JniReader)
+ *
+ * Special types like bitmap, HLL and quantile_state are handled by:
+ * 1. Temporarily replacing block columns to string type before reading
+ * 2. Reading data as strings via JNI
+ * 3. Casting string columns back to the target special types after reading
  */
 class JdbcJniReader : public JniReader {
     ENABLE_FACTORY_CREATOR(JdbcJniReader);
@@ -71,8 +76,29 @@ public:
 
     Status init_reader();
 
+    /**
+     * Override get_next_block to handle special types (bitmap, HLL, quantile_state, JSONB).
+     * Before reading, replaces block columns of special types with string columns.
+     * After reading, casts the string data back to the target types.
+     */
+    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+
 private:
     std::map<std::string, std::string> _jdbc_params;
+
+    /**
+     * Check if a primitive type needs special string-based handling.
+     * These types (bitmap, HLL, quantile_state, JSONB) are read as strings via JDBC
+     * and need post-read casting back to their target types.
+     */
+    static bool _is_special_type(PrimitiveType type);
+
+    /**
+     * Cast a string column back to the target special type using the CAST function.
+     * Follows the same pattern as the old vjdbc_connector.cpp _cast_string_to_hll/bitmap/json.
+     */
+    Status _cast_string_to_special_type(const SlotDescriptor* slot_desc, Block* block,
+                                        int column_index, int num_rows);
 };
 
 #include "common/compile_check_end.h"
