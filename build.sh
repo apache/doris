@@ -178,7 +178,7 @@ download_juicefs_hadoop_jar() {
         echo "${cached_jar}"
         return 0
     fi
-    echo "Downloading JuiceFS Hadoop jar ${juicefs_version} from ${download_url}"
+    echo "Downloading JuiceFS Hadoop jar ${juicefs_version} from ${download_url}" >&2
     if command -v curl >/dev/null 2>&1; then
         if curl -fSL "${download_url}" -o "${cached_jar}"; then
             echo "${cached_jar}"
