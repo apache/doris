@@ -158,10 +158,15 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
     }
 
     /**
-     * PostgreSQL byte[] → hex string (uses \\x prefix format).
+     * PostgreSQL byte[] → hex string (uses \\x prefix format with lowercase).
+     * PostgreSQL native bytea format: \\xdeadbeef
      */
     private static String pgByteArrayToHexString(byte[] bytes) {
-        return defaultByteArrayToHexString(bytes);
+        StringBuilder hexString = new StringBuilder("\\x");
+        for (byte b : bytes) {
+            hexString.append(String.format("%02x", b & 0xff));
+        }
+        return hexString.toString();
     }
 
     /**
