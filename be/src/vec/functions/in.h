@@ -131,6 +131,13 @@ public:
                 break;
             }
         }
+
+        if (state->use_set && state->hybrid_set) {
+            if (auto bitset = state->hybrid_set->try_convert_to_bitset()) {
+                state->hybrid_set = bitset;
+            }
+        }
+
         return Status::OK();
     }
 
