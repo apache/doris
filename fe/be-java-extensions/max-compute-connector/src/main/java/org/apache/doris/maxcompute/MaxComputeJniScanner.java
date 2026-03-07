@@ -215,6 +215,13 @@ public class MaxComputeJniScanner extends JniScanner {
 
     @Override
     public void close() throws IOException {
+        if (currentSplitReader != null) {
+            try {
+                currentSplitReader.close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close MaxCompute split reader for table " + project + "." + table, e);
+            }
+        }
         startOffset = -1;
         splitSize = -1;
         currentSplitReader = null;
