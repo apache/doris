@@ -48,6 +48,11 @@
 
 namespace doris::vectorized {
 
+struct GammaName {
+    static constexpr auto name = "gamma";
+};
+using FunctionGamma = FunctionMathUnary<UnaryFunctionPlain<GammaName, std::tgamma>>;
+
 struct AcosName {
     static constexpr auto name = "acos";
     // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_acos
@@ -991,5 +996,6 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMathBinary<LcmImpl<TYPE_LARGEINT>>>();
     factory.register_function<FunctionIsNan>();
     factory.register_function<FunctionIsInf>();
+    factory.register_function<FunctionGamma>();
 }
 } // namespace doris::vectorized

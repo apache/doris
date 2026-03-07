@@ -40,6 +40,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 
+import org.apache.commons.math3.special.Gamma;
 import org.apache.commons.math3.util.ArithmeticUtils;
 import org.apache.commons.math3.util.FastMath;
 
@@ -1146,4 +1147,13 @@ public class NumericArithmetic {
             return new IntegerLiteral(insertionPoint);
         }
     }
+
+    /**
+     * gamma
+     */
+    @ExecFunction(name = "gamma")
+    public static Expression gamma(DoubleLiteral first) {
+        return new DoubleLiteral(Gamma.gamma(first.getValue()));
+    }
+
 }
