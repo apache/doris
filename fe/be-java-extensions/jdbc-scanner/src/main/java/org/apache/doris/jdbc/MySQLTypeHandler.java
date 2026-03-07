@@ -22,6 +22,9 @@ import org.apache.doris.common.jni.vec.ColumnValueConverter;
 
 import com.google.common.util.concurrent.MoreExecutors;
 
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
+
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.sql.Connection;
@@ -32,7 +35,10 @@ import java.sql.SQLException;
 import java.sql.Types;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.temporal.ChronoField;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * MySQL-specific type handler.
@@ -169,12 +175,124 @@ public class MySQLTypeHandler extends DefaultTypeHandler {
         System.setProperty("com.mysql.cj.disableAbandonedConnectionCleanup", "true");
     }
 
-    // MySQL-specific array conversion (parse JSON array strings)
-    private Object convertArray(Object input, ColumnType childType) {
+    private static final Gson gson = new Gson();
+
+    /**
+     * Parse MySQL JSON array string into a List, applying type-specific conversions.
+     * MySQL returns ARRAY columns as JSON strings (e.g. "[1,2,3]"); this method
+     * deserializes them into proper Java List objects matching the expected child type.
+     */
+    private Object convertArray(Object input, ColumnType columnType) {
         if (input == null) {
             return null;
         }
-        // MySQL returns arrays as JSON strings; parse them
-        return input.toString();
+        String jsonStr = input.toString();
+        ColumnType.Type childTypeEnum = columnType.getType();
+
+        if (childTypeEnum == ColumnType.Type.BOOLEAN) {
+            List<?> list = gson.fromJson(jsonStr, List.class);
+            return list.stream().map(item -> {
+                if (item instanceof Boolean) {
+                    return item;
+                } else if (item instanceof Number) {
+                    return ((Number) item).intValue() != 0;
+                } else {
+                    throw new IllegalArgumentException("Cannot convert " + item + " to Boolean.");
+                }
+            }).collect(Collectors.toList());
+        } else if (childTypeEnum == ColumnType.Type.DATE || childTypeEnum == ColumnType.Type.DATEV2) {
+            List<?> list = gson.fromJson(jsonStr, List.class);
+            return list.stream().map(item -> {
+                if (item instanceof String) {
+                    return LocalDate.parse((String) item);
+                } else {
+                    throw new IllegalArgumentException("Cannot convert " + item + " to LocalDate.");
+                }
+            }).collect(Collectors.toList());
+        } else if (childTypeEnum == ColumnType.Type.DATETIME || childTypeEnum == ColumnType.Type.DATETIMEV2) {
+            List<?> list = gson.fromJson(jsonStr, List.class);
+            return list.stream().map(item -> {
+                if (item instanceof String) {
+                    return LocalDateTime.parse(
+                            (String) item,
+                            new DateTimeFormatterBuilder()
+                                    .appendPattern("yyyy-MM-dd HH:mm:ss")
+                                    .appendFraction(ChronoField.MILLI_OF_SECOND,
+                                            columnType.getPrecision(),
+                                            columnType.getPrecision(), true)
+                                    .toFormatter());
+                } else {
+                    throw new IllegalArgumentException("Cannot convert " + item + " to LocalDateTime.");
+                }
+            }).collect(Collectors.toList());
+        } else if (childTypeEnum == ColumnType.Type.LARGEINT) {
+            List<?> list = gson.fromJson(jsonStr, List.class);
+            return list.stream().map(item -> {
+                if (item instanceof Number) {
+                    return new BigDecimal(item.toString()).toBigInteger();
+                } else if (item instanceof String) {
+                    return new BigDecimal((String) item).toBigInteger();
+                } else {
+                    throw new IllegalArgumentException("Cannot convert " + item + " to BigInteger.");
+                }
+            }).collect(Collectors.toList());
+        } else if (childTypeEnum == ColumnType.Type.ARRAY) {
+            ColumnType nestedChildType = columnType.getChildTypes().get(0);
+            List<?> rawList = gson.fromJson(jsonStr, List.class);
+            return rawList.stream()
+                    .map(element -> {
+                        String elementJson = gson.toJson(element);
+                        return convertArray(elementJson, nestedChildType);
+                    })
+                    .collect(Collectors.toList());
+        } else {
+            java.lang.reflect.Type listType = getListTypeForArray(columnType);
+            return gson.fromJson(jsonStr, listType);
+        }
+    }
+
+    /**
+     * Map a Doris child ColumnType to the corresponding Gson TypeToken for List deserialization.
+     */
+    private java.lang.reflect.Type getListTypeForArray(ColumnType type) {
+        switch (type.getType()) {
+            case BOOLEAN:
+                return new TypeToken<List<Boolean>>() { }.getType();
+            case TINYINT:
+                return new TypeToken<List<Byte>>() { }.getType();
+            case SMALLINT:
+                return new TypeToken<List<Short>>() { }.getType();
+            case INT:
+                return new TypeToken<List<Integer>>() { }.getType();
+            case BIGINT:
+                return new TypeToken<List<Long>>() { }.getType();
+            case LARGEINT:
+                return new TypeToken<List<BigInteger>>() { }.getType();
+            case FLOAT:
+                return new TypeToken<List<Float>>() { }.getType();
+            case DOUBLE:
+                return new TypeToken<List<Double>>() { }.getType();
+            case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
+                return new TypeToken<List<BigDecimal>>() { }.getType();
+            case DATE:
+            case DATEV2:
+                return new TypeToken<List<LocalDate>>() { }.getType();
+            case DATETIME:
+            case DATETIMEV2:
+                return new TypeToken<List<LocalDateTime>>() { }.getType();
+            case CHAR:
+            case VARCHAR:
+            case STRING:
+                return new TypeToken<List<String>>() { }.getType();
+            case ARRAY:
+                java.lang.reflect.Type childType = getListTypeForArray(type.getChildTypes().get(0));
+                TypeToken<?> token = TypeToken.getParameterized(List.class, childType);
+                return token.getType();
+            default:
+                throw new IllegalArgumentException("Unsupported array child type: " + type.getType());
+        }
     }
 }

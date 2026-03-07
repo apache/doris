@@ -185,7 +185,16 @@ public class JdbcJniScanner extends JniScanner {
             // Initialize block arrays for this batch
             block.clear();
             for (int i = 0; i < types.length; i++) {
-                block.add(vectorTable.getColumn(i).newObjectContainerArray(batchSize));
+                if (outputConverters[i] != null) {
+                    // When a converter exists, the raw value from getColumnValue() may have a
+                    // different type than the final column type. For example, MySQL returns ARRAY
+                    // columns as JSON Strings, but newObjectContainerArray() creates ArrayList[].
+                    // Use Object[] to avoid ArrayStoreException; the converter will produce
+                    // the correctly typed array before data is written to VectorTable.
+                    block.add(new Object[batchSize]);
+                } else {
+                    block.add(vectorTable.getColumn(i).newObjectContainerArray(batchSize));
+                }
             }
 
             int curRows = 0;
