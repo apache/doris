@@ -1254,6 +1254,11 @@ DEFINE_String(inverted_index_query_cache_limit, "10%");
 // condition cache limit
 DEFINE_Int16(condition_cache_limit, "512");
 
+// ANN index topn result cache
+DEFINE_String(ann_index_topn_cache_limit, "1%");
+DEFINE_Int32(ann_index_topn_cache_shards, "16");
+DEFINE_Int32(ann_index_topn_cache_stale_sweep_time_sec, "1800");
+
 // inverted index
 DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 // -1 indicates not working.

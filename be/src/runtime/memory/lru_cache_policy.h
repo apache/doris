@@ -27,6 +27,7 @@
 #include "runtime/memory/lru_cache_value_base.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "util/pretty_printer.h"
 #include "util/time.h"
 
 namespace doris {
@@ -226,7 +227,8 @@ public:
                     "[MemoryGC] {} prune all {} entries, {} bytes, cost {}, {} times prune, is "
                     "force: {}",
                     type_string(_type), _freed_entrys_counter->value(),
-                    _freed_memory_counter->value(), _cost_timer->value(),
+                    _freed_memory_counter->value(),
+                    PrettyPrinter::print(_cost_timer->value(), TUnit::TIME_NS),
                     _prune_all_number_counter->value(), force);
         } else {
             if (_lru_cache_type == LRUCacheType::SIZE) {

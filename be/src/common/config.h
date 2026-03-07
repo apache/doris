@@ -1297,6 +1297,11 @@ DECLARE_String(inverted_index_query_cache_limit);
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);
 
+// ANN index topn result cache
+DECLARE_String(ann_index_topn_cache_limit);
+DECLARE_Int32(ann_index_topn_cache_shards);
+DECLARE_Int32(ann_index_topn_cache_stale_sweep_time_sec);
+
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
 DECLARE_mInt32(inverted_index_max_buffered_docs);

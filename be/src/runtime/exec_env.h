@@ -71,6 +71,7 @@ namespace segment_v2 {
 class InvertedIndexSearcherCache;
 class InvertedIndexQueryCache;
 class ConditionCache;
+class AnnIndexTopnResultCache;
 class TmpFileDirs;
 class EncodingInfoResolver;
 
@@ -411,6 +412,10 @@ public:
     segment_v2::TmpFileDirs* get_tmp_file_dirs() { return _tmp_file_dirs.get(); }
     io::FDCache* file_cache_open_fd_cache() const { return _file_cache_open_fd_cache.get(); }
 
+    segment_v2::AnnIndexTopnResultCache* ann_index_topn_result_cache() {
+        return _ann_index_topn_result_cache;
+    }
+
     orc::MemoryPool* orc_memory_pool() { return _orc_memory_pool; }
     arrow::MemoryPool* arrow_memory_pool() { return _arrow_memory_pool; }
 
@@ -556,6 +561,7 @@ private:
     QueryCache* _query_cache = nullptr;
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
     DeleteBitmapAggCache* _delete_bitmap_agg_cache {nullptr};
+    segment_v2::AnnIndexTopnResultCache* _ann_index_topn_result_cache = nullptr;
 
     pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
     vectorized::DictionaryFactory* _dict_factory = nullptr;

@@ -54,6 +54,7 @@
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/page_cache.h"
+#include "olap/rowset/segment_v2/ann_index/ann_index_result_cache/ann_index_result_cache.h"
 #include "olap/rowset/segment_v2/condition_cache.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
@@ -667,6 +668,16 @@ Status ExecEnv::init_mem_env() {
     LOG(INFO) << "Inverted index query match cache memory limit: "
               << PrettyPrinter::print(inverted_index_query_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
+
+    // ANN index topn result cache
+    int64_t ann_topn_cache_limit =
+            ParseUtil::parse_mem_spec(config::ann_index_topn_cache_limit, MemInfo::mem_limit(),
+                                      MemInfo::physical_mem(), &is_percent);
+    _ann_index_topn_result_cache =
+            segment_v2::AnnIndexTopnResultCache::create_global_cache(ann_topn_cache_limit);
+    LOG(INFO) << "ANN index topn result cache memory limit: "
+              << PrettyPrinter::print(ann_topn_cache_limit, TUnit::BYTES)
+              << ", origin config value: " << config::ann_index_topn_cache_limit;
 
     // use memory limit
     int64_t condition_cache_limit = config::condition_cache_limit * 1024L * 1024L;

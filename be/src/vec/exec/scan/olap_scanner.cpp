@@ -916,6 +916,7 @@ void OlapScanner::_collect_profile_before_close() {
 
     COUNTER_UPDATE(local_state->_ann_topn_search_costs, stats.ann_topn_search_ns);
     COUNTER_UPDATE(local_state->_ann_topn_search_cnt, stats.ann_index_topn_search_cnt);
+    COUNTER_UPDATE(local_state->_ann_topn_cache_hit_cnt, stats.ann_index_topn_cache_hits);
 
     // Detailed ANN timers
     // ANN TopN timers with hierarchy
