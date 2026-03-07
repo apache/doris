@@ -27,13 +27,13 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class PaimonMetricRegistry extends MetricRegistry {
+public class PaimonMetricRegistry implements MetricRegistry {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonMetricRegistry.class);
     private static final String TABLE_TAG_KEY = "table";
     private final ConcurrentHashMap<String, MetricGroup> groups = new ConcurrentHashMap<>();
 
     @Override
-    protected MetricGroup createMetricGroup(String name, Map<String, String> tags) {
+    public MetricGroup createMetricGroup(String name, Map<String, String> tags) {
         MetricGroup group = new MetricGroupImpl(name, tags);
         String table = tags == null ? "" : tags.getOrDefault(TABLE_TAG_KEY, "");
         groups.put(buildKey(name, table), group);
