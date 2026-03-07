@@ -812,7 +812,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否禁用存储介质检查。如果禁用，ReportHandler 将不会检查 tablet 的存储介质，"
                     + "并且禁用存储介质冷却功能。默认值为 false。",
-            "When disable_storage_medium_check is true, ReportHandler would not check tablet's storage medium "
+            "When disable_storage_medium_check is true, ReportHandler would not check tablet's stor5rage medium "
                     + "and disable storage cool down function."})
     public static boolean disable_storage_medium_check = false;
 

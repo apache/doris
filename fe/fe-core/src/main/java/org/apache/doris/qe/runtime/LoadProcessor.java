@@ -86,7 +86,7 @@ public class LoadProcessor extends AbstractJobProcessor {
     @Override
     protected void afterSetPipelineExecutionTask(PipelineExecutionTask pipelineExecutionTask) {
         Map<BackendFragmentId, SingleFragmentPipelineTask> backendFragmentTasks = this.backendFragmentTasks.get();
-        MarkedCountDownLatch<Integer, Long> latch = new MarkedCountDownLatch<>(backendFragmentTasks.size());
+        MarkedCountDownLatch<Integer, Long> latch = new MarkedCountDownLatch<>();
         for (BackendFragmentId backendFragmentId : backendFragmentTasks.keySet()) {
             latch.addMark(backendFragmentId.fragmentId, backendFragmentId.backendId);
         }
@@ -108,7 +108,7 @@ public class LoadProcessor extends AbstractJobProcessor {
         this.topFragmentTasks = topFragmentTasks;
 
         // only wait top fragments
-        MarkedCountDownLatch<Integer, Long> topFragmentLatch = new MarkedCountDownLatch<>(topFragmentTasks.size());
+        MarkedCountDownLatch<Integer, Long> topFragmentLatch = new MarkedCountDownLatch<>();
         for (SingleFragmentPipelineTask topFragmentTask : topFragmentTasks) {
             topFragmentLatch.addMark(topFragmentTask.getFragmentId(), topFragmentTask.getBackend().getId());
         }
@@ -126,7 +126,7 @@ public class LoadProcessor extends AbstractJobProcessor {
     }
 
     public boolean isDone() {
-        return latch.map(l -> l.getCount() == 0).orElse(false);
+        return latch.map(l -> l.getMarkCount() == 0).orElse(false);
     }
 
     public boolean join(int timeoutS) {
@@ -248,7 +248,7 @@ public class LoadProcessor extends AbstractJobProcessor {
             if (topFragmentId == params.getFragmentId()) {
                 MarkedCountDownLatch<Integer, Long> topFragmentLatch = this.topFragmentLatch.get();
                 topFragmentLatch.markedCountDown(params.getFragmentId(), params.getBackendId());
-                if (topFragmentLatch.getCount() == 0) {
+                if (topFragmentLatch.getMarkCount() == 0) {
                     tryFinishSchedule();
                 }
             }

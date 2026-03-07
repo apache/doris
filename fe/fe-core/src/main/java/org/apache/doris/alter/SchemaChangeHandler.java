@@ -2498,8 +2498,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     for (Tablet tablet : index.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
                             ClearAlterTask alterTask = new ClearAlterTask(replica.getBackendIdWithoutException(),
-                                    db.getId(), olapTable.getId(), partition.getId(),
-                                    index.getId(), tablet.getId(), schemaHash);
+                                    db.getId(), olapTable.getId(), partition.getId(), index.getId(),
+                                    tablet.getId(), replica.getId(), schemaHash);
                             batchTask.addTask(alterTask);
                         }
                     }
@@ -2784,7 +2784,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         int totalTaskNum = beIdToTabletIdWithHash.keySet().size();
-        MarkedCountDownLatch<Long, Set<Pair<Long, Integer>>> countDownLatch = new MarkedCountDownLatch<>(totalTaskNum);
+        MarkedCountDownLatch<Long, Set<Pair<Long, Integer>>> countDownLatch = new MarkedCountDownLatch<>();
         AgentBatchTask batchTask = new AgentBatchTask();
         for (Map.Entry<Long, Set<Pair<Long, Integer>>> kv : beIdToTabletIdWithHash.entrySet()) {
             countDownLatch.addMark(kv.getKey(), kv.getValue());
@@ -2820,7 +2820,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 } else {
                     // only show at most 3 results
                     List<String> subList = countDownLatch.getLeftMarks().stream().limit(3)
-                            .map(item -> "(backendId = " + item.getKey() + ", tabletsWithHash = "
+                            .map(item -> "(markKey = " + item.getKey() + ", tabletsWithHash = "
                                     + item.getValue() + ")")
                             .collect(Collectors.toList());
                     if (!subList.isEmpty()) {

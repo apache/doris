@@ -190,7 +190,9 @@ public class CheckConsistencyJob {
                                                                      tabletMeta.getTableId(),
                                                                      tabletMeta.getPartitionId(),
                                                                      tabletMeta.getIndexId(),
-                                                                     tabletId, checkedSchemaHash,
+                                                                     tabletId,
+                                                                     replica.getId(),
+                                                                     checkedSchemaHash,
                                                                      checkedVersion);
 
                 // add task to send
