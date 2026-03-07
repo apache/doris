@@ -21,7 +21,6 @@ import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
 
 import com.google.common.util.concurrent.MoreExecutors;
-
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
