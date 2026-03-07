@@ -24,6 +24,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.exceptions.SyntaxParseException;
@@ -1532,11 +1533,17 @@ public class NereidsParserTest extends ParserTestBase {
 
             // double-quoted identifier should be parsed as identifier, not string
             LogicalPlan plan = nereidsParser.parseSingle("SELECT \"col1\" FROM \"tbl\"");
-            Assertions.assertTrue(plan instanceof LogicalPlanAdapter);
+            Assertions.assertEquals(PlanType.LOGICAL_PROJECT, plan.getType());
+            LogicalProject<?> logicalProject = (LogicalProject<?>) plan;
+            Assertions.assertEquals("col1", logicalProject.getProjects().get(0).getName());
+            Assertions.assertEquals("tbl", ((UnboundRelation) logicalProject.child()).getTableName());
 
             // backtick-quoted identifier should still work
             LogicalPlan plan2 = nereidsParser.parseSingle("SELECT `col1` FROM `tbl`");
-            Assertions.assertTrue(plan2 instanceof LogicalPlanAdapter);
+            Assertions.assertEquals(PlanType.LOGICAL_PROJECT, plan2.getType());
+            LogicalProject<?> logicalProject2 = (LogicalProject<?>) plan2;
+            Assertions.assertEquals("col1", logicalProject2.getProjects().get(0).getName());
+            Assertions.assertEquals("tbl", ((UnboundRelation) logicalProject2.child()).getTableName());
 
             // single-quoted string should still be a string literal
             Expression expr = nereidsParser.parseExpression("'hello'");
@@ -1545,7 +1552,10 @@ public class NereidsParserTest extends ParserTestBase {
 
             // double-quoted with escaped quotes: "col""name" -> col"name
             LogicalPlan plan3 = nereidsParser.parseSingle("SELECT \"col\"\"name\" FROM t");
-            Assertions.assertTrue(plan3 instanceof LogicalPlanAdapter);
+            Assertions.assertEquals(PlanType.LOGICAL_PROJECT, plan3.getType());
+            LogicalProject<?> logicalProject3 = (LogicalProject<?>) plan3;
+            Assertions.assertEquals("col\"name", logicalProject3.getProjects().get(0).getName());
+            Assertions.assertEquals("t", ((UnboundRelation) logicalProject3.child()).getTableName());
         }
     }
 
