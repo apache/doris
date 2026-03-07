@@ -25,6 +25,10 @@ import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.StandardCharsets;
 import java.sql.Clob;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -108,12 +112,29 @@ public class OracleTypeHandler extends DefaultTypeHandler {
                             return null;
                         }
                     } else if (input instanceof byte[]) {
-                        return defaultByteArrayToHexString((byte[]) input);
+                        return convertByteArrayToString((byte[]) input);
                     }
                     return input.toString();
                 }, String.class);
             default:
                 return null;
+        }
+    }
+
+    /**
+     * Oracle RAW type returns byte[]. Try to decode as UTF-8 first;
+     * if it's not valid UTF-8, fall back to hex string with "0x" prefix.
+     * This matches the behavior of the old OracleJdbcExecutor.
+     */
+    private static String convertByteArrayToString(byte[] bytes) {
+        CharsetDecoder utf8Decoder = StandardCharsets.UTF_8.newDecoder();
+        try {
+            utf8Decoder.decode(ByteBuffer.wrap(bytes));
+            // Valid UTF-8, return as string
+            return new String(bytes, StandardCharsets.UTF_8);
+        } catch (CharacterCodingException e) {
+            // Not valid UTF-8, return as hex string
+            return defaultByteArrayToHexString(bytes);
         }
     }
 

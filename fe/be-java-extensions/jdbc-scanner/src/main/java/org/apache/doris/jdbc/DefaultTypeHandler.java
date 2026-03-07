@@ -130,13 +130,18 @@ public class DefaultTypeHandler implements JdbcTypeHandler {
 
     /**
      * Convert java.sql.Time to a properly formatted String.
-     * Handles times > 24 hours (which some databases support).
+     * Preserves millisecond precision when present (e.g., "16:49:05.123").
      */
     protected static String timeToString(java.sql.Time time) {
         if (time == null) {
             return null;
         }
-        return time.toString();
+        long milliseconds = time.getTime() % 1000L;
+        if (milliseconds > 0) {
+            return String.format("%s.%03d", time, milliseconds);
+        } else {
+            return time.toString();
+        }
     }
 
     /**
