@@ -766,7 +766,7 @@ inline size_t TabletMeta::version_count() const {
 }
 
 inline size_t TabletMeta::stale_version_count() const {
-    return _rs_metas.size();
+    return _stale_rs_metas.size();
 }
 
 inline TabletState TabletMeta::tablet_state() const {
