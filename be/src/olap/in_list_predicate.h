@@ -115,8 +115,15 @@ public:
         }
         HybridSetBase::IteratorBase* iter = _values->begin();
         while (iter->has_next()) {
-            const T* value = (const T*)(iter->get_value());
-            _update_min_max(*value);
+            if constexpr (is_string_type(Type)) {
+                // get_value() returns StringRef*, not std::string*
+                const auto* ref = (const StringRef*)(iter->get_value());
+                T str(ref->data, ref->size);
+                _update_min_max(str);
+            } else {
+                const T* value = (const T*)(iter->get_value());
+                _update_min_max(*value);
+            }
             iter->next();
         }
     }
@@ -169,12 +176,18 @@ public:
         roaring::Roaring indices;
         HybridSetBase::IteratorBase* iter = _values->begin();
         while (iter->has_next()) {
-            const void* ptr = iter->get_value();
-            //            auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(
-            //                    *reinterpret_cast<const T*>(ptr));
             std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
-            RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value<Type>((const T*)ptr,
-                                                                                     query_param));
+            if constexpr (is_string_type(Type)) {
+                // get_value() returns StringRef*, not std::string*
+                const auto* ref = (const StringRef*)(iter->get_value());
+                T str(ref->data, ref->size);
+                RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value<Type>(
+                        &str, query_param));
+            } else {
+                const T* value = (const T*)(iter->get_value());
+                RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value<Type>(
+                        value, query_param));
+            }
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             InvertedIndexParam param;
             param.column_name = name_with_type.first;
@@ -417,44 +430,43 @@ public:
         if constexpr (PT == PredicateType::IN_LIST) {
             HybridSetBase::IteratorBase* iter = _values->begin();
             while (iter->has_next()) {
-                const T* value = (const T*)(iter->get_value());
-
                 auto test_bytes = [&]<typename V>(const V& val) {
                     return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&val)),
                                           sizeof(V));
                 };
 
-                // Small integers (TINYINT, SMALLINT, INTEGER) -> hash as int32
-                if constexpr (Type == PrimitiveType::TYPE_TINYINT ||
-                              Type == PrimitiveType::TYPE_SMALLINT ||
-                              Type == PrimitiveType::TYPE_INT) {
-                    int32_t int32_value = static_cast<int32_t>(*value);
-                    if (test_bytes(int32_value)) {
-                        return true;
-                    }
-                } else if constexpr (Type == PrimitiveType::TYPE_BIGINT) {
-                    // BIGINT -> hash as int64
-                    if (test_bytes(*value)) {
-                        return true;
-                    }
-                } else if constexpr (Type == PrimitiveType::TYPE_DOUBLE) {
-                    // DOUBLE -> hash as double
-                    if (test_bytes(*value)) {
-                        return true;
-                    }
-                } else if constexpr (Type == PrimitiveType::TYPE_FLOAT) {
-                    // FLOAT -> hash as float
-                    if (test_bytes(*value)) {
-                        return true;
-                    }
-                } else if constexpr (is_string_type(Type)) {
-                    // VARCHAR/STRING -> hash bytes
-                    if (bf->test_bytes(value->data(), value->size())) {
+                if constexpr (is_string_type(Type)) {
+                    // get_value() returns StringRef*, not std::string*
+                    const auto* ref = (const StringRef*)(iter->get_value());
+                    if (bf->test_bytes(ref->data, ref->size)) {
                         return true;
                     }
                 } else {
-                    // Unsupported types: return true (accept)
-                    return true;
+                    const T* value = (const T*)(iter->get_value());
+                    // Small integers (TINYINT, SMALLINT, INTEGER) -> hash as int32
+                    if constexpr (Type == PrimitiveType::TYPE_TINYINT ||
+                                  Type == PrimitiveType::TYPE_SMALLINT ||
+                                  Type == PrimitiveType::TYPE_INT) {
+                        int32_t int32_value = static_cast<int32_t>(*value);
+                        if (test_bytes(int32_value)) {
+                            return true;
+                        }
+                    } else if constexpr (Type == PrimitiveType::TYPE_BIGINT) {
+                        if (test_bytes(*value)) {
+                            return true;
+                        }
+                    } else if constexpr (Type == PrimitiveType::TYPE_DOUBLE) {
+                        if (test_bytes(*value)) {
+                            return true;
+                        }
+                    } else if constexpr (Type == PrimitiveType::TYPE_FLOAT) {
+                        if (test_bytes(*value)) {
+                            return true;
+                        }
+                    } else {
+                        // Unsupported types: return true (accept)
+                        return true;
+                    }
                 }
                 iter->next();
             }
