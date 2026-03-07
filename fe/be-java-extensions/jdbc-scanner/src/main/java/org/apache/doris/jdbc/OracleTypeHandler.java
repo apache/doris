@@ -29,6 +29,7 @@ import java.sql.Clob;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -80,6 +81,10 @@ public class OracleTypeHandler extends DefaultTypeHandler {
                 return rs.getObject(columnIndex);
             case VARBINARY:
                 return rs.getBytes(columnIndex);
+            case TIMESTAMPTZ: {
+                Timestamp ts = rs.getObject(columnIndex, Timestamp.class);
+                return ts == null ? null : LocalDateTime.ofInstant(ts.toInstant(), java.time.ZoneOffset.UTC);
+            }
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
         }
