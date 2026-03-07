@@ -57,11 +57,6 @@ public:
     ~MaxComputeJniReader() override = default;
 
     Status init_reader();
-
-private:
-    const MaxComputeTableDescriptor* _table_desc = nullptr;
-    const TMaxComputeFileDesc& _max_compute_params;
-    const TFileRangeDesc& _range;
 };
 
 #include "common/compile_check_end.h"

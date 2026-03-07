@@ -28,7 +28,7 @@
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
 #include "vec/core/block.h"
-#include "vec/exec/jni_connector.h"
+#include "vec/exec/jni_data_bridge.h"
 
 const char* EXECUTOR_CLASS = "org/apache/doris/udf/UdfExecutor";
 const char* EXECUTOR_CTOR_SIGNATURE = "([B)V";
@@ -90,8 +90,8 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
             context->get_function_state(FunctionContext::THREAD_LOCAL));
     SCOPED_TIMER(context->get_udf_execute_timer());
     std::unique_ptr<long[]> input_table;
-    RETURN_IF_ERROR(JniConnector::to_java_table(&block, num_rows, arguments, input_table));
-    auto input_table_schema = JniConnector::parse_table_schema(&block, arguments, true);
+    RETURN_IF_ERROR(JniDataBridge::to_java_table(&block, num_rows, arguments, input_table));
+    auto input_table_schema = JniDataBridge::parse_table_schema(&block, arguments, true);
     std::map<String, String> input_params = {
             {"meta_address", std::to_string((long)input_table.get())},
             {"required_fields", input_table_schema.first},
@@ -99,7 +99,7 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
     Jni::LocalObject input_map;
 
     RETURN_IF_ERROR(Jni::Util::convert_to_java_map(env, input_params, &input_map));
-    auto output_table_schema = JniConnector::parse_table_schema(&block, {result}, true);
+    auto output_table_schema = JniDataBridge::parse_table_schema(&block, {result}, true);
     std::string output_nullable =
             block.get_by_position(result).type->is_nullable() ? "true" : "false";
     std::map<String, String> output_params = {{"is_nullable", output_nullable},
@@ -113,7 +113,7 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
                             .with_arg(output_map)
                             .call(&output_address));
 
-    return JniConnector::fill_block(&block, {result}, output_address);
+    return JniDataBridge::fill_block(&block, {result}, output_address);
 }
 
 Status JavaFunctionCall::close(FunctionContext* context,

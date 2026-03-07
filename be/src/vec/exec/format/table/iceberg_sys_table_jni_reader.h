@@ -52,9 +52,6 @@ public:
     ~IcebergSysTableJniReader() override = default;
 
     Status init_reader();
-
-private:
-    const TMetaScanRange& _meta_scan_range;
 };
 
 #include "common/compile_check_end.h"

@@ -36,7 +36,6 @@
 #include "util/arrow/row_batch.h"
 #include "util/timezone_utils.h"
 #include "vec/core/block.h"
-#include "vec/exec/jni_connector.h"
 
 namespace doris::vectorized {
 

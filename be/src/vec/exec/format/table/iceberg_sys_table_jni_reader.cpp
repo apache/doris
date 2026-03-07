@@ -19,6 +19,7 @@
 
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
+#include "vec/exec/jni_data_bridge.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -28,32 +29,37 @@ static const std::string HADOOP_OPTION_PREFIX = "hadoop.";
 IcebergSysTableJniReader::IcebergSysTableJniReader(
         const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
         RuntimeProfile* profile, const TMetaScanRange& meta_scan_range)
-        : JniReader(file_slot_descs, state, profile), _meta_scan_range(meta_scan_range) {}
+        : JniReader(
+                  file_slot_descs, state, profile,
+                  "org/apache/doris/iceberg/IcebergSysTableJniScanner",
+                  [&]() {
+                      std::vector<std::string> required_fields;
+                      std::vector<std::string> required_types;
+                      for (const auto& desc : file_slot_descs) {
+                          required_fields.emplace_back(desc->col_name());
+                          required_types.emplace_back(
+                                  JniDataBridge::get_jni_type_with_different_string(desc->type()));
+                      }
+                      std::map<std::string, std::string> params;
+                      params["serialized_splits"] = join(meta_scan_range.serialized_splits, ",");
+                      params["required_fields"] = join(required_fields, ",");
+                      params["required_types"] = join(required_types, "#");
+                      params["time_zone"] = state->timezone();
+                      for (const auto& kv : meta_scan_range.hadoop_props) {
+                          params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
+                      }
+                      return params;
+                  }(),
+                  [&]() {
+                      std::vector<std::string> names;
+                      for (const auto& desc : file_slot_descs) {
+                          names.emplace_back(desc->col_name());
+                      }
+                      return names;
+                  }()) {}
 
 Status IcebergSysTableJniReader::init_reader() {
-    std::vector<std::string> required_fields;
-    std::vector<std::string> required_types;
-    for (const auto& desc : _file_slot_descs) {
-        required_fields.emplace_back(desc->col_name());
-        required_types.emplace_back(JniConnector::get_jni_type_with_different_string(desc->type()));
-    }
-    std::map<std::string, std::string> params;
-    // "," is not in base64
-    params["serialized_splits"] = join(_meta_scan_range.serialized_splits, ",");
-    params["required_fields"] = join(required_fields, ",");
-    params["required_types"] = join(required_types, "#");
-    params["time_zone"] = _state->timezone();
-    for (const auto& kv : _meta_scan_range.hadoop_props) {
-        params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
-    }
-    _jni_connector =
-            std::make_unique<JniConnector>("org/apache/doris/iceberg/IcebergSysTableJniScanner",
-                                           std::move(params), required_fields);
-    if (_jni_connector == nullptr) {
-        return Status::InternalError("JniConnector failed to initialize");
-    }
-    RETURN_IF_ERROR(_jni_connector->init());
-    return _jni_connector->open(_state, _profile);
+    return open(_state, _profile);
 }
 
 #include "common/compile_check_end.h"

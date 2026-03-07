@@ -20,6 +20,7 @@
 #include <gen_cpp/Types_types.h>
 #include <stdint.h>
 
+#include <map>
 #include <memory>
 #include <string>
 
@@ -28,8 +29,8 @@
 #include "common/status.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "util/runtime_profile.h"
+#include "vec/exec/format/table/jdbc_jni_reader.h"
 #include "vec/exec/scan/scanner.h"
-#include "vec/exec/vjdbc_connector.h"
 
 namespace doris {
 class RuntimeState;
@@ -39,11 +40,27 @@ namespace vectorized {
 class Block;
 class VExprContext;
 
+/**
+ * DEPRECATED: This class is transitional and should be removed once JDBC scanning
+ * is fully integrated into the FileScanner path.
+ *
+ * JdbcScanner is the pipeline-level scanner for JDBC data sources.
+ * It delegates to JdbcJniReader internally, which uses the unified
+ * JniReader → JdbcJniScanner (Java) path for data reading.
+ *
+ * Prerequisites before deletion:
+ * 1. FE: Change JdbcScanNode to generate FileScanNode plan with TFileFormatType::FORMAT_JDBC,
+ *    so JDBC scans flow through FileScanner instead of JDBCScanLocalState → JdbcScanner.
+ * 2. BE: Add FORMAT_JDBC case in FileScanner::_create_reader() to create JdbcJniReader
+ *    (similar to Paimon/Hudi/MaxCompute/TrinoConnector).
+ * 3. BE: Remove JDBCScanLocalState / jdbc_scan_operator.h/cpp which depend on this class.
+ * 4. After the above, this file (jdbc_scanner.h/cpp) can be safely deleted.
+ */
 class JdbcScanner : public Scanner {
     ENABLE_FACTORY_CREATOR(JdbcScanner);
 
 public:
-    friend class JdbcConnector;
+    friend class JdbcJniReader;
 
     JdbcScanner(RuntimeState* state, doris::pipeline::JDBCScanLocalState* parent, int64_t limit,
                 const TupleId& tuple_id, const std::string& query_string,
@@ -56,22 +73,41 @@ public:
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
-    RuntimeProfile::Counter* _load_jar_timer = nullptr;
-    RuntimeProfile::Counter* _init_connector_timer = nullptr;
-    RuntimeProfile::Counter* _get_data_timer = nullptr;
-    RuntimeProfile::Counter* _jni_setup_timer = nullptr;
-    RuntimeProfile::Counter* _has_next_timer = nullptr;
-    RuntimeProfile::Counter* _prepare_params_timer = nullptr;
-    RuntimeProfile::Counter* _cast_timer = nullptr;
-    RuntimeProfile::Counter* _read_and_fill_vector_table_timer = nullptr;
-    RuntimeProfile::Counter* _fill_block_timer = nullptr;
-    RuntimeProfile::Counter* _check_type_timer = nullptr;
-    RuntimeProfile::Counter* _execte_read_timer = nullptr;
-    RuntimeProfile::Counter* _connector_close_timer = nullptr;
-
 private:
-    void _init_profile(const std::shared_ptr<RuntimeProfile>& profile);
-    void _update_profile();
+    // Build JDBC params from TupleDescriptor for JdbcJniReader
+    std::map<std::string, std::string> _build_jdbc_params(const TupleDescriptor* tuple_desc);
+
+    // Convert TOdbcTableType enum to string for JdbcTypeHandlerFactory
+    static std::string _odbc_table_type_to_string(TOdbcTableType::type type) {
+        switch (type) {
+        case TOdbcTableType::MYSQL:
+            return "MYSQL";
+        case TOdbcTableType::ORACLE:
+            return "ORACLE";
+        case TOdbcTableType::POSTGRESQL:
+            return "POSTGRESQL";
+        case TOdbcTableType::SQLSERVER:
+            return "SQLSERVER";
+        case TOdbcTableType::CLICKHOUSE:
+            return "CLICKHOUSE";
+        case TOdbcTableType::SAP_HANA:
+            return "SAP_HANA";
+        case TOdbcTableType::TRINO:
+            return "TRINO";
+        case TOdbcTableType::PRESTO:
+            return "PRESTO";
+        case TOdbcTableType::OCEANBASE:
+            return "OCEANBASE";
+        case TOdbcTableType::OCEANBASE_ORACLE:
+            return "OCEANBASE_ORACLE";
+        case TOdbcTableType::DB2:
+            return "DB2";
+        case TOdbcTableType::GBASE:
+            return "GBASE";
+        default:
+            return "MYSQL";
+        }
+    }
 
     bool _jdbc_eos;
 
@@ -81,12 +117,11 @@ private:
     std::string _query_string;
     // Descriptor of tuples read from JDBC table.
     const TupleDescriptor* _tuple_desc = nullptr;
-    // the sql query database type: like mysql, PG...
+    // the sql query database type: like mysql, PG..
     TOdbcTableType::type _table_type;
     bool _is_tvf;
-    // Scanner of JDBC.
-    std::unique_ptr<JdbcConnector> _jdbc_connector;
-    JdbcConnectorParam _jdbc_param;
+    // Unified JNI reader
+    std::unique_ptr<JdbcJniReader> _jni_reader;
 };
 } // namespace vectorized
 } // namespace doris

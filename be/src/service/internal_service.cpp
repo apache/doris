@@ -41,7 +41,7 @@
 #include <stdint.h>
 #include <sys/stat.h>
 #include <vec/data_types/data_type.h>
-#include <vec/exec/vjdbc_connector.h>
+#include <vec/exec/format/jni_reader.h>
 #include <vec/sink/varrow_flight_result_writer.h>
 
 #include <algorithm>
@@ -107,6 +107,7 @@
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
 #include "util/doris_metrics.h"
+#include "util/jdbc_utils.h"
 #include "util/md5.h"
 #include "util/metrics.h"
 #include "util/network_util.h"
@@ -119,7 +120,6 @@
 #include "util/uid_util.h"
 #include "vec/common/variant_util.h"
 #include "vec/core/block.h"
-#include "vec/exec/format/avro//avro_jni_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
@@ -867,11 +867,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
                                                               file_slots, io_ctx.get(), io_ctx);
             break;
         }
-        case TFileFormatType::FORMAT_AVRO: {
-            reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
-                                                              file_slots);
-            break;
-        }
+
         default:
             st = Status::InternalError("Not supported file format in fetch table schema: {}",
                                        params.format_type);
@@ -991,7 +987,6 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
                 fmt::format("InternalService::test_jdbc_connection"));
         SCOPED_ATTACH_TASK(mem_tracker);
         TTableDescriptor table_desc;
-        vectorized::JdbcConnectorParam jdbc_param;
         Status st = Status::OK();
         {
             const uint8_t* buf = (const uint8_t*)request->jdbc_table().data();
@@ -1004,35 +999,96 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
             }
         }
         TJdbcTable jdbc_table = (table_desc.jdbcTable);
-        jdbc_param.catalog_id = jdbc_table.catalog_id;
-        jdbc_param.driver_class = jdbc_table.jdbc_driver_class;
-        jdbc_param.driver_path = jdbc_table.jdbc_driver_url;
-        jdbc_param.driver_checksum = jdbc_table.jdbc_driver_checksum;
-        jdbc_param.jdbc_url = jdbc_table.jdbc_url;
-        jdbc_param.user = jdbc_table.jdbc_user;
-        jdbc_param.passwd = jdbc_table.jdbc_password;
-        jdbc_param.query_string = request->query_str();
-        jdbc_param.table_type = static_cast<TOdbcTableType::type>(request->jdbc_table_type());
-        jdbc_param.use_transaction = false;
-        jdbc_param.connection_pool_min_size = jdbc_table.connection_pool_min_size;
-        jdbc_param.connection_pool_max_size = jdbc_table.connection_pool_max_size;
-        jdbc_param.connection_pool_max_life_time = jdbc_table.connection_pool_max_life_time;
-        jdbc_param.connection_pool_max_wait_time = jdbc_table.connection_pool_max_wait_time;
-        jdbc_param.connection_pool_keep_alive = jdbc_table.connection_pool_keep_alive;
 
-        std::unique_ptr<vectorized::JdbcConnector> jdbc_connector;
-        jdbc_connector.reset(new (std::nothrow) vectorized::JdbcConnector(jdbc_param));
+        // Resolve driver URL to absolute file:// path
+        std::string driver_url;
+        st = JdbcUtils::resolve_driver_url(jdbc_table.jdbc_driver_url, &driver_url);
+        if (!st.ok()) {
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
 
-        st = jdbc_connector->test_connection();
+        // Build params for JdbcConnectionTester
+        std::map<std::string, std::string> params;
+        params["jdbc_url"] = jdbc_table.jdbc_url;
+        params["jdbc_user"] = jdbc_table.jdbc_user;
+        params["jdbc_password"] = jdbc_table.jdbc_password;
+        params["jdbc_driver_class"] = jdbc_table.jdbc_driver_class;
+        params["jdbc_driver_url"] = driver_url;
+        params["query_sql"] = request->query_str();
+        params["catalog_id"] = std::to_string(jdbc_table.catalog_id);
+        params["connection_pool_min_size"] = std::to_string(jdbc_table.connection_pool_min_size);
+        params["connection_pool_max_size"] = std::to_string(jdbc_table.connection_pool_max_size);
+        params["connection_pool_max_wait_time"] =
+                std::to_string(jdbc_table.connection_pool_max_wait_time);
+        params["connection_pool_max_life_time"] =
+                std::to_string(jdbc_table.connection_pool_max_life_time);
+        params["connection_pool_keep_alive"] =
+                jdbc_table.connection_pool_keep_alive ? "true" : "false";
+        params["clean_datasource"] = "true";
+        // Map jdbc_table_type (TOdbcTableType enum value) to string name
+        // for JdbcTypeHandlerFactory to select the correct type handler.
+        // This ensures the right validation query is used (e.g. Oracle: "SELECT 1 FROM dual").
+        if (request->has_jdbc_table_type()) {
+            std::string type_name;
+            switch (request->jdbc_table_type()) {
+            case 0:
+                type_name = "MYSQL";
+                break;
+            case 1:
+                type_name = "ORACLE";
+                break;
+            case 2:
+                type_name = "POSTGRESQL";
+                break;
+            case 3:
+                type_name = "SQLSERVER";
+                break;
+            case 6:
+                type_name = "CLICKHOUSE";
+                break;
+            case 7:
+                type_name = "SAP_HANA";
+                break;
+            case 8:
+                type_name = "TRINO";
+                break;
+            case 9:
+                type_name = "PRESTO";
+                break;
+            case 10:
+                type_name = "OCEANBASE";
+                break;
+            case 11:
+                type_name = "OCEANBASE_ORACLE";
+                break;
+            case 13:
+                type_name = "DB2";
+                break;
+            case 14:
+                type_name = "GBASE";
+                break;
+            default:
+                break;
+            }
+            if (!type_name.empty()) {
+                params["table_type"] = type_name;
+            }
+        }
+        // required_fields and columns_types are required by JniReader
+        params["required_fields"] = "result";
+        params["columns_types"] = "int";
+
+        // Use JniReader to create JdbcConnectionTester, which tests
+        // the connection in its open() method.
+        auto jni_reader = std::make_unique<vectorized::JniReader>(
+                "org/apache/doris/jdbc/JdbcConnectionTester", params);
+        st = jni_reader->open(nullptr, nullptr);
         st.to_protobuf(result->mutable_status());
 
-        Status clean_st = jdbc_connector->clean_datasource();
-        if (!clean_st.ok()) {
-            LOG(WARNING) << "Failed to clean JDBC datasource: " << clean_st.msg();
-        }
-        Status close_st = jdbc_connector->close();
+        Status close_st = jni_reader->close();
         if (!close_st.ok()) {
-            LOG(WARNING) << "Failed to close JDBC connector: " << close_st.msg();
+            LOG(WARNING) << "Failed to close JDBC connection tester: " << close_st.msg();
         }
     });
 

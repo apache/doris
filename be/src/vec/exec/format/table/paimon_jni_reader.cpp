@@ -23,6 +23,8 @@
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "vec/core/types.h"
+#include "vec/exec/jni_data_bridge.h"
+
 namespace doris {
 class RuntimeProfile;
 class RuntimeState;
@@ -41,53 +43,58 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
                                  RuntimeState* state, RuntimeProfile* profile,
                                  const TFileRangeDesc& range,
                                  const TFileScanRangeParams* range_params)
-        : JniReader(file_slot_descs, state, profile) {
-    std::vector<std::string> column_names;
-    std::vector<std::string> column_types;
-    for (const auto& desc : _file_slot_descs) {
-        column_names.emplace_back(desc->col_name());
-        column_types.emplace_back(JniConnector::get_jni_type_with_different_string(desc->type()));
-    }
-    const auto& paimon_params = range.table_format_params.paimon_params;
-    std::map<String, String> params;
-    params["paimon_split"] = paimon_params.paimon_split;
-    if (range_params->__isset.paimon_predicate && !range_params->paimon_predicate.empty()) {
-        params["paimon_predicate"] = range_params->paimon_predicate;
-    } else if (paimon_params.__isset.paimon_predicate) {
-        // Fallback to split level paimon_predicate for backward compatibility
-        params["paimon_predicate"] = paimon_params.paimon_predicate;
-    }
-    params["required_fields"] = join(column_names, ",");
-    params["columns_types"] = join(column_types, "#");
-    params["time_zone"] = _state->timezone();
-    if (range_params->__isset.serialized_table) {
-        params["serialized_table"] = range_params->serialized_table;
-    }
+        : JniReader(
+                  file_slot_descs, state, profile, "org/apache/doris/paimon/PaimonJniScanner",
+                  [&]() {
+                      std::vector<std::string> column_names;
+                      std::vector<std::string> column_types;
+                      for (const auto& desc : file_slot_descs) {
+                          column_names.emplace_back(desc->col_name());
+                          column_types.emplace_back(
+                                  JniDataBridge::get_jni_type_with_different_string(desc->type()));
+                      }
+                      const auto& paimon_params = range.table_format_params.paimon_params;
+                      std::map<String, String> params;
+                      params["paimon_split"] = paimon_params.paimon_split;
+                      if (range_params->__isset.paimon_predicate &&
+                          !range_params->paimon_predicate.empty()) {
+                          params["paimon_predicate"] = range_params->paimon_predicate;
+                      } else if (paimon_params.__isset.paimon_predicate) {
+                          params["paimon_predicate"] = paimon_params.paimon_predicate;
+                      }
+                      params["required_fields"] = join(column_names, ",");
+                      params["columns_types"] = join(column_types, "#");
+                      params["time_zone"] = state->timezone();
+                      if (range_params->__isset.serialized_table) {
+                          params["serialized_table"] = range_params->serialized_table;
+                      }
+                      for (const auto& kv : paimon_params.paimon_options) {
+                          params[PAIMON_OPTION_PREFIX + kv.first] = kv.second;
+                      }
+                      if (range_params->__isset.properties && !range_params->properties.empty()) {
+                          for (const auto& kv : range_params->properties) {
+                              params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
+                          }
+                      } else if (paimon_params.__isset.hadoop_conf) {
+                          for (const auto& kv : paimon_params.hadoop_conf) {
+                              params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
+                          }
+                      }
+                      return params;
+                  }(),
+                  [&]() {
+                      std::vector<std::string> names;
+                      for (const auto& desc : file_slot_descs) {
+                          names.emplace_back(desc->col_name());
+                      }
+                      return names;
+                  }(),
+                  range.__isset.self_split_weight ? range.self_split_weight : -1) {
     if (range.table_format_params.__isset.table_level_row_count) {
         _remaining_table_level_row_count = range.table_format_params.table_level_row_count;
     } else {
         _remaining_table_level_row_count = -1;
     }
-
-    // Used to create paimon option
-    for (const auto& kv : paimon_params.paimon_options) {
-        params[PAIMON_OPTION_PREFIX + kv.first] = kv.second;
-    }
-    // Prefer hadoop conf from scan node level (range_params->properties) over split level
-    // to avoid redundant configuration in each split
-    if (range_params->__isset.properties && !range_params->properties.empty()) {
-        for (const auto& kv : range_params->properties) {
-            params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
-        }
-    } else if (paimon_params.__isset.hadoop_conf) {
-        // Fallback to split level hadoop conf for backward compatibility
-        for (const auto& kv : paimon_params.hadoop_conf) {
-            params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
-        }
-    }
-    int64_t self_split_weight = range.__isset.self_split_weight ? range.self_split_weight : -1;
-    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/paimon/PaimonJniScanner",
-                                                    params, column_names, self_split_weight);
 }
 
 Status PaimonJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
@@ -107,12 +114,11 @@ Status PaimonJniReader::get_next_block(Block* block, size_t* read_rows, bool* eo
 
         return Status::OK();
     }
-    return _jni_connector->get_next_block(block, read_rows, eof);
+    return JniReader::get_next_block(block, read_rows, eof);
 }
 
 Status PaimonJniReader::init_reader() {
-    RETURN_IF_ERROR(_jni_connector->init());
-    return _jni_connector->open(_state, _profile);
+    return open(_state, _profile);
 }
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

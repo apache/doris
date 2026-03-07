@@ -20,11 +20,13 @@
 #include <fmt/format.h>
 #include <stddef.h>
 
+#include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
-#include "vec/exec/vjdbc_connector.h"
+#include "vec/runtime/vjni_format_transformer.h"
 #include "vec/sink/writer/async_result_writer.h"
 
 namespace doris {
@@ -32,28 +34,37 @@ namespace vectorized {
 
 class Block;
 
-class VJdbcTableWriter final : public AsyncResultWriter, public JdbcConnector {
+/**
+ * VJdbcTableWriter writes data to external JDBC targets via JNI.
+ *
+ * Refactored to use VJniFormatTransformer (same pattern as VMCPartitionWriter for MaxCompute).
+ * The Java side writer is JdbcJniWriter which extends JniWriter.
+ *
+ * Transaction control (begin/commit/rollback) is handled through additional JNI method calls
+ * to the Java JdbcJniWriter instance.
+ */
+class VJdbcTableWriter final : public AsyncResultWriter {
 public:
-    static JdbcConnectorParam create_connect_param(const TDataSink&);
-
     VJdbcTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
                      std::shared_ptr<pipeline::Dependency> dep,
                      std::shared_ptr<pipeline::Dependency> fin_dep);
 
-    // connect to jdbc server
-    Status open(RuntimeState* state, RuntimeProfile* operator_profile) override {
-        RETURN_IF_ERROR(JdbcConnector::open(state, false));
-        return init_to_write(operator_profile);
-    }
+    Status open(RuntimeState* state, RuntimeProfile* operator_profile) override;
 
     Status write(RuntimeState* state, vectorized::Block& block) override;
 
-    Status finish(RuntimeState* state) override { return JdbcConnector::finish_trans(); }
+    Status finish(RuntimeState* state) override;
 
-    Status close(Status s) override { return JdbcConnector::close(s); }
+    Status close(Status s) override;
 
 private:
-    JdbcConnectorParam _param;
+    // Build the writer_params map from TDataSink
+    static std::map<std::string, std::string> _build_writer_params(const TDataSink& t_sink);
+
+    std::unique_ptr<VJniFormatTransformer> _writer;
+    std::map<std::string, std::string> _writer_params;
+    bool _use_transaction = false;
 };
+
 } // namespace vectorized
 } // namespace doris

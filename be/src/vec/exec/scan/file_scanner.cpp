@@ -55,7 +55,6 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/exec/format/arrow/arrow_stream_reader.h"
-#include "vec/exec/format/avro/avro_jni_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/native/native_reader.h"
@@ -65,7 +64,7 @@
 #include "vec/exec/format/table/hudi_jni_reader.h"
 #include "vec/exec/format/table/hudi_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
-#include "vec/exec/format/table/lakesoul_jni_reader.h"
+#include "vec/exec/format/table/jdbc_jni_reader.h"
 #include "vec/exec/format/table/max_compute_jni_reader.h"
 #include "vec/exec/format/table/paimon_cpp_reader.h"
 #include "vec/exec/format/table/paimon_jni_reader.h"
@@ -1016,17 +1015,21 @@ Status FileScanner::_get_next_reader() {
                                                            range.table_format_params.hudi_params,
                                                            _file_slot_descs, _state, _profile);
                 init_status = ((HudiJniReader*)_cur_reader.get())->init_reader();
-            } else if (range.__isset.table_format_params &&
-                       range.table_format_params.table_format_type == "lakesoul") {
-                _cur_reader =
-                        LakeSoulJniReader::create_unique(range.table_format_params.lakesoul_params,
-                                                         _file_slot_descs, _state, _profile);
-                init_status = ((LakeSoulJniReader*)_cur_reader.get())->init_reader();
+
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "trino_connector") {
                 _cur_reader = TrinoConnectorJniReader::create_unique(_file_slot_descs, _state,
                                                                      _profile, range);
                 init_status = ((TrinoConnectorJniReader*)(_cur_reader.get()))->init_reader();
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "jdbc") {
+                // Extract jdbc params from table_format_params
+                std::map<std::string, std::string> jdbc_params(
+                        range.table_format_params.jdbc_params.begin(),
+                        range.table_format_params.jdbc_params.end());
+                _cur_reader = JdbcJniReader::create_unique(_file_slot_descs, _state, _profile,
+                                                           jdbc_params);
+                init_status = ((JdbcJniReader*)(_cur_reader.get()))->init_reader();
             }
             // Set col_name_to_block_idx for JNI readers to avoid repeated map creation
             if (_cur_reader) {
@@ -1114,17 +1117,7 @@ Status FileScanner::_get_next_reader() {
                                   ->init_reader(_col_default_value_ctx, _is_load);
             break;
         }
-        case TFileFormatType::FORMAT_AVRO: {
-            _cur_reader = AvroJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs,
-                                                       range);
-            init_status = ((AvroJNIReader*)(_cur_reader.get()))->init_reader();
-            // Set col_name_to_block_idx for JNI readers to avoid repeated map creation
-            if (_cur_reader) {
-                static_cast<JniReader*>(_cur_reader.get())
-                        ->set_col_name_to_block_idx(&_src_block_name_to_idx);
-            }
-            break;
-        }
+
         case TFileFormatType::FORMAT_WAL: {
             _cur_reader = WalReader::create_unique(_state);
             init_status = ((WalReader*)(_cur_reader.get()))->init_reader(_output_tuple_desc);
