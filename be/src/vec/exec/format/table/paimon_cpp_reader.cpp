@@ -311,6 +311,23 @@ std::map<std::string, std::string> PaimonCppReader::_build_options() const {
     copy_if_missing("fs.s3a.region", "AWS_REGION");
     copy_if_missing("fs.s3a.path.style.access", "use_path_style");
 
+    // FE currently does not pass paimon_options in scan ranges.
+    // Backfill file.format/manifest.format from split file_format to avoid
+    // paimon-cpp falling back to default manifest.format=avro.
+    if (_range.__isset.table_format_params && _range.table_format_params.__isset.paimon_params &&
+        _range.table_format_params.paimon_params.__isset.file_format &&
+        !_range.table_format_params.paimon_params.file_format.empty()) {
+        const auto& split_file_format = _range.table_format_params.paimon_params.file_format;
+        auto file_format_it = options.find(paimon::Options::FILE_FORMAT);
+        if (file_format_it == options.end() || file_format_it->second.empty()) {
+            options[paimon::Options::FILE_FORMAT] = split_file_format;
+        }
+        auto manifest_format_it = options.find(paimon::Options::MANIFEST_FORMAT);
+        if (manifest_format_it == options.end() || manifest_format_it->second.empty()) {
+            options[paimon::Options::MANIFEST_FORMAT] = split_file_format;
+        }
+    }
+
     options[paimon::Options::FILE_SYSTEM] = "doris";
     return options;
 }
