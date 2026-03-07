@@ -36,6 +36,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
+#include "vec/core/call_on_type_index.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -171,79 +172,47 @@ private:
         return ColumnArray::create(filtered, std::move(column_offsets));
     }
 
-// need exception safety
-#define APPLY_ALL_TYPES(src_column, src_offsets, OP, cmp, dst)                                \
-    do {                                                                                      \
-        switch (nested_type->get_primitive_type()) {                                          \
-        case PrimitiveType::TYPE_BOOLEAN:                                                     \
-            *dst = _apply_internal<UInt8, OP>(src_column, src_offsets, cmp);                  \
-            break;                                                                            \
-        case PrimitiveType::TYPE_TINYINT:                                                     \
-            *dst = _apply_internal<Int8, OP>(src_column, src_offsets, cmp);                   \
-            break;                                                                            \
-        case PrimitiveType::TYPE_SMALLINT:                                                    \
-            *dst = _apply_internal<Int16, OP>(src_column, src_offsets, cmp);                  \
-            break;                                                                            \
-        case PrimitiveType::TYPE_INT:                                                         \
-            *dst = _apply_internal<Int32, OP>(src_column, src_offsets, cmp);                  \
-            break;                                                                            \
-        case PrimitiveType::TYPE_BIGINT:                                                      \
-            *dst = _apply_internal<Int64, OP>(src_column, src_offsets, cmp);                  \
-            break;                                                                            \
-        case PrimitiveType::TYPE_FLOAT:                                                       \
-            *dst = _apply_internal<Float32, OP>(src_column, src_offsets, cmp);                \
-            break;                                                                            \
-        case PrimitiveType::TYPE_DOUBLE:                                                      \
-            *dst = _apply_internal<Float64, OP>(src_column, src_offsets, cmp);                \
-            break;                                                                            \
-        case PrimitiveType::TYPE_DATEV2:                                                      \
-            *dst = _apply_internal<UInt32, OP>(src_column, src_offsets, cmp);                 \
-            break;                                                                            \
-        case PrimitiveType::TYPE_DATETIMEV2:                                                  \
-            *dst = _apply_internal<UInt64, OP>(src_column, src_offsets, cmp);                 \
-            break;                                                                            \
-        case PrimitiveType::TYPE_TIMESTAMPTZ:                                                 \
-            *dst = _apply_internal<UInt64, OP>(src_column, src_offsets, cmp);                 \
-            break;                                                                            \
-        case PrimitiveType::TYPE_DECIMAL32:                                                   \
-            *dst = _apply_internal<Decimal32, OP>(src_column, src_offsets, cmp);              \
-            break;                                                                            \
-        case PrimitiveType::TYPE_DECIMAL64:                                                   \
-            *dst = _apply_internal<Decimal64, OP>(src_column, src_offsets, cmp);              \
-            break;                                                                            \
-        case PrimitiveType::TYPE_DECIMALV2:                                                   \
-            *dst = _apply_internal<Decimal128V2, OP>(src_column, src_offsets, cmp);           \
-            break;                                                                            \
-        case PrimitiveType::TYPE_DECIMAL128I:                                                 \
-            *dst = _apply_internal<Decimal128V3, OP>(src_column, src_offsets, cmp);           \
-            break;                                                                            \
-        case PrimitiveType::TYPE_DECIMAL256:                                                  \
-            *dst = _apply_internal<Decimal256, OP>(src_column, src_offsets, cmp);             \
-            break;                                                                            \
-        default:                                                                              \
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,                               \
-                                   "array_apply only accept array with nested type which is " \
-                                   "uint/int/decimal/float/date but got : " +                 \
-                                           nested_type->get_name());                          \
-        }                                                                                     \
-    } while (0)
+    template <ApplyOp OP>
+    void dispatch_array_scalar(DataTypePtr nested_type, const IColumn& src_column,
+                               const ColumnArray::Offsets64& src_offsets, const ColumnConst& cmp,
+                               ColumnPtr* dst) const {
+        auto call = [&](const auto& type) -> bool {
+            using DispatchType = std::decay_t<decltype(type)>;
+            constexpr PrimitiveType PType = DispatchType::PType;
+            *dst = _apply_internal<typename PrimitiveTypeTraits<PType>::CppType, OP>(
+                    src_column, src_offsets, cmp);
+            return true;
+        };
 
+        if (!dispatch_switch_scalar(nested_type->get_primitive_type(), call)) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "array_apply only accept array with nested type which is "
+                                   "uint/int/decimal/float/date but got : " +
+                                           nested_type->get_name());
+        }
+    }
     // need exception safety
     Status _execute(const IColumn& nested_src, DataTypePtr nested_type,
                     const ColumnArray::Offsets64& offsets, const std::string& condition,
                     const ColumnConst& rhs_value_column, ColumnPtr* dst) const {
         if (condition == "=") {
-            APPLY_ALL_TYPES(nested_src, offsets, ApplyOp::EQ, rhs_value_column, dst);
+            dispatch_array_scalar<ApplyOp::EQ>(nested_type, nested_src, offsets, rhs_value_column,
+                                               dst);
         } else if (condition == "!=") {
-            APPLY_ALL_TYPES(nested_src, offsets, ApplyOp::NE, rhs_value_column, dst);
-        } else if (condition == ">=") {
-            APPLY_ALL_TYPES(nested_src, offsets, ApplyOp::GE, rhs_value_column, dst);
-        } else if (condition == "<=") {
-            APPLY_ALL_TYPES(nested_src, offsets, ApplyOp::LE, rhs_value_column, dst);
+            dispatch_array_scalar<ApplyOp::NE>(nested_type, nested_src, offsets, rhs_value_column,
+                                               dst);
         } else if (condition == "<") {
-            APPLY_ALL_TYPES(nested_src, offsets, ApplyOp::LT, rhs_value_column, dst);
+            dispatch_array_scalar<ApplyOp::LT>(nested_type, nested_src, offsets, rhs_value_column,
+                                               dst);
+        } else if (condition == "<=") {
+            dispatch_array_scalar<ApplyOp::LE>(nested_type, nested_src, offsets, rhs_value_column,
+                                               dst);
         } else if (condition == ">") {
-            APPLY_ALL_TYPES(nested_src, offsets, ApplyOp::GT, rhs_value_column, dst);
+            dispatch_array_scalar<ApplyOp::GT>(nested_type, nested_src, offsets, rhs_value_column,
+                                               dst);
+        } else if (condition == ">=") {
+            dispatch_array_scalar<ApplyOp::GE>(nested_type, nested_src, offsets, rhs_value_column,
+                                               dst);
         } else {
             return Status::RuntimeError(
                     fmt::format("execute failed, unsupported op {} for function {})", condition,
