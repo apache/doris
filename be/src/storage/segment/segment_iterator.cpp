@@ -2989,10 +2989,15 @@ Status SegmentIterator::_construct_compound_expr_context() {
         context->set_index_context(inverted_index_context);
         _common_expr_ctxs_push_down.emplace_back(context);
     }
-    // Set IndexExecContext on virtual column exprs so that MATCH projections
-    // can leverage inverted index evaluation via fast_execute().
+    // Clone virtual column exprs before setting IndexExecContext, because
+    // IndexExecContext holds segment-specific index iterator references.
+    // Without cloning, shared VExprContext would be overwritten per-segment
+    // and could point to the wrong segment's context.
     for (auto& [cid, expr_ctx] : _virtual_column_exprs) {
-        expr_ctx->set_index_context(inverted_index_context);
+        VExprContextSPtr context;
+        RETURN_IF_ERROR(expr_ctx->clone(_opts.runtime_state, context));
+        context->set_index_context(inverted_index_context);
+        expr_ctx = context;
     }
     return Status::OK();
 }

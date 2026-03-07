@@ -56,7 +56,7 @@ public class PushDownMatchProjectionAsVirtualColumn implements RewriteRuleFactor
         boolean dupTblOrMOW = scan.getTable().getKeysType() == KeysType.DUP_KEYS
                 || (scan.getTable().getTableProperty() != null
                     && scan.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite());
-        return dupTblOrMOW && scan.getVirtualColumns().isEmpty();
+        return dupTblOrMOW;
     }
 
     @Override
@@ -119,7 +119,7 @@ public class PushDownMatchProjectionAsVirtualColumn implements RewriteRuleFactor
             }
         }
 
-        LogicalOlapScan newScan = scan.withVirtualColumns(virtualColumns);
+        LogicalOlapScan newScan = scan.appendVirtualColumns(virtualColumns);
         return (LogicalProject<?>) project.withProjectsAndChild(
                 newProjections.build(), childRebuilder.apply(newScan));
     }
