@@ -77,7 +77,7 @@ jobs:
             'gettext'
             'wget'
             'pcre'
-            'openjdk@11'
+            'openjdk@17'
             'maven'
             'node'
             'llvm@16'
@@ -87,14 +87,14 @@ jobs:
           pushd thirdparty
           branch="${{ github.base_ref }}"
           if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' ]]; then
-            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz \
-              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-arm64.tar.xz \
+              -o doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           else
-            curl -L "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz" \
-              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+            curl -L "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-darwin-arm64.tar.xz" \
+              -o doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           fi
-          tar -xvf doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+          tar -xvf doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           popd
 
-          export JAVA_HOME="${JAVA_HOME_17_X64%\/}"
+          export JAVA_HOME="${JAVA_HOME_17_ARM64%\/}"
           ./run-be-ut.sh --run -j "$(nproc)" --clean
