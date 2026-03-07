@@ -30,6 +30,7 @@ class SchemaClusterSnapshotPropertiesScannerTest : public testing::Test {
 };
 
 TEST_F(SchemaClusterSnapshotPropertiesScannerTest, test_get_next_block_internal) {
+    // test
     SchemaClusterSnapshotPropertiesScanner scanner;
     scanner._switch_status = cloud::SnapshotSwitchStatus::SNAPSHOT_SWITCH_ON;
     scanner._max_reserved_snapshots = 30;
@@ -45,7 +46,6 @@ TEST_F(SchemaClusterSnapshotPropertiesScannerTest, test_get_next_block_internal)
     auto col = data_block->safe_get_by_position(2);
     auto v = (*col.column)[0].get<TYPE_BIGINT>();
     EXPECT_EQ(v, 30);
-
 }
 
 } // namespace doris
