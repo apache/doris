@@ -67,6 +67,7 @@ public class JdbcConnectionTester extends JniScanner {
     private final int connectionPoolMaxLifeTime;
     private final boolean connectionPoolKeepAlive;
     private final boolean cleanDatasource;
+    private final JdbcTypeHandler typeHandler;
 
     private HikariDataSource hikariDataSource = null;
     private Connection conn = null;
@@ -93,6 +94,10 @@ public class JdbcConnectionTester extends JniScanner {
                 params.getOrDefault("connection_pool_keep_alive", "false"));
         this.cleanDatasource = "true".equalsIgnoreCase(
                 params.getOrDefault("clean_datasource", "false"));
+
+        // Select database-specific type handler for validation query
+        String tableType = params.getOrDefault("table_type", "");
+        this.typeHandler = JdbcTypeHandlerFactory.create(tableType);
 
         // Initialize with a dummy schema since this is only for connection testing
         initTableInfo(new ColumnType[] {ColumnType.parseType("result", "int")},
@@ -127,7 +132,9 @@ public class JdbcConnectionTester extends JniScanner {
                         ds.setConnectionTimeout(connectionPoolMaxWaitTime);
                         ds.setMaxLifetime(connectionPoolMaxLifeTime);
                         ds.setIdleTimeout(connectionPoolMaxLifeTime / 2L);
-                        ds.setConnectionTestQuery("SELECT 1");
+                        // Use type handler for database-specific validation query
+                        // (e.g. Oracle: "SELECT 1 FROM dual", DB2: "select 1 from sysibm.sysdummy1")
+                        typeHandler.setValidationQuery(ds);
                         if (connectionPoolKeepAlive) {
                             ds.setKeepaliveTime(connectionPoolMaxLifeTime / 5L);
                         }

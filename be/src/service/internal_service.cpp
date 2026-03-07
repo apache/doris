@@ -1026,6 +1026,30 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
         params["connection_pool_keep_alive"] =
                 jdbc_table.connection_pool_keep_alive ? "true" : "false";
         params["clean_datasource"] = "true";
+        // Map jdbc_table_type (TOdbcTableType enum value) to string name
+        // for JdbcTypeHandlerFactory to select the correct type handler.
+        // This ensures the right validation query is used (e.g. Oracle: "SELECT 1 FROM dual").
+        if (request->has_jdbc_table_type()) {
+            std::string type_name;
+            switch (request->jdbc_table_type()) {
+            case 0:  type_name = "MYSQL"; break;
+            case 1:  type_name = "ORACLE"; break;
+            case 2:  type_name = "POSTGRESQL"; break;
+            case 3:  type_name = "SQLSERVER"; break;
+            case 6:  type_name = "CLICKHOUSE"; break;
+            case 7:  type_name = "SAP_HANA"; break;
+            case 8:  type_name = "TRINO"; break;
+            case 9:  type_name = "PRESTO"; break;
+            case 10: type_name = "OCEANBASE"; break;
+            case 11: type_name = "OCEANBASE_ORACLE"; break;
+            case 13: type_name = "DB2"; break;
+            case 14: type_name = "GBASE"; break;
+            default: break;
+            }
+            if (!type_name.empty()) {
+                params["table_type"] = type_name;
+            }
+        }
         // required_fields and columns_types are required by JniReader
         params["required_fields"] = "result";
         params["columns_types"] = "int";
