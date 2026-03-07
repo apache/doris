@@ -27,7 +27,7 @@
 // this test is gonna to make a template ColumnTest
 // for example column_ip should test these functions
 
-namespace doris::vectorized {
+namespace doris {
 static std::string test_result_dir;
 class ColumnArrayTest : public CommonColumnTest {
 protected:
@@ -722,7 +722,7 @@ TEST_F(ColumnArrayTest, GetNumberOfDimensionsTest) {
         auto dimension = 0;
         while (check_type->get_primitive_type() == TYPE_ARRAY && !check_type->is_nullable()) {
             auto nested_type =
-                    assert_cast<const vectorized::DataTypeArray&>(*check_type).get_nested_type();
+                    assert_cast<const DataTypeArray&>(*check_type).get_nested_type();
             dimension++;
             check_type = nested_type;
         }
@@ -1057,4 +1057,4 @@ TEST_F(ColumnArrayTest, ArrayTypeTest2erase) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

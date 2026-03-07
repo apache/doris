@@ -36,9 +36,7 @@
 #include "storage/rowset/segment_creator.h"
 
 namespace doris {
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 namespace segment_v2 {
 class SegmentWriter;
@@ -54,7 +52,7 @@ public:
 
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
-    Status add_block(const vectorized::Block* block) override {
+    Status add_block(const Block* block) override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>("add_block is not implemented");
     }
 
@@ -75,12 +73,12 @@ public:
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>("flush is not implemented");
     }
 
-    Status flush_memtable(vectorized::Block* block, int32_t segment_id,
+    Status flush_memtable(Block* block, int32_t segment_id,
                           int64_t* flush_size) override;
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
-    Status flush_single_block(const vectorized::Block* block) override;
+    Status flush_single_block(const Block* block) override;
 
     Status build(RowsetSharedPtr& rowset) override {
         return Status::NotSupported("BetaRowsetWriterV2::build is not supported");

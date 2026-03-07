@@ -23,7 +23,7 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_slot_ref.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class SortMergerTest : public testing::Test {
 public:
@@ -62,11 +62,11 @@ TEST(SortMergerTest, NULL_FIRST_ASC) {
                                           limit, offset, profile.get()));
     }
     {
-        std::vector<vectorized::BlockSupplier> child_block_suppliers;
+        std::vector<BlockSupplier> child_block_suppliers;
         for (int child_idx = 0; child_idx < num_children; child_idx++) {
-            vectorized::BlockSupplier block_supplier =
+            BlockSupplier block_supplier =
                     [&, round_vec = &round, num_round = num_round, id = child_idx](
-                            vectorized::Block* block, bool* eos) {
+                            Block* block, bool* eos) {
                         *eos = ++((*round_vec)[id]) == num_round;
                         if (*eos) {
                             return Status::OK();
@@ -84,7 +84,7 @@ TEST(SortMergerTest, NULL_FIRST_ASC) {
     }
     {
         for (int block_idx = 0; block_idx < num_children * (num_round - 1) - 1; block_idx++) {
-            vectorized::Block block;
+            Block block;
             bool eos = false;
             EXPECT_TRUE(merger->get_next(&block, &eos).ok());
             auto expect_block =
@@ -100,7 +100,7 @@ TEST(SortMergerTest, NULL_FIRST_ASC) {
             EXPECT_FALSE(eos);
         }
         for (int block_idx = 0; block_idx < num_children; block_idx++) {
-            vectorized::Block block;
+            Block block;
             bool eos = false;
             EXPECT_TRUE(merger->get_next(&block, &eos).ok());
             auto expect_block = ColumnHelper::create_nullable_column<DataTypeInt64>({4}, {0});
@@ -112,7 +112,7 @@ TEST(SortMergerTest, NULL_FIRST_ASC) {
             EXPECT_EQ(block.rows(), 1);
             EXPECT_FALSE(eos);
         }
-        vectorized::Block block;
+        Block block;
         bool eos = false;
         EXPECT_TRUE(merger->get_next(&block, &eos).ok());
         EXPECT_EQ(block.rows(), 0);
@@ -149,11 +149,11 @@ TEST(SortMergerTest, NULL_LAST_DESC) {
                                           limit, offset, profile.get()));
     }
     {
-        std::vector<vectorized::BlockSupplier> child_block_suppliers;
+        std::vector<BlockSupplier> child_block_suppliers;
         for (int child_idx = 0; child_idx < num_children; child_idx++) {
-            vectorized::BlockSupplier block_supplier =
+            BlockSupplier block_supplier =
                     [&, round_vec = &round, num_round = num_round, id = child_idx](
-                            vectorized::Block* block, bool* eos) {
+                            Block* block, bool* eos) {
                         *eos = ++((*round_vec)[id]) == num_round;
                         if (*eos) {
                             return Status::OK();
@@ -171,7 +171,7 @@ TEST(SortMergerTest, NULL_LAST_DESC) {
     }
     {
         for (int block_idx = 0; block_idx < num_children * (num_round - 1) - 1; block_idx++) {
-            vectorized::Block block;
+            Block block;
             bool eos = false;
             EXPECT_TRUE(merger->get_next(&block, &eos).ok());
             auto expect_block = ColumnHelper::create_nullable_column<DataTypeInt64>(
@@ -183,7 +183,7 @@ TEST(SortMergerTest, NULL_LAST_DESC) {
             EXPECT_FALSE(eos);
         }
         for (int block_idx = 0; block_idx < num_children; block_idx++) {
-            vectorized::Block block;
+            Block block;
             bool eos = false;
             EXPECT_TRUE(merger->get_next(&block, &eos).ok());
             auto expect_block = ColumnHelper::create_nullable_column<DataTypeInt64>({0}, {1});
@@ -195,7 +195,7 @@ TEST(SortMergerTest, NULL_LAST_DESC) {
             EXPECT_EQ(block.rows(), 1);
             EXPECT_FALSE(eos);
         }
-        vectorized::Block block;
+        Block block;
         bool eos = false;
         EXPECT_TRUE(merger->get_next(&block, &eos).ok());
         EXPECT_EQ(block.rows(), 0);
@@ -232,11 +232,11 @@ TEST(SortMergerTest, TEST_LIMIT) {
                                           limit, offset, profile.get()));
     }
     {
-        std::vector<vectorized::BlockSupplier> child_block_suppliers;
+        std::vector<BlockSupplier> child_block_suppliers;
         for (int child_idx = 0; child_idx < num_children; child_idx++) {
-            vectorized::BlockSupplier block_supplier =
+            BlockSupplier block_supplier =
                     [&, round_vec = &round, num_round = num_round, id = child_idx](
-                            vectorized::Block* block, bool* eos) {
+                            Block* block, bool* eos) {
                         *eos = ++((*round_vec)[id]) == num_round;
                         if (*eos) {
                             return Status::OK();
@@ -253,7 +253,7 @@ TEST(SortMergerTest, TEST_LIMIT) {
         EXPECT_TRUE(merger->prepare(child_block_suppliers).ok());
     }
     {
-        vectorized::Block block;
+        Block block;
         bool eos = false;
         EXPECT_TRUE(merger->get_next(&block, &eos).ok());
         auto expect_block = ColumnHelper::create_nullable_column<DataTypeInt64>({4}, {0});
@@ -292,11 +292,11 @@ TEST(SortMergerTest, LAST_BLOCK_WITH_EOS) {
                                           limit, offset, profile.get()));
     }
     {
-        std::vector<vectorized::BlockSupplier> child_block_suppliers;
+        std::vector<BlockSupplier> child_block_suppliers;
         for (int child_idx = 0; child_idx < num_children; child_idx++) {
-            vectorized::BlockSupplier block_supplier =
+            BlockSupplier block_supplier =
                     [&, round_vec = &round, num_round = num_round, id = child_idx](
-                            vectorized::Block* block, bool* eos) {
+                            Block* block, bool* eos) {
                         *block = ColumnHelper::create_nullable_block<DataTypeInt64>(
                                 {0, (*round_vec)[id] + 0, (*round_vec)[id] + 1,
                                  (*round_vec)[id] + 2, (*round_vec)[id] + 3},
@@ -310,7 +310,7 @@ TEST(SortMergerTest, LAST_BLOCK_WITH_EOS) {
     }
     {
         for (int block_idx = 0; block_idx < num_children * num_round; block_idx++) {
-            vectorized::Block block;
+            Block block;
             bool eos = false;
             EXPECT_TRUE(merger->get_next(&block, &eos).ok());
             auto expect_block = block_idx == 0
@@ -324,7 +324,7 @@ TEST(SortMergerTest, LAST_BLOCK_WITH_EOS) {
             EXPECT_EQ(block.rows(), batch_size);
             EXPECT_FALSE(eos);
         }
-        vectorized::Block block;
+        Block block;
         bool eos = false;
         EXPECT_TRUE(merger->get_next(&block, &eos).ok());
         EXPECT_EQ(block.rows(), 0);
@@ -357,11 +357,11 @@ TEST(SortMergerTest, TEST_BIG_OFFSET_SINGLE_STREAM) {
                                           limit, offset, profile.get()));
     }
     {
-        std::vector<vectorized::BlockSupplier> child_block_suppliers;
+        std::vector<BlockSupplier> child_block_suppliers;
         for (int child_idx = 0; child_idx < num_children; child_idx++) {
-            vectorized::BlockSupplier block_supplier =
+            BlockSupplier block_supplier =
                     [&, round_vec = &round, num_round = num_round, id = child_idx](
-                            vectorized::Block* block, bool* eos) {
+                            Block* block, bool* eos) {
                         *block = ColumnHelper::create_nullable_block<DataTypeInt64>(
                                 {0, (*round_vec)[id] + 0, (*round_vec)[id] + 1,
                                  (*round_vec)[id] + 2, (*round_vec)[id] + 3},
@@ -374,7 +374,7 @@ TEST(SortMergerTest, TEST_BIG_OFFSET_SINGLE_STREAM) {
         EXPECT_TRUE(merger->prepare(child_block_suppliers).ok());
     }
     {
-        vectorized::Block block;
+        Block block;
         bool eos = false;
         EXPECT_TRUE(merger->get_next(&block, &eos).ok());
         EXPECT_EQ(block.rows(), 0);
@@ -407,11 +407,11 @@ TEST(SortMergerTest, TEST_SMALL_OFFSET_SINGLE_STREAM) {
                                           limit, offset, profile.get()));
     }
     {
-        std::vector<vectorized::BlockSupplier> child_block_suppliers;
+        std::vector<BlockSupplier> child_block_suppliers;
         for (int child_idx = 0; child_idx < num_children; child_idx++) {
-            vectorized::BlockSupplier block_supplier =
+            BlockSupplier block_supplier =
                     [&, round_vec = &round, num_round = num_round, id = child_idx](
-                            vectorized::Block* block, bool* eos) {
+                            Block* block, bool* eos) {
                         *block = ColumnHelper::create_nullable_block<DataTypeInt64>(
                                 {0, (*round_vec)[id] + 0, (*round_vec)[id] + 1,
                                  (*round_vec)[id] + 2, (*round_vec)[id] + 3},
@@ -424,7 +424,7 @@ TEST(SortMergerTest, TEST_SMALL_OFFSET_SINGLE_STREAM) {
         EXPECT_TRUE(merger->prepare(child_block_suppliers).ok());
     }
     {
-        vectorized::Block block;
+        Block block;
         bool eos = false;
         EXPECT_TRUE(merger->get_next(&block, &eos).ok());
         auto expect_block = ColumnHelper::create_nullable_column<DataTypeInt64>({3}, {0});
@@ -458,11 +458,11 @@ TEST(SortMergerTest, TEST_SINGLE_STREAM) {
                                           limit, offset, profile.get()));
     }
     {
-        std::vector<vectorized::BlockSupplier> child_block_suppliers;
+        std::vector<BlockSupplier> child_block_suppliers;
         for (int child_idx = 0; child_idx < num_children; child_idx++) {
-            vectorized::BlockSupplier block_supplier =
+            BlockSupplier block_supplier =
                     [&, round_vec = &round, num_round = num_round, id = child_idx](
-                            vectorized::Block* block, bool* eos) {
+                            Block* block, bool* eos) {
                         *block = ColumnHelper::create_nullable_block<DataTypeInt64>({0}, {1});
                         *eos = ++((*round_vec)[id]) == num_round;
                         return Status::OK();
@@ -476,7 +476,7 @@ TEST(SortMergerTest, TEST_SINGLE_STREAM) {
         EXPECT_EQ(merger->_priority_queue.top()->block_ptr()->rows(), 1);
     }
     {
-        vectorized::Block block;
+        Block block;
         bool eos = false;
         EXPECT_TRUE(merger->get_next(&block, &eos).ok());
         auto expect_block = ColumnHelper::create_nullable_column<DataTypeInt64>({0}, {1});
@@ -485,4 +485,4 @@ TEST(SortMergerTest, TEST_SINGLE_STREAM) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

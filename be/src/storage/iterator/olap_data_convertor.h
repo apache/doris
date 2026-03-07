@@ -54,7 +54,6 @@ namespace doris {
 class TabletSchema;
 class TabletColumn;
 
-namespace vectorized {
 
 #include "common/compile_check_begin.h"
 
@@ -83,8 +82,8 @@ public:
     OlapBlockDataConvertor() = default;
     OlapBlockDataConvertor(const TabletSchema* tablet_schema);
     OlapBlockDataConvertor(const TabletSchema* tablet_schema, const std::vector<uint32_t>& col_ids);
-    void set_source_content(const vectorized::Block* block, size_t row_pos, size_t num_rows);
-    Status set_source_content_with_specifid_columns(const vectorized::Block* block, size_t row_pos,
+    void set_source_content(const Block* block, size_t row_pos, size_t num_rows);
+    Status set_source_content_with_specifid_columns(const Block* block, size_t row_pos,
                                                     size_t num_rows, std::vector<uint32_t> cids);
     Status set_source_content_with_specifid_column(const ColumnWithTypeAndName& typed_column,
                                                    size_t row_pos, size_t num_rows, uint32_t cid);
@@ -184,9 +183,9 @@ private:
         }
 
         static ColumnPtr clone_and_padding(const ColumnString* input, size_t padding_length) {
-            auto column = vectorized::ColumnString::create();
+            auto column = ColumnString::create();
             auto padded_column =
-                    assert_cast<vectorized::ColumnString*>(column->assume_mutable().get());
+                    assert_cast<ColumnString*>(column->assume_mutable().get());
 
             column->offsets.resize(input->size());
             column->chars.resize(input->size() * padding_length);
@@ -311,7 +310,7 @@ private:
             typename PrimitiveTypeTraits<T>::ColumnType* column_data = nullptr;
             if (_nullmap) {
                 auto nullable_column =
-                        assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
+                        assert_cast<const ColumnNullable*>(_typed_column.column.get());
                 _mutable_column = std::move(nullable_column->get_nested_column()).mutate();
                 column_data = assert_cast<typename PrimitiveTypeTraits<T>::ColumnType*>(
                         _mutable_column.get());
@@ -362,15 +361,15 @@ private:
         }
 
         Status convert_to_olap() override {
-            const vectorized::ColumnDateV2* column_data = nullptr;
+            const ColumnDateV2* column_data = nullptr;
             if (_nullmap) {
                 auto nullable_column =
-                        assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
-                column_data = assert_cast<const vectorized::ColumnDateV2*>(
+                        assert_cast<const ColumnNullable*>(_typed_column.column.get());
+                column_data = assert_cast<const ColumnDateV2*>(
                         nullable_column->get_nested_column_ptr().get());
             } else {
                 column_data =
-                        assert_cast<const vectorized::ColumnDateV2*>(_typed_column.column.get());
+                        assert_cast<const ColumnDateV2*>(_typed_column.column.get());
             }
 
             assert(column_data);
@@ -404,14 +403,14 @@ private:
         }
 
         Status convert_to_olap() override {
-            const vectorized::ColumnDateTimeV2* column_data = nullptr;
+            const ColumnDateTimeV2* column_data = nullptr;
             if (_nullmap) {
                 auto nullable_column =
-                        assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
-                column_data = assert_cast<const vectorized::ColumnDateTimeV2*>(
+                        assert_cast<const ColumnNullable*>(_typed_column.column.get());
+                column_data = assert_cast<const ColumnDateTimeV2*>(
                         nullable_column->get_nested_column_ptr().get());
             } else {
-                column_data = assert_cast<const vectorized::ColumnDateTimeV2*>(
+                column_data = assert_cast<const ColumnDateTimeV2*>(
                         _typed_column.column.get());
             }
 
@@ -435,7 +434,7 @@ private:
             using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
             const ColumnType* column_data = nullptr;
             if (this->_nullmap) {
-                auto nullable_column = assert_cast<const vectorized::ColumnNullable*>(
+                auto nullable_column = assert_cast<const ColumnNullable*>(
                         this->_typed_column.column.get());
                 column_data = assert_cast<const ColumnType*>(
                         nullable_column->get_nested_column_ptr().get());
@@ -553,5 +552,4 @@ private:
 
 #include "common/compile_check_end.h"
 
-} // namespace vectorized
 } // namespace doris

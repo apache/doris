@@ -60,7 +60,7 @@
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 VOrcOutputStream::VOrcOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0), _name("VOrcOutputStream") {}
@@ -597,7 +597,7 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
         for (auto* child : struct_batch->fields) {
             const IColumn& child_column = struct_col.get_column(idx);
             child->resize(child_column.size());
-            auto child_type = assert_cast<const vectorized::DataTypeStruct*>(real_type.get())
+            auto child_type = assert_cast<const DataTypeStruct*>(real_type.get())
                                       ->get_element(idx);
             ++idx;
             RETURN_IF_ERROR(_resize_row_batch(child_type, child_column, child));
@@ -616,14 +616,14 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
         const IColumn& nested_keys_column = map_column.get_keys();
         map_batch->keys->resize(nested_keys_column.size());
         auto key_type =
-                assert_cast<const vectorized::DataTypeMap*>(real_type.get())->get_key_type();
+                assert_cast<const DataTypeMap*>(real_type.get())->get_key_type();
         RETURN_IF_ERROR(_resize_row_batch(key_type, nested_keys_column, map_batch->keys.get()));
 
         // value of map
         const IColumn& nested_values_column = map_column.get_values();
         map_batch->elements->resize(nested_values_column.size());
         auto value_type =
-                assert_cast<const vectorized::DataTypeMap*>(real_type.get())->get_value_type();
+                assert_cast<const DataTypeMap*>(real_type.get())->get_value_type();
         RETURN_IF_ERROR(
                 _resize_row_batch(value_type, nested_values_column, map_batch->elements.get()));
         break;
@@ -638,7 +638,7 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
         const IColumn& nested_column = array_col.get_data();
         list_batch->elements->resize(nested_column.size());
         auto child_type =
-                assert_cast<const vectorized::DataTypeArray*>(real_type.get())->get_nested_type();
+                assert_cast<const DataTypeArray*>(real_type.get())->get_nested_type();
         RETURN_IF_ERROR(_resize_row_batch(child_type, nested_column, list_batch->elements.get()));
     }
     default:
@@ -647,4 +647,4 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -41,7 +41,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 static void empty_function(RuntimeState*, Status*) {}
 
@@ -49,7 +49,7 @@ class PipelineTest : public testing::Test {
 public:
     PipelineTest()
             : _obj_pool(new ObjectPool()),
-              _mgr(std::make_unique<doris::vectorized::VDataStreamMgr>()) {}
+              _mgr(std::make_unique<doris::VDataStreamMgr>()) {}
     ~PipelineTest() override = default;
     void SetUp() override {
         _query_options = TQueryOptionsBuilder()
@@ -135,7 +135,7 @@ private:
 
     // Query level
     std::shared_ptr<ObjectPool> _obj_pool;
-    std::unique_ptr<doris::vectorized::VDataStreamMgr> _mgr;
+    std::unique_ptr<doris::VDataStreamMgr> _mgr;
     std::shared_ptr<QueryContext> _query_ctx;
     TUniqueId _query_id = TUniqueId();
     TQueryOptions _query_options;
@@ -299,11 +299,11 @@ TEST_F(PipelineTest, HAPPY_PATH) {
             "MemoryUsage", TUnit::BYTES, "", 1);
 
     // Construct input block
-    vectorized::Block block;
+    Block block;
     {
-        vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
+        DataTypePtr int_type = std::make_shared<DataTypeInt32>();
 
-        auto int_col0 = vectorized::ColumnInt32::create();
+        auto int_col0 = ColumnInt32::create();
         int_col0->insert_many_vals(1, 10);
         block.insert({std::move(int_col0), int_type, "test_int_col0"});
     }
@@ -371,9 +371,9 @@ TEST_F(PipelineTest, HAPPY_PATH) {
     }
 
     {
-        vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
+        DataTypePtr int_type = std::make_shared<DataTypeInt32>();
 
-        auto int_col0 = vectorized::ColumnInt32::create();
+        auto int_col0 = ColumnInt32::create();
         int_col0->insert_many_vals(1, 10);
         block.insert({std::move(int_col0), int_type, "test_int_col0"});
     }
@@ -411,7 +411,7 @@ TEST_F(PipelineTest, HAPPY_PATH) {
         EXPECT_EQ(downstream_recvr->_sender_queues[0]->_num_remaining_senders, 1);
     }
     {
-        vectorized::Block tmp_block;
+        Block tmp_block;
         bool tmp_eos = false;
         EXPECT_EQ(downstream_recvr->_sender_queues[0]->get_batch(&tmp_block, &tmp_eos),
                   Status::OK());
@@ -437,7 +437,7 @@ TEST_F(PipelineTest, HAPPY_PATH) {
                   false);
     }
     {
-        vectorized::Block tmp_block;
+        Block tmp_block;
         bool tmp_eos = false;
         EXPECT_EQ(downstream_recvr->_sender_queues[0]->get_batch(&tmp_block, &tmp_eos),
                   Status::OK());
@@ -962,7 +962,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         _pipeline_tasks[0][1]->inject_shared_state(_pipeline_tasks[1][1]->get_sink_shared_state());
     }
 
-    std::shared_ptr<vectorized::VDataStreamRecvr> downstream_recvr;
+    std::shared_ptr<VDataStreamRecvr> downstream_recvr;
     auto downstream_pipeline_profile = std::make_shared<RuntimeProfile>("Downstream Pipeline");
     {
         // Build downstream recvr
@@ -1037,12 +1037,12 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
     for (int i = _pipelines.size() - 1; i >= 0; i--) {
         for (int j = 0; j < parallelism; j++) {
             {
-                vectorized::Block block;
+                Block block;
                 {
-                    vectorized::DataTypePtr int_type =
-                            std::make_shared<vectorized::DataTypeInt32>();
+                    DataTypePtr int_type =
+                            std::make_shared<DataTypeInt32>();
 
-                    auto int_col0 = vectorized::ColumnInt32::create();
+                    auto int_col0 = ColumnInt32::create();
                     if (j == 0 || i == 0) {
                         int_col0->insert_many_vals(j, 10);
                     } else {
@@ -1169,4 +1169,4 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
     downstream_recvr->close();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

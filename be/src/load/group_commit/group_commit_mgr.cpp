@@ -49,7 +49,7 @@ std::string LoadBlockQueue::_get_load_ids() {
 }
 
 Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
-                                 std::shared_ptr<vectorized::Block> block, bool write_wal,
+                                 std::shared_ptr<Block> block, bool write_wal,
                                  UniqueId& load_id) {
     DBUG_EXECUTE_IF("LoadBlockQueue.add_block.failed",
                     { return Status::InternalError("LoadBlockQueue.add_block.failed"); });
@@ -115,9 +115,9 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
     return Status::OK();
 }
 
-Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block* block,
+Status LoadBlockQueue::get_block(RuntimeState* runtime_state, Block* block,
                                  bool* find_block, bool* eos,
-                                 std::shared_ptr<pipeline::Dependency> get_block_dep) {
+                                 std::shared_ptr<Dependency> get_block_dep) {
     *find_block = false;
     *eos = false;
     std::unique_lock l(mutex);
@@ -200,7 +200,7 @@ bool LoadBlockQueue::contain_load_id(const UniqueId& load_id) {
 }
 
 Status LoadBlockQueue::add_load_id(const UniqueId& load_id,
-                                   const std::shared_ptr<pipeline::Dependency> put_block_dep) {
+                                   const std::shared_ptr<Dependency> put_block_dep) {
     std::unique_lock l(mutex);
     if (_need_commit) {
         return Status::InternalError<false>("block queue is set need commit, id=" +
@@ -247,8 +247,8 @@ Status GroupCommitTable::get_first_block_load_queue(
         int64_t table_id, int64_t base_schema_version, int64_t index_size, const UniqueId& load_id,
         std::shared_ptr<LoadBlockQueue>& load_block_queue, int be_exe_version,
         std::shared_ptr<MemTrackerLimiter> mem_tracker,
-        std::shared_ptr<pipeline::Dependency> create_plan_dep,
-        std::shared_ptr<pipeline::Dependency> put_block_dep) {
+        std::shared_ptr<Dependency> create_plan_dep,
+        std::shared_ptr<Dependency> put_block_dep) {
     DCHECK(table_id == _table_id);
     std::unique_lock l(_lock);
     auto try_to_get_matched_queue = [&]() -> Status {
@@ -601,7 +601,7 @@ Status GroupCommitTable::_exec_plan_fragment(int64_t db_id, int64_t table_id,
 
 Status GroupCommitTable::get_load_block_queue(const TUniqueId& instance_id,
                                               std::shared_ptr<LoadBlockQueue>& load_block_queue,
-                                              std::shared_ptr<pipeline::Dependency> get_block_dep) {
+                                              std::shared_ptr<Dependency> get_block_dep) {
     std::unique_lock l(_lock);
     auto it = _load_block_queues.find(instance_id);
     if (it == _load_block_queues.end()) {
@@ -634,8 +634,8 @@ Status GroupCommitMgr::get_first_block_load_queue(
         int64_t db_id, int64_t table_id, int64_t base_schema_version, int64_t index_size,
         const UniqueId& load_id, std::shared_ptr<LoadBlockQueue>& load_block_queue,
         int be_exe_version, std::shared_ptr<MemTrackerLimiter> mem_tracker,
-        std::shared_ptr<pipeline::Dependency> create_plan_dep,
-        std::shared_ptr<pipeline::Dependency> put_block_dep) {
+        std::shared_ptr<Dependency> create_plan_dep,
+        std::shared_ptr<Dependency> put_block_dep) {
     std::shared_ptr<GroupCommitTable> group_commit_table;
     {
         std::lock_guard wlock(_lock);
@@ -654,7 +654,7 @@ Status GroupCommitMgr::get_first_block_load_queue(
 
 Status GroupCommitMgr::get_load_block_queue(int64_t table_id, const TUniqueId& instance_id,
                                             std::shared_ptr<LoadBlockQueue>& load_block_queue,
-                                            std::shared_ptr<pipeline::Dependency> get_block_dep) {
+                                            std::shared_ptr<Dependency> get_block_dep) {
     std::shared_ptr<GroupCommitTable> group_commit_table;
     {
         std::lock_guard<std::mutex> l(_lock);
@@ -683,7 +683,7 @@ Status LoadBlockQueue::create_wal(int64_t db_id, int64_t tb_id, int64_t wal_id,
                                      : import_label;
     RETURN_IF_ERROR(ExecEnv::GetInstance()->wal_mgr()->create_wal_path(
             db_id, tb_id, wal_id, real_label, _wal_base_path, WAL_VERSION));
-    _v_wal_writer = std::make_shared<vectorized::VWalWriter>(
+    _v_wal_writer = std::make_shared<VWalWriter>(
             db_id, tb_id, wal_id, real_label, wal_manager, slot_desc, be_exe_version);
     return _v_wal_writer->init();
 }
@@ -695,7 +695,7 @@ Status LoadBlockQueue::close_wal() {
     return Status::OK();
 }
 
-void LoadBlockQueue::append_dependency(std::shared_ptr<pipeline::Dependency> finish_dep) {
+void LoadBlockQueue::append_dependency(std::shared_ptr<Dependency> finish_dep) {
     std::lock_guard<std::mutex> lock(mutex);
     // If not finished, dependencies should be blocked.
     if (!process_finish) {
@@ -704,7 +704,7 @@ void LoadBlockQueue::append_dependency(std::shared_ptr<pipeline::Dependency> fin
     }
 }
 
-void LoadBlockQueue::append_read_dependency(std::shared_ptr<pipeline::Dependency> read_dep) {
+void LoadBlockQueue::append_read_dependency(std::shared_ptr<Dependency> read_dep) {
     std::lock_guard<std::mutex> lock(mutex);
     _read_deps.push_back(read_dep);
 }

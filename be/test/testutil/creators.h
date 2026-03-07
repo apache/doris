@@ -35,7 +35,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-using namespace pipeline;
 inline std::shared_ptr<QueryContext> generate_one_query(const TQueryOptions& options) {
     TNetworkAddress fe_address;
     fe_address.hostname = "127.0.0.1";
@@ -54,12 +53,12 @@ inline std::shared_ptr<QueryContext> generate_one_query() {
     return generate_one_query(query_options);
 }
 
-inline std::pair<pipeline::PipelinePtr, pipeline::PipelinePtr> generate_hash_join_pipeline(
+inline std::pair<PipelinePtr, PipelinePtr> generate_hash_join_pipeline(
         std::shared_ptr<OperatorXBase> probe_operator,
-        pipeline::DataSinkOperatorPtr probe_side_sink_operator, DataSinkOperatorPtr sink_operator,
+        DataSinkOperatorPtr probe_side_sink_operator, DataSinkOperatorPtr sink_operator,
         std::shared_ptr<OperatorXBase> build_side_source) {
-    auto probe_pipeline = std::make_shared<pipeline::Pipeline>(0, 1, 1);
-    auto build_pipeline = std::make_shared<pipeline::Pipeline>(1, 1, 1);
+    auto probe_pipeline = std::make_shared<Pipeline>(0, 1, 1);
+    auto build_pipeline = std::make_shared<Pipeline>(1, 1, 1);
 
     static_cast<void>(probe_pipeline->add_operator(probe_operator, 1));
     static_cast<void>(probe_pipeline->set_sink(probe_side_sink_operator));
@@ -69,12 +68,12 @@ inline std::pair<pipeline::PipelinePtr, pipeline::PipelinePtr> generate_hash_joi
     return {probe_pipeline, build_pipeline};
 }
 
-inline std::pair<pipeline::PipelinePtr, pipeline::PipelinePtr> generate_agg_pipeline(
+inline std::pair<PipelinePtr, PipelinePtr> generate_agg_pipeline(
         std::shared_ptr<OperatorXBase> source_operator,
-        pipeline::DataSinkOperatorPtr source_side_sink_operator, DataSinkOperatorPtr sink_operator,
+        DataSinkOperatorPtr source_side_sink_operator, DataSinkOperatorPtr sink_operator,
         std::shared_ptr<OperatorXBase> sink_side_source) {
-    auto source_pipeline = std::make_shared<pipeline::Pipeline>(0, 1, 1);
-    auto sink_pipeline = std::make_shared<pipeline::Pipeline>(1, 1, 1);
+    auto source_pipeline = std::make_shared<Pipeline>(0, 1, 1);
+    auto sink_pipeline = std::make_shared<Pipeline>(1, 1, 1);
 
     static_cast<void>(source_pipeline->add_operator(source_operator, 1));
     static_cast<void>(source_pipeline->set_sink(source_side_sink_operator));
@@ -84,9 +83,9 @@ inline std::pair<pipeline::PipelinePtr, pipeline::PipelinePtr> generate_agg_pipe
     return {source_pipeline, sink_pipeline};
 }
 
-inline std::pair<pipeline::PipelinePtr, pipeline::PipelinePtr> generate_sort_pipeline(
+inline std::pair<PipelinePtr, PipelinePtr> generate_sort_pipeline(
         std::shared_ptr<OperatorXBase> source_operator,
-        pipeline::DataSinkOperatorPtr source_side_sink_operator, DataSinkOperatorPtr sink_operator,
+        DataSinkOperatorPtr source_side_sink_operator, DataSinkOperatorPtr sink_operator,
         std::shared_ptr<OperatorXBase> sink_side_source) {
     return generate_agg_pipeline(source_operator, source_side_sink_operator, sink_operator,
                                  sink_side_source);

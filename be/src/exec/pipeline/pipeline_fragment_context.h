@@ -45,7 +45,6 @@ class RuntimeFilterMergeControllerEntity;
 class TDataSink;
 class TPipelineFragmentParams;
 
-namespace pipeline {
 
 class Dependency;
 
@@ -59,7 +58,7 @@ public:
     // functions like PrettyPrint() or to_thrift(), neither of which is const
     // because they take locks.
     using report_status_callback = std::function<Status(
-            const ReportStatusRequest, std::shared_ptr<pipeline::PipelineFragmentContext>&&)>;
+            const ReportStatusRequest, std::shared_ptr<PipelineFragmentContext>&&)>;
     PipelineFragmentContext(TUniqueId query_id, const TPipelineFragmentParams& request,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                             const std::function<void(RuntimeState*, Status*)>& call_back,
@@ -343,5 +342,4 @@ private:
 
     bool _need_notify_close = false;
 };
-} // namespace pipeline
 } // namespace doris

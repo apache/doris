@@ -38,7 +38,6 @@ namespace iceberg {
 class Schema;
 }
 
-namespace vectorized {
 
 class Block;
 class VFileFormatTransformer;
@@ -58,7 +57,7 @@ public:
     Status open(RuntimeState* state, RuntimeProfile* profile,
                 const RowDescriptor* row_desc) override;
 
-    Status write(vectorized::Block& block) override;
+    Status write(Block& block) override;
 
     Status close(const Status& status) override;
 
@@ -104,5 +103,4 @@ private:
 
     RuntimeState* _state;
 };
-} // namespace vectorized
 } // namespace doris

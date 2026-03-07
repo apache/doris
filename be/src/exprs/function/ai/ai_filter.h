@@ -19,7 +19,7 @@
 
 #include "exprs/function/ai/ai_functions.h"
 
-namespace doris::vectorized {
+namespace doris {
 class FunctionAIFilter : public AIFunction<FunctionAIFilter> {
 public:
     static constexpr auto name = "ai_filter";
@@ -40,4 +40,4 @@ public:
 
     static FunctionPtr create() { return std::make_shared<FunctionAIFilter>(); }
 };
-} // namespace doris::vectorized
+} // namespace doris

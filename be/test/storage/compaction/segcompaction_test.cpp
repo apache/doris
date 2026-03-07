@@ -306,7 +306,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
         // k2 := k1 * 10
         // k3 := rid
         for (int i = 0; i < num_segments; ++i) {
-            vectorized::Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -360,8 +360,8 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
             uint32_t num_rows_read = 0;
             bool eof = false;
             while (!eof) {
-                std::shared_ptr<vectorized::Block> output_block =
-                        std::make_shared<vectorized::Block>(
+                std::shared_ptr<Block> output_block =
+                        std::make_shared<Block>(
                                 tablet_schema->create_block(return_columns));
                 std::vector<bool> row_is_same;
                 BlockWithSameBit block_with_same_bit {.block = output_block.get(),
@@ -373,9 +373,9 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
                 EXPECT_GT(output_block->rows(), 0);
                 EXPECT_EQ(return_columns.size(), output_block->columns());
                 for (int i = 0; i < output_block->rows(); ++i) {
-                    vectorized::ColumnPtr col0 = output_block->get_by_position(0).column;
-                    vectorized::ColumnPtr col1 = output_block->get_by_position(1).column;
-                    vectorized::ColumnPtr col2 = output_block->get_by_position(2).column;
+                    ColumnPtr col0 = output_block->get_by_position(0).column;
+                    ColumnPtr col1 = output_block->get_by_position(1).column;
+                    ColumnPtr col2 = output_block->get_by_position(2).column;
                     auto field1 = (*col0)[i];
                     auto field2 = (*col1)[i];
                     auto field3 = (*col2)[i];
@@ -428,7 +428,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         int num_segments = 4;
         uint32_t rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            vectorized::Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -446,7 +446,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 2;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            vectorized::Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -464,7 +464,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 1;
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            vectorized::Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -482,7 +482,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            vectorized::Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -500,7 +500,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 8;
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            vectorized::Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -519,7 +519,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            vectorized::Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -582,7 +582,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
         int num_segments = 1;
         uint32_t rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            vectorized::Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -600,7 +600,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            vectorized::Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -618,7 +618,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            vectorized::Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -636,7 +636,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 4096;
         for (int i = 0; i < num_segments; ++i) {
-            vectorized::Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -654,7 +654,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
         num_segments = 1;
         rows_per_segment = 6400;
         for (int i = 0; i < num_segments; ++i) {
-            vectorized::Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 100 + i;
@@ -710,7 +710,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
         uint32_t k2 = 0;
         uint32_t k3 = 0;
 
-        vectorized::Block block = tablet_schema->create_block();
+        Block block = tablet_schema->create_block();
         auto columns = block.mutate_columns();
         // segment#0
         k1 = k2 = 1;
@@ -869,8 +869,8 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
             uint32_t num_rows_read = 0;
             bool eof = false;
             while (!eof) {
-                std::shared_ptr<vectorized::Block> output_block =
-                        std::make_shared<vectorized::Block>(
+                std::shared_ptr<Block> output_block =
+                        std::make_shared<Block>(
                                 tablet_schema->create_block(return_columns));
                 std::vector<bool> row_is_same;
                 BlockWithSameBit block_with_same_bit {.block = output_block.get(),
@@ -882,9 +882,9 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
                 EXPECT_GT(output_block->rows(), 0);
                 EXPECT_EQ(return_columns.size(), output_block->columns());
                 for (int i = 0; i < output_block->rows(); ++i) {
-                    vectorized::ColumnPtr col0 = output_block->get_by_position(0).column;
-                    vectorized::ColumnPtr col1 = output_block->get_by_position(1).column;
-                    vectorized::ColumnPtr col2 = output_block->get_by_position(2).column;
+                    ColumnPtr col0 = output_block->get_by_position(0).column;
+                    ColumnPtr col1 = output_block->get_by_position(1).column;
+                    ColumnPtr col2 = output_block->get_by_position(2).column;
                     auto field1 = (*col0)[i];
                     auto field2 = (*col1)[i];
                     auto field3 = (*col2)[i];
@@ -977,7 +977,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
         uint32_t k2 = 0;
         uint32_t k3 = 0;
 
-        vectorized::Block block = tablet_schema->create_block();
+        Block block = tablet_schema->create_block();
         auto columns = block.mutate_columns();
 
         // segment#0
@@ -1137,8 +1137,8 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
             uint32_t num_rows_read = 0;
             bool eof = false;
             while (!eof) {
-                std::shared_ptr<vectorized::Block> output_block =
-                        std::make_shared<vectorized::Block>(
+                std::shared_ptr<Block> output_block =
+                        std::make_shared<Block>(
                                 tablet_schema->create_block(return_columns));
                 std::vector<bool> row_is_same;
                 BlockWithSameBit block_with_same_bit {.block = output_block.get(),
@@ -1150,9 +1150,9 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
                 EXPECT_GT(output_block->rows(), 0);
                 EXPECT_EQ(return_columns.size(), output_block->columns());
                 for (int i = 0; i < output_block->rows(); ++i) {
-                    vectorized::ColumnPtr col0 = output_block->get_by_position(0).column;
-                    vectorized::ColumnPtr col1 = output_block->get_by_position(1).column;
-                    vectorized::ColumnPtr col2 = output_block->get_by_position(2).column;
+                    ColumnPtr col0 = output_block->get_by_position(0).column;
+                    ColumnPtr col1 = output_block->get_by_position(1).column;
+                    ColumnPtr col2 = output_block->get_by_position(2).column;
                     auto field1 = (*col0)[i];
                     auto field2 = (*col1)[i];
                     auto field3 = (*col2)[i];

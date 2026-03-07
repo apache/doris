@@ -41,7 +41,7 @@ namespace doris {
 class RowDescriptor;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 VExprContext::~VExprContext() {
@@ -58,7 +58,7 @@ VExprContext::~VExprContext() {
     }
 }
 
-Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
+Status VExprContext::execute(Block* block, int* result_column_id) {
     Status st;
     RETURN_IF_CATCH_EXCEPTION({
         st = _root->execute(this, block, result_column_id);
@@ -395,7 +395,7 @@ Status VExprContext::get_output_block_after_execute_exprs(
         const VExprContextSPtrs& output_vexpr_ctxs, const Block& input_block, Block* output_block,
         bool do_projection) {
     auto rows = input_block.rows();
-    vectorized::ColumnsWithTypeAndName result_columns;
+    ColumnsWithTypeAndName result_columns;
     _reset_memory_usage(output_vexpr_ctxs);
 
     for (const auto& vexpr_ctx : output_vexpr_ctxs) {
@@ -438,8 +438,8 @@ Status VExprContext::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-        const std::unordered_map<vectorized::VExprContext*,
-                                 std::unordered_map<ColumnId, vectorized::VExpr*>>&
+        const std::unordered_map<VExprContext*,
+                                 std::unordered_map<ColumnId, VExpr*>>&
                 common_expr_to_slotref_map,
         roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats) {
     if (_root == nullptr) {
@@ -493,4 +493,4 @@ double VExprContext::execute_cost() const {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -46,7 +46,7 @@ IndexBuilder::IndexBuilder(StorageEngine& engine, TabletSharedPtr tablet,
           _columns(columns),
           _alter_inverted_indexes(alter_inverted_indexes),
           _is_drop_op(is_drop_op) {
-    _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    _olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
 }
 
 IndexBuilder::~IndexBuilder() {
@@ -576,7 +576,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 return Status::Error<ErrorCode::ROWSET_READER_INIT>(res.to_string());
             }
 
-            auto block = vectorized::Block::create_unique(
+            auto block = Block::create_unique(
                     output_rowset_schema->create_block(return_columns));
             while (true) {
                 auto status = iter->next_batch(block.get());
@@ -661,7 +661,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
 }
 
 Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, int64_t segment_idx,
-                                                vectorized::Block* block) {
+                                                Block* block) {
     VLOG_DEBUG << "begin to write inverted/ann index";
     // converter block data
     _olap_data_convertor->set_source_content(block, 0, block->rows());

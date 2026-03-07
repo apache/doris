@@ -87,23 +87,23 @@ bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
 }
 
 bool VecDateTimeValue::from_date_str(const char* date_str, size_t len) {
-    vectorized::CastParameters params;
+    CastParameters params;
     if (type() == TIME_DATE) {
-        return vectorized::CastToDateOrDatetime::from_string_non_strict_mode<false>(
+        return CastToDateOrDatetime::from_string_non_strict_mode<false>(
                 {date_str, len}, *this, nullptr, params);
     } else {
-        return vectorized::CastToDateOrDatetime::from_string_non_strict_mode<true>(
+        return CastToDateOrDatetime::from_string_non_strict_mode<true>(
                 {date_str, len}, *this, nullptr, params);
     }
 }
 bool VecDateTimeValue::from_date_str(const char* date_str, size_t len,
                                      const cctz::time_zone& local_time_zone) {
-    vectorized::CastParameters params;
+    CastParameters params;
     if (type() == TIME_DATE) {
-        return vectorized::CastToDateOrDatetime::from_string_non_strict_mode<false>(
+        return CastToDateOrDatetime::from_string_non_strict_mode<false>(
                 {date_str, len}, *this, &local_time_zone, params);
     } else {
-        return vectorized::CastToDateOrDatetime::from_string_non_strict_mode<true>(
+        return CastToDateOrDatetime::from_string_non_strict_mode<true>(
                 {date_str, len}, *this, &local_time_zone, params);
     }
 }
@@ -1806,12 +1806,12 @@ void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const
 template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, size_t len, int scale /* = -1*/,
                                    bool convert_zero) {
-    vectorized::CastParameters params;
+    CastParameters params;
     if constexpr (is_datetime) {
-        return vectorized::CastToDatetimeV2::from_string_non_strict_mode({date_str, len}, *this,
+        return CastToDatetimeV2::from_string_non_strict_mode({date_str, len}, *this,
                                                                          nullptr, scale, params);
     } else {
-        return vectorized::CastToDateV2::from_string_non_strict_mode({date_str, len}, *this,
+        return CastToDateV2::from_string_non_strict_mode({date_str, len}, *this,
                                                                      nullptr, params);
     }
 }
@@ -1820,12 +1820,12 @@ template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, size_t len,
                                    const cctz::time_zone& local_time_zone, int scale /* = -1*/,
                                    bool convert_zero) {
-    vectorized::CastParameters params;
+    CastParameters params;
     if constexpr (is_datetime) {
-        return vectorized::CastToDatetimeV2::from_string_non_strict_mode(
+        return CastToDatetimeV2::from_string_non_strict_mode(
                 {date_str, len}, *this, &local_time_zone, scale, params);
     } else {
-        return vectorized::CastToDateV2::from_string_non_strict_mode({date_str, len}, *this,
+        return CastToDateV2::from_string_non_strict_mode({date_str, len}, *this,
                                                                      &local_time_zone, params);
     }
 }

@@ -39,7 +39,7 @@
 #include "core/data_type/data_type_number.h"
 #include "exprs/function/function.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 struct ColumnRowRef {
     ENABLE_FACTORY_CREATOR(ColumnRowRef);
@@ -116,7 +116,7 @@ public:
             const auto& [col, _] = unpack_if_const(const_column_ptr->column_ptr);
             if (col->is_nullable()) {
                 const auto* null_col =
-                        vectorized::check_and_get_column<vectorized::ColumnNullable>(col.get());
+                        check_and_get_column<ColumnNullable>(col.get());
                 if (null_col->has_null()) {
                     state->null_in_set = true;
                 } else {
@@ -159,7 +159,7 @@ public:
         auto materialized_column_not_null = materialized_column;
         if (materialized_column_not_null->is_nullable()) {
             materialized_column_not_null = assert_cast<ColumnPtr>(
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(
+                    check_and_get_column<ColumnNullable>(
                             materialized_column_not_null.get())
                             ->get_nested_column_ptr());
         }
@@ -190,6 +190,6 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

@@ -23,7 +23,7 @@
 #include "format/transformer/vfile_format_transformer.h"
 #include "util/jni-util.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 /**
@@ -72,6 +72,6 @@ private:
     bool _closed = false;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

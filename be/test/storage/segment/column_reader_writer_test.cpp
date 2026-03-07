@@ -64,7 +64,7 @@ protected:
     }
 
 private:
-    vectorized::Arena _pool;
+    Arena _pool;
 };
 
 template <FieldType type, EncodingTypePB encoding>
@@ -145,7 +145,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
             st = iter->init(iter_opts);
             EXPECT_TRUE(st.ok());
 
-            vectorized::Arena pool;
+            Arena pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
             cvb->resize(1024);
@@ -197,7 +197,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
             st = iter->init(iter_opts);
             EXPECT_TRUE(st.ok());
 
-            vectorized::Arena pool;
+            Arena pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
             cvb->resize(1024);
@@ -320,7 +320,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
         EXPECT_TRUE(st.ok());
         // sequence read
         {
-            vectorized::Arena pool;
+            Arena pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info.get(), field, &cvb);
             cvb->resize(1024);
@@ -346,7 +346,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
         }
         // seek read
         {
-            vectorized::Arena pool;
+            Arena pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info.get(), field, &cvb);
             cvb->resize(1024);
@@ -497,7 +497,7 @@ void test_read_default_value(string value, void* result) {
         EXPECT_TRUE(st.ok());
         // sequence read
         {
-            vectorized::Arena pool;
+            Arena pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, scalar_type_info, nullptr, &cvb);
             cvb->resize(1024);
@@ -526,7 +526,7 @@ void test_read_default_value(string value, void* result) {
         }
 
         {
-            vectorized::Arena pool;
+            Arena pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, scalar_type_info, nullptr, &cvb);
             cvb->resize(1024);
@@ -561,29 +561,29 @@ void test_read_default_value(string value, void* result) {
     }
 }
 
-static vectorized::MutableColumnPtr create_vectorized_column_ptr(FieldType type) {
+static MutableColumnPtr create_vectorized_column_ptr(FieldType type) {
     if (type == FieldType::OLAP_FIELD_TYPE_INT) {
-        return vectorized::DataTypeInt32().create_column();
+        return DataTypeInt32().create_column();
     } else if (type == FieldType::OLAP_FIELD_TYPE_SMALLINT) {
-        return vectorized::DataTypeInt16().create_column();
+        return DataTypeInt16().create_column();
     } else if (type == FieldType::OLAP_FIELD_TYPE_BIGINT) {
-        return vectorized::DataTypeInt64().create_column();
+        return DataTypeInt64().create_column();
     } else if (type == FieldType::OLAP_FIELD_TYPE_LARGEINT) {
-        return vectorized::DataTypeInt128().create_column();
+        return DataTypeInt128().create_column();
     } else if (type == FieldType::OLAP_FIELD_TYPE_FLOAT) {
-        return vectorized::DataTypeFloat32().create_column();
+        return DataTypeFloat32().create_column();
     } else if (type == FieldType::OLAP_FIELD_TYPE_DOUBLE) {
-        return vectorized::DataTypeFloat64().create_column();
+        return DataTypeFloat64().create_column();
     } else if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
-        return vectorized::DataTypeString().create_column();
+        return DataTypeString().create_column();
     } else if (type == FieldType::OLAP_FIELD_TYPE_DATE) {
-        return vectorized::DataTypeDate().create_column();
+        return DataTypeDate().create_column();
     } else if (type == FieldType::OLAP_FIELD_TYPE_DATETIME) {
-        return vectorized::DataTypeDateTime().create_column();
+        return DataTypeDateTime().create_column();
     } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
-        return vectorized::DataTypeDecimalV2(27, 9).create_column();
+        return DataTypeDecimalV2(27, 9).create_column();
     }
-    return vectorized::DataTypeNothing().create_column();
+    return DataTypeNothing().create_column();
 }
 
 template <FieldType type>
@@ -603,7 +603,7 @@ void test_v_read_default_value(string value, void* result) {
 
         // sequence read
         {
-            vectorized::MutableColumnPtr mcp = create_vectorized_column_ptr(type);
+            MutableColumnPtr mcp = create_vectorized_column_ptr(type);
 
             size_t rows_read = 16;
             bool has_null;
@@ -618,19 +618,19 @@ void test_v_read_default_value(string value, void* result) {
                 } else if (type == FieldType::OLAP_FIELD_TYPE_DATE ||
                            type == FieldType::OLAP_FIELD_TYPE_DATETIME) {
                     StringRef sr = mcp->get_data_at(j);
-                    EXPECT_EQ(sr.size, sizeof(vectorized::Int64));
+                    EXPECT_EQ(sr.size, sizeof(Int64));
 
-                    auto x = unaligned_load<vectorized::Int64>(sr.data);
-                    auto value = binary_cast<vectorized::Int64, VecDateTimeValue>(x);
+                    auto x = unaligned_load<Int64>(sr.data);
+                    auto value = binary_cast<Int64, VecDateTimeValue>(x);
                     char buf[64] = {};
                     value.to_string(buf);
                     int ret = strcmp(buf, (char*)result);
                     EXPECT_EQ(ret, 0);
                 } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
                     StringRef sr = mcp->get_data_at(j);
-                    EXPECT_EQ(sr.size, sizeof(vectorized::Int128));
+                    EXPECT_EQ(sr.size, sizeof(Int128));
 
-                    DecimalV2Value v1(unaligned_load<vectorized::Int128>(sr.data));
+                    DecimalV2Value v1(unaligned_load<Int128>(sr.data));
                     decimal12_t* v2 = (decimal12_t*)result;
 
                     EXPECT_EQ(v2->integer, v1.int_value());

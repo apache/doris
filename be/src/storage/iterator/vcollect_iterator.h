@@ -47,7 +47,6 @@ namespace doris {
 class TabletSchema;
 class RuntimeProfile;
 
-namespace vectorized {
 
 class VCollectIterator {
 public:
@@ -358,5 +357,4 @@ private:
     bool _skip_same;
 };
 
-} // namespace vectorized
 } // namespace doris

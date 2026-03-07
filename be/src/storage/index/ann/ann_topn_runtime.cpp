@@ -44,7 +44,7 @@
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
-Result<vectorized::IColumn::Ptr> extract_query_vector(std::shared_ptr<vectorized::VExpr> arg_expr) {
+Result<IColumn::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr) {
     if (arg_expr->is_constant() == false) {
         return ResultError(Status::InvalidArgument("Ann topn expr must be constant, got\n{}",
                                                    arg_expr->debug_string()));
@@ -54,8 +54,8 @@ Result<vectorized::IColumn::Ptr> extract_query_vector(std::shared_ptr<vectorized
     // First, check the expr node type for clarity.
 
     bool is_array_literal =
-            std::dynamic_pointer_cast<vectorized::VArrayLiteral>(arg_expr) != nullptr;
-    bool is_cast_expr = std::dynamic_pointer_cast<vectorized::VCastExpr>(arg_expr) != nullptr;
+            std::dynamic_pointer_cast<VArrayLiteral>(arg_expr) != nullptr;
+    bool is_cast_expr = std::dynamic_pointer_cast<VCastExpr>(arg_expr) != nullptr;
     if (!is_array_literal && !is_cast_expr) {
         return ResultError(
                 Status::InvalidArgument("Constant must be ArrayLiteral or CAST to array, got\n{}",
@@ -72,16 +72,16 @@ Result<vectorized::IColumn::Ptr> extract_query_vector(std::shared_ptr<vectorized
     }
 
     // Execute the constant array literal and extract its float elements into _query_array
-    vectorized::IColumn::Ptr col_ptr =
+    IColumn::Ptr col_ptr =
             column_wrapper->column_ptr->convert_to_full_column_if_const();
 
     // The expected runtime column layout for the literal is:
     // Nullable(ColumnArray(Nullable(ColumnFloat32))) with exactly 1 row (one array literal)
-    const vectorized::IColumn* top_col = col_ptr.get();
-    const vectorized::IColumn* array_holder_col = top_col;
+    const IColumn* top_col = col_ptr.get();
+    const IColumn* array_holder_col = top_col;
     // Handle outer Nullable and remember result nullability preference
     if (auto* nullable_col =
-                vectorized::check_and_get_column<vectorized::ColumnNullable>(*top_col)) {
+                check_and_get_column<ColumnNullable>(*top_col)) {
         if (nullable_col->has_null()) {
             return ResultError(Status::InvalidArgument("Ann query vector cannot be NULL"));
         }
@@ -90,7 +90,7 @@ Result<vectorized::IColumn::Ptr> extract_query_vector(std::shared_ptr<vectorized
 
     // Must be an array column with single row
     const auto* array_col =
-            vectorized::check_and_get_column<vectorized::ColumnArray>(*array_holder_col);
+            check_and_get_column<ColumnArray>(*array_holder_col);
     if (array_col == nullptr || array_col->size() != 1) {
         return ResultError(Status::InvalidArgument(
                 "Ann topn expr constant should be an Array literal, got column: {}",
@@ -98,8 +98,8 @@ Result<vectorized::IColumn::Ptr> extract_query_vector(std::shared_ptr<vectorized
     }
 
     // Fetch nested data column: Nullable(ColumnFloat32) or ColumnFloat32
-    const vectorized::IColumn& nested_data_any = array_col->get_data();
-    vectorized::IColumn::Ptr values_holder_col = array_col->get_data_ptr();
+    const IColumn& nested_data_any = array_col->get_data();
+    IColumn::Ptr values_holder_col = array_col->get_data_ptr();
     size_t value_count = array_col->get_offsets()[0];
 
     if (value_count == 0) {
@@ -107,7 +107,7 @@ Result<vectorized::IColumn::Ptr> extract_query_vector(std::shared_ptr<vectorized
     }
 
     if (auto* value_nullable_col =
-                vectorized::check_and_get_column<vectorized::ColumnNullable>(nested_data_any)) {
+                check_and_get_column<ColumnNullable>(nested_data_any)) {
         if (value_nullable_col->has_null(0, value_count)) {
             return ResultError(Status::InvalidArgument(
                     "Ann topn query vector elements cannot contain NULL values"));
@@ -125,7 +125,7 @@ Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_des
     // Check the structure of the _order_by_expr_ctx
 
     /*
-        vectorized::VirtualSlotRef
+        VirtualSlotRef
         |
         |
         FuncationCall
@@ -134,27 +134,27 @@ Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_des
         |               |
         SlotRef         CAST(String as Nullable<ArrayFloat>) OR ArrayLiteral
     */
-    std::shared_ptr<vectorized::VirtualSlotRef> vir_slot_ref =
-            std::dynamic_pointer_cast<vectorized::VirtualSlotRef>(_order_by_expr_ctx->root());
+    std::shared_ptr<VirtualSlotRef> vir_slot_ref =
+            std::dynamic_pointer_cast<VirtualSlotRef>(_order_by_expr_ctx->root());
     DCHECK(vir_slot_ref != nullptr);
     if (vir_slot_ref == nullptr) {
         return Status::InvalidArgument(
-                "root of order by expr of ann topn must be a vectorized::VirtualSlotRef, got\n{}",
+                "root of order by expr of ann topn must be a VirtualSlotRef, got\n{}",
                 _order_by_expr_ctx->root()->debug_string());
     }
     DCHECK(vir_slot_ref->column_id() >= 0);
     _dest_column_idx = vir_slot_ref->column_id();
     auto vir_col_expr = vir_slot_ref->get_virtual_column_expr();
-    std::shared_ptr<vectorized::VectorizedFnCall> distance_fn_call =
-            std::dynamic_pointer_cast<vectorized::VectorizedFnCall>(vir_col_expr);
+    std::shared_ptr<VectorizedFnCall> distance_fn_call =
+            std::dynamic_pointer_cast<VectorizedFnCall>(vir_col_expr);
 
     if (distance_fn_call == nullptr) {
         return Status::InvalidArgument("Ann topn expr expect FuncationCall, got\n{}",
                                        vir_col_expr->debug_string());
     }
 
-    std::shared_ptr<vectorized::VSlotRef> slot_ref =
-            std::dynamic_pointer_cast<vectorized::VSlotRef>(distance_fn_call->children()[0]);
+    std::shared_ptr<VSlotRef> slot_ref =
+            std::dynamic_pointer_cast<VSlotRef>(distance_fn_call->children()[0]);
     if (slot_ref == nullptr) {
         return Status::InvalidArgument("Ann topn expr expect SlotRef, got\n{}",
                                        distance_fn_call->children()[0]->debug_string());
@@ -180,8 +180,8 @@ Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_des
 
     _user_params = state->get_vector_search_params();
 
-    std::set<std::string> distance_func_names = {vectorized::L2DistanceApproximate::name,
-                                                 vectorized::InnerProductApproximate::name};
+    std::set<std::string> distance_func_names = {L2DistanceApproximate::name,
+                                                 InnerProductApproximate::name};
     if (distance_func_names.contains(distance_fn_call->function_name()) == false) {
         return Status::InternalError("Ann topn expr expect distance function, got {}",
                                      distance_fn_call->function_name());
@@ -198,7 +198,7 @@ Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_des
 
 Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::IndexIterator* ann_index_iterator,
                                                   roaring::Roaring* roaring, size_t rows_of_segment,
-                                                  vectorized::IColumn::MutablePtr& result_column,
+                                                  IColumn::MutablePtr& result_column,
                                                   std::unique_ptr<std::vector<uint64_t>>& row_ids,
                                                   segment_v2::AnnIndexStats& ann_index_stats) {
     DCHECK(ann_index_iterator != nullptr);
@@ -222,8 +222,8 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::IndexIterator* ann
                 "Ann topn query vector dimension {} does not match index dimension {}",
                 query_array_size, ann_index_reader->get_dimension());
     }
-    const vectorized::ColumnFloat32* query =
-            assert_cast<const vectorized::ColumnFloat32*>(_query_array.get());
+    const ColumnFloat32* query =
+            assert_cast<const ColumnFloat32*>(_query_array.get());
     segment_v2::AnnTopNParam ann_query_params {
             .query_value = query->get_data().data(),
             .query_value_size = query_array_size,
@@ -241,7 +241,7 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::IndexIterator* ann
     DCHECK(ann_query_params.row_ids != nullptr);
 
     size_t num_results = ann_query_params.distance->size();
-    auto result_column_float = vectorized::ColumnFloat32::create(num_results);
+    auto result_column_float = ColumnFloat32::create(num_results);
     for (size_t i = 0; i < num_results; ++i) {
         result_column_float->get_data()[i] = (*ann_query_params.distance)[i];
     }

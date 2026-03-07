@@ -38,7 +38,7 @@
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
@@ -123,7 +123,7 @@ public:
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         auto* data = reinterpret_cast<const Data*>(col.get_data().data());
         for (size_t i = begin; i <= end; ++i) {
-            doris::vectorized::AggregateFunctionCount::data(place).count += data[i].count;
+            doris::AggregateFunctionCount::data(place).count += data[i].count;
         }
     }
 
@@ -265,7 +265,7 @@ public:
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         auto* data = reinterpret_cast<const Data*>(col.get_data().data());
         for (size_t i = begin; i <= end; ++i) {
-            doris::vectorized::AggregateFunctionCountNotNullUnary::data(place).count +=
+            doris::AggregateFunctionCountNotNullUnary::data(place).count +=
                     data[i].count;
         }
     }
@@ -334,6 +334,6 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

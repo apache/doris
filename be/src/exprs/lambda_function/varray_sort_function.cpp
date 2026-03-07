@@ -32,7 +32,7 @@
 #include "exprs/lambda_function/lambda_function_factory.h"
 #include "exprs/vexpr.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class VExprContext;
@@ -67,7 +67,7 @@ public:
 
     std::string get_name() const override { return name; }
 
-    Status execute(VExprContext* context, const vectorized::Block* block, Selector* expr_selector,
+    Status execute(VExprContext* context, const Block* block, Selector* expr_selector,
                    size_t count, ColumnPtr& result_column, const DataTypePtr& result_type,
                    const VExprSPtrs& children) const override {
         ///* array_sort(lambda, arg) *///
@@ -135,7 +135,7 @@ public:
          */
         Block lambda_block;
         for (int i = 0; i <= 2; i++) {
-            lambda_block.insert(vectorized::ColumnWithTypeAndName(
+            lambda_block.insert(ColumnWithTypeAndName(
                     nested_nullable_column.clone_empty(), col_type.get_nested_type(), "temp"));
         }
 
@@ -267,9 +267,9 @@ public:
 #undef DISPATCH_PRIMITIVE_TYPE
 };
 
-void register_function_array_sort(doris::vectorized::LambdaFunctionFactory& factory) {
+void register_function_array_sort(doris::LambdaFunctionFactory& factory) {
     factory.register_function<ArraySortFunction>();
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

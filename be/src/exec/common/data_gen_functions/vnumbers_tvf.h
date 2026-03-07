@@ -30,7 +30,6 @@ class RuntimeState;
 class Status;
 class TScanRangeParams;
 
-namespace pipeline {
 class Block;
 
 class VNumbersTVF : public VDataGenFunctionInf {
@@ -38,7 +37,7 @@ public:
     VNumbersTVF(TupleId tuple_id, const TupleDescriptor* tuple_desc);
     ~VNumbersTVF() override = default;
 
-    Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
     Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
@@ -51,6 +50,5 @@ private:
     int64_t _next_number = 0;
 };
 
-} // namespace pipeline
 
 } // namespace doris

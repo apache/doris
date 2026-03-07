@@ -25,7 +25,7 @@
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "exprs/function/dictionary.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 ComplexHashMapDictionary::~ComplexHashMapDictionary() {
     if (_mem_tracker) {
@@ -37,7 +37,7 @@ ComplexHashMapDictionary::~ComplexHashMapDictionary() {
 
 size_t ComplexHashMapDictionary::allocated_bytes() const {
     size_t bytes = 0;
-    std::visit(vectorized::Overload {[&](const std::monostate& arg) { bytes = 0; },
+    std::visit(Overload {[&](const std::monostate& arg) { bytes = 0; },
                                      [&](const auto& dict_method) {
                                          bytes = dict_method.hash_table->get_buffer_size_in_bytes();
                                      }},
@@ -56,7 +56,7 @@ void ComplexHashMapDictionary::load_data(const ColumnPtrs& key_columns, const Da
     // save key columns
     _key_columns = key_columns;
 
-    std::visit(vectorized::Overload {
+    std::visit(Overload {
                        [&](std::monostate& arg) {
                            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
                        },
@@ -102,7 +102,7 @@ void ComplexHashMapDictionary::init_find_hash_map(DictionaryHashMapMethod& find_
     THROW_IF_ERROR(
             init_hash_method<DictionaryHashMapMethod>(&find_hash_map_method, key_types, true));
 
-    std::visit(vectorized::Overload {
+    std::visit(Overload {
                        [&](const std::monostate& arg) {
                            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
                        },
@@ -162,7 +162,7 @@ ColumnPtrs ComplexHashMapDictionary::get_tuple_columns(
         return false;
     };
 
-    std::visit(vectorized::Overload {
+    std::visit(Overload {
 
                        [&](std::monostate& arg, auto key_hash_nullable) {
                            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
@@ -230,4 +230,4 @@ ColumnPtr ComplexHashMapDictionary::get_single_value_column(
     return ColumnNullable::create(std::move(res_column), std::move(res_null));
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

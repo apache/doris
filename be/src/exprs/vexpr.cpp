@@ -187,7 +187,7 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
     return node;
 }
 
-TExprNode create_texpr_node_from(const vectorized::Field& field, const PrimitiveType& type,
+TExprNode create_texpr_node_from(const Field& field, const PrimitiveType& type,
                                  int precision, int scale) {
     TExprNode node;
     switch (type) {
@@ -337,7 +337,7 @@ TExprNode create_texpr_node_from(const vectorized::Field& field, const Primitive
 // NOLINTEND(readability-function-cognitive-complexity)
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 bool VExpr::is_acting_on_a_slot(const VExpr& expr) {
     if (expr.node_type() == TExprNodeType::SEARCH_EXPR) {
@@ -853,9 +853,9 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                                        uint32_t segment_num_rows) {
     // Pre-allocate vectors based on an estimated or known size
     std::vector<segment_v2::IndexIterator*> iterators;
-    std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
+    std::vector<IndexFieldNameAndTypePair> data_type_with_names;
     std::vector<int> column_ids;
-    vectorized::ColumnsWithTypeAndName arguments;
+    ColumnsWithTypeAndName arguments;
     VExprSPtrs children_exprs;
 
     // Reserve space to avoid multiple reallocations
@@ -1102,4 +1102,4 @@ Status VExpr::execute_filter(VExprContext* context, const Block* block,
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

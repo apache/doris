@@ -74,12 +74,10 @@ namespace io {
 struct IOContext;
 enum class FileCachePolicy : uint8_t;
 } // namespace io
-namespace vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 #include "common/compile_check_begin.h"
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
@@ -1161,7 +1159,7 @@ Status ParquetReader::_process_column_stat_filter(
 
     // Cache bloom filters for each column to avoid reading the same bloom filter multiple times
     // when there are multiple predicates on the same column
-    std::unordered_map<int, std::unique_ptr<vectorized::ParquetBlockSplitBloomFilter>>
+    std::unordered_map<int, std::unique_ptr<ParquetBlockSplitBloomFilter>>
             bloom_filter_cache;
 
     // Initialize output parameters
@@ -1370,4 +1368,4 @@ void ParquetReader::_collect_profile_before_close() {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

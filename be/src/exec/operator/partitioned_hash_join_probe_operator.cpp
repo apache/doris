@@ -33,13 +33,13 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_profile.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 PartitionedHashJoinProbeLocalState::PartitionedHashJoinProbeLocalState(RuntimeState* state,
                                                                        OperatorXBase* parent)
         : PipelineXSpillLocalState(state, parent),
-          _child_block(vectorized::Block::create_unique()) {}
+          _child_block(Block::create_unique()) {}
 
 Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSpillLocalState::init(state, info));
@@ -176,7 +176,7 @@ Status PartitionedHashJoinProbeLocalState::_execute_spill_probe_blocks(RuntimeSt
         auto& partitioned_block = _partitioned_blocks[partition_index];
         if (partitioned_block) {
             const auto size = partitioned_block->allocated_bytes();
-            if (size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+            if (size >= SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
                 blocks.emplace_back(partitioned_block->to_block());
                 partitioned_block.reset();
             } else {
@@ -196,7 +196,7 @@ Status PartitionedHashJoinProbeLocalState::_execute_spill_probe_blocks(RuntimeSt
                     std::numeric_limits<size_t>::max(), operator_profile()));
         }
 
-        auto merged_block = vectorized::MutableBlock::create_unique(std::move(blocks.back()));
+        auto merged_block = MutableBlock::create_unique(std::move(blocks.back()));
         blocks.pop_back();
 
         while (!blocks.empty() && !state->is_cancelled()) {
@@ -292,7 +292,7 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_disk(Runtim
                 print_id(state->query_id()), _parent->node_id(), state->task_id(), partition_index);
         Status status;
         while (!eos) {
-            vectorized::Block block;
+            Block block;
             DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_probe::recover_build_blocks", {
                 status = Status::Error<INTERNAL_ERROR>(
                         "fault_inject partitioned_hash_join_probe "
@@ -321,7 +321,7 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_disk(Runtim
             }
 
             if (!_recovered_build_block) {
-                _recovered_build_block = vectorized::MutableBlock::create_unique(std::move(block));
+                _recovered_build_block = MutableBlock::create_unique(std::move(block));
             } else {
                 DCHECK_EQ(_recovered_build_block->columns(), block.columns());
                 status = _recovered_build_block->merge(std::move(block));
@@ -331,7 +331,7 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_disk(Runtim
             }
 
             if (_recovered_build_block->allocated_bytes() >=
-                vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
+                SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
                 break;
             }
         }
@@ -418,7 +418,7 @@ Status PartitionedHashJoinProbeLocalState::recover_probe_blocks_from_disk(Runtim
     auto read_func = [this, query_id, partition_index, &spilled_stream, &blocks] {
         SCOPED_TIMER(_recovery_probe_timer);
 
-        vectorized::Block block;
+        Block block;
         bool eos = false;
         Status st;
         DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_probe::recover_probe_blocks", {
@@ -438,7 +438,7 @@ Status PartitionedHashJoinProbeLocalState::recover_probe_blocks_from_disk(Runtim
                 blocks.emplace_back(std::move(block));
             }
 
-            if (read_size >= vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
+            if (read_size >= SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
                 break;
             }
         }
@@ -530,7 +530,7 @@ Status PartitionedHashJoinProbeOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status PartitionedHashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* input_block,
+Status PartitionedHashJoinProbeOperatorX::push(RuntimeState* state, Block* input_block,
                                                bool eos) const {
     auto& local_state = get_local_state(state);
     const auto rows = input_block->rows();
@@ -567,7 +567,7 @@ Status PartitionedHashJoinProbeOperatorX::push(RuntimeState* state, vectorized::
 
         if (!partitioned_blocks[i]) {
             partitioned_blocks[i] =
-                    vectorized::MutableBlock::create_unique(input_block->clone_empty());
+                    MutableBlock::create_unique(input_block->clone_empty());
         }
         RETURN_IF_ERROR(partitioned_blocks[i]->add_rows(input_block, partition_indexes[i].data(),
                                                         partition_indexes[i].data() + count));
@@ -636,7 +636,7 @@ Status PartitionedHashJoinProbeOperatorX::_setup_internal_operators(
 
     auto& partitioned_block =
             local_state._shared_state->partitioned_build_blocks[local_state._partition_cursor];
-    vectorized::Block block;
+    Block block;
     if (partitioned_block && partitioned_block->rows() > 0) {
         block = partitioned_block->to_block();
         partitioned_block.reset();
@@ -659,7 +659,7 @@ Status PartitionedHashJoinProbeOperatorX::_setup_internal_operators(
 }
 
 Status PartitionedHashJoinProbeOperatorX::pull(doris::RuntimeState* state,
-                                               vectorized::Block* output_block, bool* eos) const {
+                                               Block* output_block, bool* eos) const {
     auto& local_state = get_local_state(state);
 
     const auto partition_index = local_state._partition_cursor;
@@ -702,7 +702,7 @@ Status PartitionedHashJoinProbeOperatorX::pull(doris::RuntimeState* state,
             RETURN_IF_ERROR(
                     local_state.recover_probe_blocks_from_disk(state, partition_index, has_data));
             if (!has_data) {
-                vectorized::Block block;
+                Block block;
                 RETURN_IF_ERROR(_inner_probe_operator->push(runtime_state, &block, true));
                 VLOG_DEBUG << fmt::format(
                         "Query:{}, hash join probe:{}, task:{},"
@@ -770,8 +770,8 @@ size_t PartitionedHashJoinProbeOperatorX::revocable_mem_size(RuntimeState* state
 
 size_t PartitionedHashJoinProbeOperatorX::_revocable_mem_size(RuntimeState* state,
                                                               bool force) const {
-    const auto spill_size_threshold = force ? vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM
-                                            : vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM;
+    const auto spill_size_threshold = force ? SpillStream::MIN_SPILL_WRITE_BATCH_MEM
+                                            : SpillStream::MAX_SPILL_WRITE_BATCH_MEM;
     auto& local_state = get_local_state(state);
     size_t mem_size = 0;
     auto& probe_blocks = local_state._probe_blocks;
@@ -798,7 +798,7 @@ size_t PartitionedHashJoinProbeOperatorX::get_reserve_mem_size(RuntimeState* sta
         return Base::get_reserve_mem_size(state);
     }
 
-    size_t size_to_reserve = vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM;
+    size_t size_to_reserve = SpillStream::MAX_SPILL_WRITE_BATCH_MEM;
 
     if (local_state._need_to_setup_internal_operators) {
         const size_t rows =
@@ -835,15 +835,15 @@ bool PartitionedHashJoinProbeOperatorX::_should_revoke_memory(RuntimeState* stat
         const auto revocable_size = _revocable_mem_size(state);
 
         if (local_state.low_memory_mode()) {
-            return revocable_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM;
+            return revocable_size >= SpillStream::MIN_SPILL_WRITE_BATCH_MEM;
         } else {
-            return revocable_size >= vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM;
+            return revocable_size >= SpillStream::MAX_SPILL_WRITE_BATCH_MEM;
         }
     }
     return false;
 }
 
-Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
+Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, Block* block,
                                                     bool* eos) {
     *eos = false;
     auto& local_state = get_local_state(state);
@@ -908,4 +908,4 @@ Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, vectori
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

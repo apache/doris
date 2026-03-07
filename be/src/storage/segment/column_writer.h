@@ -31,7 +31,7 @@
 
 #include "common/status.h" // for Status
 #include "core/column/column_variant.h"
-#include "storage/field.h" // for Field
+#include "storage/field.h" // for StorageField
 #include "storage/index/ann/ann_index_writer.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/inverted/inverted_index_writer.h"
@@ -127,7 +127,7 @@ public:
                                           const TabletColumn* column, io::FileWriter* file_writer,
                                           std::unique_ptr<ColumnWriter>* writer);
 
-    explicit ColumnWriter(std::unique_ptr<Field> field, bool is_nullable, ColumnMetaPB* meta);
+    explicit ColumnWriter(std::unique_ptr<StorageField> field, bool is_nullable, ColumnMetaPB* meta);
 
     virtual ~ColumnWriter() = default;
 
@@ -193,15 +193,15 @@ public:
 
     bool is_nullable() const { return _is_nullable; }
 
-    Field* get_field() const { return _field.get(); }
+    StorageField* get_field() const { return _field.get(); }
 
     ColumnMetaPB* get_column_meta() const { return _column_meta; }
 
 protected:
-    vectorized::DataTypePtr _data_type;
+    DataTypePtr _data_type;
 
 private:
-    std::unique_ptr<Field> _field;
+    std::unique_ptr<StorageField> _field;
     bool _is_nullable;
     ColumnMetaPB* _column_meta;
     std::vector<uint8_t> _null_bitmap;
@@ -219,7 +219,7 @@ public:
 // to file
 class ScalarColumnWriter : public ColumnWriter {
 public:
-    ScalarColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
+    ScalarColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<StorageField> field,
                        io::FileWriter* file_writer);
 
     ~ScalarColumnWriter() override;
@@ -340,7 +340,7 @@ private:
 //  in footer.next_array_item_ordinal which in finish_cur_page() callback put_extra_info_in_page()
 class OffsetColumnWriter final : public ScalarColumnWriter, FlushPageCallback {
 public:
-    OffsetColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
+    OffsetColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<StorageField> field,
                        io::FileWriter* file_writer);
 
     ~OffsetColumnWriter() override;
@@ -357,7 +357,7 @@ private:
 
 class StructColumnWriter final : public ColumnWriter {
 public:
-    explicit StructColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
+    explicit StructColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<StorageField> field,
                                 ScalarColumnWriter* null_writer,
                                 std::vector<std::unique_ptr<ColumnWriter>>& sub_column_writers);
     ~StructColumnWriter() override = default;
@@ -424,7 +424,7 @@ private:
 
 class ArrayColumnWriter final : public ColumnWriter {
 public:
-    explicit ArrayColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
+    explicit ArrayColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<StorageField> field,
                                OffsetColumnWriter* offset_writer, ScalarColumnWriter* null_writer,
                                std::unique_ptr<ColumnWriter> item_writer);
     ~ArrayColumnWriter() override = default;
@@ -498,7 +498,7 @@ private:
 
 class MapColumnWriter final : public ColumnWriter {
 public:
-    explicit MapColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
+    explicit MapColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<StorageField> field,
                              ScalarColumnWriter* null_writer, OffsetColumnWriter* offsets_writer,
                              std::vector<std::unique_ptr<ColumnWriter>>& _kv_writers);
 
@@ -573,7 +573,7 @@ private:
 class VariantSubcolumnWriter : public ColumnWriter {
 public:
     explicit VariantSubcolumnWriter(const ColumnWriterOptions& opts, const TabletColumn* column,
-                                    std::unique_ptr<Field> field);
+                                    std::unique_ptr<StorageField> field);
 
     ~VariantSubcolumnWriter() override = default;
 
@@ -623,7 +623,7 @@ private:
     bool _is_finalized = false;
     ordinal_t _next_rowid = 0;
     size_t none_null_size = 0;
-    vectorized::ColumnVariant::MutablePtr _column;
+    ColumnVariant::MutablePtr _column;
     const TabletColumn* _tablet_column = nullptr;
     ColumnWriterOptions _opts;
     std::unique_ptr<ColumnWriter> _writer;
@@ -636,7 +636,7 @@ private:
 class VariantColumnWriter : public ColumnWriter {
 public:
     explicit VariantColumnWriter(const ColumnWriterOptions& opts, const TabletColumn* column,
-                                 std::unique_ptr<Field> field);
+                                 std::unique_ptr<StorageField> field);
 
     ~VariantColumnWriter() override = default;
 

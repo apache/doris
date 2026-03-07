@@ -35,7 +35,7 @@
 #include "core/string_ref.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 // A regex to match any regex pattern is equivalent to a substring search.
 static const RE2 SUBSTRING_RE(R"((?:\.\*)*([^\.\^\{\[\(\|\)\]\}\+\*\?\$\\]*)(?:\.\*)*)");
@@ -388,7 +388,7 @@ Status FunctionLikeBase::constant_regex_fn_scalar(const LikeSearchState* state,
     if (state->hs_database) { // use hyperscan
         auto ret = hs_scan(state->hs_database.get(), val.data, (int)val.size, 0,
                            state->hs_scratch.get(),
-                           doris::vectorized::LikeSearchState::hs_match_handler, (void*)result);
+                           doris::LikeSearchState::hs_match_handler, (void*)result);
         if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
             return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
         }
@@ -425,7 +425,7 @@ Status FunctionLikeBase::constant_regex_fn(const LikeSearchState* state, const C
             const auto& str_ref = val.get_data_at(i);
             auto ret = hs_scan(state->hs_database.get(), str_ref.data, (int)str_ref.size, 0,
                                state->hs_scratch.get(),
-                               doris::vectorized::LikeSearchState::hs_match_handler,
+                               doris::LikeSearchState::hs_match_handler,
                                (void*)(result.data() + i));
             if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
                 return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
@@ -459,7 +459,7 @@ Status FunctionLikeBase::regexp_fn(const LikeSearchState* state, const ColumnStr
         for (size_t i = 0; i < sz; i++) {
             const auto& str_ref = val.get_data_at(i);
             auto ret = hs_scan(database, str_ref.data, (int)str_ref.size, 0, scratch,
-                               doris::vectorized::LikeSearchState::hs_match_handler,
+                               doris::LikeSearchState::hs_match_handler,
                                (void*)(result.data() + i));
             if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
                 return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
@@ -1086,4 +1086,4 @@ void register_function_regexp(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionRegexpLike::name, FunctionRegexpLike::alias);
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

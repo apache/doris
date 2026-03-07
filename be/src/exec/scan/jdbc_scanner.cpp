@@ -33,9 +33,9 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 
-JdbcScanner::JdbcScanner(RuntimeState* state, doris::pipeline::JDBCScanLocalState* local_state,
+JdbcScanner::JdbcScanner(RuntimeState* state, doris::JDBCScanLocalState* local_state,
                          int64_t limit, const TupleId& tuple_id, const std::string& query_string,
                          TOdbcTableType::type table_type, bool is_tvf, RuntimeProfile* profile)
         : Scanner(state, local_state, limit, profile),
@@ -195,4 +195,4 @@ Status JdbcScanner::close(RuntimeState* state) {
     RETURN_IF_ERROR(_jdbc_connector->close());
     return Status::OK();
 }
-} // namespace doris::vectorized
+} // namespace doris

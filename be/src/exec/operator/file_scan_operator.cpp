@@ -29,12 +29,12 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 PushDownType FileScanLocalState::_should_push_down_binary_predicate(
-        vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
-        vectorized::Field& constant_val, const std::set<std::string> fn_name) const {
+        VectorizedFnCall* fn_call, VExprContext* expr_ctx,
+        Field& constant_val, const std::set<std::string> fn_name) const {
     if (!fn_name.contains(fn_call->fn().name.function_name)) {
         return PushDownType::UNACCEPTABLE;
     }
@@ -45,7 +45,7 @@ PushDownType FileScanLocalState::_should_push_down_binary_predicate(
         std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         THROW_IF_ERROR(children[1]->get_const_col(expr_ctx, &const_col_wrapper));
         const auto* const_column =
-                assert_cast<const vectorized::ColumnConst*>(const_col_wrapper->column_ptr.get());
+                assert_cast<const ColumnConst*>(const_col_wrapper->column_ptr.get());
         constant_val = const_column->operator[](0);
         return PushDownType::PARTIAL_ACCEPTABLE;
     } else {
@@ -87,11 +87,11 @@ int FileScanLocalState::min_scanners_concurrency(RuntimeState* state) const {
            (state->query_parallel_instance_num() / _parent->parallelism(state));
 }
 
-vectorized::ScannerScheduler* FileScanLocalState::scan_scheduler(RuntimeState* state) const {
+ScannerScheduler* FileScanLocalState::scan_scheduler(RuntimeState* state) const {
     return state->get_query_ctx()->get_remote_scan_scheduler();
 }
 
-Status FileScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {
+Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     if (_split_source->num_scan_ranges() == 0) {
         _eos = true;
         return Status::OK();
@@ -105,12 +105,12 @@ Status FileScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
     auto& p = _parent->cast<FileScanOperatorX>();
     // There's only one scan range for each backend in batch split mode. Each backend only starts up one ScanNode instance.
     uint32_t shard_num = std::min(
-            vectorized::ScannerScheduler::default_remote_scan_thread_num() / p.parallelism(state()),
+            ScannerScheduler::default_remote_scan_thread_num() / p.parallelism(state()),
             _max_scanners);
     shard_num = std::max(shard_num, 1U);
-    _kv_cache.reset(new vectorized::ShardedKVCache(shard_num));
+    _kv_cache.reset(new ShardedKVCache(shard_num));
     for (int i = 0; i < _max_scanners; ++i) {
-        std::unique_ptr<vectorized::FileScanner> scanner = vectorized::FileScanner::create_unique(
+        std::unique_ptr<FileScanner> scanner = FileScanner::create_unique(
                 state(), this, p._limit, _split_source, _scanner_profile.get(), _kv_cache.get(),
                 &p._colname_to_slot_id);
         RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
@@ -131,7 +131,7 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
     auto& p = _parent->cast<FileScanOperatorX>();
 
     auto calc_max_scanners = [&](int parallel_instance_num) -> int {
-        int max_scanners = vectorized::ScannerScheduler::default_remote_scan_thread_num() /
+        int max_scanners = ScannerScheduler::default_remote_scan_thread_num() /
                            parallel_instance_num;
         // For external tables, each scanner is not bound to specific splits.
         // Instead, when a scanner is scheduled, it dynamically fetches the next scan range
@@ -152,7 +152,7 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
             RuntimeProfile::Counter* get_split_timer = ADD_TIMER(custom_profile(), "GetSplitTime");
 
             _max_scanners = calc_max_scanners(p.parallelism(state));
-            _split_source = std::make_shared<vectorized::RemoteSplitSourceConnector>(
+            _split_source = std::make_shared<RemoteSplitSourceConnector>(
                     state, get_split_timer, split_source.split_source_id, split_source.num_splits,
                     _max_scanners);
         }
@@ -161,7 +161,7 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
     if (!p._batch_split_mode) {
         _max_scanners = calc_max_scanners(p.parallelism(state));
         if (_split_source == nullptr) {
-            _split_source = std::make_shared<vectorized::LocalSplitSourceConnector>(scan_ranges,
+            _split_source = std::make_shared<LocalSplitSourceConnector>(scan_ranges,
                                                                                     _max_scanners);
         }
         // currently the total number of splits in the bach split mode cannot be accurately obtained,
@@ -206,4 +206,4 @@ Status FileScanOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

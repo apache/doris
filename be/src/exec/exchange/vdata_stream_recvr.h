@@ -58,12 +58,9 @@ class PBlock;
 class MemTrackerLimiter;
 class RuntimeState;
 
-namespace pipeline {
 class Dependency;
 class ExchangeLocalState;
-} // namespace pipeline
 
-namespace vectorized {
 class VDataStreamMgr;
 class VSortedRunMerger;
 
@@ -119,7 +116,7 @@ public:
     bool queue_exceeds_limit(size_t byte_size) const;
     bool is_closed() const { return _is_closed; }
 
-    std::shared_ptr<pipeline::Dependency> get_local_channel_dependency(int sender_id);
+    std::shared_ptr<Dependency> get_local_channel_dependency(int sender_id);
 
     void set_low_memory_mode() { _sender_queue_mem_limit = 1012 * 1024; }
 
@@ -173,13 +170,13 @@ private:
     RuntimeProfile::Counter* _max_wait_to_process_time = nullptr;
     RuntimeProfile::Counter* _max_find_recvr_time = nullptr;
 
-    std::vector<std::shared_ptr<pipeline::Dependency>> _sender_to_local_channel_dependency;
+    std::vector<std::shared_ptr<Dependency>> _sender_to_local_channel_dependency;
 };
 
 class VDataStreamRecvr::SenderQueue {
 public:
     SenderQueue(VDataStreamRecvr* parent_recvr, int num_senders,
-                std::shared_ptr<pipeline::Dependency> local_channel_dependency);
+                std::shared_ptr<Dependency> local_channel_dependency);
 
     ~SenderQueue();
 
@@ -202,7 +199,7 @@ public:
 
     void close();
 
-    void set_dependency(std::shared_ptr<pipeline::Dependency> dependency) {
+    void set_dependency(std::shared_ptr<Dependency> dependency) {
         _source_dependency = dependency;
     }
 
@@ -212,7 +209,7 @@ protected:
     void sub_blocks_memory_usage(int64_t size);
 
     bool exceeds_limit();
-    friend class pipeline::ExchangeLocalState;
+    friend class ExchangeLocalState;
 
     void set_source_ready(std::lock_guard<std::mutex>&);
 
@@ -291,11 +288,10 @@ protected:
     // be_number => packet_seq
     std::unordered_map<int, int64_t> _packet_seq_map;
 
-    std::shared_ptr<pipeline::Dependency> _source_dependency;
-    std::shared_ptr<pipeline::Dependency> _local_channel_dependency;
+    std::shared_ptr<Dependency> _source_dependency;
+    std::shared_ptr<Dependency> _local_channel_dependency;
 };
 
-} // namespace vectorized
 } // namespace doris
 
 #include "common/compile_check_end.h"

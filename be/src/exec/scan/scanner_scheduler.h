@@ -31,16 +31,14 @@
 namespace doris {
 class ExecEnv;
 
-namespace vectorized {
 class Scanner;
 class Block;
-} // namespace vectorized
 
 template <typename T>
 class BlockingQueue;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 class ScannerDelegate;
 class ScanTask;
 class ScannerContext;
@@ -49,7 +47,7 @@ class ScannerScheduler;
 struct SimplifiedScanTask {
     SimplifiedScanTask() = default;
     SimplifiedScanTask(std::function<bool()> scan_func,
-                       std::shared_ptr<vectorized::ScannerContext> scanner_context,
+                       std::shared_ptr<ScannerContext> scanner_context,
                        std::shared_ptr<ScanTask> scan_task) {
         this->scan_func = scan_func;
         this->scanner_context = scanner_context;
@@ -57,7 +55,7 @@ struct SimplifiedScanTask {
     }
 
     std::function<bool()> scan_func;
-    std::shared_ptr<vectorized::ScannerContext> scanner_context = nullptr;
+    std::shared_ptr<ScannerContext> scanner_context = nullptr;
     std::shared_ptr<ScanTask> scan_task = nullptr;
 };
 
@@ -145,7 +143,7 @@ private:
                               std::shared_ptr<ScanTask> scan_task);
 
     static void _make_sure_virtual_col_is_materialized(const std::shared_ptr<Scanner>& scanner,
-                                                       vectorized::Block* block);
+                                                       Block* block);
 };
 
 class ThreadPoolSimplifiedScanScheduler MOCK_REMOVE(final) : public ScannerScheduler {
@@ -327,7 +325,7 @@ public:
     Status submit_scan_task(SimplifiedScanTask scan_task,
                             const std::string& task_id_string) override {
         if (!_is_stop) {
-            vectorized::TaskId task_id(task_id_string);
+            TaskId task_id(task_id_string);
             std::shared_ptr<TaskHandle> task_handle = DORIS_TRY(_task_executor->create_task(
                     task_id, []() { return 0.0; },
                     config::task_executor_initial_max_concurrency_per_task > 0
@@ -361,7 +359,7 @@ public:
     void reset_thread_num(int new_max_thread_num, int new_min_thread_num,
                           int min_active_scan_threads) override {
         _min_active_scan_threads = min_active_scan_threads;
-        auto task_executor = std::dynamic_pointer_cast<doris::vectorized::TimeSharingTaskExecutor>(
+        auto task_executor = std::dynamic_pointer_cast<doris::TimeSharingTaskExecutor>(
                 _task_executor);
         int cur_max_thread_num = task_executor->max_threads();
         int cur_min_thread_num = task_executor->min_threads();
@@ -394,19 +392,19 @@ public:
     }
 
     int get_queue_size() override {
-        auto task_executor = std::dynamic_pointer_cast<doris::vectorized::TimeSharingTaskExecutor>(
+        auto task_executor = std::dynamic_pointer_cast<doris::TimeSharingTaskExecutor>(
                 _task_executor);
         return task_executor->get_queue_size();
     }
 
     int get_active_threads() override {
-        auto task_executor = std::dynamic_pointer_cast<doris::vectorized::TimeSharingTaskExecutor>(
+        auto task_executor = std::dynamic_pointer_cast<doris::TimeSharingTaskExecutor>(
                 _task_executor);
         return task_executor->num_active_threads();
     }
 
     std::vector<int> thread_debug_info() override {
-        auto task_executor = std::dynamic_pointer_cast<doris::vectorized::TimeSharingTaskExecutor>(
+        auto task_executor = std::dynamic_pointer_cast<doris::TimeSharingTaskExecutor>(
                 _task_executor);
         return task_executor->debug_info();
     }
@@ -426,4 +424,4 @@ private:
     std::shared_ptr<TaskExecutor> _task_executor = nullptr;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

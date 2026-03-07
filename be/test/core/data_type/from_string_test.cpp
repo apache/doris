@@ -23,7 +23,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "storage/olap_common.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 /**
  * This test is used to check data type from_string behavior
@@ -256,4 +256,4 @@ TEST(FromStringTest, ScalaDataTypeFromString) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

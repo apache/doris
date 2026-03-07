@@ -34,7 +34,6 @@ namespace doris {
 class RuntimeState;
 class RuntimeProfile;
 
-namespace vectorized {
 class Block;
 
 /**
@@ -47,14 +46,14 @@ class Block;
 class VTVFTableWriter final : public AsyncResultWriter {
 public:
     VTVFTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                    std::shared_ptr<pipeline::Dependency> dep,
-                    std::shared_ptr<pipeline::Dependency> fin_dep);
+                    std::shared_ptr<Dependency> dep,
+                    std::shared_ptr<Dependency> fin_dep);
 
     ~VTVFTableWriter() override = default;
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
-    Status write(RuntimeState* state, vectorized::Block& block) override;
+    Status write(RuntimeState* state, Block& block) override;
 
     Status close(Status status) override;
 
@@ -83,5 +82,4 @@ private:
     RuntimeProfile::Counter* _writer_close_timer = nullptr;
 };
 
-} // namespace vectorized
 } // namespace doris

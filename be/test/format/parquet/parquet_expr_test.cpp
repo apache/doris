@@ -79,7 +79,6 @@
 #include "util/timezone_utils.h"
 
 namespace doris {
-namespace vectorized {
 class VExprContext;
 //using namespace iceberg;
 using namespace parquet;
@@ -706,8 +705,8 @@ TEST_F(ParquetExprTest, test_min_max_p) {
 
         auto column = ColumnDateV2::create();
         auto& date_v2_data = column->get_data();
-        date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&date1));
-        date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&date2));
+        date_v2_data.push_back(*reinterpret_cast<UInt32*>(&date1));
+        date_v2_data.push_back(*reinterpret_cast<UInt32*>(&date2));
 
         Field ans_min = column->operator[](0);
         Field ans_max = column->operator[](1);
@@ -733,8 +732,8 @@ TEST_F(ParquetExprTest, test_min_max_p) {
 
         auto column = ColumnDateTimeV2::create();
         auto& date_v2_data = column->get_data();
-        date_v2_data.push_back(*reinterpret_cast<vectorized::UInt64*>(&datetime_v2_1));
-        date_v2_data.push_back(*reinterpret_cast<vectorized::UInt64*>(&datetime_v2_2));
+        date_v2_data.push_back(*reinterpret_cast<UInt64*>(&datetime_v2_1));
+        date_v2_data.push_back(*reinterpret_cast<UInt64*>(&datetime_v2_2));
 
         Field ans_min = column->operator[](0);
         Field ans_max = column->operator[](1);
@@ -1160,7 +1159,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_skipped_when_range_miss) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
     ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
-            col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
+            col_idx, "", Field::create_field<TYPE_BIGINT>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1203,7 +1202,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_rejects_value) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
     ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
-            col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
+            col_idx, "", Field::create_field<TYPE_BIGINT>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1236,8 +1235,8 @@ TEST_F(ParquetExprTest, test_bloom_filter_rejects_value) {
                 EXPECT_EQ(col_idx, cid);
                 loader_calls++;
                 current_stat->bloom_filter =
-                        std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
-                auto* bf = static_cast<vectorized::ParquetBlockSplitBloomFilter*>(
+                        std::make_unique<ParquetBlockSplitBloomFilter>();
+                auto* bf = static_cast<ParquetBlockSplitBloomFilter*>(
                         current_stat->bloom_filter.get());
                 Status st = bf->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
                 EXPECT_TRUE(st.ok());
@@ -1255,7 +1254,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_accepts_value) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
     ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
-            col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
+            col_idx, "", Field::create_field<TYPE_BIGINT>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1288,8 +1287,8 @@ TEST_F(ParquetExprTest, test_bloom_filter_accepts_value) {
                 EXPECT_EQ(col_idx, cid);
                 loader_calls++;
                 current_stat->bloom_filter =
-                        std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
-                auto* bf = static_cast<vectorized::ParquetBlockSplitBloomFilter*>(
+                        std::make_unique<ParquetBlockSplitBloomFilter>();
+                auto* bf = static_cast<ParquetBlockSplitBloomFilter*>(
                         current_stat->bloom_filter.get());
                 Status st = bf->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
                 EXPECT_TRUE(st.ok());
@@ -1307,11 +1306,11 @@ TEST_F(ParquetExprTest, test_bloom_filter_skipped_when_min_max_evicts_rowgroup) 
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
     ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
-            col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
+            col_idx, "", Field::create_field<TYPE_BIGINT>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
-    stat.bloom_filter = std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
+    stat.bloom_filter = std::make_unique<ParquetBlockSplitBloomFilter>();
     const FieldSchema* col_schema = doris_file_metadata->schema().get_column(col_idx);
 
     auto encode_value = [](int64_t v) {
@@ -1351,7 +1350,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_loader_called_when_min_max_allows) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
     ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
-            col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
+            col_idx, "", Field::create_field<TYPE_BIGINT>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1384,8 +1383,8 @@ TEST_F(ParquetExprTest, test_bloom_filter_loader_called_when_min_max_allows) {
                 EXPECT_EQ(col_idx, cid);
                 loader_calls++;
                 current_stat->bloom_filter =
-                        std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
-                auto* bf = static_cast<vectorized::ParquetBlockSplitBloomFilter*>(
+                        std::make_unique<ParquetBlockSplitBloomFilter>();
+                auto* bf = static_cast<ParquetBlockSplitBloomFilter*>(
                         current_stat->bloom_filter.get());
                 Status st = bf->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
                 EXPECT_TRUE(st.ok());
@@ -1403,7 +1402,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_loader_not_called_when_missing_metadat
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
     ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
-            col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
+            col_idx, "", Field::create_field<TYPE_BIGINT>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1446,7 +1445,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_loader_resets_on_failure) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
     ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
-            col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
+            col_idx, "", Field::create_field<TYPE_BIGINT>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1479,7 +1478,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_loader_resets_on_failure) {
                 EXPECT_EQ(col_idx, cid);
                 loader_calls++;
                 current_stat->bloom_filter =
-                        std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
+                        std::make_unique<ParquetBlockSplitBloomFilter>();
                 current_stat->bloom_filter.reset();
                 return false;
             };
@@ -1494,7 +1493,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_not_supported_type) {
     const int col_idx = 6; // bool column
     const bool predicate_value = true;
     ComparisonPredicateBase<TYPE_BOOLEAN, PredicateType::EQ> eq_pred(
-            col_idx, "", vectorized::Field::create_field<TYPE_BOOLEAN>(predicate_value));
+            col_idx, "", Field::create_field<TYPE_BOOLEAN>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1535,7 +1534,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_min_max_overlap_but_no_loader) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
     ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
-            col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
+            col_idx, "", Field::create_field<TYPE_BIGINT>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1608,8 +1607,8 @@ TEST_F(ParquetExprTest, test_in_list_predicate_uses_bloom_filter) {
                 EXPECT_EQ(col_idx, cid);
                 loader_calls++;
                 current_stat->bloom_filter =
-                        std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
-                auto* bf = static_cast<vectorized::ParquetBlockSplitBloomFilter*>(
+                        std::make_unique<ParquetBlockSplitBloomFilter>();
+                auto* bf = static_cast<ParquetBlockSplitBloomFilter*>(
                         current_stat->bloom_filter.get());
                 Status st = bf->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
                 EXPECT_TRUE(st.ok());
@@ -1673,7 +1672,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_reused_after_first_load) {
     const int col_idx = 2;
     const int64_t predicate_value = 10000000001;
     ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ> eq_pred(
-            col_idx, "", vectorized::Field::create_field<TYPE_BIGINT>(predicate_value));
+            col_idx, "", Field::create_field<TYPE_BIGINT>(predicate_value));
 
     ParquetPredicate::ColumnStat stat;
     stat.ctz = &ctz;
@@ -1707,8 +1706,8 @@ TEST_F(ParquetExprTest, test_bloom_filter_reused_after_first_load) {
                 loader_calls++;
                 if (!current_stat->bloom_filter) {
                     current_stat->bloom_filter =
-                            std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
-                    auto* bf = static_cast<vectorized::ParquetBlockSplitBloomFilter*>(
+                            std::make_unique<ParquetBlockSplitBloomFilter>();
+                    auto* bf = static_cast<ParquetBlockSplitBloomFilter*>(
                             current_stat->bloom_filter.get());
                     Status st = bf->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
                     EXPECT_TRUE(st.ok());
@@ -1726,5 +1725,4 @@ TEST_F(ParquetExprTest, test_bloom_filter_reused_after_first_load) {
     EXPECT_EQ(2, loader_calls);
 }
 
-} // namespace vectorized
 } // namespace doris

@@ -34,14 +34,14 @@
 #include "runtime/runtime_profile.h"
 #include "util/pretty_printer.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 PartitionedAggSinkLocalState::PartitionedAggSinkLocalState(DataSinkOperatorXBase* parent,
                                                            RuntimeState* state)
         : Base(parent, state) {}
 
 Status PartitionedAggSinkLocalState::init(doris::RuntimeState* state,
-                                          doris::pipeline::LocalSinkStateInfo& info) {
+                                          doris::LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
 
     SCOPED_TIMER(Base::exec_time_counter());
@@ -132,7 +132,7 @@ Status PartitionedAggSinkOperatorX::prepare(RuntimeState* state) {
     return _agg_sink_operator->prepare(state);
 }
 
-Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block,
+Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, Block* in_block,
                                          bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -169,7 +169,7 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized:
             local_state._dependency->set_ready_to_read();
         }
     } else if (local_state._shared_state->is_spilled) {
-        if (revocable_mem_size(state) >= vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
+        if (revocable_mem_size(state) >= SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
             return revoke_memory(state, nullptr);
         }
     }
@@ -236,8 +236,8 @@ size_t PartitionedAggSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bo
 
 template <typename HashTableCtxType, typename KeyType>
 Status PartitionedAggSinkLocalState::to_block(HashTableCtxType& context, std::vector<KeyType>& keys,
-                                              std::vector<vectorized::AggregateDataPtr>& values,
-                                              const vectorized::AggregateDataPtr null_key_data) {
+                                              std::vector<AggregateDataPtr>& values,
+                                              const AggregateDataPtr null_key_data) {
     SCOPED_TIMER(_spill_serialize_hash_table_timer);
     context.insert_keys_into_columns(keys, key_columns_, (uint32_t)keys.size());
 
@@ -261,7 +261,7 @@ Status PartitionedAggSinkLocalState::to_block(HashTableCtxType& context, std::ve
                         value_columns_[i], values.size());
     }
 
-    vectorized::ColumnsWithTypeAndName key_columns_with_schema;
+    ColumnsWithTypeAndName key_columns_with_schema;
     for (int i = 0; i < key_columns_.size(); ++i) {
         key_columns_with_schema.emplace_back(
                 std::move(key_columns_[i]),
@@ -270,7 +270,7 @@ Status PartitionedAggSinkLocalState::to_block(HashTableCtxType& context, std::ve
     }
     key_block_ = key_columns_with_schema;
 
-    vectorized::ColumnsWithTypeAndName value_columns_with_schema;
+    ColumnsWithTypeAndName value_columns_with_schema;
     for (int i = 0; i < value_columns_.size(); ++i) {
         value_columns_with_schema.emplace_back(
                 std::move(value_columns_[i]), value_data_types_[i],
@@ -292,9 +292,9 @@ Status PartitionedAggSinkLocalState::to_block(HashTableCtxType& context, std::ve
 template <typename HashTableCtxType, typename KeyType>
 Status PartitionedAggSinkLocalState::_spill_partition(
         RuntimeState* state, HashTableCtxType& context, AggSpillPartitionSPtr& spill_partition,
-        std::vector<KeyType>& keys, std::vector<vectorized::AggregateDataPtr>& values,
-        const vectorized::AggregateDataPtr null_key_data, bool is_last) {
-    vectorized::SpillStreamSPtr spill_stream;
+        std::vector<KeyType>& keys, std::vector<AggregateDataPtr>& values,
+        const AggregateDataPtr null_key_data, bool is_last) {
+    SpillStreamSPtr spill_stream;
     auto status = spill_partition->get_spill_stream(state, Base::_parent->node_id(),
                                                     Base::operator_profile(), spill_stream);
     RETURN_IF_ERROR(status);
@@ -304,7 +304,7 @@ Status PartitionedAggSinkLocalState::_spill_partition(
 
     if (is_last) {
         std::vector<KeyType> tmp_keys;
-        std::vector<vectorized::AggregateDataPtr> tmp_values;
+        std::vector<AggregateDataPtr> tmp_values;
         keys.swap(tmp_keys);
         values.swap(tmp_values);
 
@@ -344,7 +344,7 @@ Status PartitionedAggSinkLocalState::_spill_hash_table(RuntimeState* state,
     // `spill_batch_rows` will be between 4k and 1M
     // and each block to spill will not be larger than 32MB(`MAX_SPILL_WRITE_BATCH_MEM`)
     const auto spill_batch_rows = std::min<size_t>(
-            1024 * 1024, std::max<size_t>(4096, vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM *
+            1024 * 1024, std::max<size_t>(4096, SpillStream::MAX_SPILL_WRITE_BATCH_MEM *
                                                         total_rows / size_to_revoke_));
 
     VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
@@ -387,7 +387,7 @@ Status PartitionedAggSinkLocalState::_spill_hash_table(RuntimeState* state,
                     state, context, Base::_shared_state->spill_partitions[i], spill_infos[i].keys_,
                     spill_infos[i].values_,
                     spill_null_key_data
-                            ? hash_table.template get_null_key_data<vectorized::AggregateDataPtr>()
+                            ? hash_table.template get_null_key_data<AggregateDataPtr>()
                             : nullptr,
                     true);
             RETURN_IF_ERROR(status);
@@ -441,7 +441,7 @@ Status PartitionedAggSinkLocalState::_execute_spill_process(RuntimeState* state,
     auto* runtime_state = _runtime_state.get();
     auto* agg_data = parent._agg_sink_operator->get_agg_data(runtime_state);
     status = std::visit(
-            vectorized::Overload {[&](std::monostate& arg) -> Status {
+            Overload {[&](std::monostate& arg) -> Status {
                                       return Status::InternalError("Unit hash table");
                                   },
                                   [&](auto& agg_method) -> Status {
@@ -500,27 +500,27 @@ void PartitionedAggSinkLocalState::_reset_tmp_data() {
 
 void PartitionedAggSinkLocalState::_clear_tmp_data() {
     {
-        vectorized::Block empty_block;
+        Block empty_block;
         block_.swap(empty_block);
     }
     {
-        vectorized::Block empty_block;
+        Block empty_block;
         key_block_.swap(empty_block);
     }
     {
-        vectorized::Block empty_block;
+        Block empty_block;
         value_block_.swap(empty_block);
     }
     {
-        vectorized::MutableColumns cols;
+        MutableColumns cols;
         key_columns_.swap(cols);
     }
     {
-        vectorized::MutableColumns cols;
+        MutableColumns cols;
         value_columns_.swap(cols);
     }
 
-    vectorized::DataTypes tmp_value_data_types;
+    DataTypes tmp_value_data_types;
     value_data_types_.swap(tmp_value_data_types);
 }
 
@@ -529,4 +529,4 @@ bool PartitionedAggSinkLocalState::is_blockable() const {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

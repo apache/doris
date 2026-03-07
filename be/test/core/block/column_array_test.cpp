@@ -28,7 +28,7 @@
 #include "core/column/column_vector.h"
 #include "gtest/gtest_pred_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 void check_array_offsets(const IColumn& arr, const std::vector<ColumnArray::Offset64>& offs) {
     auto arr_col = check_and_get_column<ColumnArray>(arr);
@@ -161,4 +161,4 @@ TEST(ColumnArrayOldTest, EmptyArrayPermuteTest) {
     check_array_data<int32_t>(*res2, {});
 }
 
-} // namespace doris::vectorized
+} // namespace doris

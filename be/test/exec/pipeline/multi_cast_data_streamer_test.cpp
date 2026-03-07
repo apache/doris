@@ -29,7 +29,7 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 class MultiCastDataStreamerTest : public testing::Test {
 public:
@@ -128,13 +128,13 @@ public:
                 new MockFragmentManager(spill_status, ExecEnv::GetInstance());
 
         auto spill_data_dir =
-                std::make_unique<vectorized::SpillDataDir>("./ut_dir/spill_test", 1024L * 1024 * 4);
+                std::make_unique<SpillDataDir>("./ut_dir/spill_test", 1024L * 1024 * 4);
         auto st = io::global_local_filesystem()->create_directory(spill_data_dir->path(), false);
         EXPECT_TRUE(st.ok()) << "create directory: " << spill_data_dir->path()
                              << " failed: " << st.to_string();
-        std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>> data_map;
+        std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> data_map;
         data_map.emplace("test", std::move(spill_data_dir));
-        auto* spill_stream_manager = new vectorized::SpillStreamManager(std::move(data_map));
+        auto* spill_stream_manager = new SpillStreamManager(std::move(data_map));
         ExecEnv::GetInstance()->_spill_stream_mgr = spill_stream_manager;
         st = spill_stream_manager->init();
         EXPECT_TRUE(st.ok()) << "init spill stream manager failed: " << st.to_string();
@@ -168,7 +168,6 @@ public:
 };
 
 TEST_F(MultiCastDataStreamerTest, NormTest) {
-    using namespace vectorized;
 
     for (auto dep : deps) {
         EXPECT_FALSE(dep->ready());
@@ -208,7 +207,6 @@ TEST_F(MultiCastDataStreamerTest, NormTest) {
 }
 
 TEST_F(MultiCastDataStreamerTest, MultiTest) {
-    using namespace vectorized;
 
     std::vector<Block> blocks;
     const auto input_count = 50;
@@ -262,7 +260,6 @@ TEST_F(MultiCastDataStreamerTest, MultiTest) {
 }
 
 TEST_F(MultiCastDataStreamerTest, SpillTest) {
-    using namespace vectorized;
 
     state.set_enable_spill(true);
     auto exchg_node_buffer_size_bytes = config::exchg_node_buffer_size_bytes;
@@ -354,4 +351,4 @@ TEST_F(MultiCastDataStreamerTest, SpillTest) {
 
 // ./run-be-ut.sh --run --filter=MultiCastDataStreamerTest.*
 
-} // namespace doris::pipeline
+} // namespace doris

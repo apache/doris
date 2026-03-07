@@ -32,13 +32,10 @@ class RuntimeState;
 class TDataSink;
 class TExpr;
 
-namespace pipeline {
 class Dependency;
 class PipelineTask;
 
-} // namespace pipeline
 
-namespace vectorized {
 class Block;
 /*
  *  In the pipeline execution engine, there are usually a large number of io operations on the sink side that
@@ -55,8 +52,8 @@ class Block;
 class AsyncResultWriter : public ResultWriter {
 public:
     AsyncResultWriter(const VExprContextSPtrs& output_expr_ctxs,
-                      std::shared_ptr<pipeline::Dependency> dep,
-                      std::shared_ptr<pipeline::Dependency> fin_dep);
+                      std::shared_ptr<Dependency> dep,
+                      std::shared_ptr<Dependency> fin_dep);
 
     void force_close(Status s);
 
@@ -99,12 +96,11 @@ private:
     bool _eos = false;
     std::atomic_bool _low_memory_mode = false;
 
-    std::shared_ptr<pipeline::Dependency> _dependency;
-    std::shared_ptr<pipeline::Dependency> _finish_dependency;
+    std::shared_ptr<Dependency> _dependency;
+    std::shared_ptr<Dependency> _finish_dependency;
 
     moodycamel::ConcurrentQueue<std::unique_ptr<Block>> _free_blocks;
     RuntimeProfile::Counter* _memory_used_counter = nullptr;
 };
 
-} // namespace vectorized
 } // namespace doris

@@ -19,9 +19,9 @@
 
 #include "exec/scan/meta_scanner.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
-Status MetaScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {
+Status MetaScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     if (Base::_eos) {
         return Status::OK();
     }
@@ -29,7 +29,7 @@ Status MetaScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
     auto& p = _parent->cast<MetaScanOperatorX>();
 
     for (auto& scan_range : _scan_ranges) {
-        std::shared_ptr<vectorized::MetaScanner> scanner = vectorized::MetaScanner::create_shared(
+        std::shared_ptr<MetaScanner> scanner = MetaScanner::create_shared(
                 state(), this, p._tuple_id, scan_range, p._limit, custom_profile(),
                 p._user_identity);
         RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
@@ -58,4 +58,4 @@ MetaScanOperatorX::MetaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
     }
 }
 
-} // namespace doris::pipeline
+} // namespace doris

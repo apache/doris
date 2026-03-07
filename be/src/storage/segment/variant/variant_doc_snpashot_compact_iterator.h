@@ -34,17 +34,17 @@ public:
         return _doc_value_iterator->seek_to_ordinal(ord);
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
-        vectorized::MutableColumnPtr doc_value_column =
-                vectorized::ColumnVariant::create_binary_column_fn();
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
+        MutableColumnPtr doc_value_column =
+                ColumnVariant::create_binary_column_fn();
         RETURN_IF_ERROR(_doc_value_iterator->next_batch(n, doc_value_column, has_null));
         return _set_doc_value_into_variant(dst, std::move(doc_value_column), *n);
     }
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override {
-        vectorized::MutableColumnPtr doc_value_column =
-                vectorized::ColumnVariant::create_binary_column_fn();
+                          MutableColumnPtr& dst) override {
+        MutableColumnPtr doc_value_column =
+                ColumnVariant::create_binary_column_fn();
         RETURN_IF_ERROR(_doc_value_iterator->read_by_rowids(rowids, count, doc_value_column));
         return _set_doc_value_into_variant(dst, std::move(doc_value_column), count);
     }
@@ -54,13 +54,13 @@ public:
     }
 
 private:
-    Status _set_doc_value_into_variant(vectorized::MutableColumnPtr& dst,
-                                       vectorized::MutableColumnPtr&& doc_value_column,
+    Status _set_doc_value_into_variant(MutableColumnPtr& dst,
+                                       MutableColumnPtr&& doc_value_column,
                                        size_t count) const {
-        auto& variant = assert_cast<vectorized::ColumnVariant&>(*dst);
-        vectorized::MutableColumnPtr container =
-                vectorized::ColumnVariant::create(variant.max_subcolumns_count(), count);
-        auto& container_variant = assert_cast<vectorized::ColumnVariant&>(*container);
+        auto& variant = assert_cast<ColumnVariant&>(*dst);
+        MutableColumnPtr container =
+                ColumnVariant::create(variant.max_subcolumns_count(), count);
+        auto& container_variant = assert_cast<ColumnVariant&>(*container);
         container_variant.set_doc_value_column(std::move(doc_value_column));
         variant.insert_range_from(container_variant, 0, count);
         return Status::OK();

@@ -24,10 +24,9 @@
 #include "exec/operator/operator_helper.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_descriptors.h"
-namespace doris::pipeline {
+namespace doris {
 
 TEST(DataGenSourceOperatorTest, testRows) {
-    using namespace vectorized;
 
     OperatorContext ctx;
 
@@ -52,13 +51,12 @@ TEST(DataGenSourceOperatorTest, testRows) {
 
     // execute op
     bool eos = false;
-    vectorized::Block block;
+    Block block;
     EXPECT_TRUE(op.get_block(&ctx.state, &block, &eos).ok());
     EXPECT_EQ(block.rows(), 10);
 }
 
 TEST(DataGenSourceOperatorTest, testtotalNumbers) {
-    using namespace vectorized;
 
     OperatorContext ctx;
 
@@ -83,7 +81,7 @@ TEST(DataGenSourceOperatorTest, testtotalNumbers) {
 
     // execute op
     bool eos = false;
-    vectorized::Block block;
+    Block block;
     EXPECT_TRUE(op.get_block(&ctx.state, &block, &eos).ok());
     EXPECT_EQ(block.rows(), 10);
 
@@ -93,7 +91,6 @@ TEST(DataGenSourceOperatorTest, testtotalNumbers) {
 }
 
 TEST(DataGenSourceOperatorTest, testConst) {
-    using namespace vectorized;
 
     OperatorContext ctx;
 
@@ -118,7 +115,7 @@ TEST(DataGenSourceOperatorTest, testConst) {
 
     // execute op
     bool eos = false;
-    vectorized::Block block;
+    Block block;
     EXPECT_TRUE(op.get_block(&ctx.state, &block, &eos).ok());
     EXPECT_EQ(block.rows(), 10);
 
@@ -127,4 +124,4 @@ TEST(DataGenSourceOperatorTest, testConst) {
             ColumnHelper::create_column<DataTypeInt64>({5, 5, 5, 5, 5, 5, 5, 5, 5, 5})));
 }
 
-} // namespace doris::pipeline
+} // namespace doris

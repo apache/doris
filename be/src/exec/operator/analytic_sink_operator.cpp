@@ -28,7 +28,7 @@
 #include "exprs/vectorized_agg_fn.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
@@ -363,7 +363,7 @@ Status AnalyticSinkLocalState::_execute_impl() {
             }
 
             if (should_output) {
-                vectorized::Block block;
+                Block block;
                 _output_current_block(&block);
                 _refresh_buffer_and_dependency_state(&block);
             }
@@ -380,7 +380,7 @@ void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int6
                                                    int64_t frame_start, int64_t frame_end) {
     // here is the core function, should not add timer
     for (size_t i = 0; i < _agg_functions_size; ++i) {
-        std::vector<const vectorized::IColumn*> agg_columns;
+        std::vector<const IColumn*> agg_columns;
         for (int j = 0; j < _agg_input_columns[i].size(); ++j) {
             agg_columns.push_back(_agg_input_columns[i][j].get());
         }
@@ -408,7 +408,7 @@ void AnalyticSinkLocalState::_insert_result_info(int64_t start, int64_t end) {
                 _result_window_columns[i]->insert_many_defaults(end - start);
             } else {
                 auto* dst =
-                        assert_cast<vectorized::ColumnNullable*>(_result_window_columns[i].get());
+                        assert_cast<ColumnNullable*>(_result_window_columns[i].get());
                 dst->get_null_map_data().resize_fill(
                         dst->get_null_map_data().size() + static_cast<uint32_t>(end - start), 0);
                 _agg_functions[i]->function()->insert_result_into_range(
@@ -423,7 +423,7 @@ void AnalyticSinkLocalState::_insert_result_info(int64_t start, int64_t end) {
     }
 }
 
-void AnalyticSinkLocalState::_output_current_block(vectorized::Block* block) {
+void AnalyticSinkLocalState::_output_current_block(Block* block) {
     block->swap(std::move(_input_blocks[_output_block_index]));
     _blocks_memory_usage->add(-block->allocated_bytes());
     DCHECK(_parent->cast<AnalyticSinkOperatorX>()._change_to_nullable_flags.size() ==
@@ -459,7 +459,7 @@ void AnalyticSinkLocalState::_init_result_columns() {
     }
 }
 
-void AnalyticSinkLocalState::_refresh_buffer_and_dependency_state(vectorized::Block* block) {
+void AnalyticSinkLocalState::_refresh_buffer_and_dependency_state(Block* block) {
     size_t buffer_size = 0;
     {
         std::unique_lock<std::mutex> lc(_shared_state->buffer_mutex);
@@ -614,8 +614,8 @@ void AnalyticSinkLocalState::_find_next_order_by_ends() {
 }
 
 // Compares (*this)[n] and rhs[m]
-int64_t AnalyticSinkLocalState::find_first_not_equal(vectorized::IColumn* reference_column,
-                                                     vectorized::IColumn* compared_column,
+int64_t AnalyticSinkLocalState::find_first_not_equal(IColumn* reference_column,
+                                                     IColumn* compared_column,
                                                      int64_t target, int64_t start, int64_t end) {
     while (start + 1 < end) {
         int64_t mid = start + (end - start) / 2;
@@ -655,11 +655,11 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
     _num_agg_input.resize(_agg_functions_size);
     for (int i = 0; i < _agg_functions_size; ++i) {
         const TExpr& desc = analytic_node.analytic_functions[i];
-        vectorized::AggFnEvaluator* evaluator = nullptr;
+        AggFnEvaluator* evaluator = nullptr;
         // Window function treats all NullableAggregateFunction as AlwaysNullable.
         // Its behavior is same with executed without group by key.
         // https://github.com/apache/doris/pull/40693
-        RETURN_IF_ERROR(vectorized::AggFnEvaluator::create(_pool, desc, {}, /*without_key*/ true,
+        RETURN_IF_ERROR(AggFnEvaluator::create(_pool, desc, {}, /*without_key*/ true,
                                                            true, &evaluator));
         _agg_functions.emplace_back(evaluator);
 
@@ -667,19 +667,19 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
         _num_agg_input[i] = desc.nodes[0].num_children;
         for (int j = 0; j < desc.nodes[0].num_children; ++j) {
             ++node_idx;
-            vectorized::VExprSPtr expr;
-            vectorized::VExprContextSPtr ctx;
+            VExprSPtr expr;
+            VExprContextSPtr ctx;
             RETURN_IF_ERROR(
-                    vectorized::VExpr::create_tree_from_thrift(desc.nodes, &node_idx, expr, ctx));
+                    VExpr::create_tree_from_thrift(desc.nodes, &node_idx, expr, ctx));
             _agg_expr_ctxs[i].emplace_back(ctx);
         }
     }
 
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(analytic_node.partition_exprs,
+    RETURN_IF_ERROR(VExpr::create_expr_trees(analytic_node.partition_exprs,
                                                          _partition_by_eq_expr_ctxs));
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(analytic_node.order_by_exprs,
+    RETURN_IF_ERROR(VExpr::create_expr_trees(analytic_node.order_by_exprs,
                                                          _order_by_eq_expr_ctxs));
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(analytic_node.range_between_offset_exprs,
+    RETURN_IF_ERROR(VExpr::create_expr_trees(analytic_node.range_between_offset_exprs,
                                                          _range_between_expr_ctxs));
     return Status::OK();
 }
@@ -687,7 +687,7 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
 Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<AnalyticSinkLocalState>::prepare(state));
     for (const auto& ctx : _agg_expr_ctxs) {
-        RETURN_IF_ERROR(vectorized::VExpr::prepare(ctx, state, _child->row_desc()));
+        RETURN_IF_ERROR(VExpr::prepare(ctx, state, _child->row_desc()));
     }
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
@@ -708,24 +708,24 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
         RowDescriptor cmp_row_desc(state->desc_tbl(), tuple_ids);
         if (!_partition_by_eq_expr_ctxs.empty()) {
             RETURN_IF_ERROR(
-                    vectorized::VExpr::prepare(_partition_by_eq_expr_ctxs, state, cmp_row_desc));
+                    VExpr::prepare(_partition_by_eq_expr_ctxs, state, cmp_row_desc));
         }
         if (!_order_by_eq_expr_ctxs.empty()) {
             RETURN_IF_ERROR(
-                    vectorized::VExpr::prepare(_order_by_eq_expr_ctxs, state, cmp_row_desc));
+                    VExpr::prepare(_order_by_eq_expr_ctxs, state, cmp_row_desc));
         }
     }
     if (!_range_between_expr_ctxs.empty()) {
         DCHECK(_range_between_expr_ctxs.size() == 2);
         RETURN_IF_ERROR(
-                vectorized::VExpr::prepare(_range_between_expr_ctxs, state, _child->row_desc()));
+                VExpr::prepare(_range_between_expr_ctxs, state, _child->row_desc()));
     }
-    RETURN_IF_ERROR(vectorized::VExpr::open(_range_between_expr_ctxs, state));
-    RETURN_IF_ERROR(vectorized::VExpr::open(_partition_by_eq_expr_ctxs, state));
-    RETURN_IF_ERROR(vectorized::VExpr::open(_order_by_eq_expr_ctxs, state));
+    RETURN_IF_ERROR(VExpr::open(_range_between_expr_ctxs, state));
+    RETURN_IF_ERROR(VExpr::open(_partition_by_eq_expr_ctxs, state));
+    RETURN_IF_ERROR(VExpr::open(_order_by_eq_expr_ctxs, state));
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         RETURN_IF_ERROR(_agg_functions[i]->open(state));
-        RETURN_IF_ERROR(vectorized::VExpr::open(_agg_expr_ctxs[i], state));
+        RETURN_IF_ERROR(VExpr::open(_agg_expr_ctxs[i], state));
     }
 
     _offsets_of_aggregate_states.resize(_agg_functions_size);
@@ -751,7 +751,7 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* input_block,
+Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, Block* input_block,
                                    bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -771,7 +771,7 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
 }
 
 Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
-                                               vectorized::Block* input_block) {
+                                               Block* input_block) {
     if (input_block->rows() <= 0) {
         return Status::OK();
     }
@@ -817,7 +817,7 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
                                          local_state._range_result_columns[i].get(), block_rows));
         }
     }
-    vectorized::Block::erase_useless_column(input_block, column_to_keep);
+    Block::erase_useless_column(input_block, column_to_keep);
     COUNTER_UPDATE(local_state._memory_used_counter, input_block->allocated_bytes());
     COUNTER_UPDATE(local_state._blocks_memory_usage, input_block->allocated_bytes());
     local_state._input_blocks.emplace_back(std::move(*input_block));
@@ -894,10 +894,10 @@ size_t AnalyticSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos
     return local_state._reserve_mem_size;
 }
 
-Status AnalyticSinkOperatorX::_insert_range_column(vectorized::Block* block,
-                                                   const vectorized::VExprContextSPtr& expr,
-                                                   vectorized::IColumn* dst_column, size_t length) {
-    vectorized::ColumnPtr column;
+Status AnalyticSinkOperatorX::_insert_range_column(Block* block,
+                                                   const VExprContextSPtr& expr,
+                                                   IColumn* dst_column, size_t length) {
+    ColumnPtr column;
     RETURN_IF_ERROR(expr->execute(block, column));
     column = column->convert_to_full_column_if_const();
     // iff dst_column is string, maybe overflow of 4G, so need ignore overflow
@@ -939,4 +939,4 @@ void AnalyticSinkLocalState::_destroy_agg_status() {
 
 template class DataSinkOperatorX<AnalyticSinkLocalState>;
 
-} // namespace doris::pipeline
+} // namespace doris

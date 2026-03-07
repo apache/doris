@@ -647,13 +647,13 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         add_sub_column(child_column);
     }
     if (column.has_column_path_info()) {
-        _column_path = std::make_shared<vectorized::PathInData>();
+        _column_path = std::make_shared<PathInData>();
         _column_path->from_protobuf(column.column_path_info());
         _parent_col_unique_id = column.column_path_info().parrent_column_unique_id();
     }
     if (is_variant_type() && !column.has_column_path_info()) {
         // set path info for variant root column, to prevent from missing
-        _column_path = std::make_shared<vectorized::PathInData>(_col_name_lower_case);
+        _column_path = std::make_shared<PathInData>(_col_name_lower_case);
         // _parent_col_unique_id = _unique_id;
     }
     if (column.has_variant_max_subcolumns_count()) {
@@ -695,7 +695,7 @@ TabletColumn TabletColumn::create_materialized_variant_column(const std::string&
     subcol.set_is_nullable(true);
     subcol.set_unique_id(-1);
     subcol.set_parent_unique_id(parent_unique_id);
-    vectorized::PathInData path(root, paths);
+    PathInData path(root, paths);
     subcol.set_path_info(path);
     subcol.set_name(path.get_path());
     subcol.set_variant_max_subcolumns_count(max_subcolumns_count);
@@ -780,20 +780,20 @@ bool TabletColumn::is_row_store_column() const {
     return _col_name == BeConsts::ROW_STORE_COL;
 }
 
-vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
-        vectorized::DataTypePtr type, int current_be_exec_version) const {
-    const auto* state_type = assert_cast<const vectorized::DataTypeAggState*>(type.get());
+AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
+        DataTypePtr type, int current_be_exec_version) const {
+    const auto* state_type = assert_cast<const DataTypeAggState*>(type.get());
     BeExecVersionManager::check_function_compatibility(
             current_be_exec_version, _be_exec_version,
             state_type->get_nested_function()->get_name());
-    return vectorized::AggregateStateUnion::create(state_type->get_nested_function(), {type}, type);
+    return AggregateStateUnion::create(state_type->get_nested_function(), {type}, type);
 }
 
-vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
+AggregateFunctionPtr TabletColumn::get_aggregate_function(
         std::string suffix, int current_be_exec_version) const {
-    vectorized::AggregateFunctionPtr function = nullptr;
+    AggregateFunctionPtr function = nullptr;
 
-    auto type = vectorized::DataTypeFactory::instance().create_data_type(*this);
+    auto type = DataTypeFactory::instance().create_data_type(*this);
     if (type && type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
         function = get_aggregate_function_union(type, current_be_exec_version);
     } else {
@@ -801,7 +801,7 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
         std::string agg_name = origin_name + suffix;
         std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                        [](unsigned char c) { return std::tolower(c); });
-        function = vectorized::AggregateFunctionSimpleFactory::instance().get(
+        function = AggregateFunctionSimpleFactory::instance().get(
                 agg_name, {type}, type, type->is_nullable(),
                 BeExecVersionManager::get_newest_version());
         if (!function) {
@@ -816,12 +816,12 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
     return nullptr;
 }
 
-void TabletColumn::set_path_info(const vectorized::PathInData& path) {
-    _column_path = std::make_shared<vectorized::PathInData>(path);
+void TabletColumn::set_path_info(const PathInData& path) {
+    _column_path = std::make_shared<PathInData>(path);
 }
 
-vectorized::DataTypePtr TabletColumn::get_vec_type() const {
-    return vectorized::DataTypeFactory::instance().create_data_type(*this);
+DataTypePtr TabletColumn::get_vec_type() const {
+    return DataTypeFactory::instance().create_data_type(*this);
 }
 
 // escape '.' and '_'
@@ -833,8 +833,8 @@ std::string escape_for_path_name(const std::string& s) {
         unsigned char c = *pos;
         if (c == '.' || c == '_') {
             res += '%';
-            res += vectorized::hex_digit_uppercase(c / 16);
-            res += vectorized::hex_digit_uppercase(c % 16);
+            res += hex_digit_uppercase(c / 16);
+            res += hex_digit_uppercase(c % 16);
         } else {
             res += c;
         }
@@ -995,7 +995,7 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
         ++_num_variant_columns;
         if (!column.has_path_info()) {
             const std::string& col_name = column.name_lower_case();
-            vectorized::PathInData path(col_name);
+            PathInData path(col_name);
             column.set_path_info(path);
         }
     }
@@ -1602,8 +1602,8 @@ int32_t TabletSchema::field_index(const std::string& field_name) const {
     return (found == _field_name_to_index.end()) ? -1 : found->second;
 }
 
-int32_t TabletSchema::field_index(const vectorized::PathInData& path) const {
-    const auto& found = _field_path_to_index.find(vectorized::PathInDataRef(&path));
+int32_t TabletSchema::field_index(const PathInData& path) const {
+    const auto& found = _field_path_to_index.find(PathInDataRef(&path));
     return (found == _field_path_to_index.end()) ? -1 : found->second;
 }
 
@@ -1842,17 +1842,17 @@ const TabletIndex* TabletSchema::get_index(int32_t col_unique_id, IndexType inde
     return nullptr;
 }
 
-vectorized::Block TabletSchema::create_block(
+Block TabletSchema::create_block(
         const std::vector<uint32_t>& return_columns,
         const std::unordered_set<uint32_t>* tablet_columns_need_convert_null) const {
-    vectorized::Block block;
+    Block block;
     for (int i = 0; i < return_columns.size(); ++i) {
         const ColumnId cid = return_columns[i];
         const auto& col = *_cols[cid];
         bool is_nullable = (tablet_columns_need_convert_null != nullptr &&
                             tablet_columns_need_convert_null->find(cid) !=
                                     tablet_columns_need_convert_null->end());
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col, is_nullable);
+        auto data_type = DataTypeFactory::instance().create_data_type(col, is_nullable);
         if (col.type() == FieldType::OLAP_FIELD_TYPE_STRUCT ||
             col.type() == FieldType::OLAP_FIELD_TYPE_MAP ||
             col.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
@@ -1862,7 +1862,7 @@ vectorized::Block TabletSchema::create_block(
         }
 
         if (_vir_col_idx_to_unique_id.contains(cid)) {
-            block.insert({vectorized::ColumnNothing::create(0), data_type, col.name()});
+            block.insert({ColumnNothing::create(0), data_type, col.name()});
             VLOG_DEBUG << fmt::format(
                     "Create block from tablet schema, column cid {} is virtual column, col_name: "
                     "{}, col_unique_id: {}, type {}",
@@ -1874,14 +1874,14 @@ vectorized::Block TabletSchema::create_block(
     return block;
 }
 
-vectorized::Block TabletSchema::create_block() const {
-    vectorized::Block block;
+Block TabletSchema::create_block() const {
+    Block block;
     for (const auto& col : _cols) {
         if (is_dropped_column(*col)) {
             continue;
         }
 
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(*col);
+        auto data_type = DataTypeFactory::instance().create_data_type(*col);
         if (col->type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
             if (_pruned_columns_data_type.contains(col->unique_id())) {
                 data_type = _pruned_columns_data_type.at(col->unique_id());
@@ -1892,11 +1892,11 @@ vectorized::Block TabletSchema::create_block() const {
     return block;
 }
 
-vectorized::Block TabletSchema::create_block_by_cids(const std::vector<uint32_t>& cids) const {
-    vectorized::Block block;
+Block TabletSchema::create_block_by_cids(const std::vector<uint32_t>& cids) const {
+    Block block;
     for (const auto& cid : cids) {
         const auto& col = *_cols[cid];
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col);
+        auto data_type = DataTypeFactory::instance().create_data_type(col);
         if (col.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
             if (_pruned_columns_data_type.contains(col.unique_id())) {
                 data_type = _pruned_columns_data_type.at(col.unique_id());

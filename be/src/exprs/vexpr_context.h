@@ -50,7 +50,7 @@ class Segment;
 class ColumnIterator;
 } // namespace doris::segment_v2
 
-namespace doris::vectorized {
+namespace doris {
 
 class ScoreRuntime;
 using ScoreRuntimeSPtr = std::shared_ptr<ScoreRuntime>;
@@ -60,8 +60,8 @@ public:
     IndexExecContext(
             const std::vector<ColumnId>& col_ids,
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
-            const std::vector<vectorized::IndexFieldNameAndTypePair>& storage_name_and_type_vec,
-            std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>&
+            const std::vector<IndexFieldNameAndTypePair>& storage_name_and_type_vec,
+            std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>&
                     common_expr_index_status,
             ScoreRuntimeSPtr score_runtime, segment_v2::Segment* segment,
             const segment_v2::ColumnIteratorOptions& column_iter_opts)
@@ -97,7 +97,7 @@ public:
         return _index_iterators[column_id].get();
     }
 
-    const vectorized::IndexFieldNameAndTypePair* get_storage_name_and_type_by_column_id(
+    const IndexFieldNameAndTypePair* get_storage_name_and_type_by_column_id(
             int column_index) const {
         if (column_index < 0 || column_index >= _col_ids.size()) {
             return nullptr;
@@ -109,7 +109,7 @@ public:
         return &_storage_name_and_type[column_id];
     }
 
-    const vectorized::IndexFieldNameAndTypePair* get_storage_name_and_type_by_id(
+    const IndexFieldNameAndTypePair* get_storage_name_and_type_by_id(
             ColumnId column_id) const {
         if (column_id >= _storage_name_and_type.size()) {
             return nullptr;
@@ -141,26 +141,26 @@ public:
 
     const segment_v2::ColumnIteratorOptions& column_iter_opts() const { return _column_iter_opts; }
 
-    bool has_index_result_for_expr(const vectorized::VExpr* expr) const {
+    bool has_index_result_for_expr(const VExpr* expr) const {
         return _index_result_bitmap.contains(expr);
     }
 
-    void set_index_result_for_expr(const vectorized::VExpr* expr,
+    void set_index_result_for_expr(const VExpr* expr,
                                    segment_v2::InvertedIndexResultBitmap bitmap) {
         _index_result_bitmap[expr] = std::move(bitmap);
     }
 
-    std::unordered_map<const vectorized::VExpr*, segment_v2::InvertedIndexResultBitmap>&
+    std::unordered_map<const VExpr*, segment_v2::InvertedIndexResultBitmap>&
     get_index_result_bitmap() {
         return _index_result_bitmap;
     }
 
-    std::unordered_map<const vectorized::VExpr*, ColumnPtr>& get_index_result_column() {
+    std::unordered_map<const VExpr*, ColumnPtr>& get_index_result_column() {
         return _index_result_column;
     }
 
     const segment_v2::InvertedIndexResultBitmap* get_index_result_for_expr(
-            const vectorized::VExpr* expr) {
+            const VExpr* expr) {
         auto iter = _index_result_bitmap.find(expr);
         if (iter == _index_result_bitmap.end()) {
             return nullptr;
@@ -168,11 +168,11 @@ public:
         return &iter->second;
     }
 
-    void set_index_result_column_for_expr(const vectorized::VExpr* expr, ColumnPtr column) {
+    void set_index_result_column_for_expr(const VExpr* expr, ColumnPtr column) {
         _index_result_column[expr] = std::move(column);
     }
 
-    void set_true_for_index_status(const vectorized::VExpr* expr, int column_index) {
+    void set_true_for_index_status(const VExpr* expr, int column_index) {
         if (column_index < 0 || column_index >= _col_ids.size()) {
             return;
         }
@@ -186,7 +186,7 @@ public:
 
     ScoreRuntimeSPtr get_score_runtime() const { return _score_runtime; }
 
-    void set_analyzer_ctx_for_expr(const vectorized::VExpr* expr,
+    void set_analyzer_ctx_for_expr(const VExpr* expr,
                                    InvertedIndexAnalyzerCtxSPtr analyzer_ctx) {
         if (expr == nullptr || analyzer_ctx == nullptr) {
             return;
@@ -194,7 +194,7 @@ public:
         _expr_analyzer_ctx[expr] = std::move(analyzer_ctx);
     }
 
-    const InvertedIndexAnalyzerCtx* get_analyzer_ctx_for_expr(const vectorized::VExpr* expr) const {
+    const InvertedIndexAnalyzerCtx* get_analyzer_ctx_for_expr(const VExpr* expr) const {
         auto iter = _expr_analyzer_ctx.find(expr);
         if (iter == _expr_analyzer_ctx.end()) {
             return nullptr;
@@ -210,20 +210,20 @@ private:
     const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& _index_iterators;
 
     // A reference to a vector of storage name and type pairs related to schema.
-    const std::vector<vectorized::IndexFieldNameAndTypePair>& _storage_name_and_type;
+    const std::vector<IndexFieldNameAndTypePair>& _storage_name_and_type;
 
     // A map of expressions to their corresponding inverted index result bitmaps.
-    std::unordered_map<const vectorized::VExpr*, segment_v2::InvertedIndexResultBitmap>
+    std::unordered_map<const VExpr*, segment_v2::InvertedIndexResultBitmap>
             _index_result_bitmap;
 
     // A map of expressions to their corresponding result columns.
-    std::unordered_map<const vectorized::VExpr*, ColumnPtr> _index_result_column;
+    std::unordered_map<const VExpr*, ColumnPtr> _index_result_column;
 
     // Per-expression analyzer context for inverted index evaluation.
-    std::unordered_map<const vectorized::VExpr*, InvertedIndexAnalyzerCtxSPtr> _expr_analyzer_ctx;
+    std::unordered_map<const VExpr*, InvertedIndexAnalyzerCtxSPtr> _expr_analyzer_ctx;
 
     // A reference to a map of common expressions to their inverted index evaluation status.
-    std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>&
+    std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>&
             _expr_index_status;
 
     ScoreRuntimeSPtr _score_runtime;
@@ -383,8 +383,8 @@ public:
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
             const std::vector<ColumnId>& idx_to_cid,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-            const std::unordered_map<vectorized::VExprContext*,
-                                     std::unordered_map<ColumnId, vectorized::VExpr*>>&
+            const std::unordered_map<VExprContext*,
+                                     std::unordered_map<ColumnId, VExpr*>>&
                     common_expr_to_slotref_map,
             roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats);
 
@@ -426,4 +426,4 @@ private:
     std::unique_ptr<RuntimeFilterSelectivity> _rf_selectivity =
             std::make_unique<RuntimeFilterSelectivity>();
 };
-} // namespace doris::vectorized
+} // namespace doris

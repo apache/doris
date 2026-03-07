@@ -29,7 +29,6 @@ class RuntimeState;
 class Status;
 class TScanRangeParams;
 
-namespace pipeline {
 
 class VDataGenFunctionInf {
 public:
@@ -40,7 +39,7 @@ public:
 
     // Should set function parameters in this method
     virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) = 0;
-    virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) = 0;
+    virtual Status get_next(RuntimeState* state, Block* block, bool* eos) = 0;
     Status close(RuntimeState* state) { return Status::OK(); }
 
     void set_tuple_desc(const TupleDescriptor* tuple_desc) { _tuple_desc = tuple_desc; }
@@ -51,6 +50,5 @@ protected:
     const TupleDescriptor* _tuple_desc = nullptr;
 };
 
-} // namespace pipeline
 
 } // namespace doris

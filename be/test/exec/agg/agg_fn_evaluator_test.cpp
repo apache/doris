@@ -23,7 +23,7 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_agg_fn_evaluator.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(AggFnEvaluatorTest, test_single) {
     ObjectPool pool;
@@ -33,7 +33,7 @@ TEST(AggFnEvaluatorTest, test_single) {
     Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3});
 
     // init place
-    AggregateDataPtr place = reinterpret_cast<vectorized::AggregateDataPtr>(
+    AggregateDataPtr place = reinterpret_cast<AggregateDataPtr>(
             arena.alloc(agg_fn->function()->size_of_data()));
 
     agg_fn->create(place);
@@ -58,10 +58,10 @@ TEST(AggFnEvaluatorTest, test_batch) {
     Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3});
 
     // init place
-    AggregateDataPtr place1 = reinterpret_cast<vectorized::AggregateDataPtr>(
+    AggregateDataPtr place1 = reinterpret_cast<AggregateDataPtr>(
             arena.alloc(agg_fn->function()->size_of_data()));
 
-    AggregateDataPtr place2 = reinterpret_cast<vectorized::AggregateDataPtr>(
+    AggregateDataPtr place2 = reinterpret_cast<AggregateDataPtr>(
             arena.alloc(agg_fn->function()->size_of_data()));
 
     agg_fn->create(place1);
@@ -103,10 +103,10 @@ TEST(AggFnEvaluatorTest, test_clone) {
     Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3});
 
     // init place
-    AggregateDataPtr place1 = reinterpret_cast<vectorized::AggregateDataPtr>(
+    AggregateDataPtr place1 = reinterpret_cast<AggregateDataPtr>(
             arena.alloc(agg_fn->function()->size_of_data()));
 
-    AggregateDataPtr place2 = reinterpret_cast<vectorized::AggregateDataPtr>(
+    AggregateDataPtr place2 = reinterpret_cast<AggregateDataPtr>(
             arena.alloc(agg_fn->function()->size_of_data()));
 
     agg_fn->create(place1);
@@ -138,4 +138,4 @@ TEST(AggFnEvaluatorTest, test_clone) {
     agg_fn->reset(place2);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

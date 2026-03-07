@@ -28,7 +28,6 @@ namespace doris {
 class RuntimeProfile;
 class ThreadPool;
 
-namespace vectorized {
 
 class Block;
 class SpillDataDir;
@@ -106,6 +105,5 @@ private:
     RuntimeProfile::Counter* _current_file_size = nullptr;
 };
 using SpillStreamSPtr = std::shared_ptr<SpillStream>;
-} // namespace vectorized
 } // namespace doris
 #include "common/compile_check_end.h"

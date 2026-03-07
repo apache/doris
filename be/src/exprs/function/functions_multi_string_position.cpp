@@ -58,7 +58,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename Impl>
 class FunctionMultiStringPosition : public IFunction {
@@ -249,7 +249,7 @@ public:
         uint64_t offset_now = 0;
 
         auto& nested_column =
-                vectorized::check_and_get_column<vectorized::ColumnNullable>(needles_data)
+                check_and_get_column<ColumnNullable>(needles_data)
                         ->get_nested_column();
         const ColumnString* needles_data_string = check_and_get_column<ColumnString>(nested_column);
 
@@ -317,4 +317,4 @@ void register_function_multi_string_position(SimpleFunctionFactory& factory) {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

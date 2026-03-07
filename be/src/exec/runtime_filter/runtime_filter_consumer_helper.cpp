@@ -28,7 +28,7 @@ RuntimeFilterConsumerHelper::RuntimeFilterConsumerHelper(
 
 Status RuntimeFilterConsumerHelper::init(
         RuntimeState* state, bool need_local_merge, int32_t node_id, int32_t operator_id,
-        std::vector<std::shared_ptr<pipeline::Dependency>>& dependencies, const std::string& name) {
+        std::vector<std::shared_ptr<Dependency>>& dependencies, const std::string& name) {
     for (const auto& desc : _runtime_filter_descs) {
         std::shared_ptr<RuntimeFilterConsumer> filter;
         RETURN_IF_ERROR(
@@ -37,11 +37,11 @@ Status RuntimeFilterConsumerHelper::init(
     }
 
     dependencies.resize(_runtime_filter_descs.size());
-    std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> runtime_filter_timers(
+    std::vector<std::shared_ptr<RuntimeFilterTimer>> runtime_filter_timers(
             _runtime_filter_descs.size());
-    std::vector<std::shared_ptr<pipeline::Dependency>> local_dependencies;
+    std::vector<std::shared_ptr<Dependency>> local_dependencies;
     for (size_t i = 0; i < _consumers.size(); ++i) {
-        dependencies[i] = std::make_shared<pipeline::Dependency>(operator_id, node_id, name);
+        dependencies[i] = std::make_shared<Dependency>(operator_id, node_id, name);
         runtime_filter_timers[i] = _consumers[i]->create_filter_timer(dependencies[i]);
         if (!_consumers[i]->has_remote_target()) {
             local_dependencies.emplace_back(dependencies[i]);
@@ -64,10 +64,10 @@ Status RuntimeFilterConsumerHelper::init(
 }
 
 Status RuntimeFilterConsumerHelper::acquire_runtime_filter(RuntimeState* state,
-                                                           vectorized::VExprContextSPtrs& conjuncts,
+                                                           VExprContextSPtrs& conjuncts,
                                                            const RowDescriptor& row_descriptor) {
     SCOPED_TIMER(_acquire_runtime_filter_timer.get());
-    std::vector<vectorized::VRuntimeFilterPtr> vexprs;
+    std::vector<VRuntimeFilterPtr> vexprs;
     for (const auto& consumer : _consumers) {
         RETURN_IF_ERROR(consumer->acquire_expr(vexprs));
         if (!consumer->is_applied()) {
@@ -79,14 +79,14 @@ Status RuntimeFilterConsumerHelper::acquire_runtime_filter(RuntimeState* state,
 }
 
 Status RuntimeFilterConsumerHelper::_append_rf_into_conjuncts(
-        RuntimeState* state, const std::vector<vectorized::VRuntimeFilterPtr>& vexprs,
-        vectorized::VExprContextSPtrs& conjuncts, const RowDescriptor& row_descriptor) {
+        RuntimeState* state, const std::vector<VRuntimeFilterPtr>& vexprs,
+        VExprContextSPtrs& conjuncts, const RowDescriptor& row_descriptor) {
     if (vexprs.empty()) {
         return Status::OK();
     }
 
     for (const auto& expr : vexprs) {
-        vectorized::VExprContextSPtr conjunct = vectorized::VExprContext::create_shared(expr);
+        VExprContextSPtr conjunct = VExprContext::create_shared(expr);
         RETURN_IF_ERROR(conjunct->prepare(state, row_descriptor));
         RETURN_IF_ERROR(conjunct->open(state));
         conjuncts.emplace_back(conjunct);
@@ -97,7 +97,7 @@ Status RuntimeFilterConsumerHelper::_append_rf_into_conjuncts(
 
 Status RuntimeFilterConsumerHelper::try_append_late_arrival_runtime_filter(
         RuntimeState* state, const RowDescriptor& row_descriptor, int& arrived_rf_num,
-        vectorized::VExprContextSPtrs& arrived_conjuncts) {
+        VExprContextSPtrs& arrived_conjuncts) {
     if (_is_all_rf_applied) {
         arrived_rf_num = cast_set<int>(_runtime_filter_descs.size());
         return Status::OK();
@@ -112,7 +112,7 @@ Status RuntimeFilterConsumerHelper::try_append_late_arrival_runtime_filter(
     }
 
     // 1. Check if are runtime filter ready but not applied.
-    std::vector<vectorized::VRuntimeFilterPtr> exprs;
+    std::vector<VRuntimeFilterPtr> exprs;
     int current_arrived_rf_num = 0;
     for (const auto& consumer : _consumers) {
         RETURN_IF_ERROR(consumer->acquire_expr(exprs));

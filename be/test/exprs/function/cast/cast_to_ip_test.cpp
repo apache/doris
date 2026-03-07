@@ -21,7 +21,7 @@
 #include "exprs/function/cast/cast_test.h"
 #include "exprs/function/function_test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 using namespace ut_type;
 
 IPV4 ipv4_from_string(const std::string& str) {
@@ -274,4 +274,4 @@ TEST_F(FunctionCastTest, test_non_strict_cast_string_to_ipv6) {
     check_function_for_cast<DataTypeIPv6>(input_types, data_set);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

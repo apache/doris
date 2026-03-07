@@ -53,10 +53,10 @@ private:
     template <typename Context>
     Status _prepare_and_open(Context* ctx);
 
-    Status _get_result(void* src, size_t size, const vectorized::DataTypePtr& type,
-                       vectorized::ColumnPtr column_ptr, vectorized::DataTypePtr column_type,
+    Status _get_result(void* src, size_t size, const DataTypePtr& type,
+                       ColumnPtr column_ptr, DataTypePtr column_type,
                        std::string& result,
-                       const vectorized::DataTypeSerDe::FormatOptions& options);
+                       const DataTypeSerDe::FormatOptions& options);
 
     std::unique_ptr<RuntimeState> _runtime_state;
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;

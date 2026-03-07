@@ -41,13 +41,9 @@ class RuntimeState;
 class ObjectPool;
 class TUserIdentity;
 
-namespace vectorized {
 class Block;
-}
 
-namespace pipeline {
 class Dependency;
-}
 
 struct SchemaScannerCommonParam {
     SchemaScannerCommonParam()
@@ -102,23 +98,23 @@ public:
 
     // init object need information, schema etc.
     virtual Status init(RuntimeState* state, SchemaScannerParam* param, ObjectPool* pool);
-    Status get_next_block(RuntimeState* state, vectorized::Block* block, bool* eos);
+    Status get_next_block(RuntimeState* state, Block* block, bool* eos);
     // Start to work
     virtual Status start(RuntimeState* state);
-    virtual Status get_next_block_internal(vectorized::Block* block, bool* eos) = 0;
+    virtual Status get_next_block_internal(Block* block, bool* eos) = 0;
     const std::vector<ColumnDesc>& get_column_desc() const { return _columns; }
     // factory function
     static std::unique_ptr<SchemaScanner> create(TSchemaTableType::type type);
     TSchemaTableType::type type() const { return _schema_table_type; }
-    void set_dependency(std::shared_ptr<pipeline::Dependency> dep) { _dependency = dep; }
+    void set_dependency(std::shared_ptr<Dependency> dep) { _dependency = dep; }
     Status get_next_block_async(RuntimeState* state);
 
 protected:
-    void _init_block(vectorized::Block* src_block);
-    Status fill_dest_column_for_range(vectorized::Block* block, size_t pos,
+    void _init_block(Block* src_block);
+    Status fill_dest_column_for_range(Block* block, size_t pos,
                                       const std::vector<void*>& datas);
 
-    Status insert_block_column(TCell cell, int col_index, vectorized::Block* block,
+    Status insert_block_column(TCell cell, int col_index, Block* block,
                                PrimitiveType type);
 
     // get dbname from catalogname.dbname
@@ -138,9 +134,9 @@ protected:
     RuntimeProfile::Counter* _get_describe_timer = nullptr;
     RuntimeProfile::Counter* _fill_block_timer = nullptr;
 
-    std::shared_ptr<pipeline::Dependency> _dependency = nullptr;
+    std::shared_ptr<Dependency> _dependency = nullptr;
 
-    std::unique_ptr<vectorized::Block> _data_block;
+    std::unique_ptr<Block> _data_block;
     AtomicStatus _scanner_status;
     std::atomic<bool> _eos = false;
     std::atomic<bool> _opened = false;

@@ -23,7 +23,7 @@
 #include "exec/operator/operator.h"
 #include "exec/sort/partition_sorter.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class PartitionSortSinkOperatorX;
@@ -34,7 +34,7 @@ public:
     PartitionSortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalState<PartitionSortNodeSharedState>(parent, state),
               _partitioned_data(std::make_unique<PartitionedHashMapVariants>()),
-              _agg_arena_pool(std::make_unique<vectorized::Arena>()) {}
+              _agg_arena_pool(std::make_unique<Arena>()) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
@@ -42,13 +42,13 @@ private:
     friend class PartitionSortSinkOperatorX;
 
     // Expressions and parameters used for build _sort_description
-    vectorized::VSortExecExprs _vsort_exec_exprs;
-    vectorized::VExprContextSPtrs _partition_expr_ctxs;
+    VSortExecExprs _vsort_exec_exprs;
+    VExprContextSPtrs _partition_expr_ctxs;
     int64_t _sorted_partition_input_rows = 0;
     std::vector<PartitionDataPtr> _value_places;
     int _num_partition = 0;
     std::unique_ptr<PartitionedHashMapVariants> _partitioned_data;
-    std::unique_ptr<vectorized::Arena> _agg_arena_pool;
+    std::unique_ptr<Arena> _agg_arena_pool;
     int _partition_exprs_num = 0;
     std::shared_ptr<PartitionSortInfo> _partition_sort_info = nullptr;
     TPartTopNPhase::type _topn_phase;
@@ -92,7 +92,7 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status prepare(RuntimeState* state) override;
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_topn_phase == TPartTopNPhase::TWO_PHASE_GLOBAL) {
             return DataDistribution(ExchangeType::HASH_SHUFFLE, _distribute_exprs);
@@ -113,19 +113,19 @@ private:
     const TopNAlgorithm::type _top_n_algorithm = TopNAlgorithm::ROW_NUMBER;
     const int64_t _partition_inner_limit = 0;
 
-    vectorized::VExprContextSPtrs _partition_expr_ctxs;
+    VExprContextSPtrs _partition_expr_ctxs;
     const std::vector<TExpr> _distribute_exprs;
     // Expressions and parameters used for build _sort_description
-    vectorized::VSortExecExprs _vsort_exec_exprs;
+    VSortExecExprs _vsort_exec_exprs;
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
 
-    Status _split_block_by_partition(vectorized::Block* input_block,
+    Status _split_block_by_partition(Block* input_block,
                                      PartitionSortSinkLocalState& local_state, bool eos);
-    Status _emplace_into_hash_table(const vectorized::ColumnRawPtrs& key_columns,
-                                    vectorized::Block* input_block,
+    Status _emplace_into_hash_table(const ColumnRawPtrs& key_columns,
+                                    Block* input_block,
                                     PartitionSortSinkLocalState& local_state, bool eos);
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

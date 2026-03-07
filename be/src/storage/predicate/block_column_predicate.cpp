@@ -28,14 +28,14 @@ namespace segment_v2 {
 class InvertedIndexIterator;
 } // namespace segment_v2
 
-uint16_t SingleColumnBlockPredicate::evaluate(vectorized::MutableColumns& block, uint16_t* sel,
+uint16_t SingleColumnBlockPredicate::evaluate(MutableColumns& block, uint16_t* sel,
                                               uint16_t selected_size) const {
     auto column_id = _predicate->column_id();
     auto& column = block[column_id];
     return _predicate->evaluate(*column, sel, selected_size);
 }
 
-void SingleColumnBlockPredicate::evaluate_and(vectorized::MutableColumns& block, uint16_t* sel,
+void SingleColumnBlockPredicate::evaluate_and(MutableColumns& block, uint16_t* sel,
                                               uint16_t selected_size, bool* flags) const {
     auto column_id = _predicate->column_id();
     auto& column = block[column_id];
@@ -55,14 +55,14 @@ bool SingleColumnBlockPredicate::evaluate_and(const StringRef* dict_words,
     return _predicate->evaluate_and(dict_words, dict_num);
 }
 
-void SingleColumnBlockPredicate::evaluate_or(vectorized::MutableColumns& block, uint16_t* sel,
+void SingleColumnBlockPredicate::evaluate_or(MutableColumns& block, uint16_t* sel,
                                              uint16_t selected_size, bool* flags) const {
     auto column_id = _predicate->column_id();
     auto& column = block[column_id];
     _predicate->evaluate_or(*column, sel, selected_size, flags);
 }
 
-void SingleColumnBlockPredicate::evaluate_vec(vectorized::MutableColumns& block, uint16_t size,
+void SingleColumnBlockPredicate::evaluate_vec(MutableColumns& block, uint16_t size,
                                               bool* flags) const {
     auto column_id = _predicate->column_id();
     auto& column = block[column_id];
@@ -77,7 +77,7 @@ void SingleColumnBlockPredicate::evaluate_vec(vectorized::MutableColumns& block,
     _predicate->evaluate_vec(*column, size, flags);
 }
 
-uint16_t OrBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, uint16_t* sel,
+uint16_t OrBlockColumnPredicate::evaluate(MutableColumns& block, uint16_t* sel,
                                           uint16_t selected_size) const {
     if (num_of_column_predicate() == 1) {
         return _block_column_predicate_vec[0]->evaluate(block, sel, selected_size);
@@ -101,14 +101,14 @@ uint16_t OrBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, uin
     }
 }
 
-void OrBlockColumnPredicate::evaluate_or(vectorized::MutableColumns& block, uint16_t* sel,
+void OrBlockColumnPredicate::evaluate_or(MutableColumns& block, uint16_t* sel,
                                          uint16_t selected_size, bool* flags) const {
     for (auto& block_column_predicate : _block_column_predicate_vec) {
         block_column_predicate->evaluate_or(block, sel, selected_size, flags);
     }
 }
 
-void OrBlockColumnPredicate::evaluate_and(vectorized::MutableColumns& block, uint16_t* sel,
+void OrBlockColumnPredicate::evaluate_and(MutableColumns& block, uint16_t* sel,
                                           uint16_t selected_size, bool* flags) const {
     if (num_of_column_predicate() == 1) {
         _block_column_predicate_vec[0]->evaluate_and(block, sel, selected_size, flags);
@@ -126,7 +126,7 @@ void OrBlockColumnPredicate::evaluate_and(vectorized::MutableColumns& block, uin
 }
 
 bool OrBlockColumnPredicate::evaluate_and(
-        vectorized::ParquetPredicate::CachedPageIndexStat* statistic, RowRanges* row_ranges) const {
+        ParquetPredicate::CachedPageIndexStat* statistic, RowRanges* row_ranges) const {
     if (num_of_column_predicate() >= 1) {
         _block_column_predicate_vec[0]->evaluate_and(statistic, row_ranges);
         for (int i = 1; i < num_of_column_predicate(); ++i) {
@@ -139,7 +139,7 @@ bool OrBlockColumnPredicate::evaluate_and(
 }
 
 bool AndBlockColumnPredicate::evaluate_and(
-        vectorized::ParquetPredicate::CachedPageIndexStat* statistic, RowRanges* row_ranges) const {
+        ParquetPredicate::CachedPageIndexStat* statistic, RowRanges* row_ranges) const {
     if (num_of_column_predicate() >= 1) {
         for (int i = 0; i < num_of_column_predicate(); ++i) {
             RowRanges tmp_row_ranges;
@@ -157,7 +157,7 @@ bool AndBlockColumnPredicate::evaluate_and(
     return true;
 }
 
-uint16_t AndBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, uint16_t* sel,
+uint16_t AndBlockColumnPredicate::evaluate(MutableColumns& block, uint16_t* sel,
                                            uint16_t selected_size) const {
     for (auto& block_column_predicate : _block_column_predicate_vec) {
         selected_size = block_column_predicate->evaluate(block, sel, selected_size);
@@ -165,7 +165,7 @@ uint16_t AndBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, ui
     return selected_size;
 }
 
-void AndBlockColumnPredicate::evaluate_and(vectorized::MutableColumns& block, uint16_t* sel,
+void AndBlockColumnPredicate::evaluate_and(MutableColumns& block, uint16_t* sel,
                                            uint16_t selected_size, bool* flags) const {
     for (auto& block_column_predicate : _block_column_predicate_vec) {
         block_column_predicate->evaluate_and(block, sel, selected_size, flags);
@@ -200,7 +200,7 @@ bool AndBlockColumnPredicate::evaluate_and(const StringRef* dict_words,
     return true;
 }
 
-void AndBlockColumnPredicate::evaluate_or(vectorized::MutableColumns& block, uint16_t* sel,
+void AndBlockColumnPredicate::evaluate_or(MutableColumns& block, uint16_t* sel,
                                           uint16_t selected_size, bool* flags) const {
     if (num_of_column_predicate() == 1) {
         _block_column_predicate_vec[0]->evaluate_or(block, sel, selected_size, flags);
@@ -218,7 +218,7 @@ void AndBlockColumnPredicate::evaluate_or(vectorized::MutableColumns& block, uin
 }
 
 // todo(wb) Can the 'and' of multiple bitmaps be vectorized?
-void AndBlockColumnPredicate::evaluate_vec(vectorized::MutableColumns& block, uint16_t size,
+void AndBlockColumnPredicate::evaluate_vec(MutableColumns& block, uint16_t size,
                                            bool* flags) const {
     if (num_of_column_predicate() == 1) {
         _block_column_predicate_vec[0]->evaluate_vec(block, size, flags);

@@ -50,7 +50,7 @@ namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 struct AnnIndexStats;
 
-Result<vectorized::IColumn::Ptr> extract_query_vector(std::shared_ptr<vectorized::VExpr> arg_expr);
+Result<IColumn::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr);
 
 /**
  * @brief Runtime execution engine for ANN (Approximate Nearest Neighbor) Top-N queries.
@@ -80,7 +80,7 @@ public:
      * @param limit Maximum number of results to return (K in K-NN)
      * @param order_by_expr_ctx Expression context for the distance function (e.g., l2_distance)
      */
-    AnnTopNRuntime(bool asc, size_t limit, vectorized::VExprContextSPtr order_by_expr_ctx)
+    AnnTopNRuntime(bool asc, size_t limit, VExprContextSPtr order_by_expr_ctx)
             : _asc(asc), _limit(limit), _order_by_expr_ctx(order_by_expr_ctx) {};
 
     /**
@@ -98,7 +98,7 @@ public:
      */
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
 
-    vectorized::VExprContextSPtr get_order_by_expr_ctx() const { return _order_by_expr_ctx; }
+    VExprContextSPtr get_order_by_expr_ctx() const { return _order_by_expr_ctx; }
 
     /**
      * @brief Executes the ANN search on the given index iterator.
@@ -118,7 +118,7 @@ public:
      */
     Status evaluate_vector_ann_search(segment_v2::IndexIterator* ann_index_iterator,
                                       roaring::Roaring* row_bitmap, size_t rows_of_segment,
-                                      vectorized::IColumn::MutablePtr& result_column,
+                                      IColumn::MutablePtr& result_column,
                                       std::unique_ptr<std::vector<uint64_t>>& row_ids,
                                       segment_v2::AnnIndexStats& ann_index_stats);
 
@@ -156,7 +156,7 @@ private:
     // Core configuration
     const bool _asc;     ///< Sort order for results
     const size_t _limit; ///< Maximum number of results (K in K-NN)
-    vectorized::VExprContextSPtr
+    VExprContextSPtr
             _order_by_expr_ctx; ///< Expression context for distance calculation
 
     // Runtime metadata
@@ -164,7 +164,7 @@ private:
     size_t _src_column_idx = -1;                ///< Source vector column index
     size_t _dest_column_idx = -1;               ///< Destination distance column index
     segment_v2::AnnIndexMetric _metric_type;    ///< Distance metric type
-    vectorized::IColumn::Ptr _query_array;      ///< Query vector data (contiguous float buffer)
+    IColumn::Ptr _query_array;      ///< Query vector data (contiguous float buffer)
     doris::VectorSearchUserParams _user_params; ///< User-defined search parameters
 };
 #include "common/compile_check_end.h"

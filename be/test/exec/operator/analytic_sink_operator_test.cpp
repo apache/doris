@@ -32,18 +32,17 @@
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
-namespace doris::pipeline {
+namespace doris {
 
-using namespace vectorized;
 
 class MockAnalyticSinkOperator : public OperatorXBase {
 public:
-    Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
+    Status get_block_after_projects(RuntimeState* state, Block* block,
                                     bool* eos) override {
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override {
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
         return Status::OK();
     }
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
@@ -179,13 +178,13 @@ TEST_F(AnalyticSinkOperatorTest, withoutAggFunction) {
     // test without agg function and no window: _get_next_for_partition
     // do nothing only input and output block
     {
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({2, 3, 1});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({2, 3, 1});
         auto st = sink->sink(state.get(), &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
     }
 
     {
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos = false;
         auto st = source->get_block(state.get(), &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -194,7 +193,7 @@ TEST_F(AnalyticSinkOperatorTest, withoutAggFunction) {
         EXPECT_TRUE(ColumnHelper::block_equal(
                 block, ColumnHelper::create_block<DataTypeInt64>({2, 3, 1})));
 
-        vectorized::Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos2 = false;
         auto st2 = source->get_block(state.get(), &block2, &eos2);
         EXPECT_TRUE(st2.ok()) << st2.msg();
@@ -215,13 +214,13 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction) {
     // test with sum agg function and no window: _get_next_for_partition
     // do sum of _data_vals, return all sum is 45
     {
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>(_data_vals);
+        Block block = ColumnHelper::create_block<DataTypeInt64>(_data_vals);
         auto st = sink->sink(state.get(), &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
     }
 
     {
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos = false;
         auto st = source->get_block(state.get(), &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -231,7 +230,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction) {
         EXPECT_TRUE(ColumnHelper::block_equal(
                 block, ColumnHelper::create_block<DataTypeInt64>(_data_vals, expect_vals)));
 
-        vectorized::Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos2 = false;
         auto st2 = source->get_block(state.get(), &block2, &eos2);
         EXPECT_TRUE(st2.ok()) << st2.msg();
@@ -262,7 +261,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction2) {
         for (int i = 0; i < batch_size; i++) {
             data_vals.push_back(row_count + i);
         }
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>(data_vals);
+        Block block = ColumnHelper::create_block<DataTypeInt64>(data_vals);
         auto st = sink->sink(state.get(), &block, eos);
         EXPECT_TRUE(st.ok()) << st.msg();
     };
@@ -282,7 +281,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction2) {
             data_vals.push_back(row_count + i);
             expect_vals.push_back(row_count + i + 1);
         }
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos = false;
         auto st = source->get_block(state.get(), &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -300,7 +299,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction2) {
             compare_block_result(row_count);
             row_count += batch_size;
         }
-        vectorized::Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos2 = false;
         auto st2 = source->get_block(state.get(), &block2, &eos2);
         EXPECT_TRUE(st2.ok()) << st2.msg();
@@ -332,7 +331,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction3) {
         for (int i = 0; i < batch_size; i++) {
             data_vals.push_back(row_count + i);
         }
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>(data_vals);
+        Block block = ColumnHelper::create_block<DataTypeInt64>(data_vals);
         auto st = sink->sink(state.get(), &block, eos);
         EXPECT_TRUE(st.ok()) << st.msg();
     };
@@ -353,7 +352,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction3) {
             data_vals_tmp.push_back(data_vals[i + row_count]);
             expect_vals_tmp.push_back(expect_vals[i + row_count]);
         }
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos = false;
         auto st = source->get_block(state.get(), &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -374,7 +373,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction3) {
             compare_block_result(row_count, data_vals, expect_vals);
             row_count += batch_size;
         }
-        vectorized::Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos2 = false;
         auto st2 = source->get_block(state.get(), &block2, &eos2);
         EXPECT_TRUE(st2.ok()) << st2.msg();
@@ -410,7 +409,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction4) {
         for (int i = 0; i < batch_size; i++) {
             data_vals.push_back(row_count + i);
         }
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>(data_vals);
+        Block block = ColumnHelper::create_block<DataTypeInt64>(data_vals);
         auto st = sink->sink(state.get(), &block, eos);
         EXPECT_TRUE(st.ok()) << st.msg();
     };
@@ -431,7 +430,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction4) {
             data_vals_tmp.push_back(data_vals[i + row_count]);
             expect_vals_tmp.push_back(expect_vals[i + row_count]);
         }
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos = false;
         auto st = source->get_block(state.get(), &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -452,7 +451,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction4) {
             compare_block_result(row_count, data_vals, expect_vals);
             row_count += batch_size;
         }
-        vectorized::Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos2 = false;
         auto st2 = source->get_block(state.get(), &block2, &eos2);
         EXPECT_TRUE(st2.ok()) << st2.msg();
@@ -488,7 +487,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction5) {
         for (int i = 0; i < batch_size; i++) {
             data_vals.push_back(row_count + i);
         }
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>(data_vals);
+        Block block = ColumnHelper::create_block<DataTypeInt64>(data_vals);
         auto st = sink->sink(state.get(), &block, eos);
         EXPECT_TRUE(st.ok()) << st.msg();
     };
@@ -509,7 +508,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction5) {
             data_vals_tmp.push_back(data_vals[i + row_count]);
             expect_vals_tmp.push_back(expect_vals[i + row_count]);
         }
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos = false;
         auto st = source->get_block(state.get(), &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -530,7 +529,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction5) {
             compare_block_result(row_count, data_vals, expect_vals);
             row_count += batch_size;
         }
-        vectorized::Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos2 = false;
         auto st2 = source->get_block(state.get(), &block2, &eos2);
         EXPECT_TRUE(st2.ok()) << st2.msg();
@@ -575,7 +574,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction6) {
             col2.push_back(orderkey[row_count + i]);
             col3.push_back(quantity[row_count + i]);
         }
-        vectorized::Block block;
+        Block block;
 
         block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col1));
         block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col2));
@@ -601,7 +600,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction6) {
             expect_vals.push_back(first_value_quantity_A[row_count + i]);
         }
 
-        vectorized::Block block;
+        Block block;
         block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>({}));
         block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>({}));
         block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>({}));
@@ -611,7 +610,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction6) {
         EXPECT_TRUE(st.ok()) << st.msg();
         std::cout << "source get from block is: \n" << block.dump_data() << std::endl;
 
-        vectorized::Block result_block;
+        Block result_block;
         result_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col1));
         result_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col2));
         result_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col3));
@@ -628,7 +627,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction6) {
             compare_block_result(row_count);
             row_count += batch_size;
         }
-        vectorized::Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos2 = false;
         auto st2 = source->get_block(state.get(), &block2, &eos2);
         EXPECT_TRUE(st2.ok()) << st2.msg();
@@ -665,7 +664,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction7) {
         for (int i = 0; i < batch_size; i++) {
             data_vals.push_back(row_count + i);
         }
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>(data_vals);
+        Block block = ColumnHelper::create_block<DataTypeInt64>(data_vals);
         auto st = sink->sink(state.get(), &block, eos);
         EXPECT_TRUE(st.ok()) << st.msg();
     };
@@ -686,7 +685,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction7) {
             data_vals_tmp.push_back(data_vals[i + row_count]);
             expect_vals_tmp.push_back(expect_vals[i + row_count]);
         }
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos = false;
         auto st = source->get_block(state.get(), &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -707,7 +706,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction7) {
             compare_block_result(row_count, data_vals, expect_vals);
             row_count += batch_size;
         }
-        vectorized::Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos2 = false;
         auto st2 = source->get_block(state.get(), &block2, &eos2);
         EXPECT_TRUE(st2.ok()) << st2.msg();
@@ -761,7 +760,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction8) {
             col2.push_back(orderkey[row_count + i]);
             col3.push_back(quantity[row_count + i]);
         }
-        vectorized::Block block;
+        Block block;
 
         block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col1));
         block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col2));
@@ -787,7 +786,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction8) {
             expect_vals.push_back(first_value_quantity_A[row_count + i]);
         }
 
-        vectorized::Block block;
+        Block block;
         block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>({}));
         block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>({}));
         block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>({}));
@@ -797,7 +796,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction8) {
         EXPECT_TRUE(st.ok()) << st.msg();
         std::cout << "source get from block is: \n" << block.dump_data() << std::endl;
 
-        vectorized::Block result_block;
+        Block result_block;
         result_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col1));
         result_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col2));
         result_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(col3));
@@ -812,7 +811,7 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction8) {
             compare_block_result(row_count);
             row_count += batch_size;
         }
-        vectorized::Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block2 = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos2 = false;
         auto st2 = source->get_block(state.get(), &block2, &eos2);
         EXPECT_TRUE(st2.ok()) << st2.msg();
@@ -822,4 +821,4 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction8) {
     std::cout << "######### AggFunction with row_number test end #########" << std::endl;
 }
 
-} // namespace doris::pipeline
+} // namespace doris

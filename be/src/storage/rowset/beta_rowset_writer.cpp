@@ -325,7 +325,7 @@ Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
     return Status::OK();
 }
 
-Status BaseBetaRowsetWriter::add_block(const vectorized::Block* block) {
+Status BaseBetaRowsetWriter::add_block(const Block* block) {
     return _segment_creator.add_block(block);
 }
 
@@ -806,7 +806,7 @@ Status BaseBetaRowsetWriter::flush() {
     return _segment_creator.flush();
 }
 
-Status BaseBetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segment_id,
+Status BaseBetaRowsetWriter::flush_memtable(Block* block, int32_t segment_id,
                                             int64_t* flush_size) {
     if (block->rows() == 0) {
         return Status::OK();
@@ -819,7 +819,7 @@ Status BaseBetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t se
     return Status::OK();
 }
 
-Status BaseBetaRowsetWriter::flush_single_block(const vectorized::Block* block) {
+Status BaseBetaRowsetWriter::flush_single_block(const Block* block) {
     return _segment_creator.flush_single_block(block);
 }
 

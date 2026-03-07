@@ -30,7 +30,7 @@
 #include "exec/operator/exchange_sink_operator.h"
 #include "exec/sink/tablet_sink_hash_partitioner.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 ExchangeWriterBase::ExchangeWriterBase(ExchangeSinkLocalState& local_state)
@@ -46,8 +46,8 @@ Status ExchangeWriterBase::_handle_eof_channel(RuntimeState* state, ChannelPtrTy
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 Status ExchangeWriterBase::_add_rows_impl(
-        RuntimeState* state, std::vector<std::shared_ptr<vectorized::Channel>>& channels,
-        size_t channel_count, vectorized::Block* block, bool eos) {
+        RuntimeState* state, std::vector<std::shared_ptr<Channel>>& channels,
+        size_t channel_count, Block* block, bool eos) {
     Status status = Status::OK();
     uint32_t offset = 0;
     for (size_t i = 0; i < channel_count; ++i) {
@@ -74,9 +74,9 @@ Status ExchangeWriterBase::_add_rows_impl(
 }
 // NOLINTEND(readability-function-cognitive-complexity)
 
-Status ExchangeOlapWriter::write(RuntimeState* state, vectorized::Block* block, bool eos) {
-    vectorized::Block prior_block;
-    auto* tablet_partitioner = assert_cast<vectorized::TabletSinkHashPartitioner*>(_partitioner);
+Status ExchangeOlapWriter::write(RuntimeState* state, Block* block, bool eos) {
+    Block prior_block;
+    auto* tablet_partitioner = assert_cast<TabletSinkHashPartitioner*>(_partitioner);
     RETURN_IF_ERROR(tablet_partitioner->try_cut_in_line(prior_block));
     if (!prior_block.empty()) {
         // prior_block (batching rows) cuts in line, deal it first.
@@ -90,22 +90,22 @@ Status ExchangeOlapWriter::write(RuntimeState* state, vectorized::Block* block, 
     if (eos) {
         // get all batched rows
         tablet_partitioner->mark_last_block();
-        vectorized::Block final_batching_block;
+        Block final_batching_block;
         RETURN_IF_ERROR(tablet_partitioner->try_cut_in_line(final_batching_block));
         if (!final_batching_block.empty()) {
             RETURN_IF_ERROR(_write_impl(state, &final_batching_block, true));
         } else {
             // No batched rows, send empty block with eos signal.
-            vectorized::Block empty_block = block->clone_empty();
+            Block empty_block = block->clone_empty();
             RETURN_IF_ERROR(_write_impl(state, &empty_block, true));
         }
     }
     return Status::OK();
 }
 
-Status ExchangeOlapWriter::_write_impl(RuntimeState* state, vectorized::Block* block, bool eos) {
+Status ExchangeOlapWriter::_write_impl(RuntimeState* state, Block* block, bool eos) {
     auto rows = block->rows();
-    auto* tablet_partitioner = assert_cast<vectorized::TabletSinkHashPartitioner*>(_partitioner);
+    auto* tablet_partitioner = assert_cast<TabletSinkHashPartitioner*>(_partitioner);
     {
         SCOPED_TIMER(_local_state.split_block_hash_compute_timer());
         RETURN_IF_ERROR(tablet_partitioner->do_partitioning(state, block));
@@ -127,7 +127,7 @@ Status ExchangeOlapWriter::_write_impl(RuntimeState* state, vectorized::Block* b
     return Status::OK();
 }
 
-Status ExchangeTrivialWriter::write(RuntimeState* state, vectorized::Block* block, bool eos) {
+Status ExchangeTrivialWriter::write(RuntimeState* state, Block* block, bool eos) {
     auto rows = block->rows();
     {
         SCOPED_TIMER(_local_state.split_block_hash_compute_timer());
@@ -146,9 +146,9 @@ Status ExchangeTrivialWriter::write(RuntimeState* state, vectorized::Block* bloc
 }
 
 Status ExchangeOlapWriter::_channel_add_rows(
-        RuntimeState* state, std::vector<std::shared_ptr<vectorized::Channel>>& channels,
+        RuntimeState* state, std::vector<std::shared_ptr<Channel>>& channels,
         size_t channel_count, const std::vector<HashValType>& channel_ids, size_t rows,
-        vectorized::Block* block, bool eos, HashValType invalid_val) {
+        Block* block, bool eos, HashValType invalid_val) {
     size_t effective_rows = 0;
     effective_rows =
             std::ranges::count_if(channel_ids, [=](int64_t cid) { return cid != invalid_val; });
@@ -181,9 +181,9 @@ Status ExchangeOlapWriter::_channel_add_rows(
 }
 
 Status ExchangeTrivialWriter::_channel_add_rows(
-        RuntimeState* state, std::vector<std::shared_ptr<vectorized::Channel>>& channels,
+        RuntimeState* state, std::vector<std::shared_ptr<Channel>>& channels,
         size_t channel_count, const std::vector<HashValType>& channel_ids, size_t rows,
-        vectorized::Block* block, bool eos) {
+        Block* block, bool eos) {
     _origin_row_idx.resize(rows);
     _channel_rows_histogram.assign(channel_count, 0U);
     _channel_pos_offsets.resize(channel_count);
@@ -203,4 +203,4 @@ Status ExchangeTrivialWriter::_channel_add_rows(
     return _add_rows_impl(state, channels, channel_count, block, eos);
 }
 
-} // namespace doris::pipeline
+} // namespace doris

@@ -243,7 +243,7 @@ TEST_F(IndexBuilderTest, DropInvertedIndexTest) {
 
     // 5. Write data to the rowset
     {
-        vectorized::Block block = _tablet_schema->create_block();
+        Block block = _tablet_schema->create_block();
         auto columns = block.mutate_columns();
 
         // Add data for k1 and k2 columns
@@ -387,36 +387,36 @@ TEST_F(IndexBuilderTest, DropAnnIndexTest) {
 
     // Write data to the rowset
     {
-        vectorized::DataTypePtr inner_float = std::make_shared<vectorized::DataTypeFloat32>();
-        vectorized::DataTypePtr array_type =
-                std::make_shared<vectorized::DataTypeArray>(inner_float);
+        DataTypePtr inner_float = std::make_shared<DataTypeFloat32>();
+        DataTypePtr array_type =
+                std::make_shared<DataTypeArray>(inner_float);
 
         // create a MutableColumnPtr
-        vectorized::MutableColumnPtr col = array_type->create_column();
+        MutableColumnPtr col = array_type->create_column();
         // row0
         {
-            vectorized::Array arr;
-            arr.push_back(vectorized::Field::create_field<TYPE_FLOAT>(1.0F));
-            arr.push_back(vectorized::Field::create_field<TYPE_FLOAT>(2.0F));
-            arr.push_back(vectorized::Field::create_field<TYPE_FLOAT>(3.0F));
-            arr.push_back(vectorized::Field::create_field<TYPE_FLOAT>(4.0F));
-            col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
+            Array arr;
+            arr.push_back(Field::create_field<TYPE_FLOAT>(1.0F));
+            arr.push_back(Field::create_field<TYPE_FLOAT>(2.0F));
+            arr.push_back(Field::create_field<TYPE_FLOAT>(3.0F));
+            arr.push_back(Field::create_field<TYPE_FLOAT>(4.0F));
+            col->insert(Field::create_field<TYPE_ARRAY>(arr));
         }
         // row1
         {
-            vectorized::Array arr;
-            arr.push_back(vectorized::Field::create_field<TYPE_FLOAT>(5.0F));
-            arr.push_back(vectorized::Field::create_field<TYPE_FLOAT>(6.0F));
-            arr.push_back(vectorized::Field::create_field<TYPE_FLOAT>(7.0F));
-            arr.push_back(vectorized::Field::create_field<TYPE_FLOAT>(8.0F));
-            col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
+            Array arr;
+            arr.push_back(Field::create_field<TYPE_FLOAT>(5.0F));
+            arr.push_back(Field::create_field<TYPE_FLOAT>(6.0F));
+            arr.push_back(Field::create_field<TYPE_FLOAT>(7.0F));
+            arr.push_back(Field::create_field<TYPE_FLOAT>(8.0F));
+            col->insert(Field::create_field<TYPE_ARRAY>(arr));
         }
         // wrap the constructed column into a ColumnWithTypeAndName
-        vectorized::ColumnPtr column_array = std::move(col);
-        vectorized::ColumnWithTypeAndName type_and_name(column_array, array_type, "arr1");
+        ColumnPtr column_array = std::move(col);
+        ColumnWithTypeAndName type_and_name(column_array, array_type, "arr1");
 
         // construct Block (containing only this column), with 2 rows
-        vectorized::Block block;
+        Block block;
         block.insert(type_and_name);
 
         // Add the block to the rowset
@@ -532,7 +532,7 @@ TEST_F(IndexBuilderTest, BuildInvertedIndexAfterWritingDataTest) {
 
     // 4. Write data to the rowset
     {
-        vectorized::Block block = _tablet_schema->create_block();
+        Block block = _tablet_schema->create_block();
         auto columns = block.mutate_columns();
 
         // Add data for k1 and k2 columns according to the schema
@@ -698,33 +698,33 @@ TEST_F(IndexBuilderTest, BuildAnnIndexAfterWritingDataTest) {
 
     // 5. Write data to the rowset with float arrays
     {
-        vectorized::DataTypePtr inner_float = std::make_shared<vectorized::DataTypeFloat32>();
-        vectorized::DataTypePtr array_type =
-                std::make_shared<vectorized::DataTypeArray>(inner_float);
+        DataTypePtr inner_float = std::make_shared<DataTypeFloat32>();
+        DataTypePtr array_type =
+                std::make_shared<DataTypeArray>(inner_float);
 
         // create a MutableColumnPtr
-        vectorized::MutableColumnPtr col = array_type->create_column();
+        MutableColumnPtr col = array_type->create_column();
 
         // Add data for each row - arrays of 4 floats (matching dim=4 in properties)
         for (int i = 0; i < num_rows; ++i) {
-            vectorized::Array arr;
+            Array arr;
             // Create 4-dimensional float vectors
-            arr.push_back(vectorized::Field::create_field<TYPE_FLOAT>(static_cast<float>(i % 10)));
+            arr.push_back(Field::create_field<TYPE_FLOAT>(static_cast<float>(i % 10)));
             arr.push_back(
-                    vectorized::Field::create_field<TYPE_FLOAT>(static_cast<float>((i + 1) % 10)));
+                    Field::create_field<TYPE_FLOAT>(static_cast<float>((i + 1) % 10)));
             arr.push_back(
-                    vectorized::Field::create_field<TYPE_FLOAT>(static_cast<float>((i + 2) % 10)));
+                    Field::create_field<TYPE_FLOAT>(static_cast<float>((i + 2) % 10)));
             arr.push_back(
-                    vectorized::Field::create_field<TYPE_FLOAT>(static_cast<float>((i + 3) % 10)));
-            col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
+                    Field::create_field<TYPE_FLOAT>(static_cast<float>((i + 3) % 10)));
+            col->insert(Field::create_field<TYPE_ARRAY>(arr));
         }
 
         // wrap the constructed column into a ColumnWithTypeAndName
-        vectorized::ColumnPtr column_array = std::move(col);
-        vectorized::ColumnWithTypeAndName type_and_name(column_array, array_type, "arr1");
+        ColumnPtr column_array = std::move(col);
+        ColumnWithTypeAndName type_and_name(column_array, array_type, "arr1");
 
         // construct Block (containing only this column), with num_rows rows
-        vectorized::Block block;
+        Block block;
         block.insert(type_and_name);
 
         // Add the block to the rowset
@@ -865,7 +865,7 @@ TEST_F(IndexBuilderTest, AddIndexWhenOneExistsTest) {
 
     // 5. Write data to rowset
     {
-        vectorized::Block block = _tablet_schema->create_block();
+        Block block = _tablet_schema->create_block();
         auto columns = block.mutate_columns();
 
         // Add data for k1 and k2 columns
@@ -1033,7 +1033,7 @@ TEST_F(IndexBuilderTest, AddIndexWhenOneExistsTestV1) {
 
     // 8. Write data to rowset
     {
-        vectorized::Block block = v1_schema->create_block();
+        Block block = v1_schema->create_block();
         auto columns = block.mutate_columns();
 
         // Add data for k1 and k2 columns
@@ -1182,7 +1182,7 @@ TEST_F(IndexBuilderTest, MultiSegmentBuildIndexTest) {
 
     // 4. Write data to the rowset in multiple batches to ensure we get multiple segments
     for (int segment = 0; segment < num_segments; segment++) {
-        vectorized::Block block = _tablet_schema->create_block();
+        Block block = _tablet_schema->create_block();
         auto columns = block.mutate_columns();
 
         // Add data for k1 and k2 columns
@@ -1332,7 +1332,7 @@ TEST_F(IndexBuilderTest, NonExistentColumnIndexTest) {
 
     // 4. Write data to the rowset
     {
-        vectorized::Block block = _tablet_schema->create_block();
+        Block block = _tablet_schema->create_block();
         auto columns = block.mutate_columns();
 
         // Add data for k1 and k2 columns
@@ -1506,7 +1506,7 @@ TEST_F(IndexBuilderTest, RenameColumnIndexTest) {
 
     // 5. Write data to the rowset
     {
-        vectorized::Block block = _tablet_schema->create_block();
+        Block block = _tablet_schema->create_block();
         auto columns = block.mutate_columns();
 
         // Add data for k1 and k2 columns
@@ -1660,7 +1660,7 @@ TEST_F(IndexBuilderTest, AddNonExistentColumnIndexWhenOneExistsTest) {
 
     // 5. Write data to the rowset
     {
-        vectorized::Block block = _tablet_schema->create_block();
+        Block block = _tablet_schema->create_block();
         auto columns = block.mutate_columns();
 
         // Add data for k1 and k2 columns
@@ -1832,7 +1832,7 @@ TEST_F(IndexBuilderTest, AddNonExistentColumnIndexWhenOneExistsTestV1) {
 
     // 9. Write data to rowset
     {
-        vectorized::Block block = v1_schema->create_block();
+        Block block = v1_schema->create_block();
         auto columns = block.mutate_columns();
 
         // Add data for k1 and k2 columns
@@ -1982,7 +1982,7 @@ TEST_F(IndexBuilderTest, NonNullIndexDataTest) {
 
     // 4. Write non-null data to the rowset
     {
-        vectorized::Block block = _tablet_schema->create_block();
+        Block block = _tablet_schema->create_block();
         auto columns = block.mutate_columns();
 
         // Add data for k1 and k2 columns with no null values
@@ -2106,7 +2106,7 @@ TEST_F(IndexBuilderTest, NonExistentColumnUniqueIdTest) {
 
     // 4. Write data to the rowset
     {
-        vectorized::Block block = _tablet_schema->create_block();
+        Block block = _tablet_schema->create_block();
         auto columns = block.mutate_columns();
 
         // Add data for k1 and k2 columns
@@ -2237,7 +2237,7 @@ TEST_F(IndexBuilderTest, DropIndexV1FormatTest) {
 
     // 9. Write data to the rowset
     {
-        vectorized::Block block = v1_schema->create_block();
+        Block block = v1_schema->create_block();
         auto columns = block.mutate_columns();
 
         // Add data for k1 and k2 columns
@@ -2361,7 +2361,7 @@ TEST_F(IndexBuilderTest, ResourceCleanupTest) {
 
     // 4. Write data to the rowset
     {
-        vectorized::Block block = _tablet_schema->create_block();
+        Block block = _tablet_schema->create_block();
         auto columns = block.mutate_columns();
 
         // Add data for k1 and k2 columns
@@ -2516,7 +2516,7 @@ TEST_F(IndexBuilderTest, ArrayTypeIndexTest) {
 
     // 7. Create data block and write data
     {
-        vectorized::Block block = tablet_schema->create_block();
+        Block block = tablet_schema->create_block();
         auto columns = block.mutate_columns();
 
         // Prepare columns for k1 and array_col
@@ -2530,14 +2530,14 @@ TEST_F(IndexBuilderTest, ArrayTypeIndexTest) {
             int array_size = i % 5 + 1;
 
             // For array type, we need to create a complex nested column structure
-            auto& array_col = static_cast<vectorized::ColumnArray&>(*columns[1]);
-            vectorized::Array arr;
+            auto& array_col = static_cast<ColumnArray&>(*columns[1]);
+            Array arr;
             // Add string elements to the array
             for (int j = 0; j < array_size; j++) {
                 std::string val = "item_" + std::to_string(i) + "_" + std::to_string(j);
-                arr.push_back(vectorized::Field::create_field<TYPE_STRING>(val));
+                arr.push_back(Field::create_field<TYPE_STRING>(val));
             }
-            array_col.insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
+            array_col.insert(Field::create_field<TYPE_ARRAY>(arr));
         }
 
         // Add block to rowset
@@ -2622,7 +2622,7 @@ TEST_F(IndexBuilderTest, UniqueKeysTableIndexTest) {
     auto rowset_writer = std::move(res).value();
 
     {
-        vectorized::Block block = _tablet_schema->create_block();
+        Block block = _tablet_schema->create_block();
         auto columns = block.mutate_columns();
 
         // Add data for k1 and k2 columns
@@ -2780,7 +2780,7 @@ TEST_F(IndexBuilderTest, HandleSingleRowsetErrorTest) {
     auto rowset_writer = std::move(result).value();
 
     {
-        vectorized::Block block = _tablet_schema->create_block();
+        Block block = _tablet_schema->create_block();
         auto columns = block.mutate_columns();
 
         // Add data for k1 and k2 columns
@@ -2900,7 +2900,7 @@ TEST_F(IndexBuilderTest, UpdateInvertedIndexInfoErrorTest) {
 
     // Write data
     {
-        vectorized::Block block = tablet_schema->create_block();
+        Block block = tablet_schema->create_block();
         auto columns = block.mutate_columns();
 
         // Add data for k1 and k2 columns
@@ -3015,7 +3015,7 @@ TEST_F(IndexBuilderTest, DropOneIndexNotAffectOtherIndexesOnSameColumnTest) {
 
     // 5. Write data to the rowset
     {
-        vectorized::Block block = _tablet_schema->create_block();
+        Block block = _tablet_schema->create_block();
         auto columns = block.mutate_columns();
 
         // Add data for k1 and k2 columns

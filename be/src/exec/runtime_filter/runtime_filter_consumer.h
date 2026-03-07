@@ -52,11 +52,11 @@ public:
     // Published by producer.
     void signal(RuntimeFilter* other);
 
-    std::shared_ptr<pipeline::RuntimeFilterTimer> create_filter_timer(
-            std::shared_ptr<pipeline::Dependency> dependencies);
+    std::shared_ptr<RuntimeFilterTimer> create_filter_timer(
+            std::shared_ptr<Dependency> dependencies);
 
     // Called after `State` is ready (e.g. signaled)
-    Status acquire_expr(std::vector<vectorized::VRuntimeFilterPtr>& push_exprs);
+    Status acquire_expr(std::vector<VRuntimeFilterPtr>& push_exprs);
 
     std::string debug_string() override {
         std::unique_lock<std::recursive_mutex> l(_rmtx);
@@ -101,9 +101,9 @@ private:
         DorisMetrics::instance()->runtime_filter_consumer_num->increment(1);
     }
 
-    Status _apply_ready_expr(std::vector<vectorized::VRuntimeFilterPtr>& push_exprs);
+    Status _apply_ready_expr(std::vector<VRuntimeFilterPtr>& push_exprs);
 
-    Status _get_push_exprs(std::vector<vectorized::VRuntimeFilterPtr>& container,
+    Status _get_push_exprs(std::vector<VRuntimeFilterPtr>& container,
                            const TExpr& probe_expr);
     void _check_state(std::vector<State> assumed_states) {
         if (!check_state_impl<RuntimeFilterConsumer>(_rf_state, assumed_states)) {
@@ -135,7 +135,7 @@ private:
 
     TExpr _probe_expr;
 
-    std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
+    std::vector<std::shared_ptr<RuntimeFilterTimer>> _filter_timer;
 
     std::shared_ptr<RuntimeProfile::Counter> _wait_timer =
             std::make_shared<RuntimeProfile::Counter>(TUnit::TIME_NS, 0);

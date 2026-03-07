@@ -31,11 +31,11 @@ using doris::Status;
 using doris::segment_v2::ColumnIterator;
 using doris::segment_v2::ColumnIteratorOptions;
 using doris::segment_v2::HierarchicalDataIterator;
-using doris::vectorized::ColumnMap;
-using doris::vectorized::ColumnString;
-using doris::vectorized::ColumnVariant;
-using doris::vectorized::MutableColumnPtr;
-using doris::vectorized::PathInData;
+using doris::ColumnMap;
+using doris::ColumnString;
+using doris::ColumnVariant;
+using doris::MutableColumnPtr;
+using doris::PathInData;
 
 class DummySparseIterator final : public ColumnIterator {
 public:
@@ -53,7 +53,7 @@ TEST(HierarchicalDataIteratorTest, ProcessSparseExtractSubpaths) {
     std::unique_ptr<ColumnIterator> sparse_reader = std::make_unique<DummySparseIterator>();
     doris::segment_v2::ColumnIteratorUPtr iter;
     auto sparse_iter = std::make_unique<SubstreamIterator>(
-            doris::vectorized::ColumnVariant::create_binary_column_fn(), std::move(sparse_reader),
+            doris::ColumnVariant::create_binary_column_fn(), std::move(sparse_reader),
             nullptr);
     ASSERT_TRUE(HierarchicalDataIterator::create(
                         &iter, /*col_uid*/ 0, PathInData("a.b"), /*node*/ nullptr,
@@ -71,7 +71,7 @@ TEST(HierarchicalDataIteratorTest, ProcessSparseExtractSubpaths) {
     auto& vals = assert_cast<ColumnString&>(map.get_values());
     auto& offs = map.get_offsets();
 
-    doris::vectorized::DataTypePtr str_type = std::make_shared<doris::vectorized::DataTypeString>();
+    doris::DataTypePtr str_type = std::make_shared<doris::DataTypeString>();
     auto str_col = str_type->create_column();
     auto serde = str_type->get_serde();
     str_col->insert_data("abcvalues", strlen("abcvalues"));
@@ -114,9 +114,9 @@ TEST(HierarchicalDataIteratorTest, ProcessSparseExtractSubpaths) {
     EXPECT_EQ(abc_subcolumn->get_non_null_value_size(), 2);
     EXPECT_EQ(abd_subcolumn->get_non_null_value_size(), 1);
 
-    const auto& abc_subcolumn_data = assert_cast<const doris::vectorized::ColumnNullable&>(
+    const auto& abc_subcolumn_data = assert_cast<const doris::ColumnNullable&>(
             *abc_subcolumn->get_finalized_column_ptr());
-    const auto& abd_subcolumn_data = assert_cast<const doris::vectorized::ColumnNullable&>(
+    const auto& abd_subcolumn_data = assert_cast<const doris::ColumnNullable&>(
             *abd_subcolumn->get_finalized_column_ptr());
     EXPECT_EQ(abc_subcolumn_data.get_nested_column_ptr()->get_data_at(0).to_string(), "abcvalues");
     EXPECT_EQ(abc_subcolumn_data.get_nested_column_ptr()->get_data_at(1).to_string(), "abcvalues");

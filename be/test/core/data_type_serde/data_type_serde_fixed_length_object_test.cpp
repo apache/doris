@@ -23,10 +23,10 @@
 #include "util/jsonb_writer.h"
 #include "util/slice.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(FixedLengthObjectSerdeTest, writeOneCellToJsonb) {
-    auto fixed_length_serde = std::make_shared<vectorized::DataTypeFixedLengthObjectSerDe>(
+    auto fixed_length_serde = std::make_shared<DataTypeFixedLengthObjectSerDe>(
             TYPE_FIXED_LENGTH_OBJECT, 1);
     auto column_fixed_length = ColumnFixedLengthObject::create(sizeof(int64_t));
     column_fixed_length->resize(1);
@@ -59,7 +59,7 @@ TEST(FixedLengthObjectSerdeTest, writeOneCellToJsonb) {
 }
 
 TEST(FixedLengthObjectSerdeTest, writeColumnToPb) {
-    auto fixed_length_serde = std::make_shared<vectorized::DataTypeFixedLengthObjectSerDe>(
+    auto fixed_length_serde = std::make_shared<DataTypeFixedLengthObjectSerDe>(
             TYPE_FIXED_LENGTH_OBJECT, 1);
     auto column_fixed_length = ColumnFixedLengthObject::create(sizeof(int64_t));
     column_fixed_length->resize(2);
@@ -87,7 +87,7 @@ TEST(FixedLengthObjectSerdeTest, writeColumnToPb) {
 }
 
 TEST(FixedLengthObjectSerdeTest, serializeOneCellToJson) {
-    auto fixed_length_serde = std::make_shared<vectorized::DataTypeFixedLengthObjectSerDe>(
+    auto fixed_length_serde = std::make_shared<DataTypeFixedLengthObjectSerDe>(
             TYPE_FIXED_LENGTH_OBJECT, 1);
     auto column_fixed_length = ColumnFixedLengthObject::create(sizeof(int64_t));
     column_fixed_length->resize(2);
@@ -127,7 +127,7 @@ TEST(FixedLengthObjectSerdeTest, serializeOneCellToJson) {
 }
 
 TEST(FixedLengthObjectSerdeTest, serializeColumnToJson) {
-    auto fixed_length_serde = std::make_shared<vectorized::DataTypeFixedLengthObjectSerDe>(
+    auto fixed_length_serde = std::make_shared<DataTypeFixedLengthObjectSerDe>(
             TYPE_FIXED_LENGTH_OBJECT, 1);
     auto column_fixed_length = ColumnFixedLengthObject::create(sizeof(int64_t));
     column_fixed_length->resize(2);
@@ -164,7 +164,7 @@ TEST(FixedLengthObjectSerdeTest, serializeColumnToJson) {
 }
 
 TEST(FixedLengthObjectSerdeTest, serializeOneCellToHiveText) {
-    auto fixed_length_serde = std::make_shared<vectorized::DataTypeFixedLengthObjectSerDe>(
+    auto fixed_length_serde = std::make_shared<DataTypeFixedLengthObjectSerDe>(
             TYPE_FIXED_LENGTH_OBJECT, 1);
     auto column_fixed_length = ColumnFixedLengthObject::create(sizeof(int64_t));
     column_fixed_length->resize(2);
@@ -203,4 +203,4 @@ TEST(FixedLengthObjectSerdeTest, serializeOneCellToHiveText) {
     }
     std::cout << "test serialize/deserialize_one_cell_from_hive_text" << std::endl;
 }
-} // namespace doris::vectorized
+} // namespace doris

@@ -36,7 +36,7 @@
 #include "util/io_helper.h"
 #include "util/to_string.h"
 
-namespace doris::vectorized::converter {
+namespace doris::converter {
 #include "common/compile_check_begin.h"
 
 enum FileFormat { COMMON, ORC, PARQUET };
@@ -214,7 +214,7 @@ public:
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
             null_map =
-                    &static_cast<vectorized::ColumnNullable*>(dst_col.get())->get_null_map_data();
+                    &static_cast<ColumnNullable*>(dst_col.get())->get_null_map_data();
         }
 
         size_t rows = from_col->size();
@@ -271,7 +271,7 @@ public:
 
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
-            null_map = &reinterpret_cast<vectorized::ColumnNullable*>(dst_col.get())
+            null_map = &reinterpret_cast<ColumnNullable*>(dst_col.get())
                                 ->get_null_map_data();
         }
 
@@ -543,7 +543,7 @@ public:
 
         const ColumnString* string_col = nullptr;
         if (is_column_nullable(*src_col)) {
-            const auto& nullable = assert_cast<const vectorized::ColumnNullable*>(src_col.get());
+            const auto& nullable = assert_cast<const ColumnNullable*>(src_col.get());
             string_col = &assert_cast<const ColumnString&>(nullable->get_nested_column());
         } else {
             string_col = &assert_cast<const ColumnString&>(*src_col);
@@ -552,7 +552,7 @@ public:
         NullMap* null_map = nullptr;
         MutableColumnPtr to_col = nullptr;
         if (dst_col->is_nullable()) {
-            auto* nullable = assert_cast<vectorized::ColumnNullable*>(dst_col.get());
+            auto* nullable = assert_cast<ColumnNullable*>(dst_col.get());
             to_col = nullable->get_nested_column_ptr()->assume_mutable();
             null_map = &nullable->get_null_map_data();
         } else {
@@ -610,7 +610,7 @@ public:
 
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
-            null_map = &reinterpret_cast<vectorized::ColumnNullable*>(dst_col.get())
+            null_map = &reinterpret_cast<ColumnNullable*>(dst_col.get())
                                 ->get_null_map_data();
         }
 
@@ -701,7 +701,7 @@ public:
 
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
-            null_map = &reinterpret_cast<vectorized::ColumnNullable*>(dst_col.get())
+            null_map = &reinterpret_cast<ColumnNullable*>(dst_col.get())
                                 ->get_null_map_data();
         }
 
@@ -794,7 +794,7 @@ public:
 
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
-            null_map = &reinterpret_cast<vectorized::ColumnNullable*>(dst_col.get())
+            null_map = &reinterpret_cast<ColumnNullable*>(dst_col.get())
                                 ->get_null_map_data();
         }
 
@@ -958,7 +958,7 @@ public:
 
         const FromColumnType* from_col = nullptr;
         if (is_column_nullable(*src_col)) {
-            const auto& nullable = assert_cast<const vectorized::ColumnNullable*>(src_col.get());
+            const auto& nullable = assert_cast<const ColumnNullable*>(src_col.get());
             from_col = &assert_cast<const FromColumnType&>(nullable->get_nested_column());
         } else {
             from_col = &assert_cast<const FromColumnType&>(*src_col);
@@ -967,7 +967,7 @@ public:
         MutableColumnPtr to_col = nullptr;
         // nullmap flag seems have been handled in upper level
         if (dst_col->is_nullable()) {
-            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(dst_col.get());
+            const auto* nullable = assert_cast<const ColumnNullable*>(dst_col.get());
             to_col = nullable->get_nested_column_ptr()->assume_mutable();
         } else {
             to_col = dst_col->assume_mutable();
@@ -983,4 +983,4 @@ public:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized::converter
+} // namespace doris::converter

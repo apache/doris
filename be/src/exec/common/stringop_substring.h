@@ -63,7 +63,7 @@
 #include "core/string_ref.h"
 #include "util/simd/vstring_function.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 struct StringOP {
     static void push_empty_string(size_t index, ColumnString::Chars& chars,
@@ -150,10 +150,10 @@ struct SubstringUtil {
                             specific_start_column->get_data(), specific_len_column->get_data(),
                             res->get_chars(), res->get_offsets(), input_rows_count);
                 },
-                vectorized::make_bool_variant(is_ascii),
-                vectorized::make_bool_variant(col_const[0]),
-                vectorized::make_bool_variant(col_const[1]),
-                vectorized::make_bool_variant(col_const[2]));
+                make_bool_variant(is_ascii),
+                make_bool_variant(col_const[0]),
+                make_bool_variant(col_const[1]),
+                make_bool_variant(col_const[2]));
         block.get_by_position(result).column = std::move(res);
     }
 
@@ -282,4 +282,4 @@ private:
 
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

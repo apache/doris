@@ -121,7 +121,7 @@ public:
         _init(columns, col_ids, num_key_columns);
     }
 
-    Schema(const std::vector<const doris::Field*>& cols, size_t num_key_columns) {
+    Schema(const std::vector<const doris::StorageField*>& cols, size_t num_key_columns) {
         std::vector<ColumnId> col_ids(cols.size());
         _unique_ids.resize(cols.size());
         for (uint32_t cid = 0; cid < cols.size(); ++cid) {
@@ -143,19 +143,19 @@ public:
 
     ~Schema();
 
-    static vectorized::DataTypePtr get_data_type_ptr(const doris::Field& field);
+    static DataTypePtr get_data_type_ptr(const doris::StorageField& field);
 
-    static vectorized::IColumn::MutablePtr get_column_by_field(const doris::Field& field);
+    static IColumn::MutablePtr get_column_by_field(const doris::StorageField& field);
 
-    static vectorized::IColumn::MutablePtr get_predicate_column_ptr(const FieldType& type,
+    static IColumn::MutablePtr get_predicate_column_ptr(const FieldType& type,
                                                                     bool is_nullable,
                                                                     const ReaderType reader_type);
 
-    const std::vector<doris::Field*>& columns() const { return _cols; }
+    const std::vector<doris::StorageField*>& columns() const { return _cols; }
 
-    const doris::Field* column(ColumnId cid) const { return _cols[cid]; }
+    const doris::StorageField* column(ColumnId cid) const { return _cols[cid]; }
 
-    doris::Field* mutable_column(ColumnId cid) const { return _cols[cid]; }
+    doris::StorageField* mutable_column(ColumnId cid) const { return _cols[cid]; }
 
     size_t num_key_columns() const { return _num_key_columns; }
     size_t schema_size() const { return _schema_size; }
@@ -189,7 +189,7 @@ public:
 private:
     void _init(const std::vector<TabletColumnPtr>& cols, const std::vector<ColumnId>& col_ids,
                size_t num_key_columns);
-    void _init(const std::vector<const doris::Field*>& cols, const std::vector<ColumnId>& col_ids,
+    void _init(const std::vector<const doris::StorageField*>& cols, const std::vector<ColumnId>& col_ids,
                size_t num_key_columns);
 
     void _copy_from(const Schema& other);
@@ -200,7 +200,7 @@ private:
     std::vector<int32_t> _unique_ids;
     // NOTE: Both _cols[cid] and _col_offsets[cid] can only be accessed when the cid is
     // contained in _col_ids
-    std::vector<doris::Field*> _cols;
+    std::vector<doris::StorageField*> _cols;
     // The value of each item indicates the starting offset of the corresponding column in
     // current row. e.g. _col_offsets[idx] is the offset of _cols[idx] (idx must in _col_ids)
     std::vector<size_t> _col_offsets;

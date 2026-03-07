@@ -28,7 +28,7 @@
 namespace doris::segment_v2 {
 
 VirtualColumnIterator::VirtualColumnIterator()
-        : _materialized_column_ptr(vectorized::ColumnNothing::create(0)) {}
+        : _materialized_column_ptr(ColumnNothing::create(0)) {}
 
 // Init implementation
 Status VirtualColumnIterator::init(const ColumnIteratorOptions& opts) {
@@ -36,7 +36,7 @@ Status VirtualColumnIterator::init(const ColumnIteratorOptions& opts) {
     return Status::OK();
 }
 
-void VirtualColumnIterator::prepare_materialization(vectorized::IColumn::Ptr column,
+void VirtualColumnIterator::prepare_materialization(IColumn::Ptr column,
                                                     std::unique_ptr<std::vector<uint64_t>> labels) {
     DCHECK(labels->size() == column->size()) << "labels size: " << labels->size()
                                              << ", materialized column size: " << column->size();
@@ -89,12 +89,12 @@ void VirtualColumnIterator::prepare_materialization(vectorized::IColumn::Ptr col
         VLOG_DEBUG << fmt::format("virtual column iterator, row_idx_to_idx:\n{}", msg);
     }
 
-    _filter = doris::vectorized::IColumn::Filter(_size, 0);
+    _filter = doris::IColumn::Filter(_size, 0);
 }
 
 Status VirtualColumnIterator::seek_to_ordinal(ordinal_t ord_idx) {
     if (_size == 0 ||
-        vectorized::check_and_get_column<vectorized::ColumnNothing>(*_materialized_column_ptr)) {
+        check_and_get_column<ColumnNothing>(*_materialized_column_ptr)) {
         // _materialized_column is not set. do nothing.
         return Status::OK();
     }
@@ -110,11 +110,11 @@ Status VirtualColumnIterator::seek_to_ordinal(ordinal_t ord_idx) {
 }
 
 // Next batch implementation
-Status VirtualColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+Status VirtualColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst,
                                          bool* has_null) {
     size_t rows_num_to_read = *n;
     if (rows_num_to_read == 0 ||
-        vectorized::check_and_get_column<vectorized::ColumnNothing>(*_materialized_column_ptr)) {
+        check_and_get_column<ColumnNothing>(*_materialized_column_ptr)) {
         return Status::OK();
     }
 
@@ -124,7 +124,7 @@ Status VirtualColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
     }
 
     // Update dst column
-    if (vectorized::check_and_get_column<vectorized::ColumnNothing>(*dst)) {
+    if (check_and_get_column<ColumnNothing>(*dst)) {
         VLOG_DEBUG << fmt::format("Dst is nothing column, create new mutable column");
         dst = _materialized_column_ptr->clone_empty();
     }
@@ -140,9 +140,9 @@ Status VirtualColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
 }
 
 Status VirtualColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
-                                             vectorized::MutableColumnPtr& dst) {
+                                             MutableColumnPtr& dst) {
     if (count == 0 ||
-        vectorized::check_and_get_column<vectorized::ColumnNothing>(*_materialized_column_ptr)) {
+        check_and_get_column<ColumnNothing>(*_materialized_column_ptr)) {
         return Status::OK();
     }
 
@@ -154,9 +154,9 @@ Status VirtualColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
     }
 
     // Apply filter to materialized column
-    doris::vectorized::IColumn::Ptr res_col = _materialized_column_ptr->filter(_filter, 0);
+    doris::IColumn::Ptr res_col = _materialized_column_ptr->filter(_filter, 0);
     // Update dst column
-    if (vectorized::check_and_get_column<vectorized::ColumnNothing>(*dst)) {
+    if (check_and_get_column<ColumnNothing>(*dst)) {
         VLOG_DEBUG << fmt::format("Dst is nothing column, create new mutable column");
         dst = res_col->assume_mutable();
     } else {

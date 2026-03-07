@@ -23,12 +23,9 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-namespace vectorized {
 template <class HashTableContext, bool is_intersected>
 struct HashTableBuild;
-}
 
-namespace pipeline {
 
 template <bool is_intersect>
 class SetSinkOperatorX;
@@ -54,9 +51,9 @@ public:
 private:
     friend class SetSinkOperatorX<is_intersect>;
 
-    vectorized::MutableBlock _mutable_block;
+    MutableBlock _mutable_block;
     // every child has its result expr list
-    vectorized::VExprContextSPtrs _child_exprs;
+    VExprContextSPtrs _child_exprs;
 
     RuntimeProfile::Counter* _merge_block_timer = nullptr;
     RuntimeProfile::Counter* _build_timer = nullptr;
@@ -112,7 +109,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
@@ -132,15 +129,15 @@ private:
     friend struct HashTableBuild;
 
     Status _process_build_block(SetSinkLocalState<is_intersect>& local_state,
-                                vectorized::Block& block, RuntimeState* state);
+                                Block& block, RuntimeState* state);
     Status _extract_build_column(SetSinkLocalState<is_intersect>& local_state,
-                                 vectorized::Block& block, vectorized::ColumnRawPtrs& raw_ptrs,
+                                 Block& block, ColumnRawPtrs& raw_ptrs,
                                  size_t& rows);
 
     const int _cur_child_id = 0;
     const size_t _child_quantity;
     // every child has its result expr list
-    vectorized::VExprContextSPtrs _child_exprs;
+    VExprContextSPtrs _child_exprs;
     const bool _is_colocate;
     std::vector<TExpr> _partition_exprs;
     using OperatorBase::_child;
@@ -149,5 +146,4 @@ private:
 };
 #include "common/compile_check_end.h"
 
-} // namespace pipeline
 } // namespace doris

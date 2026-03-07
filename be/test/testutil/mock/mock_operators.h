@@ -22,20 +22,20 @@
 #include "exec/operator/partitioned_hash_join_probe_operator.h"
 #include "testutil/mock/mock_descriptors.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 class MockChildOperator : public OperatorXBase {
 public:
-    void set_block(vectorized::Block&& block) { _block = std::move(block); }
+    void set_block(Block&& block) { _block = std::move(block); }
     void set_eos() { _eos = true; }
-    Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
+    Status get_block_after_projects(RuntimeState* state, Block* block,
                                     bool* eos) override {
         block->swap(_block);
         *eos = _eos;
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override {
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
         block->swap(_block);
         *eos = _eos;
         return Status::OK();
@@ -45,7 +45,7 @@ public:
     }
 
 private:
-    vectorized::Block _block;
+    Block _block;
     bool _eos = false;
 };
 
@@ -58,7 +58,7 @@ public:
 
 class MockSinkOperator final : public DataSinkOperatorXBase {
 public:
-    Status sink(RuntimeState* state, vectorized::Block* block, bool eos) override {
+    Status sink(RuntimeState* state, Block* block, bool eos) override {
         return Status::OK();
     }
 
@@ -68,4 +68,4 @@ public:
 
     std::shared_ptr<BasicSharedState> create_shared_state() const override { return nullptr; }
 };
-} // namespace doris::pipeline
+} // namespace doris

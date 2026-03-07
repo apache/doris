@@ -59,7 +59,6 @@ class FileSystem;
 struct IOContext;
 } // namespace io
 
-namespace vectorized {
 
 struct ScannerCounter;
 class Block;
@@ -79,7 +78,7 @@ public:
                   io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
     ~NewJsonReader() override = default;
 
-    Status init_reader(const std::unordered_map<std::string, vectorized::VExprContextSPtr>&
+    Status init_reader(const std::unordered_map<std::string, VExprContextSPtr>&
                                col_default_value_ctx,
                        bool is_load);
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
@@ -147,7 +146,7 @@ private:
     template <bool use_string_cache>
     Status _simdjson_write_data_to_column(simdjson::ondemand::value& value,
                                           const DataTypePtr& type_desc,
-                                          vectorized::IColumn* column_ptr,
+                                          IColumn* column_ptr,
                                           const std::string& column_name, DataTypeSerDeSPtr serde,
                                           bool* valid);
 
@@ -164,11 +163,11 @@ private:
                                                     bool* is_empty_row, bool* eof);
     Status _get_column_default_value(
             const std::vector<SlotDescriptor*>& slot_descs,
-            const std::unordered_map<std::string, vectorized::VExprContextSPtr>&
+            const std::unordered_map<std::string, VExprContextSPtr>&
                     col_default_value_ctx);
 
     Status _fill_missing_column(SlotDescriptor* slot_desc, DataTypeSerDeSPtr serde,
-                                vectorized::IColumn* column_ptr, bool* valid);
+                                IColumn* column_ptr, bool* valid);
 
     // fe will add skip_bitmap_col to _file_slot_descs iff the target olap table has skip_bitmap_col
     // and the current load is a flexible partial update
@@ -299,9 +298,8 @@ private:
     bool _openx_json_ignore_malformed = false;
 
     DataTypeSerDeSPtrs _serdes;
-    vectorized::DataTypeSerDe::FormatOptions _serde_options;
+    DataTypeSerDe::FormatOptions _serde_options;
 };
 
-} // namespace vectorized
 #include "common/compile_check_end.h"
 } // namespace doris

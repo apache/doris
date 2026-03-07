@@ -31,7 +31,6 @@
 
 namespace doris {
 
-using namespace vectorized;
 
 Status ParallelScannerBuilder::build_scanners(std::list<ScannerSPtr>& scanners) {
     RETURN_IF_ERROR(_load());

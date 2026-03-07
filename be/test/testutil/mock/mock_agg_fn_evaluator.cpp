@@ -26,7 +26,7 @@
 #include "exprs/vectorized_agg_fn.h"
 #include "exprs/vexpr_context.h"
 #include "testutil/mock/mock_slot_ref.h"
-namespace doris::vectorized {
+namespace doris {
 
 AggFnEvaluator* create_mock_agg_fn_evaluator(ObjectPool& pool, bool is_merge, bool without_key) {
     auto* mock_agg_fn_evaluator = pool.add(new MockAggFnEvaluator(is_merge, without_key));
@@ -68,4 +68,4 @@ AggFnEvaluator* create_agg_fn(ObjectPool& pool, const std::string& agg_fn_name,
     return mock_agg_fn_evaluator;
 }
 
-} // namespace doris::vectorized
+} // namespace doris

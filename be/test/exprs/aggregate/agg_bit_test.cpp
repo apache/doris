@@ -20,7 +20,7 @@
 #include "core/data_type/data_type_number.h"
 #include "exprs/aggregate/agg_function_test.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct AggregateFunctionBitTest : public AggregateFunctiontest {};
 
@@ -48,4 +48,4 @@ TEST_F(AggregateFunctionBitTest, test_group_bit_xor) {
                     {213123, 2131231, 23151521451})}),
             ColumnHelper::create_column_with_name<DataTypeInt64>({23149669175}));
 }
-} // namespace doris::vectorized
+} // namespace doris

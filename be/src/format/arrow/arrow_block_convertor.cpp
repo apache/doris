@@ -108,7 +108,7 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
     return Status::OK();
 }
 
-Status FromRecordBatchToBlockConverter::convert(vectorized::Block* block) {
+Status FromRecordBatchToBlockConverter::convert(Block* block) {
     DCHECK(block);
     int num_fields = _batch->num_columns();
     if ((size_t)num_fields != _types.size()) {
@@ -132,7 +132,7 @@ Status FromRecordBatchToBlockConverter::convert(vectorized::Block* block) {
     return Status::OK();
 }
 
-Status convert_to_arrow_batch(const vectorized::Block& block,
+Status convert_to_arrow_batch(const Block& block,
                               const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
                               std::shared_ptr<arrow::RecordBatch>* result,
                               const cctz::time_zone& timezone_obj) {
@@ -140,7 +140,7 @@ Status convert_to_arrow_batch(const vectorized::Block& block,
     return converter.convert(result);
 }
 
-Status convert_to_arrow_batch(const vectorized::Block& block,
+Status convert_to_arrow_batch(const Block& block,
                               const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
                               std::shared_ptr<arrow::RecordBatch>* result,
                               const cctz::time_zone& timezone_obj, size_t start_row,
@@ -151,7 +151,7 @@ Status convert_to_arrow_batch(const vectorized::Block& block,
 }
 
 Status convert_from_arrow_batch(const std::shared_ptr<arrow::RecordBatch>& batch,
-                                const vectorized::DataTypes& types, vectorized::Block* block,
+                                const DataTypes& types, Block* block,
                                 const cctz::time_zone& timezone_obj) {
     FromRecordBatchToBlockConverter converter(batch, types, timezone_obj);
     return converter.convert(block);

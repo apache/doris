@@ -38,14 +38,14 @@ using ::testing::_;
 using ::testing::SetArgPointee;
 using ::testing::Return;
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST_F(VectorSearchTest, AnnTopNRuntimeConstructor) {
     int limit = 10;
     std::shared_ptr<VExprContext> distanc_calcu_fn_call_ctx;
     auto distance_function_call_thrift = read_from_json<TExpr>(_distance_function_call_thrift);
     ASSERT_TRUE(distance_function_call_thrift.nodes.empty() != true);
-    auto st1 = vectorized::VExpr::create_expr_tree(distance_function_call_thrift,
+    auto st1 = VExpr::create_expr_tree(distance_function_call_thrift,
                                                    distanc_calcu_fn_call_ctx);
     ASSERT_TRUE(st1.ok()) << fmt::format(
             "st: {}, expr {}", st1.to_string(),
@@ -54,7 +54,7 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeConstructor) {
     ASSERT_TRUE(distanc_calcu_fn_call_ctx->root() != nullptr);
 
     std::shared_ptr<VExprContext> virtual_slot_expr_ctx;
-    ASSERT_TRUE(vectorized::VExpr::create_expr_tree(_virtual_slot_ref_expr, virtual_slot_expr_ctx)
+    ASSERT_TRUE(VExpr::create_expr_tree(_virtual_slot_ref_expr, virtual_slot_expr_ctx)
                         .ok());
 
     ASSERT_TRUE(virtual_slot_expr_ctx != nullptr) << "create expr tree failed";
@@ -77,11 +77,11 @@ TEST_F(VectorSearchTest, AnnTopNRuntimePrepare) {
     int limit = 10;
     std::shared_ptr<VExprContext> distanc_calcu_fn_call_ctx;
     auto distance_function_call_thrift = read_from_json<TExpr>(_distance_function_call_thrift);
-    Status st = vectorized::VExpr::create_expr_tree(distance_function_call_thrift,
+    Status st = VExpr::create_expr_tree(distance_function_call_thrift,
                                                     distanc_calcu_fn_call_ctx);
 
     std::shared_ptr<VExprContext> virtual_slot_expr_ctx;
-    st = vectorized::VExpr::create_expr_tree(_virtual_slot_ref_expr, virtual_slot_expr_ctx);
+    st = VExpr::create_expr_tree(_virtual_slot_ref_expr, virtual_slot_expr_ctx);
     std::shared_ptr<VirtualSlotRef> v =
             std::dynamic_pointer_cast<VirtualSlotRef>(virtual_slot_expr_ctx->root());
     if (v == nullptr) {
@@ -102,11 +102,11 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
     int limit = 10;
     std::shared_ptr<VExprContext> distanc_calcu_fn_call_ctx;
     auto distance_function_call_thrift = read_from_json<TExpr>(_distance_function_call_thrift);
-    Status st = vectorized::VExpr::create_expr_tree(distance_function_call_thrift,
+    Status st = VExpr::create_expr_tree(distance_function_call_thrift,
                                                     distanc_calcu_fn_call_ctx);
 
     std::shared_ptr<VExprContext> virtual_slot_expr_ctx;
-    st = vectorized::VExpr::create_expr_tree(_virtual_slot_ref_expr, virtual_slot_expr_ctx);
+    st = VExpr::create_expr_tree(_virtual_slot_ref_expr, virtual_slot_expr_ctx);
     std::shared_ptr<VirtualSlotRef> v =
             std::dynamic_pointer_cast<VirtualSlotRef>(virtual_slot_expr_ctx->root());
     if (v == nullptr) {
@@ -120,8 +120,8 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
     ASSERT_TRUE(st.ok()) << fmt::format("st: {}, expr {}", st.to_string(),
                                         predicate->get_order_by_expr_ctx()->root()->debug_string());
 
-    const vectorized::ColumnFloat32* query_column =
-            assert_cast<const vectorized::ColumnFloat32*>(predicate->_query_array.get());
+    const ColumnFloat32* query_column =
+            assert_cast<const ColumnFloat32*>(predicate->_query_array.get());
     const float* query_value = query_column->get_data().data();
     const size_t query_value_size = predicate->_query_array->size();
     ASSERT_EQ(query_value_size, 8);
@@ -188,4 +188,4 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
     ASSERT_EQ(row_ids->size(), 10);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -34,7 +34,6 @@ namespace doris {
 class ObjectPool;
 class RuntimeState;
 
-namespace vectorized {
 
 class IColumn;
 class IPartitionWriterBase;
@@ -44,8 +43,8 @@ struct ColumnWithTypeAndName;
 class VIcebergTableWriter final : public AsyncResultWriter {
 public:
     VIcebergTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                        std::shared_ptr<pipeline::Dependency> dep,
-                        std::shared_ptr<pipeline::Dependency> fin_dep);
+                        std::shared_ptr<Dependency> dep,
+                        std::shared_ptr<Dependency> fin_dep);
 
     ~VIcebergTableWriter() = default;
 
@@ -56,7 +55,7 @@ public:
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
-    Status write(RuntimeState* state, vectorized::Block& block) override;
+    Status write(RuntimeState* state, Block& block) override;
 
     Status close(Status) override;
 
@@ -112,10 +111,10 @@ private:
     std::string _build_static_partition_path();
 
     std::shared_ptr<IPartitionWriterBase> _create_partition_writer(
-            vectorized::Block* transformed_block, int position,
+            Block* transformed_block, int position,
             const std::string* file_name = nullptr, int file_name_index = 0);
 
-    PartitionData _get_partition_data(vectorized::Block* block, int position);
+    IcebergPartitionData _get_partition_data(Block* block, int position);
 
     std::any _get_iceberg_partition_value(const PrimitiveType& type_desc,
                                           const ColumnWithTypeAndName& partition_column,
@@ -123,8 +122,8 @@ private:
 
     std::string _compute_file_name();
 
-    Status _filter_block(doris::vectorized::Block& block, const vectorized::IColumn::Filter* filter,
-                         doris::vectorized::Block* output_block);
+    Status _filter_block(doris::Block& block, const IColumn::Filter* filter,
+                         doris::Block* output_block);
 
     // Currently it is a copy, maybe it is better to use move semantics to eliminate it.
     TDataSink _t_sink;
@@ -176,5 +175,4 @@ private:
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _write_file_counter = nullptr;
 };
-} // namespace vectorized
 } // namespace doris

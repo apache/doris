@@ -84,7 +84,7 @@ public:
 
     PredicateType type() const override { return PredicateType::EQ; }
 
-    Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
+    Status evaluate(const IndexFieldNameAndTypePair& name_with_type,
                     segment_v2::IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
         *bitmap = *_result_bitmap;
@@ -96,7 +96,7 @@ public:
     }
 
 private:
-    uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
+    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel,
                              uint16_t size) const override {
         return size;
     }
@@ -120,7 +120,7 @@ TEST_F(AcceptNullPredicateTest, EvaluateWithNullIterator) {
     AcceptNullPredicate predicate(nested_pred);
 
     roaring::Roaring bitmap;
-    vectorized::IndexFieldNameAndTypePair name_with_type = {"test_col", nullptr};
+    IndexFieldNameAndTypePair name_with_type = {"test_col", nullptr};
 
     Status status = predicate.evaluate(name_with_type, nullptr, 10, &bitmap);
 
@@ -145,7 +145,7 @@ TEST_F(AcceptNullPredicateTest, EvaluateWithNoNull) {
     MockIndexIterator iterator(false, null_bitmap);
 
     roaring::Roaring bitmap;
-    vectorized::IndexFieldNameAndTypePair name_with_type = {"test_col", nullptr};
+    IndexFieldNameAndTypePair name_with_type = {"test_col", nullptr};
 
     Status status = predicate.evaluate(name_with_type, &iterator, 10, &bitmap);
 
@@ -174,7 +174,7 @@ TEST_F(AcceptNullPredicateTest, EvaluateWithNullRows) {
 
     roaring::Roaring bitmap;
     bitmap.addRange(0, 10);
-    vectorized::IndexFieldNameAndTypePair name_with_type = {"test_col", nullptr};
+    IndexFieldNameAndTypePair name_with_type = {"test_col", nullptr};
 
     Status status = predicate.evaluate(name_with_type, &iterator, 10, &bitmap);
 
@@ -237,7 +237,7 @@ TEST_F(AcceptNullPredicateTest, EvaluateWithPreFilteredBitmap) {
     bitmap.add(5);
     bitmap.add(6);
 
-    vectorized::IndexFieldNameAndTypePair name_with_type = {"test_col", nullptr};
+    IndexFieldNameAndTypePair name_with_type = {"test_col", nullptr};
 
     Status status = predicate.evaluate(name_with_type, &iterator, 10, &bitmap);
 

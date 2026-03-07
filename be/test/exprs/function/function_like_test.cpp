@@ -29,7 +29,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/any_type.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(FunctionLikeTest, like) {
     std::string func_name = "like";
@@ -825,4 +825,4 @@ TEST(FunctionLikeTest, comprehensive_null_handling) {
             check_function_all_arg_comb<DataTypeUInt8, true>(func_name, input_types, data_set));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

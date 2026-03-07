@@ -19,7 +19,7 @@
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionIgnore : public IFunction {
 public:
@@ -46,4 +46,4 @@ public:
 void register_function_ignore(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIgnore>();
 }
-} // namespace doris::vectorized
+} // namespace doris

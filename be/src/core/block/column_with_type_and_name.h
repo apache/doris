@@ -35,7 +35,7 @@ namespace doris {
 class PColumnMeta;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 // class WriteBuffer;
 
@@ -63,7 +63,7 @@ struct ColumnWithTypeAndName {
     void dump_structure(std::ostream& out) const;
     String dump_structure() const;
     std::string to_string(size_t row_num,
-                          const vectorized::DataTypeSerDe::FormatOptions& format_options) const;
+                          const DataTypeSerDe::FormatOptions& format_options) const;
 #ifdef BE_TEST
     std::string to_string(size_t row_num) const;
 #endif
@@ -75,4 +75,4 @@ struct ColumnWithTypeAndName {
     Status check_type_and_column_match() const;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

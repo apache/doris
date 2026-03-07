@@ -20,8 +20,8 @@
 #include "storage/segment/column_reader.h"
 
 namespace doris::segment_v2 {
-SubstreamIterator::SubstreamIterator(vectorized::MutableColumnPtr&& col,
+SubstreamIterator::SubstreamIterator(MutableColumnPtr&& col,
                                      std::unique_ptr<ColumnIterator>&& it,
-                                     std::shared_ptr<const vectorized::IDataType> t)
+                                     std::shared_ptr<const IDataType> t)
         : column(std::move(col)), iterator(std::move(it)), type(std::move(t)) {}
 } // namespace doris::segment_v2

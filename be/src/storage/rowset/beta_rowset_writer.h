@@ -44,9 +44,7 @@
 #include "storage/segment/segment.h"
 
 namespace doris {
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 namespace segment_v2 {
 class SegmentWriter;
@@ -122,7 +120,7 @@ public:
 
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
-    Status add_block(const vectorized::Block* block) override;
+    Status add_block(const Block* block) override;
 
     // Declare these interface in `BaseBetaRowsetWriter`
     // add rowset by create hard link
@@ -138,12 +136,12 @@ public:
 
     Status flush() override;
 
-    Status flush_memtable(vectorized::Block* block, int32_t segment_id,
+    Status flush_memtable(Block* block, int32_t segment_id,
                           int64_t* flush_size) override;
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
-    Status flush_single_block(const vectorized::Block* block) override;
+    Status flush_single_block(const Block* block) override;
 
     RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) override;
 

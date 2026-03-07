@@ -23,7 +23,7 @@
 #include "exec/operator/multi_cast_data_streamer.h"
 #include "exec/operator/operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 MultiCastDataStreamSourceLocalState::MultiCastDataStreamSourceLocalState(RuntimeState* state,
                                                                          OperatorXBase* parent)
@@ -81,12 +81,12 @@ Status MultiCastDataStreamSourceLocalState::close(RuntimeState* state) {
 }
 
 Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
-                                                       vectorized::Block* block, bool* eos) {
+                                                       Block* block, bool* eos) {
     //auto& local_state = get_local_state(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    vectorized::Block tmp_block;
-    vectorized::Block* output_block = block;
+    Block tmp_block;
+    Block* output_block = block;
     if (!local_state._output_expr_contexts.empty()) {
         output_block = &tmp_block;
     }
@@ -104,17 +104,17 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
 
     if (!local_state._conjuncts.empty() && !output_block->empty()) {
         SCOPED_TIMER(local_state._filter_timer);
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,
+        RETURN_IF_ERROR(VExprContext::filter_block(local_state._conjuncts, output_block,
                                                                output_block->columns()));
     }
 
     if (!local_state._output_expr_contexts.empty() && output_block->rows() > 0) {
         SCOPED_TIMER(local_state._materialize_data_timer);
-        RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
+        RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(
                 local_state._output_expr_contexts, *output_block, block, true));
-        vectorized::materialize_block_inplace(*block);
+        materialize_block_inplace(*block);
     }
     return Status::OK();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

@@ -33,7 +33,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-namespace pipeline {
 
 class PartitionedHashJoinProbeOperatorX;
 
@@ -90,16 +89,16 @@ private:
     std::shared_ptr<BasicSharedState> _in_mem_shared_state_sptr;
     uint32_t _partition_cursor {0};
 
-    std::unique_ptr<vectorized::Block> _child_block;
+    std::unique_ptr<Block> _child_block;
     bool _child_eos {false};
 
-    std::vector<std::unique_ptr<vectorized::MutableBlock>> _partitioned_blocks;
-    std::unique_ptr<vectorized::MutableBlock> _recovered_build_block;
-    std::map<uint32_t, std::vector<vectorized::Block>> _probe_blocks;
+    std::vector<std::unique_ptr<MutableBlock>> _partitioned_blocks;
+    std::unique_ptr<MutableBlock> _recovered_build_block;
+    std::map<uint32_t, std::vector<Block>> _probe_blocks;
 
-    std::vector<vectorized::SpillStreamSPtr> _probe_spilling_streams;
+    std::vector<SpillStreamSPtr> _probe_spilling_streams;
 
-    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
+    std::unique_ptr<PartitionerBase> _partitioner;
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
 
     bool _need_to_setup_internal_operators {true};
@@ -132,11 +131,11 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
 
-    [[nodiscard]] Status get_block(RuntimeState* state, vectorized::Block* block,
+    [[nodiscard]] Status get_block(RuntimeState* state, Block* block,
                                    bool* eos) override;
 
-    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
-    Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
+    Status push(RuntimeState* state, Block* input_block, bool eos) const override;
+    Status pull(doris::RuntimeState* state, Block* output_block,
                 bool* eos) const override;
 
     bool need_more_input_data(RuntimeState* state) const override;
@@ -203,9 +202,8 @@ private:
     const DescriptorTbl _descriptor_tbl;
 
     const uint32_t _partition_count;
-    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
+    std::unique_ptr<PartitionerBase> _partitioner;
 };
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

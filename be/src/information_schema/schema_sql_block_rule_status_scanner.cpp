@@ -78,11 +78,11 @@ Status SchemaSqlBlockRuleStatusScanner::_get_sql_block_rule_status_block_from_fe
     request.__set_schema_table_params(schema_table_request_params);
 
     // Create empty result block
-    _sql_block_rule_status_block = vectorized::Block::create_unique();
+    _sql_block_rule_status_block = Block::create_unique();
     for (int i = 0; i < _s_sql_block_rule_status_columns.size(); ++i) {
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+        auto data_type = DataTypeFactory::instance().create_data_type(
                 _s_sql_block_rule_status_columns[i].type, true);
-        _sql_block_rule_status_block->insert(vectorized::ColumnWithTypeAndName(
+        _sql_block_rule_status_block->insert(ColumnWithTypeAndName(
                 data_type->create_column(), data_type, _s_sql_block_rule_status_columns[i].name));
     }
 
@@ -131,7 +131,7 @@ Status SchemaSqlBlockRuleStatusScanner::_get_sql_block_rule_status_block_from_fe
     return Status::OK();
 }
 
-Status SchemaSqlBlockRuleStatusScanner::get_next_block_internal(vectorized::Block* block,
+Status SchemaSqlBlockRuleStatusScanner::get_next_block_internal(Block* block,
                                                                 bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
@@ -152,7 +152,7 @@ Status SchemaSqlBlockRuleStatusScanner::get_next_block_internal(vectorized::Bloc
     }
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
-    vectorized::MutableBlock mblock = vectorized::MutableBlock::build_mutable_block(block);
+    MutableBlock mblock = MutableBlock::build_mutable_block(block);
     RETURN_IF_ERROR(
             mblock.add_rows(_sql_block_rule_status_block.get(), _row_idx, current_batch_rows));
     _row_idx += current_batch_rows;

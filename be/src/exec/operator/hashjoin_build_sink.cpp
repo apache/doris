@@ -31,7 +31,7 @@
 #include "util/pretty_printer.h"
 #include "util/uid_util.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 HashJoinBuildSinkLocalState::HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                          RuntimeState* state)
@@ -148,7 +148,7 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
         }
         size_to_reserve += _evaluate_mem_usage;
 
-        vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
+        ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
 
         if (build_block_rows > 0) {
             auto block = _build_side_mutable_block.to_block();
@@ -156,25 +156,25 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
             Defer defer([&]() {
                 for (auto i : converted_columns) {
                     auto& data = block.get_by_position(i);
-                    data.column = vectorized::remove_nullable(data.column);
-                    data.type = vectorized::remove_nullable(data.type);
+                    data.column = remove_nullable(data.column);
+                    data.type = remove_nullable(data.type);
                 }
-                _build_side_mutable_block = vectorized::MutableBlock(std::move(block));
+                _build_side_mutable_block = MutableBlock(std::move(block));
             });
-            vectorized::ColumnUInt8::MutablePtr null_map_val;
+            ColumnUInt8::MutablePtr null_map_val;
             if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
                 converted_columns = _convert_block_to_null(block);
                 // first row is mocked
                 for (int i = 0; i < block.columns(); i++) {
                     auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
-                    assert_cast<vectorized::ColumnNullable*>(column->assume_mutable().get())
+                    assert_cast<ColumnNullable*>(column->assume_mutable().get())
                             ->get_null_map_column()
                             .get_data()
                             .data()[0] = 1;
                 }
             }
 
-            null_map_val = vectorized::ColumnUInt8::create();
+            null_map_val = ColumnUInt8::create();
             null_map_val->get_data().assign(build_block_rows, (uint8_t)0);
 
             // Get the key column that needs to be built
@@ -183,7 +183,7 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
                 throw Exception(st);
             }
 
-            std::visit(vectorized::Overload {[&](std::monostate& arg) {},
+            std::visit(Overload {[&](std::monostate& arg) {},
                                              [&](auto&& hash_map_context) {
                                                  size_to_reserve += hash_map_context.estimated_size(
                                                          raw_ptrs, (uint32_t)block.rows(), true,
@@ -297,8 +297,8 @@ void HashJoinBuildSinkLocalState::init_short_circuit_for_probe() {
              p._join_op == TJoinOp::LEFT_ANTI_JOIN);
 }
 
-Status HashJoinBuildSinkLocalState::_do_evaluate(vectorized::Block& block,
-                                                 vectorized::VExprContextSPtrs& exprs,
+Status HashJoinBuildSinkLocalState::_do_evaluate(Block& block,
+                                                 VExprContextSPtrs& exprs,
                                                  RuntimeProfile::Counter& expr_call_timer,
                                                  std::vector<int>& res_col_ids) {
     auto origin_size = block.allocated_bytes();
@@ -321,7 +321,7 @@ Status HashJoinBuildSinkLocalState::_do_evaluate(vectorized::Block& block,
 }
 
 std::vector<uint16_t> HashJoinBuildSinkLocalState::_convert_block_to_null(
-        vectorized::Block& block) {
+        Block& block) {
     std::vector<uint16_t> results;
     for (int i = 0; i < block.columns(); ++i) {
         if (auto& column_type = block.safe_get_by_position(i); !column_type.type->is_nullable()) {
@@ -335,8 +335,8 @@ std::vector<uint16_t> HashJoinBuildSinkLocalState::_convert_block_to_null(
 }
 
 Status HashJoinBuildSinkLocalState::_extract_join_column(
-        vectorized::Block& block, vectorized::ColumnUInt8::MutablePtr& null_map,
-        vectorized::ColumnRawPtrs& raw_ptrs, const std::vector<int>& res_col_ids) {
+        Block& block, ColumnUInt8::MutablePtr& null_map,
+        ColumnRawPtrs& raw_ptrs, const std::vector<int>& res_col_ids) {
     DCHECK(_should_build_hash_table);
     auto& shared_state = *_shared_state;
     for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
@@ -344,16 +344,16 @@ Status HashJoinBuildSinkLocalState::_extract_join_column(
         if (!column->is_nullable() &&
             _parent->cast<HashJoinBuildSinkOperatorX>()._serialize_null_into_key[i]) {
             _key_columns_holder.emplace_back(
-                    vectorized::make_nullable(block.get_by_position(res_col_ids[i]).column));
+                    make_nullable(block.get_by_position(res_col_ids[i]).column));
             raw_ptrs[i] = _key_columns_holder.back().get();
-        } else if (const auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column);
+        } else if (const auto* nullable = check_and_get_column<ColumnNullable>(*column);
                    !_parent->cast<HashJoinBuildSinkOperatorX>()._serialize_null_into_key[i] &&
                    nullable) {
             // update nulllmap and split nested out of ColumnNullable when serialize_null_into_key is false and column is nullable
             const auto& col_nested = nullable->get_nested_column();
             const auto& col_nullmap = nullable->get_null_map_data();
             DCHECK(null_map);
-            vectorized::VectorizedUtils::update_null_map(null_map->get_data(), col_nullmap);
+            VectorizedUtils::update_null_map(null_map->get_data(), col_nullmap);
             raw_ptrs[i] = &col_nested;
         } else {
             raw_ptrs[i] = column;
@@ -363,7 +363,7 @@ Status HashJoinBuildSinkLocalState::_extract_join_column(
 }
 
 Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
-                                                        vectorized::Block& block) {
+                                                        Block& block) {
     DCHECK(_should_build_hash_table);
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     SCOPED_TIMER(_build_table_timer);
@@ -377,14 +377,14 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
         }
     }
 
-    vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
-    vectorized::ColumnUInt8::MutablePtr null_map_val;
+    ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
+    ColumnUInt8::MutablePtr null_map_val;
     if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
         _convert_block_to_null(block);
         // first row is mocked
         for (int i = 0; i < block.columns(); i++) {
             auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
-            assert_cast<vectorized::ColumnNullable*>(column->assume_mutable().get())
+            assert_cast<ColumnNullable*>(column->assume_mutable().get())
                     ->get_null_map_column()
                     .get_data()
                     .data()[0] = 1;
@@ -393,7 +393,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
 
     _set_build_side_has_external_nullmap(block, _build_col_ids);
     if (_build_side_has_external_nullmap) {
-        null_map_val = vectorized::ColumnUInt8::create();
+        null_map_val = ColumnUInt8::create();
         null_map_val->get_data().assign((size_t)rows, (uint8_t)0);
     }
 
@@ -403,7 +403,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     RETURN_IF_ERROR(_hash_table_init(state, raw_ptrs));
 
     Status st = std::visit(
-            vectorized::Overload {
+            Overload {
                     [&](std::monostate& arg, auto join_op,
                         auto short_circuit_for_null_in_build_side,
                         auto with_other_conjuncts) -> Status {
@@ -428,13 +428,13 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
                     }},
             _shared_state->hash_table_variant_vector.front()->method_variant,
             _shared_state->join_op_variants,
-            vectorized::make_bool_variant(p._short_circuit_for_null_in_build_side),
-            vectorized::make_bool_variant((p._have_other_join_conjunct)));
+            make_bool_variant(p._short_circuit_for_null_in_build_side),
+            make_bool_variant((p._have_other_join_conjunct)));
     return st;
 }
 
 void HashJoinBuildSinkLocalState::_set_build_side_has_external_nullmap(
-        vectorized::Block& block, const std::vector<int>& res_col_ids) {
+        Block& block, const std::vector<int>& res_col_ids) {
     DCHECK(_should_build_hash_table);
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     if (p._short_circuit_for_null_in_build_side) {
@@ -451,9 +451,9 @@ void HashJoinBuildSinkLocalState::_set_build_side_has_external_nullmap(
 }
 
 Status HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state,
-                                                     const vectorized::ColumnRawPtrs& raw_ptrs) {
+                                                     const ColumnRawPtrs& raw_ptrs) {
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
-    std::vector<vectorized::DataTypePtr> data_types;
+    std::vector<DataTypePtr> data_types;
     for (size_t i = 0; i < _build_expr_ctxs.size(); ++i) {
         auto& ctx = _build_expr_ctxs[i];
         auto data_type = ctx->root()->data_type();
@@ -461,10 +461,10 @@ Status HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state,
         /// For 'null safe equal' join,
         /// the build key column maybe be converted to nullable from non-nullable.
         if (p._serialize_null_into_key[i]) {
-            data_types.emplace_back(vectorized::make_nullable(data_type));
+            data_types.emplace_back(make_nullable(data_type));
         } else {
             // in this case, we use nullmap to represent null value
-            data_types.emplace_back(vectorized::remove_nullable(data_type));
+            data_types.emplace_back(remove_nullable(data_type));
         }
     }
     if (_build_expr_ctxs.size() == 1) {
@@ -509,16 +509,16 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
 
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
     for (const auto& eq_join_conjunct : eq_join_conjuncts) {
-        vectorized::VExprContextSPtr build_ctx;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(eq_join_conjunct.right, build_ctx));
+        VExprContextSPtr build_ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(eq_join_conjunct.right, build_ctx));
         {
             // for type check
-            vectorized::VExprContextSPtr probe_ctx;
-            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(eq_join_conjunct.left, probe_ctx));
+            VExprContextSPtr probe_ctx;
+            RETURN_IF_ERROR(VExpr::create_expr_tree(eq_join_conjunct.left, probe_ctx));
             auto build_side_expr_type = build_ctx->root()->data_type();
             auto probe_side_expr_type = probe_ctx->root()->data_type();
-            if (!vectorized::make_nullable(build_side_expr_type)
-                         ->equals(*vectorized::make_nullable(probe_side_expr_type))) {
+            if (!make_nullable(build_side_expr_type)
+                         ->equals(*make_nullable(probe_side_expr_type))) {
                 return Status::InternalError(
                         "build side type {}, not match probe side type {} , node info "
                         "{}",
@@ -575,11 +575,11 @@ Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
         }
     };
     init_keep_column_flags(row_desc().tuple_descriptors(), _should_keep_column_flags);
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_build_expr_ctxs, state, _child->row_desc()));
-    return vectorized::VExpr::open(_build_expr_ctxs, state);
+    RETURN_IF_ERROR(VExpr::prepare(_build_expr_ctxs, state, _child->row_desc()));
+    return VExpr::open(_build_expr_ctxs, state);
 }
 
-Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
+Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, Block* in_block,
                                         bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -590,7 +590,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         // data from probe side.
 
         if (local_state._build_side_mutable_block.empty()) {
-            auto tmp_build_block = vectorized::VectorizedUtils::create_empty_columnswithtypename(
+            auto tmp_build_block = VectorizedUtils::create_empty_columnswithtypename(
                     _child->row_desc());
             tmp_build_block = *(tmp_build_block.create_same_struct_block(1, false));
             local_state._build_col_ids.resize(_build_expr_ctxs.size());
@@ -598,7 +598,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                                                      *local_state._build_expr_call_timer,
                                                      local_state._build_col_ids));
             local_state._build_side_mutable_block =
-                    vectorized::MutableBlock::build_mutable_block(&tmp_build_block);
+                    MutableBlock::build_mutable_block(&tmp_build_block);
         }
 
         if (!in_block->empty()) {
@@ -625,7 +625,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
     if (local_state._should_build_hash_table && eos) {
         DCHECK(!local_state._build_side_mutable_block.empty());
-        local_state._shared_state->build_block = std::make_shared<vectorized::Block>(
+        local_state._shared_state->build_block = std::make_shared<Block>(
                 local_state._build_side_mutable_block.to_block());
 
         RETURN_IF_ERROR(local_state._runtime_filter_producer_helper->send_filter_size(
@@ -691,4 +691,4 @@ std::string HashJoinBuildSinkOperatorX::get_memory_usage_debug_str(RuntimeState*
                        PrettyPrinter::print_bytes(local_state._build_arena_memory_usage->value()));
 }
 
-} // namespace doris::pipeline
+} // namespace doris

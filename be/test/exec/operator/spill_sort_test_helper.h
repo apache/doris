@@ -41,7 +41,7 @@
 #include "runtime/runtime_profile.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 class MockSpillSortSharedState : public SpillSortSharedState {};
 
@@ -53,14 +53,14 @@ public:
                             const DescriptorTbl& descs)
             : SortSourceOperatorX(pool, tnode, operator_id, descs) {}
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override {
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
         std::swap(*block, this->block);
         *eos = this->eos;
         return Status::OK();
     }
 
     bool eos = false;
-    vectorized::Block block;
+    Block block;
 };
 
 class SpillSortTestHelper : public SpillableOperatorTestHelper {
@@ -82,4 +82,4 @@ public:
     std::tuple<std::shared_ptr<SpillSortSourceOperatorX>, std::shared_ptr<SpillSortSinkOperatorX>>
     create_operators();
 };
-} // namespace doris::pipeline
+} // namespace doris

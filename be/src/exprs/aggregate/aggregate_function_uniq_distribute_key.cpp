@@ -22,7 +22,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <template <PrimitiveType> class Data>
@@ -44,4 +44,4 @@ void register_aggregate_function_uniq_distribute_key(AggregateFunctionSimpleFact
     factory.register_function_both("multi_distinct_count_distribute_key", creator);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

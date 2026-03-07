@@ -30,7 +30,6 @@ class FileSystem;
 struct IOContext;
 } // namespace io
 
-namespace vectorized {
 #include "common/compile_check_begin.h"
 class ArrowPipInputStream : public arrow::io::InputStream {
     ENABLE_FACTORY_CREATOR(ArrowPipInputStream);
@@ -58,6 +57,5 @@ private:
     uint8_t _read_buf[4];
 };
 
-} // namespace vectorized
 #include "common/compile_check_end.h"
 } // namespace doris

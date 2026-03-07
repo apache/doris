@@ -37,7 +37,7 @@
 #include "util/bitmap_expr_calculation.h"
 #include "util/bitmap_intersect.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
@@ -419,6 +419,6 @@ public:
 private:
     int _argument_size;
 };
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

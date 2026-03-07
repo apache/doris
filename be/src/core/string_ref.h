@@ -312,25 +312,25 @@ using StringRefs = std::vector<StringRef>;
 
 /// Parts are taken from CityHash.
 
-inline doris::vectorized::UInt64 hash_len16(doris::vectorized::UInt64 u,
-                                            doris::vectorized::UInt64 v) {
+inline doris::UInt64 hash_len16(doris::UInt64 u,
+                                            doris::UInt64 v) {
     return util_hash::HashLen16(u, v);
 }
 
-inline doris::vectorized::UInt64 shift_mix(doris::vectorized::UInt64 val) {
+inline doris::UInt64 shift_mix(doris::UInt64 val) {
     return val ^ (val >> 47);
 }
 
-inline doris::vectorized::UInt64 rotate_by_at_least1(doris::vectorized::UInt64 val, int shift) {
+inline doris::UInt64 rotate_by_at_least1(doris::UInt64 val, int shift) {
     return (val >> shift) | (val << (64 - shift));
 }
 
 inline size_t hash_less_than8(const char* data, size_t size) {
-    static constexpr doris::vectorized::UInt64 k2 = 0x9ae16a3b2f90404fULL;
-    static constexpr doris::vectorized::UInt64 k3 = 0xc949d7c7509e6557ULL;
+    static constexpr doris::UInt64 k2 = 0x9ae16a3b2f90404fULL;
+    static constexpr doris::UInt64 k3 = 0xc949d7c7509e6557ULL;
 
     if (size >= 4) {
-        doris::vectorized::UInt64 a = unaligned_load<uint32_t>(data);
+        doris::UInt64 a = unaligned_load<uint32_t>(data);
         return hash_len16(size + (a << 3), unaligned_load<uint32_t>(data + size - 4));
     }
 
@@ -359,14 +359,14 @@ inline size_t crc32_hash(const char* pos, size_t size) {
     size_t res = -1ULL;
 
     do {
-        auto word = unaligned_load<doris::vectorized::UInt64>(pos);
+        auto word = unaligned_load<doris::UInt64>(pos);
         res = _mm_crc32_u64(res, word);
 
         pos += 8;
     } while (pos + 8 < end);
 
     auto word =
-            unaligned_load<doris::vectorized::UInt64>(end - 8); /// I'm not sure if this is normal.
+            unaligned_load<doris::UInt64>(end - 8); /// I'm not sure if this is normal.
     res = _mm_crc32_u64(res, word);
 
     return res;

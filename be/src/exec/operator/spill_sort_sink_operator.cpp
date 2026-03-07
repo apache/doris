@@ -24,13 +24,13 @@
 #include "exec/spill/spill_stream_manager.h"
 #include "runtime/fragment_mgr.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 SpillSortSinkLocalState::SpillSortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
         : Base(parent, state) {}
 
 Status SpillSortSinkLocalState::init(doris::RuntimeState* state,
-                                     doris::pipeline::LocalSinkStateInfo& info) {
+                                     doris::LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
@@ -139,7 +139,7 @@ size_t SpillSortSinkOperatorX::revocable_mem_size(RuntimeState* state) const {
     return _sort_sink_operator->get_revocable_mem_size(local_state._runtime_state.get());
 }
 
-Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block,
+Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, Block* in_block,
                                     bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -212,7 +212,7 @@ Status SpillSortSinkLocalState::_execute_spill_sort(RuntimeState* state, TUnique
     update_profile(sink_local_state->custom_profile());
 
     bool eos = false;
-    vectorized::Block block;
+    Block block;
 
     int32_t batch_size =
             _shared_state->spill_block_batch_row_count > std::numeric_limits<int32_t>::max()
@@ -287,4 +287,4 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
     return SpillSinkRunnable(state, spill_context, operator_profile(), exception_catch_func).run();
 }
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

@@ -86,10 +86,10 @@
 
 // Concept to check for supported decimal types
 template <typename T>
-concept JsonbDecimalType = std::same_as<T, doris::vectorized::Decimal256> ||
-                           std::same_as<T, doris::vectorized::Decimal64> ||
-                           std::same_as<T, doris::vectorized::Decimal128V3> ||
-                           std::same_as<T, doris::vectorized::Decimal32>;
+concept JsonbDecimalType = std::same_as<T, doris::Decimal256> ||
+                           std::same_as<T, doris::Decimal64> ||
+                           std::same_as<T, doris::Decimal128V3> ||
+                           std::same_as<T, doris::Decimal32>;
 
 namespace doris {
 
@@ -105,10 +105,10 @@ struct ContainerVal;
 template <JsonbDecimalType T>
 struct JsonbDecimalVal;
 
-using JsonbDecimal256 = JsonbDecimalVal<vectorized::Decimal256>;
-using JsonbDecimal128 = JsonbDecimalVal<vectorized::Decimal128V3>;
-using JsonbDecimal64 = JsonbDecimalVal<vectorized::Decimal64>;
-using JsonbDecimal32 = JsonbDecimalVal<vectorized::Decimal32>;
+using JsonbDecimal256 = JsonbDecimalVal<Decimal256>;
+using JsonbDecimal128 = JsonbDecimalVal<Decimal128V3>;
+using JsonbDecimal64 = JsonbDecimalVal<Decimal64>;
+using JsonbDecimal32 = JsonbDecimalVal<Decimal32>;
 
 template <typename T>
     requires std::is_integral_v<T> || std::is_floating_point_v<T>

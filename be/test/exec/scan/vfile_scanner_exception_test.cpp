@@ -35,7 +35,6 @@
 
 namespace doris {
 
-namespace vectorized {
 
 class TestSplitSourceConnectorStub : public SplitSourceConnector {
 private:
@@ -104,7 +103,7 @@ private:
     TUniqueId _unique_id;
     TQueryOptions _query_options;
     TQueryGlobals _query_globals;
-    std::shared_ptr<pipeline::FileScanOperatorX> _scan_node = nullptr;
+    std::shared_ptr<FileScanOperatorX> _scan_node = nullptr;
     std::vector<TFileRangeDesc> _ranges;
     TFileRangeDesc _range_desc;
     TFileScanRange _scan_range;
@@ -241,15 +240,15 @@ void VfileScannerExceptionTest::init() {
     _tnode.__isset.file_scan_node = true;
 
     _scan_node =
-            std::make_shared<pipeline::FileScanOperatorX>(&_obj_pool, _tnode, 0, *_desc_tbl, 1);
+            std::make_shared<FileScanOperatorX>(&_obj_pool, _tnode, 0, *_desc_tbl, 1);
     _scan_node->_output_tuple_desc = _runtime_state.desc_tbl().get_tuple_descriptor(_dst_tuple_id);
     WARN_IF_ERROR(_scan_node->init(_tnode, &_runtime_state), "fail to init scan_node");
     WARN_IF_ERROR(_scan_node->prepare(&_runtime_state), "fail to open scan_node");
 
     auto local_state =
-            pipeline::FileScanLocalState::create_unique(&_runtime_state, _scan_node.get());
+            FileScanLocalState::create_unique(&_runtime_state, _scan_node.get());
     std::vector<TScanRangeParams> scan_ranges;
-    pipeline::LocalStateInfo info {.parent_profile = &_global_profile,
+    LocalStateInfo info {.parent_profile = &_global_profile,
                                    .scan_ranges = scan_ranges,
                                    .shared_state = nullptr,
                                    .shared_state_map = {},
@@ -279,17 +278,17 @@ void VfileScannerExceptionTest::generate_scanner(std::shared_ptr<FileScanner>& s
     std::unordered_map<std::string, int> _colname_to_slot_id;
     scanner = std::make_shared<FileScanner>(
             &_runtime_state,
-            &(_runtime_state.get_local_state(0)->cast<pipeline::FileScanLocalState>()), -1,
+            &(_runtime_state.get_local_state(0)->cast<FileScanLocalState>()), -1,
             split_source, _profile, _kv_cache.get(), &_colname_to_slot_id);
     scanner->_is_load = false;
-    vectorized::VExprContextSPtrs _conjuncts;
+    VExprContextSPtrs _conjuncts;
     WARN_IF_ERROR(scanner->init(&_runtime_state, _conjuncts), "fail to prepare scanner");
 }
 
 TEST_F(VfileScannerExceptionTest, failure_case) {
     std::shared_ptr<FileScanner> scanner = nullptr;
     generate_scanner(scanner);
-    std::unique_ptr<vectorized::Block> block(new vectorized::Block());
+    std::unique_ptr<Block> block(new Block());
     bool eof = false;
     auto st = scanner->get_block(&_runtime_state, block.get(), &eof);
     ASSERT_FALSE(st.ok());
@@ -300,5 +299,4 @@ TEST_F(VfileScannerExceptionTest, failure_case) {
     WARN_IF_ERROR(scanner->close(&_runtime_state), "fail to close scanner");
 }
 
-} // namespace vectorized
 } // namespace doris

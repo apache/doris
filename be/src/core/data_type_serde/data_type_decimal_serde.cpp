@@ -41,7 +41,7 @@
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
 
-namespace doris::vectorized {
+namespace doris {
 // #include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
@@ -326,7 +326,7 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
         const auto arrow_scale = arrow_decimal_type->scale();
         // TODO check precision
         for (auto value_i = start; value_i < end; ++value_i) {
-            auto value = *reinterpret_cast<const vectorized::Decimal128V2*>(
+            auto value = *reinterpret_cast<const Decimal128V2*>(
                     concrete_array->Value(value_i));
             // convert scale to 9;
             if (9 > arrow_scale) {
@@ -396,7 +396,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
                                                     const IColumn& column, const NullMap* null_map,
                                                     orc::ColumnVectorBatch* orc_col_batch,
                                                     int64_t start, int64_t end,
-                                                    vectorized::Arena& arena,
+                                                    Arena& arena,
                                                     const FormatOptions& options) const {
     if constexpr (T == TYPE_DECIMAL256) {
         return Status::NotSupported("write_column_to_orc with type " + column.get_name());
@@ -503,7 +503,7 @@ void DataTypeDecimalSerDe<T>::to_string(const IColumn& column, size_t row_num, B
 }
 
 template <PrimitiveType T>
-std::string DataTypeDecimalSerDe<T>::to_olap_string(const vectorized::Field& field) const {
+std::string DataTypeDecimalSerDe<T>::to_olap_string(const Field& field) const {
     auto value = field.get<T>();
     if constexpr (T == TYPE_DECIMALV2) {
         decimal12_t decimal_val(value.int_value(), value.frac_value());
@@ -743,4 +743,4 @@ template class DataTypeDecimalSerDe<TYPE_DECIMAL64>;
 template class DataTypeDecimalSerDe<TYPE_DECIMAL128I>;
 template class DataTypeDecimalSerDe<TYPE_DECIMALV2>;
 template class DataTypeDecimalSerDe<TYPE_DECIMAL256>;
-} // namespace doris::vectorized
+} // namespace doris

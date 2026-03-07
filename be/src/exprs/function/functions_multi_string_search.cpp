@@ -56,7 +56,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename Impl>
 class FunctionsMultiStringSearch : public IFunction {
@@ -291,7 +291,7 @@ struct FunctionMultiMatchAnyImpl {
         size_t prev_needles_offset = 0;
 
         const auto& nested_column =
-                vectorized::check_and_get_column<vectorized::ColumnNullable>(needles_data)
+                check_and_get_column<ColumnNullable>(needles_data)
                         ->get_nested_column();
         const auto* needles_data_string = check_and_get_column<ColumnString>(nested_column);
 
@@ -351,4 +351,4 @@ void register_function_multi_string_search(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMultiMatchAny>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

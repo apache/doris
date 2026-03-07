@@ -25,23 +25,20 @@
 namespace doris {
 class RuntimeState;
 class Status;
-namespace vectorized {
 class Block;
 class Channel;
 class PartitionerBase;
 class TabletSinkHashPartitioner;
-} // namespace vectorized
-namespace pipeline {
 
 #include "common/compile_check_begin.h"
 class ExchangeSinkLocalState;
 
 class ExchangeWriterBase {
 public:
-    using HashValType = vectorized::PartitionerBase::HashValType;
+    using HashValType = PartitionerBase::HashValType;
     ExchangeWriterBase(ExchangeSinkLocalState& local_state);
 
-    virtual Status write(RuntimeState* state, vectorized::Block* block, bool eos) = 0;
+    virtual Status write(RuntimeState* state, Block* block, bool eos) = 0;
 
     virtual ~ExchangeWriterBase() = default;
 
@@ -49,34 +46,34 @@ protected:
     template <typename ChannelPtrType>
     Status _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st) const;
     Status _add_rows_impl(RuntimeState* state,
-                          std::vector<std::shared_ptr<vectorized::Channel>>& channels,
-                          size_t channel_count, vectorized::Block* block, bool eos);
+                          std::vector<std::shared_ptr<Channel>>& channels,
+                          size_t channel_count, Block* block, bool eos);
 
     // myself as a visitor of local state
     ExchangeSinkLocalState& _local_state;
-    vectorized::PartitionerBase* _partitioner;
+    PartitionerBase* _partitioner;
 
     // _origin_row_idx[i]: row id in original block for the i-th's data we send.
-    vectorized::PaddedPODArray<uint32_t> _origin_row_idx;
+    PaddedPODArray<uint32_t> _origin_row_idx;
     // _channel_rows_histogram[i]: number of rows for channel i in current batch
-    vectorized::PaddedPODArray<uint32_t> _channel_rows_histogram;
+    PaddedPODArray<uint32_t> _channel_rows_histogram;
     // _channel_start_offsets[i]: the start offset of channel i in _row_idx
     // its value equals to prefix sum of _channel_rows_histogram
     // after calculation, it will be end offset for channel i.
-    vectorized::PaddedPODArray<uint32_t> _channel_pos_offsets;
+    PaddedPODArray<uint32_t> _channel_pos_offsets;
 };
 
 class ExchangeTrivialWriter final : public ExchangeWriterBase {
 public:
     ExchangeTrivialWriter(ExchangeSinkLocalState& local_state) : ExchangeWriterBase(local_state) {}
 
-    Status write(RuntimeState* state, vectorized::Block* block, bool eos) override;
+    Status write(RuntimeState* state, Block* block, bool eos) override;
 
 private:
     Status _channel_add_rows(RuntimeState* state,
-                             std::vector<std::shared_ptr<vectorized::Channel>>& channels,
+                             std::vector<std::shared_ptr<Channel>>& channels,
                              size_t channel_count, const std::vector<HashValType>& channel_ids,
-                             size_t rows, vectorized::Block* block, bool eos);
+                             size_t rows, Block* block, bool eos);
 };
 
 // maybe auto partition
@@ -84,16 +81,15 @@ class ExchangeOlapWriter final : public ExchangeWriterBase {
 public:
     ExchangeOlapWriter(ExchangeSinkLocalState& local_state) : ExchangeWriterBase(local_state) {}
 
-    Status write(RuntimeState* state, vectorized::Block* block, bool eos) override;
+    Status write(RuntimeState* state, Block* block, bool eos) override;
 
 private:
-    Status _write_impl(RuntimeState* state, vectorized::Block* block, bool eos = false);
+    Status _write_impl(RuntimeState* state, Block* block, bool eos = false);
     Status _channel_add_rows(RuntimeState* state,
-                             std::vector<std::shared_ptr<vectorized::Channel>>& channels,
+                             std::vector<std::shared_ptr<Channel>>& channels,
                              size_t channel_count, const std::vector<HashValType>& channel_ids,
-                             size_t rows, vectorized::Block* block, bool eos,
+                             size_t rows, Block* block, bool eos,
                              HashValType invalid_val);
 };
 #include "common/compile_check_end.h"
-} // namespace pipeline
 } // namespace doris

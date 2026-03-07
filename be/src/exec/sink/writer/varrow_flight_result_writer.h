@@ -28,12 +28,11 @@ namespace doris {
 class RuntimeState;
 class PFetchArrowDataResult;
 
-namespace vectorized {
 class Block;
 
 class GetArrowResultBatchCtx {
 public:
-    using ResultType = vectorized::Block;
+    using ResultType = Block;
     ENABLE_FACTORY_CREATOR(GetArrowResultBatchCtx)
     GetArrowResultBatchCtx(PFetchArrowDataResult* result, google::protobuf::Closure* done)
             : _result(result), _done(done) {}
@@ -44,7 +43,7 @@ public:
 
     MOCK_FUNCTION void on_failure(const Status& status);
     MOCK_FUNCTION void on_close(int64_t packet_seq, int64_t /* returned_rows */);
-    MOCK_FUNCTION Status on_data(const std::shared_ptr<vectorized::Block>& block,
+    MOCK_FUNCTION Status on_data(const std::shared_ptr<Block>& block,
                                  const int64_t packet_seq, ResultBlockBufferBase* buffer);
 
 private:
@@ -59,7 +58,7 @@ private:
 
 class ArrowFlightResultBlockBuffer final : public ResultBlockBuffer<GetArrowResultBatchCtx> {
 public:
-    using ResultType = vectorized::Block;
+    using ResultType = Block;
     ArrowFlightResultBlockBuffer(TUniqueId id, RuntimeState* state,
                                  std::shared_ptr<arrow::Schema> schema, int buffer_size)
             : ResultBlockBuffer<GetArrowResultBatchCtx>(id, state, buffer_size),
@@ -71,7 +70,7 @@ public:
         _compressed_bytes_counter = ADD_COUNTER(&_profile, "CompressedBytes", TUnit::BYTES);
     }
     ~ArrowFlightResultBlockBuffer() override = default;
-    Status get_arrow_batch(std::shared_ptr<vectorized::Block>* result);
+    Status get_arrow_batch(std::shared_ptr<Block>* result);
     void get_timezone(cctz::time_zone& timezone_obj) { timezone_obj = _timezone_obj; }
     Status get_schema(std::shared_ptr<arrow::Schema>* arrow_schema);
 
@@ -119,7 +118,6 @@ private:
 
     uint64_t _bytes_sent = 0;
 };
-} // namespace vectorized
 } // namespace doris
 
 #include "common/compile_check_end.h"

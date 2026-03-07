@@ -38,25 +38,25 @@ auto get_convertor() {
         return [](PColumnValue* value, const T& data) { value->set_boolval(data); };
     } else if constexpr (std::is_same_v<T, int8_t> || std::is_same_v<T, int16_t> ||
                          std::is_same_v<T, int32_t> || std::is_same_v<T, uint32_t> ||
-                         std::is_same_v<T, vectorized::Decimal32>) {
+                         std::is_same_v<T, Decimal32>) {
         return [](PColumnValue* value, const T& data) { value->set_intval(data); };
-    } else if constexpr (std::is_same_v<T, int64_t> || std::is_same_v<T, vectorized::Decimal64>) {
+    } else if constexpr (std::is_same_v<T, int64_t> || std::is_same_v<T, Decimal64>) {
         return [](PColumnValue* value, const T& data) { value->set_longval(data); };
     } else if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
         return [](PColumnValue* value, const T& data) { value->set_doubleval(data); };
     } else if constexpr (std::is_same_v<T, int128_t> || std::is_same_v<T, uint128_t> ||
-                         std::is_same_v<T, vectorized::Decimal128V3>) {
+                         std::is_same_v<T, Decimal128V3>) {
         return [](PColumnValue* value, const T& data) {
             value->set_stringval(LargeIntValue::to_string(data));
         };
-    } else if constexpr (std::is_same_v<T, vectorized::Decimal256>) {
+    } else if constexpr (std::is_same_v<T, Decimal256>) {
         return [](PColumnValue* value, const T& data) {
             value->set_stringval(wide::to_string(wide::Int256(data)));
         };
     } else if constexpr (std::is_same_v<T, std::string>) {
         return [](PColumnValue* value, const T& data) { value->set_stringval(data); };
     } else if constexpr (std::is_same_v<T, StringRef> ||
-                         std::is_same_v<T, vectorized::Decimal128V2> ||
+                         std::is_same_v<T, Decimal128V2> ||
                          std::is_same_v<T, DecimalV2Value>) {
         return [](PColumnValue* value, const T& data) { value->set_stringval(data.to_string()); };
     } else if constexpr (std::is_same_v<T, VecDateTimeValue>) {
@@ -93,11 +93,11 @@ RuntimeFilterType get_type(int filter_type);
 // RuntimeFilterType -> PFilterType
 PFilterType get_type(RuntimeFilterType type);
 
-Status create_literal(const vectorized::DataTypePtr& type, const void* data,
-                      vectorized::VExprSPtr& expr);
+Status create_literal(const DataTypePtr& type, const void* data,
+                      VExprSPtr& expr);
 
-Status create_vbin_predicate(const vectorized::DataTypePtr& type, TExprOpcode::type opcode,
-                             vectorized::VExprSPtr& expr, TExprNode* tnode, bool contain_null);
+Status create_vbin_predicate(const DataTypePtr& type, TExprOpcode::type opcode,
+                             VExprSPtr& expr, TExprNode* tnode, bool contain_null);
 
 template <typename T>
 std::string states_to_string(std::vector<typename T::State> assumed_states) {

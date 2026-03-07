@@ -50,7 +50,6 @@
 #include "testutil/desc_tbl_builder.h"
 
 namespace doris {
-namespace vectorized {
 class VExprContext;
 
 class OrcReadLinesTest : public testing::Test {
@@ -69,40 +68,40 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     };
     ObjectPool object_pool;
     DescriptorTblBuilder builder(&object_pool);
-    builder.declare_tuple() << std::make_tuple<vectorized::DataTypePtr, std::string>(
-                                       vectorized::DataTypeFactory::instance().create_data_type(
+    builder.declare_tuple() << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
                                                PrimitiveType::TYPE_BIGINT, true),
                                        "col1")
-                            << std::make_tuple<vectorized::DataTypePtr, std::string>(
-                                       vectorized::DataTypeFactory::instance().create_data_type(
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
                                                PrimitiveType::TYPE_BOOLEAN, true),
                                        "col2")
-                            << std::make_tuple<vectorized::DataTypePtr, std::string>(
-                                       vectorized::DataTypeFactory::instance().create_data_type(
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
                                                PrimitiveType::TYPE_VARCHAR, true),
                                        "col3")
-                            << std::make_tuple<vectorized::DataTypePtr, std::string>(
-                                       vectorized::DataTypeFactory::instance().create_data_type(
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
                                                PrimitiveType::TYPE_DATEV2, true),
                                        "col4")
-                            << std::make_tuple<vectorized::DataTypePtr, std::string>(
-                                       vectorized::DataTypeFactory::instance().create_data_type(
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
                                                PrimitiveType::TYPE_DOUBLE, true),
                                        "col5")
-                            << std::make_tuple<vectorized::DataTypePtr, std::string>(
-                                       vectorized::DataTypeFactory::instance().create_data_type(
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
                                                PrimitiveType::TYPE_FLOAT, true),
                                        "col6")
-                            << std::make_tuple<vectorized::DataTypePtr, std::string>(
-                                       vectorized::DataTypeFactory::instance().create_data_type(
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
                                                PrimitiveType::TYPE_INT, true),
                                        "col7")
-                            << std::make_tuple<vectorized::DataTypePtr, std::string>(
-                                       vectorized::DataTypeFactory::instance().create_data_type(
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
                                                PrimitiveType::TYPE_SMALLINT, true),
                                        "col8")
-                            << std::make_tuple<vectorized::DataTypePtr, std::string>(
-                                       vectorized::DataTypeFactory::instance().create_data_type(
+                            << std::make_tuple<DataTypePtr, std::string>(
+                                       DataTypeFactory::instance().create_data_type(
                                                PrimitiveType::TYPE_VARCHAR, true),
                                        "col9");
     DescriptorTbl* desc_tbl = builder.build();
@@ -152,7 +151,7 @@ static void read_orc_line(int64_t line, std::string block_dump) {
         block->insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
     }
-    auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+    auto data_type = DataTypeFactory::instance().create_data_type(
             PrimitiveType::TYPE_VARCHAR, false);
     block->insert(ColumnWithTypeAndName(data_type->create_column()->assume_mutable(), data_type,
                                         "row_id"));
@@ -376,5 +375,4 @@ TEST_F(OrcReadLinesTest, test9) {
     read_orc_line(9, block_dump);
 }
 
-} // namespace vectorized
 } // namespace doris

@@ -29,7 +29,7 @@
 #include "util/io_helper.h"
 #include "util/jsonb_writer.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Status DataTypeIPv6SerDe::write_column_to_mysql_binary(const IColumn& column,
@@ -175,7 +175,7 @@ Status DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::A
 Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                               const NullMap* null_map,
                                               orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                              int64_t end, vectorized::Arena& arena,
+                                              int64_t end, Arena& arena,
                                               const FormatOptions& options) const {
     const auto& col_data = assert_cast<const ColumnIPv6&>(column).get_data();
     auto* cur_batch = assert_cast<orc::StringVectorBatch*>(orc_col_batch);
@@ -320,8 +320,8 @@ void DataTypeIPv6SerDe::write_one_cell_to_binary(const IColumn& src_column,
     memcpy(chars.data() + old_size + sizeof(uint8_t), data_ref.data, data_ref.size);
 }
 
-std::string DataTypeIPv6SerDe::to_olap_string(const vectorized::Field& field) const {
+std::string DataTypeIPv6SerDe::to_olap_string(const Field& field) const {
     return CastToString::from_ip(field.get<TYPE_IPV6>());
 }
 
-} // namespace doris::vectorized
+} // namespace doris

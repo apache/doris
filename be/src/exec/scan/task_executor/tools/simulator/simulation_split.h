@@ -27,7 +27,6 @@
 #include "exec/scan/task_executor/split_runner.h"
 
 namespace doris {
-namespace vectorized {
 
 class SimulationTask;
 class ScheduledExecutor;
@@ -124,5 +123,4 @@ public:
     SharedListenableFuture<Void> get_process_result() override;
 };
 
-} // namespace vectorized
 } // namespace doris

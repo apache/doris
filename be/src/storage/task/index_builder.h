@@ -33,9 +33,7 @@ namespace segment_v2 {
 class IndexColumnWriter;
 class IndexFileWriter;
 } // namespace segment_v2
-namespace vectorized {
 class OlapBlockDataConvertor;
-}
 
 class StorageEngine;
 class RowsetWriter;
@@ -60,7 +58,7 @@ public:
 
 private:
     Status _write_inverted_index_data(TabletSchemaSPtr tablet_schema, int64_t segment_idx,
-                                      vectorized::Block* block);
+                                      Block* block);
     Status _add_data(const std::string& column_name,
                      const std::pair<int64_t, int64_t>& index_writer_sign, Field* field,
                      const uint8_t** ptr, size_t num_rows);
@@ -80,7 +78,7 @@ private:
     std::vector<RowsetSharedPtr> _output_rowsets;
     std::vector<PendingRowsetGuard> _pending_rs_guards;
     std::vector<RowsetReaderSharedPtr> _input_rs_readers;
-    std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor;
+    std::unique_ptr<OlapBlockDataConvertor> _olap_data_convertor;
     // "<segment_id, index_id>" -> IndexColumnWriter
     std::unordered_map<std::pair<int64_t, int64_t>, std::unique_ptr<segment_v2::IndexColumnWriter>>
             _index_column_writers;

@@ -28,7 +28,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class ResultBlockBufferBase;
 
-namespace pipeline {
 
 struct ResultFileOptions {
     // [[deprecated]]
@@ -143,7 +142,7 @@ public:
 private:
     friend class ResultSinkOperatorX;
 
-    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+    VExprContextSPtrs _output_vexpr_ctxs;
 
     std::shared_ptr<ResultBlockBufferBase> _sender = nullptr;
     std::shared_ptr<ResultWriter> _writer = nullptr;
@@ -158,12 +157,12 @@ public:
                         const std::vector<TExpr>& select_exprs, const TResultSink& sink);
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
 
 private:
     friend class ResultSinkLocalState;
 
-    Status _second_phase_fetch_data(RuntimeState* state, vectorized::Block* final_block);
+    Status _second_phase_fetch_data(RuntimeState* state, Block* final_block);
     const TResultSinkType::type _sink_type;
     const int _result_sink_buffer_size_rows;
     // set file options when sink type is FILE
@@ -174,7 +173,7 @@ private:
 
     // Owned by the RuntimeState.
     const std::vector<TExpr>& _t_output_expr;
-    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+    VExprContextSPtrs _output_vexpr_ctxs;
 
     // for fetch data by rowids
     const TFetchOption _fetch_option;
@@ -182,6 +181,5 @@ private:
     std::shared_ptr<ResultBlockBufferBase> _sender = nullptr;
 };
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

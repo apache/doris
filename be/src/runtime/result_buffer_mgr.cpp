@@ -84,11 +84,11 @@ Status ResultBufferMgr::create_sender(const TUniqueId& unique_id, int buffer_siz
     std::shared_ptr<ResultBlockBufferBase> control_block = nullptr;
 
     if (arrow_flight) {
-        control_block = std::make_shared<vectorized::ArrowFlightResultBlockBuffer>(
+        control_block = std::make_shared<ArrowFlightResultBlockBuffer>(
                 unique_id, state, schema, buffer_size);
     } else {
         control_block =
-                std::make_shared<vectorized::MySQLResultBlockBuffer>(unique_id, state, buffer_size);
+                std::make_shared<MySQLResultBlockBuffer>(unique_id, state, buffer_size);
     }
 
     {
@@ -187,9 +187,9 @@ void ResultBufferMgr::cancel_thread() {
 
 template Status ResultBufferMgr::find_buffer(
         const TUniqueId& finst_id,
-        std::shared_ptr<doris::vectorized::ArrowFlightResultBlockBuffer>& buffer);
+        std::shared_ptr<doris::ArrowFlightResultBlockBuffer>& buffer);
 template Status ResultBufferMgr::find_buffer(
         const TUniqueId& finst_id,
-        std::shared_ptr<doris::ResultBlockBuffer<doris::vectorized::GetResultBatchCtx>>& buffer);
+        std::shared_ptr<doris::ResultBlockBuffer<doris::GetResultBatchCtx>>& buffer);
 
 } // namespace doris

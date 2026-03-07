@@ -50,7 +50,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 template <typename Impl>
 class FunctionHexVariadic : public IFunction {
 public:
@@ -110,7 +110,7 @@ struct HexStringImpl {
 
 struct HexIntImpl {
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeInt64>()};
+        return {std::make_shared<DataTypeInt64>()};
     }
 
     static std::string_view hex(uint64_t num, char* ans) {
@@ -153,7 +153,7 @@ struct HexIntImpl {
 
 struct HexHLLImpl {
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeHLL>()};
+        return {std::make_shared<DataTypeHLL>()};
     }
 
     static Status vector(ColumnPtr argument_column, size_t input_rows_count,
@@ -187,4 +187,4 @@ void register_function_hex_variadic(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionHexVariadic<HexIntImpl>>();
     factory.register_function<FunctionHexVariadic<HexHLLImpl>>();
 }
-} // namespace doris::vectorized
+} // namespace doris

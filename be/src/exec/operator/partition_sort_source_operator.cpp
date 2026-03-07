@@ -23,7 +23,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-namespace pipeline {
 
 Status PartitionSortSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<PartitionSortNodeSharedState>::init(state, info));
@@ -35,7 +34,7 @@ Status PartitionSortSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
     return Status::OK();
 }
 
-Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* output_block,
+Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, Block* output_block,
                                                bool* eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
@@ -81,7 +80,7 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
 }
 
 Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
-                                                      vectorized::Block* output_block,
+                                                      Block* output_block,
                                                       PartitionSortSourceLocalState& local_state) {
     SCOPED_TIMER(local_state._get_sorted_timer);
     //sorter output data one by one
@@ -106,6 +105,5 @@ Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
     return Status::OK();
 }
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

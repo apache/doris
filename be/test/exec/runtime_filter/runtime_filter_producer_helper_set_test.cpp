@@ -34,44 +34,44 @@ namespace doris {
 class RuntimeFilterProducerHelperSetTest : public RuntimeFilterTest {
     void SetUp() override {
         RuntimeFilterTest::SetUp();
-        _pipeline = std::make_shared<pipeline::Pipeline>(0, INSTANCE_NUM, INSTANCE_NUM);
-        _op.reset(new pipeline::MockOperatorX());
+        _pipeline = std::make_shared<Pipeline>(0, INSTANCE_NUM, INSTANCE_NUM);
+        _op.reset(new MockOperatorX());
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(_pipeline->add_operator(_op, 2));
 
-        _sink.reset(new pipeline::HashJoinBuildSinkOperatorX(
+        _sink.reset(new HashJoinBuildSinkOperatorX(
                 &_pool, 0, _op->operator_id(),
                 TPlanNodeBuilder(0, TPlanNodeType::HASH_JOIN_NODE).build(), _tbl));
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(_pipeline->set_sink(_sink));
 
-        _task.reset(new pipeline::PipelineTask(_pipeline, 0, _runtime_states[0].get(), nullptr,
+        _task.reset(new PipelineTask(_pipeline, 0, _runtime_states[0].get(), nullptr,
                                                &_profile, {}, 0));
     }
 
-    pipeline::OperatorPtr _op;
-    pipeline::DataSinkOperatorPtr _sink;
-    pipeline::PipelinePtr _pipeline;
-    std::shared_ptr<pipeline::PipelineTask> _task;
+    OperatorPtr _op;
+    DataSinkOperatorPtr _sink;
+    PipelinePtr _pipeline;
+    std::shared_ptr<PipelineTask> _task;
     ObjectPool _pool;
 };
 
 TEST_F(RuntimeFilterProducerHelperSetTest, basic) {
     auto helper = RuntimeFilterProducerHelperSet();
 
-    vectorized::VExprContextSPtr ctx;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
+    VExprContextSPtr ctx;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(VExpr::create_expr_tree(
             TRuntimeFilterDescBuilder::get_default_expr(), ctx));
     ctx->_last_result_column_id = 0;
 
-    vectorized::VExprContextSPtrs build_expr_ctxs = {ctx};
+    VExprContextSPtrs build_expr_ctxs = {ctx};
     std::vector<TRuntimeFilterDesc> runtime_filter_descs = {TRuntimeFilterDescBuilder().build()};
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             helper.init(_runtime_states[0].get(), build_expr_ctxs, runtime_filter_descs));
 
-    vectorized::Block block;
-    auto column = vectorized::ColumnInt32::create();
-    column->insert(vectorized::Field::create_field<TYPE_INT>(1));
-    column->insert(vectorized::Field::create_field<TYPE_INT>(2));
-    block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
+    Block block;
+    auto column = ColumnInt32::create();
+    column->insert(Field::create_field<TYPE_INT>(1));
+    column->insert(Field::create_field<TYPE_INT>(2));
+    block.insert({std::move(column), std::make_shared<DataTypeInt32>(), "col1"});
 
     std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.process(_runtime_states[0].get(), &block, 2));

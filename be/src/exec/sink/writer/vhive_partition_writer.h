@@ -34,7 +34,6 @@ class RuntimeState;
 class RuntimeProfile;
 class THiveColumn;
 
-namespace vectorized {
 
 class Block;
 class VFileFormatTransformer;
@@ -63,7 +62,7 @@ public:
 
     Status open(RuntimeState* state, RuntimeProfile* profile);
 
-    Status write(vectorized::Block& block);
+    Status write(Block& block);
 
     Status close(const Status& status);
 
@@ -112,5 +111,4 @@ private:
 
     RuntimeState* _state;
 };
-} // namespace vectorized
 } // namespace doris

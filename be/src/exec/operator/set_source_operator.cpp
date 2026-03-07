@@ -24,7 +24,7 @@
 #include "exec/operator/operator.h"
 #include "runtime/runtime_profile.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 template <bool is_intersect>
 Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateInfo& info) {
@@ -47,7 +47,7 @@ Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
 
-    auto output_data_types = vectorized::VectorizedUtils::get_data_types(
+    auto output_data_types = VectorizedUtils::get_data_types(
             _parent->cast<SetSourceOperatorX<is_intersect>>().row_descriptor());
     auto column_nums = child_exprs_lists[0].size();
     DCHECK_EQ(output_data_types.size(), column_nums)
@@ -75,7 +75,7 @@ Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
 }
 
 template <bool is_intersect>
-Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectorized::Block* block,
+Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, Block* block,
                                                    bool* eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
@@ -100,7 +100,7 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectoriz
     }
     {
         SCOPED_TIMER(local_state._filter_timer);
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
+        RETURN_IF_ERROR(VExprContext::filter_block(local_state._conjuncts, block,
                                                                block->columns()));
     }
     local_state.reached_limit(block, eos);
@@ -109,7 +109,7 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectoriz
 
 template <bool is_intersect>
 void SetSourceOperatorX<is_intersect>::_create_mutable_cols(
-        SetSourceLocalState<is_intersect>& local_state, vectorized::Block* output_block) {
+        SetSourceLocalState<is_intersect>& local_state, Block* output_block) {
     local_state._mutable_cols.resize(local_state._left_table_data_types.size());
     bool mem_reuse = output_block->mem_reuse();
 
@@ -127,7 +127,7 @@ template <bool is_intersect>
 template <typename HashTableContext>
 Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
         SetSourceLocalState<is_intersect>& local_state, HashTableContext& hash_table_ctx,
-        vectorized::Block* output_block, const int batch_size, bool* eos) {
+        Block* output_block, const int batch_size, bool* eos) {
     size_t left_col_len = local_state._left_table_data_types.size();
     hash_table_ctx.init_iterator();
     local_state._result_indexs.clear();
@@ -160,7 +160,7 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
     if (!output_block->mem_reuse()) {
         for (int i = 0; i < left_col_len; ++i) {
             output_block->insert(
-                    vectorized::ColumnWithTypeAndName(std::move(local_state._mutable_cols[i]),
+                    ColumnWithTypeAndName(std::move(local_state._mutable_cols[i]),
                                                       local_state._left_table_data_types[i], ""));
         }
     } else {
@@ -185,4 +185,4 @@ template class SetSourceLocalState<false>;
 template class SetSourceOperatorX<true>;
 template class SetSourceOperatorX<false>;
 
-} // namespace doris::pipeline
+} // namespace doris

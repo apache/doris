@@ -41,21 +41,21 @@ class PFunctionService_Stub;
 class PValues;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class RPCFnImpl {
 public:
     RPCFnImpl(const TFunction& fn);
     ~RPCFnImpl() = default;
-    Status vec_call(FunctionContext* context, vectorized::Block& block,
+    Status vec_call(FunctionContext* context, Block& block,
                     const ColumnNumbers& arguments, uint32_t result, size_t input_rows_count);
     bool available() { return _client != nullptr; }
 
 private:
-    Status _convert_block_to_proto(vectorized::Block& block,
-                                   const vectorized::ColumnNumbers& arguments,
+    Status _convert_block_to_proto(Block& block,
+                                   const ColumnNumbers& arguments,
                                    size_t input_rows_count, PFunctionCallRequest* request);
-    Status _convert_to_block(vectorized::Block& block, const PValues& result, size_t pos);
+    Status _convert_to_block(Block& block, const PValues& result, size_t pos);
 
     std::shared_ptr<PFunctionService_Stub> _client;
     std::string _function_name;
@@ -117,4 +117,4 @@ private:
     TFunction _tfn;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

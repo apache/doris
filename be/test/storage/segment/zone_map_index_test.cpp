@@ -60,7 +60,7 @@ public:
     }
     void TearDown() override { EXPECT_TRUE(_fs->delete_directory(kTestDir).ok()); }
 
-    void test_string(std::string testname, Field* field, vectorized::DataTypePtr data_type_ptr) {
+    void test_string(std::string testname, StorageField* field, DataTypePtr data_type_ptr) {
         std::string filename = kTestDir + "/" + testname;
         auto fs = io::global_local_filesystem();
 
@@ -121,7 +121,7 @@ public:
         static_assert(PType == TYPE_CHAR || PType == TYPE_VARCHAR || PType == TYPE_STRING,
                       "only varchar is supported");
         auto data_type =
-                vectorized::DataTypeFactory::instance().create_data_type(PType, true, 0, 0, length);
+                DataTypeFactory::instance().create_data_type(PType, true, 0, 0, length);
         TabletColumnPtr tab_col;
         if constexpr (PType == TYPE_CHAR) {
             tab_col = create_char_key(0, true, length);
@@ -130,7 +130,7 @@ public:
         } else {
             tab_col = create_string_key(0);
         }
-        auto field = std::unique_ptr<Field>(FieldFactory::create(*tab_col));
+        auto field = std::unique_ptr<StorageField>(StorageFieldFactory::create(*tab_col));
 
         std::unique_ptr<ZoneMapIndexWriter> writer;
         ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, field.get(), writer).ok());
@@ -247,10 +247,10 @@ public:
 
     void test_char_padding(bool pass_all) {
         int32_t length = 10;
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_CHAR, true,
+        auto data_type = DataTypeFactory::instance().create_data_type(TYPE_CHAR, true,
                                                                                   0, 0, length);
         auto tab_col = create_char_key(0, true, length);
-        auto field = std::unique_ptr<Field>(FieldFactory::create(*tab_col));
+        auto field = std::unique_ptr<StorageField>(StorageFieldFactory::create(*tab_col));
         std::string s_less_than_schema_length1(length - 1, 'a');
         std::string s_less_than_schema_length1_expect(length, 'a');
         s_less_than_schema_length1_expect[length - 1] = '\0';
@@ -340,11 +340,11 @@ public:
     void test_decimalv2(bool pass_all) {
         int precision = 18;
         int scale = 7;
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+        auto data_type = DataTypeFactory::instance().create_data_type(
                 TYPE_DECIMALV2, true, precision, scale);
         TabletColumnPtr tab_col;
         tab_col = create_decimalv2_key(0, true);
-        auto field = std::unique_ptr<Field>(FieldFactory::create(*tab_col));
+        auto field = std::unique_ptr<StorageField>(StorageFieldFactory::create(*tab_col));
 
         std::unique_ptr<ZoneMapIndexWriter> writer;
         ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, field.get(), writer).ok());
@@ -429,10 +429,10 @@ public:
         return column;
     }
     void test_datev1(bool pass_all) {
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DATE, true);
+        auto data_type = DataTypeFactory::instance().create_data_type(TYPE_DATE, true);
         TabletColumnPtr tab_col;
         tab_col = create_datev1_key(0, true);
-        auto field = std::unique_ptr<Field>(FieldFactory::create(*tab_col));
+        auto field = std::unique_ptr<StorageField>(StorageFieldFactory::create(*tab_col));
 
         std::unique_ptr<ZoneMapIndexWriter> writer;
         ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, field.get(), writer).ok());
@@ -511,10 +511,10 @@ public:
     }
     void test_datetimev1(bool pass_all) {
         auto data_type =
-                vectorized::DataTypeFactory::instance().create_data_type(TYPE_DATETIME, true);
+                DataTypeFactory::instance().create_data_type(TYPE_DATETIME, true);
         TabletColumnPtr tab_col;
         tab_col = create_datetimev1_key(0, true);
-        auto field = std::unique_ptr<Field>(FieldFactory::create(*tab_col));
+        auto field = std::unique_ptr<StorageField>(StorageFieldFactory::create(*tab_col));
 
         std::unique_ptr<ZoneMapIndexWriter> writer;
         ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, field.get(), writer).ok());
@@ -588,8 +588,8 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
     auto fs = io::global_local_filesystem();
 
     TabletColumnPtr int_column = create_int_key(0);
-    Field* field = FieldFactory::create(*int_column);
-    auto data_type_ptr = vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, false);
+    StorageField* field = StorageFieldFactory::create(*int_column);
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
 
     std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
     static_cast<void>(ZoneMapIndexWriter::create(data_type_ptr, field, builder));
@@ -643,9 +643,9 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
 // Test for string
 TEST_F(ColumnZoneMapTest, NormalTestVarcharPage) {
     TabletColumnPtr varchar_column = create_varchar_key(0);
-    Field* field = FieldFactory::create(*varchar_column);
+    StorageField* field = StorageFieldFactory::create(*varchar_column);
     auto str_data_type_ptr =
-            vectorized::DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, false);
+            DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, false);
     test_string("NormalTestVarcharPage", field, str_data_type_ptr);
     delete field;
 }
@@ -653,9 +653,9 @@ TEST_F(ColumnZoneMapTest, NormalTestVarcharPage) {
 // Test for string
 TEST_F(ColumnZoneMapTest, NormalTestCharPage) {
     TabletColumnPtr char_column = create_char_key(0);
-    Field* field = FieldFactory::create(*char_column);
+    StorageField* field = StorageFieldFactory::create(*char_column);
     auto char_data_type_ptr =
-            vectorized::DataTypeFactory::instance().create_data_type(TYPE_CHAR, false);
+            DataTypeFactory::instance().create_data_type(TYPE_CHAR, false);
     test_string("NormalTestCharPage", field, char_data_type_ptr);
     delete field;
 }
@@ -664,9 +664,9 @@ TEST_F(ColumnZoneMapTest, NormalTestCharPage) {
 TEST_F(ColumnZoneMapTest, ZoneMapCut) {
     TabletColumnPtr varchar_column = create_varchar_key(0);
     varchar_column->set_index_length(1024);
-    Field* field = FieldFactory::create(*varchar_column);
+    StorageField* field = StorageFieldFactory::create(*varchar_column);
     auto data_type_ptr =
-            vectorized::DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, false);
+            DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, false);
     test_string("ZoneMapCut", field, data_type_ptr);
     delete field;
 }
@@ -721,9 +721,9 @@ TEST_F(ColumnZoneMapTest, NormalTestFloatPage) {
     auto fs = io::global_local_filesystem();
 
     auto column = create_float_column<FieldType::OLAP_FIELD_TYPE_FLOAT>(0, true);
-    Field* field = FieldFactory::create(*column);
+    StorageField* field = StorageFieldFactory::create(*column);
     auto data_type_ptr =
-            vectorized::DataTypeFactory::instance().create_data_type(TYPE_FLOAT, false);
+            DataTypeFactory::instance().create_data_type(TYPE_FLOAT, false);
 
     std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
     static_cast<void>(ZoneMapIndexWriter::create(data_type_ptr, field, builder));
@@ -773,9 +773,9 @@ TEST_F(ColumnZoneMapTest, NormalTestFloatPage) {
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
 
     auto segment_zone_map = index_meta.zone_map_index().segment_zone_map();
-    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<float>::lowest()),
+    EXPECT_EQ(CastToString::from_number(std::numeric_limits<float>::lowest()),
               segment_zone_map.min());
-    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<float>::max()),
+    EXPECT_EQ(CastToString::from_number(std::numeric_limits<float>::max()),
               segment_zone_map.max());
     EXPECT_EQ(true, segment_zone_map.has_null());
     EXPECT_EQ(true, segment_zone_map.has_not_null());
@@ -790,9 +790,9 @@ TEST_F(ColumnZoneMapTest, NormalTestFloatPage) {
     const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
     EXPECT_EQ(3, zone_maps.size());
 
-    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<float>::lowest()),
+    EXPECT_EQ(CastToString::from_number(std::numeric_limits<float>::lowest()),
               zone_maps[0].min());
-    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<float>::max()),
+    EXPECT_EQ(CastToString::from_number(std::numeric_limits<float>::max()),
               zone_maps[0].max());
     EXPECT_EQ(false, zone_maps[0].has_null());
     EXPECT_EQ(true, zone_maps[0].has_not_null());
@@ -800,8 +800,8 @@ TEST_F(ColumnZoneMapTest, NormalTestFloatPage) {
     EXPECT_EQ(true, zone_maps[0].has_negative_inf());
     EXPECT_EQ(true, zone_maps[0].has_nan());
 
-    EXPECT_EQ(vectorized::CastToString::from_number(-1234.56F), zone_maps[1].min());
-    EXPECT_EQ(vectorized::CastToString::from_number(1234.56F), zone_maps[1].max());
+    EXPECT_EQ(CastToString::from_number(-1234.56F), zone_maps[1].min());
+    EXPECT_EQ(CastToString::from_number(1234.56F), zone_maps[1].max());
     EXPECT_EQ(true, zone_maps[1].has_null());
     EXPECT_EQ(true, zone_maps[1].has_not_null());
 
@@ -815,9 +815,9 @@ TEST_F(ColumnZoneMapTest, NormalTestDoublePage) {
     auto fs = io::global_local_filesystem();
 
     auto column = create_float_column<FieldType::OLAP_FIELD_TYPE_DOUBLE>(0, true);
-    Field* field = FieldFactory::create(*column);
+    StorageField* field = StorageFieldFactory::create(*column);
     auto data_type_ptr =
-            vectorized::DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
+            DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
 
     std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
     static_cast<void>(ZoneMapIndexWriter::create(data_type_ptr, field, builder));
@@ -867,9 +867,9 @@ TEST_F(ColumnZoneMapTest, NormalTestDoublePage) {
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
 
     auto segment_zone_map = index_meta.zone_map_index().segment_zone_map();
-    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<double>::lowest()),
+    EXPECT_EQ(CastToString::from_number(std::numeric_limits<double>::lowest()),
               segment_zone_map.min());
-    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<double>::max()),
+    EXPECT_EQ(CastToString::from_number(std::numeric_limits<double>::max()),
               segment_zone_map.max());
     EXPECT_EQ(true, segment_zone_map.has_null());
     EXPECT_EQ(true, segment_zone_map.has_not_null());
@@ -884,9 +884,9 @@ TEST_F(ColumnZoneMapTest, NormalTestDoublePage) {
     const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
     EXPECT_EQ(3, zone_maps.size());
 
-    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<double>::lowest()),
+    EXPECT_EQ(CastToString::from_number(std::numeric_limits<double>::lowest()),
               zone_maps[0].min());
-    EXPECT_EQ(vectorized::CastToString::from_number(std::numeric_limits<double>::max()),
+    EXPECT_EQ(CastToString::from_number(std::numeric_limits<double>::max()),
               zone_maps[0].max());
     EXPECT_EQ(false, zone_maps[0].has_null());
     EXPECT_EQ(true, zone_maps[0].has_not_null());
@@ -894,8 +894,8 @@ TEST_F(ColumnZoneMapTest, NormalTestDoublePage) {
     EXPECT_EQ(true, zone_maps[0].has_negative_inf());
     EXPECT_EQ(true, zone_maps[0].has_nan());
 
-    EXPECT_EQ(vectorized::CastToString::from_number(-1234.56789012345), zone_maps[1].min());
-    EXPECT_EQ(vectorized::CastToString::from_number(1234.56789012345), zone_maps[1].max());
+    EXPECT_EQ(CastToString::from_number(-1234.56789012345), zone_maps[1].min());
+    EXPECT_EQ(CastToString::from_number(1234.56789012345), zone_maps[1].max());
     EXPECT_EQ(true, zone_maps[1].has_null());
     EXPECT_EQ(true, zone_maps[1].has_not_null());
 
@@ -922,15 +922,15 @@ TEST_F(ColumnZoneMapTest, TimestamptzPage) {
     auto fs = io::global_local_filesystem();
 
     auto column = create_timestamptz_column(0, true);
-    Field* field = FieldFactory::create(*column);
+    StorageField* field = StorageFieldFactory::create(*column);
     auto data_type_ptr =
-            vectorized::DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, false);
+            DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, false);
 
     std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
     static_cast<void>(ZoneMapIndexWriter::create(data_type_ptr, field, builder));
     cctz::time_zone time_zone = cctz::fixed_time_zone(std::chrono::hours(0));
     TimezoneUtils::load_offsets_to_cache();
-    vectorized::CastParameters params;
+    CastParameters params;
     params.is_strict = true;
 
     // page 1
@@ -1012,15 +1012,15 @@ TEST_F(ColumnZoneMapTest, TimestamptzPage) {
     io::FileReaderSPtr file_reader;
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());
 
-    vectorized::UInt32 scale = 6;
+    UInt32 scale = 6;
     auto segment_zone_map = index_meta.zone_map_index().segment_zone_map();
     EXPECT_EQ(
-            vectorized::CastToString::from_timestamptz(type_limit<TimestampTzValue>::min(), scale),
+            CastToString::from_timestamptz(type_limit<TimestampTzValue>::min(), scale),
             segment_zone_map.min());
     std::string max_str = "9999-12-31 23:59:59";
     TimestampTzValue tz_max {};
     EXPECT_TRUE(tz_max.from_string(StringRef {max_str}, &time_zone, params, 0));
-    EXPECT_EQ(vectorized::CastToString::from_timestamptz(tz_max, scale), segment_zone_map.max());
+    EXPECT_EQ(CastToString::from_timestamptz(tz_max, scale), segment_zone_map.max());
     EXPECT_EQ(true, segment_zone_map.has_null());
     EXPECT_EQ(true, segment_zone_map.has_not_null());
 
@@ -1033,21 +1033,21 @@ TEST_F(ColumnZoneMapTest, TimestamptzPage) {
 
     // page 1
     EXPECT_EQ(
-            vectorized::CastToString::from_timestamptz(type_limit<TimestampTzValue>::min(), scale),
+            CastToString::from_timestamptz(type_limit<TimestampTzValue>::min(), scale),
             zone_maps[0].min());
-    EXPECT_EQ(vectorized::CastToString::from_timestamptz(tz_max, scale), zone_maps[0].max());
+    EXPECT_EQ(CastToString::from_timestamptz(tz_max, scale), zone_maps[0].max());
     EXPECT_EQ(false, zone_maps[0].has_null());
     EXPECT_EQ(true, zone_maps[0].has_not_null());
 
     // page 2
     EXPECT_EQ(
-            vectorized::CastToString::from_timestamptz(type_limit<TimestampTzValue>::min(), scale),
+            CastToString::from_timestamptz(type_limit<TimestampTzValue>::min(), scale),
             zone_maps[1].min());
     {
         TimestampTzValue tz {};
         StringRef str = StringRef {"8999-12-31 23:59:59"};
         EXPECT_TRUE(tz.from_string(str, &time_zone, params, 0));
-        EXPECT_EQ(vectorized::CastToString::from_timestamptz(tz, scale), zone_maps[1].max());
+        EXPECT_EQ(CastToString::from_timestamptz(tz, scale), zone_maps[1].max());
         EXPECT_EQ(true, zone_maps[1].has_null());
         EXPECT_EQ(true, zone_maps[1].has_not_null());
     }
@@ -1057,9 +1057,9 @@ TEST_F(ColumnZoneMapTest, TimestamptzPage) {
         TimestampTzValue tz {};
         StringRef str = StringRef {"0000-01-01 00:00:59"};
         EXPECT_TRUE(tz.from_string(str, &time_zone, params, 0));
-        EXPECT_EQ(vectorized::CastToString::from_timestamptz(tz, scale), zone_maps[2].min());
+        EXPECT_EQ(CastToString::from_timestamptz(tz, scale), zone_maps[2].min());
     }
-    EXPECT_EQ(vectorized::CastToString::from_timestamptz(tz_max, scale), zone_maps[2].max());
+    EXPECT_EQ(CastToString::from_timestamptz(tz_max, scale), zone_maps[2].max());
     EXPECT_EQ(true, zone_maps[2].has_null());
     EXPECT_EQ(true, zone_maps[2].has_not_null());
 
@@ -1068,13 +1068,13 @@ TEST_F(ColumnZoneMapTest, TimestamptzPage) {
         TimestampTzValue tz {};
         StringRef str = StringRef {"0000-01-01 00:00:59"};
         EXPECT_TRUE(tz.from_string(str, &time_zone, params, 0));
-        EXPECT_EQ(vectorized::CastToString::from_timestamptz(tz, scale), zone_maps[3].min());
+        EXPECT_EQ(CastToString::from_timestamptz(tz, scale), zone_maps[3].min());
     }
     {
         TimestampTzValue tz {};
         StringRef str = StringRef {"8999-12-31 23:59:59"};
         EXPECT_TRUE(tz.from_string(str, &time_zone, params, 0));
-        EXPECT_EQ(vectorized::CastToString::from_timestamptz(tz, scale), zone_maps[3].max());
+        EXPECT_EQ(CastToString::from_timestamptz(tz, scale), zone_maps[3].max());
     }
     EXPECT_EQ(true, zone_maps[3].has_null());
     EXPECT_EQ(true, zone_maps[3].has_not_null());

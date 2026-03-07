@@ -323,7 +323,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
     _has_key = has_key;
     _column_writers.reserve(_tablet_schema->columns().size());
     _column_ids.insert(_column_ids.end(), col_ids.begin(), col_ids.end());
-    _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    _olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
     if (_opts.compression_type == UNKNOWN_COMPRESSION) {
         _opts.compression_type = _tablet_schema->compression_type();
     }
@@ -379,7 +379,7 @@ void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
     }
 }
 
-void SegmentWriter::_serialize_block_to_row_column(const vectorized::Block& block) {
+void SegmentWriter::_serialize_block_to_row_column(const Block& block) {
     if (block.rows() == 0) {
         return;
     }
@@ -388,12 +388,12 @@ void SegmentWriter::_serialize_block_to_row_column(const vectorized::Block& bloc
     int row_column_id = 0;
     for (int i = 0; i < _tablet_schema->num_columns(); ++i) {
         if (_tablet_schema->column(i).is_row_store_column()) {
-            auto* row_store_column = static_cast<vectorized::ColumnString*>(
+            auto* row_store_column = static_cast<ColumnString*>(
                     block.get_by_position(i).column->assume_mutable_ref().assume_mutable().get());
             row_store_column->clear();
-            vectorized::DataTypeSerDeSPtrs serdes =
-                    vectorized::create_data_type_serdes(block.get_data_types());
-            vectorized::JsonbSerializeUtil::block_to_jsonb(
+            DataTypeSerDeSPtrs serdes =
+                    create_data_type_serdes(block.get_data_types());
+            JsonbSerializeUtil::block_to_jsonb(
                     *_tablet_schema, block, *row_store_column,
                     cast_set<int>(_tablet_schema->num_columns()), serdes,
                     {_tablet_schema->row_columns_uids().begin(),
@@ -508,7 +508,7 @@ Status SegmentWriter::partial_update_preconditions_check(size_t row_pos) {
 //       2.2 build read plan to read by batch
 //       2.3 fill block
 // 3. set columns to data convertor and then write all columns
-Status SegmentWriter::append_block_with_partial_content(const vectorized::Block* block,
+Status SegmentWriter::append_block_with_partial_content(const Block* block,
                                                         size_t row_pos, size_t num_rows) {
     if (block->columns() < _tablet_schema->num_key_columns() ||
         block->columns() >= _tablet_schema->num_columns()) {
@@ -533,7 +533,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 
     if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&
         _tablet_schema->num_variant_columns() > 0) {
-        RETURN_IF_ERROR(vectorized::variant_util::parse_and_materialize_variant_columns(
+        RETURN_IF_ERROR(variant_util::parse_and_materialize_variant_columns(
                 full_block, *_tablet_schema, including_cids));
     }
     RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_columns(
@@ -541,8 +541,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 
     bool have_input_seq_column = false;
     // write including columns
-    std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
-    vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
+    std::vector<IOlapColumnDataAccessor*> key_columns;
+    IOlapColumnDataAccessor* seq_column = nullptr;
     size_t segment_start_pos = 0;
     for (auto cid : including_cids) {
         // here we get segment column row num before append data.
@@ -676,7 +676,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     return Status::OK();
 }
 
-Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_pos,
+Status SegmentWriter::append_block(const Block* block, size_t row_pos,
                                    size_t num_rows) {
     if (_opts.rowset_ctx->partial_update_info &&
         _opts.rowset_ctx->partial_update_info->is_partial_update() &&
@@ -712,8 +712,8 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
 
     if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&
         _tablet_schema->num_variant_columns() > 0) {
-        RETURN_IF_ERROR(vectorized::variant_util::parse_and_materialize_variant_columns(
-                const_cast<vectorized::Block&>(*block), *_tablet_schema, _column_ids));
+        RETURN_IF_ERROR(variant_util::parse_and_materialize_variant_columns(
+                const_cast<Block&>(*block), *_tablet_schema, _column_ids));
     }
 
     _olap_data_convertor->set_source_content(block, row_pos, num_rows);
@@ -735,8 +735,8 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     }
 
     // convert column data from engine format to storage layer format
-    std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
-    vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
+    std::vector<IOlapColumnDataAccessor*> key_columns;
+    IOlapColumnDataAccessor* seq_column = nullptr;
     for (size_t id = 0; id < _column_writers.size(); ++id) {
         // olap data convertor alway start from id = 0
         auto converted_result = _olap_data_convertor->convert_column_data(id);
@@ -820,7 +820,7 @@ int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
 }
 
 std::string SegmentWriter::_full_encode_keys(
-        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
+        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos,
         bool null_first) {
     assert(_key_index_size.size() == _num_sort_key_columns);
     assert(key_columns.size() == _num_sort_key_columns &&
@@ -830,7 +830,7 @@ std::string SegmentWriter::_full_encode_keys(
 
 std::string SegmentWriter::_full_encode_keys(
         const std::vector<const KeyCoder*>& key_coders,
-        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
+        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos,
         bool null_first) {
     assert(key_columns.size() == key_coders.size());
 
@@ -855,7 +855,7 @@ std::string SegmentWriter::_full_encode_keys(
     return encoded_keys;
 }
 
-void SegmentWriter::_encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column,
+void SegmentWriter::_encode_seq_column(const IOlapColumnDataAccessor* seq_column,
                                        size_t pos, std::string* encoded_keys) {
     auto field = seq_column->get_data_at(pos);
     // To facilitate the use of the primary key index, encode the seq column
@@ -877,7 +877,7 @@ void SegmentWriter::_encode_rowid(const uint32_t rowid, std::string* encoded_key
 }
 
 std::string SegmentWriter::_encode_keys(
-        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos) {
+        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos) {
     assert(key_columns.size() == _num_short_key_columns);
 
     std::string encoded_keys;
@@ -1225,8 +1225,8 @@ void SegmentWriter::set_mow_context(std::shared_ptr<MowContext> mow_context) {
 
 Status SegmentWriter::_generate_primary_key_index(
         const std::vector<const KeyCoder*>& primary_key_coders,
-        const std::vector<vectorized::IOlapColumnDataAccessor*>& primary_key_columns,
-        vectorized::IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort) {
+        const std::vector<IOlapColumnDataAccessor*>& primary_key_columns,
+        IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort) {
     if (!need_sort) { // mow table without cluster key
         std::string last_key;
         for (size_t pos = 0; pos < num_rows; pos++) {
@@ -1259,7 +1259,7 @@ Status SegmentWriter::_generate_primary_key_index(
 }
 
 Status SegmentWriter::_generate_short_key_index(
-        std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t num_rows,
+        std::vector<IOlapColumnDataAccessor*>& key_columns, size_t num_rows,
         const std::vector<size_t>& short_key_pos) {
     // use _key_coders
     set_min_key(_full_encode_keys(key_columns, 0));

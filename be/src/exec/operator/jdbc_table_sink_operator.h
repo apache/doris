@@ -22,18 +22,18 @@
 #include "exec/operator/operator.h"
 #include "exec/sink/writer/vjdbc_table_writer.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class JdbcTableSinkOperatorX;
 class JdbcTableSinkLocalState final
-        : public AsyncWriterSink<vectorized::VJdbcTableWriter, JdbcTableSinkOperatorX> {
+        : public AsyncWriterSink<VJdbcTableWriter, JdbcTableSinkOperatorX> {
     ENABLE_FACTORY_CREATOR(JdbcTableSinkLocalState);
 
 public:
-    using Base = AsyncWriterSink<vectorized::VJdbcTableWriter, JdbcTableSinkOperatorX>;
+    using Base = AsyncWriterSink<VJdbcTableWriter, JdbcTableSinkOperatorX>;
     JdbcTableSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : AsyncWriterSink<vectorized::VJdbcTableWriter, JdbcTableSinkOperatorX>(parent, state) {
+            : AsyncWriterSink<VJdbcTableWriter, JdbcTableSinkOperatorX>(parent, state) {
     }
 
 private:
@@ -47,18 +47,18 @@ public:
     Status init(const TDataSink& thrift_sink) override;
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
 
 private:
     friend class JdbcTableSinkLocalState;
     template <typename Writer, typename Parent>
-        requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
+        requires(std::is_base_of_v<AsyncResultWriter, Writer>)
     friend class AsyncWriterSink;
 
     const RowDescriptor& _row_desc;
     const std::vector<TExpr>& _t_output_expr;
-    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+    VExprContextSPtrs _output_vexpr_ctxs;
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

@@ -28,7 +28,7 @@
 #include "exprs/vexpr.h"
 #include "util/pretty_printer.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 class PartitionedAggSinkOperatorX;
 class PartitionedAggSinkLocalState
@@ -61,7 +61,7 @@ public:
     template <typename KeyType>
     struct TmpSpillInfo {
         std::vector<KeyType> keys_;
-        std::vector<vectorized::AggregateDataPtr> values_;
+        std::vector<AggregateDataPtr> values_;
     };
 
     template <typename HashTableCtxType, typename HashTableType>
@@ -71,13 +71,13 @@ public:
     template <typename HashTableCtxType, typename KeyType>
     Status _spill_partition(RuntimeState* state, HashTableCtxType& context,
                             AggSpillPartitionSPtr& spill_partition, std::vector<KeyType>& keys,
-                            std::vector<vectorized::AggregateDataPtr>& values,
-                            const vectorized::AggregateDataPtr null_key_data, bool is_last);
+                            std::vector<AggregateDataPtr>& values,
+                            const AggregateDataPtr null_key_data, bool is_last);
 
     template <typename HashTableCtxType, typename KeyType>
     Status to_block(HashTableCtxType& context, std::vector<KeyType>& keys,
-                    std::vector<vectorized::AggregateDataPtr>& values,
-                    const vectorized::AggregateDataPtr null_key_data);
+                    std::vector<AggregateDataPtr>& values,
+                    const AggregateDataPtr null_key_data);
 
     void _reset_tmp_data();
     void _clear_tmp_data();
@@ -86,12 +86,12 @@ public:
     std::unique_ptr<RuntimeState> _runtime_state;
 
     // temp structures during spilling
-    vectorized::MutableColumns key_columns_;
-    vectorized::MutableColumns value_columns_;
-    vectorized::DataTypes value_data_types_;
-    vectorized::Block block_;
-    vectorized::Block key_block_;
-    vectorized::Block value_block_;
+    MutableColumns key_columns_;
+    MutableColumns value_columns_;
+    DataTypes value_data_types_;
+    Block block_;
+    Block key_block_;
+    Block value_block_;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
     RuntimeProfile::Counter* _memory_usage_reserved = nullptr;
@@ -115,7 +115,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
 
     void update_operator(const TPlanNode& tnode, bool followed_by_shuffled_operator,
                          bool require_bucket_distribution) override {
@@ -152,4 +152,4 @@ private:
     size_t _spill_partition_count = 32;
 };
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

@@ -35,7 +35,7 @@
 #include "runtime/runtime_state.h"
 #include "util/url_coding.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 namespace {
@@ -129,7 +129,7 @@ Status PaimonCppReader::get_next_block(Block* block, size_t* read_rows, bool* eo
             // Skip columns that are not in the block (e.g., partition columns handled elsewhere)
             continue;
         }
-        const vectorized::ColumnWithTypeAndName& column_with_name =
+        const ColumnWithTypeAndName& column_with_name =
                 block->get_by_position(it->second);
         try {
             RETURN_IF_ERROR(column_with_name.type->get_serde()->read_column_from_arrow(
@@ -333,4 +333,4 @@ std::map<std::string, std::string> PaimonCppReader::_build_options() const {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

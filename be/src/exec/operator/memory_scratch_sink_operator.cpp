@@ -27,7 +27,7 @@
 #include "format/arrow/arrow_row_batch.h"
 #include "runtime/record_batch_queue.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 Status MemoryScratchSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -75,19 +75,19 @@ MemoryScratchSinkOperatorX::MemoryScratchSinkOperatorX(const RowDescriptor& row_
 Status MemoryScratchSinkOperatorX::init(const TDataSink& thrift_sink) {
     RETURN_IF_ERROR(DataSinkOperatorX<MemoryScratchSinkLocalState>::init(thrift_sink));
     // From the thrift expressions create the real exprs.
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
     return Status::OK();
 }
 
 Status MemoryScratchSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<MemoryScratchSinkLocalState>::prepare(state));
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
+    RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     _timezone_obj = state->timezone_obj();
-    RETURN_IF_ERROR(vectorized::VExpr::open(_output_vexpr_ctxs, state));
+    RETURN_IF_ERROR(VExpr::open(_output_vexpr_ctxs, state));
     return Status::OK();
 }
 
-Status MemoryScratchSinkOperatorX::sink(RuntimeState* state, vectorized::Block* input_block,
+Status MemoryScratchSinkOperatorX::sink(RuntimeState* state, Block* input_block,
                                         bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -98,10 +98,10 @@ Status MemoryScratchSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     std::shared_ptr<arrow::RecordBatch> result;
     // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
     // failed, just return the error status
-    vectorized::Block block;
+    Block block;
     {
         SCOPED_TIMER(local_state._evaluation_timer);
-        RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
+        RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(
                 local_state._output_vexpr_ctxs, *input_block, &block));
     }
     std::shared_ptr<arrow::Schema> block_arrow_schema;
@@ -122,4 +122,4 @@ Status MemoryScratchSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     return Status::OK();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

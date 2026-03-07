@@ -32,9 +32,9 @@ namespace {
 // --------------------------------------------------------------------------
 class DefaultNestedGroupWriteProvider final : public NestedGroupWriteProvider {
 public:
-    Status prepare(const vectorized::ColumnVariant& /*variant*/, bool /*include_jsonb_subcolumns*/,
+    Status prepare(const ColumnVariant& /*variant*/, bool /*include_jsonb_subcolumns*/,
                    const TabletColumn* /*tablet_column*/, const ColumnWriterOptions& /*opts*/,
-                   vectorized::OlapBlockDataConvertor* /*converter*/, size_t /*num_rows*/,
+                   OlapBlockDataConvertor* /*converter*/, size_t /*num_rows*/,
                    int* /*column_id*/, VariantStatistics* /*statistics*/) override {
         // No-op: NestedGroup write is not available in this build.
         return Status::OK();
@@ -72,10 +72,10 @@ public:
     bool try_build_read_plan(
             const TabletSchema* /*tablet_schema*/, const NestedGroupReaders& /*readers*/,
             const TabletColumn& /*target_col*/, const StorageReadOptions* /*opt*/,
-            int32_t /*col_uid*/, const vectorized::PathInData& /*relative_path*/,
+            int32_t /*col_uid*/, const PathInData& /*relative_path*/,
             // outputs:
-            bool* /*out_is_whole*/, vectorized::DataTypePtr* /*out_type*/,
-            vectorized::PathInData* /*out_relative_path*/, std::string* /*out_child_path*/,
+            bool* /*out_is_whole*/, DataTypePtr* /*out_type*/,
+            PathInData* /*out_relative_path*/, std::string* /*out_child_path*/,
             std::string* /*out_pruned_path*/, std::vector<const NestedGroupReader*>* /*out_chain*/,
             std::optional<NestedGroupPathFilter>* /*out_path_filter*/) const override {
         // Always returns false: NestedGroup read planning is not available.
@@ -88,7 +88,7 @@ public:
                                         const std::string& /*pruned_path*/,
                                         const std::optional<NestedGroupPathFilter>& /*path_filter*/,
                                         ColumnIteratorUPtr* /*out_iter*/,
-                                        vectorized::DataTypePtr* /*out_type*/) override {
+                                        DataTypePtr* /*out_type*/) override {
         return Status::NotSupported("NestedGroup iterator is not available in this build");
     }
 
@@ -127,7 +127,7 @@ NestedGroupPathMatch find_in_nested_groups(const NestedGroupReaders& readers,
 }
 
 Status collect_nested_group_routing_paths_from_variant_jsonb(
-        const vectorized::ColumnVariant& /*variant*/, std::vector<std::string>* out_ng_paths,
+        const ColumnVariant& /*variant*/, std::vector<std::string>* out_ng_paths,
         std::vector<std::string>* out_conflict_paths) {
     if (out_ng_paths == nullptr || out_conflict_paths == nullptr) {
         return Status::InvalidArgument("out_ng_paths or out_conflict_paths is null");

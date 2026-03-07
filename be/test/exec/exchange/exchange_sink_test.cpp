@@ -23,8 +23,7 @@
 
 #include "exec/operator/exchange_sink_buffer.h"
 
-namespace doris::vectorized {
-using namespace pipeline;
+namespace doris {
 TEST_F(ExchangeSinkTest, test_normal_end) {
     {
         auto state = create_runtime_state();
@@ -234,4 +233,4 @@ TEST_F(ExchangeSinkTest, test_queue_size) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

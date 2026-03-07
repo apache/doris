@@ -37,7 +37,6 @@ class RuntimeState;
 class SlotDescriptor;
 class TupleDescriptor;
 
-namespace vectorized {
 
 class Block;
 class IColumn;
@@ -94,7 +93,7 @@ public:
 
     Status get_next(bool* eos, Block* block, int batch_size);
 
-    Status append(vectorized::Block* block, const vectorized::VExprContextSPtrs& _output_vexpr_ctxs,
+    Status append(Block* block, const VExprContextSPtrs& _output_vexpr_ctxs,
                   uint32_t start_send_row, uint32_t* num_rows_sent,
                   TOdbcTableType::type table_type = TOdbcTableType::MYSQL) override;
 
@@ -171,5 +170,4 @@ private:
     JdbcStatistic _jdbc_statistic;
 };
 
-} // namespace vectorized
 } // namespace doris

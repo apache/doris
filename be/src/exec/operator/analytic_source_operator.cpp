@@ -24,7 +24,7 @@
 #include "exec/operator/operator.h"
 #include "exprs/vectorized_agg_fn.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* parent)
@@ -43,7 +43,7 @@ AnalyticSourceOperatorX::AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNo
                                                  int operator_id, const DescriptorTbl& descs)
         : OperatorX<AnalyticLocalState>(pool, tnode, operator_id, descs) {}
 
-Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* output_block,
+Status AnalyticSourceOperatorX::get_block(RuntimeState* state, Block* output_block,
                                           bool* eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
@@ -91,4 +91,4 @@ Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

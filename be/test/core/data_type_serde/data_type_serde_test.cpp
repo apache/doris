@@ -56,7 +56,7 @@
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 inline void column_to_pb(const DataTypePtr data_type, const IColumn& col, PValues* result) {
     const DataTypeSerDeSPtr serde = data_type->get_serde();
@@ -85,29 +85,29 @@ inline void check_pb_col(const DataTypePtr data_type, const IColumn& col) {
 inline void serialize_and_deserialize_pb_test() {
     // int
     {
-        auto vec = vectorized::ColumnInt32::create();
+        auto vec = ColumnInt32::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
         }
-        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt32>());
+        DataTypePtr data_type(std::make_shared<DataTypeInt32>());
         check_pb_col(data_type, *vec.get());
     }
     // string
     {
-        auto strcol = vectorized::ColumnString::create();
+        auto strcol = ColumnString::create();
         for (int i = 0; i < 1024; ++i) {
             std::string is = std::to_string(i);
             strcol->insert_data(is.c_str(), is.size());
         }
-        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
+        DataTypePtr data_type(std::make_shared<DataTypeString>());
         check_pb_col(data_type, *strcol.get());
     }
     // decimal
     {
-        vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
+        DataTypePtr decimal_data_type(doris::create_decimal(27, 9, true));
         auto decimal_column = decimal_data_type->create_column();
-        auto& data = ((vectorized::ColumnDecimal128V3*)decimal_column.get())->get_data();
+        auto& data = ((ColumnDecimal128V3*)decimal_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
             data.push_back(value);
@@ -116,10 +116,10 @@ inline void serialize_and_deserialize_pb_test() {
     }
     // bitmap
     {
-        vectorized::DataTypePtr bitmap_data_type(std::make_shared<vectorized::DataTypeBitMap>());
+        DataTypePtr bitmap_data_type(std::make_shared<DataTypeBitMap>());
         auto bitmap_column = bitmap_data_type->create_column();
         std::vector<BitmapValue>& container =
-                ((vectorized::ColumnBitmap*)bitmap_column.get())->get_data();
+                ((ColumnBitmap*)bitmap_column.get())->get_data();
         for (int i = 0; i < 4; ++i) {
             BitmapValue bv;
             for (int j = 0; j <= i; ++j) {
@@ -131,10 +131,10 @@ inline void serialize_and_deserialize_pb_test() {
     }
     // hll
     {
-        vectorized::DataTypePtr hll_data_type(std::make_shared<vectorized::DataTypeHLL>());
+        DataTypePtr hll_data_type(std::make_shared<DataTypeHLL>());
         auto hll_column = hll_data_type->create_column();
         std::vector<HyperLogLog>& container =
-                ((vectorized::ColumnHLL*)hll_column.get())->get_data();
+                ((ColumnHLL*)hll_column.get())->get_data();
         for (int i = 0; i < 4; ++i) {
             HyperLogLog hll;
             hll.update(i);
@@ -144,11 +144,11 @@ inline void serialize_and_deserialize_pb_test() {
     }
     // quantilestate
     {
-        vectorized::DataTypePtr quantile_data_type(
-                std::make_shared<vectorized::DataTypeQuantileState>());
+        DataTypePtr quantile_data_type(
+                std::make_shared<DataTypeQuantileState>());
         auto quantile_column = quantile_data_type->create_column();
         std::vector<QuantileState>& container =
-                ((vectorized::ColumnQuantileState*)quantile_column.get())->get_data();
+                ((ColumnQuantileState*)quantile_column.get())->get_data();
         const long max_rand = 1000000L;
         double lower_bound = 0;
         double upper_bound = 100;
@@ -164,41 +164,41 @@ inline void serialize_and_deserialize_pb_test() {
     }
     // nullable string
     {
-        vectorized::DataTypePtr string_data_type(std::make_shared<vectorized::DataTypeString>());
-        vectorized::DataTypePtr nullable_data_type(
-                std::make_shared<vectorized::DataTypeNullable>(string_data_type));
+        DataTypePtr string_data_type(std::make_shared<DataTypeString>());
+        DataTypePtr nullable_data_type(
+                std::make_shared<DataTypeNullable>(string_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
+        ((ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         check_pb_col(nullable_data_type, *nullable_column.get());
     }
     // nullable decimal
     {
-        vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
-        vectorized::DataTypePtr nullable_data_type(
-                std::make_shared<vectorized::DataTypeNullable>(decimal_data_type));
+        DataTypePtr decimal_data_type(doris::create_decimal(27, 9, true));
+        DataTypePtr nullable_data_type(
+                std::make_shared<DataTypeNullable>(decimal_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
+        ((ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         check_pb_col(nullable_data_type, *nullable_column.get());
     }
     // int with 1024 batch size
     // ipv4
     {
-        auto vec = vectorized::ColumnIPv4 ::create();
+        auto vec = ColumnIPv4 ::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
         }
-        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv4>());
+        DataTypePtr data_type(std::make_shared<DataTypeIPv4>());
         check_pb_col(data_type, *vec.get());
     }
     // ipv6
     {
-        auto vec = vectorized::ColumnIPv6::create();
+        auto vec = ColumnIPv6::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
         }
-        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv6>());
+        DataTypePtr data_type(std::make_shared<DataTypeIPv6>());
         check_pb_col(data_type, *vec.get());
     }
 }
@@ -214,12 +214,12 @@ TEST(DataTypeSerDeTest, DataTypeRowStoreSerDeTest) {
     // ipv6
     {
         std::string ip = "5be8:dde9:7f0b:d5a7:bd01:b3be:9c69:573b";
-        auto vec = vectorized::ColumnIPv6::create();
+        auto vec = ColumnIPv6::create();
         IPv6Value ipv6;
         EXPECT_TRUE(ipv6.from_string(ip));
         vec->insert(Field::create_field<TYPE_IPV6>(ipv6.value()));
 
-        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv6>());
+        DataTypePtr data_type(std::make_shared<DataTypeIPv6>());
         auto serde = data_type->get_serde(0);
         JsonbWriterT<JsonbOutStream> jsonb_writer;
         Arena pool;
@@ -246,12 +246,12 @@ TEST(DataTypeSerDeTest, DataTypeRowStoreSerDeTest) {
     // ipv4
     {
         std::string ip = "192.0.0.1";
-        auto vec = vectorized::ColumnIPv4::create();
+        auto vec = ColumnIPv4::create();
         IPv4Value ipv4;
         EXPECT_TRUE(ipv4.from_string(ip));
         vec->insert(Field::create_field<TYPE_IPV4>(ipv4.value()));
 
-        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv4>());
+        DataTypePtr data_type(std::make_shared<DataTypeIPv4>());
         auto serde = data_type->get_serde(0);
         JsonbWriterT<JsonbOutStream> jsonb_writer;
         Arena pool;
@@ -650,4 +650,4 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_FALSE(arr[2].is_null());
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

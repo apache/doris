@@ -33,7 +33,7 @@ public:
 // ==================== Integer Types Tests ====================
 
 TEST_F(InvertedIndexQueryParamTest, TestBooleanWithField) {
-    auto field = vectorized::Field::create_field<TYPE_BOOLEAN>(static_cast<vectorized::UInt8>(1));
+    auto field = Field::create_field<TYPE_BOOLEAN>(static_cast<UInt8>(1));
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_BOOLEAN,
                                                                      &field, param);
@@ -44,7 +44,7 @@ TEST_F(InvertedIndexQueryParamTest, TestBooleanWithField) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestBooleanWithFieldFalse) {
-    auto field = vectorized::Field::create_field<TYPE_BOOLEAN>(static_cast<vectorized::UInt8>(0));
+    auto field = Field::create_field<TYPE_BOOLEAN>(static_cast<UInt8>(0));
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_BOOLEAN,
                                                                      &field, param);
@@ -64,7 +64,7 @@ TEST_F(InvertedIndexQueryParamTest, TestBooleanTemplateWithNativeValue) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestTinyIntWithField) {
-    auto field = vectorized::Field::create_field<TYPE_TINYINT>(static_cast<vectorized::Int8>(42));
+    auto field = Field::create_field<TYPE_TINYINT>(static_cast<Int8>(42));
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_TINYINT,
                                                                      &field, param);
@@ -85,7 +85,7 @@ TEST_F(InvertedIndexQueryParamTest, TestTinyIntTemplateWithNativeValue) {
 
 TEST_F(InvertedIndexQueryParamTest, TestSmallIntWithField) {
     auto field =
-            vectorized::Field::create_field<TYPE_SMALLINT>(static_cast<vectorized::Int16>(1234));
+            Field::create_field<TYPE_SMALLINT>(static_cast<Int16>(1234));
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_SMALLINT,
                                                                      &field, param);
@@ -105,7 +105,7 @@ TEST_F(InvertedIndexQueryParamTest, TestSmallIntTemplateWithNativeValue) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestIntWithField) {
-    auto field = vectorized::Field::create_field<TYPE_INT>(static_cast<vectorized::Int32>(123456));
+    auto field = Field::create_field<TYPE_INT>(static_cast<Int32>(123456));
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_INT,
                                                                      &field, param);
@@ -125,8 +125,8 @@ TEST_F(InvertedIndexQueryParamTest, TestIntTemplateWithNativeValue) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestBigIntWithField) {
-    auto field = vectorized::Field::create_field<TYPE_BIGINT>(
-            static_cast<vectorized::Int64>(9223372036854775807LL));
+    auto field = Field::create_field<TYPE_BIGINT>(
+            static_cast<Int64>(9223372036854775807LL));
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_BIGINT,
                                                                      &field, param);
@@ -146,8 +146,8 @@ TEST_F(InvertedIndexQueryParamTest, TestBigIntTemplateWithNativeValue) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestLargeIntWithField) {
-    vectorized::Int128 large_value = 12345678901234567890ULL;
-    auto field = vectorized::Field::create_field<TYPE_LARGEINT>(large_value);
+    Int128 large_value = 12345678901234567890ULL;
+    auto field = Field::create_field<TYPE_LARGEINT>(large_value);
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_LARGEINT,
                                                                      &field, param);
@@ -170,7 +170,7 @@ TEST_F(InvertedIndexQueryParamTest, TestLargeIntTemplateWithNativeValue) {
 
 TEST_F(InvertedIndexQueryParamTest, TestFloatWithField) {
     auto field =
-            vectorized::Field::create_field<TYPE_FLOAT>(static_cast<vectorized::Float32>(3.14f));
+            Field::create_field<TYPE_FLOAT>(static_cast<Float32>(3.14f));
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_FLOAT,
                                                                      &field, param);
@@ -190,8 +190,8 @@ TEST_F(InvertedIndexQueryParamTest, TestFloatTemplateWithNativeValue) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestDoubleWithField) {
-    auto field = vectorized::Field::create_field<TYPE_DOUBLE>(
-            static_cast<vectorized::Float64>(3.14159265358979));
+    auto field = Field::create_field<TYPE_DOUBLE>(
+            static_cast<Float64>(3.14159265358979));
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_DOUBLE,
                                                                      &field, param);
@@ -213,8 +213,8 @@ TEST_F(InvertedIndexQueryParamTest, TestDoubleTemplateWithNativeValue) {
 // ==================== String Types Tests ====================
 
 TEST_F(InvertedIndexQueryParamTest, TestCharWithField) {
-    vectorized::String str = "hello";
-    auto field = vectorized::Field::create_field<TYPE_STRING>(str);
+    String str = "hello";
+    auto field = Field::create_field<TYPE_STRING>(str);
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_CHAR,
                                                                      &field, param);
@@ -224,8 +224,8 @@ TEST_F(InvertedIndexQueryParamTest, TestCharWithField) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestVarcharWithField) {
-    vectorized::String str = "world";
-    auto field = vectorized::Field::create_field<TYPE_STRING>(str);
+    String str = "world";
+    auto field = Field::create_field<TYPE_STRING>(str);
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_VARCHAR,
                                                                      &field, param);
@@ -235,8 +235,8 @@ TEST_F(InvertedIndexQueryParamTest, TestVarcharWithField) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestStringWithField) {
-    vectorized::String str = "test string content";
-    auto field = vectorized::Field::create_field<TYPE_STRING>(str);
+    String str = "test string content";
+    auto field = Field::create_field<TYPE_STRING>(str);
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_STRING,
                                                                      &field, param);
@@ -279,8 +279,8 @@ TEST_F(InvertedIndexQueryParamTest, TestCharTemplateWithStringRef) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestStringWithEmptyValue) {
-    vectorized::String str = "";
-    auto field = vectorized::Field::create_field<TYPE_STRING>(str);
+    String str = "";
+    auto field = Field::create_field<TYPE_STRING>(str);
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_STRING,
                                                                      &field, param);
@@ -290,8 +290,8 @@ TEST_F(InvertedIndexQueryParamTest, TestStringWithEmptyValue) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestStringWithSpecialCharacters) {
-    vectorized::String str = "hello\nworld\t!@#$%^&*()";
-    auto field = vectorized::Field::create_field<TYPE_STRING>(str);
+    String str = "hello\nworld\t!@#$%^&*()";
+    auto field = Field::create_field<TYPE_STRING>(str);
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_STRING,
                                                                      &field, param);
@@ -304,8 +304,8 @@ TEST_F(InvertedIndexQueryParamTest, TestStringWithSpecialCharacters) {
 
 TEST_F(InvertedIndexQueryParamTest, TestDecimalV2WithField) {
     // DecimalV2 uses Int128 as underlying storage
-    vectorized::Int128 dec_value = 123456789;
-    auto field = vectorized::Field::create_field<TYPE_DECIMALV2>(DecimalV2Value(dec_value));
+    Int128 dec_value = 123456789;
+    auto field = Field::create_field<TYPE_DECIMALV2>(DecimalV2Value(dec_value));
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_DECIMALV2,
                                                                      &field, param);
@@ -315,8 +315,8 @@ TEST_F(InvertedIndexQueryParamTest, TestDecimalV2WithField) {
 
 TEST_F(InvertedIndexQueryParamTest, TestDecimal32WithField) {
     // Decimal32 uses Int64 for Field storage
-    vectorized::Int64 dec_value = 12345;
-    auto field = vectorized::Field::create_field<TYPE_DECIMAL32>(dec_value);
+    Int64 dec_value = 12345;
+    auto field = Field::create_field<TYPE_DECIMAL32>(dec_value);
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_DECIMAL32,
                                                                      &field, param);
@@ -326,8 +326,8 @@ TEST_F(InvertedIndexQueryParamTest, TestDecimal32WithField) {
 
 TEST_F(InvertedIndexQueryParamTest, TestDecimal64WithField) {
     // Decimal64 uses Int64 for Field storage
-    vectorized::Int64 dec_value = 123456789012;
-    auto field = vectorized::Field::create_field<TYPE_DECIMAL64>(dec_value);
+    Int64 dec_value = 123456789012;
+    auto field = Field::create_field<TYPE_DECIMAL64>(dec_value);
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_DECIMAL64,
                                                                      &field, param);
@@ -337,8 +337,8 @@ TEST_F(InvertedIndexQueryParamTest, TestDecimal64WithField) {
 
 TEST_F(InvertedIndexQueryParamTest, TestDecimal128IWithField) {
     // Decimal128I uses Int128 for Field storage
-    vectorized::Int128 dec_value = 123456789012345LL;
-    auto field = vectorized::Field::create_field<TYPE_DECIMAL128I>(dec_value);
+    Int128 dec_value = 123456789012345LL;
+    auto field = Field::create_field<TYPE_DECIMAL128I>(dec_value);
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(
             PrimitiveType::TYPE_DECIMAL128I, &field, param);
@@ -348,9 +348,9 @@ TEST_F(InvertedIndexQueryParamTest, TestDecimal128IWithField) {
 
 TEST_F(InvertedIndexQueryParamTest, TestDecimal256WithField) {
     // Decimal256 uses Int128 for Field storage
-    vectorized::Int128 dec_value = 123456789012345LL;
-    auto field = vectorized::Field::create_field<TYPE_DECIMAL256>(
-            vectorized::Decimal<wide::Int256>(dec_value));
+    Int128 dec_value = 123456789012345LL;
+    auto field = Field::create_field<TYPE_DECIMAL256>(
+            Decimal<wide::Int256>(dec_value));
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_DECIMAL256,
                                                                      &field, param);
@@ -363,7 +363,7 @@ TEST_F(InvertedIndexQueryParamTest, TestDecimal256WithField) {
 TEST_F(InvertedIndexQueryParamTest, TestDateWithField) {
     VecDateTimeValue tmp;
     tmp.from_date_int64(20231205);
-    auto field = vectorized::Field::create_field<TYPE_DATE>(tmp);
+    auto field = Field::create_field<TYPE_DATE>(tmp);
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_DATE,
                                                                      &field, param);
@@ -374,7 +374,7 @@ TEST_F(InvertedIndexQueryParamTest, TestDateWithField) {
 TEST_F(InvertedIndexQueryParamTest, TestDateTimeWithField) {
     VecDateTimeValue tmp;
     tmp.create_from_olap_datetime(20231205120000LL);
-    auto field = vectorized::Field::create_field<TYPE_DATETIME>(tmp);
+    auto field = Field::create_field<TYPE_DATETIME>(tmp);
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_DATETIME,
                                                                      &field, param);
@@ -383,10 +383,10 @@ TEST_F(InvertedIndexQueryParamTest, TestDateTimeWithField) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestDateV2WithField) {
-    vectorized::UInt64 v = 20231205;
+    UInt64 v = 20231205;
     typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType tmp;
     tmp.from_date_int64(v);
-    auto field = vectorized::Field::create_field<TYPE_DATEV2>(tmp);
+    auto field = Field::create_field<TYPE_DATEV2>(tmp);
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_DATEV2,
                                                                      &field, param);
@@ -395,8 +395,8 @@ TEST_F(InvertedIndexQueryParamTest, TestDateV2WithField) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestDateTimeV2WithField) {
-    vectorized::UInt64 v = 20231205120000LL;
-    auto field = vectorized::Field::create_field<TYPE_DATETIMEV2>(
+    UInt64 v = 20231205120000LL;
+    auto field = Field::create_field<TYPE_DATETIMEV2>(
             *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)&v);
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_DATETIMEV2,
@@ -408,7 +408,7 @@ TEST_F(InvertedIndexQueryParamTest, TestDateTimeV2WithField) {
 // ==================== IP Types Tests ====================
 
 TEST_F(InvertedIndexQueryParamTest, TestIPv4WithField) {
-    auto field = vectorized::Field::create_field<TYPE_IPV4>(IPv4(3232235521)); // 192.168.0.1
+    auto field = Field::create_field<TYPE_IPV4>(IPv4(3232235521)); // 192.168.0.1
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_IPV4,
                                                                      &field, param);
@@ -429,7 +429,7 @@ TEST_F(InvertedIndexQueryParamTest, TestIPv4TemplateWithNativeValue) {
 
 TEST_F(InvertedIndexQueryParamTest, TestIPv6WithField) {
     IPv6 ipv6_value = 1;
-    auto field = vectorized::Field::create_field<TYPE_IPV6>(ipv6_value);
+    auto field = Field::create_field<TYPE_IPV6>(ipv6_value);
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_IPV6,
                                                                      &field, param);
@@ -451,7 +451,7 @@ TEST_F(InvertedIndexQueryParamTest, TestIPv6TemplateWithNativeValue) {
 // ==================== Unsupported Type Test ====================
 
 TEST_F(InvertedIndexQueryParamTest, TestUnsupportedType) {
-    auto field = vectorized::Field::create_field<TYPE_BIGINT>(static_cast<vectorized::Int64>(0));
+    auto field = Field::create_field<TYPE_BIGINT>(static_cast<Int64>(0));
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_ARRAY,
                                                                      &field, param);
@@ -460,7 +460,7 @@ TEST_F(InvertedIndexQueryParamTest, TestUnsupportedType) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestUnsupportedTypeMap) {
-    auto field = vectorized::Field::create_field<TYPE_BIGINT>(static_cast<vectorized::Int64>(0));
+    auto field = Field::create_field<TYPE_BIGINT>(static_cast<Int64>(0));
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_MAP,
                                                                      &field, param);
@@ -468,7 +468,7 @@ TEST_F(InvertedIndexQueryParamTest, TestUnsupportedTypeMap) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestUnsupportedTypeStruct) {
-    auto field = vectorized::Field::create_field<TYPE_BIGINT>(static_cast<vectorized::Int64>(0));
+    auto field = Field::create_field<TYPE_BIGINT>(static_cast<Int64>(0));
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_STRUCT,
                                                                      &field, param);
@@ -481,7 +481,7 @@ TEST_F(InvertedIndexQueryParamTest, TestIntegerBoundaryMin) {
     // Test minimum values
     {
         auto field =
-                vectorized::Field::create_field<TYPE_TINYINT>(static_cast<vectorized::Int8>(-128));
+                Field::create_field<TYPE_TINYINT>(static_cast<Int8>(-128));
         std::unique_ptr<InvertedIndexQueryParamFactory> param;
         auto status = InvertedIndexQueryParamFactory::create_query_value(
                 PrimitiveType::TYPE_TINYINT, &field, param);
@@ -490,8 +490,8 @@ TEST_F(InvertedIndexQueryParamTest, TestIntegerBoundaryMin) {
         EXPECT_EQ(*value, -128);
     }
     {
-        auto field = vectorized::Field::create_field<TYPE_SMALLINT>(
-                static_cast<vectorized::Int16>(-32768));
+        auto field = Field::create_field<TYPE_SMALLINT>(
+                static_cast<Int16>(-32768));
         std::unique_ptr<InvertedIndexQueryParamFactory> param;
         auto status = InvertedIndexQueryParamFactory::create_query_value(
                 PrimitiveType::TYPE_SMALLINT, &field, param);
@@ -505,7 +505,7 @@ TEST_F(InvertedIndexQueryParamTest, TestIntegerBoundaryMax) {
     // Test maximum values
     {
         auto field =
-                vectorized::Field::create_field<TYPE_TINYINT>(static_cast<vectorized::Int8>(127));
+                Field::create_field<TYPE_TINYINT>(static_cast<Int8>(127));
         std::unique_ptr<InvertedIndexQueryParamFactory> param;
         auto status = InvertedIndexQueryParamFactory::create_query_value(
                 PrimitiveType::TYPE_TINYINT, &field, param);
@@ -514,8 +514,8 @@ TEST_F(InvertedIndexQueryParamTest, TestIntegerBoundaryMax) {
         EXPECT_EQ(*value, 127);
     }
     {
-        auto field = vectorized::Field::create_field<TYPE_SMALLINT>(
-                static_cast<vectorized::Int16>(32767));
+        auto field = Field::create_field<TYPE_SMALLINT>(
+                static_cast<Int16>(32767));
         std::unique_ptr<InvertedIndexQueryParamFactory> param;
         auto status = InvertedIndexQueryParamFactory::create_query_value(
                 PrimitiveType::TYPE_SMALLINT, &field, param);
@@ -528,7 +528,7 @@ TEST_F(InvertedIndexQueryParamTest, TestIntegerBoundaryMax) {
 TEST_F(InvertedIndexQueryParamTest, TestZeroValues) {
     // Test zero values for different types
     {
-        auto field = vectorized::Field::create_field<TYPE_INT>(static_cast<vectorized::Int32>(0));
+        auto field = Field::create_field<TYPE_INT>(static_cast<Int32>(0));
         std::unique_ptr<InvertedIndexQueryParamFactory> param;
         auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_INT,
                                                                          &field, param);
@@ -538,7 +538,7 @@ TEST_F(InvertedIndexQueryParamTest, TestZeroValues) {
     }
     {
         auto field =
-                vectorized::Field::create_field<TYPE_DOUBLE>(static_cast<vectorized::Float64>(0.0));
+                Field::create_field<TYPE_DOUBLE>(static_cast<Float64>(0.0));
         std::unique_ptr<InvertedIndexQueryParamFactory> param;
         auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_DOUBLE,
                                                                          &field, param);
@@ -551,8 +551,8 @@ TEST_F(InvertedIndexQueryParamTest, TestZeroValues) {
 TEST_F(InvertedIndexQueryParamTest, TestFloatSpecialValues) {
     // Test infinity
     {
-        auto field = vectorized::Field::create_field<TYPE_DOUBLE>(
-                static_cast<vectorized::Float64>(std::numeric_limits<double>::infinity()));
+        auto field = Field::create_field<TYPE_DOUBLE>(
+                static_cast<Float64>(std::numeric_limits<double>::infinity()));
         std::unique_ptr<InvertedIndexQueryParamFactory> param;
         auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_DOUBLE,
                                                                          &field, param);
@@ -562,8 +562,8 @@ TEST_F(InvertedIndexQueryParamTest, TestFloatSpecialValues) {
     }
     // Test negative infinity
     {
-        auto field = vectorized::Field::create_field<TYPE_DOUBLE>(
-                static_cast<vectorized::Float64>(-std::numeric_limits<double>::infinity()));
+        auto field = Field::create_field<TYPE_DOUBLE>(
+                static_cast<Float64>(-std::numeric_limits<double>::infinity()));
         std::unique_ptr<InvertedIndexQueryParamFactory> param;
         auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_DOUBLE,
                                                                          &field, param);
@@ -575,8 +575,8 @@ TEST_F(InvertedIndexQueryParamTest, TestFloatSpecialValues) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestStringWithUnicodeCharacters) {
-    vectorized::String str = "你好世界 🌍 日本語";
-    auto field = vectorized::Field::create_field<TYPE_STRING>(str);
+    String str = "你好世界 🌍 日本語";
+    auto field = Field::create_field<TYPE_STRING>(str);
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_STRING,
                                                                      &field, param);
@@ -587,8 +587,8 @@ TEST_F(InvertedIndexQueryParamTest, TestStringWithUnicodeCharacters) {
 
 TEST_F(InvertedIndexQueryParamTest, TestLongString) {
     std::string long_str(10000, 'x');
-    vectorized::String str(long_str);
-    auto field = vectorized::Field::create_field<TYPE_STRING>(str);
+    String str(long_str);
+    auto field = Field::create_field<TYPE_STRING>(str);
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_STRING,
                                                                      &field, param);

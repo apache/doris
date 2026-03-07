@@ -42,14 +42,14 @@ constexpr size_t MAX_ARROW_UTF8 = (1ULL << 21); // 2G
 
 class RowDescriptor;
 
-Status convert_to_arrow_type(const vectorized::DataTypePtr& type,
+Status convert_to_arrow_type(const DataTypePtr& type,
                              std::shared_ptr<arrow::DataType>* result, const std::string& timezone);
 
-Status get_arrow_schema_from_block(const vectorized::Block& block,
+Status get_arrow_schema_from_block(const Block& block,
                                    std::shared_ptr<arrow::Schema>* result,
                                    const std::string& timezone);
 
-Status get_arrow_schema_from_expr_ctxs(const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
+Status get_arrow_schema_from_expr_ctxs(const VExprContextSPtrs& output_vexpr_ctxs,
                                        std::shared_ptr<arrow::Schema>* result,
                                        const std::string& timezone);
 

@@ -23,7 +23,7 @@
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 SpillIcebergTableSinkLocalState::SpillIcebergTableSinkLocalState(DataSinkOperatorXBase* parent,
@@ -59,7 +59,7 @@ size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state
     }
 
     auto* sort_writer =
-            dynamic_cast<vectorized::VIcebergSortWriter*>(_writer->current_writer().get());
+            dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
     if (!sort_writer || !sort_writer->sorter()) {
         return 0;
     }
@@ -73,7 +73,7 @@ size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* sta
     }
 
     auto* sort_writer =
-            dynamic_cast<vectorized::VIcebergSortWriter*>(_writer->current_writer().get());
+            dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
     if (!sort_writer || !sort_writer->sorter()) {
         return 0;
     }
@@ -91,7 +91,7 @@ Status SpillIcebergTableSinkLocalState::revoke_memory(
     }
 
     auto* sort_writer =
-            dynamic_cast<vectorized::VIcebergSortWriter*>(_writer->current_writer().get());
+            dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
 
     if (!sort_writer || !sort_writer->sorter()) {
         if (spill_context) {
@@ -126,17 +126,17 @@ SpillIcebergTableSinkOperatorX::SpillIcebergTableSinkOperatorX(
 Status SpillIcebergTableSinkOperatorX::init(const TDataSink& thrift_sink) {
     RETURN_IF_ERROR(Base::init(thrift_sink));
     _name = "SPILL_ICEBERG_TABLE_SINK_OPERATOR";
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
     return Status::OK();
 }
 
 Status SpillIcebergTableSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
-    return vectorized::VExpr::open(_output_vexpr_ctxs, state);
+    RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
+    return VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status SpillIcebergTableSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
+Status SpillIcebergTableSinkOperatorX::sink(RuntimeState* state, Block* in_block,
                                             bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -193,4 +193,4 @@ void SpillIcebergTableSinkLocalState::_init_spill_counters() {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

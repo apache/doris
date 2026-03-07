@@ -23,7 +23,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 class AggSinkOperatorX;
 
@@ -43,13 +43,13 @@ protected:
     friend class AggSinkOperatorX;
 
     struct ExecutorBase {
-        virtual Status execute(AggSinkLocalState* local_state, vectorized::Block* block) = 0;
+        virtual Status execute(AggSinkLocalState* local_state, Block* block) = 0;
         virtual void update_memusage(AggSinkLocalState* local_state) = 0;
         virtual ~ExecutorBase() = default;
     };
     template <bool WithoutKey, bool NeedToMerge>
     struct Executor final : public ExecutorBase {
-        Status execute(AggSinkLocalState* local_state, vectorized::Block* block) override {
+        Status execute(AggSinkLocalState* local_state, Block* block) override {
             if constexpr (WithoutKey) {
                 if constexpr (NeedToMerge) {
                     return local_state->_merge_without_key(block);
@@ -73,29 +73,29 @@ protected:
         }
     };
 
-    Status _execute_without_key(vectorized::Block* block);
-    Status _merge_without_key(vectorized::Block* block);
+    Status _execute_without_key(Block* block);
+    Status _merge_without_key(Block* block);
     void _update_memusage_without_key();
-    Status _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
-    Status _execute_with_serialized_key(vectorized::Block* block);
-    Status _merge_with_serialized_key(vectorized::Block* block);
+    Status _init_hash_method(const VExprContextSPtrs& probe_exprs);
+    Status _execute_with_serialized_key(Block* block);
+    Status _merge_with_serialized_key(Block* block);
     void _update_memusage_with_serialized_key();
     template <bool limit>
-    Status _execute_with_serialized_key_helper(vectorized::Block* block);
-    void _find_in_hash_table(vectorized::AggregateDataPtr* places,
-                             vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
-    void _emplace_into_hash_table(vectorized::AggregateDataPtr* places,
-                                  vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
-    bool _emplace_into_hash_table_limit(vectorized::AggregateDataPtr* places,
-                                        vectorized::Block* block, const std::vector<int>& key_locs,
-                                        vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
+    Status _execute_with_serialized_key_helper(Block* block);
+    void _find_in_hash_table(AggregateDataPtr* places,
+                             ColumnRawPtrs& key_columns, uint32_t num_rows);
+    void _emplace_into_hash_table(AggregateDataPtr* places,
+                                  ColumnRawPtrs& key_columns, uint32_t num_rows);
+    bool _emplace_into_hash_table_limit(AggregateDataPtr* places,
+                                        Block* block, const std::vector<int>& key_locs,
+                                        ColumnRawPtrs& key_columns, uint32_t num_rows);
     size_t _get_hash_table_size() const;
 
     template <bool limit, bool for_spill = false>
-    Status _merge_with_serialized_key_helper(vectorized::Block* block);
+    Status _merge_with_serialized_key_helper(Block* block);
 
-    Status _destroy_agg_status(vectorized::AggregateDataPtr data);
-    Status _create_agg_status(vectorized::AggregateDataPtr data);
+    Status _destroy_agg_status(AggregateDataPtr data);
+    Status _create_agg_status(AggregateDataPtr data);
     size_t _memory_usage() const;
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) const;
@@ -116,10 +116,10 @@ protected:
 
     bool _should_limit_output = false;
 
-    vectorized::PODArray<vectorized::AggregateDataPtr> _places;
+    PODArray<AggregateDataPtr> _places;
     std::vector<char> _deserialize_buffer;
 
-    vectorized::Block _preagg_block = vectorized::Block();
+    Block _preagg_block = Block();
 
     AggregatedDataVariants* _agg_data = nullptr;
 
@@ -150,7 +150,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
 
     DataDistribution required_data_distribution(RuntimeState* state) const override {
         if (_partition_exprs.empty()) {
@@ -193,7 +193,7 @@ protected:
 
     using LocalState = AggSinkLocalState;
     friend class AggSinkLocalState;
-    std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
+    std::vector<AggFnEvaluator*> _aggregate_evaluators;
 
     // may be we don't have to know the tuple id
     TupleId _intermediate_tuple_id;
@@ -208,12 +208,12 @@ protected:
 
     size_t _align_aggregate_states = 1;
     /// The offset to the n-th aggregate function in a row of aggregate functions.
-    vectorized::Sizes _offsets_of_aggregate_states;
+    Sizes _offsets_of_aggregate_states;
     /// The total size of the row from the aggregate functions.
     size_t _total_size_of_aggregate_states = 0;
 
     // group by k1,k2
-    vectorized::VExprContextSPtrs _probe_expr_ctxs;
+    VExprContextSPtrs _probe_expr_ctxs;
     ObjectPool* _pool = nullptr;
     std::vector<size_t> _make_nullable_keys;
     int64_t _limit; // -1: no limit
@@ -228,5 +228,5 @@ protected:
     RowDescriptor _agg_fn_output_row_descriptor;
 };
 
-} // namespace doris::pipeline
+} // namespace doris
 #include "common/compile_check_end.h"

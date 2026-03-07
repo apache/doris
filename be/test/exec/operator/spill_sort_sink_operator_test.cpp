@@ -30,7 +30,7 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 class SpillSortSinkOperatorTest : public testing::Test {
 protected:
     void SetUp() override { _helper.SetUp(); }
@@ -125,16 +125,16 @@ TEST_F(SpillSortSinkOperatorTest, Sink) {
     st = sink_local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto input_block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
+    auto input_block = ColumnHelper::create_block<DataTypeInt32>(
             {1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
 
-    input_block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
+    input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(
             {10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &input_block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
-    vectorized::Block empty_block;
+    Block empty_block;
     st = sink_operator->sink(_helper.runtime_state.get(), &empty_block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
@@ -146,15 +146,15 @@ TEST_F(SpillSortSinkOperatorTest, Sink) {
     ASSERT_TRUE(sorter != nullptr);
 
     bool eos = false;
-    std::unique_ptr<vectorized::MutableBlock> mutable_column;
+    std::unique_ptr<MutableBlock> mutable_column;
     while (!eos) {
-        vectorized::Block block;
+        Block block;
         st = sorter->get_next(_helper.runtime_state.get(), &block, &eos);
         ASSERT_TRUE(st.ok()) << "get_next failed: " << st.to_string();
 
         if (!block.empty()) {
             if (mutable_column == nullptr) {
-                mutable_column = vectorized::MutableBlock::create_unique(std::move(block));
+                mutable_column = MutableBlock::create_unique(std::move(block));
             } else {
                 st = mutable_column->merge(std::move(block));
                 ASSERT_TRUE(st.ok()) << "merge failed: " << st.to_string();
@@ -223,10 +223,10 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill) {
     st = sink_local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto input_block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
+    auto input_block = ColumnHelper::create_block<DataTypeInt32>(
             {1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
 
-    input_block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
+    input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(
             {10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &input_block, false);
@@ -235,11 +235,11 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill) {
     st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    auto input_block2 = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
+    auto input_block2 = ColumnHelper::create_block<DataTypeInt32>(
             {1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
 
     input_block2.insert(
-            vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
+            ColumnHelper::create_column_with_name<DataTypeInt64>(
                     {10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &input_block2, false);
@@ -249,7 +249,7 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill) {
 
     // Because there are some rows in the sorter,
     // the sink operator will revoke memory when sinking eos with empty block.
-    vectorized::Block empty_block;
+    Block empty_block;
     st = sink_operator->sink(_helper.runtime_state.get(), &empty_block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
@@ -293,10 +293,10 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill2) {
     st = sink_local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto input_block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
+    auto input_block = ColumnHelper::create_block<DataTypeInt32>(
             {1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
 
-    input_block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
+    input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(
             {10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &input_block, false);
@@ -307,7 +307,7 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill2) {
 
     ASSERT_EQ(sink_operator->revocable_mem_size(_helper.runtime_state.get()), 0);
 
-    vectorized::Block empty_block;
+    Block empty_block;
     st = sink_operator->sink(_helper.runtime_state.get(), &empty_block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
@@ -350,10 +350,10 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpillError) {
     st = sink_local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto input_block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
+    auto input_block = ColumnHelper::create_block<DataTypeInt32>(
             {1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
 
-    input_block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
+    input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(
             {10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &input_block, false);
@@ -366,4 +366,4 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpillError) {
     ASSERT_FALSE(st.ok()) << "spilll status should be failed";
 }
 
-} // namespace doris::pipeline
+} // namespace doris

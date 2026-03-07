@@ -37,7 +37,7 @@
 #include "core/string_view.h"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class ColumnVarbinaryTest : public ::testing::Test {
 protected:
@@ -881,4 +881,4 @@ TEST_F(ColumnVarbinaryTest, InsertManyStringsOverflow) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

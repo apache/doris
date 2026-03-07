@@ -29,11 +29,11 @@
 #include "gtest/gtest_pred_impl.h"
 #include "util/raw_value.h"
 #include "util/string_parser.hpp"
-namespace doris::vectorized {
+namespace doris {
 
 TEST(DecimalTest, Decimal256) {
     // 9999999999999999999999999999999999999999999999999999999999999999999999999999
-    Decimal256 dec1(type_limit<vectorized::Decimal256>::max());
+    Decimal256 dec1(type_limit<Decimal256>::max());
     auto des_str = dec1.to_string(10);
     EXPECT_EQ(des_str,
               "999999999999999999999999999999999999999999999999999999999999999999.9999999999");
@@ -44,7 +44,7 @@ TEST(DecimalTest, Decimal256) {
     EXPECT_EQ(des_str,
               "0.9999999999999999999999999999999999999999999999999999999999999999999999999999");
 
-    auto dec2 = type_limit<vectorized::Decimal256>::min();
+    auto dec2 = type_limit<Decimal256>::min();
     des_str = dec2.to_string(10);
     EXPECT_EQ(des_str,
               "-999999999999999999999999999999999999999999999999999999999999999999.9999999999");
@@ -66,7 +66,7 @@ TEST(DecimalTest, Decimal256) {
               "0.0000000000000000000000000000000000000000000000000000000000000000000000000000");
 
     // minus
-    dec2 = type_limit<vectorized::Decimal256>::max();
+    dec2 = type_limit<Decimal256>::max();
     dec3 = dec1 - dec2;
     des_str = dec3.to_string(10);
     EXPECT_EQ(des_str, "0.0000000000");
@@ -74,8 +74,8 @@ TEST(DecimalTest, Decimal256) {
     // multiply
 
     // divide
-    dec1 = type_limit<vectorized::Decimal256>::max();
-    dec2 = vectorized::Decimal256(10);
+    dec1 = type_limit<Decimal256>::max();
+    dec2 = Decimal256(10);
     dec3 = dec1 / dec2;
     des_str = dec3.to_string(1);
     EXPECT_EQ(des_str,
@@ -85,19 +85,19 @@ TEST(DecimalTest, Decimal256) {
 }
 
 TEST(DecimalTest, compare) {
-    Decimal256 dec_max(type_limit<vectorized::Decimal256>::max());
-    Decimal256 dec_min(type_limit<vectorized::Decimal256>::min());
+    Decimal256 dec_max(type_limit<Decimal256>::max());
+    Decimal256 dec_min(type_limit<Decimal256>::min());
 
-    Decimal256 dec3 = vectorized::Decimal256(10);
-    Decimal256 dec4 = vectorized::Decimal256(9);
-    Decimal256 dec5 = vectorized::Decimal256(-10);
+    Decimal256 dec3 = Decimal256(10);
+    Decimal256 dec4 = Decimal256(9);
+    Decimal256 dec5 = Decimal256(-10);
 
-    Decimal256 dec_max2(type_limit<vectorized::Decimal256>::max());
-    Decimal256 dec_min2(type_limit<vectorized::Decimal256>::min());
+    Decimal256 dec_max2(type_limit<Decimal256>::max());
+    Decimal256 dec_min2(type_limit<Decimal256>::min());
 
-    Decimal256 dec3_2 = vectorized::Decimal256(10);
-    Decimal256 dec4_2 = vectorized::Decimal256(9);
-    Decimal256 dec5_2 = vectorized::Decimal256(-10);
+    Decimal256 dec3_2 = Decimal256(10);
+    Decimal256 dec4_2 = Decimal256(9);
+    Decimal256 dec5_2 = Decimal256(-10);
 
     EXPECT_EQ(dec_max, dec_max2);
     EXPECT_EQ(dec_min, dec_min2);
@@ -147,7 +147,7 @@ TEST(DecimalTest, compare) {
 }
 
 TEST(DecimalTest, string_parser) {
-    Decimal256 dec_max(type_limit<vectorized::Decimal256>::max());
+    Decimal256 dec_max(type_limit<Decimal256>::max());
     std::string dec_str(
             "999999999999999999999999999999999999999999999999999999999999999999.9999999999");
 
@@ -161,11 +161,11 @@ TEST(DecimalTest, crc32) {
     PrimitiveType type = PrimitiveType::TYPE_DECIMAL256;
     DataTypeDecimal256 data_type(76, 10);
     auto col = data_type.create_column();
-    Decimal256 dec_max(type_limit<vectorized::Decimal256>::max());
-    Decimal256 dec_min(type_limit<vectorized::Decimal256>::min());
-    Decimal256 dec3 = vectorized::Decimal256(1);
-    Decimal256 dec4 = vectorized::Decimal256(-1);
-    auto& decimal_data = ((vectorized::ColumnDecimal256*)col.get())->get_data();
+    Decimal256 dec_max(type_limit<Decimal256>::max());
+    Decimal256 dec_min(type_limit<Decimal256>::min());
+    Decimal256 dec3 = Decimal256(1);
+    Decimal256 dec4 = Decimal256(-1);
+    auto& decimal_data = ((ColumnDecimal256*)col.get())->get_data();
     decimal_data.push_back(dec_max);
     decimal_data.push_back(dec_min);
     decimal_data.push_back(dec3);
@@ -192,13 +192,13 @@ TEST(DecimalTest, crc32) {
     EXPECT_EQ(hash_val, 4285311755);
 }
 TEST(DecimalTest, hash) {
-    Decimal256 dec_max(type_limit<vectorized::Decimal256>::max());
-    Decimal256 dec_min(type_limit<vectorized::Decimal256>::min());
-    Decimal256 dec3 = vectorized::Decimal256(12345);
-    Decimal256 dec4 = vectorized::Decimal256(-12345);
+    Decimal256 dec_max(type_limit<Decimal256>::max());
+    Decimal256 dec_min(type_limit<Decimal256>::min());
+    Decimal256 dec3 = Decimal256(12345);
+    Decimal256 dec4 = Decimal256(-12345);
 
     {
-        auto hash_op = std::hash<vectorized::Decimal256>();
+        auto hash_op = std::hash<Decimal256>();
         auto hash_val = hash_op(dec_max);
         EXPECT_EQ(hash_val, 11093810651088735436ULL);
         hash_val = hash_op(dec_min);
@@ -299,8 +299,8 @@ TEST(DecimalTest, to_string) {
     }
 
     {
-        Decimal256 dec(type_limit<vectorized::Decimal256>::max());
-        // Decimal256 dec_min(type_limit<vectorized::Decimal256>::min());
+        Decimal256 dec(type_limit<Decimal256>::max());
+        // Decimal256 dec_min(type_limit<Decimal256>::min());
         auto dec_str = dec.to_string(76, 0);
         EXPECT_EQ(dec_str,
                   "9999999999999999999999999999999999999999999999999999999999999999999999999999");
@@ -312,4 +312,4 @@ TEST(DecimalTest, to_string) {
                   "0.9999999999999999999999999999999999999999999999999999999999999999999999999999");
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

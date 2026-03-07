@@ -29,18 +29,17 @@
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
-namespace doris::pipeline {
+namespace doris {
 
-using namespace vectorized;
 
 class PartitionSortOperatorMockOperator : public OperatorXBase {
 public:
-    Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
+    Status get_block_after_projects(RuntimeState* state, Block* block,
                                     bool* eos) override {
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override {
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
         return Status::OK();
     }
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
@@ -109,7 +108,7 @@ struct PartitionSortOperatorTest : public ::testing::Test {
                     MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
         }
         _child_op->_mock_row_desc.reset(
-                new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>()}, &pool});
+                new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
 
         EXPECT_TRUE(sink->set_child(_child_op));
 
@@ -161,9 +160,9 @@ struct PartitionSortOperatorTest : public ::testing::Test {
         for (int i = 0; i < 6; i++) {
             data_val2.push_back(i + 666);
         }
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>(data_val1);
+        Block block = ColumnHelper::create_block<DataTypeInt64>(data_val1);
         EXPECT_TRUE(sink->sink(state.get(), &block, false));
-        vectorized::Block block2 = ColumnHelper::create_block<DataTypeInt64>(data_val2);
+        Block block2 = ColumnHelper::create_block<DataTypeInt64>(data_val2);
         EXPECT_TRUE(sink->sink(state.get(), &block2, true));
         bool eos = false;
         Block output_block;
@@ -174,7 +173,7 @@ struct PartitionSortOperatorTest : public ::testing::Test {
             for (int i = 0; i < topn_num; i++) {
                 expect_vals.push_back(data_val1[0]);
             }
-            vectorized::Block result_block = ColumnHelper::create_block<DataTypeInt64>(expect_vals);
+            Block result_block = ColumnHelper::create_block<DataTypeInt64>(expect_vals);
             EXPECT_TRUE(ColumnHelper::block_equal(result_block, output_block));
             EXPECT_EQ(output_block.rows(), topn_num);
         } else {
@@ -233,7 +232,7 @@ TEST_F(PartitionSortOperatorTest, test_one_partition) {
 }
 
 TEST_F(PartitionSortOperatorTest, TestWithoutKey) {
-    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeInt32>()};
+    std::vector<DataTypePtr> types {std::make_shared<DataTypeInt32>()};
     std::unique_ptr<PartitionedHashMapVariants> _variants =
             std::make_unique<PartitionedHashMapVariants>();
     _variants->init(types, HashKeyType::without_key);
@@ -241,127 +240,127 @@ TEST_F(PartitionSortOperatorTest, TestWithoutKey) {
 }
 
 TEST_F(PartitionSortOperatorTest, TestSerializedKey) {
-    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeString>()};
+    std::vector<DataTypePtr> types {std::make_shared<DataTypeString>()};
     std::unique_ptr<PartitionedHashMapVariants> _variants =
             std::make_unique<PartitionedHashMapVariants>();
     _variants->init(types, HashKeyType::serialized);
-    ASSERT_TRUE(std::holds_alternative<vectorized::MethodSerialized<PartitionDataWithStringKey>>(
+    ASSERT_TRUE(std::holds_alternative<MethodSerialized<PartitionDataWithStringKey>>(
             _variants->method_variant));
 }
 
 TEST_F(PartitionSortOperatorTest, TestNumericKeys) {
-    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeInt32>()};
+    std::vector<DataTypePtr> types {std::make_shared<DataTypeInt32>()};
     std::unique_ptr<PartitionedHashMapVariants> _variants =
             std::make_unique<PartitionedHashMapVariants>();
     // Test int8 key
     _variants->init(types, HashKeyType::int8_key);
     auto value = std::holds_alternative<
-            vectorized::MethodOneNumber<vectorized::UInt8, PartitionData<vectorized::UInt8>>>(
+            MethodOneNumber<UInt8, PartitionData<UInt8>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int16 key
     _variants->init(types, HashKeyType::int16_key);
     value = std::holds_alternative<
-            vectorized::MethodOneNumber<vectorized::UInt16, PartitionData<vectorized::UInt16>>>(
+            MethodOneNumber<UInt16, PartitionData<UInt16>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int32 key
     _variants->init(types, HashKeyType::int32_key);
     value = std::holds_alternative<
-            vectorized::MethodOneNumber<vectorized::UInt32, PartitionData<vectorized::UInt32>>>(
+            MethodOneNumber<UInt32, PartitionData<UInt32>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int64 key
     _variants->init(types, HashKeyType::int64_key);
     value = std::holds_alternative<
-            vectorized::MethodOneNumber<vectorized::UInt64, PartitionData<vectorized::UInt64>>>(
+            MethodOneNumber<UInt64, PartitionData<UInt64>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int128 key
     _variants->init(types, HashKeyType::int128_key);
     value = std::holds_alternative<
-            vectorized::MethodOneNumber<vectorized::UInt128, PartitionData<vectorized::UInt128>>>(
+            MethodOneNumber<UInt128, PartitionData<UInt128>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int256 key
     _variants->init(types, HashKeyType::int256_key);
     value = std::holds_alternative<
-            vectorized::MethodOneNumber<vectorized::UInt256, PartitionData<vectorized::UInt256>>>(
+            MethodOneNumber<UInt256, PartitionData<UInt256>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 }
 
 TEST_F(PartitionSortOperatorTest, TestNullableKeys) {
-    auto nullable_type = std::make_shared<vectorized::DataTypeNullable>(
-            std::make_shared<vectorized::DataTypeInt32>());
-    std::vector<vectorized::DataTypePtr> types {nullable_type};
+    auto nullable_type = std::make_shared<DataTypeNullable>(
+            std::make_shared<DataTypeInt32>());
+    std::vector<DataTypePtr> types {nullable_type};
     std::unique_ptr<PartitionedHashMapVariants> _variants =
             std::make_unique<PartitionedHashMapVariants>();
     // Test nullable int32
     _variants->init(types, HashKeyType::int32_key);
     auto value = std::holds_alternative<
-            vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                    vectorized::UInt32, DataWithNullKey<PartitionData<vectorized::UInt32>>>>>(
+            MethodSingleNullableColumn<MethodOneNumber<
+                    UInt32, DataWithNullKey<PartitionData<UInt32>>>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test nullable string
     _variants->init(types, HashKeyType::string_key);
-    auto value2 = std::holds_alternative<vectorized::MethodSingleNullableColumn<
-            vectorized::MethodStringNoCache<DataWithNullKey<PartitionDataWithShortStringKey>>>>(
+    auto value2 = std::holds_alternative<MethodSingleNullableColumn<
+            MethodStringNoCache<DataWithNullKey<PartitionDataWithShortStringKey>>>>(
             _variants->method_variant);
     ASSERT_TRUE(value2);
 
     // Test not nullable string
-    auto string_type = std::make_shared<vectorized::DataTypeString>();
-    std::vector<vectorized::DataTypePtr> types2 {string_type};
+    auto string_type = std::make_shared<DataTypeString>();
+    std::vector<DataTypePtr> types2 {string_type};
     _variants->init(types2, HashKeyType::string_key);
     auto value3 = std::holds_alternative<
-            vectorized::MethodStringNoCache<PartitionDataWithShortStringKey>>(
+            MethodStringNoCache<PartitionDataWithShortStringKey>>(
             _variants->method_variant);
     ASSERT_TRUE(value3);
 }
 
 TEST_F(PartitionSortOperatorTest, TestFixedKeys) {
-    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeInt32>(),
-                                                std::make_shared<vectorized::DataTypeInt32>()};
+    std::vector<DataTypePtr> types {std::make_shared<DataTypeInt32>(),
+                                                std::make_shared<DataTypeInt32>()};
     std::unique_ptr<PartitionedHashMapVariants> _variants =
             std::make_unique<PartitionedHashMapVariants>();
     // Test fixed64
     _variants->init(types, HashKeyType::fixed64);
     ASSERT_TRUE(
-            std::holds_alternative<vectorized::MethodKeysFixed<PartitionData<vectorized::UInt64>>>(
+            std::holds_alternative<MethodKeysFixed<PartitionData<UInt64>>>(
                     _variants->method_variant));
 
     // Test fixed128
     _variants->init(types, HashKeyType::fixed128);
     ASSERT_TRUE(
-            std::holds_alternative<vectorized::MethodKeysFixed<PartitionData<vectorized::UInt128>>>(
+            std::holds_alternative<MethodKeysFixed<PartitionData<UInt128>>>(
                     _variants->method_variant));
 
     // Test fixed136
     _variants->init(types, HashKeyType::fixed136);
     ASSERT_TRUE(
-            std::holds_alternative<vectorized::MethodKeysFixed<PartitionData<vectorized::UInt136>>>(
+            std::holds_alternative<MethodKeysFixed<PartitionData<UInt136>>>(
                     _variants->method_variant));
 
     // Test fixed256
     _variants->init(types, HashKeyType::fixed256);
     ASSERT_TRUE(
-            std::holds_alternative<vectorized::MethodKeysFixed<PartitionData<vectorized::UInt256>>>(
+            std::holds_alternative<MethodKeysFixed<PartitionData<UInt256>>>(
                     _variants->method_variant));
 }
 
 TEST_F(PartitionSortOperatorTest, TestInvalidKeyType) {
-    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeInt32>()};
+    std::vector<DataTypePtr> types {std::make_shared<DataTypeInt32>()};
     std::unique_ptr<PartitionedHashMapVariants> _variants =
             std::make_unique<PartitionedHashMapVariants>();
     ASSERT_THROW(_variants->init(types, static_cast<HashKeyType>(-1)), Exception);
 }
 
-} // namespace doris::pipeline
+} // namespace doris

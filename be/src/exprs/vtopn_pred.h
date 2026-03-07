@@ -32,7 +32,7 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 // only used for dynamic topn filter
@@ -48,15 +48,15 @@ public:
     bool is_topn_filter() const override { return true; }
 
     static Status create_vtopn_pred(const TExpr& target_expr, int source_node_id,
-                                    vectorized::VExprSPtr& expr) {
-        vectorized::VExprContextSPtr target_ctx;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(target_expr, target_ctx));
+                                    VExprSPtr& expr) {
+        VExprContextSPtr target_ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(target_expr, target_ctx));
 
         TExprNode node;
         node.__set_node_type(TExprNodeType::FUNCTION_CALL);
         node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
         node.__set_is_nullable(target_ctx->root()->is_nullable());
-        expr = vectorized::VTopNPred::create_shared(node, source_node_id, target_ctx);
+        expr = VTopNPred::create_shared(node, source_node_id, target_ctx);
 
         DCHECK(target_ctx->root() != nullptr);
         expr->add_child(target_ctx->root());
@@ -239,4 +239,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

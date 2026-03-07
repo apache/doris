@@ -34,17 +34,17 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 VNumbersTVF::VNumbersTVF(TupleId tuple_id, const TupleDescriptor* tuple_desc)
         : VDataGenFunctionInf(tuple_id, tuple_desc) {}
 
-Status VNumbersTVF::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+Status VNumbersTVF::get_next(RuntimeState* state, Block* block, bool* eos) {
     DCHECK(block->rows() == 0);
     RETURN_IF_CANCELLED(state);
     bool mem_reuse = block->mem_reuse();
     int batch_size = state->batch_size();
-    std::vector<vectorized::MutableColumnPtr> columns(_slot_num);
+    std::vector<MutableColumnPtr> columns(_slot_num);
 
     // now only support one column for tvf numbers
     for (int i = 0; i < _slot_num; ++i) {
@@ -58,7 +58,7 @@ Status VNumbersTVF::get_next(RuntimeState* state, vectorized::Block* block, bool
             *eos = true;
             continue;
         }
-        auto* column_res = assert_cast<vectorized::ColumnInt64*>(columns[i].get()); //BIGINT
+        auto* column_res = assert_cast<ColumnInt64*>(columns[i].get()); //BIGINT
         int64_t end_value = std::min((int64_t)(_next_number + batch_size), _total_numbers);
         if (_use_const) {
             column_res->insert_many_vals(_const_value, end_value - _next_number);
@@ -77,7 +77,7 @@ Status VNumbersTVF::get_next(RuntimeState* state, vectorized::Block* block, bool
     } else {
         size_t n_columns = 0;
         for (const auto* slot_desc : _tuple_desc->slots()) {
-            block->insert(vectorized::ColumnWithTypeAndName(std::move(columns[n_columns++]),
+            block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
                                                             slot_desc->get_data_type_ptr(),
                                                             slot_desc->col_name()));
         }
@@ -96,4 +96,4 @@ Status VNumbersTVF::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ra
     return Status::OK();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

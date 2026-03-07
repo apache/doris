@@ -40,12 +40,12 @@
 #include "util/defer_op.h"
 #include "util/uid_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 VDataStreamRecvr::SenderQueue::SenderQueue(
         VDataStreamRecvr* parent_recvr, int num_senders,
-        std::shared_ptr<pipeline::Dependency> local_channel_dependency)
+        std::shared_ptr<Dependency> local_channel_dependency)
         : _recvr(parent_recvr),
           _is_cancelled(false),
           _num_remaining_senders(num_senders),
@@ -392,7 +392,7 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr,
     int num_queues = is_merging ? num_senders : 1;
     _sender_to_local_channel_dependency.resize(num_queues);
     for (size_t i = 0; i < num_queues; i++) {
-        _sender_to_local_channel_dependency[i] = pipeline::Dependency::create_shared(
+        _sender_to_local_channel_dependency[i] = Dependency::create_shared(
                 _dest_node_id, _dest_node_id, fmt::format("LocalExchangeChannelDependency_{}", i),
                 true);
     }
@@ -492,7 +492,7 @@ std::string VDataStreamRecvr::debug_string() {
     return fmt::to_string(debug_string_buffer);
 }
 
-std::shared_ptr<pipeline::Dependency> VDataStreamRecvr::get_local_channel_dependency(
+std::shared_ptr<Dependency> VDataStreamRecvr::get_local_channel_dependency(
         int sender_id) {
     DCHECK(_sender_to_local_channel_dependency[_is_merging ? sender_id : 0] != nullptr);
     return _sender_to_local_channel_dependency[_is_merging ? sender_id : 0];
@@ -583,4 +583,4 @@ void VDataStreamRecvr::set_sink_dep_always_ready() const {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

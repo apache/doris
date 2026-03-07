@@ -26,7 +26,6 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-namespace vectorized {
 static inline std::pair<UInt32, UInt32> apply_cidr_mask(UInt32 src, UInt8 bits_to_keep) {
     if (bits_to_keep >= 8 * sizeof(UInt32)) {
         return {src, src};
@@ -62,19 +61,18 @@ static inline void apply_cidr_mask(const char* __restrict src, char* __restrict 
     }
 }
 
-} // namespace vectorized
 
 class IPAddressVariant {
 public:
     explicit IPAddressVariant(std::string_view address_str) {
-        vectorized::Int64 v4 = 0;
-        if (vectorized::parse_ipv4_whole(address_str.begin(), address_str.end(),
+        Int64 v4 = 0;
+        if (parse_ipv4_whole(address_str.begin(), address_str.end(),
                                          reinterpret_cast<unsigned char*>(&v4))) {
-            _addr = static_cast<vectorized::UInt32>(v4);
+            _addr = static_cast<UInt32>(v4);
         } else {
             _addr = IPv6AddrType();
             // parse ipv6 in little-endian
-            if (!vectorized::parse_ipv6_whole(address_str.begin(), address_str.end(),
+            if (!parse_ipv6_whole(address_str.begin(), address_str.end(),
                                               std::get<IPv6AddrType>(_addr).data())) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT, "Neither IPv4 nor IPv6 address: '{}'",
                                 address_str);
@@ -82,14 +80,14 @@ public:
         }
     }
 
-    vectorized::UInt32 as_v4() const {
+    UInt32 as_v4() const {
         if (const auto* val = std::get_if<IPv4AddrType>(&_addr)) {
             return *val;
         }
         return 0;
     }
 
-    const vectorized::UInt8* as_v6() const {
+    const UInt8* as_v6() const {
         if (const auto* val = std::get_if<IPv6AddrType>(&_addr)) {
             return val->data();
         }
@@ -97,15 +95,15 @@ public:
     }
 
 private:
-    using IPv4AddrType = vectorized::UInt32;
-    using IPv6AddrType = std::array<vectorized::UInt8, IPV6_BINARY_LENGTH>;
+    using IPv4AddrType = UInt32;
+    using IPv6AddrType = std::array<UInt8, IPV6_BINARY_LENGTH>;
 
     std::variant<IPv4AddrType, IPv6AddrType> _addr;
 };
 
 struct IPAddressCIDR {
     IPAddressVariant _address;
-    vectorized::UInt8 _prefix;
+    UInt8 _prefix;
 };
 
 inline bool match_ipv4_subnet(uint32_t addr, uint32_t cidr_addr, uint8_t prefix) {

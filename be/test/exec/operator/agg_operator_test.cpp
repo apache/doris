@@ -32,7 +32,7 @@
 #include "testutil/mock/mock_agg_fn_evaluator.h"
 #include "testutil/mock/mock_slot_ref.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 auto static init_sink_and_source(std::shared_ptr<AggSinkOperatorX> sink_op,
                                  std::shared_ptr<AggSourceOperatorX> source_op,
@@ -96,7 +96,7 @@ std::shared_ptr<AggSinkOperatorX> create_agg_sink_op(OperatorContext& ctx, bool 
                                                      bool without_key) {
     auto op = std::make_shared<MockAggsinkOperator>();
     op->_aggregate_evaluators.push_back(
-            vectorized::create_mock_agg_fn_evaluator(ctx.pool, is_merge, without_key));
+            create_mock_agg_fn_evaluator(ctx.pool, is_merge, without_key));
     op->_pool = &ctx.pool;
     EXPECT_TRUE(op->prepare(&ctx.state).ok());
     return op;
@@ -106,7 +106,7 @@ std::shared_ptr<AggSourceOperatorX> create_agg_source_op(OperatorContext& ctx, b
                                                          bool needs_finalize) {
     auto op = std::make_shared<MockAggSourceOperator>();
     op->mock_row_descriptor.reset(
-            new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>()}, &ctx.pool});
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &ctx.pool});
     op->_without_key = without_key;
     op->_needs_finalize = needs_finalize;
     EXPECT_TRUE(op->prepare(&ctx.state).ok());
@@ -114,7 +114,6 @@ std::shared_ptr<AggSourceOperatorX> create_agg_source_op(OperatorContext& ctx, b
 }
 
 TEST(AggOperatorTestWithOutGroupBy, test_need_finalize) {
-    using namespace vectorized;
     OperatorContext ctx;
 
     auto sink_op = create_agg_sink_op(ctx, false, true);
@@ -124,13 +123,13 @@ TEST(AggOperatorTestWithOutGroupBy, test_need_finalize) {
     auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
 
     {
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3});
         auto st = sink_op->sink(&ctx.state, &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
     }
 
     {
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos = false;
         auto st = source_op->get_block(&ctx.state, &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -142,7 +141,6 @@ TEST(AggOperatorTestWithOutGroupBy, test_need_finalize) {
 }
 
 TEST(AggOperatorTestWithOutGroupBy, test_no_need_finalize) {
-    using namespace vectorized;
     OperatorContext ctx;
 
     auto sink_op = create_agg_sink_op(ctx, false, true);
@@ -152,13 +150,13 @@ TEST(AggOperatorTestWithOutGroupBy, test_no_need_finalize) {
     auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
 
     {
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3});
         auto st = sink_op->sink(&ctx.state, &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
     }
 
     {
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos = false;
         auto st = source_op->get_block(&ctx.state, &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -169,8 +167,7 @@ TEST(AggOperatorTestWithOutGroupBy, test_no_need_finalize) {
     }
 }
 
-vectorized::Block test_agg_1_phase(vectorized::Block origin_block) {
-    using namespace vectorized;
+Block test_agg_1_phase(Block origin_block) {
     OperatorContext ctx;
 
     auto sink_op = create_agg_sink_op(ctx, false, true);
@@ -181,7 +178,7 @@ vectorized::Block test_agg_1_phase(vectorized::Block origin_block) {
 
     EXPECT_TRUE(sink_op->sink(&ctx.state, &origin_block, true).ok());
 
-    vectorized::Block serialize_block = ColumnHelper::create_block<DataTypeInt64>({});
+    Block serialize_block = ColumnHelper::create_block<DataTypeInt64>({});
 
     bool eos = false;
     EXPECT_TRUE(source_op->get_block(&ctx.state, &serialize_block, &eos).ok());
@@ -193,8 +190,7 @@ vectorized::Block test_agg_1_phase(vectorized::Block origin_block) {
     return serialize_block;
 }
 
-void test_agg_2_phase(vectorized::Block serialize_block) {
-    using namespace vectorized;
+void test_agg_2_phase(Block serialize_block) {
     OperatorContext ctx;
 
     auto sink_op = create_agg_sink_op(ctx, true, false);
@@ -205,7 +201,7 @@ void test_agg_2_phase(vectorized::Block serialize_block) {
 
     EXPECT_TRUE(sink_op->sink(&ctx.state, &serialize_block, true).ok());
 
-    vectorized::Block result_block = ColumnHelper::create_block<DataTypeInt64>({});
+    Block result_block = ColumnHelper::create_block<DataTypeInt64>({});
 
     bool eos = false;
     EXPECT_TRUE(source_op->get_block(&ctx.state, &result_block, &eos).ok());
@@ -217,19 +213,17 @@ void test_agg_2_phase(vectorized::Block serialize_block) {
 }
 
 TEST(AggOperatorTestWithOutGroupBy, test_2_phase) {
-    using namespace vectorized;
     auto serialize_block = test_agg_1_phase(ColumnHelper::create_block<DataTypeInt64>({1, 2, 3}));
     test_agg_2_phase(serialize_block);
 }
 
 TEST(AggOperatorTestWithOutGroupBy, test_multi_input) {
-    using namespace vectorized;
     OperatorContext ctx;
     auto sink_op = std::make_shared<MockAggsinkOperator>();
-    sink_op->_aggregate_evaluators.push_back(vectorized::create_mock_agg_fn_evaluator(
+    sink_op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
             ctx.pool, MockSlotRef::create_mock_contexts(0, std::make_shared<const DataTypeInt64>()),
             false, true));
-    sink_op->_aggregate_evaluators.push_back(vectorized::create_mock_agg_fn_evaluator(
+    sink_op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
             ctx.pool, MockSlotRef::create_mock_contexts(1, std::make_shared<const DataTypeInt64>()),
             false, true));
     sink_op->_pool = &ctx.pool;
@@ -237,8 +231,8 @@ TEST(AggOperatorTestWithOutGroupBy, test_multi_input) {
 
     auto source_op = std::make_shared<MockAggSourceOperator>();
     source_op->mock_row_descriptor.reset(
-            new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>(),
-                                    std::make_shared<vectorized::DataTypeInt64>()},
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>(),
+                                    std::make_shared<DataTypeInt64>()},
                                    &ctx.pool});
     source_op->_without_key = true;
     source_op->_needs_finalize = true;
@@ -247,20 +241,20 @@ TEST(AggOperatorTestWithOutGroupBy, test_multi_input) {
     auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
 
     {
-        vectorized::Block block {ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3}),
+        Block block {ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3}),
                                  ColumnHelper::create_column_with_name<DataTypeInt64>({4, 5, 6})};
         auto st = sink_op->sink(&ctx.state, &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
     }
 
     {
-        vectorized::Block block;
+        Block block;
         bool eos = false;
         auto st = source_op->get_block(&ctx.state, &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
         EXPECT_TRUE(ColumnHelper::block_equal(
                 block,
-                vectorized::Block {ColumnHelper::create_column_with_name<DataTypeInt64>({6}),
+                Block {ColumnHelper::create_column_with_name<DataTypeInt64>({6}),
                                    ColumnHelper::create_column_with_name<DataTypeInt64>({15})}));
     }
 }
@@ -293,11 +287,10 @@ TEST_F(AggOperatorTestWithGroupBy, test_need_finalize_only_key) {
     +---------------+---------------+
 */
 
-    using namespace vectorized;
     OperatorContext ctx;
     auto sink_op = std::make_shared<MockAggsinkOperator>();
     sink_op->_aggregate_evaluators.push_back(
-            vectorized::create_mock_agg_fn_evaluator(ctx.pool, false, false));
+            create_mock_agg_fn_evaluator(ctx.pool, false, false));
     sink_op->_pool = &ctx.pool;
     EXPECT_TRUE(sink_op->prepare(&ctx.state).ok());
     sink_op->_probe_expr_ctxs =
@@ -305,8 +298,8 @@ TEST_F(AggOperatorTestWithGroupBy, test_need_finalize_only_key) {
 
     auto source_op = std::make_shared<MockAggSourceOperator>();
     source_op->mock_row_descriptor.reset(
-            new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>(),
-                                    std::make_shared<vectorized::DataTypeInt64>()},
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>(),
+                                    std::make_shared<DataTypeInt64>()},
                                    &ctx.pool});
     source_op->_without_key = false;
     source_op->_needs_finalize = true;
@@ -315,18 +308,18 @@ TEST_F(AggOperatorTestWithGroupBy, test_need_finalize_only_key) {
     auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
 
     {
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 1, 2, 3});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 1, 2, 3});
         auto st = sink_op->sink(&ctx.state, &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
     }
 
     {
-        vectorized::Block block;
+        Block block;
         bool eos = false;
         auto st = source_op->get_block(&ctx.state, &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
         EXPECT_TRUE(ColumnHelper::block_equal(
-                block, vectorized::Block {
+                block, Block {
                                ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3}),
                                ColumnHelper::create_column_with_name<DataTypeInt64>({2, 4, 6})}));
     }
@@ -354,10 +347,9 @@ TEST_F(AggOperatorTestWithGroupBy, test_need_finalize) {
         |              3|           1000|
         +---------------+---------------+
     */
-    using namespace vectorized;
     OperatorContext ctx;
     auto sink_op = std::make_shared<MockAggsinkOperator>();
-    sink_op->_aggregate_evaluators.push_back(vectorized::create_mock_agg_fn_evaluator(
+    sink_op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
             ctx.pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()),
             false, false));
     sink_op->_pool = &ctx.pool;
@@ -367,8 +359,8 @@ TEST_F(AggOperatorTestWithGroupBy, test_need_finalize) {
 
     auto source_op = std::make_shared<MockAggSourceOperator>();
     source_op->mock_row_descriptor.reset(
-            new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>(),
-                                    std::make_shared<vectorized::DataTypeInt64>()},
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>(),
+                                    std::make_shared<DataTypeInt64>()},
                                    &ctx.pool});
     source_op->_without_key = false;
     source_op->_needs_finalize = true;
@@ -377,7 +369,7 @@ TEST_F(AggOperatorTestWithGroupBy, test_need_finalize) {
     auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
 
     {
-        vectorized::Block block {
+        Block block {
                 ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 2, 2, 2, 3}),
                 ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 100, 100, 100, 1000})};
         auto st = sink_op->sink(&ctx.state, &block, true);
@@ -385,13 +377,13 @@ TEST_F(AggOperatorTestWithGroupBy, test_need_finalize) {
     }
 
     {
-        vectorized::Block block;
+        Block block;
         bool eos = false;
         auto st = source_op->get_block(&ctx.state, &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
         EXPECT_TRUE(ColumnHelper::block_equal(
                 block,
-                vectorized::Block {
+                Block {
                         ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3}),
                         ColumnHelper::create_column_with_name<DataTypeInt64>({2, 300, 1000})}));
     }
@@ -420,10 +412,9 @@ TEST_F(AggOperatorTestWithGroupBy, test_2_phase) {
         +---------------+---------------+
     */
     auto phase1 = []() {
-        using namespace vectorized;
         OperatorContext ctx;
         auto sink_op = std::make_shared<MockAggsinkOperator>();
-        sink_op->_aggregate_evaluators.push_back(vectorized::create_mock_agg_fn_evaluator(
+        sink_op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
                 ctx.pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()),
                 false, false));
         sink_op->_pool = &ctx.pool;
@@ -433,8 +424,8 @@ TEST_F(AggOperatorTestWithGroupBy, test_2_phase) {
 
         auto source_op = std::make_shared<MockAggSourceOperator>();
         source_op->mock_row_descriptor.reset(
-                new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>(),
-                                        std::make_shared<vectorized::DataTypeInt64>()},
+                new MockRowDescriptor {{std::make_shared<DataTypeInt64>(),
+                                        std::make_shared<DataTypeInt64>()},
                                        &ctx.pool});
         source_op->_without_key = false;
         source_op->_needs_finalize = false;
@@ -443,7 +434,7 @@ TEST_F(AggOperatorTestWithGroupBy, test_2_phase) {
         auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
 
         {
-            vectorized::Block block {
+            Block block {
                     ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 2, 2, 2, 3}),
                     ColumnHelper::create_column_with_name<DataTypeInt64>(
                             {1, 1, 100, 100, 100, 1000})};
@@ -452,7 +443,7 @@ TEST_F(AggOperatorTestWithGroupBy, test_2_phase) {
         }
 
         {
-            vectorized::Block block;
+            Block block;
             bool eos = false;
             auto st = source_op->get_block(&ctx.state, &block, &eos);
             EXPECT_TRUE(st.ok()) << st.msg();
@@ -460,11 +451,10 @@ TEST_F(AggOperatorTestWithGroupBy, test_2_phase) {
         }
     };
 
-    auto phase2 = [](vectorized::Block& serialize_block) {
-        using namespace vectorized;
+    auto phase2 = [](Block& serialize_block) {
         OperatorContext ctx;
         auto sink_op = std::make_shared<MockAggsinkOperator>();
-        sink_op->_aggregate_evaluators.push_back(vectorized::create_mock_agg_fn_evaluator(
+        sink_op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
                 ctx.pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()),
                 true, false));
         sink_op->_pool = &ctx.pool;
@@ -474,8 +464,8 @@ TEST_F(AggOperatorTestWithGroupBy, test_2_phase) {
 
         auto source_op = std::make_shared<MockAggSourceOperator>();
         source_op->mock_row_descriptor.reset(
-                new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>(),
-                                        std::make_shared<vectorized::DataTypeInt64>()},
+                new MockRowDescriptor {{std::make_shared<DataTypeInt64>(),
+                                        std::make_shared<DataTypeInt64>()},
                                        &ctx.pool});
         source_op->_without_key = false;
         source_op->_needs_finalize = true;
@@ -489,13 +479,13 @@ TEST_F(AggOperatorTestWithGroupBy, test_2_phase) {
         }
 
         {
-            vectorized::Block block;
+            Block block;
             bool eos = false;
             auto st = source_op->get_block(&ctx.state, &block, &eos);
             EXPECT_TRUE(st.ok()) << st.msg();
             EXPECT_TRUE(ColumnHelper::block_equal(
                     block,
-                    vectorized::Block {
+                    Block {
                             ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3}),
                             ColumnHelper::create_column_with_name<DataTypeInt64>({2, 300, 1000})}));
         }
@@ -505,10 +495,9 @@ TEST_F(AggOperatorTestWithGroupBy, test_2_phase) {
 }
 
 TEST_F(AggOperatorTestWithGroupBy, other_case_1) {
-    using namespace vectorized;
     OperatorContext ctx;
     auto sink_op = std::make_shared<MockAggsinkOperator>();
-    sink_op->_aggregate_evaluators.push_back(vectorized::create_mock_agg_fn_evaluator(
+    sink_op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
             ctx.pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()),
             false, false));
     sink_op->_pool = &ctx.pool;
@@ -519,8 +508,8 @@ TEST_F(AggOperatorTestWithGroupBy, other_case_1) {
 
     auto source_op = std::make_shared<MockAggSourceOperator>();
     source_op->mock_row_descriptor.reset(
-            new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>(),
-                                    std::make_shared<vectorized::DataTypeInt64>()},
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>(),
+                                    std::make_shared<DataTypeInt64>()},
                                    &ctx.pool});
     source_op->_without_key = false;
     source_op->_needs_finalize = false;
@@ -529,7 +518,7 @@ TEST_F(AggOperatorTestWithGroupBy, other_case_1) {
     auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
 
     {
-        vectorized::Block block {
+        Block block {
                 ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 2, 2, 2, 3}),
                 ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 100, 100, 100, 1000})};
         auto st = sink_op->sink(&ctx.state, &block, true);
@@ -538,7 +527,6 @@ TEST_F(AggOperatorTestWithGroupBy, other_case_1) {
 }
 
 TEST(AggOperatorTestWithOutGroupBy, other_case_1) {
-    using namespace vectorized;
     OperatorContext ctx;
 
     auto sink_op = create_agg_sink_op(ctx, false, true);
@@ -550,13 +538,13 @@ TEST(AggOperatorTestWithOutGroupBy, other_case_1) {
     auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
 
     {
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3});
         auto st = sink_op->sink(&ctx.state, &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
     }
 
     {
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos = false;
         auto st = source_op->get_block(&ctx.state, &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -568,7 +556,6 @@ TEST(AggOperatorTestWithOutGroupBy, other_case_1) {
 }
 
 TEST(AggOperatorTestWithOutGroupBy, other_case_2) {
-    using namespace vectorized;
     OperatorContext ctx;
 
     auto sink_op = create_agg_sink_op(ctx, false, true);
@@ -591,11 +578,10 @@ TEST(AggOperatorTestWithOutGroupBy, other_case_2) {
 }
 
 TEST_F(AggOperatorTestWithGroupBy, other_case_2) {
-    using namespace vectorized;
     OperatorContext ctx;
     auto sink_op = std::make_shared<MockAggsinkOperator>();
     sink_op->_aggregate_evaluators.push_back(
-            vectorized::create_mock_agg_fn_evaluator(ctx.pool, false, false));
+            create_mock_agg_fn_evaluator(ctx.pool, false, false));
     sink_op->_pool = &ctx.pool;
     EXPECT_TRUE(sink_op->prepare(&ctx.state).ok());
     sink_op->_probe_expr_ctxs = MockSlotRef::create_mock_contexts(
@@ -603,8 +589,8 @@ TEST_F(AggOperatorTestWithGroupBy, other_case_2) {
 
     auto source_op = std::make_shared<MockAggSourceOperator>();
     source_op->mock_row_descriptor.reset(new MockRowDescriptor {
-            {std::make_shared<DataTypeNullable>(std::make_shared<vectorized::DataTypeInt64>()),
-             std::make_shared<vectorized::DataTypeInt64>()},
+            {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>()),
+             std::make_shared<DataTypeInt64>()},
             &ctx.pool});
     source_op->_without_key = false;
     source_op->_needs_finalize = true;
@@ -613,12 +599,12 @@ TEST_F(AggOperatorTestWithGroupBy, other_case_2) {
     auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
 
     {
-        vectorized::Block block = ColumnHelper::create_nullable_block<DataTypeInt64>(
+        Block block = ColumnHelper::create_nullable_block<DataTypeInt64>(
                 {1, 2, 3, 1, 2, 3}, {false, false, false, true, true, true});
         auto* local_state =
                 static_cast<AggSinkOperatorX::LocalState*>(ctx.state.get_sink_local_state());
 
-        vectorized::ColumnRawPtrs key_columns;
+        ColumnRawPtrs key_columns;
         key_columns.push_back(block.get_by_position(0).column.get());
 
         local_state->_places.resize(block.rows());
@@ -631,10 +617,9 @@ TEST_F(AggOperatorTestWithGroupBy, other_case_2) {
 
 TEST_F(AggOperatorTestWithGroupBy, other_case_3) {
     auto phase1 = []() {
-        using namespace vectorized;
         OperatorContext ctx;
         auto sink_op = std::make_shared<MockAggsinkOperator>();
-        sink_op->_aggregate_evaluators.push_back(vectorized::create_mock_agg_fn_evaluator(
+        sink_op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
                 ctx.pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()),
                 false, false));
         sink_op->_pool = &ctx.pool;
@@ -644,8 +629,8 @@ TEST_F(AggOperatorTestWithGroupBy, other_case_3) {
 
         auto source_op = std::make_shared<MockAggSourceOperator>();
         source_op->mock_row_descriptor.reset(new MockRowDescriptor {
-                {std::make_shared<DataTypeNullable>(std::make_shared<vectorized::DataTypeInt64>()),
-                 std::make_shared<vectorized::DataTypeInt64>()},
+                {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>()),
+                 std::make_shared<DataTypeInt64>()},
                 &ctx.pool});
         source_op->_without_key = false;
         source_op->_needs_finalize = false;
@@ -654,7 +639,7 @@ TEST_F(AggOperatorTestWithGroupBy, other_case_3) {
         auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
 
         {
-            vectorized::Block block {
+            Block block {
                     ColumnHelper::create_nullable_column_with_name<DataTypeInt64>(
                             {1, 1, 2, 2, 2, 3}, {false, false, false, true, false, false}),
                     ColumnHelper::create_column_with_name<DataTypeInt64>(
@@ -664,7 +649,7 @@ TEST_F(AggOperatorTestWithGroupBy, other_case_3) {
         }
 
         {
-            vectorized::Block block;
+            Block block;
             bool eos = false;
             auto st = source_op->get_block(&ctx.state, &block, &eos);
             EXPECT_TRUE(st.ok()) << st.msg();
@@ -672,11 +657,10 @@ TEST_F(AggOperatorTestWithGroupBy, other_case_3) {
         }
     };
 
-    auto phase2 = [](vectorized::Block& serialize_block) {
-        using namespace vectorized;
+    auto phase2 = [](Block& serialize_block) {
         OperatorContext ctx;
         auto sink_op = std::make_shared<MockAggsinkOperator>();
-        sink_op->_aggregate_evaluators.push_back(vectorized::create_mock_agg_fn_evaluator(
+        sink_op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
                 ctx.pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()),
                 true, false));
         sink_op->_pool = &ctx.pool;
@@ -686,8 +670,8 @@ TEST_F(AggOperatorTestWithGroupBy, other_case_3) {
 
         auto source_op = std::make_shared<MockAggSourceOperator>();
         source_op->mock_row_descriptor.reset(new MockRowDescriptor {
-                {std::make_shared<DataTypeNullable>(std::make_shared<vectorized::DataTypeInt64>()),
-                 std::make_shared<vectorized::DataTypeInt64>()},
+                {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>()),
+                 std::make_shared<DataTypeInt64>()},
                 &ctx.pool});
         source_op->_without_key = false;
         source_op->_needs_finalize = true;
@@ -701,14 +685,14 @@ TEST_F(AggOperatorTestWithGroupBy, other_case_3) {
         }
 
         {
-            vectorized::Block block;
+            Block block;
             bool eos = false;
             auto st = source_op->get_block(&ctx.state, &block, &eos);
             EXPECT_TRUE(st.ok()) << st.msg();
 
             std::cout << block.dump_data() << std::endl;
             EXPECT_TRUE(ColumnHelper::block_equal(
-                    block, vectorized::Block {
+                    block, Block {
                                    ColumnHelper::create_nullable_column_with_name<DataTypeInt64>(
                                            {1, 2, 3, 0}, {false, false, false, true}),
                                    ColumnHelper::create_column_with_name<DataTypeInt64>(
@@ -720,7 +704,6 @@ TEST_F(AggOperatorTestWithGroupBy, other_case_3) {
 }
 
 TEST(AggOperatorTestWithOutGroupBy, other_case_3) {
-    using namespace vectorized;
     OperatorContext ctx;
 
     auto sink_op = create_agg_sink_op(ctx, false, true);
@@ -729,7 +712,7 @@ TEST(AggOperatorTestWithOutGroupBy, other_case_3) {
 
     auto source_op = std::make_shared<MockAggSourceOperator>();
     source_op->mock_row_descriptor.reset(new MockRowDescriptor {
-            {std::make_shared<DataTypeNullable>(std::make_shared<vectorized::DataTypeInt64>())},
+            {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>())},
             &ctx.pool});
     source_op->_without_key = true;
     source_op->_needs_finalize = true;
@@ -738,13 +721,13 @@ TEST(AggOperatorTestWithOutGroupBy, other_case_3) {
     auto shared_state = init_sink_and_source(sink_op, source_op, ctx);
 
     {
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3});
         auto st = sink_op->sink(&ctx.state, &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
     }
 
     {
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos = false;
         auto st = source_op->get_block(&ctx.state, &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -755,4 +738,4 @@ TEST(AggOperatorTestWithOutGroupBy, other_case_3) {
     }
 }
 
-} // namespace doris::pipeline
+} // namespace doris

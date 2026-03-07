@@ -38,7 +38,7 @@ namespace doris {
 class RuntimeProfile;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 ArrowStreamReader::ArrowStreamReader(RuntimeState* state, RuntimeProfile* profile,
                                      ScannerCounter* counter, const TFileScanRangeParams& params,
@@ -106,7 +106,7 @@ Status ArrowStreamReader::get_next_block(Block* block, size_t* read_rows, bool* 
             std::string column_name = batch.schema()->field(c)->name();
 
             try {
-                const vectorized::ColumnWithTypeAndName& column_with_name =
+                const ColumnWithTypeAndName& column_with_name =
                         block->safe_get_by_position(c);
 
                 if (column_with_name.name != column_name) {
@@ -136,4 +136,4 @@ Status ArrowStreamReader::get_columns(std::unordered_map<std::string, DataTypePt
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

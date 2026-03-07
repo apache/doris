@@ -54,7 +54,7 @@
 
 namespace doris {
 class DeleteHandler;
-class Field;
+class StorageField;
 class TAlterInvertedIndexReq;
 class TAlterTabletReqV2;
 class TExpr;
@@ -62,10 +62,8 @@ enum AlterTabletType : int;
 enum RowsetTypePB : int;
 enum SegmentsOverlapPB : int;
 
-namespace vectorized {
 class Block;
 class OlapBlockDataConvertor;
-} // namespace vectorized
 
 class BlockChanger {
 public:
@@ -76,7 +74,7 @@ public:
 
     ColumnMapping* get_mutable_column_mapping(size_t column_index);
 
-    Status change_block(vectorized::Block* ref_block, vectorized::Block* new_block) const;
+    Status change_block(Block* ref_block, Block* new_block) const;
 
     void set_where_expr(const std::shared_ptr<TExpr>& where_expr) { _where_expr = where_expr; }
 
@@ -87,8 +85,8 @@ public:
     bool has_where() const { return _where_expr != nullptr; }
 
 private:
-    static Status _check_cast_valid(vectorized::ColumnPtr ref_column,
-                                    vectorized::ColumnPtr new_column);
+    static Status _check_cast_valid(ColumnPtr ref_column,
+                                    ColumnPtr new_column);
 
     // @brief column-mapping specification of new schema
     SchemaMapping _schema_mapping;
@@ -218,7 +216,7 @@ public:
                           TabletSchemaSPtr new_tablet_schema) override;
 
     virtual Result<RowsetSharedPtr> _internal_sorting(
-            const std::vector<std::unique_ptr<vectorized::Block>>& blocks,
+            const std::vector<std::unique_ptr<Block>>& blocks,
             const Version& temp_delta_versions, int64_t newest_write_timestamp,
             BaseTabletSPtr new_tablet, RowsetTypePB new_rowset_type,
             SegmentsOverlapPB segments_overlap, TabletSchemaSPtr new_tablet_schema);
@@ -257,7 +255,7 @@ public:
                           TabletSchemaSPtr new_tablet_schema) override;
 
     Result<RowsetSharedPtr> _internal_sorting(
-            const std::vector<std::unique_ptr<vectorized::Block>>& blocks,
+            const std::vector<std::unique_ptr<Block>>& blocks,
             const Version& temp_delta_versions, int64_t newest_write_timestamp,
             BaseTabletSPtr new_tablet, RowsetTypePB new_rowset_type,
             SegmentsOverlapPB segments_overlap, TabletSchemaSPtr new_tablet_schema) override;

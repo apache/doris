@@ -26,12 +26,11 @@
 #include "util/uid_util.h"
 
 namespace doris {
-namespace vectorized {
 #include "common/compile_check_begin.h"
 
 VMCTableWriter::VMCTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_expr_ctxs,
-                               std::shared_ptr<pipeline::Dependency> dep,
-                               std::shared_ptr<pipeline::Dependency> fin_dep)
+                               std::shared_ptr<Dependency> dep,
+                               std::shared_ptr<Dependency> fin_dep)
         : AsyncResultWriter(output_expr_ctxs, dep, fin_dep),
           _t_sink(t_sink),
           _mc_sink(_t_sink.max_compute_table_sink) {
@@ -135,14 +134,14 @@ std::shared_ptr<VMCPartitionWriter> VMCTableWriter::_create_partition_writer(
                                                 std::move(params));
 }
 
-Status VMCTableWriter::write(RuntimeState* state, vectorized::Block& block) {
+Status VMCTableWriter::write(RuntimeState* state, Block& block) {
     SCOPED_RAW_TIMER(&_send_data_ns);
     if (block.rows() == 0) {
         return Status::OK();
     }
 
     Block output_block;
-    RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
+    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(
             _vec_output_expr_ctxs, block, &output_block, false));
     materialize_block_inplace(output_block);
 
@@ -202,5 +201,4 @@ Status VMCTableWriter::close(Status status) {
     return result_status;
 }
 
-} // namespace vectorized
 } // namespace doris

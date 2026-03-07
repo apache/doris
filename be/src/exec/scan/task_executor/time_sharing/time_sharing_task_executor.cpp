@@ -34,7 +34,6 @@
 #include "util/uid_util.h"
 
 namespace doris {
-namespace vectorized {
 #include "common/compile_check_begin.h"
 
 // Same with definations in threadpool.cpp
@@ -750,7 +749,7 @@ Status TimeSharingTaskExecutor::add_task(const TaskId& task_id,
                                          std::shared_ptr<TaskHandle> task_handle) {
     std::lock_guard<std::mutex> lock(_mutex);
     _tasks[task_id] =
-            std::dynamic_pointer_cast<doris::vectorized::TimeSharingTaskHandle>(task_handle);
+            std::dynamic_pointer_cast<doris::TimeSharingTaskHandle>(task_handle);
     return Status::OK();
 }
 
@@ -962,5 +961,4 @@ size_t TimeSharingTaskExecutor::waiting_splits_size() const {
     return _tokenless->num_tasks();
 }
 
-} // namespace vectorized
 } // namespace doris

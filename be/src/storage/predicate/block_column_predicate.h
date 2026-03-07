@@ -60,16 +60,16 @@ public:
     virtual void get_all_column_predicate(
             std::set<std::shared_ptr<const ColumnPredicate>>& predicate_set) const = 0;
 
-    virtual uint16_t evaluate(vectorized::MutableColumns& block, uint16_t* sel,
+    virtual uint16_t evaluate(MutableColumns& block, uint16_t* sel,
                               uint16_t selected_size) const {
         return selected_size;
     }
-    virtual void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel,
+    virtual void evaluate_and(MutableColumns& block, uint16_t* sel,
                               uint16_t selected_size, bool* flags) const {}
-    virtual void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel,
+    virtual void evaluate_or(MutableColumns& block, uint16_t* sel,
                              uint16_t selected_size, bool* flags) const {}
 
-    virtual void evaluate_vec(vectorized::MutableColumns& block, uint16_t size, bool* flags) const {
+    virtual void evaluate_vec(MutableColumns& block, uint16_t size, bool* flags) const {
     }
 
     virtual bool support_zonemap() const { return true; }
@@ -78,7 +78,7 @@ public:
         throw Exception(Status::FatalError("should not reach here"));
     }
 
-    virtual bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const {
+    virtual bool evaluate_and(ParquetPredicate::ColumnStat* statistic) const {
         throw Exception(Status::FatalError("should not reach here"));
     }
 
@@ -89,7 +89,7 @@ public:
      * parsed, `CachedPageIndexStat` is used to avoid repeatedly parsing the page index information
      * of the same column.
      */
-    virtual bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+    virtual bool evaluate_and(ParquetPredicate::CachedPageIndexStat* statistic,
                               RowRanges* row_ranges) const {
         throw Exception(Status::FatalError("should not reach here"));
     }
@@ -128,26 +128,26 @@ public:
         predicate_set.insert(_predicate);
     }
 
-    uint16_t evaluate(vectorized::MutableColumns& block, uint16_t* sel,
+    uint16_t evaluate(MutableColumns& block, uint16_t* sel,
                       uint16_t selected_size) const override;
-    void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
+    void evaluate_and(MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                       bool* flags) const override;
     bool support_zonemap() const override { return _predicate->support_zonemap(); }
     bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override;
-    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+    bool evaluate_and(ParquetPredicate::ColumnStat* statistic) const override {
         return _predicate->evaluate_and(statistic);
     }
 
-    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+    bool evaluate_and(ParquetPredicate::CachedPageIndexStat* statistic,
                       RowRanges* row_ranges) const override {
         return _predicate->evaluate_and(statistic, row_ranges);
     }
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override;
     bool evaluate_and(const StringRef* dict_words, const size_t dict_num) const override;
-    void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
+    void evaluate_or(MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                      bool* flags) const override;
 
-    void evaluate_vec(vectorized::MutableColumns& block, uint16_t size, bool* flags) const override;
+    void evaluate_vec(MutableColumns& block, uint16_t size, bool* flags) const override;
 
     bool can_do_bloom_filter(bool ngram) const override {
         return _predicate->can_do_bloom_filter(ngram);
@@ -200,13 +200,13 @@ class OrBlockColumnPredicate : public MutilColumnBlockPredicate {
     ENABLE_FACTORY_CREATOR(OrBlockColumnPredicate);
 
 public:
-    uint16_t evaluate(vectorized::MutableColumns& block, uint16_t* sel,
+    uint16_t evaluate(MutableColumns& block, uint16_t* sel,
                       uint16_t selected_size) const override;
-    void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
+    void evaluate_and(MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                       bool* flags) const override;
-    void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
+    void evaluate_or(MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                      bool* flags) const override;
-    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+    bool evaluate_and(ParquetPredicate::ColumnStat* statistic) const override {
         if (num_of_column_predicate() == 1) {
             return _block_column_predicate_vec[0]->evaluate_and(statistic);
         } else {
@@ -219,7 +219,7 @@ public:
         }
     }
 
-    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+    bool evaluate_and(ParquetPredicate::CachedPageIndexStat* statistic,
                       RowRanges* row_ranges) const override;
 
     // note(wb) we didnt't implement evaluate_vec method here, because storage layer only support AND predicate now;
@@ -229,14 +229,14 @@ class AndBlockColumnPredicate : public MutilColumnBlockPredicate {
     ENABLE_FACTORY_CREATOR(AndBlockColumnPredicate);
 
 public:
-    uint16_t evaluate(vectorized::MutableColumns& block, uint16_t* sel,
+    uint16_t evaluate(MutableColumns& block, uint16_t* sel,
                       uint16_t selected_size) const override;
-    void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
+    void evaluate_and(MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                       bool* flags) const override;
-    void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
+    void evaluate_or(MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                      bool* flags) const override;
 
-    void evaluate_vec(vectorized::MutableColumns& block, uint16_t size, bool* flags) const override;
+    void evaluate_vec(MutableColumns& block, uint16_t size, bool* flags) const override;
 
     bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override;
 
@@ -244,7 +244,7 @@ public:
 
     bool evaluate_and(const StringRef* dict_words, const size_t dict_num) const override;
 
-    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+    bool evaluate_and(ParquetPredicate::ColumnStat* statistic) const override {
         for (auto& block_column_predicate : _block_column_predicate_vec) {
             if (!block_column_predicate->evaluate_and(statistic)) {
                 return false;
@@ -253,7 +253,7 @@ public:
         return true;
     }
 
-    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+    bool evaluate_and(ParquetPredicate::CachedPageIndexStat* statistic,
                       RowRanges* row_ranges) const override;
 
     bool can_do_bloom_filter(bool ngram) const override {

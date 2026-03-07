@@ -27,8 +27,8 @@ class FunctionContext;
 
 class FunctionUtils {
 public:
-    FunctionUtils(const vectorized::DataTypePtr& return_type,
-                  const std::vector<vectorized::DataTypePtr>& arg_types, bool enable_strict_cast);
+    FunctionUtils(const DataTypePtr& return_type,
+                  const std::vector<DataTypePtr>& arg_types, bool enable_strict_cast);
 
     doris::FunctionContext* get_fn_ctx() { return _fn_ctx.get(); }
 

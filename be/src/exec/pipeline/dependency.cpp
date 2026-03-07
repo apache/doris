@@ -35,7 +35,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "util/brpc_client_cache.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Dependency* BasicSharedState::create_source_dependency(int operator_id, int node_id,
@@ -159,7 +159,7 @@ void RuntimeFilterTimerQueue::start() {
         }
         {
             std::unique_lock<std::mutex> lc(_que_lock);
-            std::list<std::shared_ptr<pipeline::RuntimeFilterTimer>> new_que;
+            std::list<std::shared_ptr<RuntimeFilterTimer>> new_que;
             for (auto& it : _que) {
                 if (it.use_count() == 1) {
                     // `use_count == 1` means this runtime filter has been released
@@ -204,15 +204,15 @@ LocalExchangeSharedState::LocalExchangeSharedState(int num_instances) {
     mem_counters.resize(num_instances, nullptr);
 }
 
-vectorized::MutableColumns AggSharedState::_get_keys_hash_table() {
+MutableColumns AggSharedState::_get_keys_hash_table() {
     return std::visit(
-            vectorized::Overload {
+            Overload {
                     [&](std::monostate& arg) {
                         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                        return vectorized::MutableColumns();
+                        return MutableColumns();
                     },
-                    [&](auto&& agg_method) -> vectorized::MutableColumns {
-                        vectorized::MutableColumns key_columns;
+                    [&](auto&& agg_method) -> MutableColumns {
+                        MutableColumns key_columns;
                         for (int i = 0; i < probe_expr_ctxs.size(); ++i) {
                             key_columns.emplace_back(
                                     probe_expr_ctxs[i]->root()->data_type()->create_column());
@@ -253,7 +253,7 @@ void AggSharedState::build_limit_heap(size_t hash_table_size) {
     limit_columns_min = limit_heap.top()._row_id;
 }
 
-bool AggSharedState::do_limit_filter(vectorized::Block* block, size_t num_rows,
+bool AggSharedState::do_limit_filter(Block* block, size_t num_rows,
                                      const std::vector<int>* key_locs) {
     if (num_rows) {
         cmp_res.resize(num_rows);
@@ -284,7 +284,7 @@ bool AggSharedState::do_limit_filter(vectorized::Block* block, size_t num_rows,
 
 Status AggSharedState::reset_hash_table() {
     return std::visit(
-            vectorized::Overload {
+            Overload {
                     [&](std::monostate& arg) -> Status {
                         return Status::InternalError("Uninited hash table");
                     },
@@ -304,7 +304,7 @@ Status AggSharedState::reset_hash_table() {
 
                         if (hash_table.has_null_key_data()) {
                             _destroy_agg_status(hash_table.template get_null_key_data<
-                                                vectorized::AggregateDataPtr>());
+                                                AggregateDataPtr>());
                         }
 
                         aggregate_data_container.reset(new AggregateDataContainer(
@@ -342,7 +342,7 @@ void PartitionedAggSharedState::update_spill_stream_profiles(RuntimeProfile* sou
 
 Status AggSpillPartition::get_spill_stream(RuntimeState* state, int node_id,
                                            RuntimeProfile* profile,
-                                           vectorized::SpillStreamSPtr& spill_stream) {
+                                           SpillStreamSPtr& spill_stream) {
     if (spilling_stream_) {
         spill_stream = spilling_stream_;
         return Status::OK();
@@ -401,20 +401,20 @@ void SpillSortSharedState::close() {
 }
 
 MultiCastSharedState::MultiCastSharedState(ObjectPool* pool, int cast_sender_count, int node_id)
-        : multi_cast_data_streamer(std::make_unique<pipeline::MultiCastDataStreamer>(
+        : multi_cast_data_streamer(std::make_unique<MultiCastDataStreamer>(
                   pool, cast_sender_count, node_id)) {}
 
 void MultiCastSharedState::update_spill_stream_profiles(RuntimeProfile* source_profile) {}
 
-int AggSharedState::get_slot_column_id(const vectorized::AggFnEvaluator* evaluator) {
+int AggSharedState::get_slot_column_id(const AggFnEvaluator* evaluator) {
     auto ctxs = evaluator->input_exprs_ctxs();
     CHECK(ctxs.size() == 1 && ctxs[0]->root()->is_slot_ref())
             << "input_exprs_ctxs is invalid, input_exprs_ctx[0]="
             << ctxs[0]->root()->debug_string();
-    return ((vectorized::VSlotRef*)ctxs[0]->root().get())->column_id();
+    return ((VSlotRef*)ctxs[0]->root().get())->column_id();
 }
 
-void AggSharedState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
+void AggSharedState::_destroy_agg_status(AggregateDataPtr data) {
     for (int i = 0; i < aggregate_evaluators.size(); ++i) {
         aggregate_evaluators[i]->function()->destroy(data + offsets_of_aggregate_states[i]);
     }
@@ -422,7 +422,7 @@ void AggSharedState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
 
 LocalExchangeSharedState::~LocalExchangeSharedState() = default;
 
-Status SetSharedState::update_build_not_ignore_null(const vectorized::VExprContextSPtrs& ctxs) {
+Status SetSharedState::update_build_not_ignore_null(const VExprContextSPtrs& ctxs) {
     if (ctxs.size() > build_not_ignore_null.size()) {
         return Status::InternalError("build_not_ignore_null not initialized");
     }
@@ -448,12 +448,12 @@ size_t SetSharedState::get_hash_table_size() const {
 }
 
 Status SetSharedState::hash_table_init() {
-    std::vector<vectorized::DataTypePtr> data_types;
+    std::vector<DataTypePtr> data_types;
     for (size_t i = 0; i != child_exprs_lists[0].size(); ++i) {
         auto& ctx = child_exprs_lists[0][i];
         auto data_type = ctx->root()->data_type();
         if (build_not_ignore_null[i]) {
-            data_type = vectorized::make_nullable(data_type);
+            data_type = make_nullable(data_type);
         }
         data_types.emplace_back(std::move(data_type));
     }
@@ -461,7 +461,7 @@ Status SetSharedState::hash_table_init() {
 }
 
 void AggSharedState::refresh_top_limit(size_t row_id,
-                                       const vectorized::ColumnRawPtrs& key_columns) {
+                                       const ColumnRawPtrs& key_columns) {
     for (int j = 0; j < key_columns.size(); ++j) {
         limit_columns[j]->insert_from(*key_columns[j], row_id);
     }
@@ -472,4 +472,4 @@ void AggSharedState::refresh_top_limit(size_t row_id,
     limit_columns_min = limit_heap.top()._row_id;
 }
 
-} // namespace doris::pipeline
+} // namespace doris

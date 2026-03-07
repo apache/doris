@@ -20,15 +20,15 @@
 #include "exec/operator/operator.h"
 #include "exec/sink/writer/maxcompute/vmc_table_writer.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class MCTableSinkOperatorX;
 
 class MCTableSinkLocalState final
-        : public AsyncWriterSink<vectorized::VMCTableWriter, MCTableSinkOperatorX> {
+        : public AsyncWriterSink<VMCTableWriter, MCTableSinkOperatorX> {
 public:
-    using Base = AsyncWriterSink<vectorized::VMCTableWriter, MCTableSinkOperatorX>;
+    using Base = AsyncWriterSink<VMCTableWriter, MCTableSinkOperatorX>;
     using Parent = MCTableSinkOperatorX;
     ENABLE_FACTORY_CREATOR(MCTableSinkLocalState);
     MCTableSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -54,17 +54,17 @@ public:
 
     Status init(const TDataSink& thrift_sink) override {
         RETURN_IF_ERROR(Base::init(thrift_sink));
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
+        RETURN_IF_ERROR(VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
         return Status::OK();
     }
 
     Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(Base::prepare(state));
-        RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
-        return vectorized::VExpr::open(_output_vexpr_ctxs, state);
+        RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
+        return VExpr::open(_output_vexpr_ctxs, state);
     }
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override {
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override {
         auto& local_state = get_local_state(state);
         SCOPED_TIMER(local_state.exec_time_counter());
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -74,13 +74,13 @@ public:
 private:
     friend class MCTableSinkLocalState;
     template <typename Writer, typename Parent>
-        requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
+        requires(std::is_base_of_v<AsyncResultWriter, Writer>)
     friend class AsyncWriterSink;
     const RowDescriptor& _row_desc;
-    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+    VExprContextSPtrs _output_vexpr_ctxs;
     const std::vector<TExpr>& _t_output_expr;
     ObjectPool* _pool = nullptr;
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

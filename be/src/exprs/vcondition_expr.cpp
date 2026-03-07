@@ -24,7 +24,7 @@
 #include "exprs/function_context.h"
 #include "util/simd/bits.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 Status VConditionExpr::prepare(RuntimeState* state, const RowDescriptor& desc,
                                VExprContext* context) {
@@ -769,4 +769,4 @@ Status VectorizedCoalesceExpr::execute_column(VExprContext* context, const Block
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

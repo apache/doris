@@ -25,7 +25,6 @@
 namespace doris {
 class RuntimeState;
 
-namespace pipeline {
 
 class SortSourceOperatorX;
 class SortLocalState final : public PipelineXLocalState<SortSharedState> {
@@ -45,15 +44,14 @@ public:
 #ifdef BE_TEST
     SortSourceOperatorX() = default;
 #endif
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 
-    const vectorized::SortDescription& get_sort_description(RuntimeState* state) const;
+    const SortDescription& get_sort_description(RuntimeState* state) const;
 
 private:
     friend class SortLocalState;
 };
 
-} // namespace pipeline
 } // namespace doris

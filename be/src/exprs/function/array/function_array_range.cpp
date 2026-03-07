@@ -50,7 +50,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <typename Impl>
@@ -231,7 +231,7 @@ private:
                         dest_nested_null_map.push_back(0);
                         offset++;
                         move++;
-                        idx = doris::vectorized::date_time_add<UNIT::value, TYPE_DATETIMEV2, Int32>(
+                        idx = doris::date_time_add<UNIT::value, TYPE_DATETIMEV2, Int32>(
                                 idx, step_row);
                     }
                     dest_offsets.push_back(offset);
@@ -330,4 +330,4 @@ void register_function_array_range(SimpleFunctionFactory& factory) {
     factory.register_alias("array_range", "sequence");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -24,7 +24,7 @@
 #include "exec/operator/materialization_opertor.h"
 #include "exec/pipeline/dependency.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 class MaterializationSharedStateTest : public testing::Test {
 protected:
@@ -32,11 +32,11 @@ protected:
         _shared_state = std::make_shared<MaterializationSharedState>();
 
         // Setup test data types
-        _string_type = std::make_shared<vectorized::DataTypeString>();
-        _int_type = std::make_shared<vectorized::DataTypeInt32>();
+        _string_type = std::make_shared<DataTypeString>();
+        _int_type = std::make_shared<DataTypeInt32>();
 
         // Create origin block with rowid column (ColumnString type)
-        _shared_state->origin_block = vectorized::Block();
+        _shared_state->origin_block = Block();
         _shared_state->origin_block.insert({_string_type->create_column(), _string_type, "rowid"});
         _shared_state->origin_block.insert({_int_type->create_column(), _int_type, "value"});
 
@@ -53,17 +53,17 @@ protected:
     }
 
     std::shared_ptr<MaterializationSharedState> _shared_state;
-    std::shared_ptr<vectorized::DataTypeString> _string_type;
-    std::shared_ptr<vectorized::DataTypeInt32> _int_type;
+    std::shared_ptr<DataTypeString> _string_type;
+    std::shared_ptr<DataTypeInt32> _int_type;
     int64_t _backend_id1;
     int64_t _backend_id2;
 };
 
 TEST_F(MaterializationSharedStateTest, TestCreateMultiGetResult) {
     // Create test columns for rowids
-    vectorized::Columns columns;
+    Columns columns;
     auto rowid_col = _string_type->create_column();
-    auto* col_data = reinterpret_cast<vectorized::ColumnString*>(rowid_col.get());
+    auto* col_data = reinterpret_cast<ColumnString*>(rowid_col.get());
 
     // Create test GlobalRowLoacationV2 data
     GlobalRowLoacationV2 loc1(0, _backend_id1, 1, 1);
@@ -84,34 +84,34 @@ TEST_F(MaterializationSharedStateTest, TestCreateMultiGetResult) {
 
 TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
     // 1. Setup origin block with nullable rowid column
-    auto nullable_rowid_col = vectorized::ColumnNullable::create(_string_type->create_column(),
-                                                                 vectorized::ColumnUInt8::create());
+    auto nullable_rowid_col = ColumnNullable::create(_string_type->create_column(),
+                                                                 ColumnUInt8::create());
     nullable_rowid_col->insert_data((char*)&nullable_rowid_col, 4);
     nullable_rowid_col->insert_data(nullptr, 4);
     nullable_rowid_col->insert_data((char*)&nullable_rowid_col, 4);
 
     auto value_col = _int_type->create_column();
-    value_col->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(100));
-    value_col->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(101));
-    value_col->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(200));
+    value_col->insert(Field::create_field<PrimitiveType::TYPE_INT>(100));
+    value_col->insert(Field::create_field<PrimitiveType::TYPE_INT>(101));
+    value_col->insert(Field::create_field<PrimitiveType::TYPE_INT>(200));
 
     // Add test data to origin block
-    _shared_state->origin_block = vectorized::Block(
-            {{std::move(nullable_rowid_col), vectorized::make_nullable(_string_type), "rowid"},
+    _shared_state->origin_block = Block(
+            {{std::move(nullable_rowid_col), make_nullable(_string_type), "rowid"},
              {std::move(value_col), _int_type, "value"}});
 
     // Set rowid column location
     _shared_state->rowid_locs = {0};
-    _shared_state->response_blocks = std::vector<vectorized::MutableBlock>(1);
+    _shared_state->response_blocks = std::vector<MutableBlock>(1);
 
     // 2. Setup response blocks from multiple backends
     // Backend 1's response
     {
-        vectorized::Block resp_block1;
+        Block resp_block1;
         auto resp_value_col1 = _int_type->create_column();
-        auto* value_col_data1 = reinterpret_cast<vectorized::ColumnInt32*>(resp_value_col1.get());
-        value_col_data1->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(100));
-        value_col_data1->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(101));
+        auto* value_col_data1 = reinterpret_cast<ColumnInt32*>(resp_value_col1.get());
+        value_col_data1->insert(Field::create_field<PrimitiveType::TYPE_INT>(100));
+        value_col_data1->insert(Field::create_field<PrimitiveType::TYPE_INT>(101));
         resp_block1.insert(
                 {make_nullable(std::move(resp_value_col1)), make_nullable(_int_type), "value"});
 
@@ -131,10 +131,10 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
 
     // Backend 2's response
     {
-        vectorized::Block resp_block2;
+        Block resp_block2;
         auto resp_value_col2 = _int_type->create_column();
-        auto* value_col_data2 = reinterpret_cast<vectorized::ColumnInt32*>(resp_value_col2.get());
-        value_col_data2->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(200));
+        auto* value_col_data2 = reinterpret_cast<ColumnInt32*>(resp_value_col2.get());
+        value_col_data2->insert(Field::create_field<PrimitiveType::TYPE_INT>(200));
         resp_block2.insert(
                 {make_nullable(std::move(resp_value_col2)), make_nullable(_int_type), "value"});
 
@@ -156,7 +156,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
     };
 
     // 4. Test merging responses
-    vectorized::Block result_block;
+    Block result_block;
     Status st = _shared_state->merge_multi_response();
     _shared_state->get_block(&result_block);
     EXPECT_TRUE(st.ok());
@@ -175,45 +175,45 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
 
 TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
     // 1. Setup origin block with multiple nullable rowid columns
-    auto nullable_rowid_col1 = vectorized::ColumnNullable::create(
-            _string_type->create_column(), vectorized::ColumnUInt8::create());
+    auto nullable_rowid_col1 = ColumnNullable::create(
+            _string_type->create_column(), ColumnUInt8::create());
     nullable_rowid_col1->insert_data((char*)&nullable_rowid_col1, 4);
     nullable_rowid_col1->insert_data(nullptr, 4);
     nullable_rowid_col1->insert_data((char*)&nullable_rowid_col1, 4);
 
-    auto nullable_rowid_col2 = vectorized::ColumnNullable::create(
-            _string_type->create_column(), vectorized::ColumnUInt8::create());
+    auto nullable_rowid_col2 = ColumnNullable::create(
+            _string_type->create_column(), ColumnUInt8::create());
     nullable_rowid_col2->insert_data((char*)&nullable_rowid_col2, 4);
     nullable_rowid_col2->insert_data((char*)&nullable_rowid_col2, 4);
     nullable_rowid_col2->insert_data(nullptr, 4);
 
     auto value_col1 = _int_type->create_column();
-    value_col1->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(100));
-    value_col1->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(101));
-    value_col1->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(102));
+    value_col1->insert(Field::create_field<PrimitiveType::TYPE_INT>(100));
+    value_col1->insert(Field::create_field<PrimitiveType::TYPE_INT>(101));
+    value_col1->insert(Field::create_field<PrimitiveType::TYPE_INT>(102));
 
     auto value_col2 = _int_type->create_column();
-    value_col2->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(200));
-    value_col2->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(201));
-    value_col2->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(202));
+    value_col2->insert(Field::create_field<PrimitiveType::TYPE_INT>(200));
+    value_col2->insert(Field::create_field<PrimitiveType::TYPE_INT>(201));
+    value_col2->insert(Field::create_field<PrimitiveType::TYPE_INT>(202));
 
     // Add test data to origin block with multiple columns
-    _shared_state->origin_block = vectorized::Block(
-            {{std::move(nullable_rowid_col1), vectorized::make_nullable(_string_type), "rowid1"},
-             {std::move(nullable_rowid_col2), vectorized::make_nullable(_string_type), "rowid2"},
+    _shared_state->origin_block = Block(
+            {{std::move(nullable_rowid_col1), make_nullable(_string_type), "rowid1"},
+             {std::move(nullable_rowid_col2), make_nullable(_string_type), "rowid2"},
              {std::move(value_col1), _int_type, "value1"},
              {std::move(value_col2), _int_type, "value2"}});
 
     // Set multiple rowid column locations
     _shared_state->rowid_locs = {0, 1};
-    _shared_state->response_blocks = std::vector<vectorized::MutableBlock>(2);
+    _shared_state->response_blocks = std::vector<MutableBlock>(2);
 
     // 2. Setup response blocks from multiple backends for first rowid
     {
-        vectorized::Block resp_block1;
+        Block resp_block1;
         auto resp_value_col1 = _int_type->create_column();
-        auto* value_col_data1 = reinterpret_cast<vectorized::ColumnInt32*>(resp_value_col1.get());
-        value_col_data1->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(100));
+        auto* value_col_data1 = reinterpret_cast<ColumnInt32*>(resp_value_col1.get());
+        value_col_data1->insert(Field::create_field<PrimitiveType::TYPE_INT>(100));
         resp_block1.insert(
                 {make_nullable(std::move(resp_value_col1)), make_nullable(_int_type), "value1"});
 
@@ -232,10 +232,10 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
 
     // Backend 2's response for first rowid
     {
-        vectorized::Block resp_block2;
+        Block resp_block2;
         auto resp_value_col2 = _int_type->create_column();
-        auto* value_col_data2 = reinterpret_cast<vectorized::ColumnInt32*>(resp_value_col2.get());
-        value_col_data2->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(102));
+        auto* value_col_data2 = reinterpret_cast<ColumnInt32*>(resp_value_col2.get());
+        value_col_data2->insert(Field::create_field<PrimitiveType::TYPE_INT>(102));
         resp_block2.insert(
                 {make_nullable(std::move(resp_value_col2)), make_nullable(_int_type), "value1"});
 
@@ -253,10 +253,10 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
 
     // Add second block responses for second rowid
     {
-        vectorized::Block resp_block1;
+        Block resp_block1;
         auto resp_value_col1 = _int_type->create_column();
-        auto* value_col_data1 = reinterpret_cast<vectorized::ColumnInt32*>(resp_value_col1.get());
-        value_col_data1->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(200));
+        auto* value_col_data1 = reinterpret_cast<ColumnInt32*>(resp_value_col1.get());
+        value_col_data1->insert(Field::create_field<PrimitiveType::TYPE_INT>(200));
         resp_block1.insert(
                 {make_nullable(std::move(resp_value_col1)), make_nullable(_int_type), "value2"});
 
@@ -272,10 +272,10 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
     }
 
     {
-        vectorized::Block resp_block2;
+        Block resp_block2;
         auto resp_value_col2 = _int_type->create_column();
-        auto* value_col_data2 = reinterpret_cast<vectorized::ColumnInt32*>(resp_value_col2.get());
-        value_col_data2->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(201));
+        auto* value_col_data2 = reinterpret_cast<ColumnInt32*>(resp_value_col2.get());
+        value_col_data2->insert(Field::create_field<PrimitiveType::TYPE_INT>(201));
         resp_block2.insert(
                 {make_nullable(std::move(resp_value_col2)), make_nullable(_int_type), "value2"});
 
@@ -296,7 +296,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
     };
 
     // 4. Test merging responses
-    vectorized::Block result_block;
+    Block result_block;
     Status st = _shared_state->merge_multi_response();
     EXPECT_TRUE(st.ok());
     _shared_state->get_block(&result_block);
@@ -318,4 +318,4 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
     EXPECT_EQ(merged_value_col2->get_data_at(2).data, nullptr);
 }
 
-} // namespace doris::pipeline
+} // namespace doris

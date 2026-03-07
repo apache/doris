@@ -72,11 +72,11 @@ public:
             std::conditional_t<
                     is_string_type(Type), StringSet<FixedContainer<std::string, N>>,
                     HybridSet<Type, FixedContainer<T, N>,
-                              vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>>,
+                              PredicateColumnType<PredicateEvaluateType<Type>>>>,
             std::conditional_t<
                     is_string_type(Type), StringSet<DynamicContainer<std::string>>,
                     HybridSet<Type, DynamicContainer<T>,
-                              vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>>>;
+                              PredicateColumnType<PredicateEvaluateType<Type>>>>>;
     InListPredicateBase(uint32_t column_id, std::string col_name,
                         const std::shared_ptr<HybridSetBase>& hybrid_set, bool is_opposite,
                         size_t char_length = 0)
@@ -151,7 +151,7 @@ public:
         }
         return true;
     }
-    Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
+    Status evaluate(const IndexFieldNameAndTypePair& name_with_type,
                     IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
         if (iterator == nullptr) {
@@ -210,13 +210,13 @@ public:
     }
 
     template <bool is_and>
-    void _evaluate_bit(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
+    void _evaluate_bit(const IColumn& column, const uint16_t* sel, uint16_t size,
                        bool* flags) const {
         if (column.is_nullable()) {
             const auto* nullable_col =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
+                    check_and_get_column<ColumnNullable>(column);
             const auto& null_bitmap =
-                    assert_cast<const vectorized::ColumnUInt8&>(nullable_col->get_null_map_column())
+                    assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
                             .get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
@@ -236,12 +236,12 @@ public:
         }
     }
 
-    void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
+    void evaluate_and(const IColumn& column, const uint16_t* sel, uint16_t size,
                       bool* flags) const override {
         _evaluate_bit<true>(column, sel, size, flags);
     }
 
-    void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
+    void evaluate_or(const IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {
         _evaluate_bit<false>(column, sel, size, flags);
     }
@@ -258,7 +258,7 @@ public:
         }
     }
 
-    bool camp_field(const vectorized::Field& min_field, const vectorized::Field& max_field) const {
+    bool camp_field(const Field& min_field, const Field& max_field) const {
         if constexpr (PT == PredicateType::IN_LIST) {
             return Compare::less_equal(min_field.template get<Type>(), _max_value) &&
                    Compare::greater_equal(max_field.template get<Type>(), _min_value);
@@ -267,15 +267,15 @@ public:
         }
     }
 
-    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+    bool evaluate_and(ParquetPredicate::ColumnStat* statistic) const override {
         bool result = true;
         if ((*statistic->get_stat_func)(statistic, column_id())) {
             if (statistic->is_all_null) {
                 result = false;
             } else {
-                vectorized::Field min_field;
-                vectorized::Field max_field;
-                auto st = vectorized::ParquetPredicate::parse_min_max_value(
+                Field min_field;
+                Field max_field;
+                auto st = ParquetPredicate::parse_min_max_value(
                         statistic->col_schema, statistic->encoded_min_value,
                         statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field);
                 if (LIKELY(st.ok())) {
@@ -298,9 +298,9 @@ public:
         return result;
     }
 
-    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+    bool evaluate_and(ParquetPredicate::CachedPageIndexStat* statistic,
                       RowRanges* row_ranges) const override {
-        vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
+        ParquetPredicate::PageIndexStat* stat = nullptr;
         if (!(statistic->get_stat_func)(&stat, column_id())) {
             row_ranges->add(statistic->row_group_range);
             return true;
@@ -312,9 +312,9 @@ public:
                 continue;
             }
 
-            vectorized::Field min_field;
-            vectorized::Field max_field;
-            if (!vectorized::ParquetPredicate::parse_min_max_value(
+            Field min_field;
+            Field max_field;
+            if (!ParquetPredicate::parse_min_max_value(
                          stat->col_schema, stat->encoded_min_value[page_id],
                          stat->encoded_max_value[page_id], *statistic->ctz, &min_field, &max_field)
                          .ok()) [[unlikely]] {
@@ -413,7 +413,7 @@ public:
         return get_in_list_ignore_thredhold(_values->size());
     }
 
-    bool evaluate_and(const vectorized::ParquetBlockSplitBloomFilter* bf) const override {
+    bool evaluate_and(const ParquetBlockSplitBloomFilter* bf) const override {
         if constexpr (PT == PredicateType::IN_LIST) {
             HybridSetBase::IteratorBase* iter = _values->begin();
             while (iter->has_next()) {
@@ -466,15 +466,15 @@ public:
     }
 
 private:
-    uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
+    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel,
                              uint16_t size) const override {
         int16_t new_size = 0;
 
         if (column.is_nullable()) {
             const auto* nullable_col =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
+                    check_and_get_column<ColumnNullable>(column);
             const auto& null_map =
-                    assert_cast<const vectorized::ColumnUInt8&>(nullable_col->get_null_map_column())
+                    assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
                             .get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
@@ -502,15 +502,15 @@ private:
     }
 
     template <bool is_nullable, bool is_opposite>
-    uint16_t _base_evaluate(const vectorized::IColumn* column,
-                            const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
+    uint16_t _base_evaluate(const IColumn* column,
+                            const PaddedPODArray<UInt8>* null_map,
                             uint16_t* sel, uint16_t size) const {
         uint16_t new_size = 0;
 
         if (column->is_column_dictionary()) {
             if constexpr (is_string_type(Type)) {
                 const auto* nested_col_ptr =
-                        vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
+                        check_and_get_column<ColumnDictI32>(column);
                 const auto& data_array = nested_col_ptr->get_data();
                 auto segid = column->get_rowset_segment_id();
                 DCHECK((segid.first.hi | segid.first.mi | segid.first.lo) != 0);
@@ -552,8 +552,8 @@ private:
             }
         } else {
             auto& pred_col =
-                    vectorized::check_and_get_column<
-                            vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column)
+                    check_and_get_column<
+                            PredicateColumnType<PredicateEvaluateType<Type>>>(column)
                             ->get_data();
             auto pred_col_data = pred_col.data();
 
@@ -571,13 +571,13 @@ private:
     }
 
     template <bool is_nullable, bool is_opposite, bool is_and>
-    void _base_evaluate_bit(const vectorized::IColumn* column,
-                            const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
+    void _base_evaluate_bit(const IColumn* column,
+                            const PaddedPODArray<UInt8>* null_map,
                             const uint16_t* sel, uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
             if constexpr (is_string_type(Type)) {
                 const auto* nested_col_ptr =
-                        vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
+                        check_and_get_column<ColumnDictI32>(column);
                 const auto& data_array = nested_col_ptr->get_data();
                 auto& value_in_dict_flags =
                         _segment_id_to_value_in_dict_flags[column->get_rowset_segment_id()];
@@ -615,8 +615,8 @@ private:
                 __builtin_unreachable();
             }
         } else {
-            auto* nested_col_ptr = vectorized::check_and_get_column<
-                    vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column);
+            auto* nested_col_ptr = check_and_get_column<
+                    PredicateColumnType<PredicateEvaluateType<Type>>>(column);
             if (nested_col_ptr == nullptr) {
                 throw Exception(ErrorCode::INTERNAL_ERROR,
                                 "InListPredicateBase: _base_evaluate_bit get invalid column type");
@@ -665,7 +665,7 @@ private:
     }
 
     std::shared_ptr<HybridSetBase> _values;
-    mutable std::map<std::pair<RowsetId, uint32_t>, std::vector<vectorized::UInt8>>
+    mutable std::map<std::pair<RowsetId, uint32_t>, std::vector<UInt8>>
             _segment_id_to_value_in_dict_flags;
     T _min_value;
     T _max_value;

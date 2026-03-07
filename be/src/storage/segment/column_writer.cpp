@@ -150,7 +150,7 @@ inline ScalarColumnWriter* get_null_writer(const ColumnWriterOptions& opts,
 
 ColumnWriter::ColumnWriter(std::unique_ptr<Field> field, bool is_nullable, ColumnMetaPB* meta)
         : _field(std::move(field)), _is_nullable(is_nullable), _column_meta(meta) {
-    _data_type = vectorized::DataTypeFactory::instance().create_data_type(*_column_meta);
+    _data_type = DataTypeFactory::instance().create_data_type(*_column_meta);
 }
 Status ColumnWriter::create_struct_writer(const ColumnWriterOptions& opts,
                                           const TabletColumn* column, io::FileWriter* file_writer,
@@ -306,8 +306,8 @@ Status ColumnWriter::create_agg_state_writer(const ColumnWriterOptions& opts,
                                              const TabletColumn* column,
                                              io::FileWriter* file_writer,
                                              std::unique_ptr<ColumnWriter>* writer) {
-    auto data_type = vectorized::DataTypeFactory::instance().create_data_type(*column);
-    const auto* agg_state_type = assert_cast<const vectorized::DataTypeAggState*>(data_type.get());
+    auto data_type = DataTypeFactory::instance().create_data_type(*column);
+    const auto* agg_state_type = assert_cast<const DataTypeAggState*>(data_type.get());
     auto type = agg_state_type->get_serialized_type()->get_primitive_type();
     if (type == PrimitiveType::TYPE_STRING || type == PrimitiveType::INVALID_TYPE ||
         type == PrimitiveType::TYPE_FIXED_LENGTH_OBJECT || type == PrimitiveType::TYPE_BITMAP) {
@@ -1021,7 +1021,7 @@ Status StructColumnWriter::append_nulls(size_t num_rows) {
         RETURN_IF_ERROR(column_writer->append_nulls(num_rows));
     }
     if (is_nullable()) {
-        std::vector<vectorized::UInt8> null_signs(num_rows, 1);
+        std::vector<UInt8> null_signs(num_rows, 1);
         const uint8_t* null_sign_ptr = null_signs.data();
         RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, num_rows));
     }
@@ -1321,12 +1321,12 @@ Status MapColumnWriter::append_nulls(size_t num_rows) {
         RETURN_IF_ERROR(sub_writer->append_nulls(num_rows));
     }
     const ordinal_t offset = _kv_writers[0]->get_next_rowid();
-    std::vector<vectorized::UInt8> offsets_data(num_rows, cast_set<uint8_t>(offset));
+    std::vector<UInt8> offsets_data(num_rows, cast_set<uint8_t>(offset));
     const uint8_t* offsets_ptr = offsets_data.data();
     RETURN_IF_ERROR(_offsets_writer->append_data(&offsets_ptr, num_rows));
 
     if (is_nullable()) {
-        std::vector<vectorized::UInt8> null_signs(num_rows, 1);
+        std::vector<UInt8> null_signs(num_rows, 1);
         const uint8_t* null_sign_ptr = null_signs.data();
         RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, num_rows));
     }

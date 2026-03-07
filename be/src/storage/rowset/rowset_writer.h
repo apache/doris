@@ -74,11 +74,11 @@ public:
 
     virtual Status init(const RowsetWriterContext& rowset_writer_context) = 0;
 
-    virtual Status add_block(const vectorized::Block* block) {
+    virtual Status add_block(const Block* block) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "RowsetWriter not support add_block");
     }
-    virtual Status add_columns(const vectorized::Block* block, const std::vector<uint32_t>& col_ids,
+    virtual Status add_columns(const Block* block, const std::vector<uint32_t>& col_ids,
                                bool is_key, uint32_t max_rows_per_segment, bool has_cluster_key) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "RowsetWriter not support add_columns");
@@ -130,13 +130,13 @@ public:
                 "RowsetWriter not support final_flush");
     }
 
-    virtual Status flush_memtable(vectorized::Block* block, int32_t segment_id,
+    virtual Status flush_memtable(Block* block, int32_t segment_id,
                                   int64_t* flush_size) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "RowsetWriter not support flush_memtable");
     }
 
-    virtual Status flush_single_block(const vectorized::Block* block) {
+    virtual Status flush_single_block(const Block* block) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "RowsetWriter not support flush_single_block");
     }

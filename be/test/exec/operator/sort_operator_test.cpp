@@ -28,18 +28,17 @@
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
-namespace doris::pipeline {
+namespace doris {
 
-using namespace vectorized;
 
 class MockOperator : public OperatorXBase {
 public:
-    Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
+    Status get_block_after_projects(RuntimeState* state, Block* block,
                                     bool* eos) override {
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override {
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
         return Status::OK();
     }
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
@@ -73,7 +72,7 @@ struct SortOperatorTest : public ::testing::Test {
                 MockSlotRef::create_mock_contexts(std::make_shared<DataTypeInt64>());
 
         _child_op->_mock_row_desc.reset(
-                new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>()}, &pool});
+                new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
 
         EXPECT_TRUE(sink->set_child(_child_op));
         source = std::make_unique<SortSourceOperatorX>();
@@ -157,13 +156,13 @@ TEST_F(SortOperatorTest, test) {
     create_operator(TSortAlgorithm::HEAP_SORT, 10, 0);
 
     {
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({2, 3, 1});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({2, 3, 1});
         auto st = sink->sink(state.get(), &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
     }
 
     {
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos = false;
         auto st = source->get_block(state.get(), &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -185,7 +184,7 @@ TEST_F(SortOperatorTest, test_dep) {
     create_operator(TSortAlgorithm::HEAP_SORT, 10, 0);
 
     {
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({2, 3, 1});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({2, 3, 1});
         auto st = sink->sink(state.get(), &block, false);
         EXPECT_TRUE(st.ok()) << st.msg();
     }
@@ -194,7 +193,7 @@ TEST_F(SortOperatorTest, test_dep) {
     EXPECT_TRUE(is_block(source_local_state->dependencies()));
 
     {
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({6, 5, 4});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({6, 5, 4});
         auto st = sink->sink(state.get(), &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
     }
@@ -202,7 +201,7 @@ TEST_F(SortOperatorTest, test_dep) {
     EXPECT_TRUE(is_ready(source_local_state->dependencies()));
 
     {
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>({});
+        Block block = ColumnHelper::create_block<DataTypeInt64>({});
         bool eos = false;
         auto st = source->get_block(state.get(), &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -233,7 +232,7 @@ TEST_F(SortOperatorTest, test_sort_type) {
         std::random_shuffle(vec.begin(), vec.end());
 
         {
-            vectorized::Block block = ColumnHelper::create_block<DataTypeInt64>(vec);
+            Block block = ColumnHelper::create_block<DataTypeInt64>(vec);
             auto st = sink->sink(state.get(), &block, true);
             EXPECT_TRUE(st.ok()) << st.msg();
         }
@@ -282,4 +281,4 @@ TEST_F(SortOperatorTest, test_sort_type) {
     sort_for_type(TSortAlgorithm::FULL_SORT, 50, 20);
 }
 
-} // namespace doris::pipeline
+} // namespace doris

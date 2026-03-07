@@ -61,7 +61,7 @@ protected:
         column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
 
         if (parent_unique_id > 0 && !path.empty()) {
-            vectorized::PathInData path_info(path);
+            PathInData path_info(path);
             column.set_path_info(path_info);
             column.set_parent_unique_id(parent_unique_id);
         }
@@ -83,10 +83,10 @@ protected:
     }
 
     // Helper method to create a nullable column for testing
-    vectorized::ColumnPtr create_nullable_column(const std::vector<bool>& null_map,
+    ColumnPtr create_nullable_column(const std::vector<bool>& null_map,
                                                  const std::vector<std::string>& values) {
-        auto string_column = vectorized::ColumnString::create();
-        auto null_column = vectorized::ColumnUInt8::create();
+        auto string_column = ColumnString::create();
+        auto null_column = ColumnUInt8::create();
 
         for (size_t i = 0; i < values.size(); ++i) {
             if (null_map[i]) {
@@ -98,14 +98,14 @@ protected:
             }
         }
 
-        return vectorized::ColumnNullable::create(std::move(string_column), std::move(null_column));
+        return ColumnNullable::create(std::move(string_column), std::move(null_column));
     }
 
     // Helper method to create a map column (sparse column)
-    vectorized::ColumnPtr create_map_column() {
-        auto keys = vectorized::ColumnString::create();
-        auto values = vectorized::ColumnString::create();
-        auto offsets = vectorized::ColumnArray::ColumnOffsets::create();
+    ColumnPtr create_map_column() {
+        auto keys = ColumnString::create();
+        auto values = ColumnString::create();
+        auto offsets = ColumnArray::ColumnOffsets::create();
 
         // Add some sample data
         keys->insert_data("key1", 4);
@@ -116,7 +116,7 @@ protected:
         offsets->insert_value(0);
         offsets->insert_value(2);
 
-        return vectorized::ColumnMap::create(std::move(keys), std::move(values),
+        return ColumnMap::create(std::move(keys), std::move(values),
                                              std::move(offsets));
     }
 
@@ -130,7 +130,7 @@ TEST_F(VariantStatsCalculatorTest, ConstructorWithEmptyFooter) {
     VariantStatsCaculator calculator(_footer.get(), _tablet_schema, column_ids);
 
     // Test with empty footer - should not crash
-    vectorized::Block block;
+    Block block;
     auto status = calculator.calculate_variant_stats(&block, 0, 0);
     EXPECT_TRUE(status.ok());
 }
@@ -146,7 +146,7 @@ TEST_F(VariantStatsCalculatorTest, ConstructorWithValidFooter) {
     VariantStatsCaculator calculator(_footer.get(), _tablet_schema, column_ids);
 
     // Constructor should have built the path mapping
-    vectorized::Block block;
+    Block block;
     auto status = calculator.calculate_variant_stats(&block, 0, 0);
     EXPECT_TRUE(status.ok());
 }
@@ -164,11 +164,11 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithNoVariantColumns) {
     VariantStatsCaculator calculator(_footer.get(), _tablet_schema, column_ids);
 
     // Create a simple block
-    vectorized::Block block;
-    auto int_column = vectorized::ColumnVector<PrimitiveType::TYPE_INT>::create();
+    Block block;
+    auto int_column = ColumnVector<PrimitiveType::TYPE_INT>::create();
     int_column->insert_value(123);
     block.insert(
-            {std::move(int_column), std::make_shared<vectorized::DataTypeInt32>(), "regular_col"});
+            {std::move(int_column), std::make_shared<DataTypeInt32>(), "regular_col"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 1);
     EXPECT_TRUE(status.ok());
@@ -187,11 +187,11 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithSubColumn) {
     VariantStatsCaculator calculator(_footer.get(), _tablet_schema, column_ids);
 
     // Create block with nullable column
-    vectorized::Block block;
+    Block block;
     auto nullable_column = create_nullable_column({false, true, false}, {"val1", "", "val3"});
     block.insert({std::move(nullable_column),
-                  std::make_shared<vectorized::DataTypeNullable>(
-                          std::make_shared<vectorized::DataTypeString>()),
+                  std::make_shared<DataTypeNullable>(
+                          std::make_shared<DataTypeString>()),
                   "sub_column_1"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 3);
@@ -218,16 +218,16 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithSparseColumn) {
     VariantStatsCaculator calculator(_footer.get(), _tablet_schema, column_ids);
 
     // Create block with map column (sparse column)
-    vectorized::Block block;
+    Block block;
     auto map_column = create_map_column();
-    auto string_column = vectorized::ColumnString::create();
+    auto string_column = ColumnString::create();
     // add parant column to block
-    block.insert({std::move(string_column), std::make_shared<vectorized::DataTypeString>(),
+    block.insert({std::move(string_column), std::make_shared<DataTypeString>(),
                   "variant_column"});
     block.insert({std::move(map_column),
-                  std::make_shared<vectorized::DataTypeMap>(
-                          std::make_shared<vectorized::DataTypeString>(),
-                          std::make_shared<vectorized::DataTypeString>()),
+                  std::make_shared<DataTypeMap>(
+                          std::make_shared<DataTypeString>(),
+                          std::make_shared<DataTypeString>()),
                   "sparse_column"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 1);
@@ -247,11 +247,11 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithMissingFooterEntry) 
     VariantStatsCaculator calculator(_footer.get(), _tablet_schema, column_ids);
 
     // Create block with nullable column
-    vectorized::Block block;
+    Block block;
     auto nullable_column = create_nullable_column({false, true}, {"val1", ""});
     block.insert({std::move(nullable_column),
-                  std::make_shared<vectorized::DataTypeNullable>(
-                          std::make_shared<vectorized::DataTypeString>()),
+                  std::make_shared<DataTypeNullable>(
+                          std::make_shared<DataTypeString>()),
                   "missing_sub"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 2);
@@ -272,11 +272,11 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithMissingPathInFooter)
     VariantStatsCaculator calculator(_footer.get(), _tablet_schema, column_ids);
 
     // Create block with nullable column
-    vectorized::Block block;
+    Block block;
     auto nullable_column = create_nullable_column({false}, {"val1"});
     block.insert({std::move(nullable_column),
-                  std::make_shared<vectorized::DataTypeNullable>(
-                          std::make_shared<vectorized::DataTypeString>()),
+                  std::make_shared<DataTypeNullable>(
+                          std::make_shared<DataTypeString>()),
                   "sub_column"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 1);
@@ -308,31 +308,31 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithMultipleColumns) {
     VariantStatsCaculator calculator(_footer.get(), _tablet_schema, column_ids);
 
     // Create block with multiple columns
-    vectorized::Block block;
+    Block block;
 
     // parent column
-    auto string_column = vectorized::ColumnString::create();
+    auto string_column = ColumnString::create();
     string_column->insert_data("test", 4);
-    block.insert({std::move(string_column), std::make_shared<vectorized::DataTypeString>(),
+    block.insert({std::move(string_column), std::make_shared<DataTypeString>(),
                   "variant_column"});
     auto nullable_col1 = create_nullable_column({false, true, false}, {"a", "", "c"});
     block.insert({std::move(nullable_col1),
-                  std::make_shared<vectorized::DataTypeNullable>(
-                          std::make_shared<vectorized::DataTypeString>()),
+                  std::make_shared<DataTypeNullable>(
+                          std::make_shared<DataTypeString>()),
                   "sub1"});
 
     auto map_col = create_map_column();
     map_col->assume_mutable()->insert_many_defaults(3);
     block.insert({std::move(map_col),
-                  std::make_shared<vectorized::DataTypeMap>(
-                          std::make_shared<vectorized::DataTypeString>(),
-                          std::make_shared<vectorized::DataTypeString>()),
+                  std::make_shared<DataTypeMap>(
+                          std::make_shared<DataTypeString>(),
+                          std::make_shared<DataTypeString>()),
                   "sparse"});
 
     auto nullable_col2 = create_nullable_column({true, false, true}, {"", "x", ""});
     block.insert({std::move(nullable_col2),
-                  std::make_shared<vectorized::DataTypeNullable>(
-                          std::make_shared<vectorized::DataTypeString>()),
+                  std::make_shared<DataTypeNullable>(
+                          std::make_shared<DataTypeString>()),
                   "another_sub"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 3);
@@ -354,11 +354,11 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithEmptyBlock) {
     VariantStatsCaculator calculator(_footer.get(), _tablet_schema, column_ids);
 
     // Create empty block
-    vectorized::Block block;
+    Block block;
     auto empty_column = create_nullable_column({}, {});
     block.insert({std::move(empty_column),
-                  std::make_shared<vectorized::DataTypeNullable>(
-                          std::make_shared<vectorized::DataTypeString>()),
+                  std::make_shared<DataTypeNullable>(
+                          std::make_shared<DataTypeString>()),
                   "sub_column"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 0);
@@ -378,11 +378,11 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithAllNullValues) {
     VariantStatsCaculator calculator(_footer.get(), _tablet_schema, column_ids);
 
     // Create block with all null values
-    vectorized::Block block;
+    Block block;
     auto nullable_column = create_nullable_column({true, true, true}, {"", "", ""});
     block.insert({std::move(nullable_column),
-                  std::make_shared<vectorized::DataTypeNullable>(
-                          std::make_shared<vectorized::DataTypeString>()),
+                  std::make_shared<DataTypeNullable>(
+                          std::make_shared<DataTypeString>()),
                   "sub_column"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 3);
@@ -405,11 +405,11 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithNoPathInfo) {
     std::vector<uint32_t> column_ids = {0};
     VariantStatsCaculator calculator(_footer.get(), _tablet_schema, column_ids);
 
-    vectorized::Block block;
-    auto string_column = vectorized::ColumnString::create();
+    Block block;
+    auto string_column = ColumnString::create();
     string_column->insert_data("test", 4);
     block.insert(
-            {std::move(string_column), std::make_shared<vectorized::DataTypeString>(), "regular"});
+            {std::move(string_column), std::make_shared<DataTypeString>(), "regular"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 1);
     EXPECT_TRUE(status.ok()); // Should skip columns without path info
@@ -427,11 +427,11 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsAccumulatesNonNullCount)
     std::vector<uint32_t> column_ids = {0};
     VariantStatsCaculator calculator(_footer.get(), _tablet_schema, column_ids);
 
-    vectorized::Block block;
+    Block block;
     auto nullable_column = create_nullable_column({false, true, false}, {"a", "", "c"});
     block.insert({std::move(nullable_column),
-                  std::make_shared<vectorized::DataTypeNullable>(
-                          std::make_shared<vectorized::DataTypeString>()),
+                  std::make_shared<DataTypeNullable>(
+                          std::make_shared<DataTypeString>()),
                   "sub_column"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 3);
@@ -453,11 +453,11 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithExtendedSchema) {
     std::vector<uint32_t> column_ids = {0};
     VariantStatsCaculator calculator(_footer.get(), _tablet_schema, column_ids);
 
-    vectorized::Block block;
+    Block block;
     auto nullable_column = create_nullable_column({false, true, false}, {"a", "", "c"});
     block.insert({std::move(nullable_column),
-                  std::make_shared<vectorized::DataTypeNullable>(
-                          std::make_shared<vectorized::DataTypeString>()),
+                  std::make_shared<DataTypeNullable>(
+                          std::make_shared<DataTypeString>()),
                   "sub_column"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 3);

@@ -36,7 +36,7 @@
 #include "exprs/lambda_function/lambda_function.h"
 #include "exprs/lambda_function/lambda_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class VExprContext;
 
@@ -52,7 +52,7 @@ public:
 
     std::string get_name() const override { return name; }
 
-    doris::Status execute(VExprContext* context, const doris::vectorized::Block* block,
+    doris::Status execute(VExprContext* context, const doris::Block* block,
                           Selector* expr_selector, size_t output_count, ColumnPtr& result_column,
                           const DataTypePtr& result_type,
                           const VExprSPtrs& children) const override {
@@ -94,7 +94,7 @@ public:
         auto result_data_column = first_nested_nullable_column.clone_empty();
         auto result_offset_column = ColumnArray::ColumnOffsets::create();
         auto& result_offset_data = result_offset_column->get_data();
-        vectorized::IColumn::Selector selector;
+        IColumn::Selector selector;
         selector.reserve(first_off_data.size());
         result_offset_data.reserve(input_rows);
 
@@ -167,9 +167,9 @@ public:
     }
 };
 
-void register_function_array_filter(doris::vectorized::LambdaFunctionFactory& factory) {
+void register_function_array_filter(doris::LambdaFunctionFactory& factory) {
     factory.register_function<ArrayFilterFunction>();
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -58,7 +58,6 @@ namespace segment_v2 {
 enum CompressionTypePB : int;
 } // namespace segment_v2
 
-namespace vectorized {
 
 /** Container for set of columns for bunch of rows in memory.
   * This is unit of data processing.
@@ -615,5 +614,4 @@ struct IteratorRowRef {
 using BlockView = std::vector<IteratorRowRef>;
 using BlockUPtr = std::unique_ptr<Block>;
 
-} // namespace vectorized
 } // namespace doris

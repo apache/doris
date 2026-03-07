@@ -86,7 +86,7 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     return Status::OK();
 }
 
-Status MemTableWriter::write(const vectorized::Block* block,
+Status MemTableWriter::write(const Block* block,
                              const DorisVector<uint32_t>& row_idxs) {
     if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();

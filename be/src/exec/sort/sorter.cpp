@@ -44,7 +44,7 @@ namespace doris {
 class RowDescriptor;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 // When doing spillable sorting, each sorted block is spilled into a single file.
 //
@@ -87,7 +87,7 @@ Status MergeSorterState::build_merge_tree(const SortDescription& sort_descriptio
     return Status::OK();
 }
 
-Status MergeSorterState::merge_sort_read(doris::vectorized::Block* block, int batch_size,
+Status MergeSorterState::merge_sort_read(doris::Block* block, int batch_size,
                                          bool* eos) {
     DCHECK(_sorted_blocks.empty());
     DCHECK(unsorted_block()->empty());
@@ -95,7 +95,7 @@ Status MergeSorterState::merge_sort_read(doris::vectorized::Block* block, int ba
     return Status::OK();
 }
 
-void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized::Block* block,
+void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::Block* block,
                                              bool* eos) {
     size_t num_columns = unsorted_block()->columns();
 
@@ -132,7 +132,7 @@ void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized::
     *eos = merged_rows == 0;
 }
 
-Status Sorter::merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
+Status Sorter::merge_sort_read_for_spill(RuntimeState* state, doris::Block* block,
                                          int batch_size, bool* eos) {
     return get_next(state, block, eos);
 }
@@ -277,7 +277,7 @@ Status FullSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
     return _state->merge_sort_read(block, state->batch_size(), eos);
 }
 
-Status FullSorter::merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
+Status FullSorter::merge_sort_read_for_spill(RuntimeState* state, doris::Block* block,
                                              int batch_size, bool* eos) {
     return _state->merge_sort_read(block, batch_size, eos);
 }
@@ -323,4 +323,4 @@ void FullSorter::reset() {
     _state->reset();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

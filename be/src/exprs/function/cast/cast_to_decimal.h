@@ -27,7 +27,7 @@
 #include "exprs/function/cast/cast_to_basic_number_common.h"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 #define DECIMAL_CONVERT_OVERFLOW_ERROR(value, from_type_name, precision, scale)                    \
@@ -72,7 +72,7 @@ struct CastToDecimal {
                       std::conditional_t<(sizeof(FromCppT) > sizeof(typename ToCppT::NativeType)),
                                          FromCppT, typename ToCppT::NativeType>>
         requires(IsDecimalNumber<ToCppT> &&
-                 (IsCppTypeInt<FromCppT> || std::is_same_v<FromCppT, vectorized::UInt8>))
+                 (IsCppTypeInt<FromCppT> || std::is_same_v<FromCppT, UInt8>))
     static inline bool from_int(const FromCppT& from, ToCppT& to, UInt32 to_precision,
                                 UInt32 to_scale, CastParameters& params) {
         MaxNativeType scale_multiplier =
@@ -106,7 +106,7 @@ struct CastToDecimal {
               typename MaxNativeType =
                       std::conditional_t<(sizeof(FromCppT) > sizeof(typename ToCppT::NativeType)),
                                          FromCppT, typename ToCppT::NativeType>>
-        requires(IsDecimalNumber<ToCppT> && std::is_same_v<FromCppT, vectorized::UInt8>)
+        requires(IsDecimalNumber<ToCppT> && std::is_same_v<FromCppT, UInt8>)
     static inline bool from_bool(const FromCppT& from, ToCppT& to, UInt32 to_precision,
                                  UInt32 to_scale, CastParameters& params) {
         return from_int<FromCppT, ToCppT, MaxNativeType>(from, to, to_precision, to_scale, params);
@@ -553,7 +553,7 @@ struct CastToDecimal {
                       std::conditional_t<(sizeof(FromCppT) > sizeof(typename ToCppT::NativeType)),
                                          FromCppT, typename ToCppT::NativeType>>
         requires(IsDecimalNumber<ToCppT> && !IsDecimal128V2<ToCppT> &&
-                 (IsCppTypeInt<FromCppT> || std::is_same_v<FromCppT, vectorized::UInt8>))
+                 (IsCppTypeInt<FromCppT> || std::is_same_v<FromCppT, UInt8>))
     static inline bool _from_int(const FromCppT& from, ToCppT& to, UInt32 precision, UInt32 scale,
                                  const MaxNativeType& scale_multiplier,
                                  const typename ToCppT::NativeType& min_result,
@@ -600,7 +600,7 @@ struct CastToDecimal {
                       std::conditional_t<(sizeof(FromCppT) > sizeof(typename ToCppT::NativeType)),
                                          FromCppT, typename ToCppT::NativeType>>
         requires(IsDecimalV2<ToCppT> &&
-                 (IsCppTypeInt<FromCppT> || std::is_same_v<FromCppT, vectorized::UInt8>))
+                 (IsCppTypeInt<FromCppT> || std::is_same_v<FromCppT, UInt8>))
     static inline bool _from_int(const FromCppT& from, ToCppT& to, UInt32 precision, UInt32 scale,
                                  const MaxNativeType& scale_multiplier,
                                  const typename ToCppT::NativeType& min_result,
@@ -1120,4 +1120,4 @@ WrapperType create_decimal_wrapper(FunctionContext* context, const DataTypePtr& 
 }
 } // namespace CastWrapper
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

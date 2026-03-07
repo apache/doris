@@ -31,7 +31,6 @@ class ObjectPool;
 class RuntimeState;
 class RuntimeProfile;
 
-namespace vectorized {
 
 class Block;
 class VHivePartitionWriter;
@@ -40,8 +39,8 @@ struct ColumnWithTypeAndName;
 class VHiveTableWriter final : public AsyncResultWriter {
 public:
     VHiveTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                     std::shared_ptr<pipeline::Dependency> dep,
-                     std::shared_ptr<pipeline::Dependency> fin_dep);
+                     std::shared_ptr<Dependency> dep,
+                     std::shared_ptr<Dependency> fin_dep);
 
     ~VHiveTableWriter() override = default;
 
@@ -49,24 +48,24 @@ public:
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
-    Status write(RuntimeState* state, vectorized::Block& block) override;
+    Status write(RuntimeState* state, Block& block) override;
 
     Status close(Status) override;
 
 private:
     std::shared_ptr<VHivePartitionWriter> _create_partition_writer(
-            vectorized::Block& block, int position, const std::string* file_name = nullptr,
+            Block& block, int position, const std::string* file_name = nullptr,
             int file_name_index = 0);
 
-    std::vector<std::string> _create_partition_values(vectorized::Block& block, int position);
+    std::vector<std::string> _create_partition_values(Block& block, int position);
 
     std::string _to_partition_value(const DataTypePtr& type_desc,
                                     const ColumnWithTypeAndName& partition_column, int position);
 
     std::string _compute_file_name();
 
-    Status _filter_block(doris::vectorized::Block& block, const vectorized::IColumn::Filter* filter,
-                         doris::vectorized::Block* output_block);
+    Status _filter_block(doris::Block& block, const IColumn::Filter* filter,
+                         doris::Block* output_block);
 
     // Currently it is a copy, maybe it is better to use move semantics to eliminate it.
     TDataSink _t_sink;
@@ -95,5 +94,4 @@ private:
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _write_file_counter = nullptr;
 };
-} // namespace vectorized
 } // namespace doris

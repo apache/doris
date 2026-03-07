@@ -30,7 +30,7 @@ class ExecNode;
 class RuntimeState;
 } // namespace doris
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 struct StreamingHtMinReductionEntry {
     // Use 'streaming_ht_min_reduction' if the total size of hash table bucket directories in
@@ -61,8 +61,8 @@ DistinctStreamingAggLocalState::DistinctStreamingAggLocalState(RuntimeState* sta
         : PipelineXLocalState<FakeSharedState>(state, parent),
           batch_size(state->batch_size()),
           _agg_data(std::make_unique<DistinctDataVariants>()),
-          _child_block(vectorized::Block::create_unique()),
-          _aggregated_block(vectorized::Block::create_unique()) {}
+          _child_block(Block::create_unique()),
+          _aggregated_block(Block::create_unique()) {}
 
 Status DistinctStreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -98,7 +98,7 @@ bool DistinctStreamingAggLocalState::_should_expand_preagg_hash_tables() {
     }
 
     return std::visit(
-            vectorized::Overload {
+            Overload {
                     [&](std::monostate& arg) -> bool {
                         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
                         return false;
@@ -158,7 +158,7 @@ bool DistinctStreamingAggLocalState::_should_expand_preagg_hash_tables() {
 }
 
 Status DistinctStreamingAggLocalState::_init_hash_method(
-        const vectorized::VExprContextSPtrs& probe_exprs) {
+        const VExprContextSPtrs& probe_exprs) {
     RETURN_IF_ERROR(init_hash_method<DistinctDataVariants>(
             _agg_data.get(), get_data_types(probe_exprs),
             Base::_parent->template cast<DistinctStreamingAggOperatorX>()._is_first_phase));
@@ -166,12 +166,12 @@ Status DistinctStreamingAggLocalState::_init_hash_method(
 }
 
 Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
-        doris::vectorized::Block* in_block, doris::vectorized::Block* out_block) {
+        doris::Block* in_block, doris::Block* out_block) {
     SCOPED_TIMER(_build_timer);
     DCHECK(!_probe_expr_ctxs.empty());
 
     size_t key_size = _probe_expr_ctxs.size();
-    vectorized::ColumnRawPtrs key_columns(key_size);
+    ColumnRawPtrs key_columns(key_size);
     std::vector<int> result_idxs(key_size);
     {
         SCOPED_TIMER(_expr_timer);
@@ -247,7 +247,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
         }
     } else {
         DCHECK(out_block->empty()) << "out_block must be empty , but rows is " << out_block->rows();
-        vectorized::ColumnsWithTypeAndName columns_with_schema;
+        ColumnsWithTypeAndName columns_with_schema;
         for (int i = 0; i < key_size; ++i) {
             if (_stop_emplace_flag) {
                 columns_with_schema.emplace_back(key_columns[i]->assume_mutable(),
@@ -261,7 +261,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
                                                  _probe_expr_ctxs[i]->root()->expr_name());
             }
         }
-        out_block->swap(vectorized::Block(columns_with_schema));
+        out_block->swap(Block(columns_with_schema));
         _cache_block = out_block->clone_empty();
         if (_stop_emplace_flag) {
             in_block->clear(); // clear the column ref with stop_emplace_flag = true
@@ -270,7 +270,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
     return Status::OK();
 }
 
-void DistinctStreamingAggLocalState::_make_nullable_output_key(vectorized::Block* block) {
+void DistinctStreamingAggLocalState::_make_nullable_output_key(Block* block) {
     if (block->rows() != 0) {
         for (auto cid : Base::_parent->cast<DistinctStreamingAggOperatorX>()._make_nullable_keys) {
             block->get_by_position(cid).column = make_nullable(block->get_by_position(cid).column);
@@ -280,10 +280,10 @@ void DistinctStreamingAggLocalState::_make_nullable_output_key(vectorized::Block
 }
 
 void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
-        vectorized::IColumn::Selector& distinct_row, vectorized::ColumnRawPtrs& key_columns,
+        IColumn::Selector& distinct_row, ColumnRawPtrs& key_columns,
         const uint32_t num_rows) {
     std::visit(
-            vectorized::Overload {
+            Overload {
                     [&](std::monostate& arg) -> void {
                         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
                     },
@@ -341,7 +341,7 @@ Status DistinctStreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState*
     RETURN_IF_ERROR(StatefulOperatorX<DistinctStreamingAggLocalState>::init(tnode, state));
     // ignore return status for now , so we need to introduce ExecNode::init()
     RETURN_IF_ERROR(
-            vectorized::VExpr::create_expr_trees(tnode.agg_node.grouping_exprs, _probe_expr_ctxs));
+            VExpr::create_expr_trees(tnode.agg_node.grouping_exprs, _probe_expr_ctxs));
 
     _op_name = "DISTINCT_STREAMING_AGGREGATION_OPERATOR";
     return Status::OK();
@@ -349,8 +349,8 @@ Status DistinctStreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState*
 
 Status DistinctStreamingAggOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(StatefulOperatorX<DistinctStreamingAggLocalState>::prepare(state));
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));
-    RETURN_IF_ERROR(vectorized::VExpr::open(_probe_expr_ctxs, state));
+    RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));
+    RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
     init_make_nullable(state);
     return Status::OK();
 }
@@ -368,7 +368,7 @@ void DistinctStreamingAggOperatorX::init_make_nullable(RuntimeState* state) {
     }
 }
 
-Status DistinctStreamingAggOperatorX::push(RuntimeState* state, vectorized::Block* in_block,
+Status DistinctStreamingAggOperatorX::push(RuntimeState* state, Block* in_block,
                                            bool eos) const {
     auto& local_state = get_local_state(state);
     local_state._input_num_rows += in_block->rows();
@@ -388,7 +388,7 @@ Status DistinctStreamingAggOperatorX::push(RuntimeState* state, vectorized::Bloc
     return Status::OK();
 }
 
-Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, vectorized::Block* block,
+Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, Block* block,
                                            bool* eos) const {
     auto& local_state = get_local_state(state);
     if (!local_state._aggregated_block->empty()) {
@@ -430,7 +430,7 @@ Status DistinctStreamingAggLocalState::close(RuntimeState* state) {
     SCOPED_TIMER(Base::_close_timer);
     /// _hash_table_size_counter may be null if prepare failed.
     if (_hash_table_size_counter && !_probe_expr_ctxs.empty()) {
-        std::visit(vectorized::Overload {[&](std::monostate& arg) {
+        std::visit(Overload {[&](std::monostate& arg) {
                                              // Do nothing
                                          },
                                          [&](auto& agg_method) {
@@ -457,4 +457,4 @@ Status DistinctStreamingAggLocalState::close(RuntimeState* state) {
     return Base::close(state);
 }
 
-} // namespace doris::pipeline
+} // namespace doris

@@ -141,7 +141,7 @@ public:
         if (id < 0) {
             return false;
         }
-        return _roaring->contains(cast_set<vectorized::UInt32>(id));
+        return _roaring->contains(cast_set<UInt32>(id));
     }
 
 private:
@@ -161,7 +161,7 @@ void FaissVectorIndex::update_roaring(const faiss::idx_t* labels, const size_t n
     DCHECK(roaring.cardinality() == 0);
     for (size_t i = 0; i < n; ++i) {
         if (labels[i] >= 0) {
-            roaring.add(cast_set<vectorized::UInt32>(labels[i]));
+            roaring.add(cast_set<UInt32>(labels[i]));
         }
     }
 }
@@ -191,13 +191,13 @@ public:
             const auto* data = reinterpret_cast<const uint8_t*>(ptr);
             // CLucene IndexOutput::writeBytes accepts at most Int32 bytes at a time.
             const size_t kMaxChunk =
-                    static_cast<size_t>(std::numeric_limits<vectorized::Int32>::max());
+                    static_cast<size_t>(std::numeric_limits<Int32>::max());
             size_t written = 0;
             while (written < bytes) {
                 size_t to_write = bytes - written;
                 if (to_write > kMaxChunk) to_write = kMaxChunk;
                 try {
-                    _output->writeBytes(data + written, cast_set<vectorized::Int32>(to_write));
+                    _output->writeBytes(data + written, cast_set<Int32>(to_write));
                 } catch (const std::exception& e) {
                     throw doris::Exception(doris::ErrorCode::IO_ERROR,
                                            "Failed to write vector index {}", e.what());
@@ -226,13 +226,13 @@ public:
         if (bytes > 0) {
             auto* data = reinterpret_cast<uint8_t*>(ptr);
             const size_t kMaxChunk =
-                    static_cast<size_t>(std::numeric_limits<vectorized::Int32>::max());
+                    static_cast<size_t>(std::numeric_limits<Int32>::max());
             size_t read = 0;
             while (read < bytes) {
                 size_t to_read = bytes - read;
                 if (to_read > kMaxChunk) to_read = kMaxChunk;
                 try {
-                    _input->readBytes(data + read, cast_set<vectorized::Int32>(to_read));
+                    _input->readBytes(data + read, cast_set<Int32>(to_read));
                 } catch (const std::exception& e) {
                     throw doris::Exception(doris::ErrorCode::IO_ERROR,
                                            "Failed to read vector index {}", e.what());
@@ -246,7 +246,7 @@ public:
     lucene::store::IndexInput* _input = nullptr;
 };
 
-doris::Status FaissVectorIndex::train(vectorized::Int64 n, const float* vec) {
+doris::Status FaissVectorIndex::train(Int64 n, const float* vec) {
     DCHECK(vec != nullptr);
     DCHECK(_index != nullptr);
 
@@ -271,7 +271,7 @@ doris::Status FaissVectorIndex::train(vectorized::Int64 n, const float* vec) {
 * @param n      number of vectors
 * @param x      input matrix, size n * d
 */
-doris::Status FaissVectorIndex::add(vectorized::Int64 n, const float* vec) {
+doris::Status FaissVectorIndex::add(Int64 n, const float* vec) {
     DCHECK(vec != nullptr);
     DCHECK(_index != nullptr);
 
@@ -592,7 +592,7 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
                 // So we need to take the square root of the squared distance.
                 for (size_t i = begin; i < end; ++i) {
                     (*row_ids)[i] = native_search_result.labels[i];
-                    roaring->add(cast_set<vectorized::UInt32>(native_search_result.labels[i]));
+                    roaring->add(cast_set<UInt32>(native_search_result.labels[i]));
                     distances[i - begin] = sqrt(native_search_result.distances[i]);
                 }
             }
@@ -613,7 +613,7 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
                 // Engine convert: compute roaring difference
                 SCOPED_RAW_TIMER(&result.engine_convert_ns);
                 for (size_t i = begin; i < end; ++i) {
-                    roaring->add(cast_set<vectorized::UInt32>(native_search_result.labels[i]));
+                    roaring->add(cast_set<UInt32>(native_search_result.labels[i]));
                 }
                 result.roaring = std::make_shared<roaring::Roaring>();
                 // remove all rows that should not be included.
@@ -636,7 +636,7 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
                 // Engine convert: compute roaring difference
                 SCOPED_RAW_TIMER(&result.engine_convert_ns);
                 for (size_t i = begin; i < end; ++i) {
-                    roaring->add(cast_set<vectorized::UInt32>(native_search_result.labels[i]));
+                    roaring->add(cast_set<UInt32>(native_search_result.labels[i]));
                 }
                 result.roaring = std::make_shared<roaring::Roaring>();
                 *(result.roaring) = origin_row_ids - *roaring;
@@ -654,7 +654,7 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
             // So we need to take the square root of the squared distance.
             for (size_t i = begin; i < end; ++i) {
                 (*row_ids)[i] = native_search_result.labels[i];
-                roaring->add(cast_set<vectorized::UInt32>(native_search_result.labels[i]));
+                roaring->add(cast_set<UInt32>(native_search_result.labels[i]));
                 distances[i - begin] = native_search_result.distances[i];
             }
             result.distances = std::move(distances_ptr);

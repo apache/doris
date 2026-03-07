@@ -187,7 +187,7 @@ public:
     // set matched to true if segment zone map is absent or `cond' could be satisfied, false otherwise.
     Status match_condition(const AndBlockColumnPredicate* col_predicates, bool* matched) const;
 
-    Status next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) const;
+    Status next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) const;
 
     // get row ranges with zone map
     // - cond_column is user's query predicate
@@ -224,14 +224,14 @@ public:
 
     void disable_index_meta_cache() { _use_index_page_cache = false; }
 
-    vectorized::DataTypePtr get_vec_data_type() { return _data_type; }
+    DataTypePtr get_vec_data_type() { return _data_type; }
 
     virtual FieldType get_meta_type() { return _meta_type; }
 
     int64_t get_metadata_size() const override;
 
 #ifdef BE_TEST
-    void check_data_by_zone_map_for_test(const vectorized::MutableColumnPtr& dst) const;
+    void check_data_by_zone_map_for_test(const MutableColumnPtr& dst) const;
 #endif
 
 private:
@@ -281,7 +281,7 @@ private:
 
     DictEncodingType _dict_encoding_type;
 
-    vectorized::DataTypePtr _data_type;
+    DataTypePtr _data_type;
 
     TypeInfoPtr _type_info =
             TypeInfoPtr(nullptr,
@@ -321,21 +321,21 @@ public:
     // then returns false.
     virtual Status seek_to_ordinal(ordinal_t ord) = 0;
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
         bool has_null;
         return next_batch(n, dst, &has_null);
     }
 
-    virtual Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) {
+    virtual Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
         return Status::NotSupported("next_batch not implement");
     }
 
-    virtual Status next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) {
+    virtual Status next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) {
         return Status::NotSupported("next_batch_of_zone_map not implement");
     }
 
     virtual Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                                  vectorized::MutableColumnPtr& dst) {
+                                  MutableColumnPtr& dst) {
         return Status::NotSupported("read_by_rowids not implement");
     }
 
@@ -429,12 +429,12 @@ public:
 
     Status seek_to_page_start();
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
 
-    Status next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) override;
+    Status next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) override;
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override;
+                          MutableColumnPtr& dst) override;
 
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 
@@ -519,7 +519,7 @@ public:
 
     Status init(const ColumnIteratorOptions& opts) override;
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
     ordinal_t get_current_ordinal() const override {
         return _offset_iterator->get_current_ordinal();
     }
@@ -531,10 +531,10 @@ public:
     Status _peek_one_offset(ordinal_t* offset);
 
     Status _calculate_offsets(ssize_t start,
-                              vectorized::ColumnArray::ColumnOffsets& column_offsets);
+                              ColumnArray::ColumnOffsets& column_offsets);
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override {
+                          MutableColumnPtr& dst) override {
         return _offset_iterator->read_by_rowids(rowids, count, dst);
     }
 
@@ -546,7 +546,7 @@ public:
 private:
     std::unique_ptr<FileColumnIterator> _offset_iterator;
     // reuse a tiny column for peek to avoid frequent allocations
-    vectorized::MutableColumnPtr _peek_tmp_col;
+    MutableColumnPtr _peek_tmp_col;
 };
 
 // This iterator is used to read map value column
@@ -562,10 +562,10 @@ public:
 
     Status init(const ColumnIteratorOptions& opts) override;
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override;
+                          MutableColumnPtr& dst) override;
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
@@ -602,10 +602,10 @@ public:
 
     Status init(const ColumnIteratorOptions& opts) override;
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override;
+                          MutableColumnPtr& dst) override;
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
@@ -642,10 +642,10 @@ public:
 
     Status init(const ColumnIteratorOptions& opts) override;
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override;
+                          MutableColumnPtr& dst) override;
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
@@ -684,12 +684,12 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
         bool has_null;
         return next_batch(n, dst, &has_null);
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
         for (size_t i = 0; i < *n; ++i) {
             const auto row_id = cast_set<uint32_t>(_current_rowid + i);
             GlobalRowLoacation location(_tablet_id, _rowset_id, _segment_id, row_id);
@@ -700,7 +700,7 @@ public:
     }
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override {
+                          MutableColumnPtr& dst) override {
         for (size_t i = 0; i < count; ++i) {
             rowid_t row_id = rowids[i];
             GlobalRowLoacation location(_tablet_id, _rowset_id, _segment_id, row_id);
@@ -729,15 +729,15 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
         bool has_null;
         return next_batch(n, dst, &has_null);
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override;
+                          MutableColumnPtr& dst) override;
 
     ordinal_t get_current_ordinal() const override { return _current_rowid; }
 
@@ -768,24 +768,24 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
         bool has_null;
         return next_batch(n, dst, &has_null);
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
 
-    Status next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) override {
+    Status next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) override {
         return next_batch(n, dst);
     }
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override;
+                          MutableColumnPtr& dst) override;
 
     ordinal_t get_current_ordinal() const override { return _current_rowid; }
 
 private:
-    void _insert_many_default(vectorized::MutableColumnPtr& dst, size_t n);
+    void _insert_many_default(MutableColumnPtr& dst, size_t n);
 
     bool _has_default_value;
     std::string _default_value;
@@ -794,7 +794,7 @@ private:
     int _precision;
     int _scale;
     const int _len;
-    vectorized::Field _default_value_field;
+    Field _default_value_field;
 
     // current rowid
     ordinal_t _current_rowid = 0;

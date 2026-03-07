@@ -46,7 +46,7 @@
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 const char* JDBC_EXECUTOR_FACTORY_CLASS = "org/apache/doris/jdbc/JdbcExecutorFactory";
 const char* JDBC_EXECUTOR_CTOR_SIGNATURE = "([B)V";
@@ -296,8 +296,8 @@ Status JdbcConnector::get_next(bool* eos, Block* block, int batch_size) {
     return Status::OK();
 }
 
-Status JdbcConnector::append(vectorized::Block* block,
-                             const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
+Status JdbcConnector::append(Block* block,
+                             const VExprContextSPtrs& output_vexpr_ctxs,
                              uint32_t start_send_row, uint32_t* num_rows_sent,
                              TOdbcTableType::type table_type) {
     RETURN_IF_ERROR(exec_stmt_write(block, output_vexpr_ctxs, num_rows_sent));
@@ -518,7 +518,7 @@ Status JdbcConnector::_cast_string_to_hll(const SlotDescriptor* slot_desc, Block
     if (_target_data_type->is_nullable()) {
         block->replace_by_position(column_index, res_col);
     } else {
-        auto nested_ptr = reinterpret_cast<const vectorized::ColumnNullable*>(res_col.get())
+        auto nested_ptr = reinterpret_cast<const ColumnNullable*>(res_col.get())
                                   ->get_nested_column_ptr();
         block->replace_by_position(column_index, nested_ptr);
     }
@@ -563,7 +563,7 @@ Status JdbcConnector::_cast_string_to_bitmap(const SlotDescriptor* slot_desc, Bl
     if (_target_data_type->is_nullable()) {
         block->replace_by_position(column_index, res_col);
     } else {
-        auto nested_ptr = reinterpret_cast<const vectorized::ColumnNullable*>(res_col.get())
+        auto nested_ptr = reinterpret_cast<const ColumnNullable*>(res_col.get())
                                   ->get_nested_column_ptr();
         block->replace_by_position(column_index, nested_ptr);
     }
@@ -609,7 +609,7 @@ Status JdbcConnector::_cast_string_to_json(const SlotDescriptor* slot_desc, Bloc
     if (_target_data_type->is_nullable()) {
         block->replace_by_position(column_index, res_col);
     } else {
-        auto nested_ptr = reinterpret_cast<const vectorized::ColumnNullable*>(res_col.get())
+        auto nested_ptr = reinterpret_cast<const ColumnNullable*>(res_col.get())
                                   ->get_nested_column_ptr();
         block->replace_by_position(column_index, nested_ptr);
     }
@@ -685,4 +685,4 @@ Status JdbcConnector::_check_and_return_default_driver_url(const std::string& ur
     return Status::OK();
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

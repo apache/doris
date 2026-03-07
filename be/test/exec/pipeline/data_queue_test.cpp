@@ -25,7 +25,7 @@
 #include "core/data_type/data_type_number.h"
 #include "exec/pipeline/dependency.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 class DataQueueTest : public testing::Test {
 public:
@@ -48,7 +48,6 @@ public:
 };
 
 TEST_F(DataQueueTest, MultiTest) {
-    using namespace vectorized;
 
     int output_count = 0;
     auto output_func = [&]() {
@@ -121,4 +120,4 @@ TEST_F(DataQueueTest, MultiTest) {
 
 // ./run-be-ut.sh --run --filter=DataQueueTest.*
 
-} // namespace doris::pipeline
+} // namespace doris

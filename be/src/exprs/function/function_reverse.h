@@ -19,7 +19,7 @@
 #include "exprs/function/array/function_array_reverse.h"
 #include "exprs/function/function_string.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionReverseCommon : public IFunction {
 public:
@@ -59,4 +59,4 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

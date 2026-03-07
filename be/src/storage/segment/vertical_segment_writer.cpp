@@ -320,7 +320,7 @@ Status VerticalSegmentWriter::init() {
     if (_opts.compression_type == UNKNOWN_COMPRESSION) {
         _opts.compression_type = _tablet_schema->compression_type();
     }
-    _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    _olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
     _olap_data_convertor->resize(_tablet_schema->num_columns());
     _column_writers.resize(_tablet_schema->num_columns());
     // we don't need the short key index for unique key merge on write table.
@@ -357,7 +357,7 @@ void VerticalSegmentWriter::_maybe_invalid_row_cache(const std::string& key) con
     }
 }
 
-void VerticalSegmentWriter::_serialize_block_to_row_column(const vectorized::Block& block) {
+void VerticalSegmentWriter::_serialize_block_to_row_column(const Block& block) {
     if (block.rows() == 0) {
         return;
     }
@@ -366,14 +366,14 @@ void VerticalSegmentWriter::_serialize_block_to_row_column(const vectorized::Blo
     int row_column_id = 0;
     for (int i = 0; i < _tablet_schema->num_columns(); ++i) {
         if (_tablet_schema->column(i).is_row_store_column()) {
-            auto* row_store_column = static_cast<vectorized::ColumnString*>(
+            auto* row_store_column = static_cast<ColumnString*>(
                     block.get_by_position(i).column->assume_mutable_ref().assume_mutable().get());
             row_store_column->clear();
-            vectorized::DataTypeSerDeSPtrs serdes =
-                    vectorized::create_data_type_serdes(block.get_data_types());
+            DataTypeSerDeSPtrs serdes =
+                    create_data_type_serdes(block.get_data_types());
             std::unordered_set<int> row_store_cids_set(_tablet_schema->row_columns_uids().begin(),
                                                        _tablet_schema->row_columns_uids().end());
-            vectorized::JsonbSerializeUtil::block_to_jsonb(
+            JsonbSerializeUtil::block_to_jsonb(
                     *_tablet_schema, block, *row_store_column,
                     cast_set<int>(_tablet_schema->num_columns()), serdes, row_store_cids_set);
             break;
@@ -516,7 +516,7 @@ Status VerticalSegmentWriter::_partial_update_preconditions_check(size_t row_pos
 //       2.3 fill block
 // 3. set columns to data convertor and then write all columns
 Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& data,
-                                                                 vectorized::Block& full_block) {
+                                                                 Block& full_block) {
     DBUG_EXECUTE_IF("_append_block_with_partial_content.block", DBUG_BLOCK);
 
     RETURN_IF_ERROR(_partial_update_preconditions_check(data.row_pos, false));
@@ -530,13 +530,13 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
 
     if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&
         _tablet_schema->num_variant_columns() > 0) {
-        RETURN_IF_ERROR(vectorized::variant_util::parse_and_materialize_variant_columns(
+        RETURN_IF_ERROR(variant_util::parse_and_materialize_variant_columns(
                 full_block, *_tablet_schema, including_cids));
     }
     bool have_input_seq_column = false;
     // write including columns
-    std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
-    vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
+    std::vector<IOlapColumnDataAccessor*> key_columns;
+    IOlapColumnDataAccessor* seq_column = nullptr;
     uint32_t segment_start_pos = 0;
     for (auto cid : including_cids) {
         RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
@@ -694,7 +694,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
 }
 
 Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
-        RowsInBlock& data, vectorized::Block& full_block) {
+        RowsInBlock& data, Block& full_block) {
     RETURN_IF_ERROR(_partial_update_preconditions_check(data.row_pos, true));
 
     // data.block has the same schema with full_block
@@ -735,7 +735,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
 
     // 1. aggregate duplicate rows in block
     RETURN_IF_ERROR(_block_aggregator.aggregate_for_flexible_partial_update(
-            const_cast<vectorized::Block*>(data.block), data.num_rows, specified_rowsets,
+            const_cast<Block*>(data.block), data.num_rows, specified_rowsets,
             segment_caches));
     if (data.block->rows() != data.num_rows) {
         data.num_rows = data.block->rows();
@@ -745,20 +745,20 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     // 2. encode primary key columns
     // we can only encode primary key columns currently becasue all non-primary columns in flexible partial update
     // can have missing cells
-    std::vector<vectorized::IOlapColumnDataAccessor*> key_columns {};
-    RETURN_IF_ERROR(_block_aggregator.convert_pk_columns(const_cast<vectorized::Block*>(data.block),
+    std::vector<IOlapColumnDataAccessor*> key_columns {};
+    RETURN_IF_ERROR(_block_aggregator.convert_pk_columns(const_cast<Block*>(data.block),
                                                          data.row_pos, data.num_rows, key_columns));
     // 3. encode sequence column
     // We encode the seguence column even thought it may have invalid values in some rows because we need to
     // encode the value of sequence column in key for rows that have a valid value in sequence column during
     // lookup_raw_key. We will encode the sequence column again at the end of this method. At that time, we have
     // a valid sequence column to encode the key with seq col.
-    vectorized::IOlapColumnDataAccessor* seq_column {nullptr};
-    RETURN_IF_ERROR(_block_aggregator.convert_seq_column(const_cast<vectorized::Block*>(data.block),
+    IOlapColumnDataAccessor* seq_column {nullptr};
+    RETURN_IF_ERROR(_block_aggregator.convert_seq_column(const_cast<Block*>(data.block),
                                                          data.row_pos, data.num_rows, seq_column));
 
     std::vector<BitmapValue>* skip_bitmaps = &(
-            assert_cast<vectorized::ColumnBitmap*>(
+            assert_cast<ColumnBitmap*>(
                     data.block->get_by_position(skip_bitmap_col_idx).column->assume_mutable().get())
                     ->get_data());
     const auto* delete_signs =
@@ -811,7 +811,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     }
     if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&
         _tablet_schema->num_variant_columns() > 0) {
-        RETURN_IF_ERROR(vectorized::variant_util::parse_and_materialize_variant_columns(
+        RETURN_IF_ERROR(variant_util::parse_and_materialize_variant_columns(
                 full_block, *_tablet_schema, column_ids));
     }
 
@@ -881,7 +881,7 @@ Status VerticalSegmentWriter::_generate_encoded_default_seq_value(const TabletSc
         block.get_by_position(0).column->assume_mutable()->insert_default();
     }
     DCHECK_EQ(block.rows(), 1);
-    auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
     olap_data_convertor->add_column_data_convertor(seq_column);
     olap_data_convertor->set_source_content(&block, 0, 1);
     auto [status, column] = olap_data_convertor->convert_column_data(0);
@@ -897,8 +897,8 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
         FlexibleReadPlan& read_plan, RowsInBlock& data, size_t segment_start_pos,
         bool schema_has_sequence_col, int32_t seq_map_col_unique_id,
         std::vector<BitmapValue>* skip_bitmaps,
-        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-        vectorized::IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
+        const std::vector<IOlapColumnDataAccessor*>& key_columns,
+        IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
         bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
@@ -947,7 +947,7 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
     return Status::OK();
 }
 
-Status VerticalSegmentWriter::batch_block(const vectorized::Block* block, size_t row_pos,
+Status VerticalSegmentWriter::batch_block(const Block* block, size_t row_pos,
                                           size_t num_rows) {
     if (_opts.rowset_ctx->partial_update_info &&
         _opts.rowset_ctx->partial_update_info->is_partial_update() &&
@@ -986,7 +986,7 @@ Status VerticalSegmentWriter::write_batch() {
         !_opts.rowset_ctx->is_transient_rowset_writer) {
         bool is_flexible_partial_update =
                 _opts.rowset_ctx->partial_update_info->is_flexible_partial_update();
-        vectorized::Block full_block;
+        Block full_block;
         for (auto& data : _batched_blocks) {
             if (is_flexible_partial_update) {
                 RETURN_IF_ERROR(_append_block_with_flexible_partial_content(data, full_block));
@@ -1013,15 +1013,15 @@ Status VerticalSegmentWriter::write_batch() {
     if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&
         _tablet_schema->num_variant_columns() > 0) {
         for (auto& data : _batched_blocks) {
-            RETURN_IF_ERROR(vectorized::variant_util::parse_and_materialize_variant_columns(
-                    const_cast<vectorized::Block&>(*data.block), *_tablet_schema, column_ids));
+            RETURN_IF_ERROR(variant_util::parse_and_materialize_variant_columns(
+                    const_cast<Block&>(*data.block), *_tablet_schema, column_ids));
         }
     }
 
-    std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
-    vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
+    std::vector<IOlapColumnDataAccessor*> key_columns;
+    IOlapColumnDataAccessor* seq_column = nullptr;
     // the key is cluster key column unique id
-    std::map<uint32_t, vectorized::IOlapColumnDataAccessor*> cid_to_column;
+    std::map<uint32_t, IOlapColumnDataAccessor*> cid_to_column;
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
         RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
         for (auto& data : _batched_blocks) {
@@ -1070,9 +1070,9 @@ Status VerticalSegmentWriter::write_batch() {
 }
 
 Status VerticalSegmentWriter::_generate_key_index(
-        RowsInBlock& data, std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-        vectorized::IOlapColumnDataAccessor* seq_column,
-        std::map<uint32_t, vectorized::IOlapColumnDataAccessor*>& cid_to_column) {
+        RowsInBlock& data, std::vector<IOlapColumnDataAccessor*>& key_columns,
+        IOlapColumnDataAccessor* seq_column,
+        std::map<uint32_t, IOlapColumnDataAccessor*>& cid_to_column) {
     // find all row pos for short key indexes
     std::vector<size_t> short_key_pos;
     // We build a short key index every `_opts.num_rows_per_block` rows. Specifically, we
@@ -1090,7 +1090,7 @@ Status VerticalSegmentWriter::_generate_key_index(
         RETURN_IF_ERROR(_generate_primary_key_index(_primary_key_coders, key_columns, seq_column,
                                                     data.num_rows, true));
         // 2. generate short key index (use cluster key)
-        std::vector<vectorized::IOlapColumnDataAccessor*> short_key_columns;
+        std::vector<IOlapColumnDataAccessor*> short_key_columns;
         for (const auto& cid : _tablet_schema->cluster_key_uids()) {
             short_key_columns.push_back(cid_to_column[cid]);
         }
@@ -1106,8 +1106,8 @@ Status VerticalSegmentWriter::_generate_key_index(
 
 Status VerticalSegmentWriter::_generate_primary_key_index(
         const std::vector<const KeyCoder*>& primary_key_coders,
-        const std::vector<vectorized::IOlapColumnDataAccessor*>& primary_key_columns,
-        vectorized::IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort) {
+        const std::vector<IOlapColumnDataAccessor*>& primary_key_columns,
+        IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort) {
     if (!need_sort) { // mow table without cluster key
         std::string last_key;
         for (size_t pos = 0; pos < num_rows; pos++) {
@@ -1151,7 +1151,7 @@ Status VerticalSegmentWriter::_generate_primary_key_index(
 }
 
 Status VerticalSegmentWriter::_generate_short_key_index(
-        std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t num_rows,
+        std::vector<IOlapColumnDataAccessor*>& key_columns, size_t num_rows,
         const std::vector<size_t>& short_key_pos) {
     // use _key_coders
     _set_min_key(_full_encode_keys(key_columns, 0));
@@ -1178,7 +1178,7 @@ void VerticalSegmentWriter::_encode_rowid(const uint32_t rowid, std::string* enc
 }
 
 std::string VerticalSegmentWriter::_full_encode_keys(
-        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos) {
+        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos) {
     assert(_key_index_size.size() == _num_sort_key_columns);
     if (!(key_columns.size() == _num_sort_key_columns &&
           _key_coders.size() == _num_sort_key_columns)) {
@@ -1192,7 +1192,7 @@ std::string VerticalSegmentWriter::_full_encode_keys(
 
 std::string VerticalSegmentWriter::_full_encode_keys(
         const std::vector<const KeyCoder*>& key_coders,
-        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos) {
+        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos) {
     assert(key_columns.size() == key_coders.size());
 
     std::string encoded_keys;
@@ -1213,7 +1213,7 @@ std::string VerticalSegmentWriter::_full_encode_keys(
 }
 
 void VerticalSegmentWriter::_encode_seq_column(
-        const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
+        const IOlapColumnDataAccessor* seq_column, size_t pos,
         std::string* encoded_keys) {
     const auto* field = seq_column->get_data_at(pos);
     // To facilitate the use of the primary key index, encode the seq column
@@ -1230,7 +1230,7 @@ void VerticalSegmentWriter::_encode_seq_column(
 }
 
 std::string VerticalSegmentWriter::_encode_keys(
-        const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos) {
+        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos) {
     assert(key_columns.size() == _num_short_key_columns);
 
     std::string encoded_keys;

@@ -47,7 +47,7 @@
 #include "testutil/mock/mock_operators.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 class PartitionedHashJoinSinkOperatorTest : public testing::Test {
 public:
@@ -138,7 +138,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, InitLocalState) {
     shared_state->is_spilled = true;
     reserve_size = local_state->get_reserve_mem_size(_helper.runtime_state.get(), false);
     ASSERT_EQ(reserve_size,
-              sink_operator->_partition_count * vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM);
+              sink_operator->_partition_count * SpillStream::MIN_SPILL_WRITE_BATCH_MEM);
 
     auto* finish_dep = local_state->finishdependency();
     ASSERT_TRUE(finish_dep != nullptr);
@@ -206,7 +206,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, Sink) {
 
     shared_state->source_deps.emplace_back(read_dependency);
 
-    vectorized::Block block;
+    Block block;
     bool eos = true;
 
     ASSERT_EQ(read_dependency->_ready.load(), false);
@@ -251,7 +251,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, SinkEosAndSpill) {
                                       "HashJoinBuildReadDependency", false);
     shared_state->source_deps.emplace_back(read_dependency);
 
-    vectorized::Block block;
+    Block block;
 
     // sink empty block
     sink_local_state->_shared_state->is_spilled = false;
@@ -259,7 +259,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, SinkEosAndSpill) {
     st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
     ASSERT_TRUE(st.ok()) << "Sink failed: " << st.to_string();
 
-    block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3});
+    block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
 
     // sink non-empty block
     st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
@@ -340,7 +340,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
     inner_sink_local_state->_build_arena_memory_usage =
             sink_state->operator_profile()->add_counter("BuildArenaMemoryUsage", TUnit::BYTES);
 
-    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3});
+    auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
     ASSERT_EQ(block.rows(), 3);
     inner_sink_local_state->_build_side_mutable_block = std::move(block);
 
@@ -364,15 +364,15 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
 
     std::vector<int32_t> large_data(3 * 1024 * 1024);
     std::iota(large_data.begin(), large_data.end(), 0);
-    vectorized::Block large_block =
-            vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(large_data);
+    Block large_block =
+            ColumnHelper::create_block<DataTypeInt32>(large_data);
 
     sink_state->_shared_state->partitioned_build_blocks[0] =
-            vectorized::MutableBlock::create_unique(std::move(large_block));
+            MutableBlock::create_unique(std::move(large_block));
     status = sink_state->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(status.ok()) << "Revoke memory failed: " << status.to_string();
 
     ASSERT_EQ(written_rows + 3 * 1024 * 1024, written_rows_counter->value());
 }
 
-} // namespace doris::pipeline
+} // namespace doris

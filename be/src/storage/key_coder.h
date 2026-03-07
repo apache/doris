@@ -84,7 +84,7 @@ class KeyCoderTraits<
         field_type,
         typename std::enable_if<
                 IsIntegral<typename CppTypeTraits<field_type>::CppType>::value ||
-                vectorized::IsDecimalNumber<typename CppTypeTraits<field_type>::CppType>>::type> {
+                IsDecimalNumber<typename CppTypeTraits<field_type>::CppType>>::type> {
 public:
     using CppType = typename CppTypeTraits<field_type>::CppType;
     using UnsignedCppType = typename CppTypeTraits<field_type>::UnsignedCppType;

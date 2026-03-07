@@ -25,7 +25,7 @@
 #include "exprs/function/dictionary_util.h"
 #include "exprs/function/ip_address_dictionary.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Status DictSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
@@ -48,13 +48,13 @@ Status DictSinkLocalState::load_dict(RuntimeState* state) {
         data.column = std::move(*data.column).mutate()->convert_column_if_overflow();
     }
 
-    vectorized::ColumnsWithTypeAndName key_data;
+    ColumnsWithTypeAndName key_data;
 
-    vectorized::ColumnsWithTypeAndName value_data;
+    ColumnsWithTypeAndName value_data;
 
     for (long key_expr_id : p._key_output_expr_slots) {
         auto key_expr_ctx = _output_vexpr_ctxs[key_expr_id];
-        vectorized::ColumnWithTypeAndName key_exec_data;
+        ColumnWithTypeAndName key_exec_data;
         RETURN_IF_ERROR(key_expr_ctx->execute(&input_block, key_exec_data));
 
         key_data.push_back(key_exec_data);
@@ -65,7 +65,7 @@ Status DictSinkLocalState::load_dict(RuntimeState* state) {
         auto value_name = p._value_names[i];
         auto value_expr_ctx = _output_vexpr_ctxs[value_expr_id];
 
-        vectorized::ColumnPtr value_column;
+        ColumnPtr value_column;
         RETURN_IF_ERROR(value_expr_ctx->execute(&input_block, value_column));
         auto value_type = value_expr_ctx->execute_type(&input_block);
         value_data.push_back({value_column, value_type, value_name});
@@ -74,7 +74,7 @@ Status DictSinkLocalState::load_dict(RuntimeState* state) {
     RETURN_IF_ERROR(check_dict_input_data(key_data, value_data, p._skip_null_key));
     const auto& dict_name = p._dictionary_name;
 
-    vectorized::DictionaryPtr dict = nullptr;
+    DictionaryPtr dict = nullptr;
 
     switch (p._layout_type) {
     case TDictLayoutType::type::IP_TRIE: {
@@ -133,10 +133,10 @@ Status DictSinkOperatorX::prepare(RuntimeState* state) {
     }
     // prepare output_expr
     // From the thrift expressions create the real exprs.
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
-    RETURN_IF_ERROR(vectorized::VExpr::open(_output_vexpr_ctxs, state));
+    RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
+    RETURN_IF_ERROR(VExpr::open(_output_vexpr_ctxs, state));
 
     for (auto key_expr_id : _key_output_expr_slots) {
         auto key_expr = _output_vexpr_ctxs[key_expr_id]->root();
@@ -159,7 +159,7 @@ Status DictSinkOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status DictSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {
+Status DictSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -168,7 +168,7 @@ Status DictSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
 
     if (local_state._dict_input_block.columns() == 0) {
         local_state._dict_input_block =
-                vectorized::Block(vectorized::VectorizedUtils::create_empty_block(_row_desc));
+                Block(VectorizedUtils::create_empty_block(_row_desc));
     }
 
     if (in_block->rows() != 0) {
@@ -182,5 +182,5 @@ Status DictSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
     return Status::OK();
 }
 
-} // namespace doris::pipeline
+} // namespace doris
 #include "common/compile_check_end.h"

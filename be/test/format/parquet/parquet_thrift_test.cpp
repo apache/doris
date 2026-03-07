@@ -61,7 +61,7 @@
 #include "util/slice.h"
 #include "util/timezone_utils.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class ParquetThriftReaderTest : public testing::Test {
 public:
@@ -160,8 +160,8 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
 
 static int fill_nullable_column(ColumnPtr& doris_column, level_t* definitions, size_t num_values) {
     CHECK(doris_column->is_nullable());
-    auto* nullable_column = const_cast<vectorized::ColumnNullable*>(
-            static_cast<const vectorized::ColumnNullable*>(doris_column.get()));
+    auto* nullable_column = const_cast<ColumnNullable*>(
+            static_cast<const ColumnNullable*>(doris_column.get()));
     NullMap& map_data = nullable_column->get_null_map_data();
     int null_cnt = 0;
     for (int i = 0; i < num_values; ++i) {
@@ -216,8 +216,8 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
     if (src_column->is_nullable()) {
         // fill nullable values
         fill_nullable_column(src_column, definitions, rows);
-        auto* nullable_column = const_cast<vectorized::ColumnNullable*>(
-                static_cast<const vectorized::ColumnNullable*>(src_column.get()));
+        auto* nullable_column = const_cast<ColumnNullable*>(
+                static_cast<const ColumnNullable*>(src_column.get()));
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = src_column->assume_mutable();
@@ -337,7 +337,7 @@ static doris::TupleDescriptor* create_tuple_desc(
     return tuple_desc;
 }
 
-static void create_block(std::unique_ptr<vectorized::Block>& block) {
+static void create_block(std::unique_ptr<Block>& block) {
     // Current supported column type:
     std::vector<SchemaScanner::ColumnDesc> column_descs = {
             {"tinyint_col", TYPE_TINYINT, sizeof(int8_t), true},
@@ -360,7 +360,7 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
     ObjectPool object_pool;
     doris::TupleDescriptor* tuple_desc = create_tuple_desc(&object_pool, column_descs);
     auto tuple_slots = tuple_desc->slots();
-    block = vectorized::Block::create_unique();
+    block = Block::create_unique();
     for (const auto& slot_desc : tuple_slots) {
         auto data_type = slot_desc->type();
         MutableColumnPtr data_column = data_type->create_column();
@@ -396,7 +396,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
     auto st = local_fs->open_file(parquet_file, &reader);
     EXPECT_TRUE(st.ok());
 
-    std::unique_ptr<vectorized::Block> block;
+    std::unique_ptr<Block> block;
     create_block(block);
 
     std::unique_ptr<FileMetaData> metadata;
@@ -457,4 +457,4 @@ TEST_F(ParquetThriftReaderTest, dict_decoder) {
     read_parquet_data_and_check("./be/test/exec/test_data/parquet_scanner/dict-decoder.parquet",
                                 "./be/test/exec/test_data/parquet_scanner/dict-decoder.txt", 12);
 }
-} // namespace doris::vectorized
+} // namespace doris

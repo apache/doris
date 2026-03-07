@@ -26,7 +26,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-namespace pipeline {
 
 class PartitionSortSourceOperatorX;
 class PartitionSortSourceLocalState final
@@ -55,16 +54,15 @@ public:
 #ifdef BE_TEST
     PartitionSortSourceOperatorX() = default;
 #endif
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 
 private:
     friend class PartitionSortSourceLocalState;
-    Status get_sorted_block(RuntimeState* state, vectorized::Block* output_block,
+    Status get_sorted_block(RuntimeState* state, Block* output_block,
                             PartitionSortSourceLocalState& local_state);
 };
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

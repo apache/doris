@@ -19,7 +19,7 @@
 
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 void register_function_ip(SimpleFunctionFactory& factory) {
     /// IPv4 convert between string and num part
@@ -68,4 +68,4 @@ void register_function_ip(SimpleFunctionFactory& factory) {
     // Covert to IPv6 from uint128-string
     factory.register_function<FunctionIPv6FromUInt128StringOrNull>();
 }
-} // namespace doris::vectorized
+} // namespace doris

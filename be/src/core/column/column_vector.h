@@ -52,17 +52,17 @@
 
 class SipHash;
 
-namespace doris::pipeline {
+namespace doris {
 template <int JoinOpType>
 struct ProcessHashTableProbe;
 }
 
-namespace doris::vectorized {
+namespace doris {
 class Arena;
 class ColumnSorter;
-} // namespace doris::vectorized
+} // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 /** A template for columns that use a simple array to store.
@@ -78,7 +78,7 @@ private:
     friend class COWHelper<IColumn, Self>;
 
     template <int JoinOpType>
-    friend struct doris::pipeline::ProcessHashTableProbe;
+    friend struct doris::ProcessHashTableProbe;
 
     struct less;
     struct greater;
@@ -431,5 +431,5 @@ using ColumnTimeStampTz = ColumnVector<TYPE_TIMESTAMPTZ>;
 using ColumnOffset32 = ColumnVector<TYPE_UINT32>;
 using ColumnOffset64 = ColumnVector<TYPE_UINT64>;
 
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

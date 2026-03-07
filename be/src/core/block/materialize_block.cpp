@@ -25,7 +25,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 void materialize_block_inplace(Block& block) {
     for (size_t i = 0; i < block.columns(); ++i) {
@@ -33,4 +33,4 @@ void materialize_block_inplace(Block& block) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

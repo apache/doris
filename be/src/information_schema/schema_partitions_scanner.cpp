@@ -34,9 +34,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 class RuntimeState;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaPartitionsScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
@@ -151,11 +149,11 @@ Status SchemaPartitionsScanner::fill_db_partitions(TFetchSchemaTableDataResult& 
     }
     std::vector<TRow> result_data = result.data_batch;
 
-    _partitions_block = vectorized::Block::create_unique();
+    _partitions_block = Block::create_unique();
     for (int i = 0; i < _s_tbls_columns.size(); ++i) {
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+        auto data_type = DataTypeFactory::instance().create_data_type(
                 _s_tbls_columns[i].type, true);
-        _partitions_block->insert(vectorized::ColumnWithTypeAndName(
+        _partitions_block->insert(ColumnWithTypeAndName(
                 data_type->create_column(), data_type, _s_tbls_columns[i].name));
     }
     _partitions_block->reserve(_block_rows_limit);
@@ -187,7 +185,7 @@ bool SchemaPartitionsScanner::check_and_mark_eos(bool* eos) const {
     return false;
 }
 
-Status SchemaPartitionsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaPartitionsScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -211,7 +209,7 @@ Status SchemaPartitionsScanner::get_next_block_internal(vectorized::Block* block
     }
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
-    vectorized::MutableBlock mblock = vectorized::MutableBlock::build_mutable_block(block);
+    MutableBlock mblock = MutableBlock::build_mutable_block(block);
     RETURN_IF_ERROR(mblock.add_rows(_partitions_block.get(), _row_idx, current_batch_rows));
     _row_idx += current_batch_rows;
 

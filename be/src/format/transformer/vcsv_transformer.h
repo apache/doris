@@ -39,7 +39,7 @@ class FileWriter;
 } // namespace io
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class VCSVTransformer final : public VFileFormatTransformer {
 public:
@@ -83,6 +83,6 @@ private:
     const bool _is_text_format; // true: text format, false: csv format
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

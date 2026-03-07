@@ -256,7 +256,7 @@ TEST_F(ColumnReaderTest, OffsetCalculateOffsetsUsesPageSentinelForLastOffset) {
     // first_column_offset = 100
     // first_storage_offset = 10
     // placeholder real next_storage_offset will be fetched from page sentinel (15)
-    vectorized::ColumnArray::ColumnOffsets column_offsets;
+    ColumnArray::ColumnOffsets column_offsets;
     auto& data = column_offsets.get_data();
     data.push_back(100); // index 0: first_column_offset
     data.push_back(10);  // index 1: first_storage_offset
@@ -288,12 +288,12 @@ TEST_F(ColumnReaderTest, MapReadByRowidsSkipReadingResizesDestination) {
     map_iter.set_reading_flag(ColumnIterator::ReadingFlag::SKIP_READING);
 
     // prepare an empty ColumnMap as destination
-    auto keys = vectorized::ColumnInt32::create();
-    auto values = vectorized::ColumnInt32::create();
-    auto offsets = vectorized::ColumnArray::ColumnOffsets::create();
+    auto keys = ColumnInt32::create();
+    auto values = ColumnInt32::create();
+    auto offsets = ColumnArray::ColumnOffsets::create();
     auto column_map =
-            vectorized::ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
-    vectorized::MutableColumnPtr dst = std::move(column_map);
+            ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
+    MutableColumnPtr dst = std::move(column_map);
 
     const rowid_t rowids[] = {1, 5, 7};
     size_t count = sizeof(rowids) / sizeof(rowids[0]);

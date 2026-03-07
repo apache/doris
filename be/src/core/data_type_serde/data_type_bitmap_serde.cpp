@@ -33,7 +33,6 @@
 
 namespace doris {
 
-namespace vectorized {
 class IColumn;
 #include "common/compile_check_begin.h"
 
@@ -177,7 +176,7 @@ Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, con
                                                 const NullMap* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch,
                                                 int64_t start, int64_t end,
-                                                vectorized::Arena& arena,
+                                                Arena& arena,
                                                 const FormatOptions& options) const {
     auto& col_data = assert_cast<const ColumnBitmap&>(column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
@@ -244,5 +243,4 @@ void DataTypeBitMapSerDe::to_string(const IColumn& column, size_t row_num, Buffe
     bw.write(buffer.c_str(), buffer.size());
 }
 
-} // namespace vectorized
 } // namespace doris

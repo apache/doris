@@ -41,7 +41,7 @@
 #include "util/mysql_global.h"
 #include "util/to_string.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 // Type map的基本结构
 template <typename Key, typename Value, typename... Rest>
@@ -586,7 +586,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
                                                    const IColumn& column, const NullMap* null_map,
                                                    orc::ColumnVectorBatch* orc_col_batch,
                                                    int64_t start, int64_t end,
-                                                   vectorized::Arena& arena,
+                                                   Arena& arena,
                                                    const FormatOptions& options) const {
     auto& col_data = assert_cast<const ColumnType&>(column).get_data();
 
@@ -751,7 +751,7 @@ Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
 }
 
 template <PrimitiveType T>
-std::string DataTypeNumberSerDe<T>::to_olap_string(const vectorized::Field& field) const {
+std::string DataTypeNumberSerDe<T>::to_olap_string(const Field& field) const {
     if constexpr (T == TYPE_BOOLEAN) {
         char buf[8] = {'\0'};
         snprintf(buf, sizeof(buf), "%d", field.get<T>());
@@ -1095,4 +1095,4 @@ template class DataTypeNumberSerDe<TYPE_IPV6>;
 template class DataTypeNumberSerDe<TYPE_TIME>;
 template class DataTypeNumberSerDe<TYPE_TIMEV2>;
 template class DataTypeNumberSerDe<TYPE_TIMESTAMPTZ>;
-} // namespace doris::vectorized
+} // namespace doris

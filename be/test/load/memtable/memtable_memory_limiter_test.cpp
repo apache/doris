@@ -149,9 +149,9 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     ASSERT_NE(delta_writer, nullptr);
     auto mem_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
 
-    vectorized::Block block;
+    Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
-        block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
+        block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
                                                        slot_desc->type(), slot_desc->col_name()));
     }
     auto columns = block.mutate_columns();

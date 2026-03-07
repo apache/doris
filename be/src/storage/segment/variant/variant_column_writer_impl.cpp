@@ -124,7 +124,7 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
         }
         // the subcolumn index is not initialized, but the parent index is present
         else if (!parent_index.empty() &&
-                 vectorized::variant_util::inherit_index(parent_index, subcolumn_indexes, column)) {
+                 variant_util::inherit_index(parent_index, subcolumn_indexes, column)) {
             init_opt_inverted_index();
         }
         // no parent index and no subcolumn index
@@ -151,11 +151,11 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
     return Status::OK();
 }
 
-Status convert_and_write_column(vectorized::OlapBlockDataConvertor* converter,
-                                const TabletColumn& column, vectorized::DataTypePtr data_type,
+Status convert_and_write_column(OlapBlockDataConvertor* converter,
+                                const TabletColumn& column, DataTypePtr data_type,
                                 ColumnWriter* writer,
 
-                                const vectorized::ColumnPtr& src_column, size_t num_rows,
+                                const ColumnPtr& src_column, size_t num_rows,
                                 int column_id) {
     converter->add_column_data_convertor(column);
     RETURN_IF_ERROR(converter->set_source_content_with_specifid_column({src_column, data_type, ""},
@@ -176,7 +176,7 @@ namespace {
 // - rowids records which input rows have a non-null value for this path.
 // - non_null_count is used to build variant statistics quickly.
 struct SubcolumnSparseData {
-    vectorized::ColumnVariant::Subcolumn subcolumn {0, true, false};
+    ColumnVariant::Subcolumn subcolumn {0, true, false};
     std::vector<uint32_t> rowids;
     uint32_t non_null_count = 0;
 };
@@ -186,14 +186,14 @@ using DocValuePathStats = phmap::flat_hash_map<StringRef, uint32_t, StringRefHas
 
 struct SubcolumnWriteEntry {
     std::string_view path;
-    vectorized::ColumnVariant::Subcolumn* subcolumn = nullptr;
+    ColumnVariant::Subcolumn* subcolumn = nullptr;
     // nullptr means dense materialization; otherwise sparse row ids for this path.
     const std::vector<uint32_t>* rowids = nullptr;
 };
 
 struct SubcolumnWritePlan {
     using DenseSubcolumns =
-            phmap::flat_hash_map<std::string_view, vectorized::ColumnVariant::Subcolumn>;
+            phmap::flat_hash_map<std::string_view, ColumnVariant::Subcolumn>;
 
     // Owns materialized subcolumns and a flattened iteration view for finalize().
     DocSparseSubcolumns sparse_subcolumns;
@@ -203,7 +203,7 @@ struct SubcolumnWritePlan {
 };
 
 // Build per-path non-null counts from the serialized doc-value representation.
-void build_doc_value_stats(const vectorized::ColumnVariant& variant, DocValuePathStats* stats) {
+void build_doc_value_stats(const ColumnVariant& variant, DocValuePathStats* stats) {
     auto [column_key, column_value] = variant.get_doc_value_data_paths_and_values();
     (void)column_value;
     const auto& column_offsets = variant.serialized_doc_value_column_offsets();
@@ -225,7 +225,7 @@ void build_doc_value_stats(const vectorized::ColumnVariant& variant, DocValuePat
 // Materialize sparse subcolumns for each path and build per-path non-null counts.
 // For each row, we decode only present (path, value) pairs and append them to the
 // corresponding subcolumn, while recording the row id to allow gap filling later.
-void build_sparse_subcolumns_and_stats(const vectorized::ColumnVariant& variant,
+void build_sparse_subcolumns_and_stats(const ColumnVariant& variant,
                                        DocSparseSubcolumns* subcolumns, DocValuePathStats* stats) {
     auto [column_key, column_value] = variant.get_doc_value_data_paths_and_values();
     const auto& column_offsets = variant.serialized_doc_value_column_offsets();
@@ -253,7 +253,7 @@ void build_sparse_subcolumns_and_stats(const vectorized::ColumnVariant& variant,
     }
 }
 
-SubcolumnWritePlan build_subcolumn_write_plan(const vectorized::ColumnVariant& variant,
+SubcolumnWritePlan build_subcolumn_write_plan(const ColumnVariant& variant,
                                               size_t num_rows,
                                               int64_t variant_doc_materialization_min_rows) {
     SubcolumnWritePlan plan;
@@ -277,7 +277,7 @@ SubcolumnWritePlan build_subcolumn_write_plan(const vectorized::ColumnVariant& v
     }
 
     build_doc_value_stats(variant, &plan.stats);
-    plan.dense_subcolumns = vectorized::variant_util::materialize_docs_to_subcolumns_map(variant);
+    plan.dense_subcolumns = variant_util::materialize_docs_to_subcolumns_map(variant);
     plan.entries.reserve(plan.dense_subcolumns.size());
     for (auto& [path, subcolumn] : plan.dense_subcolumns) {
         SubcolumnWriteEntry entry;
@@ -290,7 +290,7 @@ SubcolumnWritePlan build_subcolumn_write_plan(const vectorized::ColumnVariant& v
 }
 
 template <typename WriteMaterializedFn, typename WriteDocValueFn>
-Status execute_doc_write_pipeline(const vectorized::ColumnVariant& variant, size_t num_rows,
+Status execute_doc_write_pipeline(const ColumnVariant& variant, size_t num_rows,
                                   int64_t variant_doc_materialization_min_rows, int& column_id,
                                   WriteMaterializedFn&& write_materialized_fn,
                                   WriteDocValueFn&& write_doc_value_fn,
@@ -309,15 +309,15 @@ Status execute_doc_write_pipeline(const vectorized::ColumnVariant& variant, size
     return Status::OK();
 }
 
-bool is_invalid_materialized_subcolumn_type(const vectorized::DataTypePtr& type) {
-    return vectorized::variant_util::get_base_type_of_array(type)->get_primitive_type() ==
+bool is_invalid_materialized_subcolumn_type(const DataTypePtr& type) {
+    return variant_util::get_base_type_of_array(type)->get_primitive_type() ==
            PrimitiveType::INVALID_TYPE;
 }
 
 Status prepare_materialized_subcolumn_writer(
         const TabletColumn& parent_column, std::string_view path,
-        const vectorized::ColumnVariant::Subcolumn& subcolumn,
-        vectorized::ColumnPtr& current_column, vectorized::DataTypePtr& current_type,
+        const ColumnVariant::Subcolumn& subcolumn,
+        ColumnPtr& current_column, DataTypePtr& current_type,
         int64_t none_null_value_size, int current_column_id, size_t num_rows,
         const ColumnWriterOptions& base_opts, std::vector<TabletIndexes>* subcolumns_indexes,
         std::vector<ColumnWriterOptions>* subcolumn_opts,
@@ -326,31 +326,31 @@ Status prepare_materialized_subcolumn_writer(
     TabletColumn tablet_column;
     TabletIndexes subcolumn_indexes;
     TabletSchema::SubColumnInfo sub_column_info;
-    if (vectorized::variant_util::generate_sub_column_info(*base_opts.rowset_ctx->tablet_schema,
+    if (variant_util::generate_sub_column_info(*base_opts.rowset_ctx->tablet_schema,
                                                            parent_column.unique_id(),
                                                            std::string(path), &sub_column_info)) {
         tablet_column = std::move(sub_column_info.column);
         subcolumn_indexes = std::move(sub_column_info.indexes);
-        vectorized::DataTypePtr storage_type =
-                vectorized::DataTypeFactory::instance().create_data_type(tablet_column);
+        DataTypePtr storage_type =
+                DataTypeFactory::instance().create_data_type(tablet_column);
         if (!storage_type->equals(*current_type)) {
-            RETURN_IF_ERROR(vectorized::variant_util::cast_column(
+            RETURN_IF_ERROR(variant_util::cast_column(
                     {current_column, current_type, ""}, storage_type, &current_column));
         }
         current_type = std::move(storage_type);
     } else {
         const std::string column_name = parent_column.name_lower_case() + "." + std::string(path);
-        const vectorized::DataTypePtr& final_data_type_from_object =
+        const DataTypePtr& final_data_type_from_object =
                 subcolumn.get_least_common_type();
-        vectorized::PathInData full_path = vectorized::PathInData(column_name);
-        tablet_column = vectorized::variant_util::get_column_by_type(
+        PathInData full_path = PathInData(column_name);
+        tablet_column = variant_util::get_column_by_type(
                 final_data_type_from_object, column_name,
-                vectorized::variant_util::ExtraInfo {.unique_id = -1,
+                variant_util::ExtraInfo {.unique_id = -1,
                                                      .parent_unique_id = parent_column.unique_id(),
                                                      .path_info = full_path});
         const auto& indexes =
                 base_opts.rowset_ctx->tablet_schema->inverted_indexs(parent_column.unique_id());
-        vectorized::variant_util::inherit_index(indexes, subcolumn_indexes, tablet_column);
+        variant_util::inherit_index(indexes, subcolumn_indexes, tablet_column);
     }
 
     ColumnWriterOptions opts;
@@ -360,7 +360,7 @@ Status prepare_materialized_subcolumn_writer(
     opts.rowset_ctx = base_opts.rowset_ctx;
     opts.file_writer = base_opts.file_writer;
     std::unique_ptr<ColumnWriter> writer;
-    vectorized::variant_util::inherit_column_attributes(parent_column, tablet_column);
+    variant_util::inherit_column_attributes(parent_column, tablet_column);
 
     bool need_record_none_null_value_size = true;
 
@@ -377,14 +377,14 @@ Status prepare_materialized_subcolumn_writer(
 }
 
 Status append_sparse_converted_column(const TabletColumn& tablet_column, ColumnWriter* writer,
-                                      vectorized::OlapBlockDataConvertor* converter, int cid,
-                                      const vectorized::DataTypePtr& type,
-                                      const vectorized::ColumnPtr& values_column,
+                                      OlapBlockDataConvertor* converter, int cid,
+                                      const DataTypePtr& type,
+                                      const ColumnPtr& values_column,
                                       const std::vector<uint32_t>& rowids, size_t total_rows);
 
 Status write_materialized_subcolumn(const TabletColumn& parent_column, std::string_view path,
-                                    vectorized::ColumnVariant::Subcolumn& subcolumn,
-                                    size_t num_rows, vectorized::OlapBlockDataConvertor* converter,
+                                    ColumnVariant::Subcolumn& subcolumn,
+                                    size_t num_rows, OlapBlockDataConvertor* converter,
                                     int& column_id, const ColumnWriterOptions& base_opts,
                                     std::vector<TabletIndexes>* subcolumns_indexes,
                                     std::vector<ColumnWriterOptions>* subcolumn_opts,
@@ -396,13 +396,13 @@ Status write_materialized_subcolumn(const TabletColumn& parent_column, std::stri
     }
 
     subcolumn.finalize();
-    vectorized::ColumnPtr current_column = subcolumn.get_finalized_column_ptr()->get_ptr();
-    vectorized::DataTypePtr current_type = subcolumn.get_least_common_type();
+    ColumnPtr current_column = subcolumn.get_finalized_column_ptr()->get_ptr();
+    DataTypePtr current_type = subcolumn.get_least_common_type();
     if (rowids != nullptr) {
         DCHECK_EQ(current_column->size(), rowids->size());
         if (rowids->size() != num_rows && !current_type->is_nullable()) {
-            current_type = vectorized::make_nullable(current_type);
-            current_column = vectorized::make_nullable(current_column);
+            current_type = make_nullable(current_type);
+            current_column = make_nullable(current_column);
         }
     }
 
@@ -415,7 +415,7 @@ Status write_materialized_subcolumn(const TabletColumn& parent_column, std::stri
             subcolumn_writers, &tablet_column));
 
     (void)converter;
-    auto subcolumn_converter = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    auto subcolumn_converter = std::make_unique<OlapBlockDataConvertor>();
     ColumnWriter* writer = subcolumn_writers->back().get();
     if (rowids != nullptr) {
         return append_sparse_converted_column(tablet_column, writer, subcolumn_converter.get(), 0,
@@ -429,16 +429,16 @@ Status write_materialized_subcolumn(const TabletColumn& parent_column, std::stri
 // Convert a sparse (values_column, rowids) pair into storage format and append to writer.
 // Missing rows (gaps between rowids) are appended as nulls, so the output has total_rows.
 Status append_sparse_converted_column(const TabletColumn& tablet_column, ColumnWriter* writer,
-                                      vectorized::OlapBlockDataConvertor* converter, int cid,
-                                      const vectorized::DataTypePtr& type,
-                                      const vectorized::ColumnPtr& values_column,
+                                      OlapBlockDataConvertor* converter, int cid,
+                                      const DataTypePtr& type,
+                                      const ColumnPtr& values_column,
                                       const std::vector<uint32_t>& rowids, size_t total_rows) {
     DCHECK_EQ(values_column->size(), rowids.size());
     const size_t cell_size = writer->get_field()->size();
 
     auto base_type = type;
     if (base_type->is_nullable()) {
-        base_type = assert_cast<const vectorized::DataTypeNullable&>(*base_type).get_nested_type();
+        base_type = assert_cast<const DataTypeNullable&>(*base_type).get_nested_type();
     }
     if (base_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
         // ARRAY convertor output is not a contiguous “cell_size-strided” buffer. It is a pointer-based
@@ -450,7 +450,7 @@ Status append_sparse_converted_column(const TabletColumn& tablet_column, ColumnW
         // To make the behavior safe and consistent, we first materialize a full column by filling
         // gaps, then convert once and write via `append_nullable()`, so offsets are generated by
         // the convertor in a unified way.
-        vectorized::MutableColumnPtr full_column = values_column->clone_empty();
+        MutableColumnPtr full_column = values_column->clone_empty();
         full_column->reserve(total_rows);
 
         size_t next_row = 0;
@@ -542,7 +542,7 @@ Status UnifiedSparseColumnWriter::init(const TabletColumn* parent_column, int bu
                                        SegmentFooterPB* footer) {
     _bucket_num = std::max(1, bucket_num);
     if (_bucket_num <= 1) {
-        TabletColumn sparse_column = vectorized::variant_util::create_sparse_column(*parent_column);
+        TabletColumn sparse_column = variant_util::create_sparse_column(*parent_column);
         RETURN_IF_ERROR(init_single(sparse_column, column_id, base_opts, footer));
     } else {
         RETURN_IF_ERROR(init_buckets(_bucket_num, *parent_column, column_id, base_opts, footer));
@@ -551,8 +551,8 @@ Status UnifiedSparseColumnWriter::init(const TabletColumn* parent_column, int bu
 }
 
 Status UnifiedSparseColumnWriter::append_data(const TabletColumn* parent_column,
-                                              const vectorized::ColumnVariant& src, size_t num_rows,
-                                              vectorized::OlapBlockDataConvertor* converter) {
+                                              const ColumnVariant& src, size_t num_rows,
+                                              OlapBlockDataConvertor* converter) {
     if (_single_writer) {
         RETURN_IF_ERROR(append_single_sparse(src, num_rows, converter, *parent_column));
     } else {
@@ -594,7 +594,7 @@ Status UnifiedSparseColumnWriter::init_buckets(int bucket_num, const TabletColum
     _bucket_opts.resize(bucket_num);
     for (int b = 0; b < bucket_num; ++b) {
         TabletColumn bucket_col =
-                vectorized::variant_util::create_sparse_shard_column(parent_column, b);
+                variant_util::create_sparse_shard_column(parent_column, b);
         _bucket_opts[b] = base_opts;
         _bucket_opts[b].meta = footer->add_columns();
         _init_column_meta(_bucket_opts[b].meta, column_id, bucket_col, base_opts.compression_type);
@@ -677,9 +677,9 @@ Status UnifiedSparseColumnWriter::write_bloom_filter_index() {
 // - Append to the single writer and populate sparse path statistics into
 //   out_stats and the single column meta.
 Status UnifiedSparseColumnWriter::append_single_sparse(
-        const vectorized::ColumnVariant& src, size_t num_rows,
-        vectorized::OlapBlockDataConvertor* converter, const TabletColumn& parent_column) {
-    TabletColumn sparse_column = vectorized::variant_util::create_sparse_column(parent_column);
+        const ColumnVariant& src, size_t num_rows,
+        OlapBlockDataConvertor* converter, const TabletColumn& parent_column) {
+    TabletColumn sparse_column = variant_util::create_sparse_column(parent_column);
     converter->add_column_data_convertor(sparse_column);
     DCHECK_EQ(src.get_sparse_column()->size(), num_rows);
     RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
@@ -723,8 +723,8 @@ Status UnifiedSparseColumnWriter::append_single_sparse(
 //   sequence initialized by init_buckets (starting at _first_column_id)
 // - Compute per-bucket path stats and persist into each bucket's meta
 Status UnifiedSparseColumnWriter::append_bucket_sparse(
-        const vectorized::ColumnVariant& src, size_t num_rows,
-        vectorized::OlapBlockDataConvertor* converter, const TabletColumn& parent_column) {
+        const ColumnVariant& src, size_t num_rows,
+        OlapBlockDataConvertor* converter, const TabletColumn& parent_column) {
     const int bucket_num = static_cast<int>(_bucket_writers.size());
     const auto [paths_col, values_col] = src.get_sparse_data_paths_and_values();
     const auto& offsets = src.serialized_sparse_column_offsets();
@@ -737,23 +737,23 @@ Status UnifiedSparseColumnWriter::append_bucket_sparse(
         bucket_path_counts[b].reserve(std::min<size_t>(limit, 1024));
     }
 
-    std::vector<vectorized::MutableColumnPtr> tmp_maps(bucket_num);
+    std::vector<MutableColumnPtr> tmp_maps(bucket_num);
     for (int b = 0; b < bucket_num; ++b) {
-        tmp_maps[b] = vectorized::ColumnMap::create(
-                vectorized::ColumnString::create(), vectorized::ColumnString::create(),
-                vectorized::ColumnArray::ColumnOffsets::create());
+        tmp_maps[b] = ColumnMap::create(
+                ColumnString::create(), ColumnString::create(),
+                ColumnArray::ColumnOffsets::create());
     }
     for (int b = 0; b < bucket_num; ++b) {
-        auto& m = assert_cast<vectorized::ColumnMap&>(*tmp_maps[b]);
+        auto& m = assert_cast<ColumnMap&>(*tmp_maps[b]);
         m.get_offsets().reserve(num_rows);
     }
-    std::vector<vectorized::ColumnString*> bucket_keys(bucket_num);
-    std::vector<vectorized::ColumnString*> bucket_values(bucket_num);
-    std::vector<vectorized::ColumnArray::Offsets64*> bucket_offsets(bucket_num);
+    std::vector<ColumnString*> bucket_keys(bucket_num);
+    std::vector<ColumnString*> bucket_values(bucket_num);
+    std::vector<ColumnArray::Offsets64*> bucket_offsets(bucket_num);
     for (int b = 0; b < bucket_num; ++b) {
-        auto& m = assert_cast<vectorized::ColumnMap&>(*tmp_maps[b]);
-        bucket_keys[b] = &assert_cast<vectorized::ColumnString&>(m.get_keys());
-        bucket_values[b] = &assert_cast<vectorized::ColumnString&>(m.get_values());
+        auto& m = assert_cast<ColumnMap&>(*tmp_maps[b]);
+        bucket_keys[b] = &assert_cast<ColumnString&>(m.get_keys());
+        bucket_values[b] = &assert_cast<ColumnString&>(m.get_values());
         bucket_offsets[b] = &m.get_offsets();
     }
     for (size_t row = 0; row < num_rows; ++row) {
@@ -765,7 +765,7 @@ Status UnifiedSparseColumnWriter::append_bucket_sparse(
             if (auto it = path_to_bucket.find(path); it != path_to_bucket.end()) {
                 b = it->second;
             } else {
-                b = vectorized::variant_util::variant_binary_shard_of(path, bucket_num);
+                b = variant_util::variant_binary_shard_of(path, bucket_num);
                 path_to_bucket.emplace(path, b);
             }
             bucket_keys[b]->insert_data(path.data, path.size);
@@ -783,7 +783,7 @@ Status UnifiedSparseColumnWriter::append_bucket_sparse(
     }
     for (int b = 0; b < bucket_num; ++b) {
         TabletColumn bucket_col =
-                vectorized::variant_util::create_sparse_shard_column(parent_column, b);
+                variant_util::create_sparse_shard_column(parent_column, b);
         converter->add_column_data_convertor(bucket_col);
         int this_col_id = _first_column_id + b;
         RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
@@ -819,7 +819,7 @@ Status VariantDocWriter::init(const TabletColumn* parent_column, int bucket_num,
     _doc_value_column_opts.resize(_bucket_num);
     for (int b = 0; b < _bucket_num; ++b) {
         const TabletColumn& bucket_column =
-                vectorized::variant_util::create_doc_value_column(*parent_column, b);
+                variant_util::create_doc_value_column(*parent_column, b);
         _doc_value_column_opts[b] = opts;
         _doc_value_column_opts[b].meta = footer->add_columns();
         _init_column_meta(_doc_value_column_opts[b].meta, column_id, bucket_column,
@@ -835,8 +835,8 @@ Status VariantDocWriter::init(const TabletColumn* parent_column, int bucket_num,
 
 Status VariantDocWriter::_write_materialized_subcolumn(
         const TabletColumn& parent_column, std::string_view path,
-        vectorized::ColumnVariant::Subcolumn& subcolumn, size_t num_rows,
-        vectorized::OlapBlockDataConvertor* converter, int& column_id,
+        ColumnVariant::Subcolumn& subcolumn, size_t num_rows,
+        OlapBlockDataConvertor* converter, int& column_id,
         const std::vector<uint32_t>* rowids) {
     return write_materialized_subcolumn(parent_column, path, subcolumn, num_rows, converter,
                                         column_id, _opts, &_subcolumns_indexes, &_subcolumn_opts,
@@ -844,27 +844,27 @@ Status VariantDocWriter::_write_materialized_subcolumn(
 }
 
 Status VariantDocWriter::_write_doc_value_column(const TabletColumn& parent_column,
-                                                 const vectorized::ColumnVariant& src,
+                                                 const ColumnVariant& src,
                                                  size_t num_rows,
-                                                 vectorized::OlapBlockDataConvertor* converter,
+                                                 OlapBlockDataConvertor* converter,
                                                  const DocValuePathStats& column_stats) {
     _stats.doc_value_column_non_null_size.clear();
     const auto [paths_col, values_col] = src.get_doc_value_data_paths_and_values();
     const auto& offsets = src.serialized_doc_value_column_offsets();
 
-    std::vector<vectorized::MutableColumnPtr> tmp_maps(_bucket_num);
+    std::vector<MutableColumnPtr> tmp_maps(_bucket_num);
     for (int b = 0; b < _bucket_num; ++b) {
-        tmp_maps[b] = vectorized::ColumnVariant::create_binary_column_fn();
-        auto& map_col = assert_cast<vectorized::ColumnMap&>(*tmp_maps[b]);
+        tmp_maps[b] = ColumnVariant::create_binary_column_fn();
+        auto& map_col = assert_cast<ColumnMap&>(*tmp_maps[b]);
         map_col.get_offsets().reserve(num_rows);
     }
-    std::vector<vectorized::ColumnString*> bucket_keys(_bucket_num);
-    std::vector<vectorized::ColumnString*> bucket_values(_bucket_num);
-    std::vector<vectorized::ColumnArray::Offsets64*> bucket_offsets(_bucket_num);
+    std::vector<ColumnString*> bucket_keys(_bucket_num);
+    std::vector<ColumnString*> bucket_values(_bucket_num);
+    std::vector<ColumnArray::Offsets64*> bucket_offsets(_bucket_num);
     for (int b = 0; b < _bucket_num; ++b) {
-        auto& m = assert_cast<vectorized::ColumnMap&>(*tmp_maps[b]);
-        bucket_keys[b] = &assert_cast<vectorized::ColumnString&>(m.get_keys());
-        bucket_values[b] = &assert_cast<vectorized::ColumnString&>(m.get_values());
+        auto& m = assert_cast<ColumnMap&>(*tmp_maps[b]);
+        bucket_keys[b] = &assert_cast<ColumnString&>(m.get_keys());
+        bucket_values[b] = &assert_cast<ColumnString&>(m.get_values());
         bucket_offsets[b] = &m.get_offsets();
     }
 
@@ -887,7 +887,7 @@ Status VariantDocWriter::_write_doc_value_column(const TabletColumn& parent_colu
             if (it != path_to_bucket.end()) {
                 bucket = it->second;
             } else {
-                bucket = vectorized::variant_util::variant_binary_shard_of(path, _bucket_num);
+                bucket = variant_util::variant_binary_shard_of(path, _bucket_num);
                 path_to_bucket.emplace_hint(it, path, bucket);
                 bucket_path_counts[bucket][path] = 0;
             }
@@ -900,13 +900,13 @@ Status VariantDocWriter::_write_doc_value_column(const TabletColumn& parent_colu
     }
 
     for (const auto& [path, cnt] : column_stats) {
-        uint32_t bucket = vectorized::variant_util::variant_binary_shard_of(path, _bucket_num);
+        uint32_t bucket = variant_util::variant_binary_shard_of(path, _bucket_num);
         bucket_path_counts[bucket][path] = cnt;
     }
 
     for (int b = 0; b < _bucket_num; ++b) {
         TabletColumn bucket_column =
-                vectorized::variant_util::create_doc_value_column(parent_column, b);
+                variant_util::create_doc_value_column(parent_column, b);
         converter->add_column_data_convertor(bucket_column);
         int this_col_id = _first_column_id + b;
         RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
@@ -930,8 +930,8 @@ Status VariantDocWriter::_write_doc_value_column(const TabletColumn& parent_colu
 }
 
 Status VariantDocWriter::append_data(const TabletColumn* parent_column,
-                                     const vectorized::ColumnVariant& src, size_t num_rows,
-                                     vectorized::OlapBlockDataConvertor* converter) {
+                                     const ColumnVariant& src, size_t num_rows,
+                                     OlapBlockDataConvertor* converter) {
     _subcolumn_writers.clear();
     _subcolumns_indexes.clear();
     _subcolumn_opts.clear();
@@ -1051,7 +1051,7 @@ VariantColumnWriterImpl::VariantColumnWriterImpl(const ColumnWriterOptions& opts
                                                  const TabletColumn* column) {
     _opts = opts;
     _tablet_column = column;
-    _null_column = vectorized::ColumnUInt8::create();
+    _null_column = ColumnUInt8::create();
     _nested_group_provider = create_nested_group_write_provider();
 }
 
@@ -1062,12 +1062,12 @@ Status VariantColumnWriterImpl::init() {
     if (_opts.rowset_ctx->write_type == DataWriteType::TYPE_DIRECT) {
         count = 0;
     }
-    _column = vectorized::ColumnVariant::create(count);
+    _column = ColumnVariant::create(count);
     return Status::OK();
 }
 
-Status VariantColumnWriterImpl::_process_root_column(vectorized::ColumnVariant* ptr,
-                                                     vectorized::OlapBlockDataConvertor* converter,
+Status VariantColumnWriterImpl::_process_root_column(ColumnVariant* ptr,
+                                                     OlapBlockDataConvertor* converter,
                                                      size_t num_rows, int& column_id) {
     // root column
     _root_writer = std::make_unique<ScalarColumnWriter>(
@@ -1076,15 +1076,15 @@ Status VariantColumnWriterImpl::_process_root_column(vectorized::ColumnVariant* 
     RETURN_IF_ERROR(_root_writer->init());
 
     // make sure the root type
-    auto expected_root_type = vectorized::make_nullable(
-            std::make_shared<vectorized::ColumnVariant::MostCommonType>());
+    auto expected_root_type = make_nullable(
+            std::make_shared<ColumnVariant::MostCommonType>());
     ptr->ensure_root_node_type(expected_root_type);
 
     DCHECK_EQ(ptr->get_root()->get_ptr()->size(), num_rows);
     converter->add_column_data_convertor(*_tablet_column);
     const uint8_t* nullmap = nullptr;
     auto& nullable_column =
-            assert_cast<vectorized::ColumnNullable&>(*ptr->get_root()->assume_mutable());
+            assert_cast<ColumnNullable&>(*ptr->get_root()->assume_mutable());
     auto root_column = nullable_column.get_nested_column_ptr();
 
     // Simplified dedup logic:
@@ -1097,7 +1097,7 @@ Status VariantColumnWriterImpl::_process_root_column(vectorized::ColumnVariant* 
                 [](const std::string& p) { return is_root_nested_group_path(p); });
         if (has_root_ng) {
             // Replace with empty JSONB defaults — the actual data is in NG columns.
-            auto bare_jsonb_type = std::make_shared<vectorized::ColumnVariant::MostCommonType>();
+            auto bare_jsonb_type = std::make_shared<ColumnVariant::MostCommonType>();
             auto bare_jsonb_col = bare_jsonb_type->create_column();
             bare_jsonb_col->insert_many_defaults(num_rows);
             root_column = std::move(bare_jsonb_col);
@@ -1107,13 +1107,13 @@ Status VariantColumnWriterImpl::_process_root_column(vectorized::ColumnVariant* 
     // If the root variant is nullable, then update the root column null column with the outer null column.
     if (_tablet_column->is_nullable()) {
         // use outer null column as final null column
-        root_column = vectorized::ColumnNullable::create(
-                root_column->get_ptr(), vectorized::ColumnUInt8::create(*_null_column));
+        root_column = ColumnNullable::create(
+                root_column->get_ptr(), ColumnUInt8::create(*_null_column));
         nullmap = _null_column->get_data().data();
     } else {
         // Otherwise setting to all not null.
-        root_column = vectorized::ColumnNullable::create(
-                root_column->get_ptr(), vectorized::ColumnUInt8::create(root_column->size(), 0));
+        root_column = ColumnNullable::create(
+                root_column->get_ptr(), ColumnUInt8::create(root_column->size(), 0));
     }
     // make sure the root_column is nullable
     RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
@@ -1130,25 +1130,25 @@ Status VariantColumnWriterImpl::_process_root_column(vectorized::ColumnVariant* 
     return Status::OK();
 }
 
-Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* ptr,
-                                                    vectorized::OlapBlockDataConvertor* converter,
+Status VariantColumnWriterImpl::_process_subcolumns(ColumnVariant* ptr,
+                                                    OlapBlockDataConvertor* converter,
                                                     size_t num_rows, int& column_id) {
-    auto generate_column_info = [&](const vectorized::PathInData& relative_path,
-                                    const vectorized::DataTypePtr& final_data_type) {
+    auto generate_column_info = [&](const PathInData& relative_path,
+                                    const DataTypePtr& final_data_type) {
         const std::string column_name =
                 _tablet_column->name_lower_case() + "." + relative_path.get_path();
-        vectorized::PathInData full_path;
+        PathInData full_path;
         if (relative_path.has_nested_part()) {
-            vectorized::PathInDataBuilder full_path_builder;
+            PathInDataBuilder full_path_builder;
             full_path = full_path_builder.append(_tablet_column->name_lower_case(), false)
                                 .append(relative_path.get_parts(), false)
                                 .build();
         } else {
-            full_path = vectorized::PathInData(column_name);
+            full_path = PathInData(column_name);
         }
-        return vectorized::variant_util::get_column_by_type(
+        return variant_util::get_column_by_type(
                 final_data_type, column_name,
-                vectorized::variant_util::ExtraInfo {
+                variant_util::ExtraInfo {
                         .unique_id = -1,
                         .parent_unique_id = _tablet_column->unique_id(),
                         .path_info = full_path});
@@ -1156,9 +1156,9 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
     _subcolumns_indexes.resize(ptr->get_subcolumns().size());
 
     auto write_one_subcolumn =
-            [&](const std::string& current_path, const vectorized::PathInData& relative_path,
-                const vectorized::DataTypePtr& current_type,
-                const vectorized::ColumnPtr& current_column, size_t non_null_count,
+            [&](const std::string& current_path, const PathInData& relative_path,
+                const DataTypePtr& current_type,
+                const ColumnPtr& current_column, size_t non_null_count,
                 bool check_storage_type, bool use_existing_subcolumn_info) -> Status {
         int current_column_id = column_id++;
         if (_subcolumns_indexes.size() <= cast_set<size_t>(current_column_id)) {
@@ -1172,7 +1172,7 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
                 _subcolumns_indexes[current_column_id] = it->second.indexes;
                 if (check_storage_type) {
                     auto storage_type =
-                            vectorized::DataTypeFactory::instance().create_data_type(tablet_column);
+                            DataTypeFactory::instance().create_data_type(tablet_column);
                     if (!storage_type->equals(*current_type)) {
                         return Status::InvalidArgument(
                                 "Storage type {} is not equal to current type {} for path {}",
@@ -1194,7 +1194,7 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
         opts.file_writer = _opts.file_writer;
         opts.encoding_preference = _opts.encoding_preference;
         std::unique_ptr<ColumnWriter> writer;
-        vectorized::variant_util::inherit_column_attributes(*_tablet_column, tablet_column);
+        variant_util::inherit_column_attributes(*_tablet_column, tablet_column);
 
         bool need_record_none_null_value_size =
                 (!tablet_column.path_info_ptr()->get_is_typed() ||
@@ -1218,7 +1218,7 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
     // convert sub column data from engine format to storage layer format
     // NOTE: We only keep up to variant_max_subcolumns_count as extracted columns; others are externalized.
     for (const auto& entry :
-         vectorized::variant_util::get_sorted_subcolumns(ptr->get_subcolumns())) {
+         variant_util::get_sorted_subcolumns(ptr->get_subcolumns())) {
         if (entry->path.empty()) {
             continue;
         }
@@ -1226,7 +1226,7 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
         if (least_common_type == nullptr) {
             continue;
         }
-        auto base_type = vectorized::variant_util::get_base_type_of_array(least_common_type);
+        auto base_type = variant_util::get_base_type_of_array(least_common_type);
         if (base_type != nullptr &&
             base_type->get_primitive_type() == PrimitiveType::INVALID_TYPE) {
             continue;
@@ -1234,7 +1234,7 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
         // Skip Array(Variant) subcolumns — these represent NG (nested group) data
         // that should be handled by the NG writer, not as regular subcolumns.
         if (base_type != nullptr &&
-            typeid_cast<const vectorized::DataTypeVariant*>(base_type.get()) != nullptr) {
+            typeid_cast<const DataTypeVariant*>(base_type.get()) != nullptr) {
             continue;
         }
         const std::string current_path = entry->path.get_path();
@@ -1252,7 +1252,7 @@ Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnVariant* p
 }
 
 Status VariantColumnWriterImpl::_process_binary_column(
-        vectorized::ColumnVariant* ptr, vectorized::OlapBlockDataConvertor* converter,
+        ColumnVariant* ptr, OlapBlockDataConvertor* converter,
         size_t num_rows, int& column_id) {
     int bucket_num = 1;
     if (_tablet_column->variant_enable_doc_mode()) {
@@ -1273,15 +1273,15 @@ Status VariantColumnWriterImpl::finalize() {
     auto* ptr = _column.get();
     ptr->set_max_subcolumns_count(_tablet_column->variant_max_subcolumns_count());
 
-    ptr->finalize(vectorized::ColumnVariant::FinalizeMode::WRITE_MODE);
+    ptr->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
 
     // convert each subcolumns to storage format and add data to sub columns writers buffer
-    auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
 
     DCHECK(ptr->is_finalized());
 
     for (const auto& entry :
-         vectorized::variant_util::get_sorted_subcolumns(ptr->get_subcolumns())) {
+         variant_util::get_sorted_subcolumns(ptr->get_subcolumns())) {
         if (entry->path.empty()) {
             // already handled
             continue;
@@ -1291,7 +1291,7 @@ Status VariantColumnWriterImpl::finalize() {
             continue;
         }
         TabletSchema::SubColumnInfo sub_column_info;
-        if (vectorized::variant_util::generate_sub_column_info(
+        if (variant_util::generate_sub_column_info(
                     *_opts.rowset_ctx->tablet_schema, _tablet_column->unique_id(),
                     entry->path.get_path(), &sub_column_info)) {
             _subcolumns_info.emplace(entry->path.get_path(), std::move(sub_column_info));
@@ -1373,8 +1373,8 @@ Status VariantColumnWriterImpl::_for_each_column_writer(
 
 Status VariantColumnWriterImpl::append_data(const uint8_t** ptr, size_t num_rows) {
     DCHECK(!is_finalized());
-    const auto* column = reinterpret_cast<const vectorized::VariantColumnData*>(*ptr);
-    const auto& src = *reinterpret_cast<const vectorized::ColumnVariant*>(column->column_data);
+    const auto* column = reinterpret_cast<const VariantColumnData*>(*ptr);
+    const auto& src = *reinterpret_cast<const ColumnVariant*>(column->column_data);
     RETURN_IF_ERROR(src.sanitize());
     // TODO: if direct write we could avoid copy
     _column->insert_range_from(src, column->row_pos, num_rows);
@@ -1489,7 +1489,7 @@ VariantSubcolumnWriter::VariantSubcolumnWriter(const ColumnWriterOptions& opts,
         : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta) {
     _tablet_column = column;
     _opts = opts;
-    _column = vectorized::ColumnVariant::create(0);
+    _column = ColumnVariant::create(0);
     _nested_group_provider = create_nested_group_write_provider();
 }
 
@@ -1498,8 +1498,8 @@ Status VariantSubcolumnWriter::init() {
 }
 
 Status VariantSubcolumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
-    const auto* column = reinterpret_cast<const vectorized::VariantColumnData*>(*ptr);
-    const auto& src = *reinterpret_cast<const vectorized::ColumnVariant*>(column->column_data);
+    const auto* column = reinterpret_cast<const VariantColumnData*>(*ptr);
+    const auto& src = *reinterpret_cast<const ColumnVariant*>(column->column_data);
     // TODO: if direct write we could avoid copy
     _column->insert_range_from(src, column->row_pos, num_rows);
     return Status::OK();
@@ -1532,13 +1532,13 @@ Status VariantSubcolumnWriter::finalize() {
     TabletColumn flush_column;
     if (ptr->get_subcolumns().get_root()->data.get_least_common_base_type_id() ==
         PrimitiveType::INVALID_TYPE) {
-        auto flush_type = vectorized::DataTypeFactory::instance().create_data_type(
+        auto flush_type = DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_TINYINT, true /* is_nullable */);
         ptr->ensure_root_node_type(flush_type);
     }
-    flush_column = vectorized::variant_util::get_column_by_type(
+    flush_column = variant_util::get_column_by_type(
             ptr->get_root_type(), _tablet_column->name(),
-            vectorized::variant_util::ExtraInfo {
+            variant_util::ExtraInfo {
                     .unique_id = -1,
                     .parent_unique_id = _tablet_column->parent_unique_id(),
                     .path_info = *_tablet_column->path_info_ptr()});
@@ -1549,13 +1549,13 @@ Status VariantSubcolumnWriter::finalize() {
     ColumnWriterOptions opts = _opts;
 
     // refresh opts and get writer with flush column
-    vectorized::variant_util::inherit_column_attributes(parent_column, flush_column);
+    variant_util::inherit_column_attributes(parent_column, flush_column);
     RETURN_IF_ERROR(_create_column_writer(0, flush_column, _opts.rowset_ctx->tablet_schema,
                                           _opts.index_file_writer, &_writer, _indexes, &opts,
                                           none_null_value_size, need_record_none_null_value_size));
 
     _opts = opts;
-    auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
     int column_id = 0;
     RETURN_IF_ERROR(convert_and_write_column(olap_data_convertor.get(), flush_column,
                                              ptr->get_root_type(), _writer.get(),
@@ -1636,7 +1636,7 @@ VariantDocCompactWriter::VariantDocCompactWriter(const ColumnWriterOptions& opts
         : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta) {
     _opts = opts;
     _tablet_column = column;
-    _column = vectorized::ColumnVariant::create(0);
+    _column = ColumnVariant::create(0);
 }
 
 Status VariantDocCompactWriter::init() {
@@ -1644,9 +1644,9 @@ Status VariantDocCompactWriter::init() {
 }
 
 Status VariantDocCompactWriter::append_data(const uint8_t** ptr, size_t num_rows) {
-    const auto* column = reinterpret_cast<const vectorized::VariantColumnData*>(*ptr);
-    const auto& src = *reinterpret_cast<const vectorized::ColumnVariant*>(column->column_data);
-    auto* dst_ptr = assert_cast<vectorized::ColumnVariant*>(_column.get());
+    const auto* column = reinterpret_cast<const VariantColumnData*>(*ptr);
+    const auto& src = *reinterpret_cast<const ColumnVariant*>(column->column_data);
+    auto* dst_ptr = assert_cast<ColumnVariant*>(_column.get());
     // TODO: if direct write we could avoid copy
     dst_ptr->insert_range_from(src, column->row_pos, num_rows);
     return Status::OK();
@@ -1720,8 +1720,8 @@ Status VariantDocCompactWriter::append_nullable(const uint8_t* null_map, const u
 
 Status VariantDocCompactWriter::_write_materialized_subcolumn(
         const TabletColumn& parent_column, std::string_view path,
-        vectorized::ColumnVariant::Subcolumn& subcolumn, size_t num_rows,
-        vectorized::OlapBlockDataConvertor* converter, int& column_id,
+        ColumnVariant::Subcolumn& subcolumn, size_t num_rows,
+        OlapBlockDataConvertor* converter, int& column_id,
         const std::vector<uint32_t>* rowids) {
     return write_materialized_subcolumn(parent_column, path, subcolumn, num_rows, converter,
                                         column_id, _opts, &_subcolumns_indexes, &_subcolumn_opts,
@@ -1729,20 +1729,20 @@ Status VariantDocCompactWriter::_write_materialized_subcolumn(
 }
 
 Status VariantDocCompactWriter::_write_doc_value_column(
-        const TabletColumn& parent_column, vectorized::ColumnVariant* variant_column,
-        vectorized::OlapBlockDataConvertor* converter, int column_id, size_t num_rows) {
+        const TabletColumn& parent_column, ColumnVariant* variant_column,
+        OlapBlockDataConvertor* converter, int column_id, size_t num_rows) {
     std::string doc_value_column_path = _tablet_column->path_info_ptr()->get_path();
     size_t pos = doc_value_column_path.rfind("b");
     int bucket_value = std::stoi(doc_value_column_path.substr(pos + 1));
     TabletColumn doc_value_column =
-            vectorized::variant_util::create_doc_value_column(parent_column, bucket_value);
+            variant_util::create_doc_value_column(parent_column, bucket_value);
     _init_column_meta(_opts.meta, column_id, doc_value_column, _opts.compression_type);
     RETURN_IF_ERROR(ColumnWriter::create_map_writer(_opts, &doc_value_column, _opts.file_writer,
                                                     &_doc_value_column_writer));
     RETURN_IF_ERROR(_doc_value_column_writer->init());
 
     (void)converter;
-    auto doc_value_converter = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    auto doc_value_converter = std::make_unique<OlapBlockDataConvertor>();
     doc_value_converter->add_column_data_convertor(doc_value_column);
     RETURN_IF_ERROR(doc_value_converter->set_source_content_with_specifid_column(
             {variant_column->get_doc_value_column(), nullptr, ""}, 0, num_rows, 0));
@@ -1754,13 +1754,13 @@ Status VariantDocCompactWriter::_write_doc_value_column(
     return Status::OK();
 }
 Status VariantDocCompactWriter::finalize() {
-    auto* variant_column = assert_cast<vectorized::ColumnVariant*>(_column.get());
+    auto* variant_column = assert_cast<ColumnVariant*>(_column.get());
 
     const auto& parent_column =
             _opts.rowset_ctx->tablet_schema->column_by_uid(_tablet_column->parent_unique_id());
 
     size_t num_rows = variant_column->size();
-    auto converter = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    auto converter = std::make_unique<OlapBlockDataConvertor>();
     int column_id = 0;
     int64_t variant_doc_materialization_min_rows =
             parent_column.variant_doc_materialization_min_rows();

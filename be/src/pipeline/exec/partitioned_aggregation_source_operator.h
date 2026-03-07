@@ -30,7 +30,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-namespace pipeline {
 
 class PartitionedAggSourceOperatorX;
 class PartitionedAggLocalState;
@@ -40,12 +39,12 @@ class PartitionedAggLocalState;
 /// spilled aggregation intermediate results stored in one SpillFile.
 struct AggSpillPartitionInfo {
     // The spill file for this partition.
-    vectorized::SpillFileSPtr spill_file;
+    SpillFileSPtr spill_file;
     // The depth level in the repartition tree (level-0 = original).
     int level = 0;
 
     AggSpillPartitionInfo() = default;
-    AggSpillPartitionInfo(vectorized::SpillFileSPtr s, int lvl)
+    AggSpillPartitionInfo(SpillFileSPtr s, int lvl)
             : spill_file(std::move(s)), level(lvl) {}
 };
 
@@ -86,7 +85,7 @@ private:
     /// Called once when spilled get_block is first entered.
     void _init_partition_queue();
 
-    /// Read up to vectorized::SpillFile::MAX_SPILL_WRITE_BATCH_MEM bytes from `partition.spill_files` into
+    /// Read up to SpillFile::MAX_SPILL_WRITE_BATCH_MEM bytes from `partition.spill_files` into
     /// `_blocks`. Returns has_data=true if any blocks were read.
     /// Consumes and deletes exhausted spill files from the partition.
     Status _recover_blocks_from_partition(RuntimeState* state, AggSpillPartitionInfo& partition);
@@ -103,7 +102,7 @@ private:
     bool _need_to_setup_partition = true;
 
     // Blocks recovered from disk, pending merge into hash table.
-    std::vector<vectorized::Block> _blocks;
+    std::vector<Block> _blocks;
 
     // Counters to track spill partition metrics
     RuntimeProfile::Counter* _max_partition_level = nullptr;
@@ -113,7 +112,7 @@ private:
     SpillRepartitioner _repartitioner;
 
     // Persistent reader for _recover_blocks_from_partition (survives across yield calls)
-    vectorized::SpillFileReaderSPtr _current_reader;
+    SpillFileReaderSPtr _current_reader;
 };
 
 class AggSourceOperatorX;
@@ -130,7 +129,7 @@ public:
 
     Status close(RuntimeState* state) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 
@@ -160,6 +159,5 @@ private:
     // max repartition depth (configured from session variable in FE)
     size_t _repartition_max_depth = SpillRepartitioner::MAX_DEPTH;
 };
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

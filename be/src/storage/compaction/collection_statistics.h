@@ -63,7 +63,7 @@ public:
 
     Status collect(RuntimeState* state, const std::vector<RowSetSplits>& rs_splits,
                    const TabletSchemaSPtr& tablet_schema,
-                   const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down,
+                   const VExprContextSPtrs& common_expr_ctxs_push_down,
                    io::IOContext* io_ctx);
 
     MOCK_FUNCTION float get_or_calculate_idf(const std::wstring& lucene_col_name,
@@ -72,7 +72,7 @@ public:
 
 private:
     Status extract_collect_info(RuntimeState* state,
-                                const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down,
+                                const VExprContextSPtrs& common_expr_ctxs_push_down,
                                 const TabletSchemaSPtr& tablet_schema,
                                 std::unordered_map<std::wstring, CollectInfo>* collect_infos);
     Status process_segment(const RowsetSharedPtr& rowset, int32_t seg_id,

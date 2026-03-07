@@ -87,7 +87,7 @@ std::shared_ptr<ColumnPredicate> create_in_list_predicate(const uint32_t cid,
 template <PredicateType PT>
 std::shared_ptr<ColumnPredicate> create_in_list_predicate(const uint32_t cid,
                                                           const std::string col_name,
-                                                          const vectorized::DataTypePtr& data_type,
+                                                          const DataTypePtr& data_type,
                                                           const std::shared_ptr<HybridSetBase> set,
                                                           bool is_opposite) {
     switch (data_type->get_primitive_type()) {
@@ -130,8 +130,8 @@ std::shared_ptr<ColumnPredicate> create_in_list_predicate(const uint32_t cid,
     case TYPE_CHAR: {
         return create_in_list_predicate<TYPE_CHAR, PT>(
                 cid, col_name, set, is_opposite,
-                assert_cast<const vectorized::DataTypeString*>(
-                        vectorized::remove_nullable(data_type).get())
+                assert_cast<const DataTypeString*>(
+                        remove_nullable(data_type).get())
                         ->len());
     }
     case TYPE_VARCHAR: {
@@ -173,8 +173,8 @@ std::shared_ptr<ColumnPredicate> create_in_list_predicate(const uint32_t cid,
 
 template <PredicateType PT>
 std::shared_ptr<ColumnPredicate> create_comparison_predicate(
-        const uint32_t cid, const std::string col_name, const vectorized::DataTypePtr& data_type,
-        const vectorized::Field& value, bool opposite) {
+        const uint32_t cid, const std::string col_name, const DataTypePtr& data_type,
+        const Field& value, bool opposite) {
     switch (data_type->get_primitive_type()) {
     case TYPE_TINYINT: {
         return ComparisonPredicateBase<TYPE_TINYINT, PT>::create_shared(cid, col_name, value,
@@ -225,8 +225,8 @@ std::shared_ptr<ColumnPredicate> create_comparison_predicate(
     }
     case TYPE_CHAR: {
         auto target =
-                std::max(cast_set<size_t>(assert_cast<const vectorized::DataTypeString*>(
-                                                  vectorized::remove_nullable(data_type).get())
+                std::max(cast_set<size_t>(assert_cast<const DataTypeString*>(
+                                                  remove_nullable(data_type).get())
                                                   ->len()),
                          value.template get<TYPE_CHAR>().size());
         if (target > value.template get<TYPE_CHAR>().size()) {
@@ -234,12 +234,12 @@ std::shared_ptr<ColumnPredicate> create_comparison_predicate(
             memcpy(tmp.data(), value.template get<TYPE_CHAR>().data(),
                    value.template get<TYPE_CHAR>().size());
             return ComparisonPredicateBase<TYPE_CHAR, PT>::create_shared(
-                    cid, col_name, vectorized::Field::create_field<TYPE_CHAR>(std::move(tmp)),
+                    cid, col_name, Field::create_field<TYPE_CHAR>(std::move(tmp)),
                     opposite);
         } else {
             return ComparisonPredicateBase<TYPE_CHAR, PT>::create_shared(
                     cid, col_name,
-                    vectorized::Field::create_field<TYPE_CHAR>(value.template get<TYPE_CHAR>()),
+                    Field::create_field<TYPE_CHAR>(value.template get<TYPE_CHAR>()),
                     opposite);
         }
     }
@@ -292,15 +292,15 @@ std::shared_ptr<HybridSetBase> build_set() {
     return std::make_shared<std::conditional_t<
             is_string_type(TYPE), StringSet<DynamicContainer<std::string>>,
             HybridSet<TYPE, DynamicContainer<typename PrimitiveTypeTraits<TYPE>::CppType>,
-                      vectorized::PredicateColumnType<PredicateEvaluateType<TYPE>>>>>(false);
+                      PredicateColumnType<PredicateEvaluateType<TYPE>>>>>(false);
 }
 
 std::shared_ptr<ColumnPredicate> create_bloom_filter_predicate(
-        const uint32_t cid, const std::string col_name, const vectorized::DataTypePtr& data_type,
+        const uint32_t cid, const std::string col_name, const DataTypePtr& data_type,
         const std::shared_ptr<BloomFilterFuncBase>& filter);
 
 std::shared_ptr<ColumnPredicate> create_bitmap_filter_predicate(
-        const uint32_t cid, const std::string col_name, const vectorized::DataTypePtr& data_type,
+        const uint32_t cid, const std::string col_name, const DataTypePtr& data_type,
         const std::shared_ptr<BitmapFilterFuncBase>& filter);
 #include "common/compile_check_end.h"
 } //namespace doris

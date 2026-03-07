@@ -355,7 +355,7 @@ std::string FragmentMgr::to_http_path(const std::string& file_name) {
 }
 
 Status FragmentMgr::trigger_pipeline_context_report(
-        const ReportStatusRequest req, std::shared_ptr<pipeline::PipelineFragmentContext>&& ctx) {
+        const ReportStatusRequest req, std::shared_ptr<PipelineFragmentContext>&& ctx) {
     return _thread_pool->submit_func([this, req, ctx]() {
         SCOPED_ATTACH_TASK(ctx->get_query_ctx()->query_mem_tracker());
         coordinator_callback(req);
@@ -816,7 +816,7 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
 
         _pipeline_map.apply([&](phmap::flat_hash_map<
                                     std::pair<TUniqueId, int>,
-                                    std::shared_ptr<pipeline::PipelineFragmentContext>>& map)
+                                    std::shared_ptr<PipelineFragmentContext>>& map)
                                     -> Status {
             std::set<TUniqueId> query_id_set;
             for (auto& it : map) {
@@ -879,8 +879,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     RETURN_IF_ERROR(_get_or_create_query_ctx(params, parent, query_source, query_ctx));
     SCOPED_ATTACH_TASK(query_ctx.get()->resource_ctx());
     int64_t duration_ns = 0;
-    std::shared_ptr<pipeline::PipelineFragmentContext> context =
-            std::make_shared<pipeline::PipelineFragmentContext>(
+    std::shared_ptr<PipelineFragmentContext> context =
+            std::make_shared<PipelineFragmentContext>(
                     query_ctx->query_id(), params, query_ctx, _exec_env, cb,
                     [this](const ReportStatusRequest& req, auto&& ctx) {
                         return this->trigger_pipeline_context_report(req, std::move(ctx));
@@ -977,10 +977,10 @@ void FragmentMgr::cancel_worker() {
             running_queries_on_all_fes.clear();
         }
 
-        std::vector<std::shared_ptr<pipeline::PipelineFragmentContext>> ctx;
+        std::vector<std::shared_ptr<PipelineFragmentContext>> ctx;
         _pipeline_map.apply(
                 [&](phmap::flat_hash_map<std::pair<TUniqueId, int>,
-                                         std::shared_ptr<pipeline::PipelineFragmentContext>>& map)
+                                         std::shared_ptr<PipelineFragmentContext>>& map)
                         -> Status {
                     ctx.reserve(ctx.size() + map.size());
                     for (auto& pipeline_itr : map) {

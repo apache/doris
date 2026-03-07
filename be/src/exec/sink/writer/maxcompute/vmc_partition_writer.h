@@ -31,7 +31,6 @@ class ObjectPool;
 class RuntimeState;
 class RuntimeProfile;
 
-namespace vectorized {
 
 class Block;
 class VJniFormatTransformer;
@@ -43,7 +42,7 @@ public:
                        std::map<std::string, std::string> writer_params);
 
     Status open();
-    Status write(vectorized::Block& block);
+    Status write(Block& block);
     Status close(const Status& status);
 
 private:
@@ -59,5 +58,4 @@ private:
     size_t _row_count = 0;
 };
 
-} // namespace vectorized
 } // namespace doris

@@ -76,10 +76,10 @@ public:
 };
 
 TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN_VEC) {
-    vectorized::MutableColumns block;
-    block.push_back(vectorized::PredicateColumnType<TYPE_INT>::create());
+    MutableColumns block;
+    block.push_back(PredicateColumnType<TYPE_INT>::create());
 
-    auto value = vectorized::Field::create_field<TYPE_INT>(5);
+    auto value = Field::create_field<TYPE_INT>(5);
     int rows = 10;
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
@@ -98,16 +98,16 @@ TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN_VEC) {
     selected_size = single_column_block_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 1);
     auto* pred_col =
-            reinterpret_cast<vectorized::PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+            reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], value.template get<TYPE_INT>());
 }
 
 TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN_VEC) {
-    vectorized::MutableColumns block;
-    block.push_back(vectorized::PredicateColumnType<TYPE_INT>::create());
+    MutableColumns block;
+    block.push_back(PredicateColumnType<TYPE_INT>::create());
 
-    auto less_value = vectorized::Field::create_field<TYPE_INT>(5);
-    auto great_value = vectorized::Field::create_field<TYPE_INT>(3);
+    auto less_value = Field::create_field<TYPE_INT>(5);
+    auto great_value = Field::create_field<TYPE_INT>(3);
     int rows = 10;
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> less_pred(
@@ -133,16 +133,16 @@ TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN_VEC) {
     selected_size = and_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 1);
     auto* pred_col =
-            reinterpret_cast<vectorized::PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+            reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 4);
 }
 
 TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN_VEC) {
-    vectorized::MutableColumns block;
-    block.push_back(vectorized::PredicateColumnType<TYPE_INT>::create());
+    MutableColumns block;
+    block.push_back(PredicateColumnType<TYPE_INT>::create());
 
-    auto less_value = vectorized::Field::create_field<TYPE_INT>(5);
-    auto great_value = vectorized::Field::create_field<TYPE_INT>(3);
+    auto less_value = Field::create_field<TYPE_INT>(5);
+    auto great_value = Field::create_field<TYPE_INT>(3);
     int rows = 10;
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> less_pred(
@@ -168,16 +168,16 @@ TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN_VEC) {
     selected_size = or_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 10);
     auto* pred_col =
-            reinterpret_cast<vectorized::PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+            reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 0);
 }
 
 TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
-    vectorized::MutableColumns block;
-    block.push_back(vectorized::PredicateColumnType<TYPE_INT>::create());
+    MutableColumns block;
+    block.push_back(PredicateColumnType<TYPE_INT>::create());
 
-    auto less_value = vectorized::Field::create_field<TYPE_INT>(5);
-    auto great_value = vectorized::Field::create_field<TYPE_INT>(3);
+    auto less_value = Field::create_field<TYPE_INT>(5);
+    auto great_value = Field::create_field<TYPE_INT>(3);
     int rows = 10;
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> less_pred(
@@ -212,7 +212,7 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
     selected_size = or_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 4);
     auto* pred_col =
-            reinterpret_cast<vectorized::PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+            reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 0);
     EXPECT_EQ(pred_col->get_data()[sel_idx[1]], 1);
     EXPECT_EQ(pred_col->get_data()[sel_idx[2]], 2);
@@ -240,11 +240,11 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
 }
 
 TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN_VEC) {
-    vectorized::MutableColumns block;
-    block.push_back(vectorized::PredicateColumnType<TYPE_INT>::create());
+    MutableColumns block;
+    block.push_back(PredicateColumnType<TYPE_INT>::create());
 
-    auto less_value = vectorized::Field::create_field<TYPE_INT>(5);
-    auto great_value = vectorized::Field::create_field<TYPE_INT>(3);
+    auto less_value = Field::create_field<TYPE_INT>(5);
+    auto great_value = Field::create_field<TYPE_INT>(3);
     int rows = 10;
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> less_pred(
@@ -279,7 +279,7 @@ TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN_VEC) {
     selected_size = and_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
 
     auto* pred_col =
-            reinterpret_cast<vectorized::PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+            reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
     EXPECT_EQ(selected_size, 1);
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 4);
 
@@ -302,7 +302,7 @@ TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN_VEC) {
 
 template <PrimitiveType T, PredicateType PT>
 void single_column_predicate_test_func(const segment_v2::ZoneMap& zone_map_info,
-                                       vectorized::Field& check_value, bool expect_match) {
+                                       Field& check_value, bool expect_match) {
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<T, PT>(col_idx, "", check_value));
@@ -314,7 +314,7 @@ void single_column_predicate_test_func(const segment_v2::ZoneMap& zone_map_info,
 
 template <PrimitiveType T, PredicateType PT>
 void single_column_predicate_test_func(const segment_v2::ZoneMap& zone_map_info,
-                                       vectorized::Field&& check_value, bool expect_match) {
+                                       Field&& check_value, bool expect_match) {
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<T, PT>(col_idx, "", check_value));
@@ -327,13 +327,13 @@ void single_column_predicate_test_func(const segment_v2::ZoneMap& zone_map_info,
 // test zonemap index
 TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
     auto nan =
-            vectorized::Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN());
+            Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN());
     auto neg_inf =
-            vectorized::Field::create_field<TYPE_DOUBLE>(-std::numeric_limits<double>::infinity());
+            Field::create_field<TYPE_DOUBLE>(-std::numeric_limits<double>::infinity());
     auto pos_inf =
-            vectorized::Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::infinity());
-    auto min = vectorized::Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::lowest());
-    auto max = vectorized::Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::max());
+            Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::infinity());
+    auto min = Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::lowest());
+    auto max = Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::max());
 
     // test normal value min max:
     {
@@ -341,8 +341,8 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         double zonemap_min_v = std::numeric_limits<double>::lowest();
         double zonemap_max_v = std::numeric_limits<double>::max();
         segment_v2::ZoneMap zone_map_info {
-                .min_value = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
-                .max_value = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_max_v),
+                .min_value = Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
+                .max_value = Field::create_field<TYPE_DOUBLE>(zonemap_max_v),
                 .has_null = false,
                 .has_not_null = true};
 
@@ -385,13 +385,13 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, neg_inf,
                                                                           false);
 
-        std::vector<vectorized::Field> test_values_in_range = {
-                vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
-                vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_max_v),
-                vectorized::Field::create_field<TYPE_DOUBLE>(-123456.789012345),
-                vectorized::Field::create_field<TYPE_DOUBLE>(-0.0),
-                vectorized::Field::create_field<TYPE_DOUBLE>(0.0),
-                vectorized::Field::create_field<TYPE_DOUBLE>(123456.789012345)};
+        std::vector<Field> test_values_in_range = {
+                Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
+                Field::create_field<TYPE_DOUBLE>(zonemap_max_v),
+                Field::create_field<TYPE_DOUBLE>(-123456.789012345),
+                Field::create_field<TYPE_DOUBLE>(-0.0),
+                Field::create_field<TYPE_DOUBLE>(0.0),
+                Field::create_field<TYPE_DOUBLE>(123456.789012345)};
         for (auto v : test_values_in_range) {
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
@@ -425,7 +425,7 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
 
         // test values out of zonemap range
         {
-            auto v = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v * 2);
+            auto v = Field::create_field<TYPE_DOUBLE>(zonemap_min_v * 2);
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, v,
@@ -456,7 +456,7 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
                                                                               true);
         }
         {
-            auto v = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_max_v * 2);
+            auto v = Field::create_field<TYPE_DOUBLE>(zonemap_max_v * 2);
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, v,
@@ -492,7 +492,7 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         std::cout << "========test special range: [normal, +Infinity]\n";
         double zonemap_min_v = std::numeric_limits<double>::lowest();
         segment_v2::ZoneMap zone_map_info {
-                .min_value = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
+                .min_value = Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
                 .max_value = pos_inf,
                 .has_null = false,
                 .has_not_null = true};
@@ -536,14 +536,14 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, neg_inf,
                                                                           false);
 
-        std::vector<vectorized::Field> test_values_in_range = {
-                vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
+        std::vector<Field> test_values_in_range = {
+                Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
                 max,
                 pos_inf,
-                vectorized::Field::create_field<TYPE_DOUBLE>(-123456.789012345),
-                vectorized::Field::create_field<TYPE_DOUBLE>(-0.0),
-                vectorized::Field::create_field<TYPE_DOUBLE>(0.0),
-                vectorized::Field::create_field<TYPE_DOUBLE>(123456.789012345),
+                Field::create_field<TYPE_DOUBLE>(-123456.789012345),
+                Field::create_field<TYPE_DOUBLE>(-0.0),
+                Field::create_field<TYPE_DOUBLE>(0.0),
+                Field::create_field<TYPE_DOUBLE>(123456.789012345),
         };
         for (auto v : test_values_in_range) {
             // test EQ
@@ -579,7 +579,7 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
 
         // test values out of zonemap range
         {
-            auto v = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v * 2);
+            auto v = Field::create_field<TYPE_DOUBLE>(zonemap_min_v * 2);
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, v,
@@ -616,7 +616,7 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         double zonemap_max_v = std::numeric_limits<double>::max();
         segment_v2::ZoneMap zone_map_info {
                 .min_value = neg_inf,
-                .max_value = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_max_v),
+                .max_value = Field::create_field<TYPE_DOUBLE>(zonemap_max_v),
                 .has_null = false,
                 .has_not_null = true};
 
@@ -659,14 +659,14 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, neg_inf,
                                                                           true);
 
-        std::vector<vectorized::Field> test_values_in_range = {
+        std::vector<Field> test_values_in_range = {
                 neg_inf,
                 min,
-                vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_max_v),
-                vectorized::Field::create_field<TYPE_DOUBLE>(-123456.789012345),
-                vectorized::Field::create_field<TYPE_DOUBLE>(-0.0),
-                vectorized::Field::create_field<TYPE_DOUBLE>(0.0),
-                vectorized::Field::create_field<TYPE_DOUBLE>(123456.789012345),
+                Field::create_field<TYPE_DOUBLE>(zonemap_max_v),
+                Field::create_field<TYPE_DOUBLE>(-123456.789012345),
+                Field::create_field<TYPE_DOUBLE>(-0.0),
+                Field::create_field<TYPE_DOUBLE>(0.0),
+                Field::create_field<TYPE_DOUBLE>(123456.789012345),
         };
         for (auto v : test_values_in_range) {
             // test EQ
@@ -700,7 +700,7 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         }
         // test values out of zonemap range
         {
-            auto v = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_max_v * 2);
+            auto v = Field::create_field<TYPE_DOUBLE>(zonemap_max_v * 2);
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, v,
@@ -736,7 +736,7 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         std::cout << "========test special range: [normal, NaN]\n";
         double zonemap_min_v = std::numeric_limits<float>::lowest();
         segment_v2::ZoneMap zone_map_info {
-                .min_value = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
+                .min_value = Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
                 .max_value = nan,
                 .has_null = false,
                 .has_not_null = true};
@@ -778,14 +778,14 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, neg_inf,
                                                                           false);
 
-        std::vector<vectorized::Field> test_values_in_range = {
-                vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
+        std::vector<Field> test_values_in_range = {
+                Field::create_field<TYPE_DOUBLE>(zonemap_min_v),
                 max,
                 pos_inf,
-                vectorized::Field::create_field<TYPE_DOUBLE>(-123456.789012345),
-                vectorized::Field::create_field<TYPE_DOUBLE>(-0.0),
-                vectorized::Field::create_field<TYPE_DOUBLE>(0.0),
-                vectorized::Field::create_field<TYPE_DOUBLE>(123456.789012345),
+                Field::create_field<TYPE_DOUBLE>(-123456.789012345),
+                Field::create_field<TYPE_DOUBLE>(-0.0),
+                Field::create_field<TYPE_DOUBLE>(0.0),
+                Field::create_field<TYPE_DOUBLE>(123456.789012345),
         };
         for (auto v : test_values_in_range) {
             // test EQ
@@ -820,7 +820,7 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
 
         // test values out of zonemap range
         {
-            auto v = vectorized::Field::create_field<TYPE_DOUBLE>(zonemap_min_v * 2);
+            auto v = Field::create_field<TYPE_DOUBLE>(zonemap_min_v * 2);
             // test EQ
             // std::cout << "test double EQ value: " << v << std::endl;
             single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::EQ>(zone_map_info, v,
@@ -898,13 +898,13 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, neg_inf,
                                                                           true);
 
-        std::vector<vectorized::Field> test_values_in_range = {
+        std::vector<Field> test_values_in_range = {
                 min,
                 max,
-                vectorized::Field::create_field<TYPE_DOUBLE>(-123456.789012345),
-                vectorized::Field::create_field<TYPE_DOUBLE>(-0.0),
-                vectorized::Field::create_field<TYPE_DOUBLE>(0.0),
-                vectorized::Field::create_field<TYPE_DOUBLE>(123456.789012345),
+                Field::create_field<TYPE_DOUBLE>(-123456.789012345),
+                Field::create_field<TYPE_DOUBLE>(-0.0),
+                Field::create_field<TYPE_DOUBLE>(0.0),
+                Field::create_field<TYPE_DOUBLE>(123456.789012345),
         };
         for (auto v : test_values_in_range) {
             // test EQ
@@ -980,13 +980,13 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, neg_inf,
                                                                           true);
 
-        std::vector<vectorized::Field> test_values_in_range = {
+        std::vector<Field> test_values_in_range = {
                 min,
                 max,
-                vectorized::Field::create_field<TYPE_DOUBLE>(-123456.789012345),
-                vectorized::Field::create_field<TYPE_DOUBLE>(-0.0),
-                vectorized::Field::create_field<TYPE_DOUBLE>(0.0),
-                vectorized::Field::create_field<TYPE_DOUBLE>(123456.789012345),
+                Field::create_field<TYPE_DOUBLE>(-123456.789012345),
+                Field::create_field<TYPE_DOUBLE>(-0.0),
+                Field::create_field<TYPE_DOUBLE>(0.0),
+                Field::create_field<TYPE_DOUBLE>(123456.789012345),
         };
         for (auto v : test_values_in_range) {
             // std::cout << "test double EQ value: " << v << std::endl;
@@ -1060,13 +1060,13 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, neg_inf,
                                                                           true);
 
-        std::vector<vectorized::Field> test_values_not_in_range = {
+        std::vector<Field> test_values_not_in_range = {
                 min,
                 max,
-                vectorized::Field::create_field<TYPE_DOUBLE>(-123456.789012345),
-                vectorized::Field::create_field<TYPE_DOUBLE>(-0.0),
-                vectorized::Field::create_field<TYPE_DOUBLE>(0.0),
-                vectorized::Field::create_field<TYPE_DOUBLE>(123456.789012345),
+                Field::create_field<TYPE_DOUBLE>(-123456.789012345),
+                Field::create_field<TYPE_DOUBLE>(-0.0),
+                Field::create_field<TYPE_DOUBLE>(0.0),
+                Field::create_field<TYPE_DOUBLE>(123456.789012345),
         };
         for (auto v : test_values_not_in_range) {
             // std::cout << "test double EQ value: " << v << std::endl;
@@ -1144,13 +1144,13 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
                                                                           false);
 
         std::cout << "========test values not in range\n";
-        std::vector<vectorized::Field> test_values_not_in_range = {
+        std::vector<Field> test_values_not_in_range = {
                 min,
                 max,
-                vectorized::Field::create_field<TYPE_DOUBLE>(-123456.789012345),
-                vectorized::Field::create_field<TYPE_DOUBLE>(-0.0),
-                vectorized::Field::create_field<TYPE_DOUBLE>(0.0),
-                vectorized::Field::create_field<TYPE_DOUBLE>(123456.789012345),
+                Field::create_field<TYPE_DOUBLE>(-123456.789012345),
+                Field::create_field<TYPE_DOUBLE>(-0.0),
+                Field::create_field<TYPE_DOUBLE>(0.0),
+                Field::create_field<TYPE_DOUBLE>(123456.789012345),
         };
         for (auto v : test_values_not_in_range) {
             // std::cout << "test double EQ value: " << v << std::endl;
@@ -1222,13 +1222,13 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
         single_column_predicate_test_func<TYPE_DOUBLE, PredicateType::LE>(zone_map_info, neg_inf,
                                                                           false);
 
-        std::vector<vectorized::Field> test_values_not_in_range = {
+        std::vector<Field> test_values_not_in_range = {
                 min,
                 max,
-                vectorized::Field::create_field<TYPE_DOUBLE>(-123456.789012345),
-                vectorized::Field::create_field<TYPE_DOUBLE>(-0.0),
-                vectorized::Field::create_field<TYPE_DOUBLE>(0.0),
-                vectorized::Field::create_field<TYPE_DOUBLE>(123456.789012345),
+                Field::create_field<TYPE_DOUBLE>(-123456.789012345),
+                Field::create_field<TYPE_DOUBLE>(-0.0),
+                Field::create_field<TYPE_DOUBLE>(0.0),
+                Field::create_field<TYPE_DOUBLE>(123456.789012345),
         };
         for (auto v : test_values_not_in_range) {
             // std::cout << "test double EQ value: " << v << std::endl;
@@ -1261,7 +1261,7 @@ TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
 TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
     cctz::time_zone time_zone = cctz::fixed_time_zone(std::chrono::hours(0));
     TimezoneUtils::load_offsets_to_cache();
-    vectorized::CastParameters params;
+    CastParameters params;
     params.is_strict = true;
 
     // test normal value min max:
@@ -1276,8 +1276,8 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
         EXPECT_TRUE(zonemap_max_v.from_string(StringRef {"8999-12-31 23:59:59"}, &time_zone, params,
                                               0));
         segment_v2::ZoneMap zone_map_info {
-                .min_value = vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(zonemap_min_v),
-                .max_value = vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(zonemap_max_v),
+                .min_value = Field::create_field<TYPE_TIMESTAMPTZ>(zonemap_min_v),
+                .max_value = Field::create_field<TYPE_TIMESTAMPTZ>(zonemap_max_v),
                 .has_null = false,
                 .has_not_null = true};
 
@@ -1288,23 +1288,23 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
             TimestampTzValue tz {};
             EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 0));
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
-                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
+                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(
-                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
+                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LT>(
-                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz),
+                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz),
                     tz != zonemap_min_v);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LE>(
-                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
+                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GT>(
-                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz),
+                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz),
                     tz != zonemap_max_v);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GE>(
-                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
+                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
         }
         // test values out of zonemap range
         {
-            auto v = vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(
+            auto v = Field::create_field<TYPE_TIMESTAMPTZ>(
                     type_limit<TimestampTzValue>::min());
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(zone_map_info, v,
                                                                                    false);
@@ -1325,7 +1325,7 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
         }
         // test values out of zonemap range
         {
-            auto v = vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(
+            auto v = Field::create_field<TYPE_TIMESTAMPTZ>(
                     type_limit<TimestampTzValue>::max());
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(zone_map_info, v,
                                                                                    false);
@@ -1352,8 +1352,8 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
         auto zonemap_min_v = type_limit<TimestampTzValue>::min();
         auto zonemap_max_v = type_limit<TimestampTzValue>::max();
         segment_v2::ZoneMap zone_map_info {
-                .min_value = vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(zonemap_min_v),
-                .max_value = vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(zonemap_max_v),
+                .min_value = Field::create_field<TYPE_TIMESTAMPTZ>(zonemap_min_v),
+                .max_value = Field::create_field<TYPE_TIMESTAMPTZ>(zonemap_max_v),
                 .has_null = false,
                 .has_not_null = true};
 
@@ -1364,26 +1364,26 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
             TimestampTzValue tz {};
             EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 6));
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
-                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
+                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(
-                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
+                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LT>(
-                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz),
+                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz),
                     tz != zonemap_min_v);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LE>(
-                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
+                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GT>(
-                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz),
+                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz),
                     tz != zonemap_max_v);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GE>(
-                    zone_map_info, vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
+                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
         }
     }
 }
 
 template <PrimitiveType T, PredicateType PT>
 void single_column_predicate_test_func(const segment_v2::BloomFilter* bf,
-                                       vectorized::Field&& check_value, bool expect_match) {
+                                       Field&& check_value, bool expect_match) {
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<T, PT>(col_idx, "", check_value));
@@ -1396,7 +1396,7 @@ void single_column_predicate_test_func(const segment_v2::BloomFilter* bf,
 TEST_F(BlockColumnPredicateTest, test_timestamptz_bloom_filter) {
     cctz::time_zone time_zone = cctz::fixed_time_zone(std::chrono::hours(0));
     TimezoneUtils::load_offsets_to_cache();
-    vectorized::CastParameters params;
+    CastParameters params;
     params.is_strict = true;
 
     std::vector<std::string> str_values = {"0001-01-01 00:00:00", "2023-01-01 15:00:00",
@@ -1422,48 +1422,48 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_bloom_filter) {
 
     for (const auto& v : values) {
         single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
-                bf.get(), vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(v), true);
+                bf.get(), Field::create_field<TYPE_TIMESTAMPTZ>(v), true);
     }
     {
         auto str = "0000-01-01 00:00:00";
         TimestampTzValue tz {};
         EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 0));
         single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
-                bf.get(), vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), false);
+                bf.get(), Field::create_field<TYPE_TIMESTAMPTZ>(tz), false);
     }
     {
         auto str = "9999-12-31 23:59:59.999999";
         TimestampTzValue tz {};
         EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 6));
         single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
-                bf.get(), vectorized::Field::create_field<TYPE_TIMESTAMPTZ>(tz), false);
+                bf.get(), Field::create_field<TYPE_TIMESTAMPTZ>(tz), false);
     }
 }
 
 TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     { // INT
      {// EQ
-      auto value = vectorized::Field::create_field<TYPE_INT>(5);
+      auto value = Field::create_field<TYPE_INT>(5);
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
-    std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-            std::make_unique<vectorized::FieldSchema>();
+    std::unique_ptr<FieldSchema> parquet_field_col1 =
+            std::make_unique<FieldSchema>();
     parquet_field_col1->name = "col1";
     parquet_field_col1->data_type =
-            vectorized::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
     parquet_field_col1->field_id = -1;
     parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
-    vectorized::ParquetPredicate::ColumnStat stat;
+    ParquetPredicate::ColumnStat stat;
     cctz::time_zone tmp_ctz;
     stat.ctz = &tmp_ctz;
 
-    std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func;
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
     {
         // 5 belongs to [5, 5]
-        get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
             stat->col_schema = parquet_field_col1.get();
             stat->is_all_null = false;
             stat->has_null = false;
@@ -1477,7 +1477,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     }
     {
         // 5 not belongs to [6, 7]
-        get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
             int lower = 6;
             int upper = 7;
             stat->col_schema = parquet_field_col1.get();
@@ -1494,7 +1494,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     }
     {
         // 5 not belongs to [1, 4]
-        get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
             int lower = 1;
             int upper = 4;
             stat->col_schema = parquet_field_col1.get();
@@ -1511,7 +1511,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     }
     {
         // get stat failed
-        get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
             return false;
         };
         stat.get_stat_func = &get_stat_func;
@@ -1520,27 +1520,27 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
 }
 {
     // NE
-    auto value = vectorized::Field::create_field<TYPE_INT>(5);
+    auto value = Field::create_field<TYPE_INT>(5);
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
-    std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-            std::make_unique<vectorized::FieldSchema>();
+    std::unique_ptr<FieldSchema> parquet_field_col1 =
+            std::make_unique<FieldSchema>();
     parquet_field_col1->name = "col1";
     parquet_field_col1->data_type =
-            vectorized::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
     parquet_field_col1->field_id = -1;
     parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
-    vectorized::ParquetPredicate::ColumnStat stat;
+    ParquetPredicate::ColumnStat stat;
     cctz::time_zone tmp_ctz;
     stat.ctz = &tmp_ctz;
 
-    std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func;
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
     {
         // 5 belongs to [5, 5]
-        get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
             stat->col_schema = parquet_field_col1.get();
             stat->is_all_null = false;
             stat->has_null = false;
@@ -1554,7 +1554,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     }
     {
         // 5 not belongs to [6, 7]
-        get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
             int lower = 6;
             int upper = 7;
             stat->col_schema = parquet_field_col1.get();
@@ -1571,7 +1571,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     }
     {
         // 5 not belongs to [1, 4]
-        get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
             int lower = 1;
             int upper = 4;
             stat->col_schema = parquet_field_col1.get();
@@ -1589,27 +1589,27 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
 }
 {
     // GE
-    auto value = vectorized::Field::create_field<TYPE_INT>(5);
+    auto value = Field::create_field<TYPE_INT>(5);
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<TYPE_INT, PredicateType::GE>(col_idx, "", value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
-    std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-            std::make_unique<vectorized::FieldSchema>();
+    std::unique_ptr<FieldSchema> parquet_field_col1 =
+            std::make_unique<FieldSchema>();
     parquet_field_col1->name = "col1";
     parquet_field_col1->data_type =
-            vectorized::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
     parquet_field_col1->field_id = -1;
     parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
-    vectorized::ParquetPredicate::ColumnStat stat;
+    ParquetPredicate::ColumnStat stat;
     cctz::time_zone tmp_ctz;
     stat.ctz = &tmp_ctz;
 
-    std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func;
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
     {
         // 5 belongs to [5, 5]
-        get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
             stat->col_schema = parquet_field_col1.get();
             stat->is_all_null = false;
             stat->has_null = false;
@@ -1623,7 +1623,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     }
     {
         // 5 not belongs to [6, 7]
-        get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
             int lower = 6;
             int upper = 7;
             stat->col_schema = parquet_field_col1.get();
@@ -1640,7 +1640,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     }
     {
         // 5 not belongs to [1, 4]
-        get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
             int lower = 1;
             int upper = 4;
             stat->col_schema = parquet_field_col1.get();
@@ -1658,27 +1658,27 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
 }
 {
     // LE
-    auto value = vectorized::Field::create_field<TYPE_INT>(5);
+    auto value = Field::create_field<TYPE_INT>(5);
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<TYPE_INT, PredicateType::LE>(col_idx, "", value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
-    std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-            std::make_unique<vectorized::FieldSchema>();
+    std::unique_ptr<FieldSchema> parquet_field_col1 =
+            std::make_unique<FieldSchema>();
     parquet_field_col1->name = "col1";
     parquet_field_col1->data_type =
-            vectorized::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
     parquet_field_col1->field_id = -1;
     parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
-    vectorized::ParquetPredicate::ColumnStat stat;
+    ParquetPredicate::ColumnStat stat;
     cctz::time_zone tmp_ctz;
     stat.ctz = &tmp_ctz;
 
-    std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func;
+    std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
     {
         // 5 belongs to [5, 5]
-        get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
             stat->col_schema = parquet_field_col1.get();
             stat->is_all_null = false;
             stat->has_null = false;
@@ -1692,7 +1692,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     }
     {
         // 5 not belongs to [6, 7]
-        get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
             int lower = 6;
             int upper = 7;
             stat->col_schema = parquet_field_col1.get();
@@ -1709,7 +1709,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     }
     {
         // 5 not belongs to [1, 4]
-        get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
             int lower = 1;
             int upper = 4;
             stat->col_schema = parquet_field_col1.get();
@@ -1730,27 +1730,27 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     // FLOAT
     {
         // EQ
-        auto value = vectorized::Field::create_field<TYPE_FLOAT>(5.0);
+        auto value = Field::create_field<TYPE_FLOAT>(5.0);
         int col_idx = 0;
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::EQ>(col_idx, "", value));
         SingleColumnBlockPredicate single_column_block_pred(pred);
-        std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                std::make_unique<vectorized::FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 =
+                std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = vectorized::DataTypeFactory::instance().create_data_type(
+        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_FLOAT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
 
-        vectorized::ParquetPredicate::ColumnStat stat;
+        ParquetPredicate::ColumnStat stat;
         cctz::time_zone tmp_ctz;
         stat.ctz = &tmp_ctz;
 
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func;
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
         {
             // 5 belongs to [5, 5]
-            get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                 stat->col_schema = parquet_field_col1.get();
                 stat->is_all_null = false;
                 stat->has_null = false;
@@ -1764,7 +1764,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
         }
         {
             // 5 not belongs to [6, 7]
-            get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                 float lower = 6.0;
                 float upper = 7.0;
                 stat->col_schema = parquet_field_col1.get();
@@ -1781,7 +1781,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
         }
         {
             // 5 not belongs to [1, 4]
-            get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                 float lower = 1.0;
                 float upper = 4.0;
                 stat->col_schema = parquet_field_col1.get();
@@ -1798,7 +1798,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
         }
         {
             // get stat failed
-            get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                 return false;
             };
             stat.get_stat_func = &get_stat_func;
@@ -1806,7 +1806,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
         }
         {
             // get min max failed
-            get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                 float lower = nanf("");
                 float upper = 4.0;
                 stat->col_schema = parquet_field_col1.get();
@@ -1824,27 +1824,27 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     }
     {
         // NE
-        auto value = vectorized::Field::create_field<TYPE_FLOAT>(5.0);
+        auto value = Field::create_field<TYPE_FLOAT>(5.0);
         int col_idx = 0;
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::NE>(col_idx, "", value));
         SingleColumnBlockPredicate single_column_block_pred(pred);
-        std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                std::make_unique<vectorized::FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 =
+                std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = vectorized::DataTypeFactory::instance().create_data_type(
+        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_FLOAT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
 
-        vectorized::ParquetPredicate::ColumnStat stat;
+        ParquetPredicate::ColumnStat stat;
         cctz::time_zone tmp_ctz;
         stat.ctz = &tmp_ctz;
 
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func;
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
         {
             // 5 belongs to [5, 5]
-            get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                 stat->col_schema = parquet_field_col1.get();
                 stat->is_all_null = false;
                 stat->has_null = false;
@@ -1858,7 +1858,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
         }
         {
             // 5 not belongs to [6, 7]
-            get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                 float lower = 6.0;
                 float upper = 7.0;
                 stat->col_schema = parquet_field_col1.get();
@@ -1875,7 +1875,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
         }
         {
             // 5 not belongs to [1, 4]
-            get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                 float lower = 1.0;
                 float upper = 4.0;
                 stat->col_schema = parquet_field_col1.get();
@@ -1893,27 +1893,27 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     }
     {
         // GE
-        auto value = vectorized::Field::create_field<TYPE_FLOAT>(5.0);
+        auto value = Field::create_field<TYPE_FLOAT>(5.0);
         int col_idx = 0;
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::GE>(col_idx, "", value));
         SingleColumnBlockPredicate single_column_block_pred(pred);
-        std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                std::make_unique<vectorized::FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 =
+                std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = vectorized::DataTypeFactory::instance().create_data_type(
+        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_INT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
 
-        vectorized::ParquetPredicate::ColumnStat stat;
+        ParquetPredicate::ColumnStat stat;
         cctz::time_zone tmp_ctz;
         stat.ctz = &tmp_ctz;
 
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func;
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
         {
             // 5 belongs to [5, 5]
-            get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                 stat->col_schema = parquet_field_col1.get();
                 stat->is_all_null = false;
                 stat->has_null = false;
@@ -1927,7 +1927,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
         }
         {
             // 5 not belongs to [6, 7]
-            get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                 float lower = 6.0;
                 float upper = 7.0;
                 stat->col_schema = parquet_field_col1.get();
@@ -1944,7 +1944,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
         }
         {
             // 5 not belongs to [1, 4]
-            get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                 float lower = 1.0;
                 float upper = 4.0;
                 stat->col_schema = parquet_field_col1.get();
@@ -1962,27 +1962,27 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     }
     {
         // LE
-        auto value = vectorized::Field::create_field<TYPE_FLOAT>(5.0);
+        auto value = Field::create_field<TYPE_FLOAT>(5.0);
         int col_idx = 0;
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::LE>(col_idx, "", value));
         SingleColumnBlockPredicate single_column_block_pred(pred);
-        std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                std::make_unique<vectorized::FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 =
+                std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = vectorized::DataTypeFactory::instance().create_data_type(
+        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_FLOAT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
 
-        vectorized::ParquetPredicate::ColumnStat stat;
+        ParquetPredicate::ColumnStat stat;
         cctz::time_zone tmp_ctz;
         stat.ctz = &tmp_ctz;
 
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func;
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
         {
             // 5 belongs to [5, 5]
-            get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                 stat->col_schema = parquet_field_col1.get();
                 stat->is_all_null = false;
                 stat->has_null = false;
@@ -1996,7 +1996,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
         }
         {
             // 5 not belongs to [6, 7]
-            get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                 float lower = 6.0;
                 float upper = 7.0;
                 stat->col_schema = parquet_field_col1.get();
@@ -2013,7 +2013,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
         }
         {
             // 5 not belongs to [1, 4]
-            get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                 float lower = 1.0;
                 float upper = 4.0;
                 stat->col_schema = parquet_field_col1.get();
@@ -2043,23 +2043,23 @@ TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE) {
                     new InListPredicateBase<TYPE_INT, PredicateType::IN_LIST, 1>(
                             col_idx, "", hybrid_set, false));
             SingleColumnBlockPredicate single_column_block_pred(pred);
-            std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                    std::make_unique<vectorized::FieldSchema>();
+            std::unique_ptr<FieldSchema> parquet_field_col1 =
+                    std::make_unique<FieldSchema>();
             parquet_field_col1->name = "col1";
             parquet_field_col1->data_type =
-                    vectorized::DataTypeFactory::instance().create_data_type(
+                    DataTypeFactory::instance().create_data_type(
                             PrimitiveType::TYPE_INT, true);
             parquet_field_col1->field_id = -1;
             parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
-            vectorized::ParquetPredicate::ColumnStat stat;
+            ParquetPredicate::ColumnStat stat;
             cctz::time_zone tmp_ctz;
             stat.ctz = &tmp_ctz;
 
-            std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func;
+            std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
             {
                 // 5 belongs to [5, 5]
-                get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                     stat->col_schema = parquet_field_col1.get();
                     stat->is_all_null = false;
                     stat->has_null = false;
@@ -2073,7 +2073,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE) {
             }
             {
                 // get stat failed
-                get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                     return false;
                 };
                 stat.get_stat_func = &get_stat_func;
@@ -2089,23 +2089,23 @@ TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE) {
                     new InListPredicateBase<TYPE_INT, PredicateType::IN_LIST, 1>(
                             col_idx, "", hybrid_set, false));
             SingleColumnBlockPredicate single_column_block_pred(pred);
-            std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                    std::make_unique<vectorized::FieldSchema>();
+            std::unique_ptr<FieldSchema> parquet_field_col1 =
+                    std::make_unique<FieldSchema>();
             parquet_field_col1->name = "col1";
             parquet_field_col1->data_type =
-                    vectorized::DataTypeFactory::instance().create_data_type(
+                    DataTypeFactory::instance().create_data_type(
                             PrimitiveType::TYPE_INT, true);
             parquet_field_col1->field_id = -1;
             parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
-            vectorized::ParquetPredicate::ColumnStat stat;
+            ParquetPredicate::ColumnStat stat;
             cctz::time_zone tmp_ctz;
             stat.ctz = &tmp_ctz;
 
-            std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func;
+            std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
             {
                 // 5 belongs to [5, 5]
-                get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                     stat->col_schema = parquet_field_col1.get();
                     stat->is_all_null = false;
                     stat->has_null = false;
@@ -2120,7 +2120,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE) {
             }
             {
                 // get stat failed
-                get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+                get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                     return false;
                 };
                 stat.get_stat_func = &get_stat_func;
@@ -2131,16 +2131,16 @@ TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE) {
 }
 
 TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE_BLOOM_FILTER) {
-    auto value = vectorized::Field::create_field<TYPE_INT>(42);
+    auto value = Field::create_field<TYPE_INT>(42);
     const int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
 
-    auto parquet_field = std::make_unique<vectorized::FieldSchema>();
+    auto parquet_field = std::make_unique<FieldSchema>();
     parquet_field->name = "col1";
     parquet_field->data_type =
-            vectorized::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
     parquet_field->field_id = -1;
     parquet_field->parquet_schema.type = tparquet::Type::type::INT32;
 
@@ -2149,12 +2149,12 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE_BLOOM_FILTER) {
     };
 
     {
-        vectorized::ParquetPredicate::ColumnStat stat;
+        ParquetPredicate::ColumnStat stat;
         cctz::time_zone tmp_ctz;
         stat.ctz = &tmp_ctz;
 
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func =
-                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
                     EXPECT_EQ(col_idx, cid);
                     current_stat->col_schema = parquet_field.get();
                     current_stat->is_all_null = false;
@@ -2166,14 +2166,14 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE_BLOOM_FILTER) {
         stat.get_stat_func = &get_stat_func;
 
         int loader_calls = 0;
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
-                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+                [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
                     EXPECT_EQ(col_idx, cid);
                     loader_calls++;
                     if (!current_stat->bloom_filter) {
                         current_stat->bloom_filter =
-                                std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
-                        auto* bloom = static_cast<vectorized::ParquetBlockSplitBloomFilter*>(
+                                std::make_unique<ParquetBlockSplitBloomFilter>();
+                        auto* bloom = static_cast<ParquetBlockSplitBloomFilter*>(
                                 current_stat->bloom_filter.get());
                         Status st = bloom->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
                         EXPECT_TRUE(st.ok());
@@ -2190,12 +2190,12 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE_BLOOM_FILTER) {
     }
 
     {
-        vectorized::ParquetPredicate::ColumnStat stat;
+        ParquetPredicate::ColumnStat stat;
         cctz::time_zone tmp_ctz;
         stat.ctz = &tmp_ctz;
 
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func =
-                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
                     EXPECT_EQ(col_idx, cid);
                     current_stat->col_schema = parquet_field.get();
                     current_stat->is_all_null = false;
@@ -2207,14 +2207,14 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE_BLOOM_FILTER) {
         stat.get_stat_func = &get_stat_func;
 
         int loader_calls = 0;
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
-                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+                [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
                     EXPECT_EQ(col_idx, cid);
                     loader_calls++;
                     if (!current_stat->bloom_filter) {
                         current_stat->bloom_filter =
-                                std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
-                        auto* bloom = static_cast<vectorized::ParquetBlockSplitBloomFilter*>(
+                                std::make_unique<ParquetBlockSplitBloomFilter>();
+                        auto* bloom = static_cast<ParquetBlockSplitBloomFilter*>(
                                 current_stat->bloom_filter.get());
                         Status st = bloom->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
                         EXPECT_TRUE(st.ok());
@@ -2231,12 +2231,12 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE_BLOOM_FILTER) {
     }
 
     {
-        vectorized::ParquetPredicate::ColumnStat stat;
+        ParquetPredicate::ColumnStat stat;
         cctz::time_zone tmp_ctz;
         stat.ctz = &tmp_ctz;
 
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func =
-                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
                     EXPECT_EQ(col_idx, cid);
                     current_stat->col_schema = parquet_field.get();
                     current_stat->is_all_null = false;
@@ -2248,8 +2248,8 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE_BLOOM_FILTER) {
         stat.get_stat_func = &get_stat_func;
 
         bool loader_invoked = false;
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
-                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+                [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
                     EXPECT_EQ(col_idx, cid);
                     loader_invoked = true;
                     return false;
@@ -2261,12 +2261,12 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE_BLOOM_FILTER) {
     }
 
     {
-        vectorized::ParquetPredicate::ColumnStat stat;
+        ParquetPredicate::ColumnStat stat;
         cctz::time_zone tmp_ctz;
         stat.ctz = &tmp_ctz;
 
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func =
-                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
                     EXPECT_EQ(col_idx, cid);
                     current_stat->col_schema = parquet_field.get();
                     current_stat->is_all_null = false;
@@ -2280,8 +2280,8 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE_BLOOM_FILTER) {
         stat.get_stat_func = &get_stat_func;
 
         int loader_calls = 0;
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
-                [&](vectorized::ParquetPredicate::ColumnStat*, int) {
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+                [&](ParquetPredicate::ColumnStat*, int) {
                     loader_calls++;
                     return true;
                 };
@@ -2302,10 +2302,10 @@ TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE_BLOOM_FILTER) {
                                                                          false));
     SingleColumnBlockPredicate single_column_block_pred(pred);
 
-    auto parquet_field = std::make_unique<vectorized::FieldSchema>();
+    auto parquet_field = std::make_unique<FieldSchema>();
     parquet_field->name = "col1";
     parquet_field->data_type =
-            vectorized::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
     parquet_field->field_id = -1;
     parquet_field->parquet_schema.type = tparquet::Type::type::INT32;
 
@@ -2314,12 +2314,12 @@ TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE_BLOOM_FILTER) {
     };
 
     {
-        vectorized::ParquetPredicate::ColumnStat stat;
+        ParquetPredicate::ColumnStat stat;
         cctz::time_zone tmp_ctz;
         stat.ctz = &tmp_ctz;
 
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func =
-                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
                     EXPECT_EQ(col_idx, cid);
                     current_stat->col_schema = parquet_field.get();
                     current_stat->is_all_null = false;
@@ -2331,14 +2331,14 @@ TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE_BLOOM_FILTER) {
         stat.get_stat_func = &get_stat_func;
 
         int loader_calls = 0;
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
-                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+                [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
                     EXPECT_EQ(col_idx, cid);
                     loader_calls++;
                     if (!current_stat->bloom_filter) {
                         current_stat->bloom_filter =
-                                std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
-                        auto* bloom = static_cast<vectorized::ParquetBlockSplitBloomFilter*>(
+                                std::make_unique<ParquetBlockSplitBloomFilter>();
+                        auto* bloom = static_cast<ParquetBlockSplitBloomFilter*>(
                                 current_stat->bloom_filter.get());
                         Status st = bloom->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
                         EXPECT_TRUE(st.ok());
@@ -2354,12 +2354,12 @@ TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE_BLOOM_FILTER) {
     }
 
     {
-        vectorized::ParquetPredicate::ColumnStat stat;
+        ParquetPredicate::ColumnStat stat;
         cctz::time_zone tmp_ctz;
         stat.ctz = &tmp_ctz;
 
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func =
-                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
                     EXPECT_EQ(col_idx, cid);
                     current_stat->col_schema = parquet_field.get();
                     current_stat->is_all_null = false;
@@ -2371,14 +2371,14 @@ TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE_BLOOM_FILTER) {
         stat.get_stat_func = &get_stat_func;
 
         int loader_calls = 0;
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
-                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+                [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
                     EXPECT_EQ(col_idx, cid);
                     loader_calls++;
                     if (!current_stat->bloom_filter) {
                         current_stat->bloom_filter =
-                                std::make_unique<vectorized::ParquetBlockSplitBloomFilter>();
-                        auto* bloom = static_cast<vectorized::ParquetBlockSplitBloomFilter*>(
+                                std::make_unique<ParquetBlockSplitBloomFilter>();
+                        auto* bloom = static_cast<ParquetBlockSplitBloomFilter*>(
                                 current_stat->bloom_filter.get());
                         Status st = bloom->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
                         EXPECT_TRUE(st.ok());
@@ -2395,12 +2395,12 @@ TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE_BLOOM_FILTER) {
     }
 
     {
-        vectorized::ParquetPredicate::ColumnStat stat;
+        ParquetPredicate::ColumnStat stat;
         cctz::time_zone tmp_ctz;
         stat.ctz = &tmp_ctz;
 
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func =
-                [&](vectorized::ParquetPredicate::ColumnStat* current_stat, int cid) {
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func =
+                [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
                     EXPECT_EQ(col_idx, cid);
                     current_stat->col_schema = parquet_field.get();
                     current_stat->is_all_null = false;
@@ -2414,8 +2414,8 @@ TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE_BLOOM_FILTER) {
         stat.get_stat_func = &get_stat_func;
 
         int loader_calls = 0;
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
-                [&](vectorized::ParquetPredicate::ColumnStat*, int) {
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
+                [&](ParquetPredicate::ColumnStat*, int) {
                     loader_calls++;
                     return true;
                 };
@@ -2432,22 +2432,22 @@ TEST_F(BlockColumnPredicateTest, NULL_PREDICATE) {
         std::shared_ptr<ColumnPredicate> pred(
                 new NullPredicate(col_idx, "", true, PrimitiveType::TYPE_INT));
         SingleColumnBlockPredicate single_column_block_pred(pred);
-        std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                std::make_unique<vectorized::FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 =
+                std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = vectorized::DataTypeFactory::instance().create_data_type(
+        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_INT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
-        vectorized::ParquetPredicate::ColumnStat stat;
+        ParquetPredicate::ColumnStat stat;
         cctz::time_zone tmp_ctz;
         stat.ctz = &tmp_ctz;
 
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func;
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
         {
             // 5 belongs to [5, 5]
-            get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                 stat->col_schema = parquet_field_col1.get();
                 stat->is_all_null = false;
                 stat->has_null = false;
@@ -2458,7 +2458,7 @@ TEST_F(BlockColumnPredicateTest, NULL_PREDICATE) {
         }
         {
             // get stat failed
-            get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                 return false;
             };
             stat.get_stat_func = &get_stat_func;
@@ -2470,22 +2470,22 @@ TEST_F(BlockColumnPredicateTest, NULL_PREDICATE) {
         std::shared_ptr<ColumnPredicate> pred(
                 new NullPredicate(col_idx, "", false, PrimitiveType::TYPE_INT));
         SingleColumnBlockPredicate single_column_block_pred(pred);
-        std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                std::make_unique<vectorized::FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 =
+                std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = vectorized::DataTypeFactory::instance().create_data_type(
+        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_INT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
-        vectorized::ParquetPredicate::ColumnStat stat;
+        ParquetPredicate::ColumnStat stat;
         cctz::time_zone tmp_ctz;
         stat.ctz = &tmp_ctz;
 
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func;
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
         {
             // 5 belongs to [5, 5]
-            get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                 stat->col_schema = parquet_field_col1.get();
                 stat->is_all_null = false;
                 stat->has_null = false;
@@ -2496,7 +2496,7 @@ TEST_F(BlockColumnPredicateTest, NULL_PREDICATE) {
         }
         {
             // 5 belongs to [5, 5]
-            get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                 stat->col_schema = parquet_field_col1.get();
                 stat->is_all_null = true;
                 stat->has_null = false;
@@ -2507,7 +2507,7 @@ TEST_F(BlockColumnPredicateTest, NULL_PREDICATE) {
         }
         {
             // get stat failed
-            get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+            get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                 return false;
             };
             stat.get_stat_func = &get_stat_func;
@@ -2522,7 +2522,7 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
 
         std::unique_ptr<SingleColumnBlockPredicate> true_predicate;
         int col_idx = 0;
-        auto value = vectorized::Field::create_field<TYPE_INT>(5);
+        auto value = Field::create_field<TYPE_INT>(5);
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
         true_predicate = std::make_unique<SingleColumnBlockPredicate>(pred);
@@ -2532,21 +2532,21 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
         false_predicate = std::make_unique<SingleColumnBlockPredicate>(pred2);
 
-        std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                std::make_unique<vectorized::FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 =
+                std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = vectorized::DataTypeFactory::instance().create_data_type(
+        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_INT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
-        vectorized::ParquetPredicate::ColumnStat stat;
+        ParquetPredicate::ColumnStat stat;
         cctz::time_zone tmp_ctz;
         stat.ctz = &tmp_ctz;
 
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func;
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
         // 5 belongs to [5, 5]
-        get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
             stat->col_schema = parquet_field_col1.get();
             stat->is_all_null = false;
             stat->has_null = false;
@@ -2567,7 +2567,7 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
 
         std::unique_ptr<SingleColumnBlockPredicate> true_predicate;
         int col_idx = 0;
-        auto value = vectorized::Field::create_field<TYPE_INT>(5);
+        auto value = Field::create_field<TYPE_INT>(5);
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
         true_predicate = std::make_unique<SingleColumnBlockPredicate>(pred);
@@ -2577,21 +2577,21 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
         true_predicate2 = std::make_unique<SingleColumnBlockPredicate>(pred2);
 
-        std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                std::make_unique<vectorized::FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 =
+                std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = vectorized::DataTypeFactory::instance().create_data_type(
+        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_INT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
-        vectorized::ParquetPredicate::ColumnStat stat;
+        ParquetPredicate::ColumnStat stat;
         cctz::time_zone tmp_ctz;
         stat.ctz = &tmp_ctz;
 
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func;
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
         // 5 belongs to [5, 5]
-        get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
             stat->col_schema = parquet_field_col1.get();
             stat->is_all_null = false;
             stat->has_null = false;
@@ -2612,7 +2612,7 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
 
         std::unique_ptr<SingleColumnBlockPredicate> true_predicate;
         int col_idx = 0;
-        auto value = vectorized::Field::create_field<TYPE_INT>(5);
+        auto value = Field::create_field<TYPE_INT>(5);
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
         true_predicate = std::make_unique<SingleColumnBlockPredicate>(pred);
@@ -2622,21 +2622,21 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
         false_predicate = std::make_unique<SingleColumnBlockPredicate>(pred2);
 
-        std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                std::make_unique<vectorized::FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 =
+                std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = vectorized::DataTypeFactory::instance().create_data_type(
+        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_INT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
-        vectorized::ParquetPredicate::ColumnStat stat;
+        ParquetPredicate::ColumnStat stat;
         cctz::time_zone tmp_ctz;
         stat.ctz = &tmp_ctz;
 
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func;
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
         // 5 belongs to [5, 5]
-        get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
             stat->col_schema = parquet_field_col1.get();
             stat->is_all_null = false;
             stat->has_null = false;
@@ -2657,7 +2657,7 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
 
         std::unique_ptr<SingleColumnBlockPredicate> false_predicate2;
         int col_idx = 0;
-        auto value = vectorized::Field::create_field<TYPE_INT>(5);
+        auto value = Field::create_field<TYPE_INT>(5);
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
         false_predicate2 = std::make_unique<SingleColumnBlockPredicate>(pred);
@@ -2667,21 +2667,21 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
         false_predicate = std::make_unique<SingleColumnBlockPredicate>(pred2);
 
-        std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                std::make_unique<vectorized::FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 =
+                std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = vectorized::DataTypeFactory::instance().create_data_type(
+        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_INT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
-        vectorized::ParquetPredicate::ColumnStat stat;
+        ParquetPredicate::ColumnStat stat;
         cctz::time_zone tmp_ctz;
         stat.ctz = &tmp_ctz;
 
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func;
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
         // 5 belongs to [5, 5]
-        get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
             stat->col_schema = parquet_field_col1.get();
             stat->is_all_null = false;
             stat->has_null = false;
@@ -2701,27 +2701,27 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
         OrBlockColumnPredicate or_block_column_pred;
 
         int col_idx = 0;
-        auto value = vectorized::Field::create_field<TYPE_INT>(5);
+        auto value = Field::create_field<TYPE_INT>(5);
         std::unique_ptr<SingleColumnBlockPredicate> false_predicate;
         std::shared_ptr<ColumnPredicate> pred2(
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
         false_predicate = std::make_unique<SingleColumnBlockPredicate>(pred2);
 
-        std::unique_ptr<vectorized::FieldSchema> parquet_field_col1 =
-                std::make_unique<vectorized::FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 =
+                std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = vectorized::DataTypeFactory::instance().create_data_type(
+        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_INT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
-        vectorized::ParquetPredicate::ColumnStat stat;
+        ParquetPredicate::ColumnStat stat;
         cctz::time_zone tmp_ctz;
         stat.ctz = &tmp_ctz;
 
-        std::function<bool(vectorized::ParquetPredicate::ColumnStat*, int)> get_stat_func;
+        std::function<bool(ParquetPredicate::ColumnStat*, int)> get_stat_func;
         // 5 belongs to [5, 5]
-        get_stat_func = [&](vectorized::ParquetPredicate::ColumnStat* stat, const int cid) {
+        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
             stat->col_schema = parquet_field_col1.get();
             stat->is_all_null = false;
             stat->has_null = false;

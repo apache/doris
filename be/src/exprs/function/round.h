@@ -47,7 +47,7 @@
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_avoid_begin.h"
 enum class ScaleMode {
     Positive, // round to a number with N decimal places after the decimal point
@@ -961,8 +961,8 @@ struct DoubleRoundTwoImpl {
     static constexpr auto name = Name::name;
 
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeFloat64>(),
-                std::make_shared<vectorized::DataTypeInt32>()};
+        return {std::make_shared<DataTypeFloat64>(),
+                std::make_shared<DataTypeInt32>()};
     }
 };
 
@@ -971,7 +971,7 @@ struct DoubleRoundOneImpl {
     static constexpr auto name = Name::name;
 
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeFloat64>()};
+        return {std::make_shared<DataTypeFloat64>()};
     }
 };
 
@@ -981,7 +981,7 @@ struct DecimalRoundTwoImpl {
 
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>(),
-                std::make_shared<vectorized::DataTypeInt32>()};
+                std::make_shared<DataTypeInt32>()};
     }
 };
 
@@ -994,4 +994,4 @@ struct DecimalRoundOneImpl {
     }
 };
 #include "common/compile_check_avoid_end.h"
-} // namespace doris::vectorized
+} // namespace doris

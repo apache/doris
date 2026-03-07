@@ -30,7 +30,7 @@ namespace doris {
 class RuntimeState;
 } // namespace doris
 
-namespace doris::pipeline {
+namespace doris {
 
 Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
@@ -202,7 +202,7 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
+Status SchemaScanOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_CANCELLED(state);
@@ -215,17 +215,17 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
         block->clear();
         for (int i = 0; i < _slot_num; ++i) {
             auto* dest_slot_desc = _dest_tuple_desc->slots()[i];
-            block->insert(vectorized::ColumnWithTypeAndName(
+            block->insert(ColumnWithTypeAndName(
                     dest_slot_desc->get_empty_mutable_column(), dest_slot_desc->get_data_type_ptr(),
                     dest_slot_desc->col_name()));
         }
 
         // src block columns desc is filled by schema_scanner->get_column_desc.
-        vectorized::Block src_block;
+        Block src_block;
         for (int i = 0; i < columns_desc.size(); ++i) {
-            auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+            auto data_type = DataTypeFactory::instance().create_data_type(
                     columns_desc[i].type, true);
-            src_block.insert(vectorized::ColumnWithTypeAndName(data_type->create_column(),
+            src_block.insert(ColumnWithTypeAndName(data_type->create_column(),
                                                                data_type, columns_desc[i].name));
         }
         while (true) {
@@ -251,7 +251,7 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
         if (src_block.rows()) {
             // block->check_number_of_rows();
             for (int i = 0; i < _slot_num; ++i) {
-                vectorized::MutableColumnPtr column_ptr =
+                MutableColumnPtr column_ptr =
                         std::move(*block->get_by_position(i).column).mutate();
                 column_ptr->insert_range_from(
                         *src_block.safe_get_by_position(_slot_offsets[i]).column, 0,
@@ -268,4 +268,4 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

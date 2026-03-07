@@ -658,8 +658,8 @@ REGISTER_PAIMON_FACTORY(DorisFileSystemFactory);
 
 } // namespace paimon
 
-namespace doris::vectorized {
+namespace doris {
 
 void register_paimon_doris_file_system() {}
 
-} // namespace doris::vectorized
+} // namespace doris

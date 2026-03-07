@@ -32,7 +32,7 @@
 #include "storage/index/inverted/query_v2/phrase_query/phrase_query.h"
 #include "storage/segment/variant/nested_group_provider.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionSearchTest : public testing::Test {
 public:
@@ -464,7 +464,7 @@ TEST_F(FunctionSearchTest, TestBasicProperties) {
 TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexBasic) {
     // Test basic evaluate_inverted_index method (legacy version)
     ColumnsWithTypeAndName arguments;
-    std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
+    std::vector<IndexFieldNameAndTypePair> data_type_with_names;
     std::vector<IndexIterator*> iterators;
     uint32_t num_rows = 100;
     InvertedIndexResultBitmap bitmap_result;
@@ -485,7 +485,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamEmptyInputs) 
     rootClause.value = "hello";
     search_param.root = rootClause;
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> empty_data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> empty_data_types;
     std::unordered_map<std::string, IndexIterator*> empty_iterators;
     uint32_t num_rows = 100;
     InvertedIndexResultBitmap bitmap_result;
@@ -784,7 +784,7 @@ TEST_F(FunctionSearchTest, TestEmptySearchParam) {
     // empty_param.original_dsl is not set
     // empty_param.root is not set
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
     uint32_t num_rows = 100;
     InvertedIndexResultBitmap bitmap_result;
@@ -806,7 +806,7 @@ TEST_F(FunctionSearchTest, TestNullIterators) {
     rootClause.__isset.value = true;
     search_param.root = rootClause;
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
 
     // Add null iterator - this should cause an error
@@ -838,7 +838,7 @@ TEST_F(FunctionSearchTest, TestMismatchedFieldNames) {
     rootClause.__isset.value = true;
     search_param.root = rootClause;
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
 
     // Add different field
@@ -966,7 +966,7 @@ TEST_F(FunctionSearchTest, TestZeroRowsScenario) {
     search_param.root = rootClause;
 
     // Empty data types and iterators - this is a realistic zero-data scenario
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
 
     uint32_t num_rows = 0; // Zero rows
@@ -989,7 +989,7 @@ TEST_F(FunctionSearchTest, TestVeryLargeRowCount) {
     search_param.root = rootClause;
 
     // Empty data types and iterators - this tests the large row count parameter handling
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
 
     uint32_t num_rows = UINT32_MAX; // Very large row count
@@ -1092,7 +1092,7 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverWithNonInvertedIndexIterator) 
     rootClause.__isset.value = true;
     search_param.root = rootClause;
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
 
     data_types["title"] = {"title", nullptr};
@@ -1124,7 +1124,7 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverWithValidIterator) {
     rootClause.__isset.value = true;
     search_param.root = rootClause;
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
 
     // Add valid data but no real iterator
@@ -1154,7 +1154,7 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverWithEmptyFieldName) {
     rootClause.__isset.value = true;
     search_param.root = rootClause;
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
 
     data_types["title"] = {"title", nullptr};
@@ -1185,7 +1185,7 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverWithSpecialCharacters) {
     rootClause.__isset.value = true;
     search_param.root = rootClause;
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
 
     // Field name doesn't match
@@ -1218,7 +1218,7 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverWithUnicodeFieldName) {
     rootClause.__isset.value = true;
     search_param.root = rootClause;
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
 
     // Field name doesn't match
@@ -1252,7 +1252,7 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverWithVeryLongFieldName) {
     rootClause.__isset.value = true;
     search_param.root = rootClause;
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
 
     // Field name doesn't match
@@ -1289,7 +1289,7 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverWithDifferentQueryTypes) {
         rootClause.__isset.value = true;
         search_param.root = rootClause;
 
-        std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+        std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
         std::unordered_map<std::string, IndexIterator*> iterators;
 
         data_types["title"] = {"title", nullptr};
@@ -1320,7 +1320,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamEmptyQuery) {
     rootClause.__isset.value = true;
     search_param.root = rootClause;
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
 
     // Add valid data but no real iterator - this will cause build_query_recursive to fail
@@ -1351,7 +1351,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamNullBitmapHan
     rootClause.__isset.value = true;
     search_param.root = rootClause;
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
 
     // This will cause early return due to iterator issues, but we can test the logic path
@@ -1381,7 +1381,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamExecutionCont
     rootClause.__isset.value = true;
     search_param.root = rootClause;
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
 
     // This will cause early return due to iterator issues, but we can test the logic path
@@ -1411,7 +1411,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamWeightAndScor
     rootClause.__isset.value = true;
     search_param.root = rootClause;
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
 
     // This will cause early return due to iterator issues, but we can test the logic path
@@ -1441,7 +1441,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamDocumentItera
     rootClause.__isset.value = true;
     search_param.root = rootClause;
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
 
     // This will cause early return due to iterator issues, but we can test the logic path
@@ -1471,7 +1471,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamResultMasking
     rootClause.__isset.value = true;
     search_param.root = rootClause;
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
 
     // This will cause early return due to iterator issues, but we can test the logic path
@@ -1512,7 +1512,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamComplexQuery)
     rootClause.children = {titleClause, contentClause};
     search_param.root = rootClause;
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
 
     // This will cause all child queries to fail, resulting in an empty root_query
@@ -1598,9 +1598,9 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryPhrase) {
 
     auto context = std::make_shared<IndexQueryContext>();
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_type_with_names;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
     data_type_with_names.emplace("content",
-                                 vectorized::IndexFieldNameAndTypePair {"content", nullptr});
+                                 IndexFieldNameAndTypePair {"content", nullptr});
 
     std::unordered_map<std::string, IndexIterator*> iterators;
     FieldReaderResolver resolver(data_type_with_names, iterators, context);
@@ -2089,7 +2089,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithOccurBoolean) {
     rootClause.__isset.minimum_should_match = true;
     search_param.root = rootClause;
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
 
     // No real iterators - will fail but tests the code path
@@ -2110,7 +2110,7 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithOccurBoolean) {
 
 TEST_F(FunctionSearchTest, TestSearcherCacheHandlesLifetime) {
     // Verify FieldReaderResolver keeps _searcher_cache_handles alive
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
     auto context = std::make_shared<IndexQueryContext>();
 
@@ -2124,4 +2124,4 @@ TEST_F(FunctionSearchTest, TestSearcherCacheHandlesLifetime) {
 }
 // NESTED clause tests moved to function_search_nested_test.cpp
 
-} // namespace doris::vectorized
+} // namespace doris

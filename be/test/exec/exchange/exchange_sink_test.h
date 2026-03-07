@@ -27,7 +27,7 @@
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 std::map<int64_t, std::queue<AutoReleaseClosure<PTransmitDataParams,
                                                 ExchangeSendCallback<PTransmitDataResult>>*>>
@@ -85,11 +85,10 @@ void transmit_blockv2(PBackendService_Stub* stub,
               << "\n";
     add_request(closure->request_->finst_id().lo(), closure.release());
 }
-}; // namespace doris::pipeline
+}; // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
-using namespace pipeline;
 class ExchangeSinkTest : public testing::Test {
 public:
     ExchangeSinkTest() = default;
@@ -157,21 +156,21 @@ auto create_sink(std::shared_ptr<RuntimeState> state, std::shared_ptr<MockSinkBu
     sink_with_channel.sink = ExchangeSinkLocalState::create_shared(state.get());
     sink_with_channel.buffer = sink_buffer;
     {
-        auto channel = std::make_shared<vectorized::Channel>(
+        auto channel = std::make_shared<Channel>(
                 sink_with_channel.sink.get(), TNetworkAddress {}, dest_fragment_ins_id_1, 0);
         sink_with_channel.channels[channel->dest_ins_id()] = channel;
     }
     {
-        auto channel = std::make_shared<vectorized::Channel>(
+        auto channel = std::make_shared<Channel>(
                 sink_with_channel.sink.get(), TNetworkAddress {}, dest_fragment_ins_id_2, 0);
         sink_with_channel.channels[channel->dest_ins_id()] = channel;
     }
     {
-        auto channel = std::make_shared<vectorized::Channel>(
+        auto channel = std::make_shared<Channel>(
                 sink_with_channel.sink.get(), TNetworkAddress {}, dest_fragment_ins_id_3, 0);
         sink_with_channel.channels[channel->dest_ins_id()] = channel;
     }
     return sink_with_channel;
 }
 
-} // namespace doris::vectorized
+} // namespace doris

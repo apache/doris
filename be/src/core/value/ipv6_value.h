@@ -67,7 +67,7 @@ public:
             --end;
         }
         // parse and store in little-endian
-        return vectorized::parse_ipv6_whole(ipv6_str + begin, ipv6_str + end + 1,
+        return parse_ipv6_whole(ipv6_str + begin, ipv6_str + end + 1,
                                             reinterpret_cast<unsigned char*>(&value));
     }
 
@@ -83,7 +83,7 @@ public:
         char* end = buf;
         auto* src = reinterpret_cast<unsigned char*>(&value);
         // load and format in little-endian
-        vectorized::format_ipv6(src, end);
+        format_ipv6(src, end);
         size_t len = end - start;
         return {buf, len};
     }
@@ -101,7 +101,7 @@ public:
         while (end > begin && std::isspace(ipv6_str[end])) {
             --end;
         }
-        return vectorized::parse_ipv6_whole(ipv6_str + begin, ipv6_str + end + 1,
+        return parse_ipv6_whole(ipv6_str + begin, ipv6_str + end + 1,
                                             reinterpret_cast<unsigned char*>(&value));
     }
 

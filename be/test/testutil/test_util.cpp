@@ -158,8 +158,8 @@ std::string rand_rng_by_type(FieldType fieldType) {
     }
 }
 
-void load_columns_data_from_file(vectorized::MutableColumns& columns,
-                                 vectorized::DataTypeSerDeSPtrs serders, char col_spliter,
+void load_columns_data_from_file(MutableColumns& columns,
+                                 DataTypeSerDeSPtrs serders, char col_spliter,
                                  std::set<int> idxes, const std::string& column_data_file,
                                  const cctz::time_zone* tz) {
     ASSERT_EQ(serders.size(), columns.size());
@@ -183,8 +183,8 @@ void load_columns_data_from_file(vectorized::MutableColumns& columns,
 }
 
 // Helper function to load data from CSV, with index which splited by spliter and load to columns
-void load_data_from_csv(const vectorized::DataTypeSerDeSPtrs serders,
-                        vectorized::MutableColumns& columns, const std::string& file_path,
+void load_data_from_csv(const DataTypeSerDeSPtrs serders,
+                        MutableColumns& columns, const std::string& file_path,
                         const char spliter, const std::set<int> idxes, const cctz::time_zone* tz) {
     ASSERT_EQ(serders.size(), columns.size())
             << "serder size: " << serders.size() << " column size: " << columns.size();
@@ -199,7 +199,7 @@ void load_data_from_csv(const vectorized::DataTypeSerDeSPtrs serders,
     }
 
     std::string line;
-    vectorized::DataTypeSerDe::FormatOptions options;
+    DataTypeSerDe::FormatOptions options;
     options.timezone = tz;
     while (std::getline(file, line)) {
         std::stringstream lineStream(line);

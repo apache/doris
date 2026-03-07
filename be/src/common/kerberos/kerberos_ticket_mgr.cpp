@@ -155,7 +155,7 @@ std::vector<KerberosTicketInfo> KerberosTicketMgr::get_krb_ticket_cache_info() {
     return result;
 }
 
-void KerberosTicketMgr::get_ticket_cache_info_block(vectorized::Block* block,
+void KerberosTicketMgr::get_ticket_cache_info_block(Block* block,
                                                     const cctz::time_zone& ctz) {
     TBackend be = BackendOptions::get_local_backend();
     int64_t be_id = be.id;

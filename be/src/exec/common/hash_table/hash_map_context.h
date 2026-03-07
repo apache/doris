@@ -35,7 +35,7 @@
 #include "exec/common/template_helpers.hpp"
 #include "util/simd/bits.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 constexpr auto BITSIZE = 8;
 
@@ -880,4 +880,4 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
     }
 };
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

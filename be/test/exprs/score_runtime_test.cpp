@@ -27,7 +27,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/virtual_slot_ref.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 namespace {
 
@@ -256,4 +256,4 @@ TEST_F(ScoreRuntimeTest, FullWorkflow) {
     EXPECT_DOUBLE_EQ(0.8, runtime->get_score_range_info()->threshold);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -26,7 +26,7 @@
 namespace doris {
 class MemTrackerLimiter;
 }
-namespace doris::vectorized {
+namespace doris {
 
 class DictionaryFactory : private boost::noncopyable {
 public:
@@ -148,4 +148,4 @@ private:
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

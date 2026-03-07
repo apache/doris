@@ -65,7 +65,6 @@
 
 #ifndef NDEBUG
 namespace doris {
-namespace vectorized {
 using namespace ErrorCode;
 
 static constexpr uint32_t MAX_PATH_LEN = 1024;
@@ -251,7 +250,7 @@ protected:
         EXPECT_TRUE(res.has_value()) << res.error();
         auto rowset_writer = std::move(res).value();
 
-        vectorized::Block block = tablet_schema->create_block();
+        Block block = tablet_schema->create_block();
         auto columns = block.mutate_columns();
         auto* variant_col = assert_cast<ColumnVariant*>(columns[1].get());
         auto raw_json_column = ColumnString::create();
@@ -432,7 +431,7 @@ TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segmen
             RowsetReaderSharedPtr input_rs_reader;
             create_and_init_rowset_reader(rowset.get(), input_reader_context, &input_rs_reader);
 
-            vectorized::Block input_block =
+            Block input_block =
                     tablet_schema->create_block_by_cids(input_return_columns);
             auto st = input_rs_reader->next_batch(&input_block);
             ASSERT_TRUE(st.ok()) << st.to_json();
@@ -483,7 +482,7 @@ TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segmen
     int64_t total_rows = 0;
     Status s = Status::OK();
     while (s.ok()) {
-        vectorized::Block output_block = tablet_schema->create_block_by_cids(return_columns);
+        Block output_block = tablet_schema->create_block_by_cids(return_columns);
         s = output_rs_reader->next_batch(&output_block);
         if (s.ok()) {
             total_rows += output_block.rows();
@@ -493,7 +492,6 @@ TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segmen
     ASSERT_EQ(static_cast<int64_t>(kRowsPerSegment) * 10, total_rows);
 }
 
-} // namespace vectorized
 } // namespace doris
 
 #endif

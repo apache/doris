@@ -39,7 +39,7 @@
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function_context.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 // Integer uniform implementation
@@ -184,4 +184,4 @@ void register_function_uniform(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionUniform<UniformDoubleImpl>>();
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

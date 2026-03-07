@@ -194,7 +194,7 @@ Status RowCursor::from_tuple(const OlapTuple& tuple) {
 
     for (size_t i = 0; i < tuple.size(); ++i) {
         auto cid = _schema->column_ids()[i];
-        const Field* field = column_schema(cid);
+        const StorageField* field = column_schema(cid);
         if (tuple.is_null(i)) {
             _set_null(cid);
             continue;

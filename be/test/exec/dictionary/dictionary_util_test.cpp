@@ -23,7 +23,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/data_type/data_type_number.h"
 #include "testutil/column_helper.h"
-namespace doris::vectorized {
+namespace doris {
 
 ColumnPtr make_nullable(const std::vector<int32_t>& data, const std::vector<uint8_t>& null_data) {
     auto data_col = ColumnHelper::create_column<DataTypeInt32>(data);
@@ -156,4 +156,4 @@ TEST(DictionaryUtilTest, nullable_key_with_null_sikp_test2) {
                    create_data({1, 5}, "value1"), create_data({10, 50}, "value2")});
 }
 
-} // namespace doris::vectorized
+} // namespace doris

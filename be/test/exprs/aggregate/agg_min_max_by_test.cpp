@@ -36,14 +36,12 @@
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {
-namespace vectorized {
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
 const int agg_test_batch_size = 4096;
 
-namespace doris::vectorized {
+namespace doris {
 // declare function
 void register_aggregate_function_max_min_by(AggregateFunctionSimpleFactory& factory);
 
@@ -113,4 +111,4 @@ TEST_P(AggMinMaxByTest, min_max_by_test) {
 
 INSTANTIATE_TEST_SUITE_P(Params, AggMinMaxByTest,
                          ::testing::ValuesIn(std::vector<std::string> {"min_by", "max_by"}));
-} // namespace doris::vectorized
+} // namespace doris

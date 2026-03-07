@@ -86,7 +86,7 @@ class NestedOffsetsMappingIndex;
  */
 struct BinaryColumnCache {
     const ColumnIteratorUPtr binary_column_iterator = nullptr;
-    vectorized::MutableColumnPtr binary_column = nullptr;
+    MutableColumnPtr binary_column = nullptr;
 
     enum class State : uint8_t {
         INVALID = 0,
@@ -101,7 +101,7 @@ struct BinaryColumnCache {
     size_t length = 0;                 // Length of cached data
 
     BinaryColumnCache() = default;
-    BinaryColumnCache(ColumnIteratorUPtr _column_iterator, vectorized::MutableColumnPtr _column)
+    BinaryColumnCache(ColumnIteratorUPtr _column_iterator, MutableColumnPtr _column)
             : binary_column_iterator(std::move(_column_iterator)),
               binary_column(std::move(_column)) {}
 
@@ -198,7 +198,7 @@ public:
                         PathToBinaryColumnCache* binary_column_cache_ptr = nullptr);
 
     virtual const SubcolumnColumnMetaInfo::Node* get_subcolumn_meta_by_path(
-            const vectorized::PathInData& relative_path) const;
+            const PathInData& relative_path) const;
 
     ~VariantColumnReader() override = default;
 
@@ -215,9 +215,9 @@ public:
 
     // Return shared_ptr to ensure the lifetime of TabletIndex objects
     TabletIndexes find_subcolumn_tablet_indexes(const TabletColumn& target_column,
-                                                const vectorized::DataTypePtr& data_type);
+                                                const DataTypePtr& data_type);
 
-    bool exist_in_sparse_column(const vectorized::PathInData& path) const;
+    bool exist_in_sparse_column(const PathInData& path) const;
 
     bool is_exceeded_sparse_column_limit() const;
 
@@ -227,20 +227,20 @@ public:
 
     // Get the types of all subcolumns in the variant column.
     void get_subcolumns_types(
-            std::unordered_map<vectorized::PathInData, vectorized::DataTypes,
-                               vectorized::PathInData::Hash>* subcolumns_types) const;
+            std::unordered_map<PathInData, DataTypes,
+                               PathInData::Hash>* subcolumns_types) const;
 
     // Get the typed paths in the variant column.
     void get_typed_paths(std::unordered_set<std::string>* typed_paths) const;
 
     // Get the nested paths in the variant column.
-    void get_nested_paths(std::unordered_set<vectorized::PathInData, vectorized::PathInData::Hash>*
+    void get_nested_paths(std::unordered_set<PathInData, PathInData::Hash>*
                                   nested_paths) const;
 
     // Infer the storage data type for a variant subcolumn using full StorageReadOptions
     // (reader type, tablet schema, etc). This shares the same decision logic as
     // `_build_read_plan`, but does not create any iterator.
-    Status infer_data_type_for_path(vectorized::DataTypePtr* type, const TabletColumn& column,
+    Status infer_data_type_for_path(DataTypePtr* type, const TabletColumn& column,
                                     const StorageReadOptions& opts,
                                     ColumnReaderCache* column_reader_cache);
 
@@ -248,7 +248,7 @@ public:
     // This method will first try inline footer.columns via footer_ordinal and then
     // fall back to external meta if available. Callers do not need to care about
     // the underlying layout (inline vs external).
-    Status create_path_reader(const vectorized::PathInData& relative_path,
+    Status create_path_reader(const PathInData& relative_path,
                               const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
                               const SegmentFooterPB& footer, const io::FileReaderSPtr& file_reader,
                               uint64_t num_rows, std::shared_ptr<ColumnReader>* out);
@@ -269,7 +269,7 @@ public:
     // 1) Extracted subcolumns in `_subcolumns_meta_info`
     // 2) Sparse column statistics in `_statistics->sparse_column_non_null_size`
     // 3) Externalized metas via `_ext_meta_reader`
-    bool has_prefix_path(const vectorized::PathInData& relative_path) const;
+    bool has_prefix_path(const PathInData& relative_path) const;
 
     // NestedGroup support
     // Get NestedGroup reader for a given array path
@@ -296,7 +296,7 @@ public:
 private:
     // Internal unlocked helpers. Caller must hold `_subcolumns_meta_mutex` when using them.
     bool _is_exceeded_sparse_column_limit_unlocked() const;
-    bool _has_prefix_path_unlocked(const vectorized::PathInData& relative_path) const;
+    bool _has_prefix_path_unlocked(const PathInData& relative_path) const;
 
     // Describe how a variant sub-path should be read. This is a logical plan only and
     // does not create any concrete ColumnIterator.
@@ -316,10 +316,10 @@ private:
 
     struct ReadPlan {
         ReadKind kind {ReadKind::DEFAULT_FILL};
-        vectorized::DataTypePtr type;
+        DataTypePtr type;
 
         // path & meta context
-        vectorized::PathInData relative_path;
+        PathInData relative_path;
         const SubcolumnColumnMetaInfo::Node* node = nullptr;
         const SubcolumnColumnMetaInfo::Node* root = nullptr;
 
@@ -356,20 +356,20 @@ private:
     bool _can_use_nested_group_read_path() const;
     Status _validate_access_paths_debug(const TabletColumn& target_col,
                                         const StorageReadOptions* opt, int32_t col_uid,
-                                        const vectorized::PathInData& relative_path) const;
+                                        const PathInData& relative_path) const;
     bool _try_fill_nested_group_plan(ReadPlan* plan, const TabletColumn& target_col,
                                      const StorageReadOptions* opt, int32_t col_uid,
-                                     const vectorized::PathInData& relative_path) const;
+                                     const PathInData& relative_path) const;
     bool _try_build_nested_group_plan(ReadPlan* plan, const TabletColumn& target_col,
                                       const StorageReadOptions* opt, int32_t col_uid,
-                                      const vectorized::PathInData& relative_path) const;
+                                      const PathInData& relative_path) const;
     Status _try_build_leaf_plan(ReadPlan* plan, int32_t col_uid,
-                                const vectorized::PathInData& relative_path,
+                                const PathInData& relative_path,
                                 const SubcolumnColumnMetaInfo::Node* node,
                                 ColumnReaderCache* column_reader_cache,
                                 OlapReaderStatistics* stats);
     Status _try_build_external_leaf_plan(ReadPlan* plan, int32_t col_uid,
-                                         const vectorized::PathInData& relative_path,
+                                         const PathInData& relative_path,
                                          ColumnReaderCache* column_reader_cache,
                                          OlapReaderStatistics* stats);
 
@@ -384,7 +384,7 @@ private:
                                               ColumnReaderCache* column_reader_cache);
 
     Status _create_hierarchical_reader(ColumnIteratorUPtr* reader, int32_t col_uid,
-                                       vectorized::PathInData path,
+                                       PathInData path,
                                        const SubcolumnColumnMetaInfo::Node* node,
                                        const SubcolumnColumnMetaInfo::Node* root,
                                        ColumnReaderCache* column_reader_cache,
@@ -444,15 +444,15 @@ public:
         return _inner_iter->seek_to_ordinal(ord_idx);
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
         bool has_null;
         return next_batch(n, dst, &has_null);
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override;
+                          MutableColumnPtr& dst) override;
 
     ordinal_t get_current_ordinal() const override { return _inner_iter->get_current_ordinal(); }
 
@@ -462,16 +462,16 @@ public:
             PrefetcherInitMethod init_method) override;
 
 private:
-    Status _process_root_column(vectorized::MutableColumnPtr& dst,
-                                vectorized::MutableColumnPtr& root_column,
-                                const vectorized::DataTypePtr& most_common_type);
+    Status _process_root_column(MutableColumnPtr& dst,
+                                MutableColumnPtr& root_column,
+                                const DataTypePtr& most_common_type);
     std::unique_ptr<FileColumnIterator> _inner_iter;
 };
 
 class DefaultNestedColumnIterator : public ColumnIterator {
 public:
     DefaultNestedColumnIterator(ColumnIteratorUPtr sibling,
-                                vectorized::DataTypePtr file_column_type)
+                                DataTypePtr file_column_type)
             : _sibling_iter(std::move(sibling)), _file_column_type(std::move(file_column_type)) {}
 
     Status init(const ColumnIteratorOptions& opts) override {
@@ -489,14 +489,14 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst);
+    Status next_batch(size_t* n, MutableColumnPtr& dst);
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override;
+                          MutableColumnPtr& dst) override;
 
-    Status next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) override {
+    Status next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) override {
         return Status::NotSupported("Not supported next_batch_of_zone_map");
     }
 
@@ -509,7 +509,7 @@ public:
 
 private:
     std::unique_ptr<ColumnIterator> _sibling_iter;
-    std::shared_ptr<const vectorized::IDataType> _file_column_type;
+    std::shared_ptr<const IDataType> _file_column_type;
     // current rowid
     ordinal_t _current_rowid = 0;
 };

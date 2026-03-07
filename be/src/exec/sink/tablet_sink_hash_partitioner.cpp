@@ -23,14 +23,14 @@
 
 #include "exec/operator/operator.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 TabletSinkHashPartitioner::TabletSinkHashPartitioner(uint32_t partition_count, int64_t txn_id,
                                                      TOlapTableSchemaParam tablet_sink_schema,
                                                      TOlapTablePartitionParam tablet_sink_partition,
                                                      TOlapTableLocationParam tablet_sink_location,
                                                      const TTupleId& tablet_sink_tuple_id,
-                                                     pipeline::ExchangeSinkLocalState* local_state)
+                                                     ExchangeSinkLocalState* local_state)
         : PartitionerBase(partition_count),
           _txn_id(txn_id),
           _tablet_sink_schema(std::move(tablet_sink_schema)),
@@ -52,13 +52,13 @@ Status TabletSinkHashPartitioner::open(RuntimeState* state) {
     RETURN_IF_ERROR(_schema->init(_tablet_sink_schema));
     _vpartition = std::make_unique<VOlapTablePartitionParam>(_schema, _tablet_sink_partition);
     RETURN_IF_ERROR(_vpartition->init());
-    auto find_tablet_mode = vectorized::OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW;
+    auto find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW;
     _tablet_finder =
-            std::make_unique<vectorized::OlapTabletFinder>(_vpartition.get(), find_tablet_mode);
+            std::make_unique<OlapTabletFinder>(_vpartition.get(), find_tablet_mode);
     _tablet_sink_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tablet_sink_tuple_id);
     _tablet_sink_row_desc = state->obj_pool()->add(new RowDescriptor(_tablet_sink_tuple_desc));
     auto& ctxs =
-            _local_state->parent()->cast<pipeline::ExchangeSinkOperatorX>().tablet_sink_expr_ctxs();
+            _local_state->parent()->cast<ExchangeSinkOperatorX>().tablet_sink_expr_ctxs();
     _tablet_sink_expr_ctxs.resize(ctxs.size());
     for (size_t i = 0; i < _tablet_sink_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(ctxs[i]->clone(state, _tablet_sink_expr_ctxs[i]));
@@ -66,7 +66,7 @@ Status TabletSinkHashPartitioner::open(RuntimeState* state) {
     // if _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED, we handle the processing of auto_increment column
     // on exchange node rather than on TabletWriter
     _block_convertor =
-            std::make_unique<vectorized::OlapTableBlockConvertor>(_tablet_sink_tuple_desc);
+            std::make_unique<OlapTableBlockConvertor>(_tablet_sink_tuple_desc);
     _block_convertor->init_autoinc_info(_schema->db_id(), _schema->table_id(), state->batch_size());
     _location = state->obj_pool()->add(new OlapTableLocationParam(_tablet_sink_location));
     _row_distribution.init(
@@ -98,7 +98,7 @@ Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* bl
     std::ranges::fill(_hash_vals, invalid_val);
 
     int64_t dummy_stats = 0; // _local_state->rows_input_counter() updated in sink and write.
-    std::shared_ptr<vectorized::Block> convert_block = std::make_shared<vectorized::Block>();
+    std::shared_ptr<Block> convert_block = std::make_shared<Block>();
 
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
             *block, convert_block, _row_part_tablet_ids, dummy_stats));
@@ -163,4 +163,4 @@ Status TabletSinkHashPartitioner::close(RuntimeState* state) {
     }
     return Status::OK();
 }
-} // namespace doris::vectorized
+} // namespace doris

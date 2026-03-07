@@ -58,7 +58,7 @@ public:
         while (end > begin && std::isspace(ipv4_str[end])) {
             --end;
         }
-        if (!vectorized::parse_ipv4_whole(ipv4_str + begin, ipv4_str + end + 1,
+        if (!parse_ipv4_whole(ipv4_str + begin, ipv4_str + end + 1,
                                           reinterpret_cast<unsigned char*>(&parse_value))) {
             return false;
         }
@@ -75,7 +75,7 @@ public:
         char* start = buf;
         char* end = buf;
         const auto* src = reinterpret_cast<const unsigned char*>(&value);
-        vectorized::format_ipv4(src, end);
+        format_ipv4(src, end);
         size_t len = end - start;
         return {buf, len};
     }
@@ -93,7 +93,7 @@ public:
         while (end > begin && std::isspace(ipv4_str[end])) {
             --end;
         }
-        return vectorized::parse_ipv4_whole(ipv4_str + begin, ipv4_str + end + 1,
+        return parse_ipv4_whole(ipv4_str + begin, ipv4_str + end + 1,
                                             reinterpret_cast<unsigned char*>(&parse_value));
     }
 
@@ -101,7 +101,6 @@ private:
     IPv4 _value;
 };
 
-namespace vectorized {
 void inline map_ipv4_to_ipv6(IPv4 ipv4, UInt8* buf) {
     unaligned_store<UInt64>(buf, 0x0000FFFF00000000ULL | static_cast<UInt64>(ipv4));
     unaligned_store<UInt64>(buf + 8, 0);
@@ -112,7 +111,6 @@ IPv6 inline ipv4_to_ipv6(IPv4 ipv4) {
     map_ipv4_to_ipv6(ipv4, reinterpret_cast<UInt8*>(&ipv6));
     return ipv6;
 }
-} // namespace vectorized
 
 } // namespace doris
 

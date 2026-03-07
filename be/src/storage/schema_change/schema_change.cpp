@@ -100,7 +100,7 @@ class MultiBlockMerger {
 public:
     MultiBlockMerger(BaseTabletSPtr tablet) : _tablet(tablet), _cmp(*tablet) {}
 
-    Status merge(const std::vector<std::unique_ptr<vectorized::Block>>& blocks,
+    Status merge(const std::vector<std::unique_ptr<Block>>& blocks,
                  RowsetWriter* rowset_writer, uint64_t* merged_rows) {
         int rows = 0;
         for (const auto& block : blocks) {
@@ -129,14 +129,14 @@ public:
             auto tablet_schema = _tablet->tablet_schema();
             int key_number = cast_set<int>(_tablet->num_key_columns());
 
-            std::vector<vectorized::AggregateFunctionPtr> agg_functions;
-            std::vector<vectorized::AggregateDataPtr> agg_places;
+            std::vector<AggregateFunctionPtr> agg_functions;
+            std::vector<AggregateDataPtr> agg_places;
 
             for (int i = key_number; i < columns; i++) {
                 try {
-                    vectorized::AggregateFunctionPtr function =
+                    AggregateFunctionPtr function =
                             tablet_schema->column(i).get_aggregate_function(
-                                    vectorized::AGG_LOAD_SUFFIX,
+                                    AGG_LOAD_SUFFIX,
                                     tablet_schema->column(i).get_be_exec_version());
                     if (!function) {
                         return Status::InternalError(
@@ -171,7 +171,7 @@ public:
                     const auto* column_ptr = row_ref.get_column(j).get();
                     agg_functions[j - key_number]->add(
                             agg_places[j - key_number],
-                            const_cast<const vectorized::IColumn**>(&column_ptr), row_ref.position,
+                            const_cast<const IColumn**>(&column_ptr), row_ref.position,
                             _arena);
                 }
 
@@ -248,12 +248,12 @@ public:
 
 private:
     struct RowRef {
-        RowRef(vectorized::Block* block_, uint16_t position_)
+        RowRef(Block* block_, uint16_t position_)
                 : block(block_), position(position_) {}
-        vectorized::ColumnPtr get_column(int index) const {
+        ColumnPtr get_column(int index) const {
             return block->get_by_position(index).column;
         }
-        const vectorized::Block* block;
+        const Block* block;
         uint16_t position;
     };
 
@@ -289,7 +289,7 @@ private:
 
     BaseTabletSPtr _tablet;
     RowRefComparator _cmp;
-    vectorized::Arena _arena;
+    Arena _arena;
 };
 
 BlockChanger::BlockChanger(TabletSchemaSPtr tablet_schema, DescriptorTbl desc_tbl,
@@ -311,8 +311,8 @@ ColumnMapping* BlockChanger::get_mutable_column_mapping(size_t column_index) {
     return &(_schema_mapping[column_index]);
 }
 
-Status BlockChanger::change_block(vectorized::Block* ref_block,
-                                  vectorized::Block* new_block) const {
+Status BlockChanger::change_block(Block* ref_block,
+                                  Block* new_block) const {
     // for old version request compatibility
     _state->set_desc_tbl(&_desc_tbl);
     _state->set_be_exec_version(_fe_compatible_version);
@@ -320,12 +320,12 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
             RowDescriptor(_desc_tbl.get_tuple_descriptor(_desc_tbl.get_row_tuples()[0]));
 
     if (_where_expr != nullptr) {
-        vectorized::VExprContextSPtr ctx = nullptr;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*_where_expr, ctx));
+        VExprContextSPtr ctx = nullptr;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(*_where_expr, ctx));
         RETURN_IF_ERROR(ctx->prepare(_state.get(), row_desc));
         RETURN_IF_ERROR(ctx->open(_state.get()));
 
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(ctx.get(), ref_block));
+        RETURN_IF_ERROR(VExprContext::filter_block(ctx.get(), ref_block));
     }
 
     const int row_num = cast_set<int>(ref_block->rows());
@@ -336,8 +336,8 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
     for (int idx = 0; idx < new_schema_cols_num; idx++) {
         auto expr = _schema_mapping[idx].expr;
         if (expr != nullptr) {
-            vectorized::VExprContextSPtr ctx;
-            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*expr, ctx));
+            VExprContextSPtr ctx;
+            RETURN_IF_ERROR(VExpr::create_expr_tree(*expr, ctx));
             RETURN_IF_ERROR(ctx->prepare(_state.get(), row_desc));
             RETURN_IF_ERROR(ctx->open(_state.get()));
 
@@ -408,7 +408,7 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
             // not nullable to nullable
             if (new_col_nullable) {
                 auto* new_nullable_col =
-                        assert_cast<vectorized::ColumnNullable*>(new_col->assume_mutable().get());
+                        assert_cast<ColumnNullable*>(new_col->assume_mutable().get());
 
                 new_nullable_col->change_nested_column(ref_col);
                 new_nullable_col->get_null_map_data().resize_fill(ref_col->size());
@@ -419,7 +419,7 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
                 // the cast expr of schema change is `CastExpr(CAST String to Nullable(Int32))`,
                 // so need to handle nullable to not nullable here
                 auto* ref_nullable_col =
-                        assert_cast<vectorized::ColumnNullable*>(ref_col->assume_mutable().get());
+                        assert_cast<ColumnNullable*>(ref_col->assume_mutable().get());
 
                 new_col = ref_nullable_col->get_nested_column_ptr();
             }
@@ -432,8 +432,8 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
 }
 
 // This check can prevent schema-change from causing data loss after type cast
-Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr input_column,
-                                       vectorized::ColumnPtr output_column) {
+Status BlockChanger::_check_cast_valid(ColumnPtr input_column,
+                                       ColumnPtr output_column) {
     if (input_column->size() != output_column->size()) {
         return Status::InternalError(
                 "column size is changed, input_column_size={}, output_column_size={}; "
@@ -446,7 +446,7 @@ Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr input_column,
     if (input_column->is_nullable() != output_column->is_nullable()) {
         if (input_column->is_nullable()) {
             const auto* ref_null_map =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(input_column.get())
+                    check_and_get_column<ColumnNullable>(input_column.get())
                             ->get_null_map_column()
                             .get_data()
                             .data();
@@ -462,11 +462,11 @@ Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr input_column,
             }
         } else {
             const auto& null_map_column =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(
+                    check_and_get_column<ColumnNullable>(
                             output_column.get())
                             ->get_null_map_column();
             const auto& nested_column =
-                    vectorized::check_and_get_column<vectorized::ColumnNullable>(
+                    check_and_get_column<ColumnNullable>(
                             output_column.get())
                             ->get_nested_column();
             const auto* new_null_map = null_map_column.get_data().data();
@@ -499,12 +499,12 @@ Status BlockChanger::_check_cast_valid(vectorized::ColumnPtr input_column,
 
     if (input_column->is_nullable() && output_column->is_nullable()) {
         const auto* ref_null_map =
-                vectorized::check_and_get_column<vectorized::ColumnNullable>(input_column.get())
+                check_and_get_column<ColumnNullable>(input_column.get())
                         ->get_null_map_column()
                         .get_data()
                         .data();
         const auto* new_null_map =
-                vectorized::check_and_get_column<vectorized::ColumnNullable>(output_column.get())
+                check_and_get_column<ColumnNullable>(output_column.get())
                         ->get_null_map_column()
                         .get_data()
                         .data();
@@ -551,7 +551,7 @@ Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
     return Status::OK();
 }
 
-Status next_batch(RowsetReaderSharedPtr rowset_reader, vectorized::Block* input_block,
+Status next_batch(RowsetReaderSharedPtr rowset_reader, Block* input_block,
                   std::vector<bool>& row_same_bit) {
     Status st;
     if (rowset_reader->is_merge_iterator()) {
@@ -571,7 +571,7 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
                                              TabletSchemaSPtr new_tablet_schema) {
     bool eof = false;
     do {
-        auto new_block = vectorized::Block::create_unique(new_tablet_schema->create_block());
+        auto new_block = Block::create_unique(new_tablet_schema->create_block());
         // create_block() skips dropped columns (from light-weight schema change).
         // Dropped columns are only needed for delete predicate evaluation, which
         // SegmentIterator handles internally — it creates temporary columns for
@@ -579,7 +579,7 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
         // guard in _init_current_block). If dropped columns were included here,
         // the block would have more columns than VMergeIterator's output_schema
         // expects, causing DCHECK failures in copy_rows.
-        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
+        auto ref_block = Block::create_unique(base_tablet_schema->create_block());
 
         Status st = next_batch(rowset_reader, ref_block.get(), _row_same_bit);
         if (!st) {
@@ -617,7 +617,7 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
                                                     TabletSchemaSPtr base_tablet_schema,
                                                     TabletSchemaSPtr new_tablet_schema) {
     // for internal sorting
-    std::vector<std::unique_ptr<vectorized::Block>> blocks;
+    std::vector<std::unique_ptr<Block>> blocks;
 
     RowsetSharedPtr rowset = rowset_reader->rowset();
     SegmentsOverlapPB segments_overlap = rowset->rowset_meta()->segments_overlap();
@@ -644,7 +644,7 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
         return Status::OK();
     };
 
-    auto new_block = vectorized::Block::create_unique(new_tablet_schema->create_block());
+    auto new_block = Block::create_unique(new_tablet_schema->create_block());
 
     bool eof = false;
     do {
@@ -655,7 +655,7 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
         // guard in _init_current_block). If dropped columns were included here,
         // the block would have more columns than VMergeIterator's output_schema
         // expects, causing DCHECK failures in copy_rows.
-        auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
+        auto ref_block = Block::create_unique(base_tablet_schema->create_block());
         Status st = next_batch(rowset_reader, ref_block.get(), _row_same_bit);
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
@@ -691,7 +691,7 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
         _mem_tracker->consume(new_block->allocated_bytes());
 
         // move unique ptr
-        blocks.push_back(vectorized::Block::create_unique(new_tablet_schema->create_block()));
+        blocks.push_back(Block::create_unique(new_tablet_schema->create_block()));
         swap(blocks.back(), new_block);
     } while (!eof);
 
@@ -708,7 +708,7 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
 }
 
 Result<RowsetSharedPtr> VBaseSchemaChangeWithSorting::_internal_sorting(
-        const std::vector<std::unique_ptr<vectorized::Block>>& blocks, const Version& version,
+        const std::vector<std::unique_ptr<Block>>& blocks, const Version& version,
         int64_t newest_write_timestamp, BaseTabletSPtr new_tablet, RowsetTypePB new_rowset_type,
         SegmentsOverlapPB segments_overlap, TabletSchemaSPtr new_tablet_schema) {
     uint64_t merged_rows = 0;
@@ -737,7 +737,7 @@ Result<RowsetSharedPtr> VBaseSchemaChangeWithSorting::_internal_sorting(
 }
 
 Result<RowsetSharedPtr> VLocalSchemaChangeWithSorting::_internal_sorting(
-        const std::vector<std::unique_ptr<vectorized::Block>>& blocks, const Version& version,
+        const std::vector<std::unique_ptr<Block>>& blocks, const Version& version,
         int64_t newest_write_timestamp, BaseTabletSPtr new_tablet, RowsetTypePB new_rowset_type,
         SegmentsOverlapPB segments_overlap, TabletSchemaSPtr new_tablet_schema) {
     uint64_t merged_rows = 0;
@@ -1523,7 +1523,7 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
             return Status::OK();
         } else if (column_mapping->ref_column_idx >= 0) {
             // index changed
-            if (vectorized::variant_util::has_schema_index_diff(
+            if (variant_util::has_schema_index_diff(
                         new_tablet_schema, base_tablet_schema, cast_set<int32_t>(i),
                         column_mapping->ref_column_idx)) {
                 *sc_directly = true;
@@ -1551,14 +1551,14 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
 Status SchemaChangeJob::_init_column_mapping(ColumnMapping* column_mapping,
                                              const TabletColumn& column_schema,
                                              const std::string& value) {
-    auto t = FieldFactory::create(column_schema);
+    auto t = StorageFieldFactory::create(column_schema);
     Defer defer([t]() { delete t; });
     if (t == nullptr) {
         return Status::Uninitialized("Unsupport field creation of {}", column_schema.name());
     }
 
     if (!column_schema.is_nullable() || value.length() != 0) {
-        vectorized::DataTypeSerDe::FormatOptions options;
+        DataTypeSerDe::FormatOptions options;
         RETURN_IF_ERROR(column_schema.get_vec_type()->get_serde()->from_olap_string(
                 value, column_mapping->default_value, options));
     }

@@ -26,7 +26,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class Dependency;
@@ -37,14 +37,14 @@ public:
     DataQueue(int child_count = 1);
     ~DataQueue() = default;
 
-    Status get_block_from_queue(std::unique_ptr<vectorized::Block>* block,
+    Status get_block_from_queue(std::unique_ptr<Block>* block,
                                 int* child_idx = nullptr);
 
-    Status push_block(std::unique_ptr<vectorized::Block> block, int child_idx = 0);
+    Status push_block(std::unique_ptr<Block> block, int child_idx = 0);
 
-    std::unique_ptr<vectorized::Block> get_free_block(int child_idx = 0);
+    std::unique_ptr<Block> get_free_block(int child_idx = 0);
 
-    void push_free_block(std::unique_ptr<vectorized::Block> output_block, int child_idx = 0);
+    void push_free_block(std::unique_ptr<Block> output_block, int child_idx = 0);
 
     void clear_free_blocks();
 
@@ -83,10 +83,10 @@ public:
 
 private:
     std::vector<std::unique_ptr<std::mutex>> _queue_blocks_lock;
-    std::vector<std::deque<std::unique_ptr<vectorized::Block>>> _queue_blocks;
+    std::vector<std::deque<std::unique_ptr<Block>>> _queue_blocks;
 
     std::vector<std::unique_ptr<std::mutex>> _free_blocks_lock;
-    std::vector<std::deque<std::unique_ptr<vectorized::Block>>> _free_blocks;
+    std::vector<std::deque<std::unique_ptr<Block>>> _free_blocks;
 
     //how many deque will be init, always will be one
     int _child_count = 0;
@@ -118,4 +118,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

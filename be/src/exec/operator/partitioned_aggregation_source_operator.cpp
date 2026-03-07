@@ -33,7 +33,7 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_profile.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 PartitionedAggLocalState::PartitionedAggLocalState(RuntimeState* state, OperatorXBase* parent)
@@ -135,7 +135,7 @@ bool PartitionedAggSourceOperatorX::is_shuffled_operator() const {
     return _agg_source_operator->is_shuffled_operator();
 }
 
-Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
+Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, Block* block,
                                                 bool* eos) {
     auto& local_state = get_local_state(state);
     local_state.copy_shared_spill_profile();
@@ -257,7 +257,7 @@ Status PartitionedAggLocalState::_recover_spill_data_from_disk(RuntimeState* sta
                !state->is_cancelled() && !has_agg_data) {
             auto& stream = _shared_state->spill_partitions[0]->spill_streams_[0];
             stream->set_read_counters(operator_profile());
-            vectorized::Block block;
+            Block block;
             bool eos = false;
             while (!eos && !state->is_cancelled()) {
                 {
@@ -278,7 +278,7 @@ Status PartitionedAggLocalState::_recover_spill_data_from_disk(RuntimeState* sta
                     _blocks.emplace_back(std::move(block));
 
                     if (accumulated_blocks_size >=
-                        vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
+                        SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
                         break;
                     }
                 }
@@ -350,4 +350,4 @@ bool PartitionedAggLocalState::is_blockable() const {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

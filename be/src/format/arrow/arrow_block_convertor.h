@@ -42,7 +42,7 @@ namespace doris {
 
 class FromBlockToRecordBatchConverter {
 public:
-    FromBlockToRecordBatchConverter(const vectorized::Block& block,
+    FromBlockToRecordBatchConverter(const Block& block,
                                     const std::shared_ptr<arrow::Schema>& schema,
                                     arrow::MemoryPool* pool, const cctz::time_zone& timezone_obj)
             : _block(block),
@@ -53,7 +53,7 @@ public:
               _row_range_start(0),
               _row_range_end(0) {}
 
-    FromBlockToRecordBatchConverter(const vectorized::Block& block,
+    FromBlockToRecordBatchConverter(const Block& block,
                                     const std::shared_ptr<arrow::Schema>& schema,
                                     arrow::MemoryPool* pool, const cctz::time_zone& timezone_obj,
                                     size_t start_row, size_t end_row)
@@ -70,15 +70,15 @@ public:
     Status convert(std::shared_ptr<arrow::RecordBatch>* out);
 
 private:
-    const vectorized::Block& _block;
+    const Block& _block;
     const std::shared_ptr<arrow::Schema>& _schema;
     arrow::MemoryPool* _pool;
 
     size_t _cur_field_idx;
     size_t _cur_start;
     size_t _cur_rows;
-    vectorized::ColumnPtr _cur_col;
-    vectorized::DataTypePtr _cur_type;
+    ColumnPtr _cur_col;
+    DataTypePtr _cur_type;
     arrow::ArrayBuilder* _cur_builder = nullptr;
 
     const cctz::time_zone& _timezone_obj;
@@ -93,34 +93,34 @@ private:
 class FromRecordBatchToBlockConverter {
 public:
     FromRecordBatchToBlockConverter(const std::shared_ptr<arrow::RecordBatch>& batch,
-                                    const vectorized::DataTypes& types,
+                                    const DataTypes& types,
                                     const cctz::time_zone& timezone_obj)
             : _batch(batch), _types(types), _timezone_obj(timezone_obj) {}
 
     ~FromRecordBatchToBlockConverter() = default;
 
-    Status convert(vectorized::Block* block);
+    Status convert(Block* block);
 
 private:
     const std::shared_ptr<arrow::RecordBatch>& _batch;
-    const vectorized::DataTypes& _types;
+    const DataTypes& _types;
     const cctz::time_zone& _timezone_obj;
-    vectorized::ColumnsWithTypeAndName _columns;
+    ColumnsWithTypeAndName _columns;
 };
 
-Status convert_to_arrow_batch(const vectorized::Block& block,
+Status convert_to_arrow_batch(const Block& block,
                               const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
                               std::shared_ptr<arrow::RecordBatch>* result,
                               const cctz::time_zone& timezone_obj);
 
-Status convert_to_arrow_batch(const vectorized::Block& block,
+Status convert_to_arrow_batch(const Block& block,
                               const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
                               std::shared_ptr<arrow::RecordBatch>* result,
                               const cctz::time_zone& timezone_obj, size_t start_row,
                               size_t end_row);
 
 Status convert_from_arrow_batch(const std::shared_ptr<arrow::RecordBatch>& batch,
-                                const vectorized::DataTypes& types, vectorized::Block* block,
+                                const DataTypes& types, Block* block,
                                 const cctz::time_zone& timezone_obj);
 
 } // namespace doris

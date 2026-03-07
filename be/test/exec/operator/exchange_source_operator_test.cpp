@@ -28,9 +28,8 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_slot_ref.h"
-namespace doris::pipeline {
+namespace doris {
 
-using namespace vectorized;
 
 struct MOCKVDataStreamRecvr : public VDataStreamRecvr {
     MOCKVDataStreamRecvr(RuntimeState* state, RuntimeProfile::HighWaterMarkCounter* counter,
@@ -183,4 +182,4 @@ TEST_F(ExchangeSourceOperatorXTest, test_no_merge) {
         EXPECT_TRUE(local_state->close(state.get()));
     }
 }
-} // namespace doris::pipeline
+} // namespace doris

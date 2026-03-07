@@ -28,9 +28,7 @@
 #include "storage/tablet/tablet_fwd.h"
 
 namespace doris {
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 namespace segment_v2 {
 class SegmentWriter;
@@ -101,7 +99,7 @@ public:
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
-    Status flush_single_block(const vectorized::Block* block, int32_t segment_id,
+    Status flush_single_block(const Block* block, int32_t segment_id,
                               int64_t* flush_size = nullptr);
 
     int64_t num_rows_written() const { return _num_rows_written; }
@@ -121,7 +119,7 @@ public:
     public:
         ~Writer();
 
-        Status add_rows(const vectorized::Block* block, size_t row_offset, size_t input_row_num) {
+        Status add_rows(const Block* block, size_t row_offset, size_t input_row_num) {
             return _flusher->_add_rows(_writer, block, row_offset, input_row_num);
         }
 
@@ -140,9 +138,9 @@ public:
 
 private:
     Status _add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
-                     const vectorized::Block* block, size_t row_offset, size_t row_num);
+                     const Block* block, size_t row_offset, size_t row_num);
     Status _add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
-                     const vectorized::Block* block, size_t row_offset, size_t row_num);
+                     const Block* block, size_t row_offset, size_t row_num);
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
                                   int32_t segment_id, bool no_compression = false);
     Status _create_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
@@ -174,7 +172,7 @@ public:
 
     void set_segment_start_id(uint32_t start_id) { _next_segment_id = start_id; }
 
-    Status add_block(const vectorized::Block* block);
+    Status add_block(const Block* block);
 
     Status flush();
 
@@ -193,12 +191,12 @@ public:
     // Flush a block into a single segment, with pre-allocated segment_id.
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
-    Status flush_single_block(const vectorized::Block* block, int32_t segment_id,
+    Status flush_single_block(const Block* block, int32_t segment_id,
                               int64_t* flush_size = nullptr);
 
     // Flush a block into a single segment, without pre-allocated segment_id.
     // This method is thread-safe.
-    Status flush_single_block(const vectorized::Block* block) {
+    Status flush_single_block(const Block* block) {
         return flush_single_block(block, allocate_segment_id());
     }
 

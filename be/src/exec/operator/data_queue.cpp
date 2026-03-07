@@ -27,7 +27,6 @@
 #include "exec/pipeline/dependency.h"
 
 namespace doris {
-namespace pipeline {
 #include "common/compile_check_begin.h"
 DataQueue::DataQueue(int child_count)
         : _queue_blocks_lock(child_count),
@@ -52,7 +51,7 @@ DataQueue::DataQueue(int child_count)
     _sink_dependencies.resize(child_count, nullptr);
 }
 
-std::unique_ptr<vectorized::Block> DataQueue::get_free_block(int child_idx) {
+std::unique_ptr<Block> DataQueue::get_free_block(int child_idx) {
     {
         INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_free_blocks_lock[child_idx]));
         if (!_free_blocks[child_idx].empty()) {
@@ -62,10 +61,10 @@ std::unique_ptr<vectorized::Block> DataQueue::get_free_block(int child_idx) {
         }
     }
 
-    return vectorized::Block::create_unique();
+    return Block::create_unique();
 }
 
-void DataQueue::push_free_block(std::unique_ptr<vectorized::Block> block, int child_idx) {
+void DataQueue::push_free_block(std::unique_ptr<Block> block, int child_idx) {
     DCHECK(block->rows() == 0);
 
     if (!_is_low_memory_mode) {
@@ -77,7 +76,7 @@ void DataQueue::push_free_block(std::unique_ptr<vectorized::Block> block, int ch
 void DataQueue::clear_free_blocks() {
     for (size_t child_idx = 0; child_idx < _free_blocks.size(); ++child_idx) {
         std::lock_guard<std::mutex> l(*_free_blocks_lock[child_idx]);
-        std::deque<std::unique_ptr<vectorized::Block>> tmp_queue;
+        std::deque<std::unique_ptr<Block>> tmp_queue;
         _free_blocks[child_idx].swap(tmp_queue);
     }
 }
@@ -115,7 +114,7 @@ bool DataQueue::remaining_has_data() {
 
 //the _flag_queue_idx indicate which queue has data, and in check can_read
 //will be set idx in remaining_has_data function
-Status DataQueue::get_block_from_queue(std::unique_ptr<vectorized::Block>* output_block,
+Status DataQueue::get_block_from_queue(std::unique_ptr<Block>* output_block,
                                        int* child_idx) {
     if (_is_canceled[_flag_queue_idx]) {
         return Status::InternalError("Current queue of idx {} have beed canceled: ",
@@ -144,7 +143,7 @@ Status DataQueue::get_block_from_queue(std::unique_ptr<vectorized::Block>* outpu
     return Status::OK();
 }
 
-Status DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_idx) {
+Status DataQueue::push_block(std::unique_ptr<Block> block, int child_idx) {
     if (!block) {
         return Status::OK();
     }
@@ -215,5 +214,4 @@ void DataQueue::set_source_block() {
     }
 }
 
-} // namespace pipeline
 } // namespace doris

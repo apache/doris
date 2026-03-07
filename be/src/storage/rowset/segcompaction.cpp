@@ -85,9 +85,9 @@ void SegcompactionWorker::init_mem_tracker(const RowsetWriterContext& rowset_wri
 Status SegcompactionWorker::_get_segcompaction_reader(
         SegCompactionCandidatesSharedPtr segments, TabletSharedPtr tablet,
         std::shared_ptr<Schema> schema, OlapReaderStatistics* stat,
-        vectorized::RowSourcesBuffer& row_sources_buf, bool is_key,
+        RowSourcesBuffer& row_sources_buf, bool is_key,
         std::vector<uint32_t>& return_columns, std::vector<uint32_t>& key_group_cluster_key_idxes,
-        std::unique_ptr<vectorized::VerticalBlockReader>* reader) {
+        std::unique_ptr<VerticalBlockReader>* reader) {
     const auto& ctx = _writer->_context;
     bool record_rowids = need_convert_delete_bitmap() && is_key;
     StorageReadOptions read_options;
@@ -124,7 +124,7 @@ Status SegcompactionWorker::_get_segcompaction_reader(
         _rowid_conversion->reset_segment_map(segment_rows);
     }
 
-    *reader = std::make_unique<vectorized::VerticalBlockReader>(&row_sources_buf);
+    *reader = std::make_unique<VerticalBlockReader>(&row_sources_buf);
 
     TabletReader::ReaderParams reader_params;
     reader_params.is_segcompaction = true;
@@ -283,7 +283,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     std::vector<uint32_t> key_group_cluster_key_idxes;
     Merger::vertical_split_columns(*ctx.tablet_schema, &column_groups,
                                    &key_group_cluster_key_idxes);
-    vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
+    RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
                                                  ReaderType::READER_SEGMENT_COMPACTION);
 
     KeyBoundsPB key_bounds;
@@ -299,7 +299,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
         RETURN_IF_ERROR(writer->init(column_ids, is_key));
         auto schema = std::make_shared<Schema>(ctx.tablet_schema->columns(), column_ids);
         OlapReaderStatistics reader_stats;
-        std::unique_ptr<vectorized::VerticalBlockReader> reader;
+        std::unique_ptr<VerticalBlockReader> reader;
         auto s =
                 _get_segcompaction_reader(segments, tablet, schema, &reader_stats, row_sources_buf,
                                           is_key, column_ids, key_group_cluster_key_idxes, &reader);

@@ -28,7 +28,7 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 /**
@@ -155,7 +155,7 @@ public:
     }
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
-        auto* res_col = assert_cast<vectorized::ColumnString*>(col_ptr);
+        auto* res_col = assert_cast<ColumnString*>(col_ptr);
         _strings.resize(sel_size);
         size_t length = 0;
         for (size_t i = 0; i != sel_size; ++i) {
@@ -235,7 +235,7 @@ public:
     uint32_t get_hash_value(uint32_t idx) const { return _dict.get_hash_value(_codes[idx], _type); }
 
     template <typename HybridSetType>
-    void find_codes(const HybridSetType* values, std::vector<vectorized::UInt8>& selected) const {
+    void find_codes(const HybridSetType* values, std::vector<UInt8>& selected) const {
         return _dict.find_codes(values, selected);
     }
 
@@ -261,9 +261,9 @@ public:
         // because the string length will different from varchar and string which needed to be processed after.
         auto create_column = [this]() -> MutableColumnPtr {
             if (_type == FieldType::OLAP_FIELD_TYPE_CHAR) {
-                return vectorized::PredicateColumnType<TYPE_CHAR>::create();
+                return PredicateColumnType<TYPE_CHAR>::create();
             }
-            return vectorized::PredicateColumnType<TYPE_STRING>::create();
+            return PredicateColumnType<TYPE_STRING>::create();
         };
 
         auto res = create_column();
@@ -383,7 +383,7 @@ public:
 
         template <typename HybridSetType>
         void find_codes(const HybridSetType* values,
-                        std::vector<vectorized::UInt8>& selected) const {
+                        std::vector<UInt8>& selected) const {
             size_t dict_word_num = _dict_data->size();
             selected.resize(dict_word_num);
             selected.assign(dict_word_num, false);
@@ -491,5 +491,5 @@ private:
     std::vector<StringRef> _strings;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

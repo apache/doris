@@ -28,14 +28,14 @@
 #include "gtest/gtest_pred_impl.h"
 #include "storage/iterator/olap_data_convertor.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(JsonbValueConvertorTest, JsonbValueValid) {
     // 1. create jsonb column with serde
     auto input = ColumnString::create();
     auto dataTypeJsonb = std::make_shared<DataTypeJsonb>();
     auto serde = dataTypeJsonb->get_serde();
-    vectorized::DataTypeSerDe::FormatOptions options;
+    DataTypeSerDe::FormatOptions options;
 
     // Test case 1
     std::string str1 = "{\"key1\": \"value1\"}";
@@ -73,7 +73,7 @@ TEST(JsonbValueConvertorTest, JsonbValueValid) {
     ASSERT_EQ(input->size(), 5);
 
     // 2. put column into block
-    vectorized::ColumnWithTypeAndName argument(input->assume_mutable(), dataTypeJsonb,
+    ColumnWithTypeAndName argument(input->assume_mutable(), dataTypeJsonb,
                                                "jsonb_column");
     Block block;
     block.insert(argument);
@@ -116,7 +116,7 @@ TEST(JsonbValueConvertorTest, JsonbValueValid) {
     ASSERT_EQ(5, nullable_col->size());
 
     // 2. put column into block
-    vectorized::ColumnWithTypeAndName argument1(nullable_col->assume_mutable(),
+    ColumnWithTypeAndName argument1(nullable_col->assume_mutable(),
                                                 nullable_dataTypeJsonb, "jsonb_column_null");
     block.clear();
     block.insert(argument1);
@@ -135,7 +135,7 @@ TEST(JsonbValueConvertorTest, JsonbValueInvalid) {
     auto input = ColumnString::create();
     auto dataTypeJsonb = std::make_shared<DataTypeJsonb>();
     auto serde = dataTypeJsonb->get_serde();
-    vectorized::DataTypeSerDe::FormatOptions options;
+    DataTypeSerDe::FormatOptions options;
 
     // Test case 1
     std::string str1 = "{\"key1\": \"value1\"}";
@@ -176,7 +176,7 @@ TEST(JsonbValueConvertorTest, JsonbValueInvalid) {
     ASSERT_EQ(input->size(), 5);
 
     // 2. put column into block
-    vectorized::ColumnWithTypeAndName argument(input->assume_mutable(), dataTypeJsonb,
+    ColumnWithTypeAndName argument(input->assume_mutable(), dataTypeJsonb,
                                                "jsonb_column");
     Block block;
     block.insert(argument);
@@ -226,7 +226,7 @@ TEST(JsonbValueConvertorTest, JsonbValueInvalid) {
     ASSERT_EQ(5, nullable_col->size());
 
     // 2. put column into block
-    vectorized::ColumnWithTypeAndName argument1(nullable_col->assume_mutable(),
+    ColumnWithTypeAndName argument1(nullable_col->assume_mutable(),
                                                 nullable_dataTypeJsonb, "jsonb_column_null");
     block.clear();
     block.insert(argument1);
@@ -242,4 +242,4 @@ TEST(JsonbValueConvertorTest, JsonbValueInvalid) {
     ASSERT_NE(column, nullptr);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -70,7 +70,6 @@
 
 namespace doris {
 using namespace ErrorCode;
-namespace vectorized {
 
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* engine_ref = nullptr;
@@ -305,7 +304,7 @@ protected:
 
         uint32_t num_rows = 0;
         for (int i = 0; i < rowset_data.size(); ++i) {
-            vectorized::Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rowset_data[i].size(); ++rid) {
                 int32_t c1 = std::get<0>(rowset_data[i][rid]);
@@ -451,7 +450,7 @@ protected:
         }
     }
 
-    void block_create(TabletSchemaSPtr tablet_schema, vectorized::Block* block) {
+    void block_create(TabletSchemaSPtr tablet_schema, Block* block) {
         block->clear();
         Schema schema(tablet_schema);
         const auto& column_ids = schema.column_ids();
@@ -460,7 +459,7 @@ protected:
             auto data_type = Schema::get_data_type_ptr(*column_desc);
             EXPECT_TRUE(data_type != nullptr);
             auto column = data_type->create_column();
-            block->insert(vectorized::ColumnWithTypeAndName(std::move(column), data_type,
+            block->insert(ColumnWithTypeAndName(std::move(column), data_type,
                                                             column_desc->name()));
         }
     }
@@ -515,7 +514,7 @@ TEST_F(OrderedDataCompactionTest, test_01) {
     create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);
 
     // read output rowset data
-    vectorized::Block output_block;
+    Block output_block;
     std::vector<std::tuple<int64_t, int64_t>> output_data;
     Status s = Status::OK();
     do {
@@ -575,7 +574,7 @@ TEST_F(OrderedDataCompactionTest, test_index_disk_size) {
 
         uint32_t num_rows = 0;
         for (int j = 0; j < input_data[i].size(); ++j) {
-            vectorized::Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < input_data[i][j].size(); ++rid) {
                 int32_t c1 = std::get<0>(input_data[i][j][rid]);
@@ -621,5 +620,4 @@ TEST_F(OrderedDataCompactionTest, test_index_disk_size) {
               << std::endl;
     EXPECT_EQ(out_rowset->rowset_meta()->total_disk_size(), expected_total_size);
 }
-} // namespace vectorized
 } // namespace doris

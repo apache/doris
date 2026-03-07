@@ -85,36 +85,36 @@ TEST_F(RuntimeFilterUtilsTest, TestRuntimeFilterFromThrift) {
 }
 
 TEST_F(RuntimeFilterUtilsTest, TestCreateLiteral) {
-    vectorized::VExprSPtr literal;
-    auto type = vectorized::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT,
+    VExprSPtr literal;
+    auto type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT,
                                                                          false);
     const int value = 1;
     EXPECT_TRUE(create_literal(type, (const void*)&value, literal).ok());
     EXPECT_TRUE(literal->is_literal());
-    EXPECT_EQ(((vectorized::VLiteral*)literal.get())->value(), std::to_string(value));
+    EXPECT_EQ(((VLiteral*)literal.get())->value(), std::to_string(value));
 }
 
 TEST_F(RuntimeFilterUtilsTest, TestCreateBinaryPredicate) {
     {
-        vectorized::VExprSPtr expr;
+        VExprSPtr expr;
         TExprNode pred_node;
-        auto type = vectorized::DataTypeFactory::instance().create_data_type(
+        auto type = DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_INT, false);
         auto op = TExprOpcode::EQ;
         EXPECT_FALSE(create_vbin_predicate(type, op, expr, &pred_node, false).ok());
     }
     {
-        vectorized::VExprSPtr expr;
+        VExprSPtr expr;
         TExprNode pred_node;
-        auto type = vectorized::DataTypeFactory::instance().create_data_type(
+        auto type = DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_INT, false);
         auto op = TExprOpcode::GE;
         EXPECT_TRUE(create_vbin_predicate(type, op, expr, &pred_node, true).ok());
     }
     {
-        vectorized::VExprSPtr expr;
+        VExprSPtr expr;
         TExprNode pred_node;
-        auto type = vectorized::DataTypeFactory::instance().create_data_type(
+        auto type = DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_INT, false);
         auto op = TExprOpcode::LE;
         EXPECT_TRUE(create_vbin_predicate(type, op, expr, &pred_node, false).ok());

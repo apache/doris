@@ -23,7 +23,7 @@
 
 #include "exec/operator/operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 LocalMergeSortLocalState::LocalMergeSortLocalState(RuntimeState* state, OperatorXBase* parent)
@@ -60,18 +60,18 @@ std::vector<Dependency*> LocalMergeSortLocalState::dependencies() const {
 
 Status LocalMergeSortLocalState::build_merger(RuntimeState* state) {
     auto& p = _parent->cast<LocalMergeSortSourceOperatorX>();
-    vectorized::VExprContextSPtrs ordering_expr_ctxs;
+    VExprContextSPtrs ordering_expr_ctxs;
     ordering_expr_ctxs.resize(p._vsort_exec_exprs.ordering_expr_ctxs().size());
     for (size_t i = 0; i < ordering_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(
                 p._vsort_exec_exprs.ordering_expr_ctxs()[i]->clone(state, ordering_expr_ctxs[i]));
     }
-    _merger = std::make_unique<vectorized::VSortedRunMerger>(ordering_expr_ctxs, p._is_asc_order,
+    _merger = std::make_unique<VSortedRunMerger>(ordering_expr_ctxs, p._is_asc_order,
                                                              p._nulls_first, state->batch_size(),
                                                              p._limit, p._offset, custom_profile());
-    std::vector<vectorized::BlockSupplier> child_block_suppliers;
+    std::vector<BlockSupplier> child_block_suppliers;
     for (auto sorter : p._sorters) {
-        vectorized::BlockSupplier block_supplier = [sorter, state](vectorized::Block* block,
+        BlockSupplier block_supplier = [sorter, state](Block* block,
                                                                    bool* eos) {
             return sorter->get_next(state, block, eos);
         };
@@ -116,7 +116,7 @@ void LocalMergeSortSourceOperatorX::init_dependencies_and_sorter() {
     _sorters.resize(_parallel_tasks);
 }
 
-Status LocalMergeSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
+Status LocalMergeSortSourceOperatorX::get_block(RuntimeState* state, Block* block,
                                                 bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -132,7 +132,7 @@ Status LocalMergeSortSourceOperatorX::get_block(RuntimeState* state, vectorized:
 }
 
 Status LocalMergeSortSourceOperatorX::main_source_get_block(RuntimeState* state,
-                                                            vectorized::Block* block, bool* eos) {
+                                                            Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     if (local_state._merger == nullptr) {
         // Since we cannot control the initialization order of different local states, we set the sorter to the operator during execution.
@@ -144,7 +144,7 @@ Status LocalMergeSortSourceOperatorX::main_source_get_block(RuntimeState* state,
 }
 
 Status LocalMergeSortSourceOperatorX::other_source_get_block(RuntimeState* state,
-                                                             vectorized::Block* block, bool* eos) {
+                                                             Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     DCHECK(_other_source_deps[local_state._task_idx] != nullptr);
     // Since we cannot control the initialization order of different local states, we set the sorter to the operator during execution.
@@ -156,4 +156,4 @@ Status LocalMergeSortSourceOperatorX::other_source_get_block(RuntimeState* state
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

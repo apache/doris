@@ -31,7 +31,7 @@
 #include "storage/index/inverted/query/phrase_prefix_query.h"
 #include "storage/segment/segment_iterator.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 Status FunctionMultiMatch::execute_impl(FunctionContext* /*context*/, Block& block,
                                         const ColumnNumbers& arguments, uint32_t result,
@@ -55,7 +55,7 @@ InvertedIndexQueryType get_query_type(const std::string& query_type) {
 
 Status FunctionMultiMatch::evaluate_inverted_index(
         const ColumnsWithTypeAndName& arguments,
-        const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+        const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
         std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
         const InvertedIndexAnalyzerCtx* analyzer_ctx,
         segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
@@ -111,4 +111,4 @@ void register_function_multi_match(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMultiMatch>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -40,14 +40,14 @@
 #include "util/time.h"
 #include "util/uid_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 SpillStreamManager::~SpillStreamManager() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
 }
 SpillStreamManager::SpillStreamManager(
-        std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>>&&
+        std::unordered_map<std::string, std::unique_ptr<SpillDataDir>>&&
                 spill_store_map)
         : _spill_store_map(std::move(spill_store_map)), _stop_background_threads_latch(1) {}
 
@@ -397,4 +397,4 @@ std::string SpillDataDir::debug_string() {
             PrettyPrinter::print_bytes(_spill_data_bytes),
             PrettyPrinter::print_bytes(_available_bytes));
 }
-} // namespace doris::vectorized
+} // namespace doris

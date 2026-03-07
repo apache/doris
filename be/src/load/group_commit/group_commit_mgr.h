@@ -41,14 +41,12 @@ class ExecEnv;
 class TUniqueId;
 class RuntimeState;
 
-namespace pipeline {
 class Dependency;
-}
 
 struct BlockData {
-    BlockData(const std::shared_ptr<vectorized::Block>& block)
+    BlockData(const std::shared_ptr<Block>& block)
             : block(block), block_bytes(block->bytes()) {};
-    std::shared_ptr<vectorized::Block> block;
+    std::shared_ptr<Block> block;
     size_t block_bytes;
 };
 
@@ -71,13 +69,13 @@ public:
               _group_commit_data_bytes(group_commit_data_bytes),
               _all_block_queues_bytes(all_block_queues_bytes) {};
 
-    Status add_block(RuntimeState* runtime_state, std::shared_ptr<vectorized::Block> block,
+    Status add_block(RuntimeState* runtime_state, std::shared_ptr<Block> block,
                      bool write_wal, UniqueId& load_id);
-    Status get_block(RuntimeState* runtime_state, vectorized::Block* block, bool* find_block,
-                     bool* eos, std::shared_ptr<pipeline::Dependency> get_block_dep);
+    Status get_block(RuntimeState* runtime_state, Block* block, bool* find_block,
+                     bool* eos, std::shared_ptr<Dependency> get_block_dep);
     bool contain_load_id(const UniqueId& load_id);
     Status add_load_id(const UniqueId& load_id,
-                       const std::shared_ptr<pipeline::Dependency> put_block_dep);
+                       const std::shared_ptr<Dependency> put_block_dep);
     Status remove_load_id(const UniqueId& load_id);
     void cancel(const Status& st);
     bool need_commit() { return _need_commit; }
@@ -87,8 +85,8 @@ public:
                       int be_exe_version);
     Status close_wal();
     bool has_enough_wal_disk_space(size_t estimated_wal_bytes);
-    void append_dependency(std::shared_ptr<pipeline::Dependency> finish_dep);
-    void append_read_dependency(std::shared_ptr<pipeline::Dependency> read_dep);
+    void append_dependency(std::shared_ptr<Dependency> finish_dep);
+    void append_read_dependency(std::shared_ptr<Dependency> read_dep);
     int64_t get_group_commit_interval_ms() { return _group_commit_interval_ms; };
 
     std::string debug_string() const {
@@ -119,20 +117,20 @@ public:
     std::mutex mutex;
     std::atomic<bool> process_finish = false;
     Status status = Status::OK();
-    std::vector<std::shared_ptr<pipeline::Dependency>> dependencies;
+    std::vector<std::shared_ptr<Dependency>> dependencies;
 
 private:
     void _cancel_without_lock(const Status& st);
     std::string _get_load_ids();
 
     // the set of load ids of all blocks in this queue
-    std::map<UniqueId, std::shared_ptr<pipeline::Dependency>> _load_ids_to_write_dep;
-    std::vector<std::shared_ptr<pipeline::Dependency>> _read_deps;
+    std::map<UniqueId, std::shared_ptr<Dependency>> _load_ids_to_write_dep;
+    std::vector<std::shared_ptr<Dependency>> _read_deps;
     std::list<BlockData> _block_queue;
 
     // wal
     std::string _wal_base_path;
-    std::shared_ptr<vectorized::VWalWriter> _v_wal_writer;
+    std::shared_ptr<VWalWriter> _v_wal_writer;
 
     // commit
     bool _need_commit = false;
@@ -163,11 +161,11 @@ public:
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue,
                                       int be_exe_version,
                                       std::shared_ptr<MemTrackerLimiter> mem_tracker,
-                                      std::shared_ptr<pipeline::Dependency> create_plan_dep,
-                                      std::shared_ptr<pipeline::Dependency> put_block_dep);
+                                      std::shared_ptr<Dependency> create_plan_dep,
+                                      std::shared_ptr<Dependency> put_block_dep);
     Status get_load_block_queue(const TUniqueId& instance_id,
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue,
-                                std::shared_ptr<pipeline::Dependency> get_block_dep);
+                                std::shared_ptr<Dependency> get_block_dep);
     void remove_load_id(const UniqueId& load_id);
 
 private:
@@ -193,8 +191,8 @@ private:
     bool _is_creating_plan_fragment = false;
     // user_load_id -> <create_plan_dep, put_block_dep, base_schema_version, index_size>
     std::unordered_map<UniqueId,
-                       std::tuple<std::shared_ptr<pipeline::Dependency>,
-                                  std::shared_ptr<pipeline::Dependency>, int64_t, int64_t>>
+                       std::tuple<std::shared_ptr<Dependency>,
+                                  std::shared_ptr<Dependency>, int64_t, int64_t>>
             _create_plan_deps;
     std::string _create_plan_failed_reason;
 };
@@ -209,14 +207,14 @@ public:
     // used when init group_commit_scan_node
     Status get_load_block_queue(int64_t table_id, const TUniqueId& instance_id,
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue,
-                                std::shared_ptr<pipeline::Dependency> get_block_dep);
+                                std::shared_ptr<Dependency> get_block_dep);
     Status get_first_block_load_queue(int64_t db_id, int64_t table_id, int64_t base_schema_version,
                                       int64_t index_size, const UniqueId& load_id,
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue,
                                       int be_exe_version,
                                       std::shared_ptr<MemTrackerLimiter> mem_tracker,
-                                      std::shared_ptr<pipeline::Dependency> create_plan_dep,
-                                      std::shared_ptr<pipeline::Dependency> put_block_dep);
+                                      std::shared_ptr<Dependency> create_plan_dep,
+                                      std::shared_ptr<Dependency> put_block_dep);
     void remove_load_id(int64_t table_id, const UniqueId& load_id);
     std::promise<Status> debug_promise;
     std::future<Status> debug_future = debug_promise.get_future();

@@ -38,7 +38,7 @@
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
-namespace doris::vectorized {
+namespace doris {
 class SortTest : public testing::Test {
 public:
     SortTest() = default;
@@ -124,7 +124,7 @@ public:
 
     MockRuntimeState _state;
 
-    std::unique_ptr<vectorized::Sorter> sorter;
+    std::unique_ptr<Sorter> sorter;
 }; // class SortTestParam
 
 std::pair<ColumnInt32::Ptr, ColumnInt32::Ptr> get_unsort_and_sorted_column(int64_t rows,
@@ -187,7 +187,7 @@ TEST_F(SortTest, test_sorter) {
     std::vector<bool> is_asc_order {true, true};
     std::vector<bool> nulls_first {false, false};
 
-    std::unique_ptr<vectorized::Sorter> sorter;
+    std::unique_ptr<Sorter> sorter;
     DataTypes data_types {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()};
     row_desc.reset(new MockRowDescriptor(data_types, &pool));
 
@@ -212,4 +212,4 @@ TEST_F(SortTest, test_sorter) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

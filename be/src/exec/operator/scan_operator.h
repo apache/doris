@@ -34,13 +34,13 @@
 #include "runtime/descriptors.h"
 #include "storage/predicate/filter_olap_param.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class ScannerDelegate;
 class OlapScanner;
-} // namespace doris::vectorized
+} // namespace doris
 
-namespace doris::pipeline {
+namespace doris {
 
 enum class PushDownType {
     // The predicate can not be pushed down to data source
@@ -81,7 +81,7 @@ public:
     // https://github.com/apache/doris/pull/44635
     [[nodiscard]] virtual int max_scanners_concurrency(RuntimeState* state) const;
     [[nodiscard]] virtual int min_scanners_concurrency(RuntimeState* state) const;
-    [[nodiscard]] virtual vectorized::ScannerScheduler* scan_scheduler(RuntimeState* state) const;
+    [[nodiscard]] virtual ScannerScheduler* scan_scheduler(RuntimeState* state) const;
 
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
 
@@ -89,11 +89,11 @@ public:
 
     Status update_late_arrival_runtime_filter(RuntimeState* state, int& arrived_rf_num);
 
-    Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& scanner_conjuncts);
+    Status clone_conjunct_ctxs(VExprContextSPtrs& scanner_conjuncts);
 
 protected:
-    friend class vectorized::ScannerContext;
-    friend class vectorized::Scanner;
+    friend class ScannerContext;
+    friend class Scanner;
 
     virtual Status _init_profile() = 0;
 
@@ -194,15 +194,15 @@ class ScanLocalState : public ScanLocalStateBase {
 protected:
     template <typename LocalStateType>
     friend class ScanOperatorX;
-    friend class vectorized::ScannerContext;
-    friend class vectorized::Scanner;
+    friend class ScannerContext;
+    friend class Scanner;
 
     Status _init_profile() override;
     virtual Status _process_conjuncts(RuntimeState* state) { return _normalize_conjuncts(state); }
     virtual bool _should_push_down_common_expr() { return false; }
 
     virtual bool _storage_no_merge() { return false; }
-    virtual bool _push_down_topn(const vectorized::RuntimePredicate& predicate) { return false; }
+    virtual bool _push_down_topn(const RuntimePredicate& predicate) { return false; }
     virtual bool _is_key_column(const std::string& col_name) { return false; }
     virtual PushDownType _should_push_down_bloom_filter() const {
         return PushDownType::UNACCEPTABLE;
@@ -214,20 +214,20 @@ protected:
         return PushDownType::UNACCEPTABLE;
     }
     virtual PushDownType _should_push_down_is_null_predicate(
-            vectorized::VectorizedFnCall* fn_call) const {
+            VectorizedFnCall* fn_call) const {
         return PushDownType::UNACCEPTABLE;
     }
     virtual PushDownType _should_push_down_in_predicate() const {
         return PushDownType::UNACCEPTABLE;
     }
     virtual PushDownType _should_push_down_binary_predicate(
-            vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
-            vectorized::Field& constant_val, const std::set<std::string> fn_name) const {
+            VectorizedFnCall* fn_call, VExprContext* expr_ctx,
+            Field& constant_val, const std::set<std::string> fn_name) const {
         return PushDownType::UNACCEPTABLE;
     }
 
-    virtual Status _should_push_down_function_filter(vectorized::VectorizedFnCall* fn_call,
-                                                     vectorized::VExprContext* expr_ctx,
+    virtual Status _should_push_down_function_filter(VectorizedFnCall* fn_call,
+                                                     VExprContext* expr_ctx,
                                                      StringRef* constant_str,
                                                      doris::FunctionContext** fn_ctx,
                                                      PushDownType& pdt) {
@@ -240,69 +240,69 @@ protected:
     // predicate conditions, and scheduling strategy.
     // So this method needs to be implemented separately by the subclass of ScanNode.
     // Finally, a set of scanners that have been prepared are returned.
-    virtual Status _init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {
+    virtual Status _init_scanners(std::list<ScannerSPtr>* scanners) {
         return Status::OK();
     }
 
     Status _normalize_conjuncts(RuntimeState* state);
     // Normalize a conjunct and try to convert it to column predicate recursively.
-    Status _normalize_predicate(vectorized::VExprContext* context,
-                                const vectorized::VExprSPtr& root,
-                                vectorized::VExprSPtr& output_expr);
-    bool _is_predicate_acting_on_slot(const vectorized::VExprSPtrs& children,
+    Status _normalize_predicate(VExprContext* context,
+                                const VExprSPtr& root,
+                                VExprSPtr& output_expr);
+    bool _is_predicate_acting_on_slot(const VExprSPtrs& children,
                                       SlotDescriptor** slot_desc, ColumnValueRangeType** range);
-    Status _eval_const_conjuncts(vectorized::VExprContext* expr_ctx, PushDownType* pdt);
+    Status _eval_const_conjuncts(VExprContext* expr_ctx, PushDownType* pdt);
 
     template <PrimitiveType T>
-    Status _normalize_in_predicate(vectorized::VExprContext* expr_ctx,
-                                   const vectorized::VExprSPtr& root, SlotDescriptor* slot,
+    Status _normalize_in_predicate(VExprContext* expr_ctx,
+                                   const VExprSPtr& root, SlotDescriptor* slot,
                                    std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                    ColumnValueRange<T>& range, PushDownType* pdt);
     template <PrimitiveType T>
-    Status _normalize_binary_predicate(vectorized::VExprContext* expr_ctx,
-                                       const vectorized::VExprSPtr& root, SlotDescriptor* slot,
+    Status _normalize_binary_predicate(VExprContext* expr_ctx,
+                                       const VExprSPtr& root, SlotDescriptor* slot,
                                        std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                        ColumnValueRange<T>& range, PushDownType* pdt);
-    Status _normalize_bloom_filter(vectorized::VExprContext* expr_ctx,
-                                   const vectorized::VExprSPtr& root, SlotDescriptor* slot,
+    Status _normalize_bloom_filter(VExprContext* expr_ctx,
+                                   const VExprSPtr& root, SlotDescriptor* slot,
                                    std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                    PushDownType* pdt);
-    Status _normalize_topn_filter(vectorized::VExprContext* expr_ctx,
-                                  const vectorized::VExprSPtr& root, SlotDescriptor* slot,
+    Status _normalize_topn_filter(VExprContext* expr_ctx,
+                                  const VExprSPtr& root, SlotDescriptor* slot,
                                   std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                   PushDownType* pdt);
 
-    Status _normalize_bitmap_filter(vectorized::VExprContext* expr_ctx,
-                                    const vectorized::VExprSPtr& root, SlotDescriptor* slot,
+    Status _normalize_bitmap_filter(VExprContext* expr_ctx,
+                                    const VExprSPtr& root, SlotDescriptor* slot,
                                     std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                     PushDownType* pdt);
 
-    Status _normalize_function_filters(vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
+    Status _normalize_function_filters(VExprContext* expr_ctx, SlotDescriptor* slot,
                                        PushDownType* pdt);
 
     template <PrimitiveType T>
-    Status _normalize_is_null_predicate(vectorized::VExprContext* expr_ctx,
-                                        const vectorized::VExprSPtr& root, SlotDescriptor* slot,
+    Status _normalize_is_null_predicate(VExprContext* expr_ctx,
+                                        const VExprSPtr& root, SlotDescriptor* slot,
                                         std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                         ColumnValueRange<T>& range, PushDownType* pdt);
 
     template <PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
     Status _change_value_range(bool is_equal_op, ColumnValueRange<PrimitiveType>& range,
-                               const vectorized::Field& value,
+                               const Field& value,
                                const ChangeFixedValueRangeFunc& func, const std::string& fn_name);
 
     Status _prepare_scanners();
 
     // Submit the scanner to the thread pool and start execution
-    Status _start_scanners(const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners);
+    Status _start_scanners(const std::list<std::shared_ptr<ScannerDelegate>>& scanners);
 
     // For some conjunct there is chance to elimate cast operator
     // Eg. Variant's sub column could eliminate cast in storage layer if
     // cast dst column type equals storage column type
     void get_cast_types_for_variants();
     void _filter_and_collect_cast_type_for_variant(
-            const vectorized::VExpr* expr,
-            std::unordered_map<std::string, std::vector<vectorized::DataTypePtr>>&
+            const VExpr* expr,
+            std::unordered_map<std::string, std::vector<DataTypePtr>>&
                     colname_to_cast_types);
 
     Status _get_topn_filters(RuntimeState* state);
@@ -310,16 +310,16 @@ protected:
     // Stores conjuncts that have been fully pushed down to the storage layer as predicate columns.
     // These expr contexts are kept alive to prevent their FunctionContext and constant strings
     // from being freed prematurely.
-    vectorized::VExprContextSPtrs _stale_expr_ctxs;
-    vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
+    VExprContextSPtrs _stale_expr_ctxs;
+    VExprContextSPtrs _common_expr_ctxs_push_down;
 
-    atomic_shared_ptr<vectorized::ScannerContext> _scanner_ctx;
+    atomic_shared_ptr<ScannerContext> _scanner_ctx;
 
     // Save all function predicates which may be pushed down to data source.
     std::vector<FunctionFilter> _push_down_functions;
 
     // colname -> cast dst type
-    std::map<std::string, vectorized::DataTypePtr> _cast_types_for_variants;
+    std::map<std::string, DataTypePtr> _cast_types_for_variants;
 
     // slot id -> ColumnValueRange
     // Parsed from conjuncts
@@ -332,8 +332,8 @@ protected:
     std::vector<std::shared_ptr<Dependency>> _filter_dependencies;
 
     // ScanLocalState owns the ownership of scanner, scanner context only has its weakptr
-    std::list<std::shared_ptr<vectorized::ScannerDelegate>> _scanners;
-    vectorized::Arena _arena;
+    std::list<std::shared_ptr<ScannerDelegate>> _scanners;
+    Arena _arena;
 };
 
 template <typename LocalStateType>
@@ -341,8 +341,8 @@ class ScanOperatorX : public OperatorX<LocalStateType> {
 public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
-    Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_after_projects(RuntimeState* state, Block* block,
                                     bool* eos) override {
         Status status = get_block(state, block, eos);
         if (status.ok()) {
@@ -392,7 +392,7 @@ public:
 
 protected:
     using LocalState = LocalStateType;
-    friend class vectorized::OlapScanner;
+    friend class OlapScanner;
     ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                   const DescriptorTbl& descs, int parallel_tasks = 0);
     virtual ~ScanOperatorX() = default;
@@ -418,7 +418,7 @@ protected:
     // single scanner to avoid too many scanners which will cause lots of useless read.
     bool _should_run_serial = false;
 
-    vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
+    VExprContextSPtrs _common_expr_ctxs_push_down;
 
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
@@ -435,4 +435,4 @@ protected:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

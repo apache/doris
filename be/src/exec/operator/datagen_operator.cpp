@@ -29,7 +29,7 @@ namespace doris {
 class RuntimeState;
 } // namespace doris
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 DataGenSourceOperatorX::DataGenSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                int operator_id, const DescriptorTbl& descs)
@@ -61,7 +61,7 @@ Status DataGenSourceOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status DataGenSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
+Status DataGenSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
     if (state == nullptr || block == nullptr) {
         return Status::InternalError("input is NULL pointer");
     }
@@ -75,7 +75,7 @@ Status DataGenSourceOperatorX::get_block(RuntimeState* state, vectorized::Block*
     }
     {
         SCOPED_TIMER(local_state._filter_timer);
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
+        RETURN_IF_ERROR(VExprContext::filter_block(local_state._conjuncts, block,
                                                                block->columns()));
     }
     local_state.reached_limit(block, eos);
@@ -112,4 +112,4 @@ Status DataGenLocalState::close(RuntimeState* state) {
     return PipelineXLocalState<>::close(state);
 }
 
-} // namespace doris::pipeline
+} // namespace doris

@@ -35,11 +35,11 @@ public:
     ~RuntimeFilterConsumerHelper() = default;
 
     Status init(RuntimeState* state, bool need_local_merge, int32_t node_id, int32_t operator_id,
-                std::vector<std::shared_ptr<pipeline::Dependency>>& dependencies,
+                std::vector<std::shared_ptr<Dependency>>& dependencies,
                 const std::string& name);
     // Get all arrived runtime filters at Open phase which will be push down to storage.
     // Called by Operator.
-    Status acquire_runtime_filter(RuntimeState* state, vectorized::VExprContextSPtrs& conjuncts,
+    Status acquire_runtime_filter(RuntimeState* state, VExprContextSPtrs& conjuncts,
                                   const RowDescriptor& row_descriptor);
     // The un-arrival filters will be checked every time the scanner is scheduled.
     // And once new runtime filters arrived, we will use it to do operator's filtering.
@@ -47,7 +47,7 @@ public:
     Status try_append_late_arrival_runtime_filter(RuntimeState* state,
                                                   const RowDescriptor& row_descriptor,
                                                   int& arrived_rf_num,
-                                                  vectorized::VExprContextSPtrs& arrived_conjuncts);
+                                                  VExprContextSPtrs& arrived_conjuncts);
 
     // Called by XXXLocalState::close()
     // parent_operator_profile is owned by LocalState so update it is safe at here.
@@ -58,8 +58,8 @@ public:
 private:
     // Append late-arrival runtime filters to the vconjunct_ctx.
     Status _append_rf_into_conjuncts(RuntimeState* state,
-                                     const std::vector<vectorized::VRuntimeFilterPtr>& vexprs,
-                                     vectorized::VExprContextSPtrs& conjuncts,
+                                     const std::vector<VRuntimeFilterPtr>& vexprs,
+                                     VExprContextSPtrs& conjuncts,
                                      const RowDescriptor& row_descriptor);
 
     std::vector<std::shared_ptr<RuntimeFilterConsumer>> _consumers;

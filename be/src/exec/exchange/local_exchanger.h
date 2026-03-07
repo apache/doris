@@ -22,14 +22,11 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 template <typename T>
 void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks,
                   RuntimeProfile::Counter* memory_used_counter = nullptr);
 
 class PartitionerBase;
-} // namespace vectorized
-namespace pipeline {
 class LocalExchangeSourceLocalState;
 class LocalExchangeSinkLocalState;
 
@@ -41,7 +38,7 @@ struct Profile {
 
 struct SinkInfo {
     int* channel_id;
-    vectorized::PartitionerBase* partitioner;
+    PartitionerBase* partitioner;
     LocalExchangeSinkLocalState* local_state;
     std::map<int, int>* shuffle_idx_to_instance_idx;
 };
@@ -78,7 +75,7 @@ public:
     class BlockWrapper {
     public:
         ENABLE_FACTORY_CREATOR(BlockWrapper);
-        BlockWrapper(vectorized::Block&& data_block, LocalExchangeSharedState* shared_state,
+        BlockWrapper(Block&& data_block, LocalExchangeSharedState* shared_state,
                      int channel_id)
                 : _data_block(std::move(data_block)),
                   _shared_state(shared_state),
@@ -121,7 +118,7 @@ public:
         template <typename BlockType>
         friend class Exchanger;
 
-        vectorized::Block _data_block;
+        Block _data_block;
         LocalExchangeSharedState* _shared_state;
         std::vector<int> _channel_ids;
         const size_t _allocated_bytes;
@@ -142,9 +139,9 @@ public:
               _num_sources(num_sources),
               _free_block_limit(free_block_limit) {}
     virtual ~ExchangerBase() = default;
-    virtual Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos,
+    virtual Status get_block(RuntimeState* state, Block* block, bool* eos,
                              Profile&& profile, SourceInfo&& source_info) = 0;
-    virtual Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos,
+    virtual Status sink(RuntimeState* state, Block* in_block, bool eos,
                         Profile&& profile, SinkInfo& sink_info) = 0;
     virtual ExchangeType get_type() const = 0;
     // Called if a local exchanger source operator are closed. Free the unused data block in data_queue.
@@ -171,11 +168,11 @@ protected:
     const int _num_senders;
     const int _num_sources;
     std::atomic_int _free_block_limit = 0;
-    moodycamel::ConcurrentQueue<vectorized::Block> _free_blocks;
+    moodycamel::ConcurrentQueue<Block> _free_blocks;
 };
 
 struct PartitionedRowIdxs {
-    std::shared_ptr<vectorized::PODArray<uint32_t>> row_idxs;
+    std::shared_ptr<PODArray<uint32_t>> row_idxs;
     uint32_t offset_start;
     uint32_t length;
 };
@@ -183,11 +180,11 @@ struct PartitionedRowIdxs {
 using PartitionedBlock =
         std::pair<std::shared_ptr<ExchangerBase::BlockWrapper>, PartitionedRowIdxs>;
 
-struct RowRange {
+struct BroadcastRowRange {
     uint32_t offset_start;
     size_t length;
 };
-using BroadcastBlock = std::pair<std::shared_ptr<ExchangerBase::BlockWrapper>, RowRange>;
+using BroadcastBlock = std::pair<std::shared_ptr<ExchangerBase::BlockWrapper>, BroadcastRowRange>;
 
 template <typename BlockType>
 struct BlockQueue {
@@ -258,10 +255,10 @@ protected:
     void _enqueue_data_and_set_ready(int channel_id, LocalExchangeSinkLocalState* local_state,
                                      BlockType&& block);
     bool _dequeue_data(LocalExchangeSourceLocalState* local_state, BlockType& block, bool* eos,
-                       vectorized::Block* data_block, int channel_id);
+                       Block* data_block, int channel_id);
 
     void _enqueue_data_and_set_ready(int channel_id, BlockType&& block);
-    bool _dequeue_data(BlockType& block, bool* eos, vectorized::Block* data_block, int channel_id);
+    bool _dequeue_data(BlockType& block, bool* eos, Block* data_block, int channel_id);
     std::vector<BlockQueue<BlockType>> _data_queue;
     std::vector<std::unique_ptr<std::mutex>> _m;
 };
@@ -281,21 +278,21 @@ public:
         _partition_rows_histogram.resize(running_sink_operators);
     }
     ~ShuffleExchanger() override = default;
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
+    Status sink(RuntimeState* state, Block* in_block, bool eos, Profile&& profile,
                 SinkInfo& sink_info) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos, Profile&& profile,
+    Status get_block(RuntimeState* state, Block* block, bool* eos, Profile&& profile,
                      SourceInfo&& source_info) override;
     void close(SourceInfo&& source_info) override;
     ExchangeType get_type() const override { return ExchangeType::HASH_SHUFFLE; }
 
 protected:
     Status _split_rows(RuntimeState* state, const std::vector<uint32_t>& channel_ids,
-                       vectorized::Block* block, int channel_id,
+                       Block* block, int channel_id,
                        LocalExchangeSinkLocalState* local_state,
                        std::map<int, int>* shuffle_idx_to_instance_idx);
     Status _split_rows(RuntimeState* state, const std::vector<uint32_t>& channel_ids,
-                       vectorized::Block* block, int channel_id);
+                       Block* block, int channel_id);
     std::vector<std::vector<uint32_t>> _partition_rows_histogram;
 };
 
@@ -316,10 +313,10 @@ public:
             : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions,
                                           free_block_limit) {}
     ~PassthroughExchanger() override = default;
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
+    Status sink(RuntimeState* state, Block* in_block, bool eos, Profile&& profile,
                 SinkInfo& sink_info) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos, Profile&& profile,
+    Status get_block(RuntimeState* state, Block* block, bool* eos, Profile&& profile,
                      SourceInfo&& source_info) override;
     ExchangeType get_type() const override { return ExchangeType::PASSTHROUGH; }
     void close(SourceInfo&& source_info) override;
@@ -332,10 +329,10 @@ public:
             : Exchanger<BlockWrapperSPtr>(running_sink_operators, num_partitions,
                                           free_block_limit) {}
     ~PassToOneExchanger() override = default;
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
+    Status sink(RuntimeState* state, Block* in_block, bool eos, Profile&& profile,
                 SinkInfo& sink_info) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos, Profile&& profile,
+    Status get_block(RuntimeState* state, Block* block, bool* eos, Profile&& profile,
                      SourceInfo&& source_info) override;
     ExchangeType get_type() const override { return ExchangeType::PASS_TO_ONE; }
     void close(SourceInfo&& source_info) override;
@@ -346,10 +343,10 @@ public:
     BroadcastExchanger(int running_sink_operators, int num_partitions, int free_block_limit)
             : Exchanger<BroadcastBlock>(running_sink_operators, num_partitions, free_block_limit) {}
     ~BroadcastExchanger() override = default;
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
+    Status sink(RuntimeState* state, Block* in_block, bool eos, Profile&& profile,
                 SinkInfo& sink_info) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos, Profile&& profile,
+    Status get_block(RuntimeState* state, Block* block, bool* eos, Profile&& profile,
                      SourceInfo&& source_info) override;
     ExchangeType get_type() const override { return ExchangeType::BROADCAST; }
     void close(SourceInfo&& source_info) override;
@@ -366,25 +363,24 @@ public:
                                           free_block_limit) {
         _partition_rows_histogram.resize(running_sink_operators);
     }
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos, Profile&& profile,
+    Status sink(RuntimeState* state, Block* in_block, bool eos, Profile&& profile,
                 SinkInfo& sink_info) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos, Profile&& profile,
+    Status get_block(RuntimeState* state, Block* block, bool* eos, Profile&& profile,
                      SourceInfo&& source_info) override;
     ExchangeType get_type() const override { return ExchangeType::ADAPTIVE_PASSTHROUGH; }
 
     void close(SourceInfo&& source_info) override;
 
 private:
-    Status _passthrough_sink(RuntimeState* state, vectorized::Block* in_block, SinkInfo& sink_info);
-    Status _shuffle_sink(RuntimeState* state, vectorized::Block* in_block, SinkInfo& sink_info);
+    Status _passthrough_sink(RuntimeState* state, Block* in_block, SinkInfo& sink_info);
+    Status _shuffle_sink(RuntimeState* state, Block* in_block, SinkInfo& sink_info);
     Status _split_rows(RuntimeState* state, const std::vector<uint32_t>& channel_ids,
-                       vectorized::Block* block, SinkInfo& sink_info);
+                       Block* block, SinkInfo& sink_info);
 
     std::atomic_bool _is_pass_through = false;
     std::atomic_int32_t _total_block = 0;
     std::vector<std::vector<uint32_t>> _partition_rows_histogram;
 };
 #include "common/compile_check_end.h"
-} // namespace pipeline
 } // namespace doris

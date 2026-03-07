@@ -33,46 +33,46 @@ namespace doris {
 class RuntimeFilterProducerHelperTest : public RuntimeFilterTest {
     void SetUp() override {
         RuntimeFilterTest::SetUp();
-        _pipeline = std::make_shared<pipeline::Pipeline>(0, INSTANCE_NUM, INSTANCE_NUM);
-        _op.reset(new pipeline::MockOperatorX());
+        _pipeline = std::make_shared<Pipeline>(0, INSTANCE_NUM, INSTANCE_NUM);
+        _op.reset(new MockOperatorX());
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(_pipeline->add_operator(_op, 2));
 
-        _sink.reset(new pipeline::HashJoinBuildSinkOperatorX(
+        _sink.reset(new HashJoinBuildSinkOperatorX(
                 &_pool, 0, _op->operator_id(),
                 TPlanNodeBuilder(0, TPlanNodeType::HASH_JOIN_NODE).build(), _tbl));
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(_pipeline->set_sink(_sink));
 
         for (int i = 0; i < INSTANCE_NUM; i++) {
-            _tasks.emplace_back(new pipeline::PipelineTask(_pipeline, 0, _runtime_states[i].get(),
+            _tasks.emplace_back(new PipelineTask(_pipeline, 0, _runtime_states[i].get(),
                                                            nullptr, &_profile, {}, 0));
         }
     }
 
-    pipeline::OperatorPtr _op;
-    pipeline::DataSinkOperatorPtr _sink;
-    pipeline::PipelinePtr _pipeline;
-    std::vector<std::shared_ptr<pipeline::PipelineTask>> _tasks;
+    OperatorPtr _op;
+    DataSinkOperatorPtr _sink;
+    PipelinePtr _pipeline;
+    std::vector<std::shared_ptr<PipelineTask>> _tasks;
     ObjectPool _pool;
 };
 
 TEST_F(RuntimeFilterProducerHelperTest, basic) {
     auto helper = RuntimeFilterProducerHelper(true, false);
 
-    vectorized::VExprContextSPtr ctx;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
+    VExprContextSPtr ctx;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(VExpr::create_expr_tree(
             TRuntimeFilterDescBuilder::get_default_expr(), ctx));
     ctx->_last_result_column_id = 0;
 
-    vectorized::VExprContextSPtrs build_expr_ctxs = {ctx};
+    VExprContextSPtrs build_expr_ctxs = {ctx};
     std::vector<TRuntimeFilterDesc> runtime_filter_descs = {TRuntimeFilterDescBuilder().build()};
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             helper.init(_runtime_states[0].get(), build_expr_ctxs, runtime_filter_descs));
 
-    vectorized::Block block;
-    auto column = vectorized::ColumnInt32::create();
-    column->insert(vectorized::Field::create_field<TYPE_INT>(1));
-    column->insert(vectorized::Field::create_field<TYPE_INT>(2));
-    block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
+    Block block;
+    auto column = ColumnInt32::create();
+    column->insert(Field::create_field<TYPE_INT>(1));
+    column->insert(Field::create_field<TYPE_INT>(2));
+    block.insert({std::move(column), std::make_shared<DataTypeInt32>(), "col1"});
 
     std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
@@ -83,22 +83,22 @@ TEST_F(RuntimeFilterProducerHelperTest, basic) {
 TEST_F(RuntimeFilterProducerHelperTest, wake_up_eraly) {
     auto helper = RuntimeFilterProducerHelper(true, false);
 
-    vectorized::VExprContextSPtr ctx;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
+    VExprContextSPtr ctx;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(VExpr::create_expr_tree(
             TRuntimeFilterDescBuilder::get_default_expr(), ctx));
     ctx->_last_result_column_id = 0;
 
-    vectorized::VExprContextSPtrs build_expr_ctxs = {ctx};
+    VExprContextSPtrs build_expr_ctxs = {ctx};
     std::vector<TRuntimeFilterDesc> runtime_filter_descs = {
             TRuntimeFilterDescBuilder().set_build_bf_by_runtime_size(true).build()};
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             helper.init(_runtime_states[0].get(), build_expr_ctxs, runtime_filter_descs));
 
-    vectorized::Block block;
-    auto column = vectorized::ColumnInt32::create();
-    column->insert(vectorized::Field::create_field<TYPE_INT>(1));
-    column->insert(vectorized::Field::create_field<TYPE_INT>(2));
-    block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
+    Block block;
+    auto column = ColumnInt32::create();
+    column->insert(Field::create_field<TYPE_INT>(1));
+    column->insert(Field::create_field<TYPE_INT>(2));
+    block.insert({std::move(column), std::make_shared<DataTypeInt32>(), "col1"});
 
     _tasks[0]->set_wake_up_early();
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.skip_process(_runtime_states[0].get()));
@@ -107,12 +107,12 @@ TEST_F(RuntimeFilterProducerHelperTest, wake_up_eraly) {
 TEST_F(RuntimeFilterProducerHelperTest, skip_process) {
     auto helper = RuntimeFilterProducerHelper(true, false);
 
-    vectorized::VExprContextSPtr ctx;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
+    VExprContextSPtr ctx;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(VExpr::create_expr_tree(
             TRuntimeFilterDescBuilder::get_default_expr(), ctx));
     ctx->_last_result_column_id = 0;
 
-    vectorized::VExprContextSPtrs build_expr_ctxs = {ctx};
+    VExprContextSPtrs build_expr_ctxs = {ctx};
     std::vector<TRuntimeFilterDesc> runtime_filter_descs = {
             TRuntimeFilterDescBuilder().set_build_bf_by_runtime_size(true).build()};
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
@@ -123,11 +123,11 @@ TEST_F(RuntimeFilterProducerHelperTest, skip_process) {
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             helper.send_filter_size(_runtime_states[0].get(), 123, nullptr));
 
-    vectorized::Block block;
-    auto column = vectorized::ColumnInt32::create();
-    column->insert(vectorized::Field::create_field<TYPE_INT>(1));
-    column->insert(vectorized::Field::create_field<TYPE_INT>(2));
-    block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
+    Block block;
+    auto column = ColumnInt32::create();
+    column->insert(Field::create_field<TYPE_INT>(1));
+    column->insert(Field::create_field<TYPE_INT>(2));
+    block.insert({std::move(column), std::make_shared<DataTypeInt32>(), "col1"});
 
     std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
@@ -138,21 +138,21 @@ TEST_F(RuntimeFilterProducerHelperTest, skip_process) {
 TEST_F(RuntimeFilterProducerHelperTest, broadcast) {
     auto helper = RuntimeFilterProducerHelper(true, true);
 
-    vectorized::VExprContextSPtr ctx;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
+    VExprContextSPtr ctx;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(VExpr::create_expr_tree(
             TRuntimeFilterDescBuilder::get_default_expr(), ctx));
     ctx->_last_result_column_id = 0;
 
-    vectorized::VExprContextSPtrs build_expr_ctxs = {ctx};
+    VExprContextSPtrs build_expr_ctxs = {ctx};
     std::vector<TRuntimeFilterDesc> runtime_filter_descs = {TRuntimeFilterDescBuilder().build()};
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             helper.init(_runtime_states[0].get(), build_expr_ctxs, runtime_filter_descs));
 
-    vectorized::Block block;
-    auto column = vectorized::ColumnInt32::create();
-    column->insert(vectorized::Field::create_field<TYPE_INT>(1));
-    column->insert(vectorized::Field::create_field<TYPE_INT>(2));
-    block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
+    Block block;
+    auto column = ColumnInt32::create();
+    column->insert(Field::create_field<TYPE_INT>(1));
+    column->insert(Field::create_field<TYPE_INT>(2));
+    block.insert({std::move(column), std::make_shared<DataTypeInt32>(), "col1"});
 
     std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(

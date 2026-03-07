@@ -34,12 +34,10 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 namespace doris {
-namespace vectorized {
 struct FieldSchema;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 bool PageIndex::check_and_get_page_index_ranges(const std::vector<tparquet::ColumnChunk>& columns) {
@@ -90,4 +88,4 @@ Status PageIndex::parse_offset_index(const tparquet::ColumnChunk& chunk, const u
 }
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -32,11 +32,11 @@
 #include "gtest/gtest.h"
 #include "storage/tablet/tablet_schema.h"
 
-namespace doris::vectorized::variant_util {
+namespace doris::variant_util {
 
-static vectorized::ColumnString::MutablePtr _make_json_column(
+static ColumnString::MutablePtr _make_json_column(
         const std::vector<std::string_view>& rows) {
-    auto col = vectorized::ColumnString::create();
+    auto col = ColumnString::create();
     for (const auto& s : rows) {
         col->insert_data(s.data(), s.size());
     }
@@ -50,12 +50,12 @@ TEST(VariantUtilTest, ParseDocValueToSubcolumns_FillsDefaultsAndValues) {
             R"({"a":3})",         //
     };
 
-    auto variant = vectorized::ColumnVariant::create(0);
+    auto variant = ColumnVariant::create(0);
     auto json_col = _make_json_column(jsons);
 
-    vectorized::ParseConfig cfg;
+    ParseConfig cfg;
     cfg.enable_flatten_nested = false;
-    cfg.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
+    cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
     parse_json_to_variant(*variant, *json_col, cfg);
 
     EXPECT_TRUE(variant->is_doc_mode());
@@ -71,7 +71,7 @@ TEST(VariantUtilTest, ParseDocValueToSubcolumns_FillsDefaultsAndValues) {
     EXPECT_EQ(a.size(), jsons.size());
     EXPECT_EQ(b.size(), jsons.size());
 
-    vectorized::FieldWithDataType fa;
+    FieldWithDataType fa;
     a.get(0, fa);
     EXPECT_EQ(fa.field.get_type(), PrimitiveType::TYPE_BIGINT);
     EXPECT_EQ(fa.field.get<TYPE_BIGINT>(), 1);
@@ -83,7 +83,7 @@ TEST(VariantUtilTest, ParseDocValueToSubcolumns_FillsDefaultsAndValues) {
     EXPECT_EQ(fa.field.get_type(), PrimitiveType::TYPE_BIGINT);
     EXPECT_EQ(fa.field.get<TYPE_BIGINT>(), 3);
 
-    vectorized::FieldWithDataType fb;
+    FieldWithDataType fb;
     b.get(0, fb);
     EXPECT_EQ(fb.field.get_type(), PrimitiveType::TYPE_STRING);
     EXPECT_EQ(fb.field.get<TYPE_STRING>(), "x");
@@ -102,12 +102,12 @@ TEST(VariantUtilTest, ParseOnlyDocValueColumn_SerializesMixedTypes) {
             R"({"b":false,"arr":[4],"s":"y"})",
     };
 
-    auto variant = vectorized::ColumnVariant::create(0);
+    auto variant = ColumnVariant::create(0);
     auto json_col = _make_json_column(jsons);
 
-    vectorized::ParseConfig cfg;
+    ParseConfig cfg;
     cfg.enable_flatten_nested = false;
-    cfg.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
+    cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
     parse_json_to_variant(*variant, *json_col, cfg);
 
     EXPECT_TRUE(variant->is_doc_mode());
@@ -133,7 +133,7 @@ TEST(VariantUtilTest, ParseOnlyDocValueColumn_SerializesMixedTypes) {
     arr2.finalize();
     s.finalize();
 
-    vectorized::FieldWithDataType f;
+    FieldWithDataType f;
     b.get(0, f);
     EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BOOLEAN);
     EXPECT_EQ(f.field.get<TYPE_BOOLEAN>(), true);
@@ -186,25 +186,25 @@ TEST(VariantUtilTest, ParseVariantColumns_ScalarJsonStringToSubcolumns) {
     TabletSchema tablet_schema;
     tablet_schema.init_from_pb(schema_pb);
 
-    auto variant = vectorized::ColumnVariant::create(0);
+    auto variant = ColumnVariant::create(0);
     doris::VariantUtil::insert_root_scalar_field(
-            *variant, vectorized::Field::create_field<TYPE_STRING>(String(R"({"a":1})")));
+            *variant, Field::create_field<TYPE_STRING>(String(R"({"a":1})")));
     doris::VariantUtil::insert_root_scalar_field(
-            *variant, vectorized::Field::create_field<TYPE_STRING>(String(R"({"a":2})")));
+            *variant, Field::create_field<TYPE_STRING>(String(R"({"a":2})")));
 
-    vectorized::Block block;
-    block.insert({variant->get_ptr(), std::make_shared<vectorized::DataTypeVariant>(0), "v"});
+    Block block;
+    block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0), "v"});
 
     const std::vector<uint32_t> column_pos {0};
     Status st = parse_and_materialize_variant_columns(block, tablet_schema, column_pos);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     const auto& col0 = *block.get_by_position(0).column;
-    const auto& out = assert_cast<const vectorized::ColumnVariant&>(col0);
+    const auto& out = assert_cast<const ColumnVariant&>(col0);
 
-    const auto* sub_a = out.get_subcolumn(vectorized::PathInData("a"));
+    const auto* sub_a = out.get_subcolumn(PathInData("a"));
     ASSERT_TRUE(sub_a != nullptr);
-    vectorized::FieldWithDataType f;
+    FieldWithDataType f;
     sub_a->get(0, f);
     EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
     EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 1);
@@ -220,30 +220,30 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeBinaryToSubcolumns) {
     };
 
     // Build a doc-mode ColumnVariant: Only root in subcolumns, others stored in doc snapshot column.
-    auto variant = vectorized::ColumnVariant::create(0);
+    auto variant = ColumnVariant::create(0);
     auto json_col = _make_json_column(jsons);
-    vectorized::ParseConfig cfg;
+    ParseConfig cfg;
     cfg.enable_flatten_nested = false;
-    cfg.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
+    cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
     parse_json_to_variant(*variant, *json_col, cfg);
     ASSERT_TRUE(variant->is_doc_mode());
 
-    vectorized::Block block;
-    block.insert({variant->get_ptr(), std::make_shared<vectorized::DataTypeVariant>(0), "v"});
+    Block block;
+    block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0), "v"});
 
-    vectorized::ParseConfig parse_cfg;
+    ParseConfig parse_cfg;
     parse_cfg.enable_flatten_nested = false;
-    parse_cfg.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
+    parse_cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
     Status st =
             parse_and_materialize_variant_columns(block, std::vector<uint32_t> {0}, {parse_cfg});
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     const auto& out =
-            assert_cast<const vectorized::ColumnVariant&>(*block.get_by_position(0).column);
+            assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
     EXPECT_TRUE(out.is_doc_mode());
 
-    const auto* sub_a = out.get_subcolumn(vectorized::PathInData("a"));
-    const auto* sub_b = out.get_subcolumn(vectorized::PathInData("b"));
+    const auto* sub_a = out.get_subcolumn(PathInData("a"));
+    const auto* sub_b = out.get_subcolumn(PathInData("b"));
     ASSERT_TRUE(sub_a == nullptr);
     ASSERT_TRUE(sub_b == nullptr);
 
@@ -255,7 +255,7 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeBinaryToSubcolumns) {
     materialized_a.finalize();
     materialized_b.finalize();
 
-    vectorized::FieldWithDataType f;
+    FieldWithDataType f;
     materialized_a.get(0, f);
     EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
     EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 1);
@@ -273,21 +273,21 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeBinaryToSubcolumns) {
 
 TEST(VariantUtilTest, ParseVariantColumns_DocModeRejectOnlySubcolumnsConfig) {
     const std::vector<std::string_view> jsons = {R"({"a":1})"};
-    auto variant = vectorized::ColumnVariant::create(0);
+    auto variant = ColumnVariant::create(0);
     auto json_col = _make_json_column(jsons);
 
-    vectorized::ParseConfig cfg;
+    ParseConfig cfg;
     cfg.enable_flatten_nested = false;
-    cfg.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
+    cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
     parse_json_to_variant(*variant, *json_col, cfg);
     ASSERT_TRUE(variant->is_doc_mode());
 
-    vectorized::Block block;
-    block.insert({variant->get_ptr(), std::make_shared<vectorized::DataTypeVariant>(0), "v"});
+    Block block;
+    block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0), "v"});
 
-    vectorized::ParseConfig parse_cfg;
+    ParseConfig parse_cfg;
     parse_cfg.enable_flatten_nested = false;
-    parse_cfg.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
+    parse_cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
     Status st =
             parse_and_materialize_variant_columns(block, std::vector<uint32_t> {0}, {parse_cfg});
     EXPECT_TRUE(st.ok()) << st.to_string();
@@ -425,4 +425,4 @@ TEST(VariantUtilTest, GlobMatchRe2) {
     EXPECT_FALSE(glob_match_re2("a[\\]b", "a]b"));
 }
 
-} // namespace doris::vectorized::variant_util
+} // namespace doris::variant_util
