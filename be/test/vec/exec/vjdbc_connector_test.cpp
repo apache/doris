@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/jdbc_utils.h"
-
 #include <gtest/gtest.h>
 
 #include <cstdlib>
@@ -26,6 +24,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "util/jdbc_utils.h"
 
 namespace doris {
 
