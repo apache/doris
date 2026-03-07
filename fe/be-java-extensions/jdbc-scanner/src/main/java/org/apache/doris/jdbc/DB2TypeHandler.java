@@ -22,9 +22,13 @@ import org.apache.doris.common.jni.vec.ColumnType;
 import com.zaxxer.hikari.HikariDataSource;
 
 import java.math.BigDecimal;
+import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 /**
  * DB2-specific type handler.
@@ -48,11 +52,17 @@ public class DB2TypeHandler extends DefaultTypeHandler {
             case BIGINT:
             case FLOAT:
             case DOUBLE:
-            case DATE:
-            case DATEV2:
-            case DATETIME:
-            case DATETIMEV2:
                 return rs.getObject(columnIndex);
+            case DATE:
+            case DATEV2: {
+                Date sqlDate = rs.getDate(columnIndex);
+                return rs.wasNull() ? null : sqlDate.toLocalDate();
+            }
+            case DATETIME:
+            case DATETIMEV2: {
+                Timestamp ts = rs.getTimestamp(columnIndex);
+                return rs.wasNull() ? null : ts.toLocalDateTime();
+            }
             case CHAR:
             case VARCHAR:
             case STRING:
