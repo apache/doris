@@ -21,7 +21,7 @@
 #include <mutex>
 #include <string>
 
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 #include "util/metrics.h"
 
 namespace doris {
@@ -31,7 +31,7 @@ class Status;
 class StreamLoadContext;
 class HttpRequest;
 
-class StreamLoadAction : public HttpHandler {
+class StreamLoadAction : public HttpHandlerWithAuth {
 public:
     StreamLoadAction(ExecEnv* exec_env);
     ~StreamLoadAction() override;
@@ -56,7 +56,7 @@ private:
     void _send_reply(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req);
 
 private:
-    ExecEnv* _exec_env;
+    // Note: _exec_env is inherited from HttpHandlerWithAuth
 
     std::shared_ptr<MetricEntity> _stream_load_entity;
     IntCounter* streaming_load_requests_total;

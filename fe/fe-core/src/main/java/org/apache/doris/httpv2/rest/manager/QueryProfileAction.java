@@ -29,6 +29,7 @@ import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.profile.ProfileManager.ProfileElement;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.mysql.privilege.Auth;
@@ -459,8 +460,8 @@ public class QueryProfileAction extends RestBaseController {
     @RequestMapping(path = "/current_queries", method = RequestMethod.GET)
     public Object currentQueries(HttpServletRequest request, HttpServletResponse response,
             @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true") boolean isAllNode) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
 
         if (isAllNode) {
             // Get current queries from all FE
@@ -513,8 +514,8 @@ public class QueryProfileAction extends RestBaseController {
     public Object killQuery(HttpServletRequest request, HttpServletResponse response,
             @PathVariable("query_id") String queryId,
             @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true") boolean isAllNode) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
 
         if (isAllNode) {
             // Get current queries from all FE

@@ -19,9 +19,9 @@ package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -55,8 +55,8 @@ public class QueryStatsAction extends RestBaseController {
         if (pretty && summary) {
             return ResponseEntityBuilder.badRequest("pretty and summary can not be true at the same time");
         }
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         // use NS_KEY as catalog, but NS_KEY's default value is 'default_cluster'.
         if (catalog.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             catalog = InternalCatalog.INTERNAL_CATALOG_NAME;
@@ -82,8 +82,8 @@ public class QueryStatsAction extends RestBaseController {
         if (pretty && summary) {
             return ResponseEntityBuilder.badRequest("pretty and summary can not be true at the same time");
         }
-        executeCheckPassword(request, response);
-        checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), database, PrivPredicate.SHOW);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkDbAuth(authInfo.userIdentity, database, PrivPredicate.SHOW);
         // use NS_KEY as catalog, but NS_KEY's default value is 'default_cluster'.
         if (catalog.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             catalog = InternalCatalog.INTERNAL_CATALOG_NAME;
@@ -109,8 +109,8 @@ public class QueryStatsAction extends RestBaseController {
         if (pretty && summary) {
             return ResponseEntityBuilder.badRequest("pretty and summary can not be true at the same time");
         }
-        executeCheckPassword(request, response);
-        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), database, table, PrivPredicate.SHOW);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkTblAuth(authInfo.userIdentity, database, table, PrivPredicate.SHOW);
         // use NS_KEY as catalog, but NS_KEY's default value is 'default_cluster'.
         if (catalog.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             catalog = InternalCatalog.INTERNAL_CATALOG_NAME;
@@ -137,8 +137,8 @@ public class QueryStatsAction extends RestBaseController {
         if (pretty && summary) {
             return ResponseEntityBuilder.badRequest("pretty and summary can not be true at the same time");
         }
-        executeCheckPassword(request, response);
-        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), database, table, PrivPredicate.SHOW);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkTblAuth(authInfo.userIdentity, database, table, PrivPredicate.SHOW);
         // use NS_KEY as catalog, but NS_KEY's default value is 'default_cluster'.
         if (catalog.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             catalog = InternalCatalog.INTERNAL_CATALOG_NAME;
@@ -159,8 +159,8 @@ public class QueryStatsAction extends RestBaseController {
     @RequestMapping(path = "/api/query_stats/{catalog}/{database}", method = RequestMethod.DELETE)
     protected Object clearQueryStatsFromDatabase(@PathVariable("catalog") String catalog,
             @PathVariable("database") String database, HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         // use NS_KEY as catalog, but NS_KEY's default value is 'default_cluster'.
         if (catalog.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             catalog = InternalCatalog.INTERNAL_CATALOG_NAME;
@@ -173,8 +173,8 @@ public class QueryStatsAction extends RestBaseController {
     protected Object clearQueryStatsFromTable(@PathVariable("catalog") String catalog,
             @PathVariable("database") String database, @PathVariable("table") String table, HttpServletRequest request,
             HttpServletResponse response) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         // use NS_KEY as catalog, but NS_KEY's default value is 'default_cluster'.
         if (catalog.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             catalog = InternalCatalog.INTERNAL_CATALOG_NAME;

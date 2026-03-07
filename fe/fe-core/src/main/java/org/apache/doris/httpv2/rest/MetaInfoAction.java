@@ -33,6 +33,7 @@ import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.BadRequestException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -89,7 +90,10 @@ public class MetaInfoAction extends RestBaseController {
             @PathVariable(value = NS_KEY) String ns,
             HttpServletRequest request, HttpServletResponse response) {
         boolean checkAuth = Config.enable_all_http_auth ? true : false;
-        checkWithCookie(request, response, checkAuth);
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, checkAuth);
+        if (Config.enable_all_http_auth) {
+            checkAdminAuth(authInfo.userIdentity);
+        }
 
         // use NS_KEY as catalog, but NS_KEY's default value is 'default_cluster'.
         if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
@@ -138,7 +142,10 @@ public class MetaInfoAction extends RestBaseController {
             @PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
             HttpServletRequest request, HttpServletResponse response) {
         boolean checkAuth = Config.enable_all_http_auth ? true : false;
-        checkWithCookie(request, response, checkAuth);
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, checkAuth);
+        if (Config.enable_all_http_auth) {
+            checkAdminAuth(authInfo.userIdentity);
+        }
 
         if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
@@ -216,7 +223,10 @@ public class MetaInfoAction extends RestBaseController {
             @PathVariable(value = TABLE_KEY) String tblName,
             HttpServletRequest request, HttpServletResponse response) throws UserException {
         boolean checkAuth = Config.enable_all_http_auth ? true : false;
-        checkWithCookie(request, response, checkAuth);
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, checkAuth);
+        if (Config.enable_all_http_auth) {
+            checkAdminAuth(authInfo.userIdentity);
+        }
 
         if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
