@@ -54,7 +54,7 @@ public:
               const std::map<std::string, std::string>& docvalue_context, bool doc_value_mode,
               RuntimeProfile* profile);
 
-    Status open(RuntimeState* state) override;
+    Status _open_impl(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     Status init(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
 

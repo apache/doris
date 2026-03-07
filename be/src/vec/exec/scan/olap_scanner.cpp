@@ -305,8 +305,8 @@ Status OlapScanner::prepare() {
     return Status::OK();
 }
 
-Status OlapScanner::open(RuntimeState* state) {
-    RETURN_IF_ERROR(Scanner::open(state));
+Status OlapScanner::_open_impl(RuntimeState* state) {
+    RETURN_IF_ERROR(Scanner::_open_impl(state));
     SCOPED_TIMER(_local_state->cast<pipeline::OlapScanLocalState>()._reader_init_timer);
 
     auto res = _tablet_reader->init(_tablet_reader_params);
