@@ -64,16 +64,17 @@ jobs:
         run: |
           git clone -b v7 https://github.com/easimon/maximize-build-space
 
-      - name: Maximize build space
-        uses: ./maximize-build-space
-        with:
-            root-reserve-mb: 4096
-            swap-size-mb: 8192
-            remove-dotnet: 'true'
-            remove-android: 'true'
-            remove-haskell: 'true'
-            remove-codeql: 'true'
-            remove-docker-images: 'true'
+      #- name: Maximize build space
+      #  uses: ./maximize-build-space
+      #  with:
+      #      root-reserve-mb: 4096
+      #      temp-reserve-mb: 4096
+      #      swap-size-mb: 8192
+      #      remove-dotnet: 'true'
+      #      remove-android: 'true'
+      #      remove-haskell: 'true'
+      #      remove-codeql: 'true'
+      #      remove-docker-images: 'true'
 
       - name: Checkout ${{ github.ref }}
         uses: actions/checkout@v3
@@ -131,8 +132,18 @@ jobs:
           export JAVA_HOME="$(find /usr/lib/jvm/java-8-openjdk* -maxdepth 0)"
           export DORIS_TOOLCHAIN=gcc
 
+          #export TMPDIR=/home/runner/work/doris/doris/.tmp
+          #export TMP=$TMPDIR
+          #export TEMP=$TMPDIR
+          #mkdir -p $TMPDIR
+
+          df -h
+          echo $TMPDIR
+          echo $RUNNER_TEMP
+
           cd thirdparty
-          ./build-thirdparty.sh -j "$(nproc)"
+          #./build-thirdparty.sh -j "$(nproc)"
+          ./build-thirdparty.sh -j 2
 
   build_macos:
     name: Build Third Party Libraries (macOS)
@@ -180,7 +191,13 @@ jobs:
       - name: Build
         run: |
           export MACOSX_DEPLOYMENT_TARGET=12.0
+          export CMAKE_POLICY_VERSION_MINIMUM=3.10
+          export CUSTOM_CMAKE="/usr/local/bin/cmake"
+
+          df -h
+          echo $TMPDIR
+          echo $RUNNER_TEMP
 
           cd thirdparty
-          ./build-thirdparty.sh -j "$(nproc)"
-
+          #./build-thirdparty.sh -j "$(nproc)"
+          ./build-thirdparty.sh -j 2
