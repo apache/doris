@@ -184,23 +184,46 @@ Status ExchangeTrivialWriter::_channel_add_rows(
         RuntimeState* state, std::vector<std::shared_ptr<vectorized::Channel>>& channels,
         size_t channel_count, const std::vector<HashValType>& channel_ids, size_t rows,
         vectorized::Block* block, bool eos) {
-    _origin_row_idx.resize(rows);
-    _channel_rows_histogram.assign(channel_count, 0U);
-    _channel_pos_offsets.resize(channel_count);
-    for (size_t i = 0; i < rows; ++i) {
-        _channel_rows_histogram[channel_ids[i]]++;
-    }
-    _channel_pos_offsets[0] = 0;
-    for (size_t i = 1; i < channel_count; ++i) {
-        _channel_pos_offsets[i] = _channel_pos_offsets[i - 1] + _channel_rows_histogram[i - 1];
-    }
-    for (uint32_t i = 0; i < rows; i++) {
-        auto cid = channel_ids[i];
-        auto pos = _channel_pos_offsets[cid]++;
-        _origin_row_idx[pos] = i;
-    }
+    RETURN_IF_CATCH_EXCEPTION({
+        // Ensure each channel's mutable block is initialized.
+        // Even EOF channels need a valid mutable block as a dummy destination,
+        // since insert_to_multi_column scatters unconditionally.
+        for (size_t i = 0; i < channel_count; ++i) {
+            channels[i]->serializer().ensure_mutable_block(block);
+        }
 
-    return _add_rows_impl(state, channels, channel_count, block, eos);
+        // Collect destination column pointers for each source column.
+        const auto& block_data = block->get_columns_with_type_and_name();
+        auto num_columns = block_data.size();
+        std::vector<vectorized::IColumn*> dst_columns(channel_count);
+
+        for (size_t col_idx = 0; col_idx < num_columns; ++col_idx) {
+            for (size_t ch = 0; ch < channel_count; ++ch) {
+                auto* mutable_block = channels[ch]->serializer().get_block();
+                dst_columns[ch] = mutable_block->mutable_columns()[col_idx].get();
+            }
+            block_data[col_idx].column->insert_to_multi_column(dst_columns, channel_ids.data(),
+                                                               rows);
+        }
+
+        // Check each channel for flush/send.
+        Status status = Status::OK();
+        for (size_t i = 0; i < channel_count; ++i) {
+            if (!channels[i]->is_receiver_eof()) {
+                status = channels[i]->try_flush_after_scatter(false);
+                HANDLE_CHANNEL_STATUS(state, channels[i], status);
+            }
+        }
+        if (eos) {
+            for (size_t i = 0; i < channel_count; ++i) {
+                if (!channels[i]->is_receiver_eof()) {
+                    status = channels[i]->try_flush_after_scatter(true);
+                    HANDLE_CHANNEL_STATUS(state, channels[i], status);
+                }
+            }
+        }
+    });
+    return Status::OK();
 }
 
 } // namespace doris::pipeline

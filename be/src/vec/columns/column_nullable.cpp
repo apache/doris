@@ -319,6 +319,25 @@ void ColumnNullable::insert_indices_from_not_has_null(const IColumn& src,
     push_false_to_nullmap(indices_end - indices_begin);
 }
 
+void ColumnNullable::insert_to_multi_column(const std::vector<IColumn*>& dsts,
+                                            const uint32_t* positions, size_t rows) const {
+    const size_t num_dsts = dsts.size();
+
+    // Build sub-column destination vectors for nested column and null map.
+    std::vector<IColumn*> nested_dsts(num_dsts);
+    std::vector<IColumn*> null_map_dsts(num_dsts);
+
+    for (size_t d = 0; d < num_dsts; ++d) {
+        auto& dst_nullable = assert_cast<ColumnNullable&>(*dsts[d]);
+        nested_dsts[d] = &dst_nullable.get_nested_column();
+        null_map_dsts[d] = &dst_nullable.get_null_map_column();
+    }
+
+    // Delegate to sub-columns — each will use its own optimized scatter.
+    get_nested_column().insert_to_multi_column(nested_dsts, positions, rows);
+    get_null_map_column().insert_to_multi_column(null_map_dsts, positions, rows);
+}
+
 void ColumnNullable::insert(const Field& x) {
     if (x.is_null()) {
         get_nested_column().insert_default();

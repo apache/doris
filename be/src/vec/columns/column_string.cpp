@@ -282,6 +282,70 @@ void ColumnStr<T>::insert_indices_from(const IColumn& src, const uint32_t* indic
 }
 
 template <typename T>
+void ColumnStr<T>::insert_to_multi_column(const std::vector<IColumn*>& dsts,
+                                          const uint32_t* positions, size_t rows) const {
+    const size_t num_dsts = dsts.size();
+    const auto* __restrict src_offset_data = offsets.data();
+    const auto* __restrict src_chars_data = chars.data();
+
+    // Phase 1: Compute per-destination row counts and total char sizes.
+    std::vector<size_t> dst_row_counts(num_dsts, 0);
+    std::vector<size_t> dst_chars_sizes(num_dsts, 0);
+
+    for (size_t i = 0; i < rows; ++i) {
+        const uint32_t dst_idx = positions[i];
+        dst_row_counts[dst_idx]++;
+        dst_chars_sizes[dst_idx] += src_offset_data[i] - src_offset_data[i - 1];
+    }
+
+    // Phase 2: Resize all destination offsets and chars arrays, cache write positions and pointers.
+    std::vector<size_t> dst_chars_pos(num_dsts);
+    std::vector<size_t> dst_offsets_pos(num_dsts);
+    std::vector<T*> dst_offsets_data(num_dsts);
+    std::vector<UInt8*> dst_chars_data(num_dsts);
+
+    for (size_t d = 0; d < num_dsts; ++d) {
+        auto& dst_col = assert_cast<ColumnStr<T>&>(*dsts[d]);
+        auto& dst_offs = dst_col.get_offsets();
+        auto& dst_chs = dst_col.get_chars();
+
+        const size_t old_offsets_size = dst_offs.size();
+        const size_t old_chars_size = dst_chs.size();
+
+        const size_t new_offsets_size = old_offsets_size + dst_row_counts[d];
+        const size_t new_chars_size = old_chars_size + dst_chars_sizes[d];
+
+        check_chars_length(new_chars_size, new_offsets_size);
+
+        dst_offs.resize(new_offsets_size);
+        dst_chs.resize(new_chars_size);
+
+        dst_offsets_pos[d] = old_offsets_size;
+        dst_chars_pos[d] = old_chars_size;
+
+        dst_offsets_data[d] = dst_offs.data();
+        dst_chars_data[d] = dst_chs.data();
+    }
+
+    // Phase 3: Scatter - iterate over rows and copy each string to its destination.
+    for (size_t i = 0; i < rows; ++i) {
+        const uint32_t dst_idx = positions[i];
+        const size_t str_offset = src_offset_data[i - 1]; // -1 is OK, PaddedPODArray
+        const size_t str_size = src_offset_data[i] - str_offset;
+
+        // Update destination offset
+        const size_t new_dst_chars_end = dst_chars_pos[dst_idx] + str_size;
+        dst_offsets_data[dst_idx][dst_offsets_pos[dst_idx]] = static_cast<T>(new_dst_chars_end);
+        dst_offsets_pos[dst_idx]++;
+
+        // Copy string data
+        memcpy_inlined(dst_chars_data[dst_idx] + dst_chars_pos[dst_idx],
+                       src_chars_data + str_offset, str_size);
+        dst_chars_pos[dst_idx] = new_dst_chars_end;
+    }
+}
+
+template <typename T>
 void ColumnStr<T>::update_crcs_with_value(uint32_t* __restrict hashes, doris::PrimitiveType type,
                                           uint32_t rows, uint32_t offset,
                                           const uint8_t* __restrict null_data) const {

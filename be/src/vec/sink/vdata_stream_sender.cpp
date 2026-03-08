@@ -147,6 +147,20 @@ Status Channel::add_rows(Block* block, const uint32_t* data, const uint32_t offs
     return Status::OK();
 }
 
+Status Channel::try_flush_after_scatter(bool eos) {
+    if (_fragment_instance_id.lo == -1) {
+        return Status::OK();
+    }
+    if (_pblock == nullptr) {
+        _pblock = std::make_unique<PBlock>();
+    }
+    if (_serializer.need_flush(eos)) {
+        RETURN_IF_ERROR(_serializer.try_serialize(_pblock.get()));
+        RETURN_IF_ERROR(_send_current_block(eos));
+    }
+    return Status::OK();
+}
+
 std::shared_ptr<pipeline::Dependency> Channel::get_local_channel_dependency() {
     if (!_local_recvr) {
         return nullptr;

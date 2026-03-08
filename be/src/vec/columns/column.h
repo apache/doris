@@ -227,6 +227,13 @@ public:
     virtual void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
                                           const std::vector<size_t>& positions) = 0;
 
+    // Scatter the rows of this column into multiple destination columns.
+    // `positions` points to an array of length `rows`, and `rows` is the number of
+    // source rows to scatter (rows <= this->size()). positions[i] is the index into
+    // `dsts` that row i should be inserted into.
+    virtual void insert_to_multi_column(const std::vector<IColumn*>& dsts,
+                                        const uint32_t* positions, size_t rows) const = 0;
+
     /// Appends a batch elements from other column with the same type
     /// Also here should make sure indices_end is bigger than indices_begin
     /// indices_begin + indices_end represent the row indices of column src
@@ -755,6 +762,14 @@ protected:
     // e.g. const(nullable(...)) is allowed.
     // const(array(const(...))) is not allowed.
     void check_const_only_in_top_level() const;
+
+    template <typename Derived>
+    void insert_to_multi_column_impl(const std::vector<IColumn*>& dsts, const uint32_t* positions,
+                                     size_t rows) const {
+        for (size_t i = 0; i < rows; ++i) {
+            static_cast<Derived&>(*dsts[positions[i]]).insert_from(*this, i);
+        }
+    }
 };
 
 using ColumnPtr = IColumn::Ptr;

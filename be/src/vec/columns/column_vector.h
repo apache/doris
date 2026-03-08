@@ -329,6 +329,9 @@ public:
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
+    void insert_to_multi_column(const std::vector<IColumn*>& dsts, const uint32_t* positions,
+                                size_t rows) const override;
+
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const IColumn::Filter& filter) override;
 

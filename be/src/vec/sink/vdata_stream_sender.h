@@ -86,6 +86,31 @@ public:
 
     MutableBlock* get_block() const { return _mutable_block.get(); }
 
+    // Ensure _mutable_block is initialized (using block's schema).
+    void ensure_mutable_block(Block* block) {
+        if (_mutable_block == nullptr) {
+            _mutable_block = MutableBlock::create_unique(block->clone_empty());
+        }
+    }
+
+    // Check if _mutable_block needs to be flushed (serialized and sent).
+    bool need_flush(bool eos) const {
+        if (_mutable_block == nullptr) {
+            return eos;
+        }
+        return _mutable_block->rows() >= _batch_size || eos ||
+               (_mutable_block->rows() > 0 &&
+                _mutable_block->allocated_bytes() > _buffer_mem_limit);
+    }
+
+    // Serialize the block if not local. Returns error status if serialization fails.
+    Status try_serialize(PBlock* dest) {
+        if (!_is_local) {
+            RETURN_IF_ERROR(_serialize_block(dest, 1));
+        }
+        return Status::OK();
+    }
+
     size_t mem_usage() const { return _mutable_block ? _mutable_block->allocated_bytes() : 0; }
 
     void reset_block() { _mutable_block.reset(); }
@@ -161,6 +186,14 @@ public:
 
     Status add_rows(Block* block, const uint32_t* data, const uint32_t offset, const uint32_t size,
                     bool eos);
+
+    // Ensure channel's mutable block is initialized, and return the serializer
+    // for direct access to its mutable block columns.
+    BlockSerializer& serializer() { return _serializer; }
+
+    // After rows have been scattered into the channel's mutable block,
+    // check if flush/send is needed.
+    Status try_flush_after_scatter(bool eos);
 
     void set_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) { _buffer = buffer; }
 
