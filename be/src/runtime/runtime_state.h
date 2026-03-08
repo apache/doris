@@ -136,6 +136,11 @@ public:
                                                             : 20000;
     }
 
+    bool adjust_tablet_reader_batch_size_by_limit() const {
+        return _query_options.__isset.adjust_tablet_reader_batch_size_by_limit &&
+               _query_options.adjust_tablet_reader_batch_size_by_limit;
+    }
+
     ObjectPool* obj_pool() const { return _obj_pool.get(); }
 
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }

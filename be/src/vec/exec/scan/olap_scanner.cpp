@@ -164,6 +164,11 @@ Status OlapScanner::prepare() {
     // value (e.g. select a from t where a .. and b ... limit 1),
     // it will be very slow when reading data in segment iterator
     _tablet_reader->set_batch_size(_state->batch_size());
+    if (_state->adjust_tablet_reader_batch_size_by_limit()) {
+        _tablet_reader->set_batch_size(
+                _limit == -1 ? _state->batch_size()
+                             : std::min(static_cast<int64_t>(_state->batch_size()), _limit));
+    }
     TabletSchemaSPtr cached_schema;
     std::string schema_key;
     {
