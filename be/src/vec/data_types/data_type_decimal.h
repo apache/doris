@@ -151,7 +151,8 @@ class DecimalScaleInfo<TYPE_DECIMALV2> : public DecimalScaleInfoBase<TYPE_DECIMA
 protected:
     DecimalScaleInfo(UInt32 arg_precision, UInt32 arg_scale, UInt32 arg_original_precision,
                      UInt32 arg_original_scale)
-            : DecimalScaleInfoBase<TYPE_DECIMALV2>(arg_precision, arg_scale),
+            : DecimalScaleInfoBase<TYPE_DECIMALV2>(BeConsts::MAX_DECIMALV2_PRECISION,
+                                                   BeConsts::MAX_DECIMALV2_SCALE),
               original_precision(arg_original_precision),
               original_scale(arg_original_scale) {
         if (UINT32_MAX != original_precision) {
