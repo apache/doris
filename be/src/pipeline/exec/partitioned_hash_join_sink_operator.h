@@ -127,14 +127,14 @@ public:
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
-            return {ExchangeType::NOOP};
+            return {TLocalPartitionType::NOOP};
         }
 
         return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
                                _join_distribution == TJoinDistributionType::COLOCATE
-                       ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE,
+                       ? DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE,
                                           _distribution_partition_exprs)
-                       : DataDistribution(ExchangeType::HASH_SHUFFLE,
+                       : DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE,
                                           _distribution_partition_exprs);
     }
 

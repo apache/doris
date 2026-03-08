@@ -370,9 +370,9 @@ public:
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (OperatorX<LocalStateType>::is_serial_operator()) {
             // `is_serial_operator()` returns true means we ignore the distribution.
-            return {ExchangeType::NOOP};
+            return {TLocalPartitionType::NOOP};
         }
-        return {ExchangeType::BUCKET_HASH_SHUFFLE};
+        return {TLocalPartitionType::BUCKET_HASH_SHUFFLE};
     }
 
     void set_low_memory_mode(RuntimeState* state) override {

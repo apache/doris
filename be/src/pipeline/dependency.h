@@ -715,50 +715,44 @@ public:
     Status hash_table_init();
 };
 
-enum class ExchangeType : uint8_t {
-    NOOP = 0,
-    // Shuffle data by Crc32CHashPartitioner
-    HASH_SHUFFLE = 1,
-    // Round-robin passthrough data blocks.
-    PASSTHROUGH = 2,
-    // Shuffle data by Crc32HashPartitioner<ShuffleChannelIds> (e.g. same as storage engine).
-    BUCKET_HASH_SHUFFLE = 3,
-    // Passthrough data blocks to all channels.
-    BROADCAST = 4,
-    // Passthrough data to channels evenly in an adaptive way.
-    ADAPTIVE_PASSTHROUGH = 5,
-    // Send all data to the first channel.
-    PASS_TO_ONE = 6,
-};
+inline bool is_shuffled_exchange(TLocalPartitionType::type idx) {
+    return idx == TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE ||
+           idx == TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE ||
+           idx == TLocalPartitionType::BUCKET_HASH_SHUFFLE;
+}
 
-inline std::string get_exchange_type_name(ExchangeType idx) {
+inline std::string get_exchange_type_name(TLocalPartitionType::type idx) {
     switch (idx) {
-    case ExchangeType::NOOP:
+    case TLocalPartitionType::NOOP:
         return "NOOP";
-    case ExchangeType::HASH_SHUFFLE:
-        return "HASH_SHUFFLE";
-    case ExchangeType::PASSTHROUGH:
+    case TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE:
+        return "GLOBAL_HASH_SHUFFLE";
+    case TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE:
+        return "LOCAL_HASH_SHUFFLE";
+    case TLocalPartitionType::PASSTHROUGH:
         return "PASSTHROUGH";
-    case ExchangeType::BUCKET_HASH_SHUFFLE:
+    case TLocalPartitionType::BUCKET_HASH_SHUFFLE:
         return "BUCKET_HASH_SHUFFLE";
-    case ExchangeType::BROADCAST:
+    case TLocalPartitionType::BROADCAST:
         return "BROADCAST";
-    case ExchangeType::ADAPTIVE_PASSTHROUGH:
+    case TLocalPartitionType::ADAPTIVE_PASSTHROUGH:
         return "ADAPTIVE_PASSTHROUGH";
-    case ExchangeType::PASS_TO_ONE:
+    case TLocalPartitionType::PASS_TO_ONE:
         return "PASS_TO_ONE";
+    case TLocalPartitionType::LOCAL_MERGE_SORT:
+        return "LOCAL_MERGE_SORT";
     }
     throw Exception(Status::FatalError("__builtin_unreachable"));
 }
 
 struct DataDistribution {
-    DataDistribution(ExchangeType type) : distribution_type(type) {}
-    DataDistribution(ExchangeType type, const std::vector<TExpr>& partition_exprs_)
+    DataDistribution(TLocalPartitionType::type type) : distribution_type(type) {}
+    DataDistribution(TLocalPartitionType::type type, const std::vector<TExpr>& partition_exprs_)
             : distribution_type(type), partition_exprs(partition_exprs_) {}
     DataDistribution(const DataDistribution& other) = default;
-    bool need_local_exchange() const { return distribution_type != ExchangeType::NOOP; }
+    bool need_local_exchange() const { return distribution_type != TLocalPartitionType::NOOP; }
     DataDistribution& operator=(const DataDistribution& other) = default;
-    ExchangeType distribution_type;
+    TLocalPartitionType::type distribution_type;
     std::vector<TExpr> partition_exprs;
 };
 

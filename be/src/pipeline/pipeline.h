@@ -69,16 +69,15 @@ public:
 
     [[nodiscard]] PipelineId id() const { return _pipeline_id; }
 
-    static bool is_hash_exchange(ExchangeType idx) {
-        return idx == ExchangeType::HASH_SHUFFLE || idx == ExchangeType::BUCKET_HASH_SHUFFLE;
+    static bool is_hash_exchange(TLocalPartitionType::type idx) {
+        return is_shuffled_exchange(idx);
     }
 
     // For HASH_SHUFFLE, BUCKET_HASH_SHUFFLE, and ADAPTIVE_PASSTHROUGH,
     // data is processed and shuffled on the sink.
     // Compared to PASSTHROUGH, this is a relatively heavy operation.
-    static bool heavy_operations_on_the_sink(ExchangeType idx) {
-        return idx == ExchangeType::HASH_SHUFFLE || idx == ExchangeType::BUCKET_HASH_SHUFFLE ||
-               idx == ExchangeType::ADAPTIVE_PASSTHROUGH;
+    static bool heavy_operations_on_the_sink(TLocalPartitionType::type idx) {
+        return is_shuffled_exchange(idx) || idx == TLocalPartitionType::ADAPTIVE_PASSTHROUGH;
     }
 
     bool need_to_local_exchange(const DataDistribution target_data_distribution,
@@ -166,7 +165,7 @@ private:
 
     // Input data distribution of this pipeline. We do local exchange when input data distribution
     // does not match the target data distribution.
-    DataDistribution _data_distribution {ExchangeType::NOOP};
+    DataDistribution _data_distribution {TLocalPartitionType::NOOP};
 
     // How many tasks should be created ?
     int _num_tasks = 1;

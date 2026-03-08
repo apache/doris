@@ -140,16 +140,8 @@ public:
                 bool* eos) const override;
 
     bool need_more_input_data(RuntimeState* state) const override;
-    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
-        if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
-            return {ExchangeType::NOOP};
-        }
-        return (_join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
-                                _join_distribution == TJoinDistributionType::COLOCATE
-                        ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE,
-                                           _distribution_partition_exprs)
-                        : DataDistribution(ExchangeType::HASH_SHUFFLE,
-                                           _distribution_partition_exprs));
+    DataDistribution required_data_distribution(RuntimeState* state) const override {
+        return _inner_probe_operator->required_data_distribution(state);
     }
 
     size_t revocable_mem_size(RuntimeState* state) const override;
@@ -188,8 +180,6 @@ private:
                                                    RuntimeState* state) const;
 
     bool _should_revoke_memory(RuntimeState* state) const;
-
-    const TJoinDistributionType::type _join_distribution;
 
     std::shared_ptr<HashJoinBuildSinkOperatorX> _inner_sink_operator;
     std::shared_ptr<HashJoinProbeOperatorX> _inner_probe_operator;

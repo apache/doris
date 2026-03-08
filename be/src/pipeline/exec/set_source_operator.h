@@ -82,8 +82,8 @@ public:
     bool is_shuffled_operator() const override { return true; }
     bool is_colocated_operator() const override { return _is_colocate; }
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
-        return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE)
-                            : DataDistribution(ExchangeType::HASH_SHUFFLE);
+        return _is_colocate ? DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE)
+                            : DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE);
     }
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;

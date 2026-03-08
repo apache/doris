@@ -395,8 +395,11 @@ public:
                BeExecVersionManager::check_be_exec_version(_query_options.be_exec_version));
         return _query_options.be_exec_version;
     }
-    bool enable_local_shuffle() const {
-        return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
+    bool plan_local_shuffle() const {
+        // If local shuffle is enabled and not planned by local shuffle planner, we should plan local shuffle in BE.
+        return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle &&
+               (!_query_options.__isset.enable_local_shuffle_planner ||
+                !_query_options.enable_local_shuffle_planner);
     }
 
     MOCK_FUNCTION bool enable_local_exchange() const {

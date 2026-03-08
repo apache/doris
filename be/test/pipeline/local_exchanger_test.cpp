@@ -89,8 +89,9 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
     _local_states.resize(num_sources);
     auto profile = std::make_shared<RuntimeProfile>("");
     auto shared_state = LocalExchangeSharedState::create_shared(num_partitions);
-    shared_state->exchanger = ShuffleExchanger::create_unique(num_sink, num_sources, num_partitions,
-                                                              free_block_limit);
+    shared_state->exchanger =
+            ShuffleExchanger::create_unique(num_sink, num_sources, num_partitions, free_block_limit,
+                                            TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE);
     auto sink_dep = std::make_shared<Dependency>(0, 0, "LOCAL_EXCHANGE_SINK_DEPENDENCY", true);
     sink_dep->set_shared_state(shared_state.get());
     shared_state->sink_deps.push_back(sink_dep);
@@ -1164,8 +1165,9 @@ TEST_F(LocalExchangerTest, TestShuffleExchangerWrongMap) {
     _local_states.resize(num_sources);
     auto profile = std::make_shared<RuntimeProfile>("");
     auto shared_state = LocalExchangeSharedState::create_shared(num_partitions);
-    shared_state->exchanger = ShuffleExchanger::create_unique(num_sink, num_sources, num_partitions,
-                                                              free_block_limit);
+    shared_state->exchanger =
+            ShuffleExchanger::create_unique(num_sink, num_sources, num_partitions, free_block_limit,
+                                            TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE);
     auto sink_dep = std::make_shared<Dependency>(0, 0, "LOCAL_EXCHANGE_SINK_DEPENDENCY", true);
     sink_dep->set_shared_state(shared_state.get());
     shared_state->sink_deps.push_back(sink_dep);

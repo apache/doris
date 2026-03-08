@@ -243,9 +243,9 @@ public:
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
             _join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::RIGHT_ANTI_JOIN ||
             _join_op == TJoinOp::RIGHT_SEMI_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
-            return {ExchangeType::NOOP};
+            return {TLocalPartitionType::NOOP};
         }
-        return {ExchangeType::ADAPTIVE_PASSTHROUGH};
+        return {TLocalPartitionType::ADAPTIVE_PASSTHROUGH};
     }
 
     const RowDescriptor& row_desc() const override {

@@ -79,7 +79,7 @@ public:
     bool is_serial_operator() const override { return true; }
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
-        return {ExchangeType::NOOP};
+        return {TLocalPartitionType::NOOP};
     }
 
     Status sink(RuntimeState* state, vectorized::Block* input_block, bool eos) override {
