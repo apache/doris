@@ -67,7 +67,8 @@ public:
 
     // Write the decoded values batch to doris's column
     virtual Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                                 ColumnSelectVector& select_vector, bool is_dict_filter) = 0;
+                                 ColumnSelectVector& select_vector, bool is_dict_filter,
+                                 const uint8_t* filter_data = nullptr) = 0;
 
     virtual Status skip_values(size_t num_values) = 0;
 
@@ -147,8 +148,12 @@ protected:
     }
 
     Status skip_values(size_t num_values) override {
-        _indexes.resize(num_values);
-        _index_batch_decoder->GetBatch(_indexes.data(), cast_set<uint32_t>(num_values));
+        auto skipped = _index_batch_decoder->SkipBatch(cast_set<uint32_t>(num_values));
+        if (UNLIKELY(skipped < num_values)) {
+            return Status::InternalError(
+                    "RLE skip error: not enough values to skip, expected {}, got {}", num_values,
+                    skipped);
+        }
         return Status::OK();
     }
 

@@ -528,7 +528,7 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::skip_values(size_t num_va
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::decode_values(
         MutableColumnPtr& doris_column, DataTypePtr& data_type, ColumnSelectVector& select_vector,
-        bool is_dict_filter) {
+        bool is_dict_filter, const uint8_t* filter_data) {
     if (select_vector.num_values() == 0) {
         return Status::OK();
     }
@@ -540,7 +540,8 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::decode_values(
         return Status::IOError("Decode too many values in current page");
     }
     _remaining_num_values -= select_vector.num_values();
-    return _page_decoder->decode_values(doris_column, data_type, select_vector, is_dict_filter);
+    return _page_decoder->decode_values(doris_column, data_type, select_vector, is_dict_filter,
+                                        filter_data);
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>

@@ -699,6 +699,10 @@ public:
     // Returns the number of consumed values or 0 if an error occurred.
     uint32_t GetBatch(T* values, uint32_t batch_num);
 
+    // Skip 'num_values' values without writing to any buffer.
+    // Returns the number of values actually skipped.
+    uint32_t SkipBatch(uint32_t num_values);
+
 private:
     // Called when both 'literal_count_' and 'repeat_count_' have been exhausted.
     // Sets either 'literal_count_' or 'repeat_count_' to the size of the next literal
@@ -884,6 +888,75 @@ uint32_t RleBatchDecoder<T>::GetBatch(T* values, uint32_t batch_num) {
         num_consumed += num_literals_to_set;
     }
     return num_consumed;
+}
+
+template <typename T>
+uint32_t RleBatchDecoder<T>::SkipBatch(uint32_t num_values) {
+    DCHECK_GT(num_values, 0u);
+    uint32_t num_skipped = 0;
+    while (num_skipped < num_values) {
+        // Try to skip from repeated run first.
+        uint32_t num_repeats = NextNumRepeats();
+        if (num_repeats > 0) {
+            uint32_t to_skip = std::min(num_repeats, num_values - num_skipped);
+            // Consume repeats without writing any values.
+            GetRepeatedValue(to_skip);
+            num_skipped += to_skip;
+            continue;
+        }
+
+        // Try to skip from literal run.
+        uint32_t num_literals = NextNumLiterals();
+        if (num_literals == 0) {
+            // No more data.
+            break;
+        }
+        uint32_t to_skip = std::min(num_literals, num_values - num_skipped);
+        // Skip literals from the bit reader.
+        // First, consume any already-buffered literals.
+        if (HaveBufferedLiterals()) {
+            uint32_t buffered_skip = std::min(
+                    to_skip, static_cast<uint32_t>(num_buffered_literals_ - literal_buffer_pos_));
+            literal_buffer_pos_ += buffered_skip;
+            literal_count_ -= buffered_skip;
+            to_skip -= buffered_skip;
+            num_skipped += buffered_skip;
+        }
+        // For remaining literals, skip using the same approach as GetLiteralValues:
+        // 1. Skip in multiples of 32 via bit_reader_.SkipBatch (always byte-aligned).
+        // 2. Buffer the remainder via FillLiteralBuffer, then advance buffer position.
+        // This is necessary because BatchedBitReader::SkipBatch requires
+        // (bit_width * num_values) to be divisible by 8, which is guaranteed for
+        // multiples of 32 but not for arbitrary counts.
+        if (to_skip > 0 && literal_count_ > 0) {
+            uint32_t direct_skip = std::min(to_skip, static_cast<uint32_t>(literal_count_));
+            // Skip in multiples of 32 (byte-aligned) directly in the bit reader.
+            int32_t num_to_bypass = std::min<int32_t>(
+                    literal_count_, BitUtil::RoundDownToPowerOf2(static_cast<int32_t>(direct_skip),
+                                                                 static_cast<int32_t>(32)));
+            if (num_to_bypass > 0) {
+                if (UNLIKELY(!bit_reader_.SkipBatch(bit_width_, num_to_bypass))) {
+                    return num_skipped;
+                }
+                literal_count_ -= num_to_bypass;
+                direct_skip -= num_to_bypass;
+                num_skipped += num_to_bypass;
+            }
+            // For any remainder (< 32 values), buffer them and advance past.
+            if (direct_skip > 0 && literal_count_ > 0) {
+                if (UNLIKELY(!FillLiteralBuffer())) {
+                    return num_skipped;
+                }
+                uint32_t buffered_skip = std::min(
+                        direct_skip,
+                        static_cast<uint32_t>(num_buffered_literals_ - literal_buffer_pos_));
+                literal_buffer_pos_ += buffered_skip;
+                literal_count_ -= buffered_skip;
+                num_skipped += buffered_skip;
+            }
+        }
+    }
+    return num_skipped;
 }
 #include "common/compile_check_end.h"
 } // namespace doris

@@ -48,7 +48,8 @@ public:
     ~ByteArrayPlainDecoder() override = default;
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
-                         ColumnSelectVector& select_vector, bool is_dict_filter) override;
+                         ColumnSelectVector& select_vector, bool is_dict_filter,
+                         const uint8_t* filter_data = nullptr) override;
 
     template <bool has_filter>
     Status _decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
