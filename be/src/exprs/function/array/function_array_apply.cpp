@@ -142,17 +142,20 @@ private:
         auto column_filter = ColumnUInt8::create(src_column.size(), 0);
         auto& column_filter_data = column_filter->get_data();
         const char* src_column_data_ptr = nullptr;
+        const uint8_t* null_map_data = nullptr;
         if (!src_column.is_nullable()) {
             src_column_data_ptr = src_column.get_raw_data().data;
         } else {
-            src_column_data_ptr = check_and_get_column<ColumnNullable>(src_column)
-                                          ->get_nested_column()
-                                          .get_raw_data()
-                                          .data;
+            const auto* nullable_col = check_and_get_column<ColumnNullable>(src_column);
+            src_column_data_ptr = nullable_col->get_nested_column().get_raw_data().data;
+            null_map_data = nullable_col->get_null_map_data().data();
         }
         const T* src_column_data_t_ptr = reinterpret_cast<const T*>(src_column_data_ptr);
         const size_t src_column_size = src_column.size();
         for (size_t i = 0; i < src_column_size; ++i) {
+            if (null_map_data && null_map_data[i]) {
+                continue; // null elements should not pass the filter
+            }
             column_filter_data[i] = apply<T, op>(src_column_data_t_ptr[i], rhs_val);
         }
         const IColumn::Filter& filter = column_filter_data;
