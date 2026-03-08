@@ -3869,4 +3869,66 @@ TEST(function_string_test, function_unicode_normalize_invalid_mode) {
     EXPECT_NE(Status::OK(), st);
 }
 
+TEST(function_string_test, function_levenshtein_test) {
+    std::string func_name = "levenshtein";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+    DataSet data_set = {
+            {{std::string(""), std::string("")}, std::int32_t(0)},
+            {{std::string(""), std::string("abc")}, std::int32_t(3)},
+            {{std::string("abc"), std::string("")}, std::int32_t(3)},
+            {{std::string("abc"), std::string("abc")}, std::int32_t(0)},
+            {{std::string("kitten"), std::string("sitting")}, std::int32_t(3)},
+            {{std::string("ca"), std::string("abc")}, std::int32_t(3)},
+            {{Null(), std::string("abc")}, Null()},
+            {{std::string("abc"), Null()}, Null()},
+    };
+    check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set);
+}
+
+TEST(function_string_test, function_damerau_levenshtein_test) {
+    std::string func_name = "damerau_levenshtein";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+    DataSet data_set = {
+            {{std::string(""), std::string("")}, std::int32_t(0)},
+            {{std::string(""), std::string("abc")}, std::int32_t(3)},
+            {{std::string("abc"), std::string("")}, std::int32_t(3)},
+            {{std::string("abc"), std::string("abc")}, std::int32_t(0)},
+            {{std::string("ab"), std::string("ba")}, std::int32_t(1)},
+            {{std::string("ca"), std::string("abc")}, std::int32_t(2)},
+            {{std::string("kitten"), std::string("sitting")}, std::int32_t(3)},
+            {{Null(), std::string("abc")}, Null()},
+            {{std::string("abc"), Null()}, Null()},
+    };
+    check_function_all_arg_comb<DataTypeInt32, true>(func_name, input_types, data_set);
+}
+
+TEST(function_string_test, function_jaro_winkler_test) {
+    std::string func_name = "jaro_winkler";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+    DataSet data_set = {
+            {{std::string("abc"), std::string("abc")}, double(1.0)},
+            {{std::string(""), std::string("abc")}, double(0.0)},
+            {{std::string("a"), std::string("b")}, double(0.0)},
+            {{Null(), std::string("abc")}, Null()},
+            {{std::string("abc"), Null()}, Null()},
+    };
+    check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set);
+}
+
+TEST(function_string_test, function_jaccard_similarity_test) {
+    std::string func_name = "jaccard_similarity";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+    DataSet data_set = {
+            {{std::string("abc"), std::string("abc")}, double(1.0)},
+            {{std::string(""), std::string("")}, double(1.0)},
+            {{std::string("a"), std::string("b")}, double(0.0)},
+            {{std::string("ab"), std::string("ba")}, double(0.0)},
+            {{std::string("ab"), std::string("cd")}, double(0.0)},
+            {{std::string("abcd"), std::string("abce")}, double(0.5)},
+            {{Null(), std::string("abc")}, Null()},
+            {{std::string("abc"), Null()}, Null()},
+    };
+    check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set);
+}
+
 } // namespace doris::vectorized

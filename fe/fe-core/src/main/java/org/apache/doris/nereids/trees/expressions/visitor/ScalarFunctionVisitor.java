@@ -172,6 +172,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CutIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CutToFirstSignificantSubdomain;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DamerauLevenshtein;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
@@ -298,6 +299,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsUuid;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JaccardSimilarity;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JaroWinkler;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
@@ -336,6 +339,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lcm;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Levenshtein;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
@@ -1870,6 +1874,22 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitCrc32Internal(Crc32Internal crc32Internal, C context) {
         return visitScalarFunction(crc32Internal, context);
+    }
+
+    default R visitLevenshtein(Levenshtein levenshtein, C context) {
+        return visitScalarFunction(levenshtein, context);
+    }
+
+    default R visitDamerauLevenshtein(DamerauLevenshtein damerauLevenshtein, C context) {
+        return visitScalarFunction(damerauLevenshtein, context);
+    }
+
+    default R visitJaroWinkler(JaroWinkler jaroWinkler, C context) {
+        return visitScalarFunction(jaroWinkler, context);
+    }
+
+    default R visitJaccardSimilarity(JaccardSimilarity jaccardSimilarity, C context) {
+        return visitScalarFunction(jaccardSimilarity, context);
     }
 
     default R visitLike(Like like, C context) {
