@@ -230,8 +230,8 @@ struct DateV2ValueType {
     uint32_t month_ : 4;
     uint32_t year_ : 23;
 
-    DateV2ValueType(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
-                    uint8_t second, uint32_t microsecond)
+    constexpr DateV2ValueType(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
+                              uint8_t minute, uint8_t second, uint32_t microsecond)
             : day_(day), month_(month), year_(year) {}
 };
 
@@ -244,8 +244,8 @@ struct DateTimeV2ValueType {
     uint64_t month_ : 4;
     uint64_t year_ : 18;
 
-    DateTimeV2ValueType(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
-                        uint8_t second, uint32_t microsecond)
+    constexpr DateTimeV2ValueType(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
+                                  uint8_t minute, uint8_t second, uint32_t microsecond)
             : microsecond_(microsecond),
               second_(second),
               minute_(minute),
@@ -1471,8 +1471,8 @@ private:
         underlying_value int_val_;
     };
 
-    DateV2Value(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
-                uint8_t second, uint32_t microsecond)
+    constexpr DateV2Value(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
+                          uint8_t second, uint32_t microsecond)
             : date_v2_value_(year, month, day, hour, minute, second, microsecond) {}
 };
 

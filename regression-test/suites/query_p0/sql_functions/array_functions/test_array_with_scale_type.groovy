@@ -27,7 +27,8 @@ suite("test_array_with_scale_type") {
             `c_decimalv3` decimalv3(8,3) NULL COMMENT "",
             `c_array_datetimev2` ARRAY<datetimev2(3)> NULL COMMENT "",
             `c_array_decimal` ARRAY<decimal(8,3)> NULL COMMENT "",
-            `c_array_decimalv3` ARRAY<decimalv3(8,3)> NULL COMMENT ""
+            `c_array_decimalv3` ARRAY<decimalv3(8,3)> NULL COMMENT "",
+            `c_array_datetime_null` ARRAY<datetimev2(3)> NULL COMMENT ""
             ) ENGINE=OLAP
         DUPLICATE KEY(`uid`)
         DISTRIBUTED BY HASH(`uid`) BUCKETS 1
@@ -61,8 +62,8 @@ suite("test_array_with_scale_type") {
         }
         sql """
         INSERT INTO test_array_with_scale_type_table values
-        (1,"2022-12-01 22:23:24.999999",22.6789,33.6789,["2022-12-01 22:23:24.999999","2022-12-01 23:23:24.999999"],[22.6789,33.6789],[22.6789,33.6789]),
-        (2,"2022-12-02 22:23:24.999999",23.6789,34.6789,["2022-12-02 22:23:24.999999","2022-12-02 23:23:24.999999"],[23.6789,34.6789],[22.6789,34.6789]);
+        (1,"2022-12-01 22:23:24.999999",22.6789,33.6789,["2022-12-01 22:23:24.999999","2022-12-01 23:23:24.999999"],[22.6789,33.6789],[22.6789,33.6789], [null]),
+        (2,"2022-12-02 22:23:24.999999",23.6789,34.6789,["2022-12-02 22:23:24.999999","2022-12-02 23:23:24.999999"],[23.6789,34.6789],[22.6789,34.6789], [null]);
         """
         qt_select_varify_datetime """
             SELECT c_datetimev2 from test_array_with_scale_type_table order by uid;
@@ -103,6 +104,7 @@ suite("test_array_with_scale_type") {
         qt_select """select array_apply(c_array_decimal, "=", 22.679) from test_array_with_scale_type_table order by uid"""
         qt_select """select array_apply(c_array_decimal, ">=", 22.1) from test_array_with_scale_type_table order by uid"""
         qt_select """select array_apply(c_array_decimal, ">=", null) from test_array_with_scale_type_table order by uid"""
+        qt_select """select array_apply(c_array_datetime_null, '>', '0001-01-01 00:00:00.000') from test_array_with_scale_type_table order by uid"""
 
         qt_select """select array_concat(array(cast ('2022-12-02 22:23:24.123123' as datetimev2(3)),cast ('2022-12-02 22:23:23.123123' as datetimev2(3)))) from test_array_with_scale_type_table order by uid"""
         qt_select """select array_concat(c_array_datetimev2) from test_array_with_scale_type_table order by uid"""
