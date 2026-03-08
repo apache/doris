@@ -454,6 +454,8 @@ DEFINE_mInt64(vertical_compaction_max_segment_size, "1073741824");
 DEFINE_mDouble(sparse_column_compaction_threshold_percent, "0.05");
 // Enable RLE batch Put optimization for compaction
 DEFINE_mBool(enable_rle_batch_put_optimization, "true");
+// When enabled, ScalarColumnWriter flushes each data page to disk immediately
+DEFINE_mBool(enable_streaming_page_flush, "false");
 
 // If enabled, segments will be flushed column by column
 DEFINE_mBool(enable_vertical_segment_writer, "true");
