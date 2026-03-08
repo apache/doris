@@ -178,6 +178,77 @@ private:
     }
 };
 
+class FunctionHammingDistance : public IFunction {
+public:
+    static constexpr auto name = "hamming_distance";
+
+    static FunctionPtr create() { return std::make_shared<FunctionHammingDistance>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeInt64>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto left_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto right_column =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+
+        const auto* left = check_and_get_column<ColumnString>(left_column.get());
+        const auto* right = check_and_get_column<ColumnString>(right_column.get());
+
+        if (left == nullptr || right == nullptr) {
+            return Status::RuntimeError("Illegal column of argument of function {}", get_name());
+        }
+
+        auto result_column = ColumnInt64::create();
+        auto& result_data = result_column->get_data();
+        result_data.resize(input_rows_count);
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            StringRef l = left->get_data_at(i);
+            StringRef r = right->get_data_at(i);
+
+            if (!validate_utf8(l.data, l.size) || !validate_utf8(r.data, r.size)) {
+                return Status::InvalidArgument("hamming_distance requires valid UTF-8 strings");
+            }
+
+            size_t l_char_len = simd::VStringFunctions::get_char_len(l.data, l.size);
+            size_t r_char_len = simd::VStringFunctions::get_char_len(r.data, r.size);
+
+            if (l_char_len != r_char_len) {
+                return Status::InvalidArgument("hamming_distance requires strings of equal length");
+            }
+
+            size_t l_pos = 0;
+            size_t r_pos = 0;
+            Int64 distance = 0;
+
+            while (l_pos < l.size && r_pos < r.size) {
+                uint8_t l_step = simd::get_utf8_byte_length(static_cast<uint8_t>(l.data[l_pos]));
+                uint8_t r_step = simd::get_utf8_byte_length(static_cast<uint8_t>(r.data[r_pos]));
+
+                if (l_step != r_step || std::memcmp(l.data + l_pos, r.data + r_pos, l_step) != 0) {
+                    ++distance;
+                }
+
+                l_pos += l_step;
+                r_pos += r_step;
+            }
+
+            result_data[i] = distance;
+        }
+
+        block.replace_by_position(result, std::move(result_column));
+        return Status::OK();
+    }
+};
+
 class FunctionAutoPartitionName : public IFunction {
 public:
     static constexpr auto name = "auto_partition_name";

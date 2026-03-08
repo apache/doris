@@ -413,6 +413,20 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql_func_char9 """ select char(0) = ' '; """
     qt_sql_func_char10 """ select char(0) = '\0'; """
 
+    qt_hamming_distance1 """ select hamming_distance('karolin', 'kathrin'); """
+    qt_hamming_distance2 """ select hamming_distance('1011101', '1001001'); """
+    qt_hamming_distance3 """ select hamming_distance('你好a', '你坏b'); """
+    qt_hamming_distance4 """ select hamming_distance(null, 'abc'); """
+    qt_hamming_distance5 """ select hamming_distance('abc', null); """
+    qt_hamming_distance6 """ select hamming_distance('', ''); """
+    qt_hamming_distance7 """ select hamming_distance('abc', 'abc'); """
+    qt_hamming_distance8 """ select hamming_distance(null, null); """
+
+    test {
+        sql """ select hamming_distance('abc', 'ab'); """
+        exception "hamming_distance requires strings of equal length"
+    }
+
     qt_strcmp1 """ select strcmp('a', 'abc'); """
     qt_strcmp2 """ select strcmp('abc', 'abc'); """
     qt_strcmp3 """ select strcmp('abcd', 'abc'); """
