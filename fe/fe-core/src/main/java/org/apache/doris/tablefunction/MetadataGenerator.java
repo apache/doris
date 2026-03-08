@@ -76,6 +76,7 @@ import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.FrontendConjunctsUtils;
 import org.apache.doris.nereids.util.PlanUtils;
@@ -130,6 +131,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -578,7 +580,9 @@ public class MetadataGenerator {
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
 
         UserIdentity currentUserIdentity = UserIdentity.fromThrift(params.getCurrentUserIdent());
-        List<CatalogIf> info = Env.getCurrentEnv().getCatalogMgr().listCatalogsWithCheckPriv(currentUserIdentity);
+        Set<String> currentRoles = params.isSetCurrentRoles() ? params.getCurrentRoles() : null;
+        List<CatalogIf> info = Env.getCurrentEnv().getCatalogMgr()
+                .listCatalogsWithCheckPriv(PrivilegeContext.of(currentUserIdentity, currentRoles));
         List<TRow> dataBatch = Lists.newArrayList();
         for (CatalogIf catalog : info) {
             TRow trow = new TRow();
@@ -650,12 +654,14 @@ public class MetadataGenerator {
             return errorResult("current user ident is not set.");
         }
         UserIdentity currentUserIdentity = UserIdentity.fromThrift(params.getCurrentUserIdent());
+        Set<String> currentRoles = params.isSetCurrentRoles() ? params.getCurrentRoles() : null;
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUserIdentity, PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(
+                PrivilegeContext.of(currentUserIdentity, currentRoles), PrivPredicate.ADMIN)) {
             return result;
         }
         List<Expression> conjuncts = Collections.EMPTY_LIST;
@@ -1028,7 +1034,7 @@ public class MetadataGenerator {
         for (Table table : tables) {
             if (table instanceof MTMV) {
                 if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME,
+                        .checkTblPriv(PrivilegeContext.of(userIdentity), InternalCatalog.INTERNAL_CATALOG_NAME,
                                 table.getQualifiedDbName(), table.getName(),
                                 PrivPredicate.SHOW)) {
                     continue;
@@ -1180,7 +1186,8 @@ public class MetadataGenerator {
 
         List<org.apache.doris.job.base.AbstractJob> jobList = Env.getCurrentEnv().getJobManager().queryJobs(jobType);
 
-        boolean hasAdmin = Env.getCurrentEnv().getAccessManager().checkGlobalPriv(userIdentity, PrivPredicate.ADMIN);
+        boolean hasAdmin = Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(PrivilegeContext.of(userIdentity), PrivPredicate.ADMIN);
         for (org.apache.doris.job.base.AbstractJob job : jobList) {
             if (job instanceof MTMVJob) {
                 MTMVJob mtmvJob = (MTMVJob) job;
@@ -1218,7 +1225,8 @@ public class MetadataGenerator {
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
 
-        boolean hasAdmin = Env.getCurrentEnv().getAccessManager().checkGlobalPriv(userIdentity, PrivPredicate.ADMIN);
+        boolean hasAdmin = Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(PrivilegeContext.of(userIdentity), PrivPredicate.ADMIN);
         List<org.apache.doris.job.base.AbstractJob> jobList = Env.getCurrentEnv().getJobManager().queryJobs(jobType);
 
         for (org.apache.doris.job.base.AbstractJob job : jobList) {
@@ -1263,14 +1271,18 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static void tableOptionsForInternalCatalog(UserIdentity currentUserIdentity,
+    private static void tableOptionsForInternalCatalog(UserIdentity currentUserIdentity, Set<String> currentRoles,
             CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch) {
         for (TableIf table : tables) {
             if (!(table instanceof OlapTable)) {
                 continue;
             }
-            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUserIdentity, catalog.getName(),
-                    database.getFullName(), table.getName(), PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
+                    PrivilegeContext.of(currentUserIdentity, currentRoles),
+                    catalog.getName(),
+                    database.getFullName(),
+                    table.getName(),
+                    PrivPredicate.SHOW)) {
                 continue;
             }
             OlapTable olapTable = (OlapTable) table;
@@ -1285,9 +1297,9 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
                     trow.addToColumnValue(new TCell().setStringVal(table.getName())); // TABLE_NAME
                     trow.addToColumnValue(
-                        new TCell().setStringVal(olapTable.getKeysType().toMetadata())); // TABLE_MODEL
+                            new TCell().setStringVal(olapTable.getKeysType().toMetadata())); // TABLE_MODEL
                     trow.addToColumnValue(
-                        new TCell().setStringVal(olapTable.getKeyColAsString())); // key columTyp
+                            new TCell().setStringVal(olapTable.getKeyColAsString())); // key columTyp
 
                     DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
                     if (distributionInfo.getType() == DistributionInfoType.HASH) {
@@ -1304,7 +1316,7 @@ public class MetadataGenerator {
                             trow.addToColumnValue(new TCell().setStringVal(""));
                         } else {
                             trow.addToColumnValue(
-                                new TCell().setStringVal(distributeKey.toString()));
+                                    new TCell().setStringVal(distributeKey.toString()));
                         }
                         trow.addToColumnValue(new TCell().setStringVal("HASH")); // DISTRIBUTE_TYPE
                     } else {
@@ -1328,7 +1340,7 @@ public class MetadataGenerator {
                         trow.addToColumnValue(new TCell().setStringVal(partitionInfo
                                 .getPartitionRangeString(partitionId))); // RANGE
                     } else {
-                        trow.addToColumnValue(new TCell().setStringVal(""));  // PARTITION_KEY
+                        trow.addToColumnValue(new TCell().setStringVal("")); // PARTITION_KEY
                         trow.addToColumnValue(new TCell().setStringVal("")); // RANGE
                     }
                     dataBatch.add(trow);
@@ -1339,11 +1351,15 @@ public class MetadataGenerator {
         }
     }
 
-    private static void tableOptionsForExternalCatalog(UserIdentity currentUserIdentity,
+    private static void tableOptionsForExternalCatalog(UserIdentity currentUserIdentity, Set<String> currentRoles,
             CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch) {
         for (TableIf table : tables) {
-            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUserIdentity, catalog.getName(),
-                    database.getFullName(), table.getName(), PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
+                    PrivilegeContext.of(currentUserIdentity, currentRoles),
+                    catalog.getName(),
+                    database.getFullName(),
+                    table.getName(),
+                    PrivPredicate.SHOW)) {
                 continue;
             }
             TRow trow = new TRow();
@@ -1380,6 +1396,7 @@ public class MetadataGenerator {
 
         TUserIdentity tcurrentUserIdentity = params.getCurrentUserIdent();
         UserIdentity currentUserIdentity = UserIdentity.fromThrift(tcurrentUserIdentity);
+        Set<String> currentRoles = params.isSetCurrentRoles() ? params.getCurrentRoles() : null;
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
         Long dbId = params.getDbId();
@@ -1404,23 +1421,27 @@ public class MetadataGenerator {
         }
         List<TableIf> tables = database.getTables();
         if (catalog instanceof InternalCatalog) {
-            tableOptionsForInternalCatalog(currentUserIdentity, catalog, database, tables, dataBatch);
-        } else if (catalog instanceof ExternalCatalog) {
-            tableOptionsForExternalCatalog(currentUserIdentity, catalog, database, tables, dataBatch);
+            tableOptionsForInternalCatalog(currentUserIdentity, currentRoles, catalog, database, tables, dataBatch);
+        } else {
+            tableOptionsForExternalCatalog(currentUserIdentity, currentRoles, catalog, database, tables, dataBatch);
         }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
     }
 
-    private static void tablePropertiesForInternalCatalog(UserIdentity currentUserIdentity,
+    private static void tablePropertiesForInternalCatalog(UserIdentity currentUserIdentity, Set<String> currentRoles,
             CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch) {
         for (TableIf table : tables) {
             if (!(table instanceof OlapTable)) {
                 continue;
             }
-            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUserIdentity, catalog.getName(),
-                    database.getFullName(), table.getName(), PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
+                    PrivilegeContext.of(currentUserIdentity, currentRoles),
+                    catalog.getName(),
+                    database.getFullName(),
+                    table.getName(),
+                    PrivPredicate.SHOW)) {
                 continue;
             }
             OlapTable olapTable = (OlapTable) table;
@@ -1455,11 +1476,15 @@ public class MetadataGenerator {
         } // for table
     }
 
-    private static void tablePropertiesForExternalCatalog(UserIdentity currentUserIdentity,
+    private static void tablePropertiesForExternalCatalog(UserIdentity currentUserIdentity, Set<String> currentRoles,
             CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch) {
         for (TableIf table : tables) {
-            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUserIdentity, catalog.getName(),
-                    database.getFullName(), table.getName(), PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
+                    PrivilegeContext.of(currentUserIdentity, currentRoles),
+                    catalog.getName(),
+                    database.getFullName(),
+                    table.getName(),
+                    PrivPredicate.SHOW)) {
                 continue;
             }
             // Currently for external catalog, we put properties as empty, can extend in
@@ -1489,6 +1514,7 @@ public class MetadataGenerator {
 
         TUserIdentity tcurrentUserIdentity = params.getCurrentUserIdent();
         UserIdentity currentUserIdentity = UserIdentity.fromThrift(tcurrentUserIdentity);
+        Set<String> currentRoles = params.isSetCurrentRoles() ? params.getCurrentRoles() : null;
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         Long dbId = params.getDbId();
         String clg = params.getCatalog();
@@ -1512,9 +1538,9 @@ public class MetadataGenerator {
         }
         List<TableIf> tables = database.getTables();
         if (catalog instanceof InternalCatalog) {
-            tablePropertiesForInternalCatalog(currentUserIdentity, catalog, database, tables, dataBatch);
-        } else if (catalog instanceof ExternalCatalog) {
-            tablePropertiesForExternalCatalog(currentUserIdentity, catalog, database, tables, dataBatch);
+            tablePropertiesForInternalCatalog(currentUserIdentity, currentRoles, catalog, database, tables, dataBatch);
+        } else {
+            tablePropertiesForExternalCatalog(currentUserIdentity, currentRoles, catalog, database, tables, dataBatch);
         }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
@@ -1534,6 +1560,7 @@ public class MetadataGenerator {
 
         TUserIdentity tcurrentUserIdentity = params.getCurrentUserIdent();
         UserIdentity currentUserIdentity = UserIdentity.fromThrift(tcurrentUserIdentity);
+        Set<String> currentRoles = params.isSetCurrentRoles() ? params.getCurrentRoles() : null;
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         Long dbId = params.getDbId();
         String clg = params.getCatalog();
@@ -1551,14 +1578,18 @@ public class MetadataGenerator {
             return result;
         }
 
-        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(currentUserIdentity, catalog.getName(),
-                databaseIf.getFullName(), PrivPredicate.SHOW)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(
+                PrivilegeContext.of(currentUserIdentity, currentRoles),
+                catalog.getName(),
+                databaseIf.getFullName(),
+                PrivPredicate.SHOW)) {
             result.setDataBatch(dataBatch);
             result.setStatus(new TStatus(TStatusCode.OK));
             return result;
         }
         Map<String, String> props = databaseIf.getDbProperties() == null
-                ? null : databaseIf.getDbProperties().getProperties();
+                ? null
+                : databaseIf.getDbProperties().getProperties();
         if (props == null || props.isEmpty()) {
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setStringVal(catalog.getName()));
@@ -1607,14 +1638,19 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static void partitionsForInternalCatalog(UserIdentity currentUserIdentity, CatalogIf catalog,
+    private static void partitionsForInternalCatalog(UserIdentity currentUserIdentity, Set<String> currentRoles,
+            CatalogIf catalog,
             DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch, String timeZone, Long threadId) {
         for (TableIf table : tables) {
             if (!(table instanceof OlapTable)) {
                 continue;
             }
-            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUserIdentity, catalog.getName(),
-                    database.getFullName(), table.getName(), PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
+                    PrivilegeContext.of(currentUserIdentity, currentRoles),
+                    catalog.getName(),
+                    database.getFullName(),
+                    table.getName(),
+                    PrivPredicate.SHOW)) {
                 continue;
             }
 
@@ -1673,7 +1709,7 @@ public class MetadataGenerator {
                     Pair<Double, String> sizePair = DebugUtil.getByteUint(partition.getDataSize(false));
                     String readableDateSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
                             + sizePair.second;
-                    trow.addToColumnValue(new TCell().setStringVal(readableDateSize));  // LOCAL_DATA_SIZE
+                    trow.addToColumnValue(new TCell().setStringVal(readableDateSize)); // LOCAL_DATA_SIZE
                     sizePair = DebugUtil.getByteUint(partition.getRemoteDataSize());
                     readableDateSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
                             + sizePair.second;
@@ -1695,8 +1731,7 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setIntVal(partition.getDistributionInfo()
                             .getBucketNum())); // BUCKET_NUM
                     trow.addToColumnValue(new TCell().setLongVal(partition.getCommittedVersion())); // COMMITTED_VERSION
-                    ConnectContext ctx =
-                            ExecuteEnv.getInstance().getScheduler().getContext(threadId.intValue());
+                    ConnectContext ctx = ExecuteEnv.getInstance().getScheduler().getContext(threadId.intValue());
                     boolean useCachedVisibleVersion = ctx != null
                             && ctx.getSessionVariable().getCloudPartitionsTableUseCachedVisibleVersion();
                     if (useCachedVisibleVersion) {
@@ -1713,11 +1748,11 @@ public class MetadataGenerator {
                             colNames.add(column.getName());
                         }
                         String colNamesStr = joiner.join(colNames);
-                        trow.addToColumnValue(new TCell().setStringVal(colNamesStr));  // PARTITION_KEY
+                        trow.addToColumnValue(new TCell().setStringVal(colNamesStr)); // PARTITION_KEY
                         trow.addToColumnValue(new TCell().setStringVal(partitionInfo
                                 .getPartitionRangeString(partitionId))); // RANGE
                     } else {
-                        trow.addToColumnValue(new TCell().setStringVal(""));  // PARTITION_KEY
+                        trow.addToColumnValue(new TCell().setStringVal("")); // PARTITION_KEY
                         trow.addToColumnValue(new TCell().setStringVal("")); // RANGE
                     }
                     DistributionInfo distributionInfo = partition.getDistributionInfo();
@@ -1743,11 +1778,15 @@ public class MetadataGenerator {
         } // for table
     }
 
-    private static void partitionsForExternalCatalog(UserIdentity currentUserIdentity,
+    private static void partitionsForExternalCatalog(UserIdentity currentUserIdentity, Set<String> currentRoles,
             CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch, String timeZone) {
         for (TableIf table : tables) {
-            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUserIdentity, catalog.getName(),
-                    database.getFullName(), table.getName(), PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
+                    PrivilegeContext.of(currentUserIdentity, currentRoles),
+                    catalog.getName(),
+                    database.getFullName(),
+                    table.getName(),
+                    PrivPredicate.SHOW)) {
                 continue;
             }
             // TODO
@@ -1774,6 +1813,7 @@ public class MetadataGenerator {
 
         TUserIdentity tcurrentUserIdentity = params.getCurrentUserIdent();
         UserIdentity currentUserIdentity = UserIdentity.fromThrift(tcurrentUserIdentity);
+        Set<String> currentRoles = params.isSetCurrentRoles() ? params.getCurrentRoles() : null;
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         Long dbId = params.getDbId();
         String clg = params.getCatalog();
@@ -1800,9 +1840,11 @@ public class MetadataGenerator {
         List<TableIf> tables = database.getTables();
         if (catalog instanceof InternalCatalog) {
             // only olap tables
-            partitionsForInternalCatalog(currentUserIdentity, catalog, database, tables, dataBatch, timezone, threadId);
-        } else if (catalog instanceof ExternalCatalog) {
-            partitionsForExternalCatalog(currentUserIdentity, catalog, database, tables, dataBatch, timezone);
+            partitionsForInternalCatalog(currentUserIdentity, currentRoles, catalog, database, tables, dataBatch,
+                    timezone, threadId);
+        } else {
+            partitionsForExternalCatalog(currentUserIdentity, currentRoles, catalog, database, tables, dataBatch,
+                    timezone);
         }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));

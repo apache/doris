@@ -452,6 +452,8 @@ import org.apache.doris.nereids.DorisParser.StatementScopeContext;
 import org.apache.doris.nereids.DorisParser.StepPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
 import org.apache.doris.nereids.DorisParser.StructLiteralContext;
+import org.apache.doris.nereids.DorisParser.SuContext;
+import org.apache.doris.nereids.DorisParser.SuUserContext;
 import org.apache.doris.nereids.DorisParser.SubqueryContext;
 import org.apache.doris.nereids.DorisParser.SubqueryExpressionContext;
 import org.apache.doris.nereids.DorisParser.SubstringContext;
@@ -884,6 +886,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWorkloadGroupsCommand;
 import org.apache.doris.nereids.trees.plans.commands.StartTransactionCommand;
+import org.apache.doris.nereids.trees.plans.commands.SuCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
@@ -2536,6 +2539,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         boolean isDomain = ctx.LEFT_PAREN() != null;
         return new UserIdentity(user, host, isDomain);
+    }
+
+    @Override
+    public UserIdentity visitSuUser(SuUserContext ctx) {
+        String user = visitIdentifierOrText(ctx.user);
+        if (ctx.host == null || ctx.host.isEmpty()) {
+            return UserIdentity.createAnalyzedUserIdentWithIp(user, "%");
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < ctx.host.size(); i++) {
+            if (i > 0) {
+                sb.append(".");
+            }
+            sb.append(visitIdentifierOrText(ctx.host.get(i)));
+        }
+        return UserIdentity.createAnalyzedUserIdentWithIp(user, sb.toString());
     }
 
     @Override
@@ -7403,6 +7422,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitHelp(HelpContext ctx) {
         String mark = ctx.mark.getText();
         return new HelpCommand(mark);
+    }
+
+    @Override
+    public LogicalPlan visitSu(SuContext ctx) {
+        UserIdentity user = visitSuUser(ctx.user);
+        List<String> roles = Lists.newArrayList();
+        if (ctx.roles != null) {
+            for (DorisParser.IdentifierOrTextContext roleCtx : ctx.roles) {
+                roles.add(visitIdentifierOrText(roleCtx));
+            }
+        }
+        return new SuCommand(user, roles);
     }
 
     @Override

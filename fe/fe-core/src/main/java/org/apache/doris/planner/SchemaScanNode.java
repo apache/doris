@@ -44,6 +44,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Full scan of an SCHEMA table.
@@ -155,6 +156,10 @@ public class SchemaScanNode extends ScanNode {
 
         TUserIdentity tCurrentUser = ConnectContext.get().getCurrentUserIdentity().toThrift();
         msg.schema_scan_node.setCurrentUserIdent(tCurrentUser);
+        Set<String> currentRoles = ConnectContext.get().getCurrentRoles();
+        if (currentRoles != null && !currentRoles.isEmpty()) {
+            msg.schema_scan_node.setCurrentRoles(currentRoles);
+        }
         msg.schema_scan_node.setFrontendConjuncts(GsonUtils.GSON.toJson(frontendConjuncts));
         setFeAddrList(msg);
     }

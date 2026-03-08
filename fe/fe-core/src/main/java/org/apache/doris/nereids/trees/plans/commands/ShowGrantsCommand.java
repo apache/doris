@@ -70,6 +70,7 @@ public class ShowGrantsCommand extends ShowCommand {
 
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        ConnectContext currentCtx = ConnectContext.get();
         if (userIdent != null) {
             if (isAll) {
                 throw new AnalysisException("Can not specified keyword ALL when specified user");
@@ -78,14 +79,14 @@ public class ShowGrantsCommand extends ShowCommand {
         } else {
             if (!isAll) {
                 // self
-                userIdent = ConnectContext.get().getCurrentUserIdentity();
+                userIdent = currentCtx.getCurrentUserIdentity();
             }
         }
-        boolean isSelf = userIdent != null && ConnectContext.get().getCurrentUserIdentity().equals(userIdent);
+        boolean isSelf = userIdent != null && currentCtx.getCurrentUserIdentity().equals(userIdent);
         Preconditions.checkState(isAll || userIdent != null);
         // if show all grants, or show other user's grants, need global GRANT priv.
         if (isAll || !isSelf) {
-            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentCtx, PrivPredicate.GRANT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
             }
         }
@@ -94,7 +95,9 @@ public class ShowGrantsCommand extends ShowCommand {
                 .doesUserExist(userIdent)) {
             throw new AnalysisException(String.format("User: %s does not exist", userIdent));
         }
-        List<List<String>> infos = Env.getCurrentEnv().getAuth().getAuthInfo(userIdent);
+        List<List<String>> infos = isSelf
+                ? Env.getCurrentEnv().getAuth().getAuthInfo(userIdent, currentCtx.getCurrentRoles())
+                : Env.getCurrentEnv().getAuth().getAuthInfo(userIdent);
 
         // order by UserIdentity
         infos.sort(Comparator.comparing(list -> list.isEmpty() ? "" : list.get(0)));

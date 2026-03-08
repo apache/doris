@@ -70,6 +70,9 @@ Status SchemaUserPrivilegesScanner::_get_new_table() {
             table_params.__set_user_ip(*(_param->common_param->user_ip));
         }
     }
+    if (nullptr != _param->common_param->current_roles) {
+        table_params.__set_current_roles(*(_param->common_param->current_roles));
+    }
 
     if (nullptr != _param->common_param->ip && 0 != _param->common_param->port) {
         RETURN_IF_ERROR(SchemaHelper::list_user_privilege_status(*(_param->common_param->ip),

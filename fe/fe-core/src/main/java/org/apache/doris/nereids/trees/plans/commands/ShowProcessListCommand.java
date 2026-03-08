@@ -85,6 +85,9 @@ public class ShowProcessListCommand extends ShowCommand {
                 TShowProcessListRequest request = new TShowProcessListRequest();
                 request.setShowFullSql(isShowFullSql);
                 request.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentity().toThrift());
+                if (ConnectContext.get().getCurrentRoles() != null) {
+                    request.setCurrentRoles(ConnectContext.get().getCurrentRoles());
+                }
                 List<Pair<String, Integer>> frontends = FrontendsProcNode.getFrontendWithRpcPort(Env.getCurrentEnv(),
                         false);
                 FrontendService.Client client = null;

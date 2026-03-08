@@ -34,6 +34,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TimerTask;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -122,11 +123,12 @@ public class ConnectScheduler {
     }
 
     // used for thrift
-    public List<List<String>> listConnectionForRpc(UserIdentity userIdentity, boolean isShowFullSql,
-            Optional<String> timeZone) {
+    public List<List<String>> listConnectionForRpc(UserIdentity userIdentity, Set<String> currentRoles,
+            boolean isShowFullSql, Optional<String> timeZone) {
         List<List<String>> list = new ArrayList<>();
-        list.addAll(connectPoolMgr.listConnectionForRpc(userIdentity, isShowFullSql, timeZone));
-        list.addAll(flightSqlConnectPoolMgr.listConnectionForRpc(userIdentity, isShowFullSql, timeZone));
+        list.addAll(connectPoolMgr.listConnectionForRpc(userIdentity, currentRoles, isShowFullSql, timeZone));
+        list.addAll(flightSqlConnectPoolMgr.listConnectionForRpc(userIdentity, currentRoles,
+                isShowFullSql, timeZone));
         return list;
     }
 

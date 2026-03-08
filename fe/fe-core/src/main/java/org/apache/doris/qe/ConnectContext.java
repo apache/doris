@@ -171,6 +171,11 @@ public class ConnectContext {
     // In other word, currentUserIdentity is the entry that matched in Doris auth table.
     // This account determines user's access privileges.
     protected volatile UserIdentity currentUserIdentity;
+    // The login identity for this connection, used to validate su privilege.
+    protected volatile UserIdentity loginUserIdentity;
+    // Explicit role override for this connection (set by su).
+    private volatile Set<String> currentRoles;
+    private volatile boolean isSuUser = false;
     // Variables belong to this session.
     protected volatile SessionVariable sessionVariable;
     // Store user variable in this connection
@@ -419,7 +424,11 @@ public class ConnectContext {
         context.setSessionVariable(VariableMgr.cloneSessionVariable(sessionVariable)); // deep copy
         context.setEnv(env);
         context.setDatabase(currentDb);
+        context.setLoginUserIdentity(loginUserIdentity);
         context.setCurrentUserIdentity(currentUserIdentity);
+        if (currentRoles != null) {
+            context.setCurrentRoles(new HashSet<>(currentRoles));
+        }
         return context;
     }
 
@@ -642,6 +651,32 @@ public class ConnectContext {
         return currentUserIdentity;
     }
 
+    public UserIdentity getLoginUserIdentity() {
+        return loginUserIdentity == null ? currentUserIdentity : loginUserIdentity;
+    }
+
+    public void setLoginUserIdentity(UserIdentity loginUserIdentity) {
+        this.loginUserIdentity = loginUserIdentity;
+    }
+
+    public Set<String> getCurrentRoles() {
+        return currentRoles;
+    }
+
+    public void setCurrentRoles(Set<String> currentRoles) {
+        this.currentRoles = currentRoles;
+        this.isSuUser = currentRoles != null;
+    }
+
+    public void clearCurrentRoles() {
+        this.currentRoles = null;
+        this.isSuUser = false;
+    }
+
+    public boolean isSuUser() {
+        return isSuUser;
+    }
+
     // used for select user(), select session_user();
     // return string similar with user@127.0.0.1
     public String getUserWithLoginRemoteIpString() {
@@ -649,6 +684,9 @@ public class ConnectContext {
     }
 
     public void setCurrentUserIdentity(UserIdentity currentUserIdentity) {
+        if (this.loginUserIdentity == null && currentUserIdentity != null) {
+            this.loginUserIdentity = currentUserIdentity;
+        }
         this.currentUserIdentity = currentUserIdentity;
     }
 
@@ -1333,7 +1371,7 @@ public class ConnectContext {
         List<String> hasAuthCluster = new ArrayList<>();
         // get all available cluster of the user
         for (String cloudClusterName : cloudClusterNames) {
-            if (Env.getCurrentEnv().getAccessManager().checkCloudPriv(getCurrentUserIdentity(),
+            if (Env.getCurrentEnv().getAccessManager().checkCloudPriv(this,
                     cloudClusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
                 if (((CloudSystemInfoService) Env.getCurrentSystemInfo()).isStandByComputeGroup(cloudClusterName)) {
                     continue;

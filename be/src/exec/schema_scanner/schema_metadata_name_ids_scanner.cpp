@@ -76,6 +76,9 @@ Status SchemaMetadataNameIdsScanner::start(RuntimeState* state) {
             db_params.__set_user_ip(*(_param->common_param->user_ip));
         }
     }
+    if (nullptr != _param->common_param->current_roles) {
+        db_params.__set_current_roles(*(_param->common_param->current_roles));
+    }
     db_params.__set_get_null_catalog(true);
     if (nullptr != _param->common_param->ip && 0 != _param->common_param->port) {
         RETURN_IF_ERROR(SchemaHelper::get_db_names(
@@ -114,6 +117,9 @@ Status SchemaMetadataNameIdsScanner::_get_new_table() {
         if (nullptr != _param->common_param->user_ip) {
             table_params.__set_user_ip(*(_param->common_param->user_ip));
         }
+    }
+    if (nullptr != _param->common_param->current_roles) {
+        table_params.__set_current_roles(*(_param->common_param->current_roles));
     }
 
     if (nullptr != _param->common_param->ip && 0 != _param->common_param->port) {

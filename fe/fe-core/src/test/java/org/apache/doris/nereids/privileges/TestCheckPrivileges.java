@@ -31,6 +31,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -280,22 +281,23 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
         private static ThreadLocal<List<CustomDataMaskingPolicy>> dataMaskings = new ThreadLocal<>();
 
         @Override
-        public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
+        public boolean checkGlobalPriv(PrivilegeContext context, PrivPredicate wanted) {
             return true;
         }
 
         @Override
-        public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
+        public boolean checkCtlPriv(PrivilegeContext context, String ctl, PrivPredicate wanted) {
             return true;
         }
 
         @Override
-        public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
+        public boolean checkDbPriv(PrivilegeContext context, String ctl, String db, PrivPredicate wanted) {
             return true;
         }
 
         @Override
-        public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
+        public boolean checkTblPriv(PrivilegeContext context, String ctl, String db, String tbl, PrivPredicate wanted) {
+            UserIdentity currentUser = context.getCurrentUser();
             List<TablePrivilege> tablePrivileges = SimpleCatalogAccessController.tablePrivileges.get();
             if (!CollectionUtils.isEmpty(tablePrivileges)
                     && tablePrivileges.stream().anyMatch(p -> p.checkTblPriv(currentUser, ctl, db, tbl))) {
@@ -310,19 +312,20 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
         }
 
         @Override
-        public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
+        public boolean checkResourcePriv(PrivilegeContext context, String resourceName, PrivPredicate wanted) {
             return true;
         }
 
         @Override
-        public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName,
-                PrivPredicate wanted) {
+        public boolean checkWorkloadGroupPriv(PrivilegeContext context, String workloadGroupName,
+                                              PrivPredicate wanted) {
             return true;
         }
 
         @Override
-        public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
-                PrivPredicate wanted) throws AuthorizationException {
+        public void checkColsPriv(PrivilegeContext context, String ctl, String db, String tbl, Set<String> cols,
+                                  PrivPredicate wanted) throws AuthorizationException {
+            UserIdentity currentUser = context.getCurrentUser();
             List<TablePrivilege> tablePrivileges = SimpleCatalogAccessController.tablePrivileges.get();
             if (!CollectionUtils.isEmpty(tablePrivileges)
                     && tablePrivileges.stream().anyMatch(p -> p.checkTblPriv(currentUser, ctl, db, tbl))) {
@@ -352,19 +355,19 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
         }
 
         @Override
-        public boolean checkCloudPriv(UserIdentity currentUser, String cloudName, PrivPredicate wanted,
-                ResourceTypeEnum type) {
+        public boolean checkCloudPriv(PrivilegeContext context, String cloudName, PrivPredicate wanted,
+                                      ResourceTypeEnum type) {
             return true;
         }
 
         @Override
-        public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
+        public boolean checkStorageVaultPriv(PrivilegeContext context, String storageVaultName, PrivPredicate wanted) {
             return true;
         }
 
         @Override
-        public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
-                String col) {
+        public Optional<DataMaskPolicy> evalDataMaskPolicy(PrivilegeContext context, String ctl, String db, String tbl,
+                                                           String col) {
             List<CustomDataMaskingPolicy> dataMaskingPolicies = dataMaskings.get();
             if (dataMaskingPolicies == null) {
                 return Optional.empty();
@@ -379,8 +382,8 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
         }
 
         @Override
-        public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db,
-                String tbl) {
+        public List<? extends RowFilterPolicy> evalRowFilterPolicies(PrivilegeContext context, String ctl, String db,
+                                                                     String tbl) {
             List<CustomRowPolicy> customRowPolicies = rowPolicies.get();
             if (customRowPolicies == null) {
                 return ImmutableList.of();

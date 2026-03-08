@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
@@ -30,6 +29,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -81,12 +81,13 @@ public class ShowCreateStorageVaultCommand extends ShowCommand {
                             .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                             .build());
             AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
-            UserIdentity user = ctx.getCurrentUserIdentity();
+            PrivilegeContext privilegeContext =
+                    PrivilegeContext.of(ctx.getCurrentUserIdentity(), ctx.getCurrentRoles());
 
             Optional<Cloud.StorageVaultPB> storageVaultPB = response.getStorageVaultList().stream()
                     .filter(storageVault -> storageVault.getName().equals(storageVaultName))
-                    .filter(storageVault -> accessManager.checkStorageVaultPriv(user, storageVault.getName(),
-                        PrivPredicate.USAGE))
+                    .filter(storageVault -> accessManager.checkStorageVaultPriv(
+                            privilegeContext, storageVault.getName(), PrivPredicate.USAGE))
                     .findFirst();
 
             Preconditions.checkArgument(storageVaultPB.isPresent(), "storageVaultPB is null");

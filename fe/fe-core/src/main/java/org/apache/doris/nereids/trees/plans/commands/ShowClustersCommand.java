@@ -77,7 +77,7 @@ public class ShowClustersCommand extends ShowCommand {
     private void validate(ConnectContext ctx) throws AnalysisException {
         if (Config.isNotCloudMode()) {
             // just user admin
-            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get().getCurrentUserIdentity(),
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
                         PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV, Privilege.NODE_PRIV), Operator.OR))) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
             }
@@ -109,7 +109,7 @@ public class ShowClustersCommand extends ShowCommand {
         for (String clusterName : clusterNameSet) {
             // current_used, users
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(), clusterName,
+                    .checkCloudPriv(ConnectContext.get(), clusterName,
                             PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
                 continue;
             }
@@ -131,7 +131,7 @@ public class ShowClustersCommand extends ShowCommand {
                 users.remove(Auth.ROOT_USER);
             }
             // common user, not admin
-            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx.getCurrentUserIdentity(),
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx,
                     PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV), Operator.OR))) {
                 users.removeIf(user -> !user.equals(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser())));
             }

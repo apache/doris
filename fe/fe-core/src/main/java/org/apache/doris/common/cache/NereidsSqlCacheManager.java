@@ -35,6 +35,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -537,7 +538,10 @@ public class NereidsSqlCacheManager {
             List<? extends RowFilterPolicy> cachedPolicies = kv.getValue();
 
             List<? extends RowFilterPolicy> rowPolicies = env.getAccessManager().evalRowFilterPolicies(
-                    currentUserIdentity, qualifiedTable.catalog, qualifiedTable.db, qualifiedTable.table);
+                    PrivilegeContext.of(currentUserIdentity),
+                    qualifiedTable.catalog,
+                    qualifiedTable.db,
+                    qualifiedTable.table);
             if (!CollectionUtils.isEqualCollection(cachedPolicies, rowPolicies)) {
                 return true;
             }
@@ -552,7 +556,7 @@ public class NereidsSqlCacheManager {
             Optional<DataMaskPolicy> cachedPolicy = kv.getValue();
 
             Optional<DataMaskPolicy> dataMaskPolicy = env.getAccessManager()
-                    .evalDataMaskPolicy(currentUserIdentity, qualifiedColumn.catalog,
+                    .evalDataMaskPolicy(PrivilegeContext.of(currentUserIdentity), qualifiedColumn.catalog,
                             qualifiedColumn.db, qualifiedColumn.table, qualifiedColumn.column);
             if (!Objects.equals(cachedPolicy, dataMaskPolicy)) {
                 return true;

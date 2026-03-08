@@ -19,6 +19,7 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
@@ -47,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExecuteActionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
+import org.apache.doris.nereids.trees.plans.commands.SuCommand;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
@@ -810,6 +812,26 @@ public class NereidsParserTest extends ParserTestBase {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "create role a comment 'create user'";
         nereidsParser.parseSingle(sql);
+    }
+
+    @Test
+    public void testSu() {
+        NereidsParser nereidsParser = new NereidsParser();
+        Plan plan = nereidsParser.parseSingle("su mry@selectdb.com role1, role2");
+        Assertions.assertTrue(plan instanceof SuCommand);
+        SuCommand cmd = (SuCommand) plan;
+        Assertions.assertEquals(UserIdentity.createAnalyzedUserIdentWithIp("mry", "selectdb.com"), cmd.getUser());
+        Assertions.assertEquals(Lists.newArrayList("role1", "role2"), cmd.getRoles());
+
+        Plan planWithQuotedUser = nereidsParser.parseSingle("su 'mry@selectdb.com' role1");
+        Assertions.assertTrue(planWithQuotedUser instanceof SuCommand);
+        SuCommand quotedUserCmd = (SuCommand) planWithQuotedUser;
+        Assertions.assertEquals(UserIdentity.createAnalyzedUserIdentWithIp("mry@selectdb.com", "%"),
+                quotedUserCmd.getUser());
+        Assertions.assertEquals(Lists.newArrayList("role1"), quotedUserCmd.getRoles());
+
+        Assertions.assertThrows(ParseException.class,
+                () -> nereidsParser.parseSingle("su mry@selectdb.com role1 role2"));
     }
 
     @Test

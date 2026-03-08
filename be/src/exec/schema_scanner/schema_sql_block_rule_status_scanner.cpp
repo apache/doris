@@ -71,6 +71,9 @@ Status SchemaSqlBlockRuleStatusScanner::_get_sql_block_rule_status_block_from_fe
                 _s_sql_block_rule_status_columns[i].name);
     }
     schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
+    if (nullptr != _param->common_param->current_roles) {
+        schema_table_request_params.__set_current_roles(*(_param->common_param->current_roles));
+    }
     schema_table_request_params.__set_frontend_conjuncts(*_param->common_param->frontend_conjuncts);
 
     TFetchSchemaTableDataRequest request;

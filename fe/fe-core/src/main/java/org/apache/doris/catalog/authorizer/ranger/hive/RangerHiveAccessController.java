@@ -26,6 +26,7 @@ import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -137,35 +138,36 @@ public class RangerHiveAccessController extends RangerAccessController {
     }
 
     @Override
-    public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
+    public boolean checkGlobalPriv(PrivilegeContext context, PrivPredicate wanted) {
         // hive ranger plugin does not support global privilege
         // use internal access controller to check
         return Env.getCurrentEnv().getAccessManager().getAccessControllerOrDefault(
-                InternalCatalog.INTERNAL_CATALOG_NAME).checkGlobalPriv(currentUser, wanted);
+                InternalCatalog.INTERNAL_CATALOG_NAME).checkGlobalPriv(context, wanted);
     }
 
     @Override
-    public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
+    public boolean checkCtlPriv(PrivilegeContext context, String ctl, PrivPredicate wanted) {
         return true;
     }
 
     @Override
-    public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
+    public boolean checkDbPriv(PrivilegeContext context, String ctl, String db, PrivPredicate wanted) {
         RangerHiveResource resource = new RangerHiveResource(HiveObjectType.DATABASE,
                 ClusterNamespace.getNameFromFullName(db));
-        return checkPrivilege(currentUser, convertToAccessType(wanted), resource);
+        return checkPrivilege(context.getCurrentUser(), convertToAccessType(wanted), resource);
     }
 
     @Override
-    public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
+    public boolean checkTblPriv(PrivilegeContext context, String ctl, String db, String tbl,
+                                PrivPredicate wanted) {
         RangerHiveResource resource = new RangerHiveResource(HiveObjectType.TABLE,
                 ClusterNamespace.getNameFromFullName(db), tbl);
-        return checkPrivilege(currentUser, convertToAccessType(wanted), resource);
+        return checkPrivilege(context.getCurrentUser(), convertToAccessType(wanted), resource);
     }
 
     @Override
-    public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
-            PrivPredicate wanted) throws AuthorizationException {
+    public void checkColsPriv(PrivilegeContext context, String ctl, String db, String tbl, Set<String> cols,
+                              PrivPredicate wanted) throws AuthorizationException {
         List<RangerHiveResource> resources = new ArrayList<>();
         for (String col : cols) {
             RangerHiveResource resource = new RangerHiveResource(HiveObjectType.COLUMN,
@@ -173,27 +175,28 @@ public class RangerHiveAccessController extends RangerAccessController {
             resources.add(resource);
         }
 
-        checkPrivileges(currentUser, convertToAccessType(wanted), resources);
+        checkPrivileges(context.getCurrentUser(), convertToAccessType(wanted), resources);
     }
 
     @Override
-    public boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
-            PrivPredicate wanted, ResourceTypeEnum type) {
+    public boolean checkCloudPriv(PrivilegeContext context, String cloudName,
+                                  PrivPredicate wanted, ResourceTypeEnum type) {
         return false;
     }
 
     @Override
-    public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
+    public boolean checkStorageVaultPriv(PrivilegeContext context, String storageVaultName, PrivPredicate wanted) {
         return false;
     }
 
     @Override
-    public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
+    public boolean checkResourcePriv(PrivilegeContext context, String resourceName, PrivPredicate wanted) {
         return false;
     }
 
     @Override
-    public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
+    public boolean checkWorkloadGroupPriv(PrivilegeContext context, String workloadGroupName,
+                                          PrivPredicate wanted) {
         // Not support workload group privilege in ranger hive plugin.
         // So always return true to pass the check
         return true;
@@ -228,9 +231,10 @@ public class RangerHiveAccessController extends RangerAccessController {
         RangerHiveAccessController ac = new RangerHiveAccessController(properties);
         UserIdentity user = new UserIdentity("user1", "127.0.0.1");
         user.setIsAnalyzed();
-        boolean res = ac.checkDbPriv(user, "hive", "tpcds_bin_partitioned_orc_1", PrivPredicate.SHOW);
+        PrivilegeContext context = PrivilegeContext.of(user);
+        boolean res = ac.checkDbPriv(context, "hive", "tpcds_bin_partitioned_orc_1", PrivPredicate.SHOW);
         System.out.println("res: " + res);
-        res = ac.checkTblPriv(user, "internal", "tpch1", "customer", PrivPredicate.SELECT);
+        res = ac.checkTblPriv(context, "internal", "tpch1", "customer", PrivPredicate.SELECT);
         System.out.println("res: " + res);
     }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.util;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.httpv2.util.streamresponse.JsonStreamResponse;
@@ -35,8 +36,10 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -67,6 +70,14 @@ public class StatementSubmitter {
 
     private static final String JDBC_DRIVER = "org.mariadb.jdbc.Driver";
     private static final String DB_URL_PATTERN = "jdbc:mariadb://127.0.0.1:%d/%s";
+    private static final int DEFAULT_FETCH_SIZE = 1000;
+    private static final String SU_SQL_PREFIX = "SU ";
+    private static final String USER_HOST_SEPARATOR = "@";
+    private static final String ROLE_SEPARATOR = ", ";
+    private static final String SPACE_SEPARATOR = " ";
+    private static final String EMPTY_SQL_LITERAL = "''";
+    private static final String SQL_LITERAL_QUOTE = "'";
+    private static final String SQL_LITERAL_ESCAPE = "''";
 
     private static final String[] copyResult = {"id", "state", "type", "msg", "loadedRows", "filterRows",
             "unselectRows", "url"};
@@ -106,6 +117,7 @@ public class StatementSubmitter {
                 Class.forName(JDBC_DRIVER);
                 conn = DriverManager.getConnection(dbUrl, queryCtx.user, queryCtx.passwd);
                 long startTime = System.currentTimeMillis();
+                executeSuIfNeeded(conn);
 
                 if (!queryCtx.clusterName.isEmpty()) {
                     Statement useStmt = conn.createStatement();
@@ -114,7 +126,7 @@ public class StatementSubmitter {
                 }
 
                 stmt = conn.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-                stmt.setFetchSize(1000);
+                stmt.setFetchSize(DEFAULT_FETCH_SIZE);
 
                 boolean hasResultSet = stmt.execute(queryCtx.stmt);
 
@@ -154,6 +166,47 @@ public class StatementSubmitter {
                     LOG.warn("failed to close connection", se);
                 }
             }
+        }
+
+        private void executeSuIfNeeded(Connection conn) throws SQLException {
+            if (queryCtx.executeAsUser == null) {
+                return;
+            }
+            String suSql = buildSuStatement(queryCtx.executeAsUser, queryCtx.executeAsRoles);
+            Statement suStmt = conn.createStatement();
+            try {
+                suStmt.execute(suSql);
+            } finally {
+                suStmt.close();
+            }
+        }
+
+        private String buildSuStatement(UserIdentity executeAsUser, Set<String> executeAsRoles) {
+            StringBuilder sb = new StringBuilder(SU_SQL_PREFIX);
+            sb.append(toSqlStringLiteral(executeAsUser.getUser()))
+                    .append(USER_HOST_SEPARATOR)
+                    .append(toSqlStringLiteral(executeAsUser.getHost()));
+            if (executeAsRoles != null && !executeAsRoles.isEmpty()) {
+                List<String> roles = Lists.newArrayList(executeAsRoles);
+                Collections.sort(roles);
+                sb.append(SPACE_SEPARATOR);
+                boolean firstRole = true;
+                for (String role : roles) {
+                    if (!firstRole) {
+                        sb.append(ROLE_SEPARATOR);
+                    }
+                    sb.append(toSqlStringLiteral(role));
+                    firstRole = false;
+                }
+            }
+            return sb.toString();
+        }
+
+        private String toSqlStringLiteral(String rawString) {
+            if (rawString == null) {
+                return EMPTY_SQL_LITERAL;
+            }
+            return SQL_LITERAL_QUOTE + rawString.replace(SQL_LITERAL_QUOTE, SQL_LITERAL_ESCAPE) + SQL_LITERAL_QUOTE;
         }
 
         private boolean isCopyStatement(ResultSet rs) throws SQLException {
@@ -273,9 +326,17 @@ public class StatementSubmitter {
         public boolean isStream;
         public HttpServletResponse response;
         public String clusterName;
+        public UserIdentity executeAsUser;
+        public Set<String> executeAsRoles;
 
         public StmtContext(String stmt, String user, String passwd, long limit,
-                            boolean isStream, HttpServletResponse response, String clusterName) {
+                boolean isStream, HttpServletResponse response, String clusterName) {
+            this(stmt, user, passwd, limit, isStream, response, clusterName, null, null);
+        }
+
+        public StmtContext(String stmt, String user, String passwd, long limit,
+                boolean isStream, HttpServletResponse response, String clusterName,
+                UserIdentity executeAsUser, Set<String> executeAsRoles) {
             this.stmt = stmt;
             this.user = user;
             this.passwd = passwd;
@@ -283,6 +344,8 @@ public class StatementSubmitter {
             this.isStream = isStream;
             this.response = response;
             this.clusterName = clusterName;
+            this.executeAsUser = executeAsUser;
+            this.executeAsRoles = executeAsRoles;
         }
     }
 }

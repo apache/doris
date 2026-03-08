@@ -56,6 +56,7 @@ import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -898,7 +899,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
                 List<String> targetTable = InsertUtils.getTargetTableQualified(logicalQuery, ctx);
                 Preconditions.checkArgument(targetTable.size() == 3, "target table name is invalid");
-                return Env.getCurrentEnv().getAccessManager().checkTblPriv(userIdentity,
+                return Env.getCurrentEnv().getAccessManager().checkTblPriv(PrivilegeContext.of(userIdentity),
                         InternalCatalog.INTERNAL_CATALOG_NAME,
                         targetTable.get(1),
                         targetTable.get(2),

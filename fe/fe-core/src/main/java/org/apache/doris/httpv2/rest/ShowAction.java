@@ -240,7 +240,7 @@ public class ShowAction extends RestBaseController {
                     continue;
                 }
                 if (Config.enable_all_http_auth && !Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get().getCurrentUserIdentity(),
+                        .checkTblPriv(ConnectContext.get(),
                                 InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), tableName,
                                 PrivPredicate.SHOW)) {
                     continue;

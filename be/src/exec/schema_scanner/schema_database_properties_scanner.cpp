@@ -50,6 +50,9 @@ Status SchemaDatabasePropertiesScanner::start(RuntimeState* state) {
     if (_param->common_param->current_user_ident) {
         db_params.__set_current_user_ident(*(_param->common_param->current_user_ident));
     }
+    if (nullptr != _param->common_param->current_roles) {
+        db_params.__set_current_roles(*(_param->common_param->current_roles));
+    }
     if (_param->common_param->ip && 0 != _param->common_param->port) {
         RETURN_IF_ERROR(SchemaHelper::get_db_names(
                 *(_param->common_param->ip), _param->common_param->port, db_params, &_db_result));
@@ -70,6 +73,9 @@ Status SchemaDatabasePropertiesScanner::get_onedb_info_from_fe(int64_t dbId) {
         schema_table_request_params.columns_name.emplace_back(_s_tbls_columns[i].name);
     }
     schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
+    if (nullptr != _param->common_param->current_roles) {
+        schema_table_request_params.__set_current_roles(*(_param->common_param->current_roles));
+    }
     schema_table_request_params.__set_catalog(*_param->common_param->catalog);
     schema_table_request_params.__set_dbId(dbId);
 

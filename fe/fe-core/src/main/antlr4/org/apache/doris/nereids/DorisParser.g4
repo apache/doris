@@ -520,6 +520,7 @@ supportedOtherStatement
     | UNLOCK TABLES                                                                 #unlockTables
     | INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
     | UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
+    | SU user=suUser (COMMA? roles+=identifierOrText (COMMA roles+=identifierOrText)*)? #su
     | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables
     | RESTORE SNAPSHOT label=multipartIdentifier FROM repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
@@ -1123,6 +1124,10 @@ identifierOrAsterisk
 userIdentify
     : user=identifierOrText (ATSIGN (host=identifierOrText
         | LEFT_PAREN host=identifierOrText RIGHT_PAREN))?
+    ;
+
+suUser
+    : user=identifierOrText (ATSIGN host+=identifierOrText (DOT host+=identifierOrText)*)?
     ;
 
 grantUserIdentify

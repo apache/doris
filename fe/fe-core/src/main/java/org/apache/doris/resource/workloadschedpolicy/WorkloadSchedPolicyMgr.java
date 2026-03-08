@@ -28,6 +28,7 @@ import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -603,7 +604,8 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
             readLock();
             try {
                 for (WorkloadSchedPolicy policy : idToPolicy.values()) {
-                    if (!Env.getCurrentEnv().getAccessManager().checkWorkloadGroupPriv(currentUserIdentity,
+                    if (!Env.getCurrentEnv().getAccessManager().checkWorkloadGroupPriv(
+                            PrivilegeContext.of(currentUserIdentity),
                             policy.getName(), PrivPredicate.SHOW_WORKLOAD_GROUP)) {
                         continue;
                     }

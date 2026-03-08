@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 import org.apache.doris.qe.ConnectContext.ThreadInfo;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -33,7 +34,9 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ConnectPoolMgr {
@@ -119,12 +122,32 @@ public class ConnectPoolMgr {
         return numberConnection.get();
     }
 
+    private boolean canViewOtherConnectionsForRpc(UserIdentity userIdentity, Set<String> currentRoles) {
+        if (userIdentity == null) {
+            return false;
+        }
+        return Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(PrivilegeContext.of(userIdentity, currentRoles), PrivPredicate.GRANT)
+                || Env.getCurrentEnv().getAuth().hasAdminReadOnlyRole(userIdentity, currentRoles);
+    }
+
+    private boolean canViewOtherConnectionsForLocal(String user) {
+        ConnectContext currentCtx = ConnectContext.get();
+        if (currentCtx == null || currentCtx.getCurrentUserIdentity() == null
+                || !Objects.equals(currentCtx.getQualifiedUser(), user)) {
+            return false;
+        }
+        return Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentCtx, PrivPredicate.ADMIN)
+                || Env.getCurrentEnv().getAuth().hasAdminReadOnlyRole(currentCtx.getCurrentUserIdentity(),
+                currentCtx.getCurrentRoles());
+    }
+
     public List<ThreadInfo> listConnection(String user, boolean isFull) {
         List<ConnectContext.ThreadInfo> infos = Lists.newArrayList();
+        boolean canViewOthers = canViewOtherConnectionsForLocal(user);
         for (ConnectContext ctx : connectionMap.values()) {
             // Check auth
-            if (!ctx.getQualifiedUser().equals(user) && !Env.getCurrentEnv().getAccessManager()
-                    .checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            if (!ctx.getQualifiedUser().equals(user) && !canViewOthers) {
                 continue;
             }
 
@@ -134,14 +157,14 @@ public class ConnectPoolMgr {
     }
 
     // used for thrift
-    public List<List<String>> listConnectionForRpc(UserIdentity userIdentity, boolean isShowFullSql,
-            Optional<String> timeZone) {
+    public List<List<String>> listConnectionForRpc(UserIdentity userIdentity, Set<String> currentRoles,
+            boolean isShowFullSql, Optional<String> timeZone) {
         List<List<String>> list = new ArrayList<>();
         long nowMs = System.currentTimeMillis();
+        boolean canViewOthers = canViewOtherConnectionsForRpc(userIdentity, currentRoles);
         for (ConnectContext ctx : connectionMap.values()) {
             // Check auth
-            if (!ctx.getCurrentUserIdentity().equals(userIdentity) && !Env.getCurrentEnv().getAccessManager()
-                    .checkGlobalPriv(userIdentity, PrivPredicate.GRANT)) {
+            if (!ctx.getCurrentUserIdentity().equals(userIdentity) && !canViewOthers) {
                 continue;
             }
             list.add(ctx.toThreadInfo(isShowFullSql).toRow(-1, nowMs, timeZone));

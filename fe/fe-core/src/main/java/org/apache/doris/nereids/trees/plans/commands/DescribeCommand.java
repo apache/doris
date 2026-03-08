@@ -434,7 +434,7 @@ public class DescribeCommand extends ShowCommand {
         for (List<String> row : rows) {
             try {
                 Env.getCurrentEnv().getAccessManager()
-                        .checkColumnsPriv(ConnectContext.get().getCurrentUserIdentity(), dbTableName.getCtl(),
+                        .checkColumnsPriv(ConnectContext.get(), dbTableName.getCtl(),
                                 dbTableName.getDb(), dbTableName.getTbl(), Sets.newHashSet(row.get(0)),
                                 PrivPredicate.SHOW);
                 res.add(row);

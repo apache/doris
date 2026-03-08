@@ -41,11 +41,14 @@ import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TNullableStringLiteral;
 import org.apache.doris.thrift.TSchemaTableName;
+import org.apache.doris.thrift.TShowProcessListRequest;
+import org.apache.doris.thrift.TShowProcessListResult;
 import org.apache.doris.thrift.TShowUserRequest;
 import org.apache.doris.thrift.TShowUserResult;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.Sets;
 import mockit.Mocked;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -246,5 +249,24 @@ public class FrontendServiceImplTest {
         TShowUserRequest request = new TShowUserRequest();
         TShowUserResult result = impl.showUser(request);
         System.out.println(result);
+    }
+
+    @Test
+    public void testShowProcessListApplyCurrentRoles() {
+        connectContext.clearCurrentRoles();
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+
+        ConnectContext.remove();
+
+        TShowProcessListRequest request = new TShowProcessListRequest();
+        request.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+        request.setShowFullSql(false);
+        request.setCurrentRoles(Sets.newHashSet("role1"));
+
+        TShowProcessListResult result = impl.showProcessList(request);
+        Assert.assertNotNull(result);
+        Assert.assertNull(ConnectContext.get());
+
+        connectContext.setThreadLocalInfo();
     }
 }

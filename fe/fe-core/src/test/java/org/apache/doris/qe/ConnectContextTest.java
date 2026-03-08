@@ -567,7 +567,7 @@ public class ConnectContextTest {
                     result = Lists.newArrayList("policy_cluster1", "policy_cluster2");
                     env.getAccessManager();
                     result = accessManager;
-                    accessManager.checkCloudPriv((UserIdentity) any, "policy_cluster2",
+                    accessManager.checkCloudPriv((ConnectContext) any, "policy_cluster2",
                             PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
                     result = true;
                     cloudSystemInfoService.isStandByComputeGroup("policy_cluster2");
@@ -628,7 +628,7 @@ public class ConnectContextTest {
                     result = Lists.newArrayList("unauthorized_cluster");
                     env.getAccessManager();
                     result = accessManager;
-                    accessManager.checkCloudPriv((UserIdentity) any, anyString,
+                    accessManager.checkCloudPriv((ConnectContext) any, anyString,
                             PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
                     result = false; // No authorized cluster
                 }

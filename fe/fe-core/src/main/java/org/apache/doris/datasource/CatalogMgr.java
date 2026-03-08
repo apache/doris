@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
@@ -42,6 +41,7 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -368,7 +368,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     matcher = PatternMatcherWrapper.createMysqlPattern(pattern,
                         CaseSensibility.CATALOG.getCaseSensibility());
                 }
-                for (CatalogIf catalog : listCatalogsWithCheckPriv(ConnectContext.get().getCurrentUserIdentity())) {
+                for (CatalogIf catalog : listCatalogsWithCheckPriv(
+                        PrivilegeContext.of(
+                                ConnectContext.get().getCurrentUserIdentity(),
+                                ConnectContext.get().getCurrentRoles()))) {
                     String name = catalog.getName();
                     // Filter catalog name
                     if (matcher != null && !matcher.match(name)) {
@@ -539,10 +542,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return nameToCatalog.values().stream().collect(Collectors.toList());
     }
 
-    public List<CatalogIf> listCatalogsWithCheckPriv(UserIdentity userIdentity) {
+    public List<CatalogIf> listCatalogsWithCheckPriv(PrivilegeContext privilegeContext) {
         return nameToCatalog.values().stream().filter(
                 catalog -> Env.getCurrentEnv().getAccessManager()
-                        .checkCtlPriv(userIdentity, catalog.getName(), PrivPredicate.SHOW)
+                        .checkCtlPriv(privilegeContext, catalog.getName(), PrivPredicate.SHOW)
         ).collect(Collectors.toList());
     }
 

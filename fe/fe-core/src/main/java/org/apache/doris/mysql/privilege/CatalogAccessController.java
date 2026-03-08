@@ -18,7 +18,6 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AuthorizationException;
 
 import java.util.List;
@@ -27,40 +26,40 @@ import java.util.Set;
 
 public interface CatalogAccessController {
     // ==== Catalog ====
-    default boolean checkCtlPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, PrivPredicate wanted) {
-        boolean res = checkCtlPriv(currentUser, ctl, wanted);
+    default boolean checkCtlPriv(boolean hasGlobal, PrivilegeContext context, String ctl, PrivPredicate wanted) {
+        boolean res = checkCtlPriv(context, ctl, wanted);
         return hasGlobal || res;
     }
 
     // ==== Global ====
-    boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted);
+    boolean checkGlobalPriv(PrivilegeContext context, PrivPredicate wanted);
 
     // ==== Catalog ====
-    boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted);
+    boolean checkCtlPriv(PrivilegeContext context, String ctl, PrivPredicate wanted);
 
     // ==== Database ====
-    default boolean checkDbPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db,
-            PrivPredicate wanted) {
-        boolean res = checkDbPriv(currentUser, ctl, db, wanted);
+    default boolean checkDbPriv(boolean hasGlobal, PrivilegeContext context, String ctl, String db,
+                                PrivPredicate wanted) {
+        boolean res = checkDbPriv(context, ctl, db, wanted);
         return hasGlobal || res;
     }
 
-    boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted);
+    boolean checkDbPriv(PrivilegeContext context, String ctl, String db, PrivPredicate wanted);
 
     // ==== Table ====
-    default boolean checkTblPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db, String tbl,
-            PrivPredicate wanted) {
-        boolean res = checkTblPriv(currentUser, ctl, db, tbl, wanted);
+    default boolean checkTblPriv(boolean hasGlobal, PrivilegeContext context, String ctl, String db, String tbl,
+                                 PrivPredicate wanted) {
+        boolean res = checkTblPriv(context, ctl, db, tbl, wanted);
         return hasGlobal || res;
     }
 
-    boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted);
+    boolean checkTblPriv(PrivilegeContext context, String ctl, String db, String tbl, PrivPredicate wanted);
 
     // ==== Column ====
-    default void checkColsPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db, String tbl,
-            Set<String> cols, PrivPredicate wanted) throws AuthorizationException {
+    default void checkColsPriv(boolean hasGlobal, PrivilegeContext context, String ctl, String db, String tbl,
+                               Set<String> cols, PrivPredicate wanted) throws AuthorizationException {
         try {
-            checkColsPriv(currentUser, ctl, db, tbl, cols, wanted);
+            checkColsPriv(context, ctl, db, tbl, cols, wanted);
         } catch (AuthorizationException e) {
             if (!hasGlobal) {
                 throw e;
@@ -69,21 +68,22 @@ public interface CatalogAccessController {
     }
 
     // ==== Resource ====
-    boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted);
+    boolean checkResourcePriv(PrivilegeContext context, String resourceName, PrivPredicate wanted);
 
     // ==== Workload Group ====
-    boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted);
+    boolean checkWorkloadGroupPriv(PrivilegeContext context, String workloadGroupName, PrivPredicate wanted);
 
-    void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl,
-            Set<String> cols, PrivPredicate wanted) throws AuthorizationException;
+    void checkColsPriv(PrivilegeContext context, String ctl, String db, String tbl,
+                       Set<String> cols, PrivPredicate wanted) throws AuthorizationException;
 
     // ==== Cloud ====
-    boolean checkCloudPriv(UserIdentity currentUser, String cloudName, PrivPredicate wanted, ResourceTypeEnum type);
+    boolean checkCloudPriv(PrivilegeContext context, String cloudName, PrivPredicate wanted, ResourceTypeEnum type);
 
-    boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted);
+    boolean checkStorageVaultPriv(PrivilegeContext context, String storageVaultName, PrivPredicate wanted);
 
-    Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db, String tbl,
-            String col);
+    Optional<DataMaskPolicy> evalDataMaskPolicy(PrivilegeContext context, String ctl, String db, String tbl,
+                                                String col);
 
-    List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl, String db, String tbl);
+    List<? extends RowFilterPolicy> evalRowFilterPolicies(PrivilegeContext context, String ctl, String db,
+                                                          String tbl);
 }

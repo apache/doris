@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StorageVault;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -28,6 +27,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.PrivilegeContext;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -72,10 +72,11 @@ public class ShowStorageVaultCommand extends ShowCommand {
                             .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                             .build());
             AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
-            UserIdentity user = ctx.getCurrentUserIdentity();
+            PrivilegeContext privilegeContext =
+                    PrivilegeContext.of(ctx.getCurrentUserIdentity(), ctx.getCurrentRoles());
             rows = resp.getStorageVaultList().stream()
-                    .filter(storageVault -> accessManager.checkStorageVaultPriv(user, storageVault.getName(),
-                            PrivPredicate.USAGE))
+                    .filter(storageVault -> accessManager.checkStorageVaultPriv(
+                            privilegeContext, storageVault.getName(), PrivPredicate.USAGE))
                     .map(StorageVault::convertToShowStorageVaultProperties)
                     .collect(Collectors.toList());
             if (resp.hasDefaultStorageVaultId()) {

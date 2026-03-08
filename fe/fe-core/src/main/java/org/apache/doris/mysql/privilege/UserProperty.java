@@ -392,7 +392,8 @@ public class UserProperty {
         boolean pass = false;
         for (User user : users) {
             if (!Strings.isNullOrEmpty(value) && am.checkCloudPriv(
-                    user.getUserIdentity(), value, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+                    PrivilegeContext.of(user.getUserIdentity()),
+                    value, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
                 pass = true;
             }
         }
