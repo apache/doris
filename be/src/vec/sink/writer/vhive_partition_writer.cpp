@@ -51,7 +51,14 @@ VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string 
           _file_format_type(file_format_type),
           _hive_compress_type(hive_compress_type),
           _hive_serde_properties(hive_serde_properties),
-          _hadoop_conf(hadoop_conf) {}
+          _hadoop_conf(hadoop_conf) {
+    if (t_sink.__isset.hive_table_sink) [[likely]] {
+        const auto& hive_table_sink = t_sink.hive_table_sink;
+        if (hive_table_sink.__isset.enable_int96_timestamps) [[likely]] {
+            _enable_int96_timestamps = hive_table_sink.enable_int96_timestamps;
+        }
+    }
+}
 
 Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_profile) {
     _state = state;
@@ -89,8 +96,10 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
                                          to_string(_hive_compress_type));
         }
         }
+
         ParquetFileOptions parquet_options = {parquet_compression_type,
-                                              TParquetVersion::PARQUET_1_0, false, true};
+                                              TParquetVersion::PARQUET_1_0, false,
+                                              _enable_int96_timestamps};
         _file_format_transformer = std::make_unique<VParquetTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
                 parquet_options);

@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.fileformat;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
@@ -61,7 +62,7 @@ public class ParquetFileFormatProperties extends FileFormatProperties {
     private TParquetCompressionType parquetCompressionType = TParquetCompressionType.SNAPPY;
     private boolean parquetDisableDictionary = false;
     private TParquetVersion parquetVersion = TParquetVersion.PARQUET_1_0;
-    private boolean enableInt96Timestamps = true;
+    private boolean enableInt96Timestamps = Config.parquet_default_timestamps_physical_type.equalsIgnoreCase("int96");
 
     public ParquetFileFormatProperties() {
         super(TFileFormatType.FORMAT_PARQUET, FileFormatProperties.FORMAT_PARQUET);

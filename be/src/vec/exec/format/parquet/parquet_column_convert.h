@@ -71,52 +71,7 @@ struct ConvertParams {
         }
     }
 
-    void init(const FieldSchema* field_schema_, const cctz::time_zone* ctz_) {
-        field_schema = field_schema_;
-        if (ctz_ != nullptr) {
-            ctz = ctz_;
-        }
-        const auto& schema = field_schema->parquet_schema;
-        if (schema.__isset.logicalType && schema.logicalType.__isset.TIMESTAMP) {
-            const auto& timestamp_info = schema.logicalType.TIMESTAMP;
-            if (!timestamp_info.isAdjustedToUTC) {
-                // should set timezone to utc+0
-                // Reference: https://github.com/apache/parquet-format/blob/master/LogicalTypes.md#instant-semantics-timestamps-normalized-to-utc
-                // If isAdjustedToUTC = false, the reader should display the same value no mater what local time zone is. For example:
-                // When a timestamp is stored as `1970-01-03 12:00:00`,
-                // if isAdjustedToUTC = true, UTC8 should read as `1970-01-03 20:00:00`, UTC6 should read as `1970-01-03 18:00:00`
-                // if isAdjustedToUTC = false, UTC8 and UTC6 should read as `1970-01-03 12:00:00`, which is the same as `1970-01-03 12:00:00` in UTC0
-                ctz = &utc0;
-            }
-            const auto& time_unit = timestamp_info.unit;
-            if (time_unit.__isset.MILLIS) {
-                second_mask = 1000;
-                scale_to_nano_factor = 1000000;
-            } else if (time_unit.__isset.MICROS) {
-                second_mask = 1000000;
-                scale_to_nano_factor = 1000;
-            } else if (time_unit.__isset.NANOS) {
-                second_mask = 1000000000;
-                scale_to_nano_factor = 1;
-            }
-        } else if (schema.__isset.converted_type) {
-            const auto& converted_type = schema.converted_type;
-            if (converted_type == tparquet::ConvertedType::TIMESTAMP_MILLIS) {
-                second_mask = 1000;
-                scale_to_nano_factor = 1000000;
-            } else if (converted_type == tparquet::ConvertedType::TIMESTAMP_MICROS) {
-                second_mask = 1000000;
-                scale_to_nano_factor = 1000;
-            }
-        }
-
-        if (ctz) {
-            VecDateTimeValue t;
-            t.from_unixtime(0, *ctz);
-            offset_days = t.day() == 31 ? -1 : 0;
-        }
-        is_type_compatibility = field_schema_->is_type_compatibility;
-    }
+    void init(const FieldSchema* field_schema_, const cctz::time_zone* ctz_);
 };
 
 /**
