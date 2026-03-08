@@ -359,7 +359,7 @@ public class Column implements GsonPostProcessable {
             ArrayList<VariantField> fields = ((VariantType) type).getPredefinedFields();
             for (VariantField field : fields) {
                 // set column name as pattern
-                Column c = new Column(field.pattern, field.getType());
+                Column c = new Column(field.getPattern(), field.getType());
                 c.setIsAllowNull(true);
                 c.setFieldPatternType(field.getPatternType());
                 column.addChildrenColumn(c);

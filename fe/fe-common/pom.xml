@@ -28,6 +28,8 @@ under the License.
     </parent>
     <artifactId>fe-common</artifactId>
     <packaging>jar</packaging>
+    <name>Doris FE Common Utils</name>
+    <description>Common Utils for Doris Frontend modules</description>
     <profiles>
         <profile>
             <id>thirdparty</id>
@@ -49,11 +51,6 @@ under the License.
         <dependency>
             <groupId>commons-io</groupId>
             <artifactId>commons-io</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/org.apache.thrift/libthrift -->
-        <dependency>
-            <groupId>org.apache.thrift</groupId>
-            <artifactId>libthrift</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>

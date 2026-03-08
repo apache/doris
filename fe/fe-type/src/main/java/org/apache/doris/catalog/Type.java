@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TScalarType;
@@ -30,6 +29,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -898,10 +898,10 @@ public abstract class Type {
     }
 
     public static Type fromThrift(TTypeDesc thrift) {
-        Preconditions.checkState(thrift.types.size() > 0);
+        Preconditions.checkState(!thrift.types.isEmpty());
         Pair<Type, Integer> t = fromThrift(thrift, 0);
-        Preconditions.checkState(t.second.equals(thrift.getTypesSize()));
-        return t.first;
+        Preconditions.checkState(t.getRight().equals(thrift.getTypesSize()));
+        return t.getLeft();
     }
 
     /**
@@ -956,16 +956,16 @@ public abstract class Type {
             case ARRAY: {
                 Preconditions.checkState(tmpNodeIdx + 1 < col.getTypesSize());
                 Pair<Type, Integer> childType = fromThrift(col, tmpNodeIdx + 1);
-                type = new ArrayType(childType.first);
-                tmpNodeIdx = childType.second;
+                type = new ArrayType(childType.getLeft());
+                tmpNodeIdx = childType.getRight();
                 break;
             }
             case MAP: {
                 Preconditions.checkState(tmpNodeIdx + 2 < col.getTypesSize());
                 Pair<Type, Integer> keyType = fromThrift(col, tmpNodeIdx + 1);
-                Pair<Type, Integer> valueType = fromThrift(col, keyType.second);
-                type = new MapType(keyType.first, valueType.first);
-                tmpNodeIdx = valueType.second;
+                Pair<Type, Integer> valueType = fromThrift(col, keyType.getRight());
+                type = new MapType(keyType.getLeft(), valueType.getLeft());
+                tmpNodeIdx = valueType.getRight();
                 break;
             }
             case STRUCT: {
@@ -980,8 +980,8 @@ public abstract class Type {
                         comment = thriftField.getComment();
                     }
                     Pair<Type, Integer> res = fromThrift(col, tmpNodeIdx);
-                    tmpNodeIdx = res.second.intValue();
-                    structFields.add(new StructField(name, res.first, comment, true));
+                    tmpNodeIdx = res.getRight().intValue();
+                    structFields.add(new StructField(name, res.getLeft(), comment, true));
                 }
                 type = new StructType(structFields);
                 break;

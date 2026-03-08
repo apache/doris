@@ -635,7 +635,6 @@ LT  : '<';
 LTE : '<=' | '!>';
 GT  : '>';
 GTE : '>=' | '!<';
-
 PLUS: '+';
 SUBTRACT: '-';
 ASTERISK: '*';

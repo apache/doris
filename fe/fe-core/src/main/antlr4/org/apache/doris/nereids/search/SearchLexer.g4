@@ -101,7 +101,7 @@ STRING_RPAREN : ')' -> popMode ;
 mode NESTED_PATH_MODE;
 
 fragment NESTED_PATH_START_CHAR
-    : ~[ \t\r\n\u3000,+\-!():^[\]"{}~*?\\/,]
+    : ~[ \t\r\n\u3000,+\-!():^[\]"{}~*?\\/]
     ;
 
 fragment NESTED_PATH_CHAR
