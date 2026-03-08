@@ -203,6 +203,21 @@ public class FrontendServiceImplTest {
         dbNames.getDbs().sort(String::compareTo);
         expected.sort(String::compareTo);
         Assert.assertEquals(dbNames.getDbs(), expected);
+
+        Assert.assertTrue(dbNames.isSetCreationTimes());
+        Assert.assertTrue(dbNames.isSetCreators());
+        Assert.assertEquals(dbNames.getCreationTimesSize(), dbNames.getDbsSize());
+        Assert.assertEquals(dbNames.getCreatorsSize(), dbNames.getDbsSize());
+
+        for (int i = 0; i < dbNames.getDbsSize(); i++) {
+            long ct = dbNames.getCreationTimes().get(i);
+            Assert.assertTrue(ct >= 0);
+            if (dbNames.getDbs().get(i).equals("test") || dbNames.getDbs().get(i).equals("test_")) {
+                String cu = dbNames.getCreators().get(i);
+                Assert.assertTrue(ct > 0);
+                Assert.assertNotNull(cu);
+            }
+        }
     }
 
     @Test
