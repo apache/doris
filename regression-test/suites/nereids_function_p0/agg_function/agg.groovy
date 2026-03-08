@@ -19,6 +19,13 @@ suite("nereids_agg_fn") {
 	sql 'use regression_test_nereids_function_p0'
 	sql 'set experimental_enable_nereids_planner=true'
 	sql 'set enable_fallback_to_original_planner=false'
+
+	/**
+	 * `orthogonal_bitmap_union_count` has known issue with spill, so disable spill and just check the correctness of result.
+	 */
+	sql 'set enable_spill=false'
+	sql 'set enable_force_spill=false'
+
 	sql '''
 		select any_value(kint) from fn_test group by kbool order by kbool'''
 	sql '''

@@ -293,8 +293,6 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
 
     st = source_operator->close(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
-
-    std::cout << "************** HERE WE GO!!!!!! **************" << std::endl;
 }
 
 // Same as `GetBlockWithSpill`, but with a different  `spill_sort_mem_limit` value.

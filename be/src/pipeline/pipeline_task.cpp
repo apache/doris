@@ -508,14 +508,17 @@ Status PipelineTask::execute(bool* done) {
         _eos = _dry_run || _eos;
         _spilling = false;
         auto workload_group = _state->workload_group();
+        if (_state->low_memory_mode()) {
+            _sink->set_low_memory_mode(_state);
+            for (auto& o : _operators) {
+                o->set_low_memory_mode(_state);
+            }
+        }
+
         // If last run is pended by a spilling request, `_block` is produced with some rows in last
         // run, so we will resume execution using the block.
         if (!_eos && _block->empty()) {
             SCOPED_TIMER(_get_block_timer);
-            if (_state->low_memory_mode()) {
-                _sink->set_low_memory_mode(_state);
-                _root->set_low_memory_mode(_state);
-            }
             DEFER_RELEASE_RESERVED();
             _get_block_counter->update(1);
             const auto reserve_size = _root->get_reserve_mem_size(_state);
@@ -527,6 +530,20 @@ Status PipelineTask::execute(bool* done) {
                         ->task_controller()
                         ->is_enable_reserve_memory() &&
                 reserve_size > 0) {
+                if (_should_trigger_revoking(reserve_size)) {
+                    LOG(INFO) << fmt::format(
+                            "Query: {} sink: {}, node id: {}, task id: "
+                            "{} when high memory pressure, try to spill",
+                            print_id(_query_id), _sink->get_name(), _sink->node_id(),
+                            _state->task_id());
+                    ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
+                            _state->get_query_ctx()->resource_ctx()->shared_from_this(),
+                            reserve_size,
+                            Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
+                                    "high memory pressure, try to spill"));
+                    _spilling = true;
+                    continue;
+                }
                 if (!_try_to_reserve_memory(reserve_size, _root)) {
                     continue;
                 }
@@ -548,6 +565,22 @@ Status PipelineTask::execute(bool* done) {
                         ->is_enable_reserve_memory() &&
                 workload_group && !(_wake_up_early || _dry_run)) {
                 const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, _eos);
+
+                if (_should_trigger_revoking(sink_reserve_size)) {
+                    LOG(INFO) << fmt::format(
+                            "Query: {} sink: {}, node id: {}, task id: "
+                            "{} when high memory pressure, try to spill",
+                            print_id(_query_id), _sink->get_name(), _sink->node_id(),
+                            _state->task_id());
+                    ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
+                            _state->get_query_ctx()->resource_ctx()->shared_from_this(),
+                            sink_reserve_size,
+                            Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
+                                    "high memory pressure, try to spill"));
+                    _spilling = true;
+                    continue;
+                }
+
                 if (sink_reserve_size > 0 &&
                     !_try_to_reserve_memory(sink_reserve_size, _sink.get())) {
                     continue;
@@ -641,7 +674,17 @@ Status PipelineTask::do_revoke_memory(const std::shared_ptr<SpillContext>& spill
         }
     }};
 
-    return _sink->revoke_memory(_state, spill_context);
+    RETURN_IF_ERROR(_sink->revoke_memory(_state, nullptr));
+
+    for (const auto& op : _operators) {
+        RETURN_IF_ERROR(op->revoke_memory(_state, nullptr));
+    }
+
+    if (spill_context) {
+        spill_context->on_task_finished();
+    }
+
+    return Status::OK();
 }
 
 bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBase* op) {
@@ -662,13 +705,13 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
     }
     if (!st.ok()) {
         COUNTER_UPDATE(_memory_reserve_failed_times, 1);
+        const auto op_revocable_size = op->revocable_mem_size(_state);
         auto debug_msg = fmt::format(
                 "Query: {} , try to reserve: {}, operator name: {}, operator "
                 "id: {}, task id: {}, root revocable mem size: {}, sink revocable mem"
                 "size: {}, failed: {}",
                 print_id(_query_id), PrettyPrinter::print_bytes(reserve_size), op->get_name(),
-                op->node_id(), _state->task_id(),
-                PrettyPrinter::print_bytes(op->revocable_mem_size(_state)),
+                op->node_id(), _state->task_id(), PrettyPrinter::print_bytes(op_revocable_size),
                 PrettyPrinter::print_bytes(sink_revocable_mem_size), st.to_string());
         // PROCESS_MEMORY_EXCEEDED error msg already contains process_mem_log_str
         if (!st.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
@@ -678,9 +721,10 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
         // If sink has enough revocable memory, trigger revoke memory
         LOG(INFO) << fmt::format(
                 "Query: {} sink: {}, node id: {}, task id: "
-                "{}, revocable mem size: {}",
+                "{}, revocable mem size: {}(sink), {}(op)",
                 print_id(_query_id), _sink->get_name(), _sink->node_id(), _state->task_id(),
-                PrettyPrinter::print_bytes(sink_revocable_mem_size));
+                PrettyPrinter::print_bytes(sink_revocable_mem_size),
+                PrettyPrinter::print_bytes(op_revocable_size));
         ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
                 _state->get_query_ctx()->resource_ctx()->shared_from_this(), reserve_size, st);
         _spilling = true;
@@ -854,7 +898,59 @@ size_t PipelineTask::get_revocable_size() const {
         return 0;
     }
 
-    return _sink->revocable_mem_size(_state);
+    size_t revocable_size = _sink->revocable_mem_size(_state);
+
+    for (const auto& op : _operators) {
+        revocable_size += op->revocable_mem_size(_state);
+    }
+
+    return revocable_size;
+}
+
+// When current memory pressure is low, memory usage may increase significantly in the next
+// operator run, while there is no revocable memory available for spilling.
+// Trigger memory revoking when pressure is high and revocable memory is significant.
+// Memory pressure is evaluated using two signals:
+// 1. Query memory usage exceeds a threshold ratio of the query memory limit.
+// 2. Workload group memory usage reaches the workload group low-watermark threshold.
+bool PipelineTask::_should_trigger_revoking(const size_t reserve_size) const {
+    auto query_mem_tracker = _state->get_query_ctx()->query_mem_tracker();
+    auto wg = _state->get_query_ctx()->workload_group();
+    if (!query_mem_tracker || !wg) {
+        return false;
+    }
+
+    const auto parallelism = std::max(1, _pipeline->num_tasks());
+    const auto water_mark = std::max(std::min(wg->memory_low_watermark(), 50), 10);
+    const auto query_limit = std::min(query_mem_tracker->limit(), wg->memory_limit());
+    const auto force_spill_enabled = _state->enable_force_spill();
+
+    bool is_high_memory_pressure = false;
+    if (query_limit > 0) {
+        const auto used_mem = query_mem_tracker->consumption() + reserve_size * parallelism;
+        is_high_memory_pressure = used_mem >= int64_t((double(query_limit) * water_mark / 100));
+    }
+
+    if (!is_high_memory_pressure) {
+        bool is_low_watermark;
+        bool is_high_watermark;
+        wg->check_mem_used(&is_low_watermark, &is_high_watermark);
+        is_high_memory_pressure = is_low_watermark || is_high_watermark;
+    }
+
+    if (is_high_memory_pressure || force_spill_enabled) {
+        const auto revocable_size = get_revocable_size();
+        const auto revocable_size_ = revocable_size * parallelism;
+        if (query_limit > 0 && (revocable_size_ >= int64_t(double(query_limit) * 0.2))) {
+            return true;
+        } else if (force_spill_enabled &&
+                   revocable_size_ >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+            return true;
+        }
+        return revocable_size_ >= int64_t(double(wg->memory_limit()) * 0.1);
+    }
+
+    return false;
 }
 
 Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_context) {
@@ -866,7 +962,12 @@ Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_co
         return Status::OK();
     }
 
-    const auto revocable_size = _sink->revocable_mem_size(_state);
+    size_t revocable_size = 0;
+    revocable_size += _sink->revocable_mem_size(_state);
+    for (const auto& op : _operators) {
+        revocable_size += op->revocable_mem_size(_state);
+    }
+
     if (revocable_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
         auto revokable_task = std::make_shared<RevokableTask>(shared_from_this(), spill_context);
         RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(revokable_task));

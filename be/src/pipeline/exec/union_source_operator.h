@@ -22,6 +22,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -60,6 +61,9 @@ private:
     // If this operator has no children, there is no shared state which owns dependency. So we
     // use this local state to hold this dependency.
     DependencySPtr _only_const_dependency = nullptr;
+
+    RuntimeProfile::Counter* _blocks_in_queue_counter = nullptr;
+    RuntimeProfile::Counter* _bytes_in_queue_counter = nullptr;
 };
 
 class UnionSourceOperatorX MOCK_REMOVE(final) : public OperatorX<UnionSourceLocalState> {

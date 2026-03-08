@@ -40,18 +40,22 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
+// Test helper for partitioned hash join with spill support.
 class MockPartitionedHashJoinSharedState : public PartitionedHashJoinSharedState {
 public:
     MockPartitionedHashJoinSharedState() {
         is_spilled = false;
         inner_runtime_state = nullptr;
-        spilled_streams.clear();
-        partitioned_build_blocks.clear();
     }
 
     void init(size_t partition_count) {
-        spilled_streams.resize(partition_count);
-        partitioned_build_blocks.resize(partition_count);
+        build_partitions.clear();
+        for (uint32_t i = 0; i < partition_count; ++i) {
+            HashJoinSpillPartitionId id {0, i};
+            HashJoinSpillBuildPartition build_partition;
+            build_partition.id = id;
+            build_partitions.emplace(id.key(), std::move(build_partition));
+        }
     }
 };
 
@@ -147,7 +151,9 @@ public:
     ~MockHashJoinProbeOperator() override = default;
 
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos_) const override {
-        const_cast<MockHashJoinProbeOperator*>(this)->block.swap(*input_block);
+        if (!input_block->empty()) {
+            const_cast<MockHashJoinProbeOperator*>(this)->block.swap(*input_block);
+        }
         const_cast<MockHashJoinProbeOperator*>(this)->eos = eos_;
         const_cast<MockHashJoinProbeOperator*>(this)->need_more_data = !eos;
         return Status::OK();
@@ -162,6 +168,10 @@ public:
     }
 
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
+        // Reset state for each new inner runtime (per partition).
+        need_more_data = true;
+        eos = false;
+        block.clear_column_data();
         state->emplace_local_state(_operator_id,
                                    std::make_unique<MockHashJoinProbeLocalState>(state, this));
         return Status::OK();

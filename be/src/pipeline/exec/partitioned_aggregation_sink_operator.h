@@ -16,13 +16,11 @@
 // under the License.
 
 #pragma once
-#include <limits>
 #include <memory>
 
 #include "aggregation_sink_operator.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/operator.h"
-#include "util/pretty_printer.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/spill/spill_stream.h"
@@ -60,7 +58,9 @@ public:
 
     template <typename KeyType>
     struct TmpSpillInfo {
+        SpillPartitionId id;
         std::vector<KeyType> keys_;
+        std::vector<uint32_t> hashes_;
         std::vector<vectorized::AggregateDataPtr> values_;
     };
 
@@ -70,12 +70,14 @@ public:
 
     template <typename HashTableCtxType, typename KeyType>
     Status _spill_partition(RuntimeState* state, HashTableCtxType& context,
-                            AggSpillPartitionSPtr& spill_partition, std::vector<KeyType>& keys,
+                            AggSpillPartition& spill_partition, std::vector<KeyType>& keys,
+                            std::vector<uint32_t>& hashes,
                             std::vector<vectorized::AggregateDataPtr>& values,
                             const vectorized::AggregateDataPtr null_key_data, bool is_last);
 
     template <typename HashTableCtxType, typename KeyType>
     Status to_block(HashTableCtxType& context, std::vector<KeyType>& keys,
+                    std::vector<uint32_t>& hashes,
                     std::vector<vectorized::AggregateDataPtr>& values,
                     const vectorized::AggregateDataPtr null_key_data);
 
@@ -148,8 +150,6 @@ public:
 private:
     friend class PartitionedAggSinkLocalState;
     std::unique_ptr<AggSinkOperatorX> _agg_sink_operator;
-
-    size_t _spill_partition_count = 32;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline
