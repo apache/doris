@@ -51,7 +51,7 @@
 
 namespace doris {
 class VExprContext;
-static VExprContextSPtr create_predicates(DescriptorTbl* desc_tbl, RuntimeState* runtime_state);
+static VExprContextSPtrs create_predicates(DescriptorTbl* desc_tbl, RuntimeState* runtime_state);
 static void create_table_desc(TDescriptorTable& t_desc_table, TTableDescriptor& t_table_desc,
                               std::vector<std::string> table_column_names,
                               std::vector<TPrimitiveType::type> types);
@@ -96,16 +96,18 @@ public:
             scan_range.start_offset = 0;
             scan_range.size = 1000;
         }
-        RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
+        auto q_options = TQueryOptions();
+        q_options.__set_enable_adjust_conjunct_order_by_cost(true);
+        RuntimeState runtime_state = RuntimeState(q_options, TQueryGlobals());
         auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
                                                         nullptr, &runtime_state, &cache);
         p_reader->set_file_reader(reader);
         runtime_state.set_desc_tbl(desc_tbl);
         phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-        auto context = create_predicates(desc_tbl, &runtime_state);
-        const VExprContextSPtrs conjuncts = {context};
+        auto conjuncts = create_predicates(desc_tbl, &runtime_state);
         std::unordered_map<int, VExprContextSPtrs> slot_id_to_expr_ctxs;
-        slot_id_to_expr_ctxs[0].emplace_back(context);
+        slot_id_to_expr_ctxs[0].emplace_back(conjuncts[0]);
+        slot_id_to_expr_ctxs[1].emplace_back(conjuncts[1]);
 
         if constexpr (filter) {
             st = p_reader->init_reader(column_names, &col_name_to_block_idx, conjuncts, tmp,
@@ -569,7 +571,7 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     EXPECT_EQ(StringView(string_column->get_data_at(2)).dump_hex(), "0x00");
 }
 
-static VExprContextSPtr create_predicates(DescriptorTbl* desc_tbl, RuntimeState* runtime_state) {
+static VExprContextSPtrs create_predicates(DescriptorTbl* desc_tbl, RuntimeState* runtime_state) {
     auto tuple_desc = const_cast<doris::TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
     doris::RowDescriptor row_desc(tuple_desc);
     VExprSPtr root;
@@ -613,7 +615,54 @@ static VExprContextSPtr create_predicates(DescriptorTbl* desc_tbl, RuntimeState*
     EXPECT_TRUE(st.ok()) << st;
     auto st1 = ctx->open(runtime_state);
     EXPECT_TRUE(st1.ok()) << st1;
-    return ctx;
+
+    VExprContextSPtrs res = {ctx};
+
+    VExprSPtr root2;
+    {
+        TFunction fn;
+        TFunctionName fn_name;
+        fn_name.__set_db_name("");
+        fn_name.__set_function_name("eq");
+        fn.__set_name(fn_name);
+        fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+        std::vector<TTypeDesc> arg_types;
+        arg_types.push_back(create_type_desc(PrimitiveType::TYPE_INT));
+        arg_types.push_back(create_type_desc(PrimitiveType::TYPE_INT));
+        fn.__set_arg_types(arg_types);
+        fn.__set_ret_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+        fn.__set_has_var_args(false);
+
+        TExprNode texpr_node;
+        texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+        texpr_node.__set_node_type(TExprNodeType::BINARY_PRED);
+        texpr_node.__set_opcode(TExprOpcode::EQ);
+        texpr_node.__set_fn(fn);
+        texpr_node.__set_num_children(2);
+        texpr_node.__set_is_nullable(true);
+        root2 = VectorizedFnCall::create_shared(texpr_node);
+    }
+    { root2->add_child(VSlotRef::create_shared(tuple_desc->slots()[1])); }
+    {
+        TExprNode texpr_node;
+        texpr_node.__set_node_type(TExprNodeType::INT_LITERAL);
+        texpr_node.__set_type(create_type_desc(TYPE_INT));
+        TIntLiteral int_literal;
+        int_literal.__set_value(1);
+        texpr_node.__set_int_literal(int_literal);
+        texpr_node.__set_is_nullable(false);
+        root2->add_child(VLiteral::create_shared(texpr_node));
+    }
+    VExprContextSPtr ctx2 = VExprContext::create_shared(root2);
+
+    auto st2 = ctx2->prepare(runtime_state, row_desc);
+    EXPECT_TRUE(st2.ok()) << st2;
+    auto st3 = ctx2->open(runtime_state);
+    EXPECT_TRUE(st3.ok()) << st3;
+
+    res.push_back(ctx2);
+
+    return res;
 }
 
 TEST_F(ParquetReaderTest, all_string_null) {
