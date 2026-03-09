@@ -98,9 +98,9 @@ BaseDeltaWriter::~BaseDeltaWriter() {
     }
 }
 
-void BaseDeltaWriter::set_tablet_load_rowset_num_info(
+void BaseDeltaWriter::collect_tablet_load_rowset_num_info(
+        BaseTablet* tablet,
         google::protobuf::RepeatedPtrField<PTabletLoadRowsetInfo>* tablet_infos) {
-    auto* tablet = _rowset_builder->tablet().get();
     if (tablet == nullptr) {
         return;
     }
@@ -112,6 +112,12 @@ void BaseDeltaWriter::set_tablet_load_rowset_num_info(
         load_info->set_current_rowset_nums(static_cast<int32_t>(version_cnt));
         load_info->set_max_config_rowset_nums(max_version_config);
     }
+}
+
+void BaseDeltaWriter::set_tablet_load_rowset_num_info(
+        google::protobuf::RepeatedPtrField<PTabletLoadRowsetInfo>* tablet_infos) {
+    auto* tablet = _rowset_builder->tablet().get();
+    collect_tablet_load_rowset_num_info(tablet, tablet_infos);
 }
 
 DeltaWriter::~DeltaWriter() = default;
