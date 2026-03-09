@@ -275,7 +275,7 @@ protected:
     // otherwise as light interface
     FifoThreadPool _heavy_work_pool;
     FifoThreadPool _light_work_pool;
-    FifoThreadPool _arrow_flight_work_pool;
+    std::optional<FifoThreadPool> _arrow_flight_work_pool;
 };
 
 // `StorageEngine` mixin for `PInternalService`
