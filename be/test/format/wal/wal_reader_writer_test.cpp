@@ -27,7 +27,7 @@
 #include "exec/exchange/vdata_stream_recvr.h"
 #include "gmock/gmock.h"
 #include "io/fs/local_file_system.h"
-#include "load/group_commit/wal/wal_reader.h"
+#include "load/group_commit/wal/wal_file_reader.h"
 #include "load/group_commit/wal/wal_writer.h"
 #include "runtime/exec_env.h"
 #include "service/brpc.h"
@@ -121,7 +121,7 @@ TEST_F(WalReaderWriterTest, TestWriteAndRead1) {
     }
     static_cast<void>(wal_writer.finalize());
     // read block
-    auto wal_reader = WalReader(file_name);
+    auto wal_reader = WalFileReader(file_name);
     static_cast<void>(wal_reader.init());
     auto block_count = 0;
     while (true) {
