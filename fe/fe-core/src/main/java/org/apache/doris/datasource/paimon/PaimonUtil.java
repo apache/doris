@@ -548,11 +548,10 @@ public class PaimonUtil {
         RowDataToObjectArrayConverter toObjectArrayConverter = new RowDataToObjectArrayConverter(
                 partitionType);
         Object[] partitionValuesArray = toObjectArrayConverter.convert(partitionValues);
-        boolean legacyPartitionName = isLegacyPartitionName(table);
         for (int i = 0; i < partitionKeys.size(); i++) {
             try {
                 String partitionValue = serializePartitionValue(partitionType.getFields().get(i).type(),
-                        partitionValuesArray[i], timeZone, legacyPartitionName);
+                        partitionValuesArray[i], timeZone);
                 partitionInfoMap.put(partitionKeys.get(i), partitionValue);
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize table {} partition value for key {}: {}", table.name(),
@@ -564,7 +563,7 @@ public class PaimonUtil {
     }
 
     private static String serializePartitionValue(org.apache.paimon.types.DataType type, Object value,
-            String timeZone, boolean legacyPartitionName) {
+            String timeZone) {
         switch (type.getTypeRoot()) {
             case BOOLEAN:
             case INTEGER:
@@ -585,14 +584,9 @@ public class PaimonUtil {
                 if (value == null) {
                     return null;
                 }
-                // When partition.legacy-name = true (default), Paimon date is stored as days since epoch
-                // When partition.legacy-name = false, the value is already a human read date string
-                if (legacyPartitionName) {
-                    LocalDate date = LocalDate.ofEpochDay((Integer) value);
-                    return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
-                } else {
-                    return value.toString();
-                }
+                // Paimon date is stored as days since epoch
+                LocalDate date = LocalDate.ofEpochDay((Integer) value);
+                return date.format(DateTimeFormatter.ISO_LOCAL_DATE);
             case TIME_WITHOUT_TIME_ZONE:
                 if (value == null) {
                     return null;
