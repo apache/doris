@@ -81,7 +81,7 @@ const static std::set<std::string> DISTANCE_FUNCS = {L2DistanceApproximate::name
 const static std::set<TExprOpcode::type> OPS_FOR_ANN_RANGE_SEARCH = {
         TExprOpcode::GE, TExprOpcode::LE, TExprOpcode::LE, TExprOpcode::GT, TExprOpcode::LT};
 
-VectorizedFnCall::VectorizedFnCall(const TExprNode& node) : VExpr(node) {}
+VectorizedFnCallFnCall(const TExprNode& node) : VExpr(node) {}
 
 Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
                                  VExprContext* context) {

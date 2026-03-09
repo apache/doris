@@ -23,7 +23,7 @@
 
 using Roaring64Map = doris::detail::Roaring64Map;
 
-namespace doris::vectorized {
+namespace doris {
 
 const uint32_t num_bitmaps = 100;
 const uint32_t num_outer_slots = 1000;
@@ -79,7 +79,7 @@ static void CustomCounters(benchmark::State& state) {
     state.counters["TotalValues"] = num_bitmaps * num_outer_slots * num_inner_values;
     state.counters["Overlap%"] = overlap_percent;
 }
-} // namespace doris::vectorized
+} // namespace doris
 
 static void BM_FastUnionOptimized(benchmark::State& state) {
     for (auto _ : state) {

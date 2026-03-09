@@ -56,4 +56,4 @@ struct Overload : Callables... {
 template <typename... Callables>
 Overload(Callables&&... callables) -> Overload<Callables...>;
 
-} // namespace  doris::vectorized
+} // namespace  doris

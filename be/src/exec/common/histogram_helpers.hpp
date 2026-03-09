@@ -309,4 +309,4 @@ bool histogram_to_json(rapidjson::StringBuffer& buffer, const std::vector<Bucket
     return !buckets.empty() && buffer.GetSize() > 0;
 }
 #include "common/compile_check_end.h"
-} // namespace  doris::vectorized
+} // namespace  doris
