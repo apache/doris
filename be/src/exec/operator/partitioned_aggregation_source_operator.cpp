@@ -74,7 +74,6 @@ void PartitionedAggLocalState::update_profile(RuntimeProfile* child_profile) {
     UPDATE_COUNTER_FROM_INNER("HashTableInputCount");
     UPDATE_COUNTER_FROM_INNER("MemoryUsageHashTable");
     UPDATE_COUNTER_FROM_INNER("HashTableSize");
-    UPDATE_COUNTER_FROM_INNER("MemoryUsageContainer");
     UPDATE_COUNTER_FROM_INNER("MemoryUsageArena");
 }
 

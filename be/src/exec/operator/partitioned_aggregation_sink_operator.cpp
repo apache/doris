@@ -106,7 +106,6 @@ void PartitionedAggSinkLocalState::update_profile(RuntimeProfile* child_profile)
     UPDATE_PROFILE("HashTableEmplaceTime");
     UPDATE_PROFILE("HashTableInputCount");
     UPDATE_PROFILE("HashTableSize");
-    UPDATE_PROFILE("MemoryUsageContainer");
     UPDATE_PROFILE("MemoryUsageArena");
 
     update_max_min_rows_counter();
