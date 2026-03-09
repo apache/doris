@@ -52,6 +52,8 @@
 namespace doris {
 class VExprContext;
 static VExprContextSPtrs create_predicates(DescriptorTbl* desc_tbl, RuntimeState* runtime_state);
+static VExprContextSPtrs create_partition_predicates(DescriptorTbl* desc_tbl,
+                                                     RuntimeState* runtime_state);
 static void create_table_desc(TDescriptorTable& t_desc_table, TTableDescriptor& t_table_desc,
                               std::vector<std::string> table_column_names,
                               std::vector<TPrimitiveType::type> types);
@@ -642,7 +644,9 @@ static VExprContextSPtrs create_predicates(DescriptorTbl* desc_tbl, RuntimeState
         texpr_node.__set_is_nullable(true);
         root2 = VectorizedFnCall::create_shared(texpr_node);
     }
-    { root2->add_child(VSlotRef::create_shared(tuple_desc->slots()[1])); }
+    {
+        root2->add_child(VSlotRef::create_shared(tuple_desc->slots()[1]));
+    }
     {
         TExprNode texpr_node;
         texpr_node.__set_node_type(TExprNodeType::INT_LITERAL);
@@ -665,9 +669,190 @@ static VExprContextSPtrs create_predicates(DescriptorTbl* desc_tbl, RuntimeState
     return res;
 }
 
+static VExprContextSPtrs create_partition_predicates(DescriptorTbl* desc_tbl,
+                                                     RuntimeState* runtime_state) {
+    auto tuple_desc = const_cast<doris::TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
+    doris::RowDescriptor row_desc(tuple_desc);
+    VExprContextSPtrs res;
+
+    VExprSPtr value_eq_root;
+    {
+        TFunction fn;
+        TFunctionName fn_name;
+        fn_name.__set_db_name("");
+        fn_name.__set_function_name("eq");
+        fn.__set_name(fn_name);
+        fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+        std::vector<TTypeDesc> arg_types;
+        arg_types.push_back(create_type_desc(PrimitiveType::TYPE_INT));
+        arg_types.push_back(create_type_desc(PrimitiveType::TYPE_INT));
+        fn.__set_arg_types(arg_types);
+        fn.__set_ret_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+        fn.__set_has_var_args(false);
+
+        TExprNode texpr_node;
+        texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+        texpr_node.__set_node_type(TExprNodeType::BINARY_PRED);
+        texpr_node.__set_opcode(TExprOpcode::EQ);
+        texpr_node.__set_fn(fn);
+        texpr_node.__set_num_children(2);
+        texpr_node.__set_is_nullable(true);
+        value_eq_root = VectorizedFnCall::create_shared(texpr_node);
+    }
+    value_eq_root->add_child(VSlotRef::create_shared(tuple_desc->slots()[1]));
+    {
+        TExprNode texpr_node;
+        texpr_node.__set_node_type(TExprNodeType::INT_LITERAL);
+        texpr_node.__set_type(create_type_desc(TYPE_INT));
+        TIntLiteral int_literal;
+        int_literal.__set_value(1);
+        texpr_node.__set_int_literal(int_literal);
+        texpr_node.__set_is_nullable(false);
+        value_eq_root->add_child(VLiteral::create_shared(texpr_node));
+    }
+    VExprContextSPtr value_eq_ctx = VExprContext::create_shared(value_eq_root);
+    auto st = value_eq_ctx->prepare(runtime_state, row_desc);
+    EXPECT_TRUE(st.ok()) << st;
+    st = value_eq_ctx->open(runtime_state);
+    EXPECT_TRUE(st.ok()) << st;
+    res.push_back(value_eq_ctx);
+
+    VExprSPtr partition_eq_root;
+    {
+        TFunction fn;
+        TFunctionName fn_name;
+        fn_name.__set_db_name("");
+        fn_name.__set_function_name("eq");
+        fn.__set_name(fn_name);
+        fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+        std::vector<TTypeDesc> arg_types;
+        arg_types.push_back(create_type_desc(PrimitiveType::TYPE_INT));
+        arg_types.push_back(create_type_desc(PrimitiveType::TYPE_INT));
+        fn.__set_arg_types(arg_types);
+        fn.__set_ret_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+        fn.__set_has_var_args(false);
+
+        TExprNode texpr_node;
+        texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+        texpr_node.__set_node_type(TExprNodeType::BINARY_PRED);
+        texpr_node.__set_opcode(TExprOpcode::EQ);
+        texpr_node.__set_fn(fn);
+        texpr_node.__set_num_children(2);
+        texpr_node.__set_is_nullable(true);
+        partition_eq_root = VectorizedFnCall::create_shared(texpr_node);
+    }
+    partition_eq_root->add_child(VSlotRef::create_shared(tuple_desc->slots()[2]));
+    {
+        TExprNode texpr_node;
+        texpr_node.__set_node_type(TExprNodeType::INT_LITERAL);
+        texpr_node.__set_type(create_type_desc(TYPE_INT));
+        TIntLiteral int_literal;
+        int_literal.__set_value(1);
+        texpr_node.__set_int_literal(int_literal);
+        texpr_node.__set_is_nullable(false);
+        partition_eq_root->add_child(VLiteral::create_shared(texpr_node));
+    }
+    VExprContextSPtr partition_eq_ctx = VExprContext::create_shared(partition_eq_root);
+    st = partition_eq_ctx->prepare(runtime_state, row_desc);
+    EXPECT_TRUE(st.ok()) << st;
+    st = partition_eq_ctx->open(runtime_state);
+    EXPECT_TRUE(st.ok()) << st;
+    res.push_back(partition_eq_ctx);
+
+    return res;
+}
+
 TEST_F(ParquetReaderTest, all_string_null) {
     all_string_null_scan<true>();
     all_string_null_scan<false>();
+}
+
+TEST_F(ParquetReaderTest, all_string_null_with_predicate_partition_column) {
+    TDescriptorTable t_desc_table;
+    TTableDescriptor t_table_desc;
+    std::vector<std::string> table_column_names = {"string_col", "value_col", "part_col"};
+    std::vector<TPrimitiveType::type> table_column_types = {
+            TPrimitiveType::STRING, TPrimitiveType::INT, TPrimitiveType::INT};
+    create_table_desc(t_desc_table, t_table_desc, table_column_names, table_column_types);
+    DescriptorTbl* desc_tbl;
+    ObjectPool obj_pool;
+    auto st = DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl);
+    EXPECT_TRUE(st.ok()) << st;
+
+    auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
+    auto local_fs = io::global_local_filesystem();
+    io::FileReaderSPtr reader;
+    st = local_fs->open_file(
+            "./be/test/exec/test_data/parquet_scanner/test_string_null.zst.parquet", &reader);
+    EXPECT_TRUE(st.ok()) << st;
+
+    cctz::time_zone ctz;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
+    auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
+    std::vector<std::string> column_names;
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx;
+    for (int i = 0; i < slot_descs.size(); i++) {
+        column_names.push_back(slot_descs[i]->col_name());
+        col_name_to_block_idx[slot_descs[i]->col_name()] = i;
+    }
+
+    TFileScanRangeParams scan_params;
+    TFileRangeDesc scan_range;
+    scan_range.start_offset = 0;
+    scan_range.size = 1000;
+    auto q_options = TQueryOptions();
+    q_options.__set_enable_adjust_conjunct_order_by_cost(true);
+    RuntimeState runtime_state = RuntimeState(q_options, TQueryGlobals());
+    auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
+                                                    nullptr, &runtime_state, &cache);
+    p_reader->set_file_reader(reader);
+    runtime_state.set_desc_tbl(desc_tbl);
+
+    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
+    auto conjuncts = create_partition_predicates(desc_tbl, &runtime_state);
+    std::unordered_map<int, VExprContextSPtrs> slot_id_to_expr_ctxs;
+    slot_id_to_expr_ctxs[1].emplace_back(conjuncts[0]);
+    slot_id_to_expr_ctxs[2].emplace_back(conjuncts[1]);
+
+    st = p_reader->init_reader(column_names, &col_name_to_block_idx, conjuncts, tmp, tuple_desc,
+                               nullptr, nullptr, nullptr, &slot_id_to_expr_ctxs);
+    EXPECT_TRUE(st.ok()) << st;
+
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            partition_columns;
+    partition_columns.emplace("part_col", std::make_tuple("1", tuple_desc->slots()[2]));
+    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
+    st = p_reader->set_fill_columns(partition_columns, missing_columns);
+    EXPECT_TRUE(st.ok()) << st;
+
+    bool eof = false;
+    size_t total_rows = 0;
+    bool partition_all_one = true;
+    while (!eof) {
+        BlockUPtr block = Block::create_unique();
+        for (const auto& slot_desc : tuple_desc->slots()) {
+            auto data_type = slot_desc->col_name() == "part_col" ? slot_desc->type()
+                                                                 : make_nullable(slot_desc->type());
+            MutableColumnPtr data_column = data_type->create_column();
+            block->insert(ColumnWithTypeAndName(std::move(data_column), data_type,
+                                                slot_desc->col_name()));
+        }
+
+        size_t read_row = 0;
+        st = p_reader->get_next_block(block.get(), &read_row, &eof);
+        EXPECT_TRUE(st.ok()) << st;
+
+        auto partition_col = block->safe_get_by_position(2).column;
+        const auto* partition_col_ptr = assert_cast<const ColumnInt32*>(partition_col.get());
+        const auto& partition_data = partition_col_ptr->get_data();
+        for (size_t i = 0; i < partition_data.size(); ++i) {
+            partition_all_one &= (partition_data[i] == 1);
+        }
+        total_rows += partition_col_ptr->size();
+    }
+
+    EXPECT_TRUE(partition_all_one);
+    EXPECT_EQ(total_rows, 10000);
 }
 
 } // namespace doris
