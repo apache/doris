@@ -38,4 +38,5 @@ public class CommitOffsetRequest {
     public long filteredRows;
     public long loadedRows;
     public long loadBytes;
+    private String tableSchemas;
 }

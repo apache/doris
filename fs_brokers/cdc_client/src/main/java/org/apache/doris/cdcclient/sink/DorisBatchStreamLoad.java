@@ -56,6 +56,7 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Getter;
 import lombok.Setter;
@@ -503,7 +504,8 @@ public class DorisBatchStreamLoad implements Serializable {
             String taskId,
             List<Map<String, String>> meta,
             long scannedRows,
-            LoadStatistic loadStatistic) {
+            LoadStatistic loadStatistic,
+            String tableSchemas) {
         try {
             String url = String.format(COMMIT_URL_PATTERN, frontendAddress, targetDb);
             CommitOffsetRequest commitRequest =
@@ -515,6 +517,7 @@ public class DorisBatchStreamLoad implements Serializable {
                             .filteredRows(loadStatistic.getFilteredRows())
                             .loadedRows(loadStatistic.getLoadedRows())
                             .loadBytes(loadStatistic.getLoadBytes())
+                            .tableSchemas(tableSchemas)
                             .build();
             String param = OBJECT_MAPPER.writeValueAsString(commitRequest);
 
@@ -541,11 +544,15 @@ public class DorisBatchStreamLoad implements Serializable {
                                         : "";
                         LOG.info("commit result {}", responseBody);
                         if (statusCode == 200) {
-                            LOG.info("commit offset for jobId {} taskId {}", jobId, taskId);
-                            // A 200 response indicates that the request was successful, and
-                            // information such as offset and statistics may have already been
-                            // updated. Retrying may result in repeated updates.
-                            return;
+                            JsonNode root = OBJECT_MAPPER.readTree(responseBody);
+                            JsonNode code = root.get("code");
+                            if (code != null && code.asInt() == 0) {
+                                LOG.info(
+                                        "commit offset for jobId {} taskId {} successfully",
+                                        jobId,
+                                        taskId);
+                                return;
+                            }
                         }
                         LOG.error(
                                 "commit offset failed with {}, reason {}, to retry",
