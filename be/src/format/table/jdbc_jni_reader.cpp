@@ -210,7 +210,7 @@ Status JdbcJniReader::_cast_string_to_special_type(const SlotDescriptor* slot_de
     if (target_data_type->is_nullable()) {
         block->replace_by_position(column_index, res_col);
     } else {
-        auto nested_ptr = reinterpret_cast<const vectorized::ColumnNullable*>(res_col.get())
+        auto nested_ptr = reinterpret_cast<const ColumnNullable*>(res_col.get())
                                   ->get_nested_column_ptr();
         block->replace_by_position(column_index, nested_ptr);
     }
