@@ -93,7 +93,7 @@ suite("ex06_ttl_restart_consistency", "docker") {
             qt_ex06_create_table_1 """show create table ${tableName};"""
             cluster.restartBackends()
             qt_ex06_create_table_2 """show create table ${tableName};"""
-            sleep(60000)
+            sleep(10000)
 
             qt_ex06_after_restart """select count(*) from ${tableName} where c1 like 'restart_%'"""
             waitForFileCacheType.call(tabletIds, "normal")
