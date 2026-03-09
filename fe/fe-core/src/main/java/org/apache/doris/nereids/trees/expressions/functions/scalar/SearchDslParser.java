@@ -1768,7 +1768,7 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
      * Supports all configuration in a single JSON object:
      * - default_field: default field name when DSL doesn't specify field
      * - default_operator: "and" or "or" for multi-term queries (default: "or")
-     * - mode: "standard" (default) or "lucene" (ES/Lucene-style boolean parsing)
+     * - mode: "lucene" (default, ES/Lucene-style boolean parsing) or "standard"
      * - minimum_should_match: integer for Lucene mode (default: 0 for filter context)
      * - fields: array of field names for multi-field search (mutually exclusive with default_field)
      */
@@ -1780,7 +1780,7 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
         private String defaultOperator = null;
 
         @JsonProperty("mode")
-        private String mode = "standard";
+        private String mode = "lucene";
 
         @JsonProperty("minimum_should_match")
         private Integer minimumShouldMatch = null;
