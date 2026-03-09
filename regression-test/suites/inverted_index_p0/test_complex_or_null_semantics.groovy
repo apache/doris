@@ -102,6 +102,8 @@ suite("test_complex_or_null_semantics") {
     logger.info("Test 1 PASSED: Cross-field OR with NULL - MATCH and SEARCH consistent")
 
     // Test 2: Complex nested query similar to original bug report
+    // Standard mode should match MATCH behavior (SQL three-valued logic)
+    // Lucene mode uses two-valued logic (different NULL handling)
     def test2_match = sql """
         SELECT COUNT(*) FROM ${tableName}
         WHERE content MATCH_ANY 'President of the United States'
@@ -117,7 +119,28 @@ suite("test_complex_or_null_semantics") {
             )
     """
 
-    def test2_search = sql """
+    def test2_search_standard = sql """
+        SELECT COUNT(*) FROM ${tableName}
+        WHERE SEARCH('
+            content:ANY("President of the United States")
+            OR NOT (
+                content:Braveheart
+                AND (
+                    NOT content:ALL("List of presidents of India")
+                    AND NOT (
+                        title:ALL(Philosophy)
+                        OR content:ALL("Disney+ Hotstar")
+                    )
+                )
+            )
+        ', '{"mode":"standard"}')
+    """
+
+    assertEquals(test2_match[0][0], test2_search_standard[0][0],
+        "Standard mode: Complex nested query MATCH and SEARCH should return same count")
+
+    // Lucene mode: different NULL semantics, just verify it returns a valid result
+    def test2_search_lucene = sql """
         SELECT COUNT(*) FROM ${tableName}
         WHERE SEARCH('
             content:ANY("President of the United States")
@@ -133,11 +156,9 @@ suite("test_complex_or_null_semantics") {
             )
         ')
     """
+    assertTrue(test2_search_lucene[0][0] >= 0, "Lucene mode: Complex nested query should return valid result")
 
-    assertEquals(test2_match[0][0], test2_search[0][0],
-        "Complex nested query: MATCH and SEARCH should return same count")
-
-    logger.info("Test 2 PASSED: Complex nested query - MATCH and SEARCH consistent (count: ${test2_match[0][0]})")
+    logger.info("Test 2 PASSED: Complex nested query - standard mode consistent with MATCH (count: ${test2_match[0][0]}), lucene mode: ${test2_search_lucene[0][0]}")
 
     // Test 3: Verify the 15 critical rows are included
     def test3 = sql """

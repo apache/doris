@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS store_sales (
     ss_net_profit decimal(7,2)
 )
 UNIQUE KEY(ss_item_sk, ss_ticket_number)
-CLUSTER BY(ss_net_profit)
+ORDER BY(ss_net_profit)
 DISTRIBUTED BY HASH(ss_item_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

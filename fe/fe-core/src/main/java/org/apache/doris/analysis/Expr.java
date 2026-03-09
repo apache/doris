@@ -22,8 +22,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
@@ -58,8 +56,6 @@ import java.util.function.Supplier;
 public abstract class Expr extends TreeNode<Expr> implements Cloneable {
 
     public static final String DEFAULT_EXPR_NAME = "expr";
-
-    protected boolean disableTableName = false;
 
     protected boolean nullable = false;
 
@@ -216,47 +212,11 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         }
     }
 
-    public String toSql() {
-        if (disableTableName) {
-            return toSqlWithoutTbl();
-        }
-        return toSqlImpl();
-    }
-
-    public String toSql(boolean disableTableName, boolean needExternalSql, TableType tableType, TableIf table) {
-        return toSqlImpl(disableTableName, needExternalSql, tableType, table);
-    }
-
-    public void disableTableName() {
-        disableTableName = true;
-        for (Expr child : children) {
-            child.disableTableName();
-        }
-    }
-
-    public String toSqlWithoutTbl() {
-        return toSql(true, false, null, null);
-    }
-
     /**
-     * Returns a SQL string representing this expr. Subclasses should override this method
-     * instead of toSql() to ensure that parenthesis are properly added around the toSql().
+     * Accept a visitor and dispatch to the appropriate typed {@code visitXxx} method.
+     * Each concrete subclass must override this to call the correct visitor method.
      */
-    protected abstract String toSqlImpl();
-
-    protected abstract String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table);
-
-    public String toExternalSql(TableType tableType, TableIf table) {
-        return toSql(false, true, tableType, table);
-    }
-
-    /**
-     * Return a column label for the expression
-     */
-    public String toColumnLabel() {
-        return toSql();
-    }
+    public abstract <R, C> R accept(ExprVisitor<R, C> visitor, C context);
 
     // Convert this expr, including all children, to its Thrift representation.
     public TExpr treeToThrift() {
@@ -270,7 +230,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     }
 
     // Append a flattened version of this expr, including all children, to 'container'.
-    protected void treeToThriftHelper(TExpr container, ExprVisitor visitor) {
+    protected void treeToThriftHelper(TExpr container, ExprThriftVisitor visitor) {
         TExprNode msg = new TExprNode();
         msg.type = type.toThrift();
         msg.num_children = children.size();
@@ -290,7 +250,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         }
     }
 
-    public interface ExprVisitor {
+    public interface ExprThriftVisitor {
         void visit(Expr expr, TExprNode exprNode);
     }
 

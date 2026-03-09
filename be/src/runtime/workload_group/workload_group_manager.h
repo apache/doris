@@ -22,7 +22,7 @@
 #include <unordered_map>
 
 #include "common/be_mock_util.h"
-#include "workload_group.h"
+#include "runtime/workload_group/workload_group.h"
 
 namespace doris {
 
@@ -88,6 +88,8 @@ public:
     void get_wg_resource_usage(vectorized::Block* block);
 
     void refresh_workload_group_metrics();
+
+    void update_memtable_flush_threads();
 
     MOCK_FUNCTION void add_paused_query(const std::shared_ptr<ResourceContext>& resource_ctx,
                                         int64_t reserve_size, const Status& status);

@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.VarBinaryLiteral;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.thrift.TExprNode;
@@ -40,11 +42,11 @@ public class VarBinaryLiteralTest {
     public void testToSqlAndGetStringValue() throws Exception {
         VarBinaryLiteral lit = new VarBinaryLiteral(bytes("hello"));
         // toSql should output hex literal format X'HEX'
-        Assertions.assertEquals("X'68656C6C6F'", lit.toSql());
+        Assertions.assertEquals("X'68656C6C6F'", lit.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
         // getStringValue returns ISO_8859_1 decoded string (ascii here)
         Assertions.assertEquals("hello", lit.getStringValue());
         // also verify hex (via toSql without prefix/suffix extraction)
-        Assertions.assertTrue(lit.toSql().contains("68656C6C6F"));
+        Assertions.assertTrue(lit.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE).contains("68656C6C6F"));
 
         // nested string wrapper behavior (still wraps the plain string value)
         FormatOptions opts = FormatOptions.getDefault();

@@ -23,14 +23,15 @@
 #include <gen_cpp/internal_service.pb.h>
 
 #include <memory>
+#include <semaphore>
 #include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "exec/tablet_info.h" // DorisNodesInfo
-#include "olap/id_manager.h"
-#include "vec/core/block.h"
-#include "vec/data_types/data_type.h"
+#include "core/block/block.h"
+#include "core/data_type/data_type.h"
+#include "storage/id_manager.h"
+#include "storage/tablet_info.h" // DorisNodesInfo
 
 namespace doris {
 

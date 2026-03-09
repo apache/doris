@@ -105,7 +105,7 @@ suite("test_point_query_ck") {
                     `k12` array<text> NULL COMMENT ""
                   ) ENGINE=OLAP
                   UNIQUE KEY(`k1`, `k2`, `k3`)
-                  CLUSTER BY(`k9`, `k5`, `k4`, `k2`)
+                  ORDER BY(`k9`, `k5`, `k4`, `k2`)
                   DISTRIBUTED BY HASH(`k1`, k2, k3) BUCKETS 1
                   PROPERTIES (
                   "replication_allocation" = "tag.location.default: 1",
@@ -246,7 +246,7 @@ suite("test_point_query_ck") {
                         `customer_btm_value_2` text NULL
                     ) ENGINE=OLAP
                     UNIQUE KEY(`customer_key`)
-                    CLUSTER BY(`customer_btm_value_1`)
+                    ORDER BY(`customer_btm_value_1`)
                     COMMENT 'OLAP'
                     DISTRIBUTED BY HASH(`customer_key`) BUCKETS 16
                     PROPERTIES (
@@ -270,7 +270,7 @@ suite("test_point_query_ck") {
               `A_INTIME` DATETIME NULL
             ) ENGINE=OLAP
             UNIQUE KEY(`RPTNO`)
-            CLUSTER BY(`A_ENTTYP`, `A_INTIME`)
+            ORDER BY(`A_ENTTYP`, `A_INTIME`)
             DISTRIBUTED BY HASH(`RPTNO`) BUCKETS 3
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",

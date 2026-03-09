@@ -29,9 +29,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.datasource.systable.SysTable;
-import org.apache.doris.info.TableValuedFunctionRefInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -189,11 +187,6 @@ public interface TableIf {
     TTableDescriptor toThrift();
 
     BaseAnalysisTask createAnalysisTask(AnalysisInfo info);
-
-    // For empty table, nereids require getting 1 as row count. This is a wrap function for nereids to call getRowCount.
-    default long getRowCountForNereids() {
-        return Math.max(getRowCount(), 1);
-    }
 
     DatabaseIf getDatabase();
 
@@ -578,10 +571,6 @@ public interface TableIf {
         return 0;
     }
 
-    default boolean isDistributionColumn(String columnName) {
-        return false;
-    }
-
     default boolean isPartitionColumn(Column column) {
         return false;
     }
@@ -602,45 +591,28 @@ public interface TableIf {
         return false;
     }
 
-    default List<SysTable> getSupportedSysTables() {
-        return Lists.newArrayList();
+    /**
+     * Get the map of supported system table types for this table.
+     * Key is the system table name (e.g., "snapshots", "partitions").
+     *
+     * @return map of system table name to SysTable
+     */
+    default Map<String, SysTable> getSupportedSysTables() {
+        return Collections.emptyMap();
     }
 
     /**
-     * Get TableValuedFunction by tableNameWithSysTableName
+     * Find the SysTable that matches the given table name.
+     * Uses O(1) map lookup after extracting the system table name suffix.
      *
-     * @param ctlName
-     * @param dbName
-     * @param tableNameWithSysTableName: eg: table$partitions
-     * @return
+     * @param tableNameWithSysTableName e.g., "table$partitions"
+     * @return the matching SysTable, or empty if not found
      */
-    default Optional<TableValuedFunction> getSysTableFunction(
-            String ctlName, String dbName, String tableNameWithSysTableName) {
-        for (SysTable sysTable : getSupportedSysTables()) {
-            if (sysTable.containsMetaTable(tableNameWithSysTableName)) {
-                return Optional.of(sysTable.createFunction(ctlName, dbName,
-                        tableNameWithSysTableName));
-            }
+    default Optional<SysTable> findSysTable(String tableNameWithSysTableName) {
+        String sysTableName = SysTable.getTableNameWithSysTableName(tableNameWithSysTableName).second;
+        if (sysTableName.isEmpty()) {
+            return Optional.empty();
         }
-        return Optional.empty();
-    }
-
-    /**
-     * Get TableValuedFunctionRef by tableNameWithSysTableName
-     *
-     * @param ctlName
-     * @param dbName
-     * @param tableNameWithSysTableName: eg: table$partitions
-     * @return
-     */
-    default Optional<TableValuedFunctionRefInfo> getSysTableFunctionRef(
-            String ctlName, String dbName, String tableNameWithSysTableName) {
-        for (SysTable sysTable : getSupportedSysTables()) {
-            if (sysTable.containsMetaTable(tableNameWithSysTableName)) {
-                return Optional.of(sysTable.createFunctionRef(ctlName, dbName,
-                        tableNameWithSysTableName));
-            }
-        }
-        return Optional.empty();
+        return Optional.ofNullable(getSupportedSysTables().get(sysTableName));
     }
 }

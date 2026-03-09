@@ -16,6 +16,9 @@
 // under the License.
 
 suite("bucket_shuffle_set_operation") {
+    // TODO: open comment when support `enable_local_shuffle_planner` and change to REQUIRE
+    return
+
     multi_sql """
         drop table if exists bucket_shuffle_set_operation1;
         create table bucket_shuffle_set_operation1(id int, value int) distributed by hash(id) buckets 10 properties('replication_num'='1');

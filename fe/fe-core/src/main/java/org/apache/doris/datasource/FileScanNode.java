@@ -35,6 +35,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -55,8 +56,10 @@ import com.google.common.collect.Multimap;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -71,8 +74,9 @@ public abstract class FileScanNode extends ExternalScanNode {
 
     protected List<String> fileCacheAdmissionLogs;
 
-    public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, boolean needCheckColumnPriv) {
-        super(id, desc, planNodeName, needCheckColumnPriv);
+    public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
+            ScanContext scanContext, boolean needCheckColumnPriv) {
+        super(id, desc, planNodeName, scanContext, needCheckColumnPriv);
         this.needCheckColumnPriv = needCheckColumnPriv;
         this.fileCacheAdmissionLogs = new ArrayList<>();
     }
@@ -101,6 +105,17 @@ public abstract class FileScanNode extends ExternalScanNode {
 
     public long getTotalFileSize() {
         return totalFileSize;
+    }
+
+    /**
+     * Get all delete files for the given file range.
+     * @param rangeDesc the file range descriptor
+     * @return list of delete file paths (formatted strings)
+     */
+    protected List<String> getDeleteFiles(TFileRangeDesc rangeDesc) {
+        // Default implementation: return empty list
+        // Subclasses should override this method
+        return Collections.emptyList();
     }
 
     @Override
@@ -143,6 +158,21 @@ public abstract class FileScanNode extends ExternalScanNode {
                         return Long.compare(o1.getStartOffset(), o2.getStartOffset());
                     }
                 });
+
+                // A Data file may be divided into different splits, so a set is used to remove duplicates.
+                Set<String> dataFilesSet = new HashSet<>();
+                // A delete file might be used by multiple data files, so use set to remove duplicates.
+                Set<String> deleteFilesSet = new HashSet<>();
+                // You can estimate how many delete splits need to be read for a data split
+                // using deleteSplitNum / dataSplitNum(fileRangeDescs.size()) split.
+                long deleteSplitNum = 0;
+                for (TFileRangeDesc fileRangeDesc : fileRangeDescs) {
+                    dataFilesSet.add(fileRangeDesc.getPath());
+                    List<String> deletefiles =  getDeleteFiles(fileRangeDesc);
+                    deleteFilesSet.addAll(deletefiles);
+                    deleteSplitNum += deletefiles.size();
+                }
+
                 // 3. if size <= 4, print all. if size > 4, print first 3 and last 1
                 int size = fileRangeDescs.size();
                 if (size <= 4) {
@@ -168,6 +198,10 @@ public abstract class FileScanNode extends ExternalScanNode {
                             .append(" length: ").append(file.getSize())
                             .append("\n");
                 }
+                output.append(prefix).append("    ").append("dataFileNum=").append(dataFilesSet.size())
+                        .append(", deleteFileNum=").append(deleteFilesSet.size())
+                        .append(", deleteSplitNum=").append(deleteSplitNum)
+                        .append("\n");
             }
         }
 

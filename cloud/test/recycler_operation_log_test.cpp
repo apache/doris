@@ -16,15 +16,18 @@
 // under the License.
 
 #include <butil/strings/string_split.h>
+#include <bvar/variable.h>
 #include <fmt/core.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 
+#include <climits>
 #include <cstdint>
 #include <memory>
 #include <string>
 
+#include "common/bvars.h"
 #include "common/config.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
@@ -2804,6 +2807,481 @@ TEST(RecycleOperationLogTest, RecycleCompactionLogKeepKeyBoundsWhenDisabled) {
         ASSERT_GT(recycle_rs.rowset_meta().segments_key_bounds_size(), 0);
         ASSERT_TRUE(recycle_rs.rowset_meta().has_segments_key_bounds_truncated());
         ASSERT_FALSE(recycle_rs.rowset_meta().segments_key_bounds_truncated());
+    }
+}
+
+// ============================================================================
+// Tests for OplogRecycleStats and recycle_operation_logs metrics integration
+// ============================================================================
+
+TEST(RecycleOperationLogTest, OplogRecycleStatsAtomicOperations) {
+    OplogRecycleStats stats;
+
+    // Test initial values
+    EXPECT_EQ(stats.total_num.load(), 0);
+    EXPECT_EQ(stats.not_recycled_num.load(), 0);
+    EXPECT_EQ(stats.failed_num.load(), 0);
+    EXPECT_EQ(stats.recycled_commit_partition.load(), 0);
+    EXPECT_EQ(stats.recycled_drop_partition.load(), 0);
+    EXPECT_EQ(stats.recycled_commit_index.load(), 0);
+    EXPECT_EQ(stats.recycled_drop_index.load(), 0);
+    EXPECT_EQ(stats.recycled_update_tablet.load(), 0);
+    EXPECT_EQ(stats.recycled_compaction.load(), 0);
+    EXPECT_EQ(stats.recycled_schema_change.load(), 0);
+    EXPECT_EQ(stats.recycled_commit_txn.load(), 0);
+
+    // Test fetch_add
+    stats.not_recycled_num.fetch_add(3, std::memory_order_relaxed);
+    EXPECT_EQ(stats.not_recycled_num.load(), 3);
+
+    stats.failed_num.fetch_add(1, std::memory_order_relaxed);
+    EXPECT_EQ(stats.failed_num.load(), 1);
+
+    stats.recycled_drop_partition.fetch_add(5, std::memory_order_relaxed);
+    stats.recycled_drop_index.fetch_add(2, std::memory_order_relaxed);
+    stats.recycled_compaction.fetch_add(10, std::memory_order_relaxed);
+    stats.recycled_commit_txn.fetch_add(7, std::memory_order_relaxed);
+    EXPECT_EQ(stats.recycled_drop_partition.load(), 5);
+    EXPECT_EQ(stats.recycled_drop_index.load(), 2);
+    EXPECT_EQ(stats.recycled_compaction.load(), 10);
+    EXPECT_EQ(stats.recycled_commit_txn.load(), 7);
+
+    // Test total_num
+    stats.total_num.fetch_add(10, std::memory_order_relaxed);
+    EXPECT_EQ(stats.total_num.load(), 10);
+}
+
+TEST(RecycleOperationLogTest, OplogRecycleStatsPerTypeCounters) {
+    OplogRecycleStats stats;
+
+    // Simulate multiple oplog recycling events
+    stats.recycled_drop_partition.fetch_add(1, std::memory_order_relaxed);
+    stats.recycled_drop_partition.fetch_add(1, std::memory_order_relaxed);
+    stats.recycled_drop_index.fetch_add(1, std::memory_order_relaxed);
+    stats.recycled_compaction.fetch_add(1, std::memory_order_relaxed);
+    stats.recycled_compaction.fetch_add(1, std::memory_order_relaxed);
+    stats.recycled_compaction.fetch_add(1, std::memory_order_relaxed);
+    stats.recycled_commit_txn.fetch_add(1, std::memory_order_relaxed);
+
+    EXPECT_EQ(stats.recycled_commit_partition.load(), 0);
+    EXPECT_EQ(stats.recycled_drop_partition.load(), 2);
+    EXPECT_EQ(stats.recycled_commit_index.load(), 0);
+    EXPECT_EQ(stats.recycled_drop_index.load(), 1);
+    EXPECT_EQ(stats.recycled_update_tablet.load(), 0);
+    EXPECT_EQ(stats.recycled_compaction.load(), 3);
+    EXPECT_EQ(stats.recycled_schema_change.load(), 0);
+    EXPECT_EQ(stats.recycled_commit_txn.load(), 1);
+}
+
+// Test recycle_operation_logs with stats enabled: drop partition + drop index logs
+// Verifies per-type recycled counts and bvar reporting
+TEST(RecycleOperationLogTest, RecycleOperationLogsWithStatsEnabled) {
+    auto old_flag = config::enable_recycler_stats_metrics;
+    config::enable_recycler_stats_metrics = true;
+    DORIS_CLOUD_DEFER {
+        config::enable_recycler_stats_metrics = old_flag;
+    };
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    txn_kv->update_commit_version(1000);
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_ENABLED);
+    auto* obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_oplog_stats");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_oplog_stats");
+    update_instance_info(txn_kv.get(), instance);
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    uint64_t db_id = 1;
+    uint64_t table_id = 100;
+    uint64_t index_id1 = 201;
+    uint64_t index_id2 = 202;
+    uint64_t partition_id1 = 301;
+    uint64_t partition_id2 = 302;
+    int64_t expiration = ::time(nullptr) + 3600;
+
+    // Create table version so the recycler can remove it
+    {
+        std::string ver_key = versioned::table_version_key({instance_id, table_id});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), ver_key, "");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Put a drop partition log with 2 partitions
+    {
+        std::string log_key = versioned::log_key(instance_id);
+        OperationLogPB operation_log;
+        operation_log.set_min_timestamp(100);
+        auto* drop_partition = operation_log.mutable_drop_partition();
+        drop_partition->set_db_id(db_id);
+        drop_partition->set_table_id(table_id);
+        drop_partition->add_index_ids(index_id1);
+        drop_partition->add_partition_ids(partition_id1);
+        drop_partition->add_partition_ids(partition_id2);
+        drop_partition->set_expired_at_s(expiration);
+        drop_partition->set_update_table_version(true);
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned::blob_put(txn.get(), log_key, operation_log);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Put a drop index log with 2 indexes
+    {
+        std::string log_key = versioned::log_key(instance_id);
+        OperationLogPB operation_log;
+        operation_log.set_min_timestamp(101);
+        auto* drop_index = operation_log.mutable_drop_index();
+        drop_index->set_db_id(db_id);
+        drop_index->set_table_id(table_id);
+        drop_index->add_index_ids(index_id1);
+        drop_index->add_index_ids(index_id2);
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned::blob_put(txn.get(), log_key, operation_log);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Save cumulative baselines before recycling (mBvarIntAdder accumulates across tests)
+    int64_t baseline_drop_partition =
+            g_bvar_recycler_oplog_recycled_drop_partition_num.get({instance_id});
+    int64_t baseline_drop_index = g_bvar_recycler_oplog_recycled_drop_index_num.get({instance_id});
+
+    // Recycle the operation logs - stats should be collected
+    ASSERT_EQ(recycler.recycle_operation_logs(), 0);
+
+    // Verify recycle partition records were created
+    {
+        std::string recycle_key1 = recycle_partition_key({instance_id, partition_id1});
+        std::string recycle_key2 = recycle_partition_key({instance_id, partition_id2});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        ASSERT_EQ(txn->get(recycle_key1, &value), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(recycle_key2, &value), TxnErrorCode::TXN_OK);
+    }
+
+    // Verify recycle index records were created
+    {
+        std::string recycle_key1 = recycle_index_key({instance_id, index_id1});
+        std::string recycle_key2 = recycle_index_key({instance_id, index_id2});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        ASSERT_EQ(txn->get(recycle_key1, &value), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(recycle_key2, &value), TxnErrorCode::TXN_OK);
+    }
+
+    // Verify total oplog count: 2 logs (1 drop_partition + 1 drop_index)
+    {
+        int64_t total = g_bvar_recycler_oplog_last_round_total_num.get({instance_id});
+        EXPECT_EQ(total, 2) << "Should have scanned 2 operation logs in total";
+    }
+
+    // Verify per-type last round recycled counts: 1 drop_partition log and 1 drop_index log
+    {
+        int last_round_drop_partition =
+                g_bvar_recycler_oplog_last_round_recycled_drop_partition_num.get({instance_id});
+        EXPECT_EQ(last_round_drop_partition, 1) << "Should have recycled 1 drop_partition log";
+    }
+    {
+        int last_round_drop_index =
+                g_bvar_recycler_oplog_last_round_recycled_drop_index_num.get({instance_id});
+        EXPECT_EQ(last_round_drop_index, 1) << "Should have recycled 1 drop_index log";
+    }
+
+    // Verify per-type cumulative recycled counts (check delta from baseline)
+    {
+        int64_t recycled_drop_partition =
+                g_bvar_recycler_oplog_recycled_drop_partition_num.get({instance_id});
+        EXPECT_EQ(recycled_drop_partition - baseline_drop_partition, 1)
+                << "Cumulative drop_partition delta should be 1";
+    }
+    {
+        int64_t recycled_drop_index =
+                g_bvar_recycler_oplog_recycled_drop_index_num.get({instance_id});
+        EXPECT_EQ(recycled_drop_index - baseline_drop_index, 1)
+                << "Cumulative drop_index delta should be 1";
+    }
+}
+
+// Test recycle_operation_logs with snapshot protection: some logs skipped
+TEST(RecycleOperationLogTest, RecycleOperationLogsSkippedBySnapshot) {
+    auto old_flag = config::enable_recycler_stats_metrics;
+    config::enable_recycler_stats_metrics = true;
+    DORIS_CLOUD_DEFER {
+        config::enable_recycler_stats_metrics = old_flag;
+    };
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    txn_kv->update_commit_version(1000);
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string test_instance_id = "test_oplog_not_recycled";
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(test_instance_id);
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_ENABLED);
+    auto* obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_snapshot_skip");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_snapshot_skip");
+
+    // Store instance info
+    {
+        std::string key = instance_key({test_instance_id});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, instance.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    auto insert_empty_value = [&]() {
+        std::unique_ptr<Transaction> txn;
+        EXPECT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put("dummy_snapshot_test", "");
+        EXPECT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    };
+
+    // Create table version
+    uint64_t table_id = 500;
+    {
+        std::string ver_key = versioned::table_version_key({test_instance_id, table_id});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), ver_key, "");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Put an old operation log (will be recyclable)
+    {
+        std::string log_key = versioned::log_key(test_instance_id);
+        OperationLogPB operation_log;
+        operation_log.set_min_timestamp(100);
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned::blob_put(txn.get(), log_key, operation_log);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    insert_empty_value();
+
+    // Write a snapshot (this creates a protection boundary)
+    {
+        SnapshotPB snapshot;
+        std::string snapshot_key = versioned::snapshot_full_key(test_instance_id);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), snapshot_key, snapshot.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    insert_empty_value();
+
+    // Put a new operation log after the snapshot (min_timestamp before snapshot)
+    // This log should be skipped by snapshot protection
+    {
+        std::string log_key = versioned::log_key(test_instance_id);
+        OperationLogPB operation_log;
+        // min_timestamp is set to a value before the snapshot, so the snapshot
+        // falls within [min_timestamp, log_version) and the log can't be recycled
+        operation_log.set_min_timestamp(100);
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned::blob_put(txn.get(), log_key, operation_log);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    insert_empty_value();
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    // Recycle - some logs should be recycled, some not recycled due to snapshot
+    ASSERT_EQ(recycler.recycle_operation_logs(), 0);
+
+    // Verify not_recycled bvar is set
+    {
+        int64_t not_recycled =
+                g_bvar_recycler_oplog_last_round_not_recycled_num.get({test_instance_id});
+        EXPECT_GE(not_recycled, 1) << "At least one log should not be recycled";
+    }
+}
+
+// Test recycle_operation_logs with stats disabled (default)
+TEST(RecycleOperationLogTest, RecycleOperationLogsStatsDisabled) {
+    auto old_flag = config::enable_recycler_stats_metrics;
+    config::enable_recycler_stats_metrics = false;
+    DORIS_CLOUD_DEFER {
+        config::enable_recycler_stats_metrics = old_flag;
+    };
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    txn_kv->update_commit_version(1000);
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_ENABLED);
+    auto* obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_stats_disabled");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_stats_disabled");
+    update_instance_info(txn_kv.get(), instance);
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    // Put an empty operation log
+    {
+        std::string log_key = versioned::log_key(instance_id);
+        Versionstamp versionstamp(123, 0);
+        OperationLogPB operation_log;
+        operation_log.set_min_timestamp(versionstamp.version());
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned::blob_put(txn.get(), log_key, versionstamp, operation_log);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Recycle should succeed without stats collection
+    ASSERT_EQ(recycler.recycle_operation_logs(), 0);
+
+    // Verify all logs were recycled
+    remove_instance_info(txn_kv.get());
+    ASSERT_TRUE(is_empty_range(txn_kv.get())) << dump_range(txn_kv.get());
+}
+
+// Test recycle_operation_logs compaction log with stats: recycled_compaction tracking
+TEST(RecycleOperationLogTest, RecycleCompactionLogWithStats) {
+    auto old_flag = config::enable_recycler_stats_metrics;
+    config::enable_recycler_stats_metrics = true;
+    DORIS_CLOUD_DEFER {
+        config::enable_recycler_stats_metrics = old_flag;
+    };
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    txn_kv->update_commit_version(1000);
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string test_instance_id = "test_compaction_log_stats";
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(test_instance_id);
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_ENABLED);
+    auto* obj_info = instance.add_obj_info();
+    obj_info->set_id("compaction_stats");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("compaction_stats");
+
+    {
+        std::string key = instance_key({test_instance_id});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, instance.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    int64_t table_id = 600;
+    int64_t tablet_id = 603;
+
+    // Create table version
+    {
+        std::string ver_key = versioned::table_version_key({test_instance_id, table_id});
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), ver_key, "");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Put a compaction log with 3 recycle rowsets
+    {
+        std::string log_key = versioned::log_key(test_instance_id);
+        OperationLogPB operation_log;
+        operation_log.set_min_timestamp(100);
+        auto* compaction = operation_log.mutable_compaction();
+        compaction->set_tablet_id(tablet_id);
+
+        for (int i = 0; i < 3; i++) {
+            auto* recycle_rowset = compaction->add_recycle_rowsets();
+            auto* rowset_meta = recycle_rowset->mutable_rowset_meta();
+            rowset_meta->set_rowset_id(0);
+            rowset_meta->set_tablet_id(tablet_id);
+            rowset_meta->set_rowset_id_v2(fmt::format("compaction_rowset_{}", i));
+            rowset_meta->set_start_version(i * 10);
+            rowset_meta->set_end_version(i * 10 + 9);
+        }
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned::blob_put(txn.get(), log_key, operation_log);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Recycle the operation logs
+    ASSERT_EQ(recycler.recycle_operation_logs(), 0);
+
+    // Verify recycle rowset records were created (3 rowsets from compaction log)
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (int i = 0; i < 3; i++) {
+            std::string rowset_id = fmt::format("compaction_rowset_{}", i);
+            std::string recycle_key = recycle_rowset_key({test_instance_id, tablet_id, rowset_id});
+            std::string value;
+            TxnErrorCode err = txn->get(recycle_key, &value);
+            EXPECT_EQ(err, TxnErrorCode::TXN_OK)
+                    << "Recycle rowset key not found for rowset " << rowset_id;
+        }
+    }
+
+    // Verify last_round recycled_compaction bvar count (1 compaction log recycled)
+    {
+        int last_round_compaction =
+                g_bvar_recycler_oplog_last_round_recycled_compaction_num.get({test_instance_id});
+        EXPECT_EQ(last_round_compaction, 1) << "Last round should have recycled 1 compaction log";
+    }
+    // Verify cumulative recycled_compaction bvar count
+    {
+        int recycled_compaction =
+                g_bvar_recycler_oplog_recycled_compaction_num.get({test_instance_id});
+        EXPECT_EQ(recycled_compaction, 1) << "Cumulative compaction should be 1";
     }
 }
 

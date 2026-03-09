@@ -21,9 +21,8 @@ import java.util.List;
 import java.util.Objects;
 
 public class GroupingInfo {
-    private TupleDescriptor outputTupleDesc;
-
-    private List<Expr> preRepeatExprs;
+    private final TupleDescriptor outputTupleDesc;
+    private final List<Expr> preRepeatExprs;
 
     /**
      * Used by new optimizer.

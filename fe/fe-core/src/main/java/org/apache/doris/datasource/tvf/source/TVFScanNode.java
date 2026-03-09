@@ -32,6 +32,7 @@ import org.apache.doris.datasource.FileSplit.FileSplitCreator;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
@@ -67,8 +68,9 @@ public class TVFScanNode extends FileQueryScanNode {
      * eg: s3 tvf
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
-    public TVFScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv) {
-        super(id, desc, "TVF_SCAN_NODE", needCheckColumnPriv, sv);
+    public TVFScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv,
+            ScanContext scanContext) {
+        super(id, desc, "TVF_SCAN_NODE", scanContext, needCheckColumnPriv, sv);
         table = (FunctionGenTable) this.desc.getTable();
         tableValuedFunction = (ExternalFileTableValuedFunction) table.getTvf();
     }
@@ -141,7 +143,7 @@ public class TVFScanNode extends FileQueryScanNode {
         // Push down count optimization.
         boolean needSplit = true;
         if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT) {
-            int parallelNum = sessionVariable.getParallelExecInstanceNum();
+            int parallelNum = sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName());
             int totalFileNum = fileStatuses.size();
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
         }

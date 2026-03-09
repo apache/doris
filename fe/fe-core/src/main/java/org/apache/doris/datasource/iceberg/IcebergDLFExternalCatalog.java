@@ -17,11 +17,11 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 

@@ -18,7 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/thread.cc
 // and modified by Doris
 
-#include "thread.h"
+#include "util/thread.h"
 
 #include <sys/resource.h>
 
@@ -54,8 +54,8 @@
 #include "absl/strings/substitute.h"
 #include "common/config.h"
 #include "common/logging.h"
-#include "http/web_page_handler.h"
 #include "runtime/thread_context.h"
+#include "service/http/web_page_handler.h"
 #include "util/easy_json.h"
 #include "util/os_util.h"
 #include "util/url_coding.h"

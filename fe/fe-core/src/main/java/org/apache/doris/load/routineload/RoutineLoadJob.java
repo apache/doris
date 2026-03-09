@@ -18,13 +18,16 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.Separator;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
@@ -43,7 +46,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
@@ -1056,6 +1058,8 @@ public abstract class RoutineLoadJob
                 ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
             } else {
                 setComputeGroup();
+                // Set user identity for privilege check in expression rewrite (e.g., EncryptKeyRef)
+                ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
             }
             if (ConnectContext.get().getEnv() == null) {
                 ConnectContext.get().setEnv(Env.getCurrentEnv());
@@ -1761,7 +1765,8 @@ public abstract class RoutineLoadJob
         }
         // 4.3.where_predicates
         if (whereExpr != null) {
-            sb.append("WHERE ").append(whereExpr.toSqlWithoutTbl()).append(",\n");
+            sb.append("WHERE ").append(whereExpr.accept(
+                    ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE)).append(",\n");
         }
         // 4.4.partitions
         if (partitionNamesInfo != null) {
@@ -1769,7 +1774,8 @@ public abstract class RoutineLoadJob
         }
         // 4.5.delete_on_predicates
         if (deleteCondition != null) {
-            sb.append("DELETE ON ").append(deleteCondition.toSqlWithoutTbl()).append(",\n");
+            sb.append("DELETE ON ").append(deleteCondition.accept(
+                    ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE)).append(",\n");
         }
         // 4.6.source_sequence
         if (sequenceCol != null) {
@@ -1777,7 +1783,8 @@ public abstract class RoutineLoadJob
         }
         // 4.7.preceding_predicates
         if (precedingFilter != null) {
-            sb.append("PRECEDING FILTER ").append(precedingFilter.toSqlWithoutTbl()).append(",\n");
+            sb.append("PRECEDING FILTER ").append(precedingFilter.accept(
+                    ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE)).append(",\n");
         }
         // remove the last ,
         if (sb.charAt(sb.length() - 2) == ',') {
@@ -1872,8 +1879,10 @@ public abstract class RoutineLoadJob
                 ? STAR_STRING : Joiner.on(",").join(partitionNamesInfo.getPartitionNames()));
         jobProperties.put("columnToColumnExpr", columnDescs == null
                 ? STAR_STRING : Joiner.on(",").join(columnDescs.descs));
-        jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING : precedingFilter.toSqlWithoutTbl());
-        jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSqlWithoutTbl());
+        jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING
+                : precedingFilter.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
+        jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING
+                : whereExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
         if (getFormat().equalsIgnoreCase("json")) {
             jobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
         } else {
@@ -1883,7 +1892,8 @@ public abstract class RoutineLoadJob
                     lineDelimiter == null ? "\n" : lineDelimiter.toString());
         }
         jobProperties.put(LoadCommand.KEY_IN_PARAM_DELETE_CONDITION,
-                deleteCondition == null ? STAR_STRING : deleteCondition.toSqlWithoutTbl());
+                deleteCondition == null ? STAR_STRING
+                        : deleteCondition.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
         jobProperties.put(LoadCommand.KEY_IN_PARAM_SEQUENCE_COL,
                 sequenceCol == null ? STAR_STRING : sequenceCol);
 
@@ -1988,6 +1998,19 @@ public abstract class RoutineLoadJob
                 CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
                         origStmt.originStmt);
                 CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
+                // If tableId is set, resolve the current table name by ID so that
+                // table rename / SWAP TABLE won't cause replay to fail with stale name in origStmt.
+                if (!isMultiTable && tableId != 0) {
+                    try {
+                        Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbId).orElse(null);
+                        if (db != null) {
+                            db.getTable(tableId).ifPresent(
+                                    table -> createRoutineLoadInfo.setTableName(table.getName()));
+                        }
+                    } catch (Exception ignored) {
+                        // fall through; let validate() surface the real error
+                    }
+                }
                 createRoutineLoadInfo.validate(ctx);
                 setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
             } finally {

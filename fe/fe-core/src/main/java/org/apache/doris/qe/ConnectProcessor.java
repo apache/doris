@@ -44,6 +44,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlPacket;
+import org.apache.doris.mysql.MysqlResultSetEndPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -553,7 +554,17 @@ public abstract class ConnectProcessor {
     // only Mysql protocol
     protected ByteBuffer getResultPacket() {
         Preconditions.checkState(connectType.equals(ConnectType.MYSQL));
-        MysqlPacket packet = ctx.getState().toResponsePacket();
+        MysqlPacket packet;
+        // When CLIENT_DEPRECATE_EOF is set and the state is EOF (end of result set),
+        // we need to send a "ResultSet OK" packet (0xFE header with payload > 5 bytes)
+        // instead of the traditional EOF packet. This is required by the MySQL protocol
+        // and expected by MySQL Connector/J 9.5.0+.
+        if (ctx.getState().getStateType() == QueryState.MysqlStateType.EOF
+                && ctx.getMysqlChannel().clientDeprecatedEOF()) {
+            packet = new MysqlResultSetEndPacket(ctx.getState());
+        } else {
+            packet = ctx.getState().toResponsePacket();
+        }
         if (packet == null) {
             // possible two cases:
             // 1. handler has send request
@@ -642,6 +653,12 @@ public abstract class ConnectProcessor {
 
         // set compute group
         ctx.setComputeGroup(Env.getCurrentEnv().getAuth().getComputeGroup(ctx.getQualifiedUser()));
+
+        // Propagate the client's CLIENT_DEPRECATE_EOF capability to the proxy channel.
+        // This ensures the master generates packets matching the original client's protocol.
+        if (request.isSetClientDeprecatedEOF() && request.isClientDeprecatedEOF()) {
+            ctx.getMysqlChannel().setClientDeprecatedEOF();
+        }
 
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;

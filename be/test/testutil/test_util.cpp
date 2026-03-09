@@ -22,7 +22,6 @@
 #include <mach-o/dyld.h>
 #endif
 
-#include <common/config.h>
 #include <ctype.h>
 #include <glog/logging.h>
 #include <libgen.h>
@@ -34,6 +33,8 @@
 
 #include <algorithm>
 #include <string>
+
+#include "common/config.h"
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <filesystem>
@@ -43,7 +44,7 @@
 
 #include "absl/strings/substitute.h"
 #include "gflags/gflags.h"
-#include "olap/olap_common.h"
+#include "storage/olap_common.h"
 
 DEFINE_bool(gen_out, false, "generate expected check data for test");
 DEFINE_bool(
@@ -279,7 +280,8 @@ void check_or_generate_res_file(const std::string& res_file_path,
             std::string value;
             size_t col_idx = 0;
             while (std::getline(line_stream, value, ';')) {
-                EXPECT_EQ(value, res_columns[col_idx][line_idx]);
+                EXPECT_EQ(value, res_columns[col_idx][line_idx])
+                        << "line: " << line_idx << " col: " << col_idx;
                 col_idx++;
             }
             line_idx++;

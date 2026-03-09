@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "stream_load_pipe.h"
+#include "io/fs/stream_load_pipe.h"
 
 #include <glog/logging.h>
 
@@ -25,10 +25,10 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "core/custom_allocator.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/bit_util.h"
-#include "vec/common/custom_allocator.h"
 
 namespace doris {
 namespace io {

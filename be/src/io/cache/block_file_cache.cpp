@@ -20,6 +20,8 @@
 
 #include "io/cache/block_file_cache.h"
 
+#include <gen_cpp/file_cache.pb.h>
+
 #include <cstdio>
 #include <exception>
 #include <fstream>
@@ -27,7 +29,6 @@
 
 #include "common/status.h"
 #include "cpp/sync_point.h"
-#include "gen_cpp/file_cache.pb.h"
 #include "runtime/exec_env.h"
 
 #if defined(__APPLE__)
@@ -43,18 +44,19 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "core/uint128.h"
+#include "exec/common/sip_hash.h"
 #include "io/cache/block_file_cache_ttl_mgr.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/cache/mem_file_cache_storage.h"
-#include "util/runtime_profile.h"
+#include "runtime/runtime_profile.h"
+#include "util/concurrency_stats.h"
 #include "util/stack_util.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 #include "util/time.h"
-#include "vec/common/sip_hash.h"
-#include "vec/common/uint128.h"
 namespace doris::io {
 #include "common/compile_check_begin.h"
 
@@ -817,7 +819,9 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
     DCHECK(stats != nullptr);
     MonotonicStopWatch sw;
     sw.start();
+    ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->increment();
     std::lock_guard cache_lock(_mutex);
+    ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->decrement();
     stats->lock_wait_timer += sw.elapsed_time();
     FileBlocks file_blocks;
     int64_t duration = 0;
@@ -1227,6 +1231,12 @@ void BlockFileCache::reset_range(const UInt128Wrapper& hash, size_t offset, size
            _files.find(hash)->second.find(offset) != _files.find(hash)->second.end());
     FileBlockCell* cell = get_cell(hash, offset, cache_lock);
     DCHECK(cell != nullptr);
+    if (cell == nullptr) {
+        LOG(WARNING) << "reset_range skipped because cache cell is missing. hash="
+                     << hash.to_string() << " offset=" << offset << " old_size=" << old_size
+                     << " new_size=" << new_size;
+        return;
+    }
     if (cell->queue_iterator) {
         auto& queue = get_queue(cell->file_block->cache_type());
         DCHECK(queue.contains(hash, offset, cache_lock));

@@ -20,8 +20,8 @@
 #include <string>
 
 #include "common/status.h"
-#include "vec/exprs/vectorized_fn_call.h"
-#include "vec/exprs/vexpr.h"
+#include "exprs/vectorized_fn_call.h"
+#include "exprs/vexpr.h"
 
 namespace doris::vectorized {
 class Block;

@@ -819,6 +819,19 @@ int InstanceRecycler::recycle_deleted_instance() {
                      << "s, instance_id=" << instance_id_;
     };
 
+    // Step 1: Recycle versioned rowsets in recycle space (already marked for deletion)
+    if (recycle_versioned_rowsets() != 0) {
+        LOG_WARNING("failed to recycle versioned rowsets").tag("instance_id", instance_id_);
+        return -1;
+    }
+
+    // Step 2: Recycle operation logs (can recycle logs not referenced by snapshots)
+    if (recycle_operation_logs() != 0) {
+        LOG_WARNING("failed to recycle operation logs").tag("instance_id", instance_id_);
+        return -1;
+    }
+
+    // Step 3: Check if there are still cluster snapshots
     bool has_snapshots = false;
     if (has_cluster_snapshots(&has_snapshots) != 0) {
         LOG(WARNING) << "check instance cluster snapshots failed, instance_id=" << instance_id_;
@@ -826,16 +839,6 @@ int InstanceRecycler::recycle_deleted_instance() {
     } else if (has_snapshots) {
         LOG(INFO) << "instance has cluster snapshots, skip recycling, instance_id=" << instance_id_;
         return 0;
-    }
-
-    if (recycle_operation_logs() != 0) {
-        LOG_WARNING("failed to recycle operation logs").tag("instance_id", instance_id_);
-        return -1;
-    }
-
-    if (recycle_versioned_rowsets() != 0) {
-        LOG_WARNING("failed to recycle versioned rowsets").tag("instance_id", instance_id_);
-        return -1;
     }
 
     bool snapshot_enabled = instance_info().has_snapshot_switch_status() &&
@@ -1923,9 +1926,7 @@ int mark_rowset_as_recycled(TxnKv* txn_kv, const std::string& instance_id, std::
 
 int InstanceRecycler::recycle_ref_rowsets(bool* has_unrecycled_rowsets) {
     const std::string task_name = "recycle_ref_rowsets";
-    int64_t num_scanned = 0;
-    int64_t num_recycled = 0;
-    RecyclerMetricsContext metrics_context(instance_id_, task_name);
+    *has_unrecycled_rowsets = false;
 
     std::string data_rowset_ref_count_key_start =
             versioned::data_rowset_ref_count_key({instance_id_, 0, ""});
@@ -1941,123 +1942,89 @@ int InstanceRecycler::recycle_ref_rowsets(bool* has_unrecycled_rowsets) {
         unregister_recycle_task(task_name);
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
-        metrics_context.finish_report();
         LOG_WARNING("recycle ref rowsets finished, cost={}s", cost)
-                .tag("instance_id", instance_id_)
-                .tag("num_scanned", num_scanned)
-                .tag("num_recycled", num_recycled);
+                .tag("instance_id", instance_id_);
     };
 
-    auto recycle_func = [&, this](std::string_view k, std::string_view v) -> int {
-        ++num_scanned;
+    // Phase 1: Scan to collect all tablet_ids that have rowset ref counts
+    std::set<int64_t> tablets_with_refs;
+    int64_t num_scanned = 0;
 
+    auto scan_func = [&](std::string_view k, std::string_view v) -> int {
+        ++num_scanned;
         int64_t tablet_id;
         std::string rowset_id;
         std::string_view key(k);
         if (!versioned::decode_data_rowset_ref_count_key(&key, &tablet_id, &rowset_id)) {
             LOG_WARNING("failed to decode data rowset ref count key").tag("key", hex(k));
-            return -1;
+            return 0; // Continue scanning
         }
 
-        std::unique_ptr<Transaction> txn;
-        TxnErrorCode err = txn_kv_->create_txn(&txn);
-        if (err != TxnErrorCode::TXN_OK) {
-            return -1;
-        }
-
-        int64_t ref_count;
-        if (!txn->decode_atomic_int(v, &ref_count)) {
-            LOG_WARNING("failed to decode rowset data ref count").tag("value", hex(v));
-            return -1;
-        }
-        if (ref_count > 1) {
-            *has_unrecycled_rowsets = true;
-            LOG_INFO("skip recycle ref_count > 1 rowset")
-                    .tag("instance_id", instance_id_)
-                    .tag("tablet_id", tablet_id)
-                    .tag("rowset_id", rowset_id)
-                    .tag("ref_count", ref_count);
-            return 0;
-        }
-
-        std::string meta_rowset_key =
-                versioned::meta_rowset_key({instance_id_, tablet_id, rowset_id});
-        ValueBuf val_buf;
-        err = blob_get(txn.get(), meta_rowset_key, &val_buf);
-        if (err != TxnErrorCode::TXN_OK) {
-            LOG_WARNING("failed to get meta_rowset_key")
-                    .tag("instance_id", instance_id_)
-                    .tag("tablet_id", tablet_id)
-                    .tag("rowset_id", rowset_id)
-                    .tag("key", hex(meta_rowset_key))
-                    .tag("err", err);
-            return -1;
-        }
-        doris::RowsetMetaCloudPB rowset_meta;
-        if (!val_buf.to_pb(&rowset_meta)) {
-            LOG_WARNING("failed to parse RowsetMetaCloudPB")
-                    .tag("instance_id", instance_id_)
-                    .tag("tablet_id", tablet_id)
-                    .tag("rowset_id", rowset_id)
-                    .tag("key", hex(meta_rowset_key));
-            return -1;
-        }
-        int64_t start_version = rowset_meta.start_version();
-        int64_t end_version = rowset_meta.end_version();
-
-        // Check if the meta_rowset_compact_key or meta_rowset_load_key exists:
-        // exists: means it's referenced by current instance, can recycle rowset;
-        // not exists: means it's referenced by other instances, cannot recycle;
-        //
-        // end_version = 1: the first rowset;
-        // end_version = 0: the rowset is committed by load, but not commit_txn;
-        // can recycle in these 2 situations
-        bool exist = false;
-        if (end_version > 1) {
-            if (start_version != end_version) {
-                if (get_meta_rowset_key(txn.get(), instance_id_, tablet_id, rowset_id,
-                                        start_version, end_version, false, &exist) != 0) {
-                    return -1;
-                }
-            } else {
-                if (get_meta_rowset_key(txn.get(), instance_id_, tablet_id, rowset_id,
-                                        start_version, end_version, true, &exist) != 0) {
-                    return -1;
-                }
-                if (!exist && get_meta_rowset_key(txn.get(), instance_id_, tablet_id, rowset_id,
-                                                  start_version, end_version, false, &exist) != 0) {
-                    return -1;
-                }
-            }
-        }
-
-        if (end_version > 1 && !exist) {
-            *has_unrecycled_rowsets = true;
-            LOG_INFO("skip recycle ref_count = 1 rowset")
-                    .tag("instance_id", instance_id_)
-                    .tag("tablet_id", tablet_id)
-                    .tag("rowset_id", rowset_id)
-                    .tag("start_version", start_version)
-                    .tag("end_version", end_version)
-                    .tag("ref_count", ref_count);
-            return 0;
-        }
-
-        if (recycle_rowset_meta_and_data("", rowset_meta) != 0) {
-            LOG_WARNING("failed to recycle_rowset_meta_and_data")
-                    .tag("instance_id", instance_id_)
-                    .tag("tablet_id", tablet_id)
-                    .tag("rowset_id", rowset_id);
-            return -1;
-        }
-
-        ++num_recycled;
+        tablets_with_refs.insert(tablet_id);
         return 0;
     };
 
-    // recycle_func and loop_done for scan and recycle
-    return scan_and_recycle(data_rowset_ref_count_key_start, data_rowset_ref_count_key_end,
-                            std::move(recycle_func));
+    if (scan_and_recycle(data_rowset_ref_count_key_start, data_rowset_ref_count_key_end,
+                         std::move(scan_func)) != 0) {
+        LOG_WARNING("failed to scan data rowset ref count keys");
+        return -1;
+    }
+
+    LOG_INFO("collected {} tablets with rowset refs, scanned {} ref count keys",
+             tablets_with_refs.size(), num_scanned)
+            .tag("instance_id", instance_id_);
+
+    // Phase 2: Recycle each tablet
+    int64_t num_recycled_tablets = 0;
+    for (int64_t tablet_id : tablets_with_refs) {
+        if (stopped()) {
+            LOG_INFO("recycler stopped, skip remaining tablets")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablets_processed", num_recycled_tablets)
+                    .tag("tablets_remaining", tablets_with_refs.size() - num_recycled_tablets);
+            break;
+        }
+
+        RecyclerMetricsContext metrics_context(instance_id_, task_name);
+        if (recycle_versioned_tablet(tablet_id, metrics_context) != 0) {
+            LOG_WARNING("failed to recycle tablet")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id);
+            return -1;
+        }
+        ++num_recycled_tablets;
+    }
+
+    LOG_INFO("recycled {} tablets", num_recycled_tablets)
+            .tag("instance_id", instance_id_)
+            .tag("total_tablets", tablets_with_refs.size());
+
+    // Phase 3: Scan again to check if any ref count keys still exist
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to create txn for final check")
+                .tag("instance_id", instance_id_)
+                .tag("err", err);
+        return -1;
+    }
+
+    std::unique_ptr<RangeGetIterator> iter;
+    err = txn->get(data_rowset_ref_count_key_start, data_rowset_ref_count_key_end, &iter, true);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to create range iterator for final check")
+                .tag("instance_id", instance_id_)
+                .tag("err", err);
+        return -1;
+    }
+
+    *has_unrecycled_rowsets = iter->has_next();
+    if (*has_unrecycled_rowsets) {
+        LOG_INFO("still has unrecycled rowsets after recycle_ref_rowsets")
+                .tag("instance_id", instance_id_);
+    }
+
+    return 0;
 }
 
 int InstanceRecycler::recycle_indexes() {
@@ -3014,8 +2981,20 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
         }
     }
 
-    // Process delete bitmap
-    file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
+    // Process delete bitmap - check if it's stored in packed file
+    bool delete_bitmap_is_packed = false;
+    if (decrement_delete_bitmap_packed_file_ref_counts(tablet_id, rowset_id,
+                                                       &delete_bitmap_is_packed) != 0) {
+        LOG_WARNING("failed to decrement delete bitmap packed file ref count")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id);
+        return -1;
+    }
+    // Only delete standalone delete bitmap file if not stored in packed file
+    if (!delete_bitmap_is_packed) {
+        file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
+    }
     // TODO(AlexYue): seems could do do batch
     return accessor->delete_files(file_paths);
 }
@@ -3034,6 +3013,7 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
                 .tag("rowset_id", rs_meta_pb.rowset_id_v2());
         return 0;
     }
+
     struct PackedSmallFileInfo {
         std::string small_file_path;
     };
@@ -3168,6 +3148,7 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
                 break;
             }
 
+            // Calculate remaining files
             int64_t left_file_count = 0;
             int64_t left_file_bytes = 0;
             for (const auto& small_file_entry : packed_info.slices()) {
@@ -3255,6 +3236,225 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
     }
 
     return ret;
+}
+
+int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(int64_t tablet_id,
+                                                                     const std::string& rowset_id,
+                                                                     bool* out_is_packed) {
+    if (out_is_packed) {
+        *out_is_packed = false;
+    }
+
+    // Get delete bitmap storage info from FDB
+    std::string dbm_key = versioned::meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id});
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to create txn when getting delete bitmap storage")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id)
+                .tag("err", err);
+        return -1;
+    }
+
+    std::string dbm_val;
+    err = txn->get(dbm_key, &dbm_val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        // No delete bitmap for this rowset, nothing to do
+        LOG_INFO("delete bitmap not found, skip packed file ref count decrement")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id);
+        return 0;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to get delete bitmap storage")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id)
+                .tag("err", err);
+        return -1;
+    }
+
+    DeleteBitmapStoragePB storage;
+    if (!storage.ParseFromString(dbm_val)) {
+        LOG_WARNING("failed to parse delete bitmap storage")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id);
+        return -1;
+    }
+
+    // Check if delete bitmap is stored in packed file
+    if (!storage.has_packed_slice_location() ||
+        storage.packed_slice_location().packed_file_path().empty()) {
+        // Not stored in packed file, nothing to do
+        return 0;
+    }
+
+    if (out_is_packed) {
+        *out_is_packed = true;
+    }
+
+    const auto& packed_loc = storage.packed_slice_location();
+    const std::string& packed_file_path = packed_loc.packed_file_path();
+
+    LOG_INFO("decrementing delete bitmap packed file ref count")
+            .tag("instance_id", instance_id_)
+            .tag("tablet_id", tablet_id)
+            .tag("rowset_id", rowset_id)
+            .tag("packed_file_path", packed_file_path);
+
+    const int max_retry_times = std::max(1, config::decrement_packed_file_ref_counts_retry_times);
+    for (int attempt = 1; attempt <= max_retry_times; ++attempt) {
+        std::unique_ptr<Transaction> update_txn;
+        err = txn_kv_->create_txn(&update_txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to create txn for delete bitmap packed file update")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("err", err);
+            return -1;
+        }
+
+        std::string packed_key = packed_file_key({instance_id_, packed_file_path});
+        std::string packed_val;
+        err = update_txn->get(packed_key, &packed_val);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            LOG_WARNING("packed file info not found for delete bitmap")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("packed_file_path", packed_file_path);
+            return 0;
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG_WARNING("failed to get packed file info for delete bitmap")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("err", err);
+            return -1;
+        }
+
+        cloud::PackedFileInfoPB packed_info;
+        if (!packed_info.ParseFromString(packed_val)) {
+            LOG_WARNING("failed to parse packed file info for delete bitmap")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("packed_file_path", packed_file_path);
+            return -1;
+        }
+
+        // Find and mark the small file entry as deleted
+        // Use tablet_id and rowset_id to match entry instead of path,
+        // because path format may vary with path_version (with or without shard prefix)
+        auto* entries = packed_info.mutable_slices();
+        bool found = false;
+        bool already_deleted = false;
+        for (auto& entry : *entries) {
+            if (entry.tablet_id() == tablet_id && entry.rowset_id() == rowset_id) {
+                if (!entry.deleted()) {
+                    entry.set_deleted(true);
+                    if (!entry.corrected()) {
+                        entry.set_corrected(true);
+                    }
+                } else {
+                    already_deleted = true;
+                }
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            LOG_WARNING("delete bitmap entry not found in packed file")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("packed_file_path", packed_file_path);
+            return 0;
+        }
+
+        if (already_deleted) {
+            LOG_INFO("delete bitmap entry already deleted in packed file")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("packed_file_path", packed_file_path);
+            return 0;
+        }
+
+        // Calculate remaining files
+        int64_t left_file_count = 0;
+        int64_t left_file_bytes = 0;
+        for (const auto& entry : packed_info.slices()) {
+            if (!entry.deleted()) {
+                ++left_file_count;
+                left_file_bytes += entry.size();
+            }
+        }
+        packed_info.set_remaining_slice_bytes(left_file_bytes);
+        packed_info.set_ref_cnt(left_file_count);
+
+        if (left_file_count == 0) {
+            packed_info.set_state(cloud::PackedFileInfoPB::RECYCLING);
+        }
+
+        std::string updated_val;
+        if (!packed_info.SerializeToString(&updated_val)) {
+            LOG_WARNING("failed to serialize packed file info for delete bitmap")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("packed_file_path", packed_file_path);
+            return -1;
+        }
+
+        update_txn->put(packed_key, updated_val);
+        err = update_txn->commit();
+        if (err == TxnErrorCode::TXN_OK) {
+            LOG_INFO("delete bitmap packed file ref count decremented")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id)
+                    .tag("packed_file_path", packed_file_path)
+                    .tag("left_file_count", left_file_count);
+            if (left_file_count == 0) {
+                if (delete_packed_file_and_kv(packed_file_path, packed_key, packed_info) != 0) {
+                    return -1;
+                }
+            }
+            return 0;
+        }
+        if (err == TxnErrorCode::TXN_CONFLICT) {
+            if (attempt >= max_retry_times) {
+                LOG_WARNING("delete bitmap packed file update conflict after max retry")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id)
+                        .tag("rowset_id", rowset_id)
+                        .tag("packed_file_path", packed_file_path)
+                        .tag("attempt", attempt);
+                return -1;
+            }
+            sleep_for_packed_file_retry();
+            continue;
+        }
+
+        LOG_WARNING("failed to commit delete bitmap packed file update")
+                .tag("instance_id", instance_id_)
+                .tag("tablet_id", tablet_id)
+                .tag("rowset_id", rowset_id)
+                .tag("packed_file_path", packed_file_path)
+                .tag("err", err);
+        return -1;
+    }
+
+    return -1;
 }
 
 int InstanceRecycler::delete_packed_file_and_kv(const std::string& packed_file_path,
@@ -3427,8 +3627,21 @@ int InstanceRecycler::delete_rowset_data(
             continue;
         }
 
-        // Process delete bitmap
-        file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
+        // Process delete bitmap - check if it's stored in packed file
+        bool delete_bitmap_is_packed = false;
+        if (decrement_delete_bitmap_packed_file_ref_counts(tablet_id, rowset_id,
+                                                           &delete_bitmap_is_packed) != 0) {
+            LOG_WARNING("failed to decrement delete bitmap packed file ref count")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id);
+            ret = -1;
+            continue;
+        }
+        // Only delete standalone delete bitmap file if not stored in packed file
+        if (!delete_bitmap_is_packed) {
+            file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
+        }
 
         // Process inverted indexes
         std::vector<std::pair<int64_t, std::string>> index_ids;
@@ -3568,8 +3781,6 @@ int InstanceRecycler::delete_rowset_data(
                                       metrics_context.total_recycled_num++;
                                   }
                               });
-                segment_metrics_context_.report();
-                metrics_context.report();
             }
             return ret;
         });
@@ -3587,8 +3798,6 @@ int InstanceRecycler::delete_rowset_data(
                 metrics_context.total_recycled_num++;
                 segment_metrics_context_.total_recycled_data_size += rs.total_disk_size();
                 segment_metrics_context_.total_recycled_num += rs.num_segments();
-                metrics_context.report();
-                segment_metrics_context_.report();
             }
             return ret;
         });
@@ -4024,8 +4233,6 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
         concurrent_delete_executor.add(
                 [&, rs_id = resource_id,
                  accessor_ptr = accessor_map_[resource_id]]() -> decltype(auto) {
-                    std::unique_ptr<int, std::function<void(int*)>> defer(
-                            (int*)0x01, [&](int*) { metrics_context.report(); });
                     int res = accessor_ptr->delete_directory(tablet_path_prefix(tablet_id));
                     if (res != 0) {
                         LOG(WARNING) << "failed to delete rowset data of tablet " << tablet_id
@@ -4629,8 +4836,6 @@ int InstanceRecycler::recycle_rowsets() {
             segment_metrics_context_.total_recycled_data_size +=
                     rowset.rowset_meta().total_disk_size();
             segment_metrics_context_.total_recycled_num += rowset.rowset_meta().num_segments();
-            segment_metrics_context_.report();
-            metrics_context.report();
             return 0;
         }
 
@@ -4754,6 +4959,11 @@ int InstanceRecycler::recycle_rowsets() {
             num_recycled.fetch_add(async_recycled_rowset_keys.size(), std::memory_order_relaxed);
         }
     }
+
+    // Report final metrics after all concurrent tasks completed
+    segment_metrics_context_.report();
+    metrics_context.report();
+
     return ret;
 }
 
@@ -5158,6 +5368,11 @@ int InstanceRecycler::recycle_versioned_rowsets() {
             num_recycled.fetch_add(async_recycled_rowset_keys.size(), std::memory_order_relaxed);
         }
     }
+
+    // Report final metrics after all concurrent tasks completed
+    segment_metrics_context_.report();
+    metrics_context.report();
+
     return ret;
 }
 
@@ -5501,6 +5716,11 @@ int InstanceRecycler::recycle_tmp_rowsets() {
                                std::move(loop_done));
 
     worker_pool->stop();
+
+    // Report final metrics after all concurrent tasks completed
+    segment_metrics_context_.report();
+    metrics_context.report();
+
     return ret;
 }
 
@@ -5714,7 +5934,7 @@ int InstanceRecycler::recycle_expired_txn_label() {
     const std::string task_name = "recycle_expired_txn_label";
     int64_t num_scanned = 0;
     int64_t num_expired = 0;
-    int64_t num_recycled = 0;
+    std::atomic_long num_recycled = 0;
     RecyclerMetricsContext metrics_context(instance_id_, task_name);
     int ret = 0;
 
@@ -5866,8 +6086,7 @@ int InstanceRecycler::recycle_expired_txn_label() {
             LOG(WARNING) << "failed to delete expired txn, err=" << err << " key=" << hex(k);
             return -1;
         }
-        metrics_context.total_recycled_num = ++num_recycled;
-        metrics_context.report();
+        ++num_recycled;
 
         LOG(INFO) << "recycle expired txn, key=" << hex(k);
         return 0;
@@ -5917,6 +6136,10 @@ int InstanceRecycler::recycle_expired_txn_label() {
         }
 
         ret = finished ? ret : -1;
+
+        // Update metrics after all concurrent tasks completed
+        metrics_context.total_recycled_num = num_recycled.load();
+        metrics_context.report();
 
         TEST_SYNC_POINT_CALLBACK("InstanceRecycler::recycle_expired_txn_label.failure", &ret);
 
@@ -7088,6 +7311,46 @@ int InstanceRecycler::scan_and_statistics_restore_jobs() {
     int ret = scan_and_recycle(restore_job_key0, restore_job_key1, std::move(scan_and_statistics));
     metrics_context.report(true);
     return ret;
+}
+
+void InstanceRecycler::scan_and_statistics_operation_logs() {
+    if (!should_recycle_versioned_keys()) {
+        return;
+    }
+
+    RecyclerMetricsContext metrics_context(instance_id_, "recycle_operation_logs");
+
+    OperationLogRecycleChecker recycle_checker(instance_id_, txn_kv_.get(), instance_info_);
+    if (recycle_checker.init() != 0) {
+        return;
+    }
+
+    std::string log_key_prefix = versioned::log_key(instance_id_);
+    std::string begin_key = encode_versioned_key(log_key_prefix, Versionstamp::min());
+    std::string end_key = encode_versioned_key(log_key_prefix, Versionstamp::max());
+
+    std::unique_ptr<BlobIterator> iter = blob_get_range(txn_kv_, begin_key, end_key);
+    for (; iter->valid(); iter->next()) {
+        OperationLogPB operation_log;
+        if (!iter->parse_value(&operation_log)) {
+            continue;
+        }
+
+        std::string_view key = iter->key();
+        Versionstamp log_versionstamp;
+        if (!decode_versioned_key(&key, &log_versionstamp)) {
+            continue;
+        }
+
+        OperationLogReferenceInfo ref_info;
+        if (recycle_checker.can_recycle(log_versionstamp, operation_log.min_timestamp(),
+                                         &ref_info)) {
+            metrics_context.total_need_recycle_num++;
+            metrics_context.total_need_recycle_data_size += operation_log.ByteSizeLong();
+        }
+    }
+
+    metrics_context.report(true);
 }
 
 int InstanceRecycler::classify_rowset_task_by_ref_count(

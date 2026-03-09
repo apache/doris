@@ -22,8 +22,8 @@
 #include <shared_mutex>
 #include <unordered_set>
 
-#include "olap/rowset/segment_v2/inverted_index/analyzer/custom_analyzer.h"
-#include "olap/rowset/segment_v2/inverted_index/normalizer/custom_normalizer.h"
+#include "storage/index/inverted/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/normalizer/custom_normalizer.h"
 
 namespace doris {
 
@@ -38,7 +38,7 @@ public:
     void apply_policy_changes(const std::vector<TIndexPolicy>& policies_to_update,
                               const std::vector<int64_t>& policies_to_delete);
 
-    const Policys& get_index_policys();
+    Policys get_index_policys();
     AnalyzerPtr get_policy_by_name(const std::string& name);
 
 private:
@@ -53,6 +53,9 @@ private:
 
     bool is_builtin_normalizer(const std::string& name);
     AnalyzerPtr build_builtin_normalizer(const std::string& name);
+
+    // Normalize policy name to lowercase for case-insensitive lookup
+    static std::string normalize_name(const std::string& name);
 
     constexpr static auto PROP_TOKENIZER = "tokenizer";
     constexpr static auto PROP_CHAR_FILTER = "char_filter";

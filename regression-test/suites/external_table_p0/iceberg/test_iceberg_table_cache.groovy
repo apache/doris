@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_table_cache", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_table_cache", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -58,7 +58,7 @@ suite("test_iceberg_table_cache", "p0,external,doris,external_docker,external_do
             "s3.secret_key" = "password",
             "s3.endpoint" = "http://${externalEnvIp}:${minioPort}",
             "s3.region" = "us-east-1",
-            "iceberg.table.meta.cache.ttl-second" = "0"
+            "meta.cache.iceberg.table.ttl-second" = "0"
         );
     """
 

@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.offset.jdbc;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
@@ -54,6 +55,7 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -68,6 +70,7 @@ import java.util.stream.Collectors;
 public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     public static final String SPLIT_ID = "splitId";
     private static final ObjectMapper objectMapper = new ObjectMapper();
+    private final int snapshotParallelism;
     private Long jobId;
     private DataSourceType sourceType;
     private Map<String, String> sourceProperties = new HashMap<>();
@@ -91,6 +94,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         this.sourceType = sourceType;
         this.sourceProperties = sourceProperties;
         this.chunkHighWatermarkMap = new HashMap<>();
+        this.snapshotParallelism = Integer.parseInt(
+                sourceProperties.getOrDefault(DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
+                        DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
     }
 
     @Override
@@ -102,30 +108,30 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     public Offset getNextOffset(StreamingJobProperties jobProps, Map<String, String> properties) {
         JdbcOffset nextOffset = new JdbcOffset();
         if (!remainingSplits.isEmpty()) {
-            // snapshot read
-            SnapshotSplit snapshotSplit = remainingSplits.get(0);
-            nextOffset.setSplit(snapshotSplit);
+            int splitsNum = Math.min(remainingSplits.size(), snapshotParallelism);
+            List<SnapshotSplit> snapshotSplits = new ArrayList<>(remainingSplits.subList(0, splitsNum));
+            nextOffset.setSplits(snapshotSplits);
             return nextOffset;
-        } else if (currentOffset != null && currentOffset.getSplit().snapshotSplit()) {
+        } else if (currentOffset != null && currentOffset.snapshotSplit()) {
             // snapshot to binlog
             BinlogSplit binlogSplit = new BinlogSplit();
             binlogSplit.setFinishedSplits(finishedSplits);
-            nextOffset.setSplit(binlogSplit);
+            nextOffset.setSplits(Collections.singletonList(binlogSplit));
             return nextOffset;
         } else {
             // only binlog
-            return currentOffset == null ? new JdbcOffset(new BinlogSplit()) : currentOffset;
+            return currentOffset == null ? new JdbcOffset(Collections.singletonList(new BinlogSplit())) : currentOffset;
         }
     }
 
     @Override
     public String getShowCurrentOffset() {
         if (this.currentOffset != null) {
-            AbstractSourceSplit split = this.currentOffset.getSplit();
-            if (split.snapshotSplit()) {
-                return new Gson().toJson(split);
+            if (currentOffset.snapshotSplit()) {
+                List<? extends AbstractSourceSplit> splits = currentOffset.getSplits();
+                return new Gson().toJson(splits);
             } else {
-                BinlogSplit binlogSplit = (BinlogSplit) split;
+                BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplits().get(0);
                 HashMap<String, Object> showMap = new HashMap<>();
                 showMap.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
                 if (binlogSplit.getStartingOffset() != null) {
@@ -154,29 +160,31 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     @Override
     public void updateOffset(Offset offset) {
         this.currentOffset = (JdbcOffset) offset;
-        AbstractSourceSplit split = currentOffset.getSplit();
-        if (split.snapshotSplit()) {
-            SnapshotSplit snapshotSplit = (SnapshotSplit) split;
-            String splitId = split.getSplitId();
-            boolean remove = remainingSplits.removeIf(v -> {
-                if (v.getSplitId().equals(splitId)) {
-                    snapshotSplit.setTableId(v.getTableId());
-                    snapshotSplit.setSplitKey(v.getSplitKey());
-                    snapshotSplit.setSplitStart(v.getSplitStart());
-                    snapshotSplit.setSplitEnd(v.getSplitEnd());
-                    return true;
+        if (currentOffset.snapshotSplit()) {
+            List<? extends AbstractSourceSplit> splits = currentOffset.getSplits();
+            for (AbstractSourceSplit split : splits) {
+                SnapshotSplit snapshotSplit = (SnapshotSplit) split;
+                String splitId = split.getSplitId();
+                boolean remove = remainingSplits.removeIf(v -> {
+                    if (v.getSplitId().equals(splitId)) {
+                        snapshotSplit.setTableId(v.getTableId());
+                        snapshotSplit.setSplitKey(v.getSplitKey());
+                        snapshotSplit.setSplitStart(v.getSplitStart());
+                        snapshotSplit.setSplitEnd(v.getSplitEnd());
+                        return true;
+                    }
+                    return false;
+                });
+                if (remove) {
+                    finishedSplits.add(snapshotSplit);
+                    chunkHighWatermarkMap.computeIfAbsent(snapshotSplit.getTableId(), k -> new HashMap<>())
+                            .put(snapshotSplit.getSplitId(), snapshotSplit.getHighWatermark());
+                } else {
+                    log.warn("Cannot find snapshot split {} in remainingSplits for job {}", splitId, getJobId());
                 }
-                return false;
-            });
-            if (remove) {
-                finishedSplits.add(snapshotSplit);
-                chunkHighWatermarkMap.computeIfAbsent(snapshotSplit.getTableId(), k -> new HashMap<>())
-                        .put(snapshotSplit.getSplitId(), snapshotSplit.getHighWatermark());
-            } else {
-                log.warn("Cannot find snapshot split {} in remainingSplits for job {}", splitId, getJobId());
             }
         } else {
-            BinlogSplit binlogSplit = (BinlogSplit) split;
+            BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplits().get(0);
             binlogOffsetPersist = new HashMap<>(binlogSplit.getStartingOffset());
             binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
         }
@@ -185,7 +193,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     @Override
     public void fetchRemoteMeta(Map<String, String> properties) throws Exception {
         Backend backend = StreamingJobUtils.selectBackend();
-        JobBaseConfig requestParams = new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties);
+        JobBaseConfig requestParams =
+                new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/fetchEndOffset")
                 .setParams(new Gson().toJson(requestParams)).build();
@@ -226,12 +235,16 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public boolean hasMoreDataToConsume() {
-        if (!hasMoreData) {
-            return false;
-        }
-
         if (currentOffset == null) {
             return true;
+        }
+
+        if (currentOffset.snapshotSplit()) {
+            return true;
+        }
+
+        if (!hasMoreData) {
+            return false;
         }
 
         if (CollectionUtils.isNotEmpty(remainingSplits)) {
@@ -241,27 +254,29 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             return false;
         }
         try {
-            if (!currentOffset.getSplit().snapshotSplit()) {
-                BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplit();
+            if (!currentOffset.snapshotSplit()) {
+                BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplits().get(0);
+                if (MapUtils.isEmpty(binlogSplit.getStartingOffset())) {
+                    // snapshot to binlog phase
+                    return true;
+                }
                 return compareOffset(endBinlogOffset, new HashMap<>(binlogSplit.getStartingOffset()));
             } else {
-                SnapshotSplit snapshotSplit = (SnapshotSplit) currentOffset.getSplit();
-                if (MapUtils.isNotEmpty(snapshotSplit.getHighWatermark())) {
-                    return compareOffset(endBinlogOffset, new HashMap<>(snapshotSplit.getHighWatermark()));
-                }
+                // snapshot means has data to consume
+                return true;
             }
         } catch (Exception ex) {
             log.info("Compare offset error: ", ex);
             return false;
         }
-        return false;
     }
 
     private boolean compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond)
             throws JobException {
         Backend backend = StreamingJobUtils.selectBackend();
         CompareOffsetRequest requestParams =
-                new CompareOffsetRequest(getJobId(), sourceType.name(), sourceProperties, offsetFirst, offsetSecond);
+                new CompareOffsetRequest(getJobId(), sourceType.name(), sourceProperties,
+                        getFrontendAddress(), offsetFirst, offsetSecond);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/compareOffset")
                 .setParams(new Gson().toJson(requestParams)).build();
@@ -300,20 +315,23 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     public Offset deserializeOffset(String offset) {
         try {
             // chunk is highWatermark, binlog is offset map
-            Map<String, String> offsetMeta = objectMapper.readValue(offset, new TypeReference<Map<String, String>>() {
-            });
-            String splitId = offsetMeta.remove(SPLIT_ID);
-            if (BinlogSplit.BINLOG_SPLIT_ID.equals(splitId)) {
-                BinlogSplit binlogSplit = new BinlogSplit();
-                binlogSplit.setSplitId(splitId);
-                binlogSplit.setStartingOffset(offsetMeta);
-                return new JdbcOffset(binlogSplit);
-            } else {
+            List<Map<String, String>> offsetMeta =
+                    objectMapper.readValue(offset, new TypeReference<List<Map<String, String>>>() {});
+            List<SnapshotSplit> snapshotSplits = new ArrayList<>(offsetMeta.size());
+            for (Map<String, String> ot : offsetMeta) {
+                String splitId = ot.remove(SPLIT_ID);
+                if (BinlogSplit.BINLOG_SPLIT_ID.equals(splitId)) {
+                    BinlogSplit binlogSplit = new BinlogSplit();
+                    binlogSplit.setSplitId(splitId);
+                    binlogSplit.setStartingOffset(ot);
+                    return new JdbcOffset(Collections.singletonList(binlogSplit));
+                }
                 SnapshotSplit snapshotSplit = new SnapshotSplit();
                 snapshotSplit.setSplitId(splitId);
-                snapshotSplit.setHighWatermark(offsetMeta);
-                return new JdbcOffset(snapshotSplit);
+                snapshotSplit.setHighWatermark(ot);
+                snapshotSplits.add(snapshotSplit);
             }
+            return new JdbcOffset(snapshotSplits);
         } catch (JsonProcessingException e) {
             log.warn("Failed to deserialize offset: {}", offset, e);
             throw new RuntimeException(e);
@@ -343,14 +361,22 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                     chunkHighWatermarkMap == null ? 0 : chunkHighWatermarkMap.size());
             if (MapUtils.isNotEmpty(binlogOffsetPersist)) {
                 currentOffset = new JdbcOffset();
-                currentOffset.setSplit(new BinlogSplit(binlogOffsetPersist));
+                currentOffset.setSplits(Collections.singletonList(new BinlogSplit(binlogOffsetPersist)));
             } else {
                 Map<String, List<SnapshotSplit>> snapshotSplits = StreamingJobUtils.restoreSplitsToJob(job.getJobId());
                 if (MapUtils.isNotEmpty(chunkHighWatermarkMap) && MapUtils.isNotEmpty(snapshotSplits)) {
-                    SnapshotSplit lastSnapshotSplit = recalculateRemainingSplits(chunkHighWatermarkMap, snapshotSplits);
+                    List<SnapshotSplit> lastSnapshotSplits =
+                            recalculateRemainingSplits(chunkHighWatermarkMap, snapshotSplits);
                     if (this.remainingSplits.isEmpty()) {
                         currentOffset = new JdbcOffset();
-                        currentOffset.setSplit(lastSnapshotSplit);
+                        if (!lastSnapshotSplits.isEmpty()) {
+                            currentOffset.setSplits(lastSnapshotSplits);
+                        } else {
+                            // when snapshot to binlog phase fe restarts
+                            BinlogSplit binlogSplit = new BinlogSplit();
+                            binlogSplit.setFinishedSplits(finishedSplits);
+                            currentOffset.setSplits(Collections.singletonList(binlogSplit));
+                        }
                     }
                 }
             }
@@ -374,13 +400,12 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
      * Assign the HW value to the synchronized Split,
      * and remove the Split from remainSplit and place it in finishedSplit.
      */
-    private SnapshotSplit recalculateRemainingSplits(
+    private List<SnapshotSplit> recalculateRemainingSplits(
             Map<String, Map<String, Map<String, String>>> chunkHighWatermarkMap,
             Map<String, List<SnapshotSplit>> snapshotSplits) {
         if (this.finishedSplits == null) {
             this.finishedSplits = new ArrayList<>();
         }
-        SnapshotSplit lastSnapshotSplit = null;
         for (Map.Entry<String, Map<String, Map<String, String>>> entry : chunkHighWatermarkMap.entrySet()) {
             String tableId = entry.getKey();
             Map<String, Map<String, String>> splitIdToHighWatermark = entry.getValue();
@@ -396,7 +421,6 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             if (CollectionUtils.isEmpty(tableSplits)) {
                 continue;
             }
-            lastSnapshotSplit = tableSplits.get(tableSplits.size() - 1);
             tableSplits.removeIf(split -> {
                 String splitId = split.getSplitId();
                 Map<String, String> highWatermark = splitIdToHighWatermark.get(splitId);
@@ -412,7 +436,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         this.remainingSplits = snapshotSplits.values().stream()
                 .flatMap(List::stream)
                 .collect(Collectors.toList());
-        return lastSnapshotSplit;
+
+        // The splits that were last syncing before the restart
+        int splitsNum = Math.min(remainingSplits.size(), snapshotParallelism);
+        List<SnapshotSplit> lastSnapshotSplits = new ArrayList<>(remainingSplits.subList(0, splitsNum));
+        return lastSnapshotSplits;
     }
 
     private String getTableName(String tableId) {
@@ -461,7 +489,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     private List<SnapshotSplit> requestTableSplits(String table) throws JobException {
         Backend backend = StreamingJobUtils.selectBackend();
         FetchTableSplitsRequest requestParams =
-                new FetchTableSplitsRequest(getJobId(), sourceType.name(), sourceProperties, table);
+                new FetchTableSplitsRequest(getJobId(), sourceType.name(),
+                        sourceProperties, getFrontendAddress(), table);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/fetchSplits")
                 .setParams(new Gson().toJson(requestParams)).build();
@@ -512,7 +541,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
      */
     private void initSourceReader() throws JobException {
         Backend backend = StreamingJobUtils.selectBackend();
-        JobBaseConfig requestParams = new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties);
+        JobBaseConfig requestParams =
+                new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/initReader")
                 .setParams(new Gson().toJson(requestParams)).build();
@@ -559,7 +589,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         // clean meta table
         StreamingJobUtils.deleteJobMeta(jobId);
         Backend backend = StreamingJobUtils.selectBackend();
-        JobBaseConfig requestParams = new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties);
+        JobBaseConfig requestParams =
+                new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/close")
                 .setParams(new Gson().toJson(requestParams)).build();
@@ -576,5 +607,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         } catch (ExecutionException | InterruptedException ex) {
             log.warn("Close job error: ", ex);
         }
+    }
+
+    private String getFrontendAddress() {
+        return Env.getCurrentEnv().getMasterHost() + ":" + Env.getCurrentEnv().getMasterHttpPort();
     }
 }

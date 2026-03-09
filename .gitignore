@@ -90,6 +90,8 @@ fe/fe-core/src/main/antlr4/org/apache/doris/nereids/DorisLexer.tokens
 fe/fe-core/src/main/antlr4/org/apache/doris/nereids/gen/
 fe/fe-common/src/main/java/org/apache/doris/thrift
 fe/fe-common/src/main/java/org/apache/parquet
+fe/fe-thrift/src/main/java/org/apache/doris/thrift
+fe/fe-thrift/src/main/java/org/apache/parquet
 fe/fe-core/src/main/java/org/apache/parquet
 
 # BE
@@ -146,3 +148,4 @@ docker/runtime/be/resource/apache-doris/
 compile_commands.json
 .github
 
+.worktrees/

@@ -37,11 +37,11 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "olap/olap_define.h"
-#include "olap/options.h"
-#include "olap/snapshot_manager.h"
-#include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
+#include "storage/olap_define.h"
+#include "storage/options.h"
+#include "storage/snapshot/snapshot_manager.h"
+#include "storage/storage_engine.h"
 #include "util/work_thread_pool.hpp"
 
 namespace doris {

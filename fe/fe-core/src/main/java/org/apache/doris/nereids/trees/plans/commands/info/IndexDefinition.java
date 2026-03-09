@@ -25,8 +25,8 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.Config;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -499,5 +499,12 @@ public class IndexDefinition {
                 || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY_ALIAS)
                 || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY)
                 || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_NORMALIZER_NAME_KEY));
+    }
+
+    public String getAnalyzerIdentity() {
+        if (indexType != IndexType.INVERTED) {
+            return "";
+        }
+        return InvertedIndexUtil.buildAnalyzerIdentity(properties);
     }
 }

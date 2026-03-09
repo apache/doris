@@ -34,6 +34,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.tablefunction.FrontendsDisksTableValuedFunction;
+import org.apache.doris.tablefunction.FrontendsTableValuedFunction;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -60,9 +62,9 @@ public class ShowFrontendsCommand extends ShowCommand {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
 
-        ImmutableList<String> titles = FrontendsProcNode.TITLE_NAMES;
+        ImmutableList<String> titles = FrontendsTableValuedFunction.getFrontendsTitleNames();
         if (detail != null && detail.equalsIgnoreCase("disks")) {
-            titles = FrontendsProcNode.DISK_TITLE_NAMES;
+            titles = FrontendsDisksTableValuedFunction.getFrontendsDisksTitleNames();
         }
         for (String title : titles) {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));

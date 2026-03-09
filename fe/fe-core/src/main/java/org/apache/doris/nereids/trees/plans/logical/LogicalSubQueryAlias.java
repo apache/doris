@@ -30,7 +30,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.LazyCompute;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -141,7 +141,12 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
                 if (nameParts.size() == 1) {
                     String aliasName = getAlias();
                     String tablename = nameParts.get(0);
-                    if (GlobalVariable.lowerCaseTableNames != 0) {
+                    int lctNames = 0;
+                    ConnectContext ctx = ConnectContext.get();
+                    if (ctx != null && ctx.getCurrentCatalog() != null) {
+                        lctNames = ctx.getCurrentCatalog().getLowerCaseTableNames();
+                    }
+                    if (lctNames != 0) {
                         aliasName = aliasName.toLowerCase(Locale.ROOT);
                         tablename = tablename.toLowerCase(Locale.ROOT);
                     }

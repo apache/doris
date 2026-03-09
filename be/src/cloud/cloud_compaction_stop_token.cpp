@@ -17,10 +17,11 @@
 
 #include "cloud/cloud_compaction_stop_token.h"
 
+#include <gen_cpp/cloud.pb.h>
+
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/config.h"
 #include "common/logging.h"
-#include "gen_cpp/cloud.pb.h"
 
 namespace doris {
 

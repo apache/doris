@@ -22,7 +22,9 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.AnalyticWindow;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.OrderByElement;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.thrift.TAnalyticNode;
 import org.apache.doris.thrift.TExplainLevel;
@@ -99,7 +101,7 @@ public class AnalyticEvalNode extends PlanNode {
         List<String> strings = Lists.newArrayList();
 
         for (Expr fnCall : analyticFnCalls) {
-            strings.add("[" + fnCall.toSql() + "]");
+            strings.add("[" + fnCall.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE) + "]");
         }
 
         output.append(Joiner.on(", ").join(strings));
@@ -110,7 +112,7 @@ public class AnalyticEvalNode extends PlanNode {
             strings.clear();
 
             for (Expr partitionExpr : partitionExprs) {
-                strings.add(partitionExpr.toSql());
+                strings.add(partitionExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
 
             output.append(Joiner.on(", ").join(strings));

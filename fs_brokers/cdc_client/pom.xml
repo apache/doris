@@ -178,6 +178,13 @@ under the License.
             <scope>provided</scope>
         </dependency>
 
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.10.2</version>
+            <scope>test</scope>
+        </dependency>
+
     </dependencies>
 
     <build>
@@ -209,6 +216,9 @@ under the License.
                 <version>${spotless.version}</version>
                 <configuration>
                     <java>
+                        <includes>
+                            <include>src/main/java/org/apache/doris/**/*.java</include>
+                        </includes>
                         <googleJavaFormat>
                             <version>1.17.0</version>
                             <style>AOSP</style>

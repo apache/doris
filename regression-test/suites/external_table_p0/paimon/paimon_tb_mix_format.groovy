@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("paimon_tb_mix_format", "p0,external,doris,external_docker,external_docker_doris") {
+suite("paimon_tb_mix_format", "p0,external") {
 
     logger.info("start paimon test")
     String enabled = context.config.otherConfigs.get("enablePaimonTest")

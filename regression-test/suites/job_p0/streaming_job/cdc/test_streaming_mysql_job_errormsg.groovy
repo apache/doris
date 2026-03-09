@@ -58,7 +58,8 @@ suite("test_streaming_mysql_job_errormsg", "p0,external,mysql,external_docker,ex
                   `age` varchar(8) NOT NULL,
                   PRIMARY KEY (`name`)
                 ) ENGINE=InnoDB"""
-            sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('ABCDEFG', 'abc');"""
+            sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('ABCDEFG1', 'abc');"""
+            sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('ABCDEFG2', '123');"""
         }
 
         sql """CREATE JOB ${jobName}
@@ -99,7 +100,49 @@ suite("test_streaming_mysql_job_errormsg", "p0,external,mysql,external_docker,ex
 
         def jobFailMsg = sql """select errorMsg  from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING'"""
         log.info("jobFailMsg: " + jobFailMsg)
+        // stream load error: [DATA_QUALITY_ERROR]too many filtered rows
         assert jobFailMsg.get(0).get(0).contains("stream load error")
+
+
+        // add max_filter_ratio to 1
+        sql """ALTER JOB ${jobName}
+        FROM MYSQL
+        TO DATABASE ${currentDb} (
+            "load.max_filter_ratio" = "1"
+        )"""
+
+        sql """RESUME JOB where jobname = '${jobName}'"""
+
+        // check job running
+        try {
+            Awaitility.await().atMost(300, SECONDS)
+                    .pollInterval(1, SECONDS).until(
+                    {
+                        def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
+                        log.info("jobSuccendCount: " + jobSuccendCount)
+                        // check job status and succeed task count larger than 1
+                        jobSuccendCount.size() == 1 && '1' <= jobSuccendCount.get(0).get(0)
+                    }
+            )
+        } catch (Exception ex){
+            def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
+            def showtask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
+            log.info("show job: " + showjob)
+            log.info("show task: " + showtask)
+            throw ex;
+        }
+
+        def jobInfo = sql """
+        select loadStatistic, status from jobs("type"="insert") where Name='${jobName}'
+        """
+        log.info("jobInfo: " + jobInfo)
+        def loadStat = parseJson(jobInfo.get(0).get(0));
+        assert loadStat.scannedRows == 2
+        assert loadStat.loadBytes == 115
+        assert loadStat.filteredRows == 1
+        assert jobInfo.get(0).get(1) == "RUNNING"
+
+        qt_select_snapshot_table1 """ SELECT * FROM ${table1} order by name asc """
 
         sql """
             DROP JOB IF EXISTS where jobname =  '${jobName}'

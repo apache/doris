@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exprs/virtual_slot_ref.h"
+#include "exprs/virtual_slot_ref.h"
 
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Types_types.h>
@@ -25,10 +25,10 @@
 #include <string>
 
 #include "common/object_pool.h"
+#include "core/data_type/data_type_string.h"
+#include "exprs/vexpr_context.h"
 #include "runtime/descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
-#include "vec/data_types/data_type_string.h"
-#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 
@@ -170,8 +170,8 @@ TEST_F(VirtualSlotRefTest, EqualsFunction_WithDifferentTypes) {
         Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
             return Status::OK();
         }
-        Status execute_column(VExprContext* context, const Block* block, size_t count,
-                              ColumnPtr& result_column) const override {
+        Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                              size_t count, ColumnPtr& result_column) const override {
             return Status::OK();
         }
 
@@ -291,8 +291,8 @@ TEST_F(VirtualSlotRefTest, EqualsFunction_TestAllBranches) {
             return Status::OK();
         }
 
-        Status execute_column(VExprContext* context, const Block* block, size_t count,
-                              ColumnPtr& result_column) const override {
+        Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                              size_t count, ColumnPtr& result_column) const override {
             return Status::OK();
         }
 
@@ -316,8 +316,8 @@ TEST_F(VirtualSlotRefTest, EqualsFunction_TestAllBranches) {
         Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
             return Status::OK();
         }
-        Status execute_column(VExprContext* context, const Block* block, size_t count,
-                              ColumnPtr& result_column) const override {
+        Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                              size_t count, ColumnPtr& result_column) const override {
             return Status::OK();
         }
         const std::string& expr_name() const override {

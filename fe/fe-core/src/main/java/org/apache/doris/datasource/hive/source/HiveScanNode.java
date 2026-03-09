@@ -48,6 +48,7 @@ import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
@@ -111,14 +112,14 @@ public class HiveScanNode extends FileQueryScanNode {
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
     public HiveScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv,
-            DirectoryLister directoryLister) {
-        this(id, desc, "HIVE_SCAN_NODE", needCheckColumnPriv, sv, directoryLister);
+            DirectoryLister directoryLister, ScanContext scanContext) {
+        this(id, desc, "HIVE_SCAN_NODE", needCheckColumnPriv, sv, directoryLister, scanContext);
     }
 
     public HiveScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
             boolean needCheckColumnPriv, SessionVariable sv,
-            DirectoryLister directoryLister) {
-        super(id, desc, planNodeName, needCheckColumnPriv, sv);
+            DirectoryLister directoryLister, ScanContext scanContext) {
+        super(id, desc, planNodeName, scanContext, needCheckColumnPriv, sv);
         hmsTable = (HMSExternalTable) desc.getTable();
         brokerName = hmsTable.getCatalog().bindBrokerName();
         this.directoryLister = directoryLister;
@@ -320,7 +321,7 @@ public class HiveScanNode extends FileQueryScanNode {
                     totalFileNum += fileCacheValue.getFiles().size();
                 }
             }
-            int parallelNum = sessionVariable.getParallelExecInstanceNum();
+            int parallelNum = sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName());
             needSplit = FileSplitter.needSplitForCountPushdown(parallelNum, numBackends, totalFileNum);
         }
 
@@ -491,6 +492,37 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     @Override
+    protected List<String> getDeleteFiles(TFileRangeDesc rangeDesc) {
+        List<String> deleteFiles = new ArrayList<>();
+        if (rangeDesc == null || !rangeDesc.isSetTableFormatParams()) {
+            return deleteFiles;
+        }
+        TTableFormatFileDesc tableFormatParams = rangeDesc.getTableFormatParams();
+        if (tableFormatParams == null || !tableFormatParams.isSetTransactionalHiveParams()) {
+            return deleteFiles;
+        }
+        TTransactionalHiveDesc hiveParams = tableFormatParams.getTransactionalHiveParams();
+        if (hiveParams == null || !hiveParams.isSetDeleteDeltas()) {
+            return deleteFiles;
+        }
+        List<TTransactionalHiveDeleteDeltaDesc> deleteDeltas = hiveParams.getDeleteDeltas();
+        if (deleteDeltas == null) {
+            return deleteFiles;
+        }
+        // Format: {directory_location}/{file_name}
+        for (TTransactionalHiveDeleteDeltaDesc deleteDelta : deleteDeltas) {
+            if (deleteDelta != null && deleteDelta.isSetDirectoryLocation()
+                    && deleteDelta.isSetFileNames() && deleteDelta.getFileNames() != null) {
+                String directoryLocation = deleteDelta.getDirectoryLocation();
+                for (String fileName : deleteDelta.getFileNames()) {
+                    deleteFiles.add(directoryLocation + "/" + fileName);
+                }
+            }
+        }
+        return deleteFiles;
+    }
+
+    @Override
     protected Map<String, String> getLocationProperties() {
         return hmsTable.getBackendStorageProperties();
     }
@@ -606,4 +638,3 @@ public class HiveScanNode extends FileQueryScanNode {
         return compressType;
     }
 }
-

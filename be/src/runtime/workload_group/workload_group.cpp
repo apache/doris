@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "workload_group.h"
+#include "runtime/workload_group/workload_group.h"
 
 #include <fmt/format.h>
 #include <gen_cpp/PaloInternalService_types.h>
@@ -26,24 +26,27 @@
 #include <ostream>
 #include <utility>
 
+#include "cloud/config.h"
+#include "common/config.h"
 #include "common/logging.h"
-#include "exec/schema_scanner/schema_scanner_helper.h"
+#include "exec/pipeline/task_queue.h"
+#include "exec/pipeline/task_scheduler.h"
+#include "exec/scan/scanner_scheduler.h"
+#include "information_schema/schema_scanner_helper.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "io/fs/local_file_reader.h"
-#include "olap/storage_engine.h"
-#include "pipeline/task_queue.h"
-#include "pipeline/task_scheduler.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/memory_reclamation.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/workload_group/workload_group_metrics.h"
 #include "runtime/workload_management/io_throttle.h"
+#include "storage/storage_engine.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
-#include "util/runtime_profile.h"
 #include "util/threadpool.h"
-#include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris {
 
@@ -746,6 +749,32 @@ void WorkloadGroup::try_stop_schedulers() {
         _memtable_flush_pool->shutdown();
         _memtable_flush_pool->wait();
     }
+}
+
+void WorkloadGroup::update_memtable_flush_threads() {
+    if (_memtable_flush_pool == nullptr) {
+        return;
+    }
+
+    int num_disk = 1;
+    int num_cpus = 0;
+#ifndef BE_TEST
+    if (config::is_cloud_mode()) {
+        num_disk = cast_set<int>(io::FileCacheFactory::instance()->get_cache_instance_size());
+    } else {
+        num_disk = ExecEnv::GetInstance()->storage_engine().get_disk_num();
+    }
+    num_cpus = std::thread::hardware_concurrency();
+#endif
+    num_disk = std::max(1, num_disk);
+    int min_threads = std::max(1, config::flush_thread_num_per_store);
+    int max_threads = num_cpus == 0 ? num_disk * min_threads
+                                    : std::min(num_disk * min_threads,
+                                               num_cpus * config::max_flush_thread_num_per_cpu);
+
+    // Update max_threads first to avoid constraint violation when increasing min_threads
+    static_cast<void>(_memtable_flush_pool->set_max_threads(max_threads));
+    static_cast<void>(_memtable_flush_pool->set_min_threads(min_threads));
 }
 
 #include "common/compile_check_end.h"

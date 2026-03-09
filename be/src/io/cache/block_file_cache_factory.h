@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
+
 #include <memory>
 #include <optional>
 #include <string>
@@ -27,10 +29,9 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/internal_service.pb.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_cache_common.h"
-#include "olap/options.h"
+#include "storage/options.h"
 namespace doris {
 class TUniqueId;
 

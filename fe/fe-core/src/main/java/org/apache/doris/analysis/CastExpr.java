@@ -20,8 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.thrift.TExpr;
@@ -83,17 +81,8 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public String toSqlImpl() {
-        return "CAST(" + getChild(0).toSql() + " AS " + type.toSql() + ")";
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType, TableIf table) {
-        if (needExternalSql) {
-            return getChild(0).toSql(disableTableName, needExternalSql, tableType, table);
-        }
-        return "CAST(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " AS "
-                + type.toSql() + ")";
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitCastExpr(this, context);
     }
 
     @Override

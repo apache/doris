@@ -21,7 +21,7 @@ import java.time.temporal.ChronoField
 import java.time.LocalDateTime
 import java.time.ZoneId
 
-suite("test_iceberg_rewrite_data_files", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_rewrite_data_files", "p0,external") {
     DateTimeFormatter unifiedFormatter = new DateTimeFormatterBuilder()
             .appendPattern("yyyy-MM-dd")
             .optionalStart()
@@ -492,4 +492,68 @@ suite("test_iceberg_rewrite_data_files", "p0,external,doris,external_docker,exte
     assertTrue(northRecords[0][0] == 3, "NORTH region should still have 3 records")
     
     logger.info("Specific partition rewrite test completed successfully")
+
+    // =====================================================================================
+    // Test Case 4: Rewrite data files for merge-on-read update table
+    //
+    // Tables `test_rewrite_data_with_update` and `test_rewrite_data_with_delete`
+    // are pre-created in Docker initialization (run23.sql) using Spark SQL with
+    // format-version = 2 and merge-on-read enabled for delete/update/merge.
+    //
+    // This case verifies that executing rewrite_data_files on a table that has
+    // already performed UPDATE operations (implemented via delete + insert) does
+    // not change the logical query results.
+    // =====================================================================================
+    logger.info("Starting rewrite_data_files test for merge-on-read UPDATE table")
+
+    def table_name_update = "test_rewrite_data_with_update"
+
+    // Verify data before rewrite: id = 1 should have been updated to 'bb'
+    qt_before_rewrite_update """SELECT id, name FROM ${table_name_update} ORDER BY id"""
+
+    def rewriteResultUpdate = sql """
+        ALTER TABLE ${catalog_name}.${db_name}.${table_name_update}
+        EXECUTE rewrite_data_files(
+            "target-file-size-bytes" = "10485760",
+            "min-input-files" = "1"
+        )
+    """
+    logger.info("Rewrite data files result for update table: ${rewriteResultUpdate}")
+
+    // Verify data after rewrite (logical rows should remain the same)
+    qt_after_rewrite_update """SELECT id, name FROM ${table_name_update} ORDER BY id"""
+
+    def totalUpdateRecords = sql """SELECT COUNT(*) FROM ${table_name_update}"""
+    assertTrue(totalUpdateRecords[0][0] == 3, "Update table should still have 3 logical records after rewrite")
+
+    // =====================================================================================
+    // Test Case 5: Rewrite data files for merge-on-read delete table
+    //
+    // This case verifies that executing rewrite_data_files on a table that has
+    // already performed DELETE operations does not resurrect deleted rows and
+    // keeps the logical result set unchanged.
+    // =====================================================================================
+    logger.info("Starting rewrite_data_files test for merge-on-read DELETE table")
+
+    def table_name_delete = "test_rewrite_data_with_delete"
+
+    // Verify data before rewrite: row with id = 1 should have been deleted
+    qt_before_rewrite_delete """SELECT id, name FROM ${table_name_delete} ORDER BY id"""
+
+    def rewriteResultDelete = sql """
+        ALTER TABLE ${catalog_name}.${db_name}.${table_name_delete}
+        EXECUTE rewrite_data_files(
+            "target-file-size-bytes" = "10485760",
+            "min-input-files" = "1"
+        )
+    """
+    logger.info("Rewrite data files result for delete table: ${rewriteResultDelete}")
+
+    // Verify data after rewrite (deleted rows should not reappear)
+    qt_after_rewrite_delete """SELECT id, name FROM ${table_name_delete} ORDER BY id"""
+
+    def totalDeleteRecords = sql """SELECT COUNT(*) FROM ${table_name_delete}"""
+    assertTrue(totalDeleteRecords[0][0] == 2, "Delete table should still have 2 logical records after rewrite")
+
+    logger.info("Merge-on-read update/delete rewrite_data_files tests completed successfully")
 }

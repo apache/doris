@@ -19,7 +19,7 @@
 
 #include <bthread/mutex.h>
 
-#include "olap/delta_writer.h"
+#include "load/delta_writer/delta_writer.h"
 #include "runtime/workload_management/resource_context.h"
 
 namespace doris {

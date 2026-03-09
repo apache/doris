@@ -47,6 +47,12 @@ namespace doris::cloud {
 template <typename Func>
 auto s3_rate_limit(S3RateLimitType op, Func callback) -> decltype(callback()) {
     using T = decltype(callback());
+    // Fault injection for testing rate limit handling in recycler
+    if (config::enable_s3_rate_limit_inject && op == S3RateLimitType::PUT) {
+        if (rand() % 100 < config::s3_rate_limit_inject_probility) {
+            throw std::runtime_error("Azure exceeds request limit");
+        }
+    }
     if (!config::enable_s3_rate_limiter) {
         return callback();
     }

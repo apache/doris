@@ -32,18 +32,18 @@
 
 #include "common/exception.h"
 #include "common/object_pool.h"
+#include "core/column/column_nothing.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_struct.h"
+#include "core/types.h"
+#include "exec/common/util.hpp"
+#include "exprs/aggregate/aggregate_function.h"
+#include "exprs/function/function_helpers.h"
+#include "exprs/vexpr.h"
 #include "util/string_util.h"
-#include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/columns/column_nothing.h"
-#include "vec/core/types.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_map.h"
-#include "vec/data_types/data_type_struct.h"
-#include "vec/exprs/vexpr.h"
-#include "vec/functions/function_helpers.h"
-#include "vec/utils/util.hpp"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -309,6 +309,15 @@ MaxComputeTableDescriptor::MaxComputeTableDescriptor(const TTableDescriptor& tde
     } else {
         _init_status =
                 Status::InvalidArgument("fail to init MaxComputeTableDescriptor, missing quota.");
+    }
+
+    if (tdesc.mcTable.__isset.properties) [[likely]] {
+        _props = tdesc.mcTable.properties;
+    } else {
+        static const std::string MC_ACCESS_KEY = "mc.access_key";
+        static const std::string MC_SECRET_KEY = "mc.secret_key";
+        _props.insert({MC_ACCESS_KEY, _access_key});
+        _props.insert({MC_SECRET_KEY, _secret_key});
     }
 }
 

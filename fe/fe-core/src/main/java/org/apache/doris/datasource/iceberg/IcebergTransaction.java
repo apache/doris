@@ -34,7 +34,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
-import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.OverwriteFiles;
 import org.apache.iceberg.PartitionField;
@@ -74,6 +73,7 @@ public class IcebergTransaction implements Transaction {
     private String branchName;
 
     // Rewrite operation support
+    long startingSnapshotId = -1L; // Track the starting snapshot ID for rewrite operations
     private final List<DataFile> filesToDelete = Lists.newArrayList();
     private final List<DataFile> filesToAdd = Lists.newArrayList();
     private boolean isRewriteMode = false;
@@ -134,6 +134,9 @@ public class IcebergTransaction implements Transaction {
                 // create and start the iceberg transaction
                 this.table = IcebergUtils.getIcebergTable(dorisTable);
 
+                // Capture the starting snapshot ID for validation during rewrite commit
+                this.startingSnapshotId = table.currentSnapshot().snapshotId();
+
                 // For rewrite operations, we work directly on the main table
                 // No branch information needed
                 this.transaction = table.newTransaction();
@@ -177,12 +180,8 @@ public class IcebergTransaction implements Transaction {
             return;
         }
 
-        // Get table specification information
-        PartitionSpec spec = transaction.table().spec();
-        FileFormat fileFormat = IcebergUtils.getFileFormat(transaction.table());
-
         // Convert commit data to DataFile objects using the same logic as insert
-        WriteResult writeResult = IcebergWriterHelper.convertToWriterResult(fileFormat, spec, commitDataList);
+        WriteResult writeResult = IcebergWriterHelper.convertToWriterResult(transaction.table(), commitDataList);
 
         // Add the generated DataFiles to filesToAdd list
         synchronized (filesToAdd) {
@@ -202,6 +201,8 @@ public class IcebergTransaction implements Transaction {
         }
 
         RewriteFiles rewriteFiles = transaction.newRewrite();
+
+        rewriteFiles = rewriteFiles.validateFromSnapshot(startingSnapshotId);
 
         // For rewrite operations, we work directly on the main table
         rewriteFiles = rewriteFiles.scanManifestsWith(ops.getThreadPoolWithPreAuth());
@@ -249,16 +250,13 @@ public class IcebergTransaction implements Transaction {
     }
 
     private void updateManifestAfterInsert(TUpdateMode updateMode) {
-        PartitionSpec spec = transaction.table().spec();
-        FileFormat fileFormat = IcebergUtils.getFileFormat(transaction.table());
-
         List<WriteResult> pendingResults;
         if (commitDataList.isEmpty()) {
             pendingResults = Collections.emptyList();
         } else {
             //convert commitDataList to writeResult
             WriteResult writeResult = IcebergWriterHelper
-                    .convertToWriterResult(fileFormat, spec, commitDataList);
+                    .convertToWriterResult(transaction.table(), commitDataList);
             pendingResults = Lists.newArrayList(writeResult);
         }
 

@@ -33,7 +33,7 @@ suite("test_primary_key_partial_update_complex_type_schema_change", "p0") {
                         `id` int(11) NOT NULL COMMENT "用户 ID",
                         `c_varchar` varchar(65533) NULL COMMENT "用户姓名")
                         UNIQUE KEY(`id`)
-                        CLUSTER BY(c_varchar)  
+                        ORDER BY(c_varchar)  
                         DISTRIBUTED BY HASH(`id`) BUCKETS 1
                         PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
                         "store_row_column" = "${use_row_store}"); """

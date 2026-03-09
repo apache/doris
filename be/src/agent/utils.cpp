@@ -42,8 +42,8 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "runtime/client_cache.h"
 #include "runtime/cluster_info.h"
+#include "util/client_cache.h"
 
 namespace doris {
 class TConfirmUnusedRemoteFilesRequest;

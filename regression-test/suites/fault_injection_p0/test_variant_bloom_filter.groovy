@@ -55,10 +55,11 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
     int seed = Math.floor(Math.random() * 7) 
     def var_def = "variant"
     if (seed % 2 == 0) {
-        var_def = "variant<'repo.id' : int, 'repo.name' : string, 'repo.url' : string, 'repo.description' : string, 'repo.created_at' : string>"
+        var_def = "variant<'repo.id' : bigint, 'repo.name' : string, 'repo.url' : string, 'repo.description' : string, 'repo.created_at' : string>"
     } else {
         var_def = "variant<properties(\"variant_max_subcolumns_count\" = \"100\")>"
     }
+    sql "set default_variant_enable_doc_mode = false"
     sql """
         CREATE TABLE IF NOT EXISTS ${index_table} (
             k bigint,

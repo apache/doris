@@ -163,6 +163,21 @@ EdgeCase1
 -- !regexp_extract_3 --
 AA-1
 
+-- !regexp_extract_4 --
+foo\nbar
+
+-- !regexp_extract_5 --
+
+
+-- !regexp_extract_6 --
+foo\nbar
+
+-- !regexp_extract_7 --
+aXb
+
+-- !regexp_extract_8 --
+aXb
+
 -- !sql --
 b
 
@@ -177,6 +192,21 @@ d
 
 -- !regexp_extract_or_null_2 --
 B
+
+-- !regexp_extract_or_null_3 --
+foo\nbar
+
+-- !regexp_extract_or_null_4 --
+\N
+
+-- !regexp_extract_or_null_5 --
+foo\nbar
+
+-- !regexp_extract_or_null_6 --
+aXb
+
+-- !regexp_extract_or_null_7 --
+aXb
 
 -- !sql --
 ['18','17']
@@ -216,6 +246,21 @@ B
 
 -- !sql_regexp_extract_all_5 --
 ['Case1','Case2','Case3']
+
+-- !sql_regexp_extract_all_6 --
+['foo\nbar']
+
+-- !sql_regexp_extract_all_7 --
+
+
+-- !sql_regexp_extract_all_8 --
+['foo\nbar']
+
+-- !sql_regexp_extract_all_9 --
+['aXb','cXd']
+
+-- !sql_regexp_extract_all_10 --
+['aXb','cXd']
 
 -- !sql --
 a-b-c

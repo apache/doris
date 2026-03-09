@@ -25,11 +25,11 @@
 #include <mutex>
 #include <unordered_map>
 
+#include "common/metrics/doris_metrics.h"
+#include "common/metrics/metrics.h"
 #include "io/io_common.h"
-#include "olap/olap_common.h"
-#include "util/doris_metrics.h"
-#include "util/metrics.h"
-#include "util/runtime_profile.h"
+#include "runtime/runtime_profile.h"
+#include "storage/olap_common.h"
 
 namespace doris {
 namespace io {

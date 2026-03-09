@@ -17,7 +17,6 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -26,6 +25,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.StatementContext;
@@ -840,7 +840,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         } catch (Exception e) {
             // Verify the error message contains relevant info
             Assertions.assertTrue(e.getMessage().contains("INVERTED index for column (error_msg) "
-                    + "with non-analyzed type already exists"));
+                    + "with analyzer default analyzer already exists"));
         }
         addInvertedIndexStmtStr = "alter table test.sc_dup add index idx_error_msg(error_msg), "
                 + "add index idx_error_msg(error_msg)";

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_deletion_vector_oss", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_paimon_deletion_vector_oss", "p0,external") {
 
     logger.info("start paimon test")
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
@@ -53,8 +53,17 @@ suite("test_paimon_deletion_vector_oss", "p0,external,doris,external_docker,exte
             qt_6 """select * from deletion_vector_parquet where id > 2 order by id;"""
         }
 
+        def test_explain_verbose = {
+            explain {
+                sql ("select * from deletion_vector_orc;")
+                verbose (true)
+                contains "deleteFileNum"
+            }
+        }
+
         test_cases("false")
         test_cases("true")
+        test_explain_verbose()
 
     } finally {
         sql """set force_jni_scanner=false"""
