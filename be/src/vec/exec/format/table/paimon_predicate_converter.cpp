@@ -329,7 +329,8 @@ std::optional<PaimonPredicateConverter::FieldMeta> PaimonPredicateConverter::_re
         return std::nullopt;
     }
     const auto& slot_type = slot_desc->type();
-    auto field_type = _to_paimon_field_type(slot_type.type, static_cast<uint32_t>(slot_type.precision));
+    auto field_type =
+            _to_paimon_field_type(slot_type.type, static_cast<uint32_t>(slot_type.precision));
     if (!field_type) {
         return std::nullopt;
     }

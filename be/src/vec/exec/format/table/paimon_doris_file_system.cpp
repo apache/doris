@@ -606,8 +606,7 @@ public:
     }
 
 private:
-    Result<doris::io::FileSystemSPtr> create_fs(doris::TFileType::type type,
-                                                const ParsedUri& uri,
+    Result<doris::io::FileSystemSPtr> create_fs(doris::TFileType::type type, const ParsedUri& uri,
                                                 const std::string& normalized_path) const {
         switch (type) {
         case doris::TFileType::FILE_LOCAL:
@@ -638,8 +637,7 @@ private:
                                        normalized_path);
             }
             std::shared_ptr<doris::io::BrokerFileSystem> fs;
-            auto status =
-                    doris::io::BrokerFileSystem::create(broker_addresses_[0], options_, &fs);
+            auto status = doris::io::BrokerFileSystem::create(broker_addresses_[0], options_, &fs);
             if (!status.ok()) {
                 return to_paimon_status(status);
             }
