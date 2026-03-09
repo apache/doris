@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "jsonb_utils.h"
+#include "util/jsonb_utils.h"
 
 #include <cstdint>
 
 #include "common/status.h"
+#include "core/value/vdatetime_value.h"
 #include "util/date_func.h"
 #include "util/string_parser.hpp"
-#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 template <JsonbDecimalType T>

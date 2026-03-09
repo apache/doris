@@ -18,9 +18,8 @@
 #include <memory>
 #include <vector>
 
-#include "runtime/types.h"
+#include "core/data_type/data_type.h"
 #include "testutil/mock/mock_runtime_state.h"
-#include "vec/data_types/data_type.h"
 
 namespace doris {
 

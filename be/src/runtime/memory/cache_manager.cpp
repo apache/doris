@@ -18,7 +18,7 @@
 #include "runtime/memory/cache_manager.h"
 
 #include "runtime/memory/cache_policy.h"
-#include "util/runtime_profile.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

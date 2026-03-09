@@ -1,0 +1,110 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include "core/assert_cast.h"
+#include "core/column/column_dictionary.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
+#include "core/column/predicate_column.h"
+#include "core/data_type/primitive_type.h"
+#include "exprs/bloom_filter_func.h"
+#include "exprs/vruntimefilter_wrapper.h"
+#include "storage/predicate/column_predicate.h"
+
+namespace doris {
+
+template <PrimitiveType T>
+class BloomFilterColumnPredicate final : public ColumnPredicate {
+public:
+    ENABLE_FACTORY_CREATOR(BloomFilterColumnPredicate);
+    using SpecificFilter = BloomFilterFunc<T>;
+
+    BloomFilterColumnPredicate(uint32_t column_id, std::string col_name,
+                               const std::shared_ptr<BloomFilterFuncBase>& filter)
+            : ColumnPredicate(column_id, col_name, T),
+              _filter(filter),
+              _specific_filter(assert_cast<SpecificFilter*>(_filter.get())) {}
+    ~BloomFilterColumnPredicate() override = default;
+    BloomFilterColumnPredicate(const BloomFilterColumnPredicate& other, uint32_t col_id)
+            : ColumnPredicate(other, col_id),
+              _filter(other._filter),
+              _specific_filter(assert_cast<SpecificFilter*>(_filter.get())) {}
+    BloomFilterColumnPredicate(const BloomFilterColumnPredicate& other) = delete;
+    std::shared_ptr<ColumnPredicate> clone(uint32_t col_id) const override {
+        return BloomFilterColumnPredicate<T>::create_shared(*this, col_id);
+    }
+    std::string debug_string() const override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "BloomFilterColumnPredicate({})",
+                       ColumnPredicate::debug_string());
+        return fmt::to_string(debug_string_buffer);
+    }
+
+    PredicateType type() const override { return PredicateType::BF; }
+
+    using ColumnPredicate::evaluate;
+
+    double get_ignore_threshold() const override { return get_bloom_filter_ignore_thredhold(); }
+
+private:
+    uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
+                             uint16_t size) const override;
+
+    template <bool is_nullable>
+    uint16_t evaluate(const vectorized::IColumn& column, const uint8_t* null_map, uint16_t* sel,
+                      uint16_t size) const {
+        if constexpr (is_nullable) {
+            if (!null_map) {
+                throw Exception(ErrorCode::INTERNAL_ERROR, "null_map is nullptr");
+            }
+        }
+
+        uint16_t new_size = 0;
+        if (column.is_column_dictionary()) {
+            const auto* dict_col = assert_cast<const vectorized::ColumnDictI32*>(&column);
+            new_size = _specific_filter->template find_dict_olap_engine<is_nullable>(
+                    dict_col, null_map, sel, size);
+        } else {
+            const auto& data =
+                    assert_cast<const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(
+                            &column)
+                            ->get_data();
+            new_size = _specific_filter->find_fixed_len_olap_engine((char*)data.data(), null_map,
+                                                                    sel, size, data.size() != size);
+        }
+        return new_size;
+    }
+
+    std::shared_ptr<BloomFilterFuncBase> _filter;
+    SpecificFilter* _specific_filter; // owned by _filter
+};
+
+template <PrimitiveType T>
+uint16_t BloomFilterColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& column,
+                                                        uint16_t* sel, uint16_t size) const {
+    if (column.is_nullable()) {
+        const auto* nullable_col = assert_cast<const vectorized::ColumnNullable*>(&column);
+        const auto& null_map_data = nullable_col->get_null_map_column().get_data();
+        return evaluate<true>(nullable_col->get_nested_column(), null_map_data.data(), sel, size);
+    } else {
+        return evaluate<false>(column, nullptr, sel, size);
+    }
+}
+
+} //namespace doris

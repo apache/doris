@@ -17,7 +17,7 @@
 
 #include "runtime/workload_management/query_task_controller.h"
 
-#include "pipeline/pipeline_fragment_context.h"
+#include "exec/pipeline/pipeline_fragment_context.h"
 #include "runtime/query_context.h"
 #include "runtime/workload_management/task_controller.h"
 

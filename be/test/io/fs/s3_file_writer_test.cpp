@@ -57,8 +57,8 @@
 #include "io/fs/s3_file_system.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "io/io_common.h"
-#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "runtime/exec_env.h"
+#include "storage/index/index_file_writer.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
 #include "util/uuid_generator.h"
@@ -340,7 +340,7 @@ TEST_F(S3FileWriterTest, multi_part_io_error) {
     auto client = s3_fs->client_holder();
     io::FileReaderSPtr local_file_reader;
 
-    auto st = fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader);
+    auto st = fs->open_file("./be/test/storage/test_data/all_types_100000.txt", &local_file_reader);
     ASSERT_TRUE(st.ok()) << st;
 
     constexpr int buf_size = 8192;
@@ -487,7 +487,7 @@ TEST_F(S3FileWriterTest, put_object_io_error) {
     auto client = s3_fs->client_holder();
     io::FileReaderSPtr local_file_reader;
 
-    auto st = fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader);
+    auto st = fs->open_file("./be/test/storage/test_data/all_types_100000.txt", &local_file_reader);
     ASSERT_TRUE(st.ok()) << st;
 
     constexpr int buf_size = 8192;
@@ -524,8 +524,8 @@ TEST_F(S3FileWriterTest, appendv_random_quit) {
 
     io::FileReaderSPtr local_file_reader;
 
-    ASSERT_EQ(Status::OK(),
-              fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader));
+    ASSERT_EQ(Status::OK(), fs->open_file("./be/test/storage/test_data/all_types_100000.txt",
+                                          &local_file_reader));
 
     constexpr int buf_size = 8192;
     size_t quit_time = rand() % local_file_reader->size();
@@ -574,7 +574,7 @@ TEST_F(S3FileWriterTest, multi_part_open_error) {
 
     io::FileReaderSPtr local_file_reader;
 
-    auto st = fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader);
+    auto st = fs->open_file("./be/test/storage/test_data/all_types_100000.txt", &local_file_reader);
     ASSERT_TRUE(st.ok()) << st;
 
     constexpr int buf_size = 5 * 1024 * 1024;
@@ -642,7 +642,7 @@ TEST_F(S3FileWriterTest, multi_part_open_error) {
 
 //     io::FileReaderSPtr local_file_reader;
 
-//     auto st = fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader);
+//     auto st = fs->open_file("./be/test/storage/test_data/all_types_100000.txt", &local_file_reader);
 //     ASSERT_TRUE(st.ok()) << st;
 
 //     constexpr int buf_size = 8192;
@@ -727,7 +727,7 @@ TEST_F(S3FileWriterTest, multi_part_open_error) {
 
 //     io::FileReaderSPtr local_file_reader;
 
-//     auto st = fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader);
+//     auto st = fs->open_file("./be/test/storage/test_data/all_types_100000.txt", &local_file_reader);
 //     ASSERT_TRUE(st.ok()) << st;
 
 //     constexpr int buf_size = 8192;
@@ -797,8 +797,9 @@ TEST_F(S3FileWriterTest, normal) {
 
     io::FileReaderSPtr local_file_reader;
 
-    ASSERT_TRUE(fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader)
-                        .ok());
+    ASSERT_TRUE(
+            fs->open_file("./be/test/storage/test_data/all_types_100000.txt", &local_file_reader)
+                    .ok());
 
     constexpr int buf_size = 8192;
 
@@ -848,7 +849,7 @@ TEST_F(S3FileWriterTest, smallFile) {
 
     io::FileReaderSPtr local_file_reader;
 
-    auto st = fs->open_file("./be/test/olap/test_data/all_types_1000.txt", &local_file_reader);
+    auto st = fs->open_file("./be/test/storage/test_data/all_types_1000.txt", &local_file_reader);
     ASSERT_TRUE(st.ok()) << st;
 
     constexpr int buf_size = 8192;
@@ -898,7 +899,7 @@ TEST_F(S3FileWriterTest, close_error) {
 
     io::FileReaderSPtr local_file_reader;
 
-    auto st = fs->open_file("./be/test/olap/test_data/all_types_1000.txt", &local_file_reader);
+    auto st = fs->open_file("./be/test/storage/test_data/all_types_1000.txt", &local_file_reader);
     ASSERT_TRUE(st.ok()) << st;
 
     auto sp = SyncPoint::get_instance();
@@ -958,7 +959,7 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_2) {
     auto client = s3_fs->client_holder();
     io::FileReaderSPtr local_file_reader;
 
-    auto st = fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader);
+    auto st = fs->open_file("./be/test/storage/test_data/all_types_100000.txt", &local_file_reader);
     ASSERT_TRUE(st.ok()) << st;
 
     constexpr int buf_size = 8192;
@@ -1007,7 +1008,7 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_1) {
     auto client = s3_fs->client_holder();
     io::FileReaderSPtr local_file_reader;
 
-    auto st = fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader);
+    auto st = fs->open_file("./be/test/storage/test_data/all_types_100000.txt", &local_file_reader);
     ASSERT_TRUE(st.ok()) << st;
 
     constexpr int buf_size = 8192;
@@ -1053,7 +1054,7 @@ TEST_F(S3FileWriterTest, multi_part_complete_error_3) {
     auto client = s3_fs->client_holder();
     io::FileReaderSPtr local_file_reader;
 
-    auto st = fs->open_file("./be/test/olap/test_data/all_types_100000.txt", &local_file_reader);
+    auto st = fs->open_file("./be/test/storage/test_data/all_types_100000.txt", &local_file_reader);
     ASSERT_TRUE(st.ok()) << st;
 
     constexpr int buf_size = 8192;

@@ -19,7 +19,7 @@
 
 #include <boost/process.hpp>
 
-#include "python_env.h"
+#include "udf/python/python_env.h"
 
 namespace doris {
 

@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "core/value/time_value.h"
+
 #include <cctz/civil_time.h>
 #include <cctz/time_zone.h>
 #include <gtest/gtest.h>
-#include <vec/runtime/time_value.h>
 
 namespace doris {
 

@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "python_env.h"
+#include "udf/python/python_env.h"
 
 #include <fmt/core.h>
+#include <gen_cpp/BackendService_types.h>
 #include <rapidjson/document.h>
 
 #include <filesystem>
@@ -26,7 +27,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/BackendService_types.h"
 #include "udf/python/python_server.h"
 #include "util/string_util.h"
 

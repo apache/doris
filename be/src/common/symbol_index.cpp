@@ -20,7 +20,8 @@
 
 #if defined(__ELF__) && !defined(__FreeBSD__)
 
-#include <common/symbol_index.h>
+#include "common/symbol_index.h"
+
 #include <link.h>
 #include <pdqsort.h>
 
@@ -30,7 +31,7 @@
 #include <optional>
 
 #include "common/stack_trace.h"
-#include "vec/common/hex.h"
+#include "exec/common/hex.h"
 
 /**
 

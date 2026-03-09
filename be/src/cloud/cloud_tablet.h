@@ -19,9 +19,9 @@
 
 #include <memory>
 
-#include "olap/base_tablet.h"
-#include "olap/partial_update_info.h"
-#include "olap/rowset/rowset.h"
+#include "storage/partial_update_info.h"
+#include "storage/rowset/rowset.h"
+#include "storage/tablet/base_tablet.h"
 
 namespace doris {
 

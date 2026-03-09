@@ -32,13 +32,13 @@
 #include <vector>
 
 #include "common/be_mock_util.h"
+#include "common/metrics/metrics.h"
 #include "common/status.h"
-#include "http/rest_monitor_iface.h"
+#include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "runtime/query_context.h"
-#include "runtime_filter/runtime_filter_mgr.h"
+#include "service/http/rest_monitor_iface.h"
 #include "util/countdown_latch.h"
 #include "util/hash_util.hpp" // IWYU pragma: keep
-#include "util/metrics.h"
 
 namespace butil {
 class IOBufAsZeroCopyInputStream;

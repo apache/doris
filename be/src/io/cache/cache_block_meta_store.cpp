@@ -32,12 +32,12 @@
 #include <string_view>
 
 #include "common/status.h"
-#include "olap/field.h"
-#include "olap/field.h" // For OLAP_FIELD_TYPE_BIGINT
-#include "olap/key_coder.h"
-#include "olap/olap_common.h"
+#include "exec/common/hex.h"
+#include "storage/field.h"
+#include "storage/field.h" // For OLAP_FIELD_TYPE_BIGINT
+#include "storage/key_coder.h"
+#include "storage/olap_common.h"
 #include "util/threadpool.h"
-#include "vec/common/hex.h"
 
 namespace doris::io {
 
