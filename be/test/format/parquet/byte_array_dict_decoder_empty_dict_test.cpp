@@ -17,8 +17,8 @@
 
 #include <gtest/gtest.h>
 
-#include "vec/columns/column_vector.h"
-#include "vec/exec/format/parquet/byte_array_dict_decoder.h"
+#include "core/column/column_vector.h"
+#include "format/parquet/byte_array_dict_decoder.h"
 
 namespace doris::vectorized {
 

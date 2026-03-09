@@ -17,8 +17,8 @@
 
 #include <gtest/gtest.h>
 
-#include "vec/columns/column_vector.h"
-#include "vec/exec/format/parquet/fix_length_dict_decoder.hpp"
+#include "core/column/column_vector.h"
+#include "format/parquet/fix_length_dict_decoder.hpp"
 
 namespace doris::vectorized {
 
