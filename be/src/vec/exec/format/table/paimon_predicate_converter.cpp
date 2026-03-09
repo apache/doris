@@ -41,11 +41,9 @@
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
-#include "vec/runtime/timestamptz_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
-#include "common/compile_check_begin.h"
 
 PaimonPredicateConverter::PaimonPredicateConverter(
         const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state)
@@ -104,11 +102,8 @@ std::shared_ptr<paimon::Predicate> PaimonPredicateConverter::_convert_expr(const
 
     auto uncast = VExpr::expr_without_cast(expr);
 
-    if (auto* direct_in = dynamic_cast<VDirectInPredicate*>(uncast.get())) {
-        VExprSPtr in_expr;
-        if (direct_in->get_slot_in_expr(in_expr)) {
-            return _convert_in(in_expr);
-        }
+    if (dynamic_cast<VDirectInPredicate*>(uncast.get()) != nullptr) {
+        // Older branches do not expose the direct-in literal set, so skip this pushdown.
         return nullptr;
     }
 
@@ -135,7 +130,7 @@ std::shared_ptr<paimon::Predicate> PaimonPredicateConverter::_convert_expr(const
     }
 
     if (auto* fn = dynamic_cast<VectorizedFnCall*>(uncast.get())) {
-        auto fn_name = _normalize_name(fn->function_name());
+        auto fn_name = _normalize_name(fn->fn().name.function_name);
         if (fn_name == "is_null_pred" || fn_name == "is_not_null_pred") {
             return _convert_is_null(uncast, fn_name);
         }
@@ -333,9 +328,8 @@ std::optional<PaimonPredicateConverter::FieldMeta> PaimonPredicateConverter::_re
     if (it == _field_index_by_name.end()) {
         return std::nullopt;
     }
-    auto slot_type = slot_desc->type();
-    auto field_type =
-            _to_paimon_field_type(slot_type->get_primitive_type(), slot_type->get_precision());
+    const auto& slot_type = slot_desc->type();
+    auto field_type = _to_paimon_field_type(slot_type.type, static_cast<uint32_t>(slot_type.precision));
     if (!field_type) {
         return std::nullopt;
     }
@@ -351,9 +345,9 @@ std::optional<paimon::Literal> PaimonPredicateConverter::_convert_literal(
         return std::nullopt;
     }
 
-    auto literal_type = remove_nullable(literal->get_data_type());
-    PrimitiveType literal_primitive = literal_type->get_primitive_type();
-    PrimitiveType slot_primitive = slot_desc.type()->get_primitive_type();
+    const auto literal_type = literal_expr->type();
+    PrimitiveType literal_primitive = literal_type.type;
+    PrimitiveType slot_primitive = slot_desc.type().type;
 
     ColumnPtr col = literal->get_column_ptr()->convert_to_full_column_if_const();
     if (const auto* nullable = check_and_get_column<ColumnNullable>(*col)) {
@@ -371,7 +365,7 @@ std::optional<paimon::Literal> PaimonPredicateConverter::_convert_literal(
         if (literal_primitive != TYPE_BOOLEAN) {
             return std::nullopt;
         }
-        return paimon::Literal(static_cast<bool>(field.get<TYPE_BOOLEAN>()));
+        return paimon::Literal(static_cast<bool>(field.get<bool>()));
     }
     case TYPE_TINYINT:
     case TYPE_SMALLINT:
@@ -383,16 +377,16 @@ std::optional<paimon::Literal> PaimonPredicateConverter::_convert_literal(
         int64_t value = 0;
         switch (literal_primitive) {
         case TYPE_TINYINT:
-            value = field.get<TYPE_TINYINT>();
+            value = field.get<int8_t>();
             break;
         case TYPE_SMALLINT:
-            value = field.get<TYPE_SMALLINT>();
+            value = field.get<int16_t>();
             break;
         case TYPE_INT:
-            value = field.get<TYPE_INT>();
+            value = field.get<int32_t>();
             break;
         case TYPE_BIGINT:
-            value = field.get<TYPE_BIGINT>();
+            value = field.get<int64_t>();
             break;
         default:
             return std::nullopt;
@@ -414,9 +408,9 @@ std::optional<paimon::Literal> PaimonPredicateConverter::_convert_literal(
         }
         double value = 0;
         if (literal_primitive == TYPE_FLOAT) {
-            value = static_cast<double>(field.get<TYPE_FLOAT>());
+            value = static_cast<double>(field.get<float>());
         } else {
-            value = field.get<TYPE_DOUBLE>();
+            value = field.get<double>();
         }
         return paimon::Literal(value);
     }
@@ -427,13 +421,14 @@ std::optional<paimon::Literal> PaimonPredicateConverter::_convert_literal(
         }
         int64_t seconds = 0;
         if (literal_primitive == TYPE_DATE) {
-            const auto& dt = field.get<TYPE_DATE>();
-            if (!dt.is_valid_date()) {
+            Int64 v = field.get<Int64>();
+            auto* dt = reinterpret_cast<VecDateTimeValue*>(&v);
+            if (!dt->is_valid_date()) {
                 return std::nullopt;
             }
-            dt.unix_timestamp(&seconds, _gmt_tz);
+            dt->unix_timestamp(&seconds, _gmt_tz);
         } else if (literal_primitive == TYPE_DATEV2) {
-            const auto& dt = field.get<TYPE_DATEV2>();
+            const auto& dt = field.get<PrimitiveTypeTraits<TYPE_DATEV2>::CppType>();
             if (!dt.is_valid_date()) {
                 return std::nullopt;
             }
@@ -448,16 +443,17 @@ std::optional<paimon::Literal> PaimonPredicateConverter::_convert_literal(
             return std::nullopt;
         }
         if (literal_primitive == TYPE_DATETIME) {
-            const auto& dt = field.get<TYPE_DATETIME>();
-            if (!dt.is_valid_date()) {
+            Int64 v = field.get<Int64>();
+            auto* dt = reinterpret_cast<VecDateTimeValue*>(&v);
+            if (!dt->is_valid_date()) {
                 return std::nullopt;
             }
             int64_t seconds = 0;
-            dt.unix_timestamp(&seconds, _gmt_tz);
+            dt->unix_timestamp(&seconds, _gmt_tz);
             return paimon::Literal(paimon::Timestamp::FromEpochMillis(seconds * 1000));
         }
         std::pair<int64_t, int64_t> ts;
-        const auto& dt = field.get<TYPE_DATETIMEV2>();
+        const auto& dt = field.get<PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType>();
         if (!dt.is_valid_date()) {
             return std::nullopt;
         }
@@ -470,7 +466,7 @@ std::optional<paimon::Literal> PaimonPredicateConverter::_convert_literal(
         if (!_is_string_type(literal_primitive)) {
             return std::nullopt;
         }
-        const auto& value = field.get<TYPE_STRING>();
+        const auto& value = field.get<String>();
         return paimon::Literal(field_type, value.data(), value.size());
     }
     case TYPE_DECIMALV2:
@@ -481,8 +477,8 @@ std::optional<paimon::Literal> PaimonPredicateConverter::_convert_literal(
         if (!_is_decimal_type(literal_primitive)) {
             return std::nullopt;
         }
-        int32_t precision = static_cast<int32_t>(literal_type->get_precision());
-        int32_t scale = static_cast<int32_t>(literal_type->get_scale());
+        int32_t precision = literal_type.precision;
+        int32_t scale = literal_type.scale;
         if (precision <= 0 || precision > paimon::Decimal::MAX_PRECISION) {
             return std::nullopt;
         }
@@ -490,23 +486,23 @@ std::optional<paimon::Literal> PaimonPredicateConverter::_convert_literal(
         paimon::Decimal::int128_t value = 0;
         switch (literal_primitive) {
         case TYPE_DECIMALV2: {
-            const auto& dec = field.get<TYPE_DECIMALV2>();
-            value = dec.value();
+            const auto& dec = field.get<DecimalField<Decimal128V2>>();
+            value = dec.get_value();
             break;
         }
         case TYPE_DECIMAL32: {
-            const auto& dec = field.get<TYPE_DECIMAL32>();
-            value = dec.value;
+            const auto& dec = field.get<DecimalField<Decimal32>>();
+            value = dec.get_value();
             break;
         }
         case TYPE_DECIMAL64: {
-            const auto& dec = field.get<TYPE_DECIMAL64>();
-            value = dec.value;
+            const auto& dec = field.get<DecimalField<Decimal64>>();
+            value = dec.get_value();
             break;
         }
         case TYPE_DECIMAL128I: {
-            const auto& dec = field.get<TYPE_DECIMAL128I>();
-            value = dec.value;
+            const auto& dec = field.get<DecimalField<Decimal128V3>>();
+            value = dec.get_value();
             break;
         }
         default:
@@ -527,8 +523,7 @@ std::optional<std::string> PaimonPredicateConverter::_extract_string_literal(
     if (!literal) {
         return std::nullopt;
     }
-    auto literal_type = remove_nullable(literal->get_data_type());
-    PrimitiveType literal_primitive = literal_type->get_primitive_type();
+    PrimitiveType literal_primitive = literal_expr->type().type;
     if (!_is_string_type(literal_primitive)) {
         return std::nullopt;
     }
@@ -542,7 +537,7 @@ std::optional<std::string> PaimonPredicateConverter::_extract_string_literal(
     }
     Field field;
     col->get(0, field);
-    const auto& value = field.get<TYPE_STRING>();
+    const auto& value = field.get<String>();
     return value;
 }
 
@@ -655,5 +650,4 @@ std::optional<paimon::FieldType> PaimonPredicateConverter::_to_paimon_field_type
     }
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::vectorized

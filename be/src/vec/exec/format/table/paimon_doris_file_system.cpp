@@ -30,15 +30,21 @@
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
 #include "io/file_factory.h"
+#include "io/fs/broker_file_system.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/s3_file_system.h"
+#include "io/hdfs_builder.h"
 #include "paimon/factories/factory.h"
 #include "paimon/fs/file_system.h"
 #include "paimon/fs/file_system_factory.h"
 #include "paimon/result.h"
 #include "paimon/status.h"
+#include "util/s3_uri.h"
+#include "util/s3_util.h"
 
 namespace paimon {
 
@@ -106,7 +112,7 @@ doris::TFileType::type map_scheme_to_file_type(const std::string& scheme) {
         return doris::TFileType::FILE_S3;
     }
     if (is_http_scheme(scheme)) {
-        return doris::TFileType::FILE_HTTP;
+        return doris::TFileType::FILE_S3;
     }
     if (scheme == "ofs" || scheme == "gfs" || scheme == "jfs") {
         return doris::TFileType::FILE_BROKER;
@@ -155,14 +161,21 @@ std::string normalize_path_for_type(const std::string& path, const std::string& 
 }
 
 std::string build_fs_cache_key(doris::TFileType::type type, const ParsedUri& uri,
-                               const std::string& default_fs_name) {
+                               const std::string& default_fs_name,
+                               const std::string& normalized_path) {
     switch (type) {
     case doris::TFileType::FILE_LOCAL:
         return "local";
-    case doris::TFileType::FILE_S3:
-        return "s3://" + uri.authority;
-    case doris::TFileType::FILE_HTTP:
-        return "http://" + uri.authority;
+    case doris::TFileType::FILE_S3: {
+        doris::S3URI s3_uri(normalized_path);
+        if (s3_uri.parse().ok()) {
+            if (is_http_scheme(uri.scheme)) {
+                return uri.scheme + "://" + uri.authority + "/" + s3_uri.get_bucket();
+            }
+            return "s3://" + s3_uri.get_bucket();
+        }
+        return normalized_path;
+    }
     case doris::TFileType::FILE_BROKER:
         return "broker";
     case doris::TFileType::FILE_HDFS:
@@ -186,7 +199,6 @@ paimon::Status to_paimon_status(const doris::Status& status) {
     case doris::ErrorCode::FILE_ALREADY_EXIST:
         return paimon::Status::Exist(status.to_string());
     case doris::ErrorCode::INVALID_ARGUMENT:
-    case doris::ErrorCode::INVALID_INPUT_SYNTAX:
         return paimon::Status::Invalid(status.to_string());
     case doris::ErrorCode::NOT_IMPLEMENTED_ERROR:
         return paimon::Status::NotImplemented(status.to_string());
@@ -252,6 +264,13 @@ std::string parent_path(const std::string& path) {
         prefix += uri.authority;
     }
     return prefix + parent_part;
+}
+
+std::string hdfs_fs_name(const ParsedUri& uri, const std::string& default_fs_name) {
+    if (!uri.scheme.empty() && !uri.authority.empty()) {
+        return uri.scheme + "://" + uri.authority;
+    }
+    return default_fs_name;
 }
 
 class DorisInputStream : public InputStream {
@@ -587,6 +606,61 @@ public:
     }
 
 private:
+    Result<doris::io::FileSystemSPtr> create_fs(doris::TFileType::type type,
+                                                const ParsedUri& uri,
+                                                const std::string& normalized_path) const {
+        switch (type) {
+        case doris::TFileType::FILE_LOCAL:
+            return std::static_pointer_cast<doris::io::FileSystem>(
+                    doris::io::global_local_filesystem());
+        case doris::TFileType::FILE_S3: {
+            doris::S3URI s3_uri(normalized_path);
+            auto status = s3_uri.parse();
+            if (!status.ok()) {
+                return to_paimon_status(status);
+            }
+            doris::S3Conf s3_conf;
+            status = doris::S3ClientFactory::convert_properties_to_s3_conf(options_, s3_uri,
+                                                                           &s3_conf);
+            if (!status.ok()) {
+                return to_paimon_status(status);
+            }
+            std::shared_ptr<doris::io::S3FileSystem> fs;
+            status = doris::io::S3FileSystem::create(std::move(s3_conf), "", nullptr, &fs);
+            if (!status.ok()) {
+                return to_paimon_status(status);
+            }
+            return std::static_pointer_cast<doris::io::FileSystem>(std::move(fs));
+        }
+        case doris::TFileType::FILE_BROKER: {
+            if (broker_addresses_.empty()) {
+                return Status::Invalid("broker addresses are empty for paimon path: ",
+                                       normalized_path);
+            }
+            std::shared_ptr<doris::io::BrokerFileSystem> fs;
+            auto status =
+                    doris::io::BrokerFileSystem::create(broker_addresses_[0], options_, &fs);
+            if (!status.ok()) {
+                return to_paimon_status(status);
+            }
+            return std::static_pointer_cast<doris::io::FileSystem>(std::move(fs));
+        }
+        case doris::TFileType::FILE_HDFS: {
+            doris::THdfsParams hdfs_params = doris::parse_properties(options_);
+            std::shared_ptr<doris::io::HdfsFileSystem> fs;
+            auto status = doris::io::HdfsFileSystem::create(
+                    hdfs_params, "", hdfs_fs_name(uri, default_fs_name_), nullptr, &fs);
+            if (!status.ok()) {
+                return to_paimon_status(status);
+            }
+            return std::static_pointer_cast<doris::io::FileSystem>(std::move(fs));
+        }
+        default:
+            return Status::NotImplemented("unsupported paimon Doris file system type: ",
+                                          std::to_string(type));
+        }
+    }
+
     Result<std::pair<doris::io::FileSystemSPtr, std::string>> resolve_path(
             const std::string& path) const {
         auto uri = parse_uri(path);
@@ -596,7 +670,7 @@ private:
             doris::io::FileSystemSPtr fs = doris::io::global_local_filesystem();
             return std::make_pair(std::move(fs), normalized_path);
         }
-        std::string fs_key = build_fs_cache_key(type, uri, default_fs_name_);
+        std::string fs_key = build_fs_cache_key(type, uri, default_fs_name_, normalized_path);
         {
             std::lock_guard lock(fs_lock_);
             auto it = fs_cache_.find(fs_key);
@@ -604,24 +678,9 @@ private:
                 return std::make_pair(it->second, normalized_path);
             }
         }
-        doris::io::FSPropertiesRef fs_properties(type);
-        const std::map<std::string, std::string>* properties = &options_;
-        std::map<std::string, std::string> properties_override;
-        if (type == doris::TFileType::FILE_HTTP && !options_.contains("uri") &&
-            !uri.scheme.empty()) {
-            properties_override = options_;
-            properties_override["uri"] = uri.scheme + "://" + uri.authority;
-            properties = &properties_override;
-        }
-        fs_properties.properties = properties;
-        if (!broker_addresses_.empty()) {
-            fs_properties.broker_addresses = &broker_addresses_;
-        }
-        doris::io::FileDescription file_description = {
-                .path = normalized_path, .file_size = -1, .mtime = 0, .fs_name = default_fs_name_};
-        auto fs_result = doris::FileFactory::create_fs(fs_properties, file_description);
-        if (!fs_result.has_value()) {
-            return to_paimon_status(fs_result.error());
+        auto fs_result = create_fs(type, uri, normalized_path);
+        if (!fs_result.ok()) {
+            return fs_result.status();
         }
         doris::io::FileSystemSPtr fs = std::move(fs_result).value();
         {

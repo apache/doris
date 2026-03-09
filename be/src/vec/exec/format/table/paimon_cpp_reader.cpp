@@ -36,7 +36,6 @@
 #include "vec/exec/format/table/paimon_doris_file_system.h"
 
 namespace doris::vectorized {
-#include "common/compile_check_begin.h"
 
 namespace {
 constexpr const char* VALUE_KIND_FIELD = "_VALUE_KIND";
@@ -51,14 +50,9 @@ PaimonCppReader::PaimonCppReader(const std::vector<SlotDescriptor*>& file_slot_d
           _state(state),
           _profile(profile),
           _range(range),
-          _range_params(range_params) {
+          _range_params(range_params),
+          _remaining_table_level_row_count(-1) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _ctzz);
-    if (range.__isset.table_format_params &&
-        range.table_format_params.__isset.table_level_row_count) {
-        _remaining_table_level_row_count = range.table_format_params.table_level_row_count;
-    } else {
-        _remaining_table_level_row_count = -1;
-    }
 }
 
 PaimonCppReader::~PaimonCppReader() = default;
@@ -92,10 +86,6 @@ Status PaimonCppReader::get_next_block(Block* block, size_t* read_rows, bool* eo
         return Status::InternalError("paimon-cpp reader is not initialized");
     }
 
-    if (_col_name_to_block_idx.empty()) {
-        _col_name_to_block_idx = block->get_name_to_pos_map();
-    }
-
     auto batch_result = _batch_reader->NextBatch();
     if (!batch_result.ok()) {
         return Status::InternalError("paimon-cpp read batch failed: {}",
@@ -117,6 +107,7 @@ Status PaimonCppReader::get_next_block(Block* block, size_t* read_rows, bool* eo
 
     auto record_batch = std::move(import_result).ValueUnsafe();
     const auto num_rows = static_cast<size_t>(record_batch->num_rows());
+    const auto num_rows_as_int = static_cast<int>(num_rows);
     const auto num_columns = record_batch->num_columns();
     for (int c = 0; c < num_columns; ++c) {
         const auto& field = record_batch->schema()->field(c);
@@ -124,17 +115,15 @@ Status PaimonCppReader::get_next_block(Block* block, size_t* read_rows, bool* eo
             continue;
         }
 
-        auto it = _col_name_to_block_idx.find(field->name());
-        if (it == _col_name_to_block_idx.end()) {
+        auto* column_with_name = block->try_get_by_name(field->name());
+        if (column_with_name == nullptr) {
             // Skip columns that are not in the block (e.g., partition columns handled elsewhere)
             continue;
         }
-        const vectorized::ColumnWithTypeAndName& column_with_name =
-                block->get_by_position(it->second);
         try {
-            RETURN_IF_ERROR(column_with_name.type->get_serde()->read_column_from_arrow(
-                    column_with_name.column->assume_mutable_ref(), record_batch->column(c).get(), 0,
-                    num_rows, _ctzz));
+            column_with_name->type->get_serde()->read_column_from_arrow(
+                    column_with_name->column->assume_mutable_ref(), record_batch->column(c).get(),
+                    0, num_rows_as_int, _ctzz);
         } catch (Exception& e) {
             return Status::InternalError("Failed to convert from arrow to block: {}", e.what());
         }
@@ -145,7 +134,7 @@ Status PaimonCppReader::get_next_block(Block* block, size_t* read_rows, bool* eo
     return Status::OK();
 }
 
-Status PaimonCppReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
+Status PaimonCppReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                                     std::unordered_set<std::string>* missing_cols) {
     for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
@@ -332,5 +321,4 @@ std::map<std::string, std::string> PaimonCppReader::_build_options() const {
     return options;
 }
 
-#include "common/compile_check_end.h"
 } // namespace doris::vectorized

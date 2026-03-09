@@ -194,7 +194,6 @@ public class PaimonScanNode extends FileQueryScanNode {
             if (tableLocation != null) {
                 fileDesc.setPaimonTable(tableLocation);
             }
-            rangeDesc.setSelfSplitWeight(paimonSplit.getSelfSplitWeight());
         } else {
             // use native reader
             if (fileFormat.equals("orc")) {
