@@ -117,6 +117,7 @@ public class RefreshManager {
 
     private void refreshDbInternal(ExternalDatabase db) {
         db.resetMetaToUninitialized();
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(db.getCatalog().getId(), db.getFullName());
         LOG.info("refresh database {} in catalog {}", db.getFullName(), db.getCatalog().getName());
     }
 

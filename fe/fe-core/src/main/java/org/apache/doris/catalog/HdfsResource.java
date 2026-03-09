@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.thrift.THdfsConf;
 import org.apache.doris.thrift.THdfsParams;
 
@@ -120,6 +121,30 @@ public class HdfsResource extends Resource {
                 THdfsConf hdfsConf = new THdfsConf();
                 hdfsConf.setKey(property.getKey());
                 hdfsConf.setValue(property.getValue());
+                tHdfsParams.hdfs_conf.add(hdfsConf);
+            }
+        }
+        if (BDPAuthContext.get() != null) {
+            BDPAuthContext bdpAuthContext = BDPAuthContext.get();
+            if (bdpAuthContext.getErp() != null) {
+                THdfsConf hdfsConf = new THdfsConf();
+                hdfsConf.setKey("BEE_USER");
+                hdfsConf.setValue(bdpAuthContext.getErp());
+                tHdfsParams.hdfs_conf.add(hdfsConf);
+            }
+            if (bdpAuthContext.getHadoopUserName() != null) {
+                tHdfsParams.setUser(bdpAuthContext.getHadoopUserName());
+            }
+            if (bdpAuthContext.getSource() != null) {
+                THdfsConf hdfsConf = new THdfsConf();
+                hdfsConf.setKey("BEE_SOURCE");
+                hdfsConf.setValue(bdpAuthContext.getSource());
+                tHdfsParams.hdfs_conf.add(hdfsConf);
+            }
+            if (bdpAuthContext.getUserToken() != null) {
+                THdfsConf hdfsConf = new THdfsConf();
+                hdfsConf.setKey("HADOOP_USER_TOKEN");
+                hdfsConf.setValue(bdpAuthContext.getUserToken());
                 tHdfsParams.hdfs_conf.add(hdfsConf);
             }
         }

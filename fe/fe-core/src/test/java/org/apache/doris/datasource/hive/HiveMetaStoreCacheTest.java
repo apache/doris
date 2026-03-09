@@ -77,12 +77,13 @@ public class HiveMetaStoreCacheTest {
             String dbName, String tbName) {
         NameMapping nameMapping = NameMapping.createForTest(dbName, tbName);
         long fileId = Util.genIdByName(dbName, tbName);
-        HiveMetaStoreCache.FileCacheKey fileCacheKey1 = new HiveMetaStoreCache.FileCacheKey(fileId, tbName, "", new ArrayList<>());
-        HiveMetaStoreCache.FileCacheKey fileCacheKey2 = HiveMetaStoreCache.FileCacheKey.createDummyCacheKey(fileId, tbName, "");
+        HiveMetaStoreCache.FileCacheKey fileCacheKey1 = new HiveMetaStoreCache.FileCacheKey(fileId, "", tbName, "", new ArrayList<>());
+        HiveMetaStoreCache.FileCacheKey fileCacheKey2 = HiveMetaStoreCache.FileCacheKey.createDummyCacheKey(fileId, "", tbName, "");
         fileCache.put(fileCacheKey1, new HiveMetaStoreCache.FileCacheValue());
         fileCache.put(fileCacheKey2, new HiveMetaStoreCache.FileCacheValue());
 
         HiveMetaStoreCache.PartitionCacheKey partitionCacheKey = new HiveMetaStoreCache.PartitionCacheKey(
+                "",
                 nameMapping,
                 new ArrayList<>()
         );
@@ -90,7 +91,7 @@ public class HiveMetaStoreCacheTest {
                 new HivePartition(nameMapping, false, "", "", new ArrayList<>(), new HashMap<>()));
 
         HiveMetaStoreCache.PartitionValueCacheKey partitionValueCacheKey
-                = new HiveMetaStoreCache.PartitionValueCacheKey(nameMapping, new ArrayList<>());
+                = new HiveMetaStoreCache.PartitionValueCacheKey("", nameMapping, new ArrayList<>());
         partitionValuesCache.put(partitionValueCacheKey, new HiveMetaStoreCache.HivePartitionValues());
 
     }

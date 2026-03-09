@@ -24,12 +24,15 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.AESUtil;
+import org.apache.doris.common.util.IAMUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.thrift.TBDPUserInfo;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -220,8 +223,13 @@ public class MysqlProto {
                             + " not be equal with decrypted service: " + bdpUserInfo.getSource());
                     return false;
                 }
-                LOG.info("doris username {}, service {}, erp {}, source {}, hadoop_user_name {}, user_token {}",
-                        qualifiedUser, serviceName, bdpUserInfo.getErp(), bdpUserInfo.getSource(),
+                if (!IAMUtil.isSourceInWhitelist(bdpUserInfo.getSource())) {
+                    Preconditions.checkNotNull(bdpUserInfo.getErp(), "erp cannot be null");
+                    Preconditions.checkNotNull(bdpUserInfo.getHadoopUserName(), "hadoop user name cannot be null");
+                    Preconditions.checkNotNull(bdpUserInfo.getUserToken(), "hadoop user token cannot be null");
+                }
+                LOG.info("doris username: {}, erp: {}, source: {}, hadoop_user_name: {},"
+                        + " user_token: {}", qualifiedUser, bdpUserInfo.getErp(), bdpUserInfo.getSource(),
                         bdpUserInfo.getHadoopUserName(), bdpUserInfo.getUserToken());
             } catch (Exception e) {
                 context.getState().setError("decrypt bdp user info failed: " + e.getMessage());
@@ -255,10 +263,10 @@ public class MysqlProto {
         if (bdpUserInfo != null) {
             String catalogName = null;
             String dbName = null;
-            context.setErp(bdpUserInfo.getErp());
-            context.setSource(bdpUserInfo.getSource());
-            context.setHadoopUserName(bdpUserInfo.getHadoopUserName());
-            context.setUserToken(bdpUserInfo.getUserToken());
+            BDPAuthContext bdpAuthContext = new BDPAuthContext(bdpUserInfo.getErp(), bdpUserInfo.getSource(),
+                    bdpUserInfo.getHadoopUserName(), bdpUserInfo.getUserToken());
+            context.setBdpAuthContext(bdpAuthContext);
+            bdpAuthContext.setThreadLocalInfo();
 
             if (bdpUserInfo.isSetCatalog()) {
                 catalogName = bdpUserInfo.getCatalog();
@@ -273,6 +281,17 @@ public class MysqlProto {
                 return false;
             }
         } else {
+            if (Config.enable_no_iam_mode) {
+                String erp = System.getenv("BEE_USER");
+
+                BDPAuthContext bdpAuthContext = new BDPAuthContext(erp == null ? "" : erp, Config.default_source,
+                        System.getenv("HADOOP_USER_NAME"), System.getenv("HADOOP_USER_TOKEN"));
+                context.setBdpAuthContext(bdpAuthContext);
+                bdpAuthContext.setThreadLocalInfo();
+                LOG.info("set default auth, doris username: {}, erp: {}, source: {}, hadoop_user_name: {},"
+                        + " user_token: {}", qualifiedUser, bdpAuthContext.getErp(), bdpAuthContext.getSource(),
+                        bdpAuthContext.getHadoopUserName(), bdpAuthContext.getUserToken());
+            }
             // set database
             String db = authPacket.getDb();
             if (!Strings.isNullOrEmpty(db)) {

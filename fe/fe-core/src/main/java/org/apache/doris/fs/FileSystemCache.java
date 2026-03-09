@@ -51,11 +51,13 @@ public class FileSystemCache {
     }
 
     public static class FileSystemCacheKey {
+        private final String hadoopUserName;
         // eg: hdfs://nameservices1
         private final String fsIdent;
         private final StorageProperties properties;
 
-        public FileSystemCacheKey(String fsIdent, StorageProperties properties) {
+        public FileSystemCacheKey(String hadoopUserName,  String fsIdent, StorageProperties properties) {
+            this.hadoopUserName = hadoopUserName;
             this.fsIdent = fsIdent;
             this.properties = properties;
         }
@@ -69,13 +71,13 @@ public class FileSystemCache {
                 return false;
             }
             FileSystemCacheKey o = (FileSystemCacheKey) obj;
-            return fsIdent.equals(o.fsIdent)
-                            && properties.equals(o.properties);
+            return hadoopUserName.equals(o.hadoopUserName) && fsIdent.equals(o.fsIdent)
+                    && properties.equals(o.properties);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(properties, fsIdent);
+            return Objects.hash(hadoopUserName, properties, fsIdent);
         }
     }
 }

@@ -20,17 +20,20 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
+import org.apache.doris.qe.BDPAuthContext;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Multimap;
 import org.apache.hadoop.hive.common.ValidReadTxnList;
 import org.apache.hadoop.hive.common.ValidReaderWriteIdList;
 import org.apache.hadoop.hive.common.ValidTxnList;
@@ -60,21 +63,22 @@ import org.apache.hadoop.hive.metastore.api.SQLDefaultConstraint;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
 import org.apache.hadoop.hive.metastore.txn.TxnUtils;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import shade.doris.hive.org.apache.thrift.TApplicationException;
 
-import java.security.PrivilegedExceptionAction;
+import java.security.PrivilegedAction;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Queue;
+import java.util.PriorityQueue;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -89,31 +93,26 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     // -1 means no limit on the partitions returned.
     private static final short MAX_LIST_PARTITION_NUM = Config.max_hive_list_partition_num;
 
-    private Queue<ThriftHMSClient> clientPool = new LinkedList<>();
+    private Multimap<String, ThriftHMSClient> clientPool = ArrayListMultimap.create();
+    private PriorityQueue<Pair<String, Long>> priorityQueue = new PriorityQueue<>(
+            Comparator.comparingLong(Pair::value)
+    );
     private boolean isClosed = false;
     private final int poolSize;
     private final HiveConf hiveConf;
-    private ExecutionAuthenticator executionAuthenticator;
 
-    public ThriftHMSCachedClient(HiveConf hiveConf, int poolSize, ExecutionAuthenticator executionAuthenticator) {
+    public ThriftHMSCachedClient(HiveConf hiveConf, int poolSize) {
         Preconditions.checkArgument(poolSize > 0, poolSize);
         this.hiveConf = hiveConf;
         this.poolSize = poolSize;
         this.isClosed = false;
-        this.executionAuthenticator = executionAuthenticator;
     }
 
     @Override
     public void close() {
         synchronized (clientPool) {
             this.isClosed = true;
-            while (!clientPool.isEmpty()) {
-                try {
-                    clientPool.poll().close();
-                } catch (Exception e) {
-                    LOG.warn("failed to close thrift client", e);
-                }
-            }
+            clientPool.clear();
         }
     }
 
@@ -121,7 +120,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public List<String> getAllDatabases() {
         try (ThriftHMSClient client = getClient()) {
             try {
-                return ugiDoAs(client.client::getAllDatabases);
+                return client.client.getAllDatabases();
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -135,7 +134,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public List<String> getAllTables(String dbName) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                return ugiDoAs(() -> client.client.getAllTables(dbName));
+                return client.client.getAllTables(dbName);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -151,10 +150,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             try {
                 if (db instanceof HiveDatabaseMetadata) {
                     HiveDatabaseMetadata hiveDb = (HiveDatabaseMetadata) db;
-                    ugiDoAs(() -> {
-                        client.client.createDatabase(HiveUtil.toHiveDatabase(hiveDb));
-                        return null;
-                    });
+                    client.client.createDatabase(HiveUtil.toHiveDatabase(hiveDb));
                 }
             } catch (Exception e) {
                 client.setThrowable(e);
@@ -189,16 +185,13 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                             dvs.add(dv);
                         }
                     }
-                    ugiDoAs(() -> {
-                        if (!dvs.isEmpty()) {
-                            // foreignKeys, uniqueConstraints, notNullConstraints, defaultConstraints, checkConstraints
-                            client.client.createTableWithConstraints(hiveTable, null,
-                                    null, null, null, dvs, null);
-                            return null;
-                        }
+                    if (!dvs.isEmpty()) {
+                        // foreignKeys, uniqueConstraints, notNullConstraints, defaultConstraints, checkConstraints
+                        client.client.createTableWithConstraints(hiveTable, null,
+                                null, null, null, dvs, null);
+                    } else {
                         client.client.createTable(hiveTable);
-                        return null;
-                    });
+                    }
                 }
             } catch (Exception e) {
                 client.setThrowable(e);
@@ -213,10 +206,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public void dropDatabase(String dbName) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                ugiDoAs(() -> {
-                    client.client.dropDatabase(dbName);
-                    return null;
-                });
+                client.client.dropDatabase(dbName);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -230,10 +220,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public void dropTable(String dbName, String tblName) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                ugiDoAs(() -> {
-                    client.client.dropTable(dbName, tblName);
-                    return null;
-                });
+                client.client.dropTable(dbName, tblName);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -247,10 +234,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public void truncateTable(String dbName, String tblName, List<String> partitions) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                ugiDoAs(() -> {
-                    client.client.truncateTable(dbName, tblName, partitions);
-                    return null;
-                });
+                client.client.truncateTable(dbName, tblName, partitions);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -264,7 +248,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public boolean tableExists(String dbName, String tblName) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                return ugiDoAs(() -> client.client.tableExists(dbName, tblName));
+                return client.client.tableExists(dbName, tblName);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -282,7 +266,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public List<Partition> listPartitions(String dbName, String tblName) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                return ugiDoAs(() -> client.client.listPartitions(dbName, tblName, MAX_LIST_PARTITION_NUM));
+                return client.client.listPartitions(dbName, tblName, MAX_LIST_PARTITION_NUM);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -298,7 +282,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         short limited = maxListPartitionNum <= Short.MAX_VALUE ? (short) maxListPartitionNum : MAX_LIST_PARTITION_NUM;
         try (ThriftHMSClient client = getClient()) {
             try {
-                return ugiDoAs(() -> client.client.listPartitionNames(dbName, tblName, limited));
+                return client.client.listPartitionNames(dbName, tblName, limited);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -312,7 +296,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public Partition getPartition(String dbName, String tblName, List<String> partitionValues) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                return ugiDoAs(() -> client.client.getPartition(dbName, tblName, partitionValues));
+                return client.client.getPartition(dbName, tblName, partitionValues);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -334,7 +318,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public List<Partition> getPartitions(String dbName, String tblName, List<String> partitionNames) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                return ugiDoAs(() -> client.client.getPartitionsByNames(dbName, tblName, partitionNames));
+                return client.client.getPartitionsByNames(dbName, tblName, partitionNames);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -356,7 +340,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public Database getDatabase(String dbName) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                return ugiDoAs(() -> client.client.getDatabase(dbName));
+                return client.client.getDatabase(dbName);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -373,17 +357,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 DefaultConstraintsRequest req = new DefaultConstraintsRequest();
                 req.setDb_name(dbName);
                 req.setTbl_name(tblName);
-                List<SQLDefaultConstraint> dvcs = ugiDoAs(() -> {
-                    try {
-                        return client.client.getDefaultConstraints(req);
-                    } catch (TApplicationException e) {
-                        if (e.getMessage().contains("Invalid method name: 'get_default_constraints'")) {
-                            // the getDefaultConstraints method only supported on hive3
-                            return ImmutableList.of();
-                        }
-                        throw e;
-                    }
-                });
+                List<SQLDefaultConstraint> dvcs = client.client.getDefaultConstraints(req);
                 for (SQLDefaultConstraint dvc : dvcs) {
                     res.put(dvc.getColumn_name().toLowerCase(Locale.ROOT), dvc.getDefault_value());
                 }
@@ -401,7 +375,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public Table getTable(String dbName, String tblName) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                return ugiDoAs(() -> client.client.getTable(dbName, tblName));
+                return client.client.getTable(dbName, tblName);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -415,7 +389,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public List<FieldSchema> getSchema(String dbName, String tblName) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                return ugiDoAs(() -> client.client.getSchema(dbName, tblName));
+                return client.client.getSchema(dbName, tblName);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -429,7 +403,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public List<ColumnStatisticsObj> getTableColumnStatistics(String dbName, String tblName, List<String> columns) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                return ugiDoAs(() -> client.client.getTableColumnStatistics(dbName, tblName, columns));
+                return client.client.getTableColumnStatistics(dbName, tblName, columns);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -444,7 +418,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             String dbName, String tblName, List<String> partNames, List<String> columns) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                return ugiDoAs(() -> client.client.getPartitionColumnStatistics(dbName, tblName, partNames, columns));
+                return client.client.getPartitionColumnStatistics(dbName, tblName, partNames, columns);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -458,7 +432,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public CurrentNotificationEventId getCurrentNotificationEventId() {
         try (ThriftHMSClient client = getClient()) {
             try {
-                return ugiDoAs(client.client::getCurrentNotificationEventId);
+                return client.client.getCurrentNotificationEventId();
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -477,7 +451,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             throws MetastoreNotificationFetchException {
         try (ThriftHMSClient client = getClient()) {
             try {
-                return ugiDoAs(() -> client.client.getNextNotification(lastEventId, maxEvents, filter));
+                return client.client.getNextNotification(lastEventId, maxEvents, filter);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -494,7 +468,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public long openTxn(String user) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                return ugiDoAs(() -> client.client.openTxn(user));
+                return client.client.openTxn(user);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -508,10 +482,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public void commitTxn(long txnId) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                ugiDoAs(() -> {
-                    client.client.commitTxn(txnId);
-                    return null;
-                });
+                client.client.commitTxn(txnId);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -532,7 +503,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         try (ThriftHMSClient client = getClient()) {
             LockResponse response;
             try {
-                response = ugiDoAs(() -> client.client.lock(request.build()));
+                response = client.client.lock(request.build());
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -561,25 +532,23 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         Map<String, String> conf = new HashMap<>();
         try (ThriftHMSClient client = getClient()) {
             try {
-                return ugiDoAs(() -> {
-                    // Pass currentTxn as 0L to get the recent snapshot of valid transactions in Hive
-                    // Do not pass currentTransactionId instead as
-                    // it will break Hive's listing of delta directories if major compaction
-                    // deletes delta directories for valid transactions that existed at the time transaction is opened
-                    ValidTxnList validTransactions = client.client.getValidTxns();
-                    List<TableValidWriteIds> tableValidWriteIdsList = client.client.getValidWriteIds(
-                            Collections.singletonList(fullTableName), validTransactions.toString());
-                    if (tableValidWriteIdsList.size() != 1) {
-                        throw new Exception("tableValidWriteIdsList's size should be 1");
-                    }
-                    ValidTxnWriteIdList validTxnWriteIdList = TxnUtils.createValidTxnWriteIdList(currentTransactionId,
-                            tableValidWriteIdsList);
-                    ValidWriteIdList writeIdList = validTxnWriteIdList.getTableValidWriteIdList(fullTableName);
+                // Pass currentTxn as 0L to get the recent snapshot of valid transactions in Hive
+                // Do not pass currentTransactionId instead as
+                // it will break Hive's listing of delta directories if major compaction
+                // deletes delta directories for valid transactions that existed at the time transaction is opened
+                ValidTxnList validTransactions = client.client.getValidTxns();
+                List<TableValidWriteIds> tableValidWriteIdsList = client.client.getValidWriteIds(
+                        Collections.singletonList(fullTableName), validTransactions.toString());
+                if (tableValidWriteIdsList.size() != 1) {
+                    throw new Exception("tableValidWriteIdsList's size should be 1");
+                }
+                ValidTxnWriteIdList validTxnWriteIdList = TxnUtils.createValidTxnWriteIdList(currentTransactionId,
+                        tableValidWriteIdsList);
+                ValidWriteIdList writeIdList = validTxnWriteIdList.getTableValidWriteIdList(fullTableName);
 
-                    conf.put(AcidUtil.VALID_TXNS_KEY, validTransactions.writeToString());
-                    conf.put(AcidUtil.VALID_WRITEIDS_KEY, writeIdList.writeToString());
-                    return conf;
-                });
+                conf.put(AcidUtil.VALID_TXNS_KEY, validTransactions.writeToString());
+                conf.put(AcidUtil.VALID_WRITEIDS_KEY, writeIdList.writeToString());
+                return conf;
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -602,7 +571,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     private LockResponse checkLock(long lockId) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                return ugiDoAs(() -> client.client.checkLock(lockId));
+                return client.client.checkLock(lockId);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -639,9 +608,13 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     private class ThriftHMSClient implements AutoCloseable {
         private final IMetaStoreClient client;
         private volatile Throwable throwable;
+        private volatile boolean readyToClose;
+        private String hadoopUserName;
 
-        private ThriftHMSClient(HiveConf hiveConf) throws MetaException {
+        private ThriftHMSClient(String hadoopUserName, String hadoopUserToken, HiveConf hiveConf) throws MetaException {
             String type = hiveConf.get(HMSBaseProperties.HIVE_METASTORE_TYPE);
+            this.hadoopUserName = hadoopUserName;
+            this.readyToClose = false;
             if (HMSBaseProperties.DLF_TYPE.equalsIgnoreCase(type)) {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
                         ProxyMetaStoreClient.class.getName());
@@ -649,8 +622,16 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
                         AWSCatalogMetastoreClient.class.getName());
             } else {
-                client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
-                        HiveMetaStoreClient.class.getName());
+                UserGroupInformation ugi = UserGroupInformation.createRemoteUser(hadoopUserName,
+                        null, hadoopUserToken);
+                client = ugi.doAs((PrivilegedAction<IMetaStoreClient>) () -> {
+                    try {
+                        return RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
+                            HiveMetaStoreClient.class.getName());
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
             }
         }
 
@@ -658,28 +639,66 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             this.throwable = throwable;
         }
 
+        public void setReadyToClose() {
+            readyToClose = true;
+        }
+
         @Override
-        public void close() throws Exception {
+        public void close() {
             synchronized (clientPool) {
-                if (isClosed || throwable != null || clientPool.size() > poolSize) {
-                    client.close();
+                if (isClosed || throwable != null || readyToClose) {
+                    readyToClose = true;
                 } else {
-                    clientPool.offer(this);
+                    clientPool.put(hadoopUserName, this);
+                    priorityQueue.add(Pair.of(hadoopUserName, System.currentTimeMillis()));
+                    if (clientPool.size() > poolSize) {
+                        Pair<String, Long> pair = priorityQueue.poll();
+                        List<ThriftHMSClient> clients = (List<ThriftHMSClient>) clientPool.get(pair.first);
+                        ThriftHMSClient removeClient = clients.remove(clients.size() - 1);
+                        removeClient.setReadyToClose();
+                    }
                 }
+            }
+            if (readyToClose) {
+                client.close();
             }
         }
     }
 
-    private ThriftHMSClient getClient() {
+    private ThriftHMSClient getClient() throws MetaException {
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
+            BDPAuthContext bdpAuthContext = BDPAuthContext.get();
+            Preconditions.checkNotNull(bdpAuthContext, "bdp auth info cannot be null");
+            ThriftHMSClient client = null;
             synchronized (clientPool) {
-                ThriftHMSClient client = clientPool.poll();
-                if (client == null) {
-                    return ugiDoAs(() -> new ThriftHMSClient(hiveConf));
+                try {
+                    client = clientPool.get(bdpAuthContext.getHadoopUserName()).stream()
+                        .findFirst().orElse(null);
+                    if (client != null) {
+                        clientPool.remove(bdpAuthContext.getHadoopUserName(), client);
+                        Iterator<Pair<String, Long>> iterator = priorityQueue.iterator();
+                        while (iterator.hasNext()) {
+                            if (iterator.next().first.equals(bdpAuthContext.getHadoopUserName())) {
+                                iterator.remove();
+                                break;
+                            }
+                        }
+                        client.client.setMetaConf("BEE_SOURCE", bdpAuthContext.getSource());
+                        client.client.setMetaConf("BEE_USER", bdpAuthContext.getErp());
+                        return client;
+                    }
+                    HiveConf conf = new HiveConf(hiveConf);
+                    conf.set("BEE_SOURCE", bdpAuthContext.getSource());
+                    conf.set("BEE_USER", bdpAuthContext.getErp());
+                    client = new ThriftHMSClient(bdpAuthContext.getHadoopUserName(), bdpAuthContext.getUserToken(),
+                        hiveConf);
+                    return client;
+                } catch (Exception e) {
+                    LOG.warn("failed to get hive client", e);
+                    throw new MetaException(e.getMessage());
                 }
-                return client;
             }
         } finally {
             Thread.currentThread().setContextClassLoader(classLoader);
@@ -690,7 +709,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public String getCatalogLocation(String catalogName) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                Catalog catalog = ugiDoAs(() -> client.client.getCatalog(catalogName));
+                Catalog catalog = client.client.getCatalog(catalogName);
                 return catalog.getLocationUri();
             } catch (Exception e) {
                 client.setThrowable(e);
@@ -698,14 +717,6 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             }
         } catch (Exception e) {
             throw new HMSClientException("failed to get location for %s from hms client", e, catalogName);
-        }
-    }
-
-    private <T> T ugiDoAs(PrivilegedExceptionAction<T> action) {
-        try {
-            return executionAuthenticator.execute(action::run);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
         }
     }
 

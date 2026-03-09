@@ -123,7 +123,7 @@ public class SwitchingFileSystem implements FileSystem {
 
     public FileSystem fileSystem(String location) {
         LocationPath path = LocationPath.of(location, storagePropertiesMap);
-        FileSystemCache.FileSystemCacheKey fileSystemCacheKey = new FileSystemCache.FileSystemCacheKey(
+        FileSystemCache.FileSystemCacheKey fileSystemCacheKey = new FileSystemCache.FileSystemCacheKey("",
                 path.getFsIdentifier(), path.getStorageProperties()
         );
         return extMetaCacheMgr.getFsCache().getRemoteFileSystem(fileSystemCacheKey);

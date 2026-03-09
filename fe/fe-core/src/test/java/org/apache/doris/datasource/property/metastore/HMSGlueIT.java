@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.hive.ThriftHMSCachedClient;
 
 import com.google.common.collect.ImmutableMap;
@@ -42,8 +41,7 @@ public class HMSGlueIT {
         System.setProperty("aws.accessKeyId", "");
         System.setProperty("aws.secretKey", "");
         HiveGlueMetaStoreProperties properties = (HiveGlueMetaStoreProperties) MetastoreProperties.create(baseProps);
-        ThriftHMSCachedClient client = new ThriftHMSCachedClient(properties.hiveConf, 1, new ExecutionAuthenticator() {
-        });
+        ThriftHMSCachedClient client = new ThriftHMSCachedClient(properties.hiveConf, 1);
         client.getTable("default", "test_hive_table");
     }
 }

@@ -30,7 +30,9 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TBDPAuthContext;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
 
@@ -147,6 +149,11 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         }
 
         TMetaScanRange tMetaScanRange = new TMetaScanRange();
+        if (BDPAuthContext.get() != null) {
+            BDPAuthContext bdpAuthContext = BDPAuthContext.get();
+            tMetaScanRange.setBdpAuthContext(new TBDPAuthContext(bdpAuthContext.getSource(), bdpAuthContext.getErp(),
+                    bdpAuthContext.getHadoopUserName(), bdpAuthContext.getUserToken()));
+        }
         tMetaScanRange.setMetadataType(TMetadataType.ICEBERG);
         tMetaScanRange.setHadoopProps(hadoopProps);
         tMetaScanRange.setSerializedTable(SerializationUtil.serializeToBase64(sysTable));

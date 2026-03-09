@@ -34,7 +34,9 @@ import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TBDPAuthContext;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
@@ -215,6 +217,11 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
             LOG.debug("getMetaScanRange() start");
         }
         TMetaScanRange metaScanRange = new TMetaScanRange();
+        if (BDPAuthContext.get() != null) {
+            BDPAuthContext bdpAuthContext = BDPAuthContext.get();
+            metaScanRange.setBdpAuthContext(new TBDPAuthContext(bdpAuthContext.getSource(), bdpAuthContext.getErp(),
+                    bdpAuthContext.getHadoopUserName(), bdpAuthContext.getUserToken()));
+        }
         metaScanRange.setMetadataType(TMetadataType.PARTITIONS);
         TPartitionsMetadataParams partitionParam = new TPartitionsMetadataParams();
         partitionParam.setCatalog(catalogName);

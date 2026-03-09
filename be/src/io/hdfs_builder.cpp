@@ -209,6 +209,10 @@ Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_
     if (hdfsParams.__isset.hdfs_conf) {
         // set other conf
         for (const THdfsConf& conf : hdfsParams.hdfs_conf) {
+            if (strcmp(conf.key.c_str(), HADOOP_USER_TOKEN.c_str()) == 0) {
+                hdfsBuilderSetUserToken(builder->get(), conf.value.c_str());
+                continue;
+            }
             builder->set_hdfs_conf(conf.key, conf.value);
             LOG(INFO) << "set hdfs config key: " << conf.key << ", value: " << conf.value;
             if (strcmp(conf.key.c_str(), "hadoop.security.authentication") == 0) {
@@ -238,6 +242,8 @@ Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_
     }
     hdfsBuilderConfSetStr(builder->get(), FALLBACK_TO_SIMPLE_AUTH_ALLOWED.c_str(),
                           TRUE_VALUE.c_str());
+    hdfsBuilderConfSetStr(builder->get(), BEE_COMPUTER.c_str(),
+                          ENGINE_VALUE.c_str());
     return Status::OK();
 }
 

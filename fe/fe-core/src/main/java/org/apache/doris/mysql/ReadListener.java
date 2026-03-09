@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql;
 
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 
@@ -48,6 +49,11 @@ public class ReadListener implements ChannelListener<ConduitStreamSourceChannel>
         // start async query handle in task thread.
         channel.getWorker().execute(() -> {
             ctx.setThreadLocalInfo();
+            if (ctx.getBdpAuthContext() != null) {
+                ctx.getBdpAuthContext().setThreadLocalInfo();
+            } else {
+                BDPAuthContext.clear();
+            }
             try {
                 connectProcessor.processOnce();
                 if (!ctx.isKilled()) {

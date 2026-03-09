@@ -28,7 +28,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
@@ -69,8 +68,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     public HiveMetadataOps(HiveConf hiveConf, HMSExternalCatalog catalog) {
         this(catalog, createCachedClient(hiveConf,
-                Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size),
-                catalog.getExecutionAuthenticator()));
+                Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size)));
     }
 
     @VisibleForTesting
@@ -87,10 +85,9 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         return catalog;
     }
 
-    private static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize,
-                                                      ExecutionAuthenticator executionAuthenticator) {
+    private static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize) {
         Preconditions.checkNotNull(hiveConf, "HiveConf cannot be null");
-        return  new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize, executionAuthenticator);
+        return  new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize);
     }
 
     @Override

@@ -25,19 +25,9 @@ public class HadoopSimpleAuthenticator implements HadoopAuthenticator {
     private static final Logger LOG = LogManager.getLogger(HadoopSimpleAuthenticator.class);
     private final UserGroupInformation ugi;
 
-    public HadoopSimpleAuthenticator(SimpleAuthenticationConfig config) {
-        String hadoopUserName = config.getUsername();
-        if (hadoopUserName == null) {
-            hadoopUserName = "hadoop";
-            config.setUsername(hadoopUserName);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("{} is unset, use default user: hadoop", AuthenticationConfig.HADOOP_USER_NAME);
-            }
-        }
-        ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Login by proxy user, hadoop.username: {}", hadoopUserName);
-        }
+    public HadoopSimpleAuthenticator() {
+        String hadoopUserName = "";
+        ugi = UserGroupInformation.createRemoteUser(hadoopUserName, "", "");
     }
 
     @Override

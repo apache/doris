@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+namespace cpp doris
 namespace java org.apache.doris.thrift
 
 struct TBDPUserInfo {
@@ -27,3 +28,9 @@ struct TBDPUserInfo {
    7: optional string db
 }
 
+struct TBDPAuthContext {
+   1: required string source
+   2: required string erp
+   3: required string hadoopUserName
+   4: required string userToken
+}

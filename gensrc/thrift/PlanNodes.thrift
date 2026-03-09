@@ -24,6 +24,7 @@ include "Opcodes.thrift"
 include "Partitions.thrift"
 include "Descriptors.thrift"
 include "ExternalTableSchema.thrift"
+include "BDPUserInfo.thrift"
 
 enum TPlanNodeType {
   OLAP_SCAN_NODE = 0,
@@ -651,6 +652,7 @@ struct TMetaScanRange {
   14: optional map<string, string> hadoop_props
   15: optional string serialized_table;
   16: optional list<string> serialized_splits;
+  17: optional BDPUserInfo.TBDPAuthContext bdp_auth_context
 }
 
 // Specification of an individual data range which is held in its entirety

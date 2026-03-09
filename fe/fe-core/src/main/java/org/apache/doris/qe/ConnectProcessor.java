@@ -64,6 +64,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.proto.Data;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.CacheAnalyzer;
+import org.apache.doris.thrift.TBDPAuthContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
@@ -669,6 +670,13 @@ public abstract class ConnectProcessor {
         }
 
         ctx.setThreadLocalInfo();
+        if (request.getBdpAuthContext() != null) {
+            TBDPAuthContext tbdpAuthContext = request.getBdpAuthContext();
+            BDPAuthContext bdpAuthContext = new BDPAuthContext(tbdpAuthContext.getErp(), tbdpAuthContext.getSource(),
+                    tbdpAuthContext.getHadoopUserName(), tbdpAuthContext.getUserToken());
+            ctx.setBdpAuthContext(bdpAuthContext);
+            bdpAuthContext.setThreadLocalInfo();
+        }
         StmtExecutor executor = null;
         try {
             // 0 for compatibility.

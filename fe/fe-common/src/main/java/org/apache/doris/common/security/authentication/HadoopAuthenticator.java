@@ -46,7 +46,7 @@ public interface HadoopAuthenticator {
         if (config instanceof KerberosAuthenticationConfig) {
             return new HadoopKerberosAuthenticator((KerberosAuthenticationConfig) config);
         } else {
-            return new HadoopSimpleAuthenticator((SimpleAuthenticationConfig) config);
+            return new HadoopSimpleAuthenticator();
         }
     }
 

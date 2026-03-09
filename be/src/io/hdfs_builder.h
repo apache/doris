@@ -35,6 +35,9 @@ const std::string KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
 const std::string KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
 const std::string HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
 const std::string FALLBACK_TO_SIMPLE_AUTH_ALLOWED = "ipc.client.fallback-to-simple-auth-allowed";
+const std::string HADOOP_USER_TOKEN = "HADOOP_USER_TOKEN";
+const std::string BEE_COMPUTER = "BEE_COMPUTER";
+const std::string ENGINE_VALUE = "Doris";
 const std::string TRUE_VALUE = "true";
 
 class HDFSCommonBuilder {

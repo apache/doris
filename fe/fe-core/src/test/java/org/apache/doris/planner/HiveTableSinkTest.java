@@ -20,7 +20,6 @@ package org.apache.doris.planner;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.PathUtils;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -99,8 +98,7 @@ public class HiveTableSinkTest {
         new MockUp<HMSExternalCatalog>() {
             @Mock
             public HMSCachedClient getClient() {
-                return new ThriftHMSCachedClient(null, 2, new ExecutionAuthenticator() {
-                });
+                return new ThriftHMSCachedClient(null, 2);
             }
         };
 

@@ -39,6 +39,7 @@ import org.apache.doris.datasource.paimon.PaimonMetadataCache;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 
+import com.alibaba.ttl.threadpool.TtlExecutors;
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
@@ -100,27 +101,27 @@ public class ExternalMetaCacheMgr {
     private final DorisExternalMetaCacheMgr dorisExternalMetaCacheMgr;
 
     public ExternalMetaCacheMgr(boolean isCheckpointCatalog) {
-        rowCountRefreshExecutor = newThreadPool(isCheckpointCatalog,
+        rowCountRefreshExecutor = TtlExecutors.getTtlExecutorService(newThreadPool(isCheckpointCatalog,
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
-                "RowCountRefreshExecutor", 0, true);
+                "RowCountRefreshExecutor", 0, true));
 
-        commonRefreshExecutor = newThreadPool(isCheckpointCatalog,
+        commonRefreshExecutor = TtlExecutors.getTtlExecutorService(newThreadPool(isCheckpointCatalog,
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 10000,
-                "CommonRefreshExecutor", 10, true);
+                "CommonRefreshExecutor", 10, true));
 
         // The queue size should be large enough,
         // because there may be thousands of partitions being queried at the same time.
-        fileListingExecutor = newThreadPool(isCheckpointCatalog,
+        fileListingExecutor = TtlExecutors.getTtlExecutorService(newThreadPool(isCheckpointCatalog,
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
-                "FileListingExecutor", 10, true);
+                "FileListingExecutor", 10, true));
 
-        scheduleExecutor = newThreadPool(isCheckpointCatalog,
+        scheduleExecutor = TtlExecutors.getTtlExecutorService(newThreadPool(isCheckpointCatalog,
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
-                "scheduleExecutor", 10, true);
+                "scheduleExecutor", 10, true));
 
         fsCache = new FileSystemCache();
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);

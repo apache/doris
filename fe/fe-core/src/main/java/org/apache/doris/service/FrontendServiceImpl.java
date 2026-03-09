@@ -113,6 +113,7 @@ import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.plsql.metastore.PlsqlPackage;
 import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
 import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectProcessor;
@@ -1142,6 +1143,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             context.getState().setOk();
         }
         ConnectContext.remove();
+        BDPAuthContext.clear();
         clearCallback.run();
         return result;
     }
@@ -2393,6 +2395,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TFetchSchemaTableDataResult fetchSchemaTableData(TFetchSchemaTableDataRequest request) throws TException {
         try {
+            if (request.isSetBdpAuthContext()) {
+                BDPAuthContext bdpAuthContext = new BDPAuthContext(request.getBdpAuthContext());
+                bdpAuthContext.setThreadLocalInfo();
+            }
             if (!request.isSetSchemaTableName()) {
                 return MetadataGenerator.errorResult("Fetch schema table name is not set");
             }
@@ -2406,6 +2412,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (Exception e) {
             LOG.warn("Failed to fetchSchemaTableData", e);
             return MetadataGenerator.errorResult(e.getMessage());
+        } finally {
+            if (request.isSetBdpAuthContext()) {
+                BDPAuthContext.clear();
+            }
         }
     }
 

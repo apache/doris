@@ -35,8 +35,10 @@ import org.apache.doris.fs.operations.HDFSOpParams;
 import org.apache.doris.fs.operations.OpParams;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.qe.BDPAuthContext;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
@@ -47,6 +49,7 @@ import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -60,6 +63,7 @@ import java.nio.ByteBuffer;
 import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.security.PrivilegedAction;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
@@ -141,19 +145,27 @@ public class DFSFileSystem extends RemoteFileSystem {
                 }
                 if (dfsFileSystem == null) {
                     try {
-                        dfsFileSystem = hdfsProperties.getHadoopAuthenticator().doAs(() -> {
+                        BDPAuthContext bdpAuthContext = BDPAuthContext.get();
+                        Preconditions.checkNotNull(bdpAuthContext, "bdp auth info cannot be null");
+                        UserGroupInformation ugi = UserGroupInformation.createRemoteUser(
+                                bdpAuthContext.getHadoopUserName(), null, bdpAuthContext.getUserToken());
+                        dfsFileSystem = ugi.doAs((PrivilegedAction<FileSystem>) () -> {
+                            Configuration originalConf = hdfsProperties.getHadoopStorageConfig();
+                            // Create a copy of the original configuration to avoid modifying global settings
+                            Configuration confCopy = new Configuration(originalConf);
+                            confCopy.set("BEE_SOURCE", bdpAuthContext.getSource());
+                            if (bdpAuthContext.getErp() != null) {
+                                confCopy.set("BEE_USER", bdpAuthContext.getErp());
+                            }
+                            // Disable FileSystem caching to ensure a new instance is created every time
+                            // Reason: We manage the lifecycle of FileSystem instances manually.
+                            // Even if the caller doesn't explicitly close the instance, we will do so when needed.
+                            // However, since Hadoop caches FileSystem instances by default,
+                            // other parts of the system may still be using the same instance.
+                            // If we close the shared instance here, it could break those other users.
+                            // Therefore, we disable the cache to ensure isolated, non-shared instances.
+                            confCopy.setBoolean("fs.hdfs.impl.disable.cache", true);
                             try {
-                                Configuration originalConf = hdfsProperties.getHadoopStorageConfig();
-                                // Create a copy of the original configuration to avoid modifying global settings
-                                Configuration confCopy = new Configuration(originalConf);
-                                // Disable FileSystem caching to ensure a new instance is created every time
-                                // Reason: We manage the lifecycle of FileSystem instances manually.
-                                // Even if the caller doesn't explicitly close the instance, we will do so when needed.
-                                // However, since Hadoop caches FileSystem instances by default,
-                                // other parts of the system may still be using the same instance.
-                                // If we close the shared instance here, it could break those other users.
-                                // Therefore, we disable the cache to ensure isolated, non-shared instances.
-                                confCopy.setBoolean("fs.hdfs.impl.disable.cache", true);
                                 return FileSystem.get(remotePath.toUri(), confCopy);
                             } catch (IOException e) {
                                 throw new RuntimeException(e);
@@ -172,11 +184,11 @@ public class DFSFileSystem extends RemoteFileSystem {
 
     protected RemoteIterator<LocatedFileStatus> getLocatedFiles(boolean recursive,
             FileSystem fileSystem, Path locatedPath) throws IOException {
-        return hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.listFiles(locatedPath, recursive));
+        return fileSystem.listFiles(locatedPath, recursive);
     }
 
     protected FileStatus[] getFileStatuses(Path remotePath, FileSystem fileSystem) throws IOException {
-        return hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.listStatus(remotePath));
+        return fileSystem.listStatus(remotePath);
     }
 
     public static Configuration getHdfsConf(boolean fallbackToSimpleAuth) {
@@ -350,7 +362,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             URI pathUri = URI.create(remotePath);
             Path inputFilePath = new Path(pathUri.getLocation());
             FileSystem fileSystem = nativeFileSystem(inputFilePath);
-            boolean isPathExist = hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.exists(inputFilePath));
+            boolean isPathExist = fileSystem.exists(inputFilePath);
             if (!isPathExist) {
                 return new Status(Status.ErrCode.NOT_FOUND, "remote path does not exist: " + remotePath);
             }
@@ -465,8 +477,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             FileSystem fileSystem = nativeFileSystem(new Path(destPath));
             Path srcfilePath = new Path(srcPathUri.getPath());
             Path destfilePath = new Path(destPathUri.getPath());
-            boolean isRenameSuccess = hdfsProperties.getHadoopAuthenticator().doAs(()
-                    -> fileSystem.rename(srcfilePath, destfilePath));
+            boolean isRenameSuccess = fileSystem.rename(srcfilePath, destfilePath);
             if (!isRenameSuccess) {
                 return new Status(Status.ErrCode.COMMON_ERROR, "failed to rename " + srcPath + " to " + destPath);
             }
@@ -487,7 +498,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             URI pathUri = URI.create(remotePath);
             Path inputFilePath = new Path(pathUri.getLocation());
             FileSystem fileSystem = nativeFileSystem(inputFilePath);
-            hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.delete(inputFilePath, true));
+            fileSystem.delete(inputFilePath, true);
         } catch (UserException e) {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
         } catch (IOException e) {
@@ -513,7 +524,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             URI pathUri = URI.create(remotePath);
             Path pathPattern = new Path(S3Util.extendGlobs(pathUri.getLocation()));
             FileSystem fileSystem = nativeFileSystem(pathPattern);
-            FileStatus[] files = hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.globStatus(pathPattern));
+            FileStatus[] files = fileSystem.globStatus(pathPattern);
             if (files == null) {
                 LOG.info("no files in path " + remotePath);
                 return Status.OK;
@@ -541,7 +552,7 @@ public class DFSFileSystem extends RemoteFileSystem {
         try {
             Path locatedPath = new Path(remotePath);
             FileSystem fileSystem = nativeFileSystem(locatedPath);
-            if (!hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.mkdirs(locatedPath))) {
+            if (!fileSystem.mkdirs(locatedPath)) {
                 LOG.warn("failed to make dir for " + remotePath);
                 return new Status(Status.ErrCode.COMMON_ERROR, "failed to make dir for " + remotePath);
             }
@@ -572,17 +583,17 @@ public class DFSFileSystem extends RemoteFileSystem {
 
     public FileStatus getFileStatus(Path path) throws IOException {
         FileSystem fileSystem = nativeFileSystem(path);
-        return hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.getFileStatus(path));
+        return fileSystem.getFileStatus(path);
     }
 
     public FSDataInputStream openFile(Path path) throws IOException {
         FileSystem fileSystem = nativeFileSystem(path);
-        return hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.open(path));
+        return fileSystem.open(path);
     }
 
     public FSDataOutputStream createFile(Path path, boolean overwrite) throws IOException {
         FileSystem fileSystem = nativeFileSystem(path);
-        return hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.create(path, overwrite));
+        return fileSystem.create(path, overwrite);
     }
 
     @Override

@@ -25,6 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.thrift.FrontendService;
+import org.apache.doris.thrift.TBDPAuthContext;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TMasterOpRequest;
@@ -126,6 +127,11 @@ public class FEOpExecutor {
 
         boolean isReturnToPool = false;
         try {
+            if (BDPAuthContext.get() != null) {
+                BDPAuthContext bdpAuthContext = BDPAuthContext.get();
+                params.setBdpAuthContext(new TBDPAuthContext(bdpAuthContext.getSource(),
+                        bdpAuthContext.getErp(), bdpAuthContext.getHadoopUserName(), bdpAuthContext.getUserToken()));
+            }
             final TMasterOpResult result = client.forward(params);
             isReturnToPool = true;
             return result;

@@ -20,6 +20,7 @@ namespace java org.apache.doris.thrift
 
 include "Status.thrift"
 include "Types.thrift"
+include "BDPUserInfo.thrift"
 include "PaloInternalService.thrift"
 include "PlanNodes.thrift"
 include "Planner.thrift"
@@ -403,12 +404,11 @@ struct TMasterOpRequest {
     31: optional binary prepareExecuteBuffer
     32: optional bool moreResultExists // Server has more result to send
     33: optional map<string, string> connect_attributes
-
     // Reserved for downstream fields `current_roles` and `is_su_user` to keep
     // thrift field ids wire-compatible across maintained branches. Do not reuse these ids.
     34: optional set<string> reserved_field_34
     35: optional bool reserved_field_35
-
+    36: optional BDPUserInfo.TBDPAuthContext bdp_auth_context // used for iam
     // selectdb cloud
     1000: optional string cloud_cluster
     1001: optional bool noAuth;
@@ -917,6 +917,7 @@ struct TFetchSchemaTableDataRequest {
   2: optional TSchemaTableName schema_table_name
   3: optional TMetadataTableRequestParams metada_table_params // used for tvf
   4: optional TSchemaTableRequestParams schema_table_params // used for request db information_schema's table
+  5: optional BDPUserInfo.TBDPAuthContext bdp_auth_context // used for iam 	
 }
 
 struct TFetchSchemaTableDataResult {

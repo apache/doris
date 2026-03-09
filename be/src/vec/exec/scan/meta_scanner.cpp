@@ -249,6 +249,9 @@ Status MetaScanner::_fill_block_with_remote_data(const std::vector<MutableColumn
 Status MetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     VLOG_CRITICAL << "MetaScanner::_fetch_metadata";
     TFetchSchemaTableDataRequest request;
+    if (meta_scan_range.__isset.bdp_auth_context) {
+        request.__set_bdp_auth_context(meta_scan_range.bdp_auth_context);
+    }
     switch (meta_scan_range.metadata_type) {
     case TMetadataType::HUDI:
         RETURN_IF_ERROR(_build_hudi_metadata_request(meta_scan_range, &request));

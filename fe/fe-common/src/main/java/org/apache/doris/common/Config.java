@@ -3892,4 +3892,13 @@ public class Config extends ConfigBase {
                     + "by default"
     })
     public static boolean calc_delete_bitmap_get_versions_waiting_for_pending_txns = true;
+
+    @ConfField(mutable = true, description = {"IAM 渠道来源白名单", "IAM Source Whitelist"})
+    public static String[] iam_source_whitelist = {};
+
+    @ConfField(description = {"默认的渠道来源", "default source"})
+    public static String default_source = "easyolap";
+
+    @ConfField(description = {"是否开启非iam模式", "whether to enable no iam mode"})
+    public static boolean enable_no_iam_mode = false;
 }

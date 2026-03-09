@@ -32,6 +32,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.VariableAnnotation;
+import org.apache.doris.common.util.IAMUtil;
 import org.apache.doris.common.util.SerializationUtils;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.persist.GlobalVarPersistInfo;
@@ -296,19 +297,41 @@ public class VariableMgr {
     //      setVar: variable information that needs to be set
     public static void setVar(SessionVariable sessionVariable, SetVar setVar)
             throws DdlException {
-        VarContext varCtx = getVarContext(setVar.getVariable());
-        if (varCtx == null) {
-            // Check if the variable is in the MySQL compatibility whitelist
-            if (isInMySQLCompatWhitelist(setVar.getVariable())) {
-                // Silently ignore whitelisted variables for MySQL compatibility
-                LOG.debug("Ignoring whitelisted MySQL compatibility variable: {}", setVar.getVariable());
-                return;
+        if (setVar.getVariable().equalsIgnoreCase("erp")) {
+            BDPAuthContext bdpAuthContext = BDPAuthContext.get();
+            Preconditions.checkNotNull(bdpAuthContext, "bdp auth info cannot be null");
+            if (IAMUtil.isSourceInWhitelist(bdpAuthContext.getSource())) {
+                bdpAuthContext.setErp(setVar.getValue().getStringValue());
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_OPERATION_FOR_IAM, setVar.getVariable());
             }
-            ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable(),
-                    findSimilarSessionVarNames(setVar.getVariable()));
+            LOG.info("succeed to set erp, " + bdpAuthContext);
+        } else if (setVar.getVariable().equalsIgnoreCase("hadoop_user_name")) {
+            BDPAuthContext bdpAuthContext = BDPAuthContext.get();
+            Preconditions.checkNotNull(bdpAuthContext, "bdp auth info cannot be null");
+            if (IAMUtil.isSourceInWhitelist(bdpAuthContext.getSource())) {
+                String hadoopUserName = setVar.getValue().getStringValue();
+                bdpAuthContext.setHadoopUserName(hadoopUserName);
+                bdpAuthContext.setUserToken(IAMUtil.getUserTokenByHadoopUserName(hadoopUserName));
+                LOG.info("succeed to set hadoop_user_name, " + bdpAuthContext);
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_OPERATION_FOR_IAM, setVar.getVariable());
+            }
+        } else {
+            VarContext varCtx = getVarContext(setVar.getVariable());
+            if (varCtx == null) {
+                // Check if the variable is in the MySQL compatibility whitelist
+                if (isInMySQLCompatWhitelist(setVar.getVariable())) {
+                    // Silently ignore whitelisted variables for MySQL compatibility
+                    LOG.debug("Ignoring whitelisted MySQL compatibility variable: {}", setVar.getVariable());
+                    return;
+                }
+                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable(),
+                        findSimilarSessionVarNames(setVar.getVariable()));
+            }
+            checkUpdate(setVar, varCtx.getFlag());
+            setVarInternal(sessionVariable, setVar, varCtx);
         }
-        checkUpdate(setVar, varCtx.getFlag());
-        setVarInternal(sessionVariable, setVar, varCtx);
     }
 
     /**
