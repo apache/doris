@@ -67,8 +67,6 @@
 
 namespace doris {
 
-using Int32;
-
 void block_to_pb(
         const Block& block, PBlock* pblock,
         segment_v2::CompressionTypePB compression_type = segment_v2::CompressionTypePB::SNAPPY) {
@@ -84,8 +82,7 @@ void block_to_pb(
     // EXPECT_TRUE(uncompressed_bytes >= compressed_bytes);
     EXPECT_EQ(compressed_bytes, pblock->column_values().size());
 
-    const ColumnWithTypeAndName& type_and_name =
-            block.get_columns_with_type_and_name()[0];
+    const ColumnWithTypeAndName& type_and_name = block.get_columns_with_type_and_name()[0];
     EXPECT_EQ(type_and_name.name, pblock->column_metas()[0].name());
 }
 
@@ -102,12 +99,10 @@ void fill_block_with_array_int(Block& block) {
         data_column->insert_data((const char*)(&v), 0);
     }
 
-    auto column_array_ptr =
-            ColumnArray::create(std::move(data_column), std::move(off_column));
+    auto column_array_ptr = ColumnArray::create(std::move(data_column), std::move(off_column));
     DataTypePtr nested_type(std::make_shared<DataTypeInt32>());
     DataTypePtr array_type(std::make_shared<DataTypeArray>(nested_type));
-    ColumnWithTypeAndName test_array_int(std::move(column_array_ptr), array_type,
-                                                     "test_array_int");
+    ColumnWithTypeAndName test_array_int(std::move(column_array_ptr), array_type, "test_array_int");
     block.insert(test_array_int);
 }
 
@@ -124,12 +119,11 @@ void fill_block_with_array_string(Block& block) {
         data_column->insert_data(v.data(), v.size());
     }
 
-    auto column_array_ptr =
-            ColumnArray::create(std::move(data_column), std::move(off_column));
+    auto column_array_ptr = ColumnArray::create(std::move(data_column), std::move(off_column));
     DataTypePtr nested_type(std::make_shared<DataTypeString>());
     DataTypePtr array_type(std::make_shared<DataTypeArray>(nested_type));
     ColumnWithTypeAndName test_array_string(std::move(column_array_ptr), array_type,
-                                                        "test_array_string");
+                                            "test_array_string");
     block.insert(test_array_string);
 }
 
@@ -165,8 +159,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
             strcol->insert_data(is.c_str(), is.size());
         }
         DataTypePtr data_type(std::make_shared<DataTypeString>());
-        ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type,
-                                                        "test_string");
+        ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type, "test_string");
         Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock, compression_type);
@@ -190,8 +183,8 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
             __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
             data.push_back(value);
         }
-        ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
-                                                        decimal_data_type, "test_decimal");
+        ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(), decimal_data_type,
+                                            "test_decimal");
         Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock, compression_type);
@@ -210,8 +203,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
     {
         DataTypePtr bitmap_data_type(std::make_shared<DataTypeBitMap>());
         auto bitmap_column = bitmap_data_type->create_column();
-        std::vector<BitmapValue>& container =
-                ((ColumnBitmap*)bitmap_column.get())->get_data();
+        std::vector<BitmapValue>& container = ((ColumnBitmap*)bitmap_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             BitmapValue bv;
             for (int j = 0; j <= i; ++j) {
@@ -220,7 +212,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
             container.push_back(bv);
         }
         ColumnWithTypeAndName type_and_name(bitmap_column->get_ptr(), bitmap_data_type,
-                                                        "test_bitmap");
+                                            "test_bitmap");
         Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock, compression_type);
@@ -238,12 +230,11 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
     // nullable string
     {
         DataTypePtr string_data_type(std::make_shared<DataTypeString>());
-        DataTypePtr nullable_data_type(
-                std::make_shared<DataTypeNullable>(string_data_type));
+        DataTypePtr nullable_data_type(std::make_shared<DataTypeNullable>(string_data_type));
         auto nullable_column = nullable_data_type->create_column();
         ((ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
-        ColumnWithTypeAndName type_and_name(nullable_column->get_ptr(),
-                                                        nullable_data_type, "test_nullable");
+        ColumnWithTypeAndName type_and_name(nullable_column->get_ptr(), nullable_data_type,
+                                            "test_nullable");
         Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock, compression_type);
@@ -261,12 +252,11 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
     // nullable decimal
     {
         DataTypePtr decimal_data_type(doris::create_decimal(27, 9, true));
-        DataTypePtr nullable_data_type(
-                std::make_shared<DataTypeNullable>(decimal_data_type));
+        DataTypePtr nullable_data_type(std::make_shared<DataTypeNullable>(decimal_data_type));
         auto nullable_column = nullable_data_type->create_column();
         ((ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
-        ColumnWithTypeAndName type_and_name(
-                nullable_column->get_ptr(), nullable_data_type, "test_nullable_decimal");
+        ColumnWithTypeAndName type_and_name(nullable_column->get_ptr(), nullable_data_type,
+                                            "test_nullable_decimal");
         Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock, compression_type);
@@ -292,8 +282,8 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
             mutable_nullable_vector->insert(Field::create_field<TYPE_INT>(i));
         }
         auto data_type = make_nullable(std::make_shared<DataTypeInt32>());
-        ColumnWithTypeAndName type_and_name(mutable_nullable_vector->get_ptr(),
-                                                        data_type, "test_nullable_int32");
+        ColumnWithTypeAndName type_and_name(mutable_nullable_vector->get_ptr(), data_type,
+                                            "test_nullable_int32");
         Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock, compression_type);
@@ -337,8 +327,7 @@ void serialize_and_deserialize_test_one() {
         data.push_back(111);
         auto const_column = ColumnConst::create(vec->get_ptr(), 1);
         DataTypePtr data_type(std::make_shared<DataTypeInt32>());
-        ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type,
-                                                        "test_int");
+        ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type, "test_int");
         Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
@@ -365,8 +354,7 @@ void serialize_and_deserialize_test_int() {
         data.push_back(111);
         auto const_column = ColumnConst::create(vec->get_ptr(), 10);
         DataTypePtr data_type(std::make_shared<DataTypeInt32>());
-        ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type,
-                                                        "test_int");
+        ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type, "test_int");
         Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
@@ -418,8 +406,7 @@ void serialize_and_deserialize_test_long() {
         data.push_back(111);
         auto const_column = ColumnConst::create(vec->get_ptr(), 10);
         DataTypePtr data_type(std::make_shared<DataTypeInt64>());
-        ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type,
-                                                        "test_int");
+        ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type, "test_int");
         Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
@@ -471,8 +458,7 @@ void serialize_and_deserialize_test_string() {
         strcol->insert_data(val.c_str(), val.size());
         auto const_column = ColumnConst::create(strcol->get_ptr(), 10);
         DataTypePtr data_type(std::make_shared<DataTypeString>());
-        ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type,
-                                                        "test_string");
+        ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type, "test_string");
         Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::SNAPPY);
@@ -498,8 +484,7 @@ void serialize_and_deserialize_test_string() {
             strcol->insert_data(is.c_str(), is.size());
         }
         DataTypePtr data_type(std::make_shared<DataTypeString>());
-        ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type,
-                                                        "test_string");
+        ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type, "test_string");
         Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::SNAPPY);
@@ -529,7 +514,7 @@ void serialize_and_deserialize_test_nullable() {
         DataTypePtr data_type(std::make_shared<DataTypeInt32>());
         auto nullable_data_type = make_nullable(data_type);
         ColumnWithTypeAndName type_and_name(const_column->get_ptr(), nullable_data_type,
-                                                        "test_int");
+                                            "test_int");
         Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
@@ -555,8 +540,8 @@ void serialize_and_deserialize_test_nullable() {
             data.push_back(i);
         }
         DataTypePtr data_type(std::make_shared<DataTypeInt32>());
-        ColumnWithTypeAndName type_and_name(make_nullable(vec->get_ptr()),
-                                                        make_nullable(data_type), "test_int");
+        ColumnWithTypeAndName type_and_name(make_nullable(vec->get_ptr()), make_nullable(data_type),
+                                            "test_int");
         Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
@@ -582,7 +567,7 @@ void serialize_and_deserialize_test_nullable() {
         auto const_column = ColumnConst::create(strcol->get_ptr(), 10);
         DataTypePtr data_type(std::make_shared<DataTypeString>());
         ColumnWithTypeAndName type_and_name(make_nullable(const_column->get_ptr()),
-                                                        make_nullable(data_type), "test_string");
+                                            make_nullable(data_type), "test_string");
         Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::SNAPPY);
@@ -606,7 +591,7 @@ void serialize_and_deserialize_test_nullable() {
         }
         DataTypePtr data_type(std::make_shared<DataTypeString>());
         ColumnWithTypeAndName type_and_name(make_nullable(strcol->get_ptr()),
-                                                        make_nullable(data_type), "test_string");
+                                            make_nullable(data_type), "test_string");
         Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::SNAPPY);
@@ -633,8 +618,7 @@ void serialize_and_deserialize_test_decimal() {
         vec->insert_value(value);
         auto const_column = ColumnConst::create(vec->get_ptr(), 10);
         DataTypePtr data_type(std::make_shared<DataTypeDecimal32>(6, 3));
-        ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type,
-                                                        "test_int");
+        ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type, "test_int");
         Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
@@ -684,8 +668,7 @@ void serialize_and_deserialize_test_bitmap() {
     {
         DataTypePtr bitmap_data_type(std::make_shared<DataTypeBitMap>());
         auto bitmap_column = bitmap_data_type->create_column();
-        std::vector<BitmapValue>& container =
-                ((ColumnBitmap*)bitmap_column.get())->get_data();
+        std::vector<BitmapValue>& container = ((ColumnBitmap*)bitmap_column.get())->get_data();
         BitmapValue bv;
         for (int j = 0; j <= 2; ++j) {
             bv.add(j);
@@ -694,7 +677,7 @@ void serialize_and_deserialize_test_bitmap() {
         auto const_column = ColumnConst::create(bitmap_column->get_ptr(), 10);
 
         ColumnWithTypeAndName type_and_name(const_column->get_ptr(), bitmap_data_type,
-                                                        "test_bitmap");
+                                            "test_bitmap");
         Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
@@ -716,8 +699,7 @@ void serialize_and_deserialize_test_bitmap() {
     {
         DataTypePtr bitmap_data_type(std::make_shared<DataTypeBitMap>());
         auto bitmap_column = bitmap_data_type->create_column();
-        std::vector<BitmapValue>& container =
-                ((ColumnBitmap*)bitmap_column.get())->get_data();
+        std::vector<BitmapValue>& container = ((ColumnBitmap*)bitmap_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             BitmapValue bv;
             for (int j = 0; j <= i; ++j) {
@@ -726,7 +708,7 @@ void serialize_and_deserialize_test_bitmap() {
             container.push_back(bv);
         }
         ColumnWithTypeAndName type_and_name(bitmap_column->get_ptr(), bitmap_data_type,
-                                                        "test_bitmap");
+                                            "test_bitmap");
         Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock, segment_v2::CompressionTypePB::LZ4);
@@ -805,7 +787,7 @@ TEST(BlockTest, dump_data) {
         decimal_data.push_back(value);
     }
     ColumnWithTypeAndName test_decimal(decimal_column->get_ptr(), decimal_data_type,
-                                                   "test_decimal");
+                                       "test_decimal");
 
     auto column_vector_int32 = ColumnInt32::create();
     auto column_nullable_vector = make_nullable(std::move(column_vector_int32));
@@ -814,8 +796,8 @@ TEST(BlockTest, dump_data) {
         mutable_nullable_vector->insert(Field::create_field<TYPE_INT>(i));
     }
     auto nint32_type = make_nullable(std::make_shared<DataTypeInt32>());
-    ColumnWithTypeAndName test_nullable_int32(mutable_nullable_vector->get_ptr(),
-                                                          nint32_type, "test_nullable_int32");
+    ColumnWithTypeAndName test_nullable_int32(mutable_nullable_vector->get_ptr(), nint32_type,
+                                              "test_nullable_int32");
 
     auto column_vector_date = ColumnDate::create();
     auto& date_data = column_vector_date->get_data();
@@ -825,8 +807,7 @@ TEST(BlockTest, dump_data) {
         date_data.push_back(value);
     }
     DataTypePtr date_type(std::make_shared<DataTypeDate>());
-    ColumnWithTypeAndName test_date(column_vector_date->get_ptr(), date_type,
-                                                "test_date");
+    ColumnWithTypeAndName test_date(column_vector_date->get_ptr(), date_type, "test_date");
 
     auto column_vector_datetime = ColumnDateTime::create();
     auto& datetime_data = column_vector_datetime->get_data();
@@ -836,8 +817,8 @@ TEST(BlockTest, dump_data) {
         datetime_data.push_back(value);
     }
     DataTypePtr datetime_type(std::make_shared<DataTypeDateTime>());
-    ColumnWithTypeAndName test_datetime(column_vector_datetime->get_ptr(),
-                                                    datetime_type, "test_datetime");
+    ColumnWithTypeAndName test_datetime(column_vector_datetime->get_ptr(), datetime_type,
+                                        "test_datetime");
 
     auto column_vector_date_v2 = ColumnDateV2::create();
     auto& date_v2_data = column_vector_date_v2->get_data();
@@ -848,10 +829,10 @@ TEST(BlockTest, dump_data) {
     }
     DataTypePtr date_v2_type(std::make_shared<DataTypeDateV2>());
     ColumnWithTypeAndName test_date_v2(column_vector_date_v2->get_ptr(), date_v2_type,
-                                                   "test_datev2");
+                                       "test_datev2");
 
-    Block block({test_int, test_string, test_decimal, test_nullable_int32, test_date,
-                             test_datetime, test_date_v2});
+    Block block({test_int, test_string, test_decimal, test_nullable_int32, test_date, test_datetime,
+                 test_date_v2});
     EXPECT_GT(block.dump_data().size(), 1);
     EXPECT_GT(block.dump_data_json().size(), 1);
 
@@ -954,10 +935,8 @@ TEST(BlockTest, clear_blocks) {
         moodycamel::ConcurrentQueue<std::unique_ptr<Block>> queue;
 
         RuntimeProfile::Counter counter(TUnit::BYTES);
-        auto block1 = std::make_unique<Block>(
-                ColumnHelper::create_block<DataTypeInt32>({1, 2, 3}));
-        auto block2 = std::make_unique<Block>(
-                ColumnHelper::create_block<DataTypeInt32>({4, 5, 6}));
+        auto block1 = std::make_unique<Block>(ColumnHelper::create_block<DataTypeInt32>({1, 2, 3}));
+        auto block2 = std::make_unique<Block>(ColumnHelper::create_block<DataTypeInt32>({4, 5, 6}));
 
         counter.update(block1->allocated_bytes());
         counter.update(block2->allocated_bytes());
@@ -976,8 +955,7 @@ TEST(BlockTest, clear_blocks) {
 
 TEST(BlockTest, replace_by_position) {
     auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
-    block.insert(0, ColumnHelper::create_column_with_name<DataTypeString>(
-                            {"a", "b", "c"}));
+    block.insert(0, ColumnHelper::create_column_with_name<DataTypeString>({"a", "b", "c"}));
 
     auto col = ColumnHelper::create_column<DataTypeInt32>({4, 5, 6});
     block.replace_by_position(0, std::move(col));
@@ -998,8 +976,7 @@ TEST(BlockTest, compare_at) {
     ret = block.compare_at(2, 1, block, -1);
     ASSERT_GT(ret, 0);
 
-    block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>(
-            {2, 2, 1}));
+    block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({2, 2, 1}));
     std::vector<uint32_t> compare_columns {1, 0};
 
     ret = block.compare_at(0, 1, &compare_columns, block, -1);
@@ -1018,8 +995,7 @@ TEST(BlockTest, dump) {
     types = block.dump_types();
     ASSERT_TRUE(types.find("String") != std::string::npos);
 
-    block.insert(
-            ColumnHelper::create_column_with_name<DataTypeFloat64>({}));
+    block.insert(ColumnHelper::create_column_with_name<DataTypeFloat64>({}));
     types = block.dump_types();
     ASSERT_TRUE(types.find("DOUBLE") != std::string::npos);
 
@@ -1033,8 +1009,7 @@ TEST(BlockTest, dump) {
     ASSERT_TRUE(dumped_names.find("column") != std::string::npos);
 
     block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
-    block.insert(ColumnHelper::create_column_with_name<DataTypeString>(
-            {"a", "b", "c"}));
+    block.insert(ColumnHelper::create_column_with_name<DataTypeString>({"a", "b", "c"}));
 
     auto dumped_line = block.dump_one_line(1, 2);
     ASSERT_EQ(dumped_line, "2 b");
@@ -1043,8 +1018,7 @@ TEST(BlockTest, dump) {
 TEST(BlockTest, merge_impl_ignore_overflow) {
     auto block = ColumnHelper::create_block<DataTypeInt32>({});
     block.insert(ColumnHelper::create_column_with_name<DataTypeString>({}));
-    block.insert(
-            ColumnHelper::create_column_with_name<DataTypeFloat64>({}));
+    block.insert(ColumnHelper::create_column_with_name<DataTypeFloat64>({}));
     auto block2 = ColumnHelper::create_block<DataTypeInt32>({});
 
     auto mutable_block = MutableBlock::build_mutable_block(&block);
@@ -1053,10 +1027,8 @@ TEST(BlockTest, merge_impl_ignore_overflow) {
     ASSERT_FALSE(st.ok());
 
     block2 = ColumnHelper::create_block<DataTypeInt32>({});
-    block2.insert(
-            ColumnHelper::create_column_with_name<DataTypeString>({}));
-    block2.insert(
-            ColumnHelper::create_column_with_name<DataTypeFloat32>({}));
+    block2.insert(ColumnHelper::create_column_with_name<DataTypeString>({}));
+    block2.insert(ColumnHelper::create_column_with_name<DataTypeFloat32>({}));
 
     EXPECT_ANY_THROW(st = mutable_block.merge_impl_ignore_overflow(std::move(block2)));
 }
@@ -1064,9 +1036,7 @@ TEST(BlockTest, merge_impl_ignore_overflow) {
 TEST(BlockTest, merge_impl) {
     auto block = ColumnHelper::create_block<DataTypeInt32>({});
     block.insert(ColumnHelper::create_column_with_name<DataTypeString>({}));
-    block.insert(
-            ColumnHelper::create_nullable_column_with_name<DataTypeFloat64>(
-                    {1.0}, {0}));
+    block.insert(ColumnHelper::create_nullable_column_with_name<DataTypeFloat64>({1.0}, {0}));
 
     block.get_by_position(2).column = nullptr;
 
@@ -1076,17 +1046,14 @@ TEST(BlockTest, merge_impl) {
     ASSERT_TRUE(st.ok()) << st.to_string();
 
     auto block2 = ColumnHelper::create_block<DataTypeInt32>({});
-    block2.insert(
-            ColumnHelper::create_column_with_name<DataTypeString>({}));
+    block2.insert(ColumnHelper::create_column_with_name<DataTypeString>({}));
 
     st = mutable_block.merge_impl(std::move(block2));
     ASSERT_FALSE(st);
 
     block2 = ColumnHelper::create_block<DataTypeInt32>({1});
-    block2.insert(
-            ColumnHelper::create_column_with_name<DataTypeString>({"a"}));
-    block2.insert(
-            ColumnHelper::create_column_with_name<DataTypeFloat64>({}));
+    block2.insert(ColumnHelper::create_column_with_name<DataTypeString>({"a"}));
+    block2.insert(ColumnHelper::create_column_with_name<DataTypeFloat64>({}));
 
     EXPECT_ANY_THROW(st = mutable_block.merge_impl(std::move(block2)));
 }
@@ -1123,8 +1090,7 @@ TEST(BlockTest, ctor) {
 TEST(BlockTest, insert_erase) {
     auto block = ColumnHelper::create_block<DataTypeInt32>({});
 
-    auto column_with_name =
-            ColumnHelper::create_column_with_name<DataTypeString>({});
+    auto column_with_name = ColumnHelper::create_column_with_name<DataTypeString>({});
     EXPECT_ANY_THROW(block.insert(2, column_with_name));
     block.insert(0, column_with_name);
 
@@ -1133,8 +1099,7 @@ TEST(BlockTest, insert_erase) {
 
     EXPECT_ANY_THROW(block.insert(3, std::move(column_with_name)));
 
-    column_with_name =
-            ColumnHelper::create_column_with_name<DataTypeFloat64>({});
+    column_with_name = ColumnHelper::create_column_with_name<DataTypeFloat64>({});
     block.insert(0, std::move(column_with_name));
     ASSERT_EQ(block.columns(), 3);
     ASSERT_EQ(block.get_by_position(0).type->get_primitive_type(), TYPE_DOUBLE);
@@ -1148,8 +1113,7 @@ TEST(BlockTest, insert_erase) {
     block.erase_tail(0);
     ASSERT_EQ(block.columns(), 0);
 
-    column_with_name =
-            ColumnHelper::create_column_with_name<DataTypeString>({});
+    column_with_name = ColumnHelper::create_column_with_name<DataTypeString>({});
     block.insert(0, column_with_name);
     ASSERT_EQ(block.columns(), 1);
 
@@ -1180,8 +1144,7 @@ TEST(BlockTest, check_number_of_rows) {
     EXPECT_NO_THROW(block.check_number_of_rows(true));
     EXPECT_ANY_THROW(block.check_number_of_rows(false));
 
-    block.insert(
-            ColumnHelper::create_column_with_name<DataTypeString>({"abc"}));
+    block.insert(ColumnHelper::create_column_with_name<DataTypeString>({"abc"}));
     EXPECT_ANY_THROW(block.check_number_of_rows(true));
 
     EXPECT_ANY_THROW(block.columns_bytes());
@@ -1191,8 +1154,7 @@ TEST(BlockTest, check_number_of_rows) {
 
 TEST(BlockTest, clear_column_mem_not_keep) {
     auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
-    block.insert(ColumnHelper::create_column_with_name<DataTypeString>(
-            {"abc", "efg", "hij"}));
+    block.insert(ColumnHelper::create_column_with_name<DataTypeString>({"abc", "efg", "hij"}));
 
     std::vector<bool> column_keep_flags {false, true};
 
@@ -1210,23 +1172,19 @@ TEST(BlockTest, filter) {
     {
         // normal filter
         auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
-        block.insert(ColumnHelper::create_column_with_name<DataTypeString>(
-                {"abc", "efg", "hij"}));
+        block.insert(ColumnHelper::create_column_with_name<DataTypeString>({"abc", "efg", "hij"}));
 
-        block.insert(ColumnHelper::create_column_with_name<DataTypeUInt8>(
-                {1, 1, 1}));
+        block.insert(ColumnHelper::create_column_with_name<DataTypeUInt8>({1, 1, 1}));
         auto st = Block::filter_block(&block, {0, 1}, 2, 2);
         ASSERT_TRUE(st.ok()) << st.to_string();
         ASSERT_EQ(block.rows(), 3);
 
-        block.insert(ColumnHelper::create_column_with_name<DataTypeUInt8>(
-                {0, 1, 0}));
+        block.insert(ColumnHelper::create_column_with_name<DataTypeUInt8>({0, 1, 0}));
         st = Block::filter_block(&block, {0, 1}, 2, 2);
         ASSERT_TRUE(st.ok()) << st.to_string();
         ASSERT_EQ(block.rows(), 1);
 
-        block.insert(
-                ColumnHelper::create_column_with_name<DataTypeUInt8>({0}));
+        block.insert(ColumnHelper::create_column_with_name<DataTypeUInt8>({0}));
         auto block2 = block;
         st = Block::filter_block(&block2, {0, 1}, 2, 2);
         ASSERT_TRUE(st.ok()) << st.to_string();
@@ -1236,11 +1194,10 @@ TEST(BlockTest, filter) {
     {
         // nullable filter column
         auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
-        block.insert(ColumnHelper::create_column_with_name<DataTypeString>(
-                {"abc", "efg", "hij"}));
+        block.insert(ColumnHelper::create_column_with_name<DataTypeString>({"abc", "efg", "hij"}));
 
-        block.insert(ColumnHelper::create_nullable_column_with_name<
-                     DataTypeUInt8>({1, 1, 1}, {0, 1, 0}));
+        block.insert(ColumnHelper::create_nullable_column_with_name<DataTypeUInt8>({1, 1, 1},
+                                                                                   {0, 1, 0}));
         auto st = Block::filter_block(&block, {0, 1}, 2, 2);
         ASSERT_TRUE(st.ok()) << st.to_string();
         ASSERT_EQ(block.rows(), 2);
@@ -1249,8 +1206,7 @@ TEST(BlockTest, filter) {
     {
         // const filter column
         auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
-        block.insert(ColumnHelper::create_column_with_name<DataTypeString>(
-                {"abc", "efg", "hij"}));
+        block.insert(ColumnHelper::create_column_with_name<DataTypeString>({"abc", "efg", "hij"}));
 
         block.insert({ColumnConst::create(ColumnUInt8::create(1, 1), 3),
                       std::make_shared<DataTypeUInt8>(), "filter"});
@@ -1268,8 +1224,7 @@ TEST(BlockTest, filter) {
     {
         // append_to_block_by_selector
         auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
-        block.insert(ColumnHelper::create_column_with_name<DataTypeString>(
-                {"abc", "efg", "hij"}));
+        block.insert(ColumnHelper::create_column_with_name<DataTypeString>({"abc", "efg", "hij"}));
 
         IColumn::Selector selector(2);
         selector[0] = 0;
@@ -1286,8 +1241,7 @@ TEST(BlockTest, filter) {
 
 TEST(BlockTest, others) {
     auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
-    block.insert(ColumnHelper::create_column_with_name<DataTypeString>(
-            {"abc", "efg", "hij"}));
+    block.insert(ColumnHelper::create_column_with_name<DataTypeString>({"abc", "efg", "hij"}));
 
     block.shrink_char_type_column_suffix_zero({1, 2});
 
@@ -1297,8 +1251,7 @@ TEST(BlockTest, others) {
     auto hash_value = hash.get64();
     ASSERT_EQ(hash_value, 15311230698310402164ULL);
 
-    auto column = ColumnHelper::create_column<DataTypeString>(
-            {"lmn", "opq", "rst"});
+    auto column = ColumnHelper::create_column<DataTypeString>({"lmn", "opq", "rst"});
 
     block.replace_by_position(1, std::move(column));
     SipHash hash2;
