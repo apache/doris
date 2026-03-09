@@ -20,7 +20,8 @@
 
 #if defined(__ELF__) && !defined(__FreeBSD__)
 
-#include <common/symbol_index.h>
+#include "common/symbol_index.h"
+
 #include <link.h>
 #include <pdqsort.h>
 
@@ -30,7 +31,7 @@
 #include <optional>
 
 #include "common/stack_trace.h"
-#include "vec/common/hex.h"
+#include "exec/common/hex.h"
 
 /**
 
@@ -412,7 +413,7 @@ void collectSymbolsFromELF(dl_phdr_info* info, std::vector<SymbolIndex::Symbol>&
 
         char* pos = build_id_hex.data();
         for (auto c : build_id) {
-            vectorized::write_hex_byte_lowercase(c, pos);
+            write_hex_byte_lowercase(c, pos);
             pos += 2;
         }
 
@@ -532,7 +533,7 @@ std::string SymbolIndex::getBuildIDHex() const {
 
     char* pos = build_id_hex.data();
     for (auto c : build_id_binary) {
-        vectorized::write_hex_byte_uppercase(c, pos);
+        write_hex_byte_uppercase(c, pos);
         pos += 2;
     }
 

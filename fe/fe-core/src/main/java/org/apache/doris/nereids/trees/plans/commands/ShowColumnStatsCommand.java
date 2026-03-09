@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -277,8 +279,10 @@ public class ShowColumnStatsCommand extends ShowCommand {
             row.add(String.valueOf(p.second.numNulls));
             row.add(String.valueOf(p.second.dataSize));
             row.add(String.valueOf(p.second.avgSizeByte));
-            row.add(String.valueOf(p.second.minExpr == null ? "N/A" : p.second.minExpr.toSql()));
-            row.add(String.valueOf(p.second.maxExpr == null ? "N/A" : p.second.maxExpr.toSql()));
+            row.add(String.valueOf(p.second.minExpr == null ? "N/A"
+                    : p.second.minExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)));
+            row.add(String.valueOf(p.second.maxExpr == null ? "N/A"
+                    : p.second.maxExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)));
             ColStatsMeta colStatsMeta = analysisManager.findColStatsMeta(table.getId(), p.first.first, p.first.second);
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.analysisMethod));
             row.add(String.valueOf(colStatsMeta == null ? "N/A" : colStatsMeta.analysisType));
@@ -351,8 +355,10 @@ public class ShowColumnStatsCommand extends ShowCommand {
             row.add(String.valueOf(value.count)); // count
             row.add(String.valueOf(value.ndv.estimateCardinality())); // ndv
             row.add(String.valueOf(value.numNulls)); // num_null
-            row.add(String.valueOf(value.minExpr == null ? "N/A" : value.minExpr.toSql())); // min
-            row.add(String.valueOf(value.maxExpr == null ? "N/A" : value.maxExpr.toSql())); // max
+            row.add(String.valueOf(value.minExpr == null ? "N/A"
+                    : value.minExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE))); // min
+            row.add(String.valueOf(value.maxExpr == null ? "N/A"
+                    : value.maxExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE))); // max
             row.add(String.valueOf(value.dataSize)); // data_size
             row.add(value.updatedTime); // updated_time
             row.add("N/A"); // update_rows

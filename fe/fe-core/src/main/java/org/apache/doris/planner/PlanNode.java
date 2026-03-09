@@ -22,9 +22,11 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.Id;
@@ -633,7 +635,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
             if (i > 0) {
                 output.append(", ");
             }
-            output.append(exprs.get(i).toSql());
+            output.append(exprs.get(i).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
         }
         return output.toString();
     }

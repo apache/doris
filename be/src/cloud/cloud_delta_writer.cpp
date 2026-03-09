@@ -21,7 +21,7 @@
 #include "cloud/cloud_rowset_builder.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
-#include "olap/delta_writer.h"
+#include "load/delta_writer/delta_writer.h"
 #include "runtime/thread_context.h"
 
 namespace doris {
@@ -64,8 +64,7 @@ Status CloudDeltaWriter::batch_init(std::vector<CloudDeltaWriter*> writers) {
     return cloud::bthread_fork_join(tasks, 10);
 }
 
-Status CloudDeltaWriter::write(const vectorized::Block* block,
-                               const DorisVector<uint32_t>& row_idxs) {
+Status CloudDeltaWriter::write(const Block* block, const DorisVector<uint32_t>& row_idxs) {
     if (row_idxs.empty()) [[unlikely]] {
         return Status::OK();
     }

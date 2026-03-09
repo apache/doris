@@ -21,6 +21,8 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.thrift.TDataPartition;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
@@ -103,7 +105,7 @@ public class DataPartition {
         if (!partitionExprs.isEmpty()) {
             List<String> strings = Lists.newArrayList();
             for (Expr expr : partitionExprs) {
-                strings.add(expr.toSql());
+                strings.add(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
             str.append(": ").append(Joiner.on(", ").join(strings));
         }

@@ -310,33 +310,11 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)) {
-            long groupCommitIntervalMs;
-            String groupCommitIntervalMsStr = properties.get(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
-            try {
-                groupCommitIntervalMs = Long.parseLong(groupCommitIntervalMsStr);
-                if (groupCommitIntervalMs < 0) {
-                    throw new AnalysisException("group_commit_interval_ms can not be less than 0:"
-                            + groupCommitIntervalMsStr);
-                }
-            } catch (NumberFormatException e) {
-                throw new AnalysisException("Invalid group_commit_interval_ms format: "
-                        + groupCommitIntervalMsStr);
-            }
+            PropertyAnalyzer.analyzeGroupCommitIntervalMs(properties, false);
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)) {
-            long groupCommitDataBytes;
-            String groupCommitDataBytesStr = properties.get(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES);
-            try {
-                groupCommitDataBytes = Long.parseLong(groupCommitDataBytesStr);
-                if (groupCommitDataBytes < 0) {
-                    throw new AnalysisException("group_commit_data_bytes can not be less than 0:"
-                            + groupCommitDataBytesStr);
-                }
-            } catch (NumberFormatException e) {
-                throw new AnalysisException("Invalid group_commit_data_bytes format: "
-                        + groupCommitDataBytesStr);
-            }
+            PropertyAnalyzer.analyzeGroupCommitDataBytes(properties, false);
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {

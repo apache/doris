@@ -19,7 +19,7 @@
 
 #include <bthread/mutex.h>
 
-#include "olap/delta_writer.h"
+#include "load/delta_writer/delta_writer.h"
 #include "runtime/workload_management/resource_context.h"
 
 namespace doris {
@@ -33,7 +33,7 @@ public:
                      const UniqueId& load_id);
     ~CloudDeltaWriter() override;
 
-    Status write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs) override;
+    Status write(const Block* block, const DorisVector<uint32_t>& row_idxs) override;
 
     Status close() override;
 

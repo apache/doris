@@ -1,0 +1,63 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <stdint.h>
+
+#include "exec/operator/operator.h"
+#include "exec/sink/writer/vjdbc_table_writer.h"
+
+namespace doris {
+#include "common/compile_check_begin.h"
+
+class JdbcTableSinkOperatorX;
+class JdbcTableSinkLocalState final
+        : public AsyncWriterSink<VJdbcTableWriter, JdbcTableSinkOperatorX> {
+    ENABLE_FACTORY_CREATOR(JdbcTableSinkLocalState);
+
+public:
+    using Base = AsyncWriterSink<VJdbcTableWriter, JdbcTableSinkOperatorX>;
+    JdbcTableSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
+            : AsyncWriterSink<VJdbcTableWriter, JdbcTableSinkOperatorX>(parent, state) {}
+
+private:
+    friend class JdbcTableSinkOperatorX;
+};
+
+class JdbcTableSinkOperatorX final : public DataSinkOperatorX<JdbcTableSinkLocalState> {
+public:
+    JdbcTableSinkOperatorX(const RowDescriptor& row_desc, int operator_id,
+                           const std::vector<TExpr>& select_exprs);
+    Status init(const TDataSink& thrift_sink) override;
+    Status prepare(RuntimeState* state) override;
+
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+
+private:
+    friend class JdbcTableSinkLocalState;
+    template <typename Writer, typename Parent>
+        requires(std::is_base_of_v<AsyncResultWriter, Writer>)
+    friend class AsyncWriterSink;
+
+    const RowDescriptor& _row_desc;
+    const std::vector<TExpr>& _t_output_expr;
+    VExprContextSPtrs _output_vexpr_ctxs;
+};
+
+#include "common/compile_check_end.h"
+} // namespace doris

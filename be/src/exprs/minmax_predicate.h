@@ -19,10 +19,10 @@
 
 #include <gen_cpp/internal_service.pb.h>
 
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/type_limit.h"
 #include "exprs/filter_base.h"
-#include "runtime/type_limit.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
 
 namespace doris {
 
@@ -30,7 +30,7 @@ namespace doris {
 class MinMaxFuncBase : public FilterBase {
 public:
     MinMaxFuncBase(bool null_aware) : FilterBase(null_aware) {}
-    virtual void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) = 0;
+    virtual void insert_fixed_len(const ColumnPtr& column, size_t start) = 0;
     virtual void* get_max() = 0;
     virtual void* get_min() = 0;
     // assign minmax data
@@ -49,9 +49,9 @@ public:
     MinMaxNumFunc(bool null_aware) : MinMaxFuncBase(null_aware) {}
     ~MinMaxNumFunc() override = default;
 
-    void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
+    void insert_fixed_len(const ColumnPtr& column, size_t start) override {
         if (column->is_nullable()) {
-            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
+            const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& col = nullable->get_nested_column_ptr();
             const auto& nullmap = nullable->get_null_map_data();
             if (nullable->has_null()) {
@@ -131,15 +131,15 @@ private:
         }
     }
 
-    void _update_batch(const vectorized::ColumnPtr& column, size_t start) {
+    void _update_batch(const ColumnPtr& column, size_t start) {
         const auto size = column->size();
         if constexpr (std::is_same_v<T, std::string>) {
             if (column->is_column_string64()) {
-                _update_batch_string(assert_cast<const vectorized::ColumnString64&>(*column),
-                                     nullptr, start, size);
+                _update_batch_string(assert_cast<const ColumnString64&>(*column), nullptr, start,
+                                     size);
             } else {
-                _update_batch_string(assert_cast<const vectorized::ColumnString&>(*column), nullptr,
-                                     start, size);
+                _update_batch_string(assert_cast<const ColumnString&>(*column), nullptr, start,
+                                     size);
             }
         } else {
             const T* data = (T*)column->get_raw_data().data;
@@ -154,16 +154,15 @@ private:
         }
     }
 
-    void _update_batch(const vectorized::ColumnPtr& column, const vectorized::NullMap& nullmap,
-                       size_t start) {
+    void _update_batch(const ColumnPtr& column, const NullMap& nullmap, size_t start) {
         const auto size = column->size();
         if constexpr (std::is_same_v<T, std::string>) {
             if (column->is_column_string64()) {
-                _update_batch_string(assert_cast<const vectorized::ColumnString64&>(*column),
-                                     nullmap.data(), start, size);
+                _update_batch_string(assert_cast<const ColumnString64&>(*column), nullmap.data(),
+                                     start, size);
             } else {
-                _update_batch_string(assert_cast<const vectorized::ColumnString&>(*column),
-                                     nullmap.data(), start, size);
+                _update_batch_string(assert_cast<const ColumnString&>(*column), nullmap.data(),
+                                     start, size);
             }
         } else {
             const T* data = (T*)column->get_raw_data().data;

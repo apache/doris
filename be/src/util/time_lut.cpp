@@ -21,7 +21,7 @@
 #include <cstdint>
 
 #include "common/cast_set.h"
-#include "vec/runtime/vdatetime_value.h"
+#include "core/value/vdatetime_value.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

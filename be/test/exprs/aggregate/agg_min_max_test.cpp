@@ -1,0 +1,199 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-param-test.h>
+#include <gtest/gtest-test-part.h>
+#include <stddef.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "core/column/column.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_jsonb.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/field.h"
+#include "core/string_ref.h"
+#include "core/types.h"
+#include "exprs/aggregate/aggregate_function.h"
+#include "exprs/aggregate/aggregate_function_simple_factory.h"
+#include "gtest/gtest_pred_impl.h"
+
+const int agg_test_batch_size = 4096;
+
+namespace doris {
+// declare function
+void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory);
+
+class AggMinMaxTest : public ::testing::TestWithParam<std::string> {};
+
+TEST_P(AggMinMaxTest, min_max_test) {
+    Arena arena;
+    std::string min_max_type = GetParam();
+    // Prepare test data.
+    auto column_vector_int32 = ColumnInt32::create();
+    for (int i = 0; i < agg_test_batch_size; i++) {
+        column_vector_int32->insert(Field::create_field<TYPE_INT>(i));
+    }
+
+    // Prepare test function and parameters.
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_minmax(factory);
+    DataTypes data_types = {std::make_shared<DataTypeInt32>()};
+    auto agg_function = factory.get(min_max_type, data_types, nullptr, false, -1);
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function->create(place);
+
+    // Do aggregation.
+    const IColumn* column[1] = {column_vector_int32.get()};
+    for (int i = 0; i < agg_test_batch_size; i++) {
+        agg_function->add(place, column, i, arena);
+    }
+
+    // Check result.
+    ColumnInt32 ans;
+    agg_function->insert_result_into(place, ans);
+    EXPECT_EQ(min_max_type == "min" ? 0 : agg_test_batch_size - 1, ans.get_element(0));
+    agg_function->destroy(place);
+}
+
+TEST_P(AggMinMaxTest, min_max_decimal_test) {
+    Arena arena;
+    std::string min_max_type = GetParam();
+    auto data_type = std::make_shared<DataTypeDecimalV2>();
+    // Prepare test data.
+    auto column_vector_decimal128 = data_type->create_column();
+    for (int i = 0; i < agg_test_batch_size; i++) {
+        column_vector_decimal128->insert(Field::create_field<TYPE_DECIMALV2>(DecimalV2Value(i)));
+    }
+
+    // Prepare test function and parameters.
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_minmax(factory);
+    DataTypes data_types = {data_type};
+    auto agg_function = factory.get(min_max_type, data_types, nullptr, false, -1);
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function->create(place);
+
+    // Do aggregation.
+    const IColumn* column[1] = {column_vector_decimal128.get()};
+    for (int i = 0; i < agg_test_batch_size; i++) {
+        agg_function->add(place, column, i, arena);
+    }
+
+    // Check result.
+    ColumnDecimal128V2 ans(0, 9);
+    agg_function->insert_result_into(place, ans);
+    EXPECT_EQ(min_max_type == "min" ? 0 : agg_test_batch_size - 1, ans.get_element(0).value());
+    agg_function->destroy(place);
+
+    auto dst = agg_function->create_serialize_column();
+    agg_function->streaming_agg_serialize_to_column(column, dst, agg_test_batch_size, arena);
+
+    std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data() * agg_test_batch_size]);
+    std::unique_ptr<char[]> memory2_tmp(
+            new char[agg_function->size_of_data() * agg_test_batch_size]);
+    std::vector<AggregateDataPtr> places(agg_test_batch_size);
+    for (size_t i = 0; i != agg_test_batch_size; ++i) {
+        places[i] = memory2.get() + agg_function->size_of_data() * i;
+        agg_function->create(places[i]);
+    }
+    agg_function->deserialize_and_merge_vec(places.data(), 0, memory2_tmp.get(), dst.get(), arena,
+                                            agg_test_batch_size);
+
+    ColumnDecimal128V2 result(0, 9);
+    for (size_t i = 0; i != agg_test_batch_size; ++i) {
+        agg_function->insert_result_into(places[i], result);
+    }
+
+    for (size_t i = 0; i != agg_test_batch_size; ++i) {
+        EXPECT_EQ(i, result.get_element(i).value());
+    }
+}
+
+TEST_P(AggMinMaxTest, min_max_string_test) {
+    Arena arena;
+    std::string min_max_type = GetParam();
+    // Prepare test data.
+    auto column_vector_str = ColumnString::create();
+    std::vector<std::string> str_data = {"", "xyz", "z", "zzz", "abc", "foo", "bar"};
+    for (const auto& s : str_data) {
+        column_vector_str->insert_data(s.c_str(), s.length());
+    }
+
+    // Prepare test function and parameters.
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_minmax(factory);
+    DataTypes data_types = {std::make_shared<DataTypeString>()};
+    auto agg_function = factory.get(min_max_type, data_types, nullptr, false, -1);
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function->create(place);
+
+    // Do aggregation.
+    const IColumn* column[1] = {column_vector_str.get()};
+    for (int i = 0; i < str_data.size(); i++) {
+        agg_function->add(place, column, i, arena);
+    }
+
+    // Check result.
+    ColumnString ans;
+    agg_function->insert_result_into(place, ans);
+    EXPECT_EQ(min_max_type == "min" ? StringRef("") : StringRef("zzz"), ans.get_data_at(0));
+    agg_function->destroy(place);
+}
+
+TEST_P(AggMinMaxTest, any_json_test) {
+    Arena arena;
+    // Prepare test data with JSON
+    auto column_vector_json = ColumnString::create();
+    std::string json_data = "{}";
+    column_vector_json->insert_data(json_data.c_str(), json_data.length());
+
+    // Set up the any function with JSONB type
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_minmax(factory);
+    DataTypes data_types = {std::make_shared<DataTypeJsonb>()};
+    auto agg_function = factory.get("any", data_types, nullptr, false, -1);
+
+    // Create and initialize place for aggregation
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function->create(place);
+
+    // Do aggregation
+    const IColumn* column[1] = {column_vector_json.get()};
+    agg_function->add(place, column, 0, arena);
+
+    // Verify result
+    ColumnString ans;
+    agg_function->insert_result_into(place, ans);
+    EXPECT_EQ(StringRef(json_data), ans.get_data_at(0));
+    agg_function->destroy(place);
+}
+
+INSTANTIATE_TEST_SUITE_P(Params, AggMinMaxTest,
+                         ::testing::ValuesIn(std::vector<std::string> {"min", "max"}));
+
+} // namespace doris

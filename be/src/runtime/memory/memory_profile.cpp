@@ -18,15 +18,15 @@
 #include "runtime/memory/memory_profile.h"
 
 #include "bvar/reducer.h"
-#include "olap/metadata_adder.h"
-#include "olap/schema_cache.h"
-#include "olap/tablet_schema_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/jemalloc_control.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/runtime_profile.h"
+#include "storage/cache/schema_cache.h"
+#include "storage/metadata_adder.h"
+#include "storage/tablet/tablet_schema_cache.h"
 #include "util/mem_info.h"
-#include "util/runtime_profile.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

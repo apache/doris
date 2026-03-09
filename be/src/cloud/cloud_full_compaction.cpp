@@ -17,6 +17,8 @@
 
 #include "cloud/cloud_full_compaction.h"
 
+#include <gen_cpp/cloud.pb.h>
+
 #include <boost/container_hash/hash.hpp>
 
 #include "cloud/cloud_meta_mgr.h"
@@ -24,16 +26,15 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
+#include "core/column/column.h"
 #include "cpp/sync_point.h"
-#include "gen_cpp/cloud.pb.h"
-#include "olap/compaction.h"
-#include "olap/rowset/beta_rowset.h"
-#include "olap/tablet_meta.h"
 #include "service/backend_options.h"
+#include "storage/compaction/compaction.h"
+#include "storage/rowset/beta_rowset.h"
+#include "storage/tablet/tablet_meta.h"
 #include "util/debug_points.h"
 #include "util/thread.h"
 #include "util/uuid_generator.h"
-#include "vec/columns/column.h"
 
 namespace doris {
 using namespace ErrorCode;

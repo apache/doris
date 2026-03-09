@@ -26,7 +26,9 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.authentication.AuthenticationIntegrationMgr;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.RestoreJob;
@@ -5840,7 +5842,7 @@ public class Env {
                 List<SlotRef> slots = new ArrayList<>();
                 expr.collect(SlotRef.class, slots);
                 for (SlotRef slot : slots) {
-                    String name = slot.toSqlWithoutTbl();
+                    String name = slot.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
                     if (slot.getColumn() != null) {
                         name = slot.getColumn().getName();
                     }

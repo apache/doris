@@ -19,7 +19,9 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
@@ -493,7 +495,7 @@ public final class RuntimeFilter {
         if (getBuilderNode().getId().equals(nodeId)) {
             // source side
             filterStr.append(" <- ");
-            filterStr.append(getSrcExpr().toSql());
+            filterStr.append(getSrcExpr().accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             filterStr.append("(").append(getEstimateNdv()).append("/")
                     .append(getExpectFilterSizeBytes()).append("/")
                     .append(getFilterSizeBytes()).append(")");
@@ -501,7 +503,7 @@ public final class RuntimeFilter {
             // target side
             if (getTargetExpr(nodeId) != null) {
                 filterStr.append(" -> ");
-                filterStr.append(getTargetExpr(nodeId).toSql());
+                filterStr.append(getTargetExpr(nodeId).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
         }
         return filterStr.toString();

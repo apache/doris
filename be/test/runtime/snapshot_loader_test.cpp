@@ -38,37 +38,37 @@
 
 #include "common/config.h"
 #include "common/object_pool.h"
-#include "exec/tablet_info.h"
-#include "http/action/download_action.h"
-#include "http/ev_http_server.h"
-#include "http/http_channel.h"
-#include "http/http_handler.h"
-#include "http/http_request.h"
+#include "core/block/block.h"
+#include "core/block/column_with_type_and_name.h"
+#include "core/column/column.h"
+#include "core/data_type/define_primitive_type.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
-#include "olap/data_dir.h"
-#include "olap/delta_writer.h"
-#include "olap/iterators.h"
-#include "olap/olap_define.h"
-#include "olap/options.h"
-#include "olap/rowset/beta_rowset.h"
-#include "olap/rowset/segment_v2/segment.h"
-#include "olap/schema.h"
-#include "olap/segment_loader.h"
-#include "olap/snapshot_manager.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet.h"
-#include "olap/tablet_manager.h"
-#include "olap/task/engine_publish_version_task.h"
-#include "olap/txn_manager.h"
+#include "load/delta_writer/delta_writer.h"
 #include "runtime/cluster_info.h"
-#include "runtime/define_primitive_type.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "vec/columns/column.h"
-#include "vec/core/block.h"
-#include "vec/core/column_with_type_and_name.h"
+#include "service/http/action/download_action.h"
+#include "service/http/ev_http_server.h"
+#include "service/http/http_channel.h"
+#include "service/http/http_handler.h"
+#include "service/http/http_request.h"
+#include "storage/data_dir.h"
+#include "storage/iterators.h"
+#include "storage/olap_define.h"
+#include "storage/options.h"
+#include "storage/rowset/beta_rowset.h"
+#include "storage/schema.h"
+#include "storage/segment/segment.h"
+#include "storage/segment/segment_loader.h"
+#include "storage/snapshot/snapshot_manager.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet.h"
+#include "storage/tablet/tablet_manager.h"
+#include "storage/tablet_info.h"
+#include "storage/task/engine_publish_version_task.h"
+#include "storage/txn/txn_manager.h"
 
 namespace doris {
 
@@ -203,11 +203,11 @@ static void add_rowset(int64_t tablet_id, int32_t schema_hash, int64_t partition
     auto delta_writer =
             std::make_unique<DeltaWriter>(*engine_ref, write_req, profile.get(), TUniqueId {});
 
-    vectorized::Block block;
+    Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
         std::cout << "slot_desc: " << slot_desc->col_name() << std::endl;
-        block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->type(), slot_desc->col_name()));
+        block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(), slot_desc->type(),
+                                           slot_desc->col_name()));
     }
 
     std::cout << "total column " << block.mutate_columns().size() << std::endl;
