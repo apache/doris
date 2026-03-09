@@ -286,17 +286,33 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         TNetworkAddress address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
         try {
-            PFetchTableSchemaRequest request = getFetchTableStructureRequest();
             InternalService.PFetchTableSchemaResult result = null;
+            int fileIndex = 0;
 
-            // `request == null` means we don't need to get schemas from BE,
-            // and we fill a dummy col for this table.
-            if (request != null) {
+            // Try each file until we find one with valid schema or exhaust all files
+            while (fileIndex < fileStatuses.size()) {
+                PFetchTableSchemaRequest request = getFetchTableStructureRequest(fileIndex);
+
+                // `request == null` means we don't need to get schemas from BE,
+                // and we fill a dummy col for this table.
+                if (request == null) {
+                    break;
+                }
+
                 Future<InternalService.PFetchTableSchemaResult> future = BackendServiceProxy.getInstance()
                         .fetchTableStructureAsync(address, request);
 
                 result = future.get();
                 TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+
+                // If BE returns END_OF_FILE, the file content is empty (e.g., only newlines in csv_with_names)
+                // Skip this file and try the next one
+                if (code == TStatusCode.END_OF_FILE) {
+                    LOG.info("Skipped file with empty content for schema inference, trying next file");
+                    fileIndex++;
+                    continue;
+                }
+
                 String errMsg;
                 if (code != TStatusCode.OK) {
                     if (!result.getStatus().getErrorMsgsList().isEmpty()) {
@@ -308,6 +324,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     }
                     throw new AnalysisException(errMsg);
                 }
+
+                break; // Successfully got schema
             }
             fillColumns(result);
         } catch (RpcException e) {
@@ -402,8 +420,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     /*variantSparseHashShardCount*/ 0,
                     /*variantEnableDocMode*/ false,
                     /*variantDocMaterializationMinRows*/ 0,
-                    /*variantDocShardCount*/ 0,
-                    /*enableNestedGroup*/ false);
+                    /*variantDocShardCount*/ 0);
             parsedNodes = 1;
         } else {
             type = ScalarType.createType(PrimitiveType.fromThrift(tPrimitiveType),
@@ -442,7 +459,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 
-    private PFetchTableSchemaRequest getFetchTableStructureRequest() throws TException {
+    private PFetchTableSchemaRequest getFetchTableStructureRequest(int startIndex) throws TException {
         // set TFileScanRangeParams
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
         fileScanRangeParams.setFormatType(fileFormatProperties.getFileFormatType());
@@ -469,9 +486,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             fileScanRangeParams.setHdfsParams(tHdfsParams);
         }
 
-        // get first file, used to parse table schema
+        // get first file from startIndex, used to parse table schema
         TBrokerFileStatus firstFile = null;
-        for (TBrokerFileStatus fileStatus : fileStatuses) {
+        for (int i = startIndex; i < fileStatuses.size(); i++) {
+            TBrokerFileStatus fileStatus = fileStatuses.get(i);
             if (isFileContentEmpty(fileStatus)) {
                 continue;
             }
@@ -556,4 +574,3 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 }
-
