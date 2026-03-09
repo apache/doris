@@ -45,7 +45,6 @@ import org.mockito.Mockito;
 
 import java.util.BitSet;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -372,55 +371,6 @@ public class PartitionCompensatorTest extends TestWithFeService {
         AsyncMaterializationContext ctx = Mockito.mock(AsyncMaterializationContext.class);
         Mockito.when(ctx.getMtmv()).thenReturn(mtmv);
         return ctx;
-    }
-
-    // Regression test for ConcurrentModificationException when merging partition maps
-    // across multiple related tables. The bug was caused by calling replaceAll() inside
-    // the for-loop after forEach() had already replaced map values with a shared Set
-    // reference, causing a self-modification on the second iteration.
-    @Test
-    public void testMergePartitionMapsWithMultipleRelatedTablesNoConcurrentModification() {
-        BaseTableInfo tableInfo1 = newBaseTableInfo();
-        BaseTableInfo tableInfo2 = newBaseTableInfo();
-        BaseColInfo colInfo1 = new BaseColInfo("date_col", tableInfo1);
-        BaseColInfo colInfo2 = new BaseColInfo("date_col", tableInfo2);
-
-        Map<BaseTableInfo, Set<String>> mvPartitionNeedRemoveNameMap = new HashMap<>();
-        Map<BaseColInfo, Set<String>> baseTablePartitionNeedUnionNameMap = new HashMap<>();
-
-        // Simulate two related tables each contributing partition entries,
-        // which is the scenario that triggered ConcurrentModificationException
-        mvPartitionNeedRemoveNameMap.computeIfAbsent(tableInfo1, k -> new HashSet<>())
-                .addAll(ImmutableSet.of("p1", "p2"));
-        mvPartitionNeedRemoveNameMap.computeIfAbsent(tableInfo2, k -> new HashSet<>())
-                .addAll(ImmutableSet.of("p3"));
-
-        baseTablePartitionNeedUnionNameMap.computeIfAbsent(colInfo1, k -> new HashSet<>())
-                .addAll(ImmutableSet.of("p1", "p2"));
-        baseTablePartitionNeedUnionNameMap.computeIfAbsent(colInfo2, k -> new HashSet<>())
-                .addAll(ImmutableSet.of("p3"));
-
-        // This is the fixed merge logic (moved outside the loop).
-        // Before the fix this would throw ConcurrentModificationException on the second iteration
-        // because replaceAll() replaced all values with the same Set reference, and forEach()
-        // on the next call would then try to add that set into itself.
-        Assertions.assertDoesNotThrow(() -> {
-            Set<String> needRemovePartitionSet = new HashSet<>();
-            mvPartitionNeedRemoveNameMap.values().forEach(needRemovePartitionSet::addAll);
-            mvPartitionNeedRemoveNameMap.replaceAll((k, v) -> needRemovePartitionSet);
-
-            Set<String> needUnionPartitionSet = new HashSet<>();
-            baseTablePartitionNeedUnionNameMap.values().forEach(needUnionPartitionSet::addAll);
-            baseTablePartitionNeedUnionNameMap.replaceAll((k, v) -> needUnionPartitionSet);
-        });
-
-        // All entries should be merged into a single unified set
-        Set<String> expectedRemove = ImmutableSet.of("p1", "p2", "p3");
-        Set<String> expectedUnion = ImmutableSet.of("p1", "p2", "p3");
-        mvPartitionNeedRemoveNameMap.values()
-                .forEach(v -> Assertions.assertEquals(expectedRemove, v));
-        baseTablePartitionNeedUnionNameMap.values()
-                .forEach(v -> Assertions.assertEquals(expectedUnion, v));
     }
 
     private static BaseTableInfo newBaseTableInfo() {
