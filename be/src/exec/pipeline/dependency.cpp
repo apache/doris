@@ -223,14 +223,11 @@ MutableColumns AggSharedState::_get_keys_hash_table() {
                           std::vector<KeyType> keys(size);
 
                           uint32_t num_rows = 0;
-                          auto iter = aggregate_data_container->begin();
-                          {
-                              while (iter != aggregate_data_container->end()) {
-                                  keys[num_rows] = iter.get_key<KeyType>();
-                                  ++iter;
-                                  ++num_rows;
-                              }
-                          }
+                          data.for_each([&](const auto& key, auto&) {
+                              keys[num_rows] = key;
+                              ++num_rows;
+                          });
+
                           agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
                           if (has_null_key) {
                               key_columns[0]->insert_data(nullptr, 0);
