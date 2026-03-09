@@ -233,6 +233,35 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                                 std::make_shared<typename HashTableCtxType::HashMapType>();
                         tmp_hash_table->reserve(
                                 local_state._shared_state->valid_element_in_hash_tbl);
+
+                        // Handle null key separately since iterator does not cover it
+                        using NullMappedType =
+                                std::decay_t<decltype(arg.hash_table->template get_null_key_data<
+                                                      RowRefWithFlag>())>;
+                        if constexpr (std::is_same_v<NullMappedType, RowRefWithFlag>) {
+                            if (arg.hash_table->has_null_key_data()) {
+                                auto& null_mapped =
+                                        arg.hash_table
+                                                ->template get_null_key_data<RowRefWithFlag>();
+                                if constexpr (is_intersect) {
+                                    if (null_mapped.visited) {
+                                        null_mapped.visited = false;
+                                        tmp_hash_table->has_null_key_data() = true;
+                                        tmp_hash_table
+                                                ->template get_null_key_data<RowRefWithFlag>() =
+                                                null_mapped;
+                                    }
+                                } else {
+                                    if (!null_mapped.visited) {
+                                        tmp_hash_table->has_null_key_data() = true;
+                                        tmp_hash_table
+                                                ->template get_null_key_data<RowRefWithFlag>() =
+                                                null_mapped;
+                                    }
+                                }
+                            }
+                        }
+
                         while (iter != arg.end) {
                             auto& mapped = iter.get_second();
                             auto* it = &mapped;
@@ -252,6 +281,16 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                         arg.hash_table = std::move(tmp_hash_table);
                     } else if (is_intersect) {
                         DCHECK_EQ(valid_element_in_hash_tbl, arg.hash_table->size());
+                        // Reset null key's visited flag separately
+                        using NullMappedType =
+                                std::decay_t<decltype(arg.hash_table->template get_null_key_data<
+                                                      RowRefWithFlag>())>;
+                        if constexpr (std::is_same_v<NullMappedType, RowRefWithFlag>) {
+                            if (arg.hash_table->has_null_key_data()) {
+                                arg.hash_table->template get_null_key_data<RowRefWithFlag>()
+                                        .visited = false;
+                            }
+                        }
                         while (iter != arg.end) {
                             auto& mapped = iter.get_second();
                             auto* it = &mapped;

@@ -52,6 +52,7 @@ private:
     RuntimeProfile::Counter* _filter_timer = nullptr;
     RuntimeProfile::Counter* _get_data_from_hashtable_rows = nullptr;
     vectorized::IColumn::Selector _result_indexs;
+    bool _null_key_output = false;
 };
 
 template <bool is_intersect>

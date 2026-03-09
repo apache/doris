@@ -777,7 +777,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
 };
 
 template <typename Base>
-struct DataWithNullKeyImpl : public Base {
+struct DataWithNullKey : public Base {
     bool& has_null_key_data() { return has_null_key; }
     bool has_null_key_data() const { return has_null_key; }
     template <typename MappedType>
@@ -800,62 +800,6 @@ struct DataWithNullKeyImpl : public Base {
 protected:
     bool has_null_key = false;
     Base::Value null_key_data;
-};
-
-template <typename Base>
-struct DataWithNullKey : public DataWithNullKeyImpl<Base> {};
-
-template <IteratoredMap Base>
-struct DataWithNullKey<Base> : public DataWithNullKeyImpl<Base> {
-    using DataWithNullKeyImpl<Base>::null_key_data;
-    using DataWithNullKeyImpl<Base>::has_null_key;
-
-    struct Iterator {
-        typename Base::iterator base_iterator = {};
-        bool current_null = false;
-        Base::Value* null_key_data = nullptr;
-
-        Iterator() = default;
-        Iterator(typename Base::iterator it, bool null, Base::Value* null_key)
-                : base_iterator(it), current_null(null), null_key_data(null_key) {}
-        bool operator==(const Iterator& rhs) const {
-            return current_null == rhs.current_null && base_iterator == rhs.base_iterator;
-        }
-
-        bool operator!=(const Iterator& rhs) const { return !(*this == rhs); }
-
-        Iterator& operator++() {
-            if (current_null) {
-                current_null = false;
-            } else {
-                ++base_iterator;
-            }
-            return *this;
-        }
-
-        Base::Value& get_second() {
-            if (current_null) {
-                return *null_key_data;
-            } else {
-                return base_iterator->get_second();
-            }
-        }
-    };
-
-    Iterator begin() { return {Base::begin(), has_null_key, &null_key_data}; }
-
-    Iterator end() { return {Base::end(), false, &null_key_data}; }
-
-    void insert(const Iterator& other_iter) {
-        if (other_iter.current_null) {
-            has_null_key = true;
-            null_key_data = *other_iter.null_key_data;
-        } else {
-            Base::insert(other_iter.base_iterator);
-        }
-    }
-
-    using iterator = Iterator;
 };
 
 /// Single low cardinality column.
