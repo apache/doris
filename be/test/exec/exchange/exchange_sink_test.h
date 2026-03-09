@@ -95,16 +95,6 @@ public:
     ~ExchangeSinkTest() override = default;
 };
 
-class MockContext : public TaskExecutionContext {};
-
-std::shared_ptr<MockContext> _mock_context = std::make_shared<MockContext>();
-
-auto create_runtime_state() {
-    auto state = std::make_shared<MockRuntimeState>();
-
-    state->set_task_execution_context(_mock_context);
-    return state;
-}
 constexpr int64_t recvr_fragment_id = 2;
 constexpr int64_t sender_fragment_id = 2;
 
@@ -156,18 +146,18 @@ auto create_sink(std::shared_ptr<RuntimeState> state, std::shared_ptr<MockSinkBu
     sink_with_channel.sink = ExchangeSinkLocalState::create_shared(state.get());
     sink_with_channel.buffer = sink_buffer;
     {
-        auto channel = std::make_shared<Channel>(
-                sink_with_channel.sink.get(), TNetworkAddress {}, dest_fragment_ins_id_1, 0);
+        auto channel = std::make_shared<Channel>(sink_with_channel.sink.get(), TNetworkAddress {},
+                                                 dest_fragment_ins_id_1, 0);
         sink_with_channel.channels[channel->dest_ins_id()] = channel;
     }
     {
-        auto channel = std::make_shared<Channel>(
-                sink_with_channel.sink.get(), TNetworkAddress {}, dest_fragment_ins_id_2, 0);
+        auto channel = std::make_shared<Channel>(sink_with_channel.sink.get(), TNetworkAddress {},
+                                                 dest_fragment_ins_id_2, 0);
         sink_with_channel.channels[channel->dest_ins_id()] = channel;
     }
     {
-        auto channel = std::make_shared<Channel>(
-                sink_with_channel.sink.get(), TNetworkAddress {}, dest_fragment_ins_id_3, 0);
+        auto channel = std::make_shared<Channel>(sink_with_channel.sink.get(), TNetworkAddress {},
+                                                 dest_fragment_ins_id_3, 0);
         sink_with_channel.channels[channel->dest_ins_id()] = channel;
     }
     return sink_with_channel;

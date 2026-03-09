@@ -24,9 +24,10 @@
 #include "exec/operator/exchange_sink_buffer.h"
 
 namespace doris {
+
 TEST_F(ExchangeSinkTest, test_normal_end) {
     {
-        auto state = create_runtime_state();
+        auto state = std::make_shared<MockRuntimeState>();
         auto buffer = create_buffer(state);
 
         auto sink1 = create_sink(state, buffer);
@@ -78,7 +79,7 @@ TEST_F(ExchangeSinkTest, test_normal_end) {
 
 TEST_F(ExchangeSinkTest, test_eof_end) {
     {
-        auto state = create_runtime_state();
+        auto state = std::make_shared<MockRuntimeState>();
         auto buffer = create_buffer(state);
 
         auto sink1 = create_sink(state, buffer);
@@ -140,7 +141,7 @@ TEST_F(ExchangeSinkTest, test_eof_end) {
 
 TEST_F(ExchangeSinkTest, test_error_end) {
     {
-        auto state = create_runtime_state();
+        auto state = std::make_shared<MockRuntimeState>();
         auto buffer = create_buffer(state);
 
         auto sink1 = create_sink(state, buffer);
@@ -195,7 +196,7 @@ TEST_F(ExchangeSinkTest, test_error_end) {
 
 TEST_F(ExchangeSinkTest, test_queue_size) {
     {
-        auto state = create_runtime_state();
+        auto state = std::make_shared<MockRuntimeState>();
         auto buffer = create_buffer(state);
 
         auto sink1 = create_sink(state, buffer);
