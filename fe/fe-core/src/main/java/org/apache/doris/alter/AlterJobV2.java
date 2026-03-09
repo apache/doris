@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
@@ -301,6 +302,10 @@ public abstract class AlterJobV2 implements Writable {
             maxFailedTimes = Config.schema_change_max_retry_time;
         }
         return maxFailedTimes;
+    }
+
+    protected boolean isReplicaVersionComplete(Replica replica, long visibleVersion) {
+        return replica.getLastFailedVersion() < 0 && replica.checkVersionCatchUp(visibleVersion, false);
     }
 
     /**

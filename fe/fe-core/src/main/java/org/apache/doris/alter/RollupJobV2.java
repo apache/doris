@@ -401,9 +401,13 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         tbl.readLock();
         String vaultId = tbl.getStorageVaultId();
+        AgentBatchTask newRollupBatchTask = new AgentBatchTask();
         try {
             long expiration = (createTimeMs + timeoutMs) / 1000;
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
+            if (!allBaseReplicasCaughtUp(tbl)) {
+                return;
+            }
             // Create object pool per MaterializedIndex
             Map<Long, Map<Object, Object>> indexObjectPoolMap = Maps.newHashMap();
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
@@ -490,7 +494,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 rollupReplica.getId(), rollupSchemaHash, baseSchemaHash, visibleVersion, jobId,
                                 JobType.ROLLUP, defineExprs, descTable, tbl.getSchemaByIndexId(baseIndexId, true),
                                 objectPool, whereClause, expiration, vaultId, queryOptions, queryGlobals);
-                        rollupBatchTask.addTask(rollupTask);
+                        newRollupBatchTask.addTask(rollupTask);
                     }
                 }
             }
@@ -498,12 +502,48 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             tbl.readUnlock();
         }
 
+        rollupBatchTask = newRollupBatchTask;
         AgentTaskQueue.addBatchTask(rollupBatchTask);
         AgentTaskExecutor.submit(rollupBatchTask);
         setJobState(JobState.RUNNING);
 
         // DO NOT write edit log here, tasks will be send again if FE restart or master changed.
         LOG.info("transfer rollup job {} state to {}", jobId, this.jobState);
+    }
+
+    private boolean allBaseReplicasCaughtUp(OlapTable tbl) {
+        for (Map.Entry<Long, MaterializedIndex> entry : partitionIdToRollupIndex.entrySet()) {
+            long partitionId = entry.getKey();
+            Partition partition = tbl.getPartition(partitionId);
+            Preconditions.checkNotNull(partition, partitionId);
+            long visibleVersion = partition.getVisibleVersion();
+            MaterializedIndex baseIndex = partition.getIndex(baseIndexId);
+            Preconditions.checkNotNull(baseIndex, baseIndexId);
+            Map<Long, Long> tabletIdMap = partitionIdToBaseRollupTabletIdMap.get(partitionId);
+            Preconditions.checkNotNull(tabletIdMap, "base tablet map does not exist for partition " + partitionId);
+            for (Tablet rollupTablet : entry.getValue().getTablets()) {
+                Long baseTabletId = tabletIdMap.get(rollupTablet.getId());
+                Preconditions.checkNotNull(baseTabletId,
+                        "base tablet does not exist for rollup tablet " + rollupTablet.getId());
+                Tablet baseTablet = baseIndex.getTablet(baseTabletId);
+                Preconditions.checkNotNull(baseTablet, baseTabletId);
+                for (Replica rollupReplica : rollupTablet.getReplicas()) {
+                    long backendId = rollupReplica.getBackendIdWithoutException();
+                    Replica baseReplica = baseTablet.getReplicaByBackendId(backendId);
+                    Preconditions.checkNotNull(baseReplica,
+                            "base replica does not exist on backend " + backendId + " for base tablet "
+                                    + baseTabletId);
+                    if (!isReplicaVersionComplete(baseReplica, visibleVersion)) {
+                        LOG.info("wait base replica {} on backend {} to catch up visible version {} before sending "
+                                        + "rollup tasks, job: {}, partition: {}, rollup tablet: {}, base tablet: {}",
+                                baseReplica.getId(), backendId, visibleVersion, jobId, partitionId,
+                                rollupTablet.getId(), baseTabletId);
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
     }
 
     /**

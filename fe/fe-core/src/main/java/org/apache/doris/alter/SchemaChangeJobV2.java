@@ -498,6 +498,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
 
         tbl.readLock();
         String vaultId = tbl.getStorageVaultId();
+        AgentBatchTask newSchemaChangeBatchTask = new AgentBatchTask();
         try {
             long expiration = (createTimeMs + timeoutMs) / 1000;
             Map<String, Column> indexColumnMap = Maps.newHashMap();
@@ -508,6 +509,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
             }
 
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
+            if (!allBaseReplicasCaughtUp(tbl)) {
+                return;
+            }
             // Create object pool per MaterializedIndex
             Map<Long, Map<Object, Object>> indexObjectPoolMap = Maps.newHashMap();
             for (long partitionId : partitionIndexMap.rowKeySet()) {
@@ -576,7 +580,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                                     shadowReplica.getId(), shadowSchemaHash, originSchemaHash, visibleVersion, jobId,
                                     JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns, objectPool,
                                     null, expiration, vaultId, queryOptions, queryGlobals);
-                            schemaChangeBatchTask.addTask(rollupTask);
+                            newSchemaChangeBatchTask.addTask(rollupTask);
                         }
                     }
                 }
@@ -589,6 +593,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
             tbl.readUnlock();
         }
 
+        schemaChangeBatchTask = newSchemaChangeBatchTask;
         AgentTaskQueue.addBatchTask(schemaChangeBatchTask);
         AgentTaskExecutor.submit(schemaChangeBatchTask);
 
@@ -596,6 +601,47 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
 
         // DO NOT write edit log here, tasks will be sent again if FE restart or master changed.
         LOG.info("transfer schema change job {} state to {}", jobId, this.jobState);
+    }
+
+    private boolean allBaseReplicasCaughtUp(OlapTable tbl) {
+        for (long partitionId : partitionIndexMap.rowKeySet()) {
+            Partition partition = tbl.getPartition(partitionId);
+            Preconditions.checkNotNull(partition, partitionId);
+            long visibleVersion = partition.getVisibleVersion();
+            Map<Long, MaterializedIndex> shadowIndexMap = partitionIndexMap.row(partitionId);
+            for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
+                long shadowIdxId = entry.getKey();
+                long originIdxId = indexIdMap.get(shadowIdxId);
+                MaterializedIndex originIdx = partition.getIndex(originIdxId);
+                Preconditions.checkNotNull(originIdx, originIdxId);
+                Map<Long, Long> tabletIdMap = partitionIndexTabletMap.get(partitionId, shadowIdxId);
+                Preconditions.checkNotNull(tabletIdMap,
+                        "tablet id map does not exist for partition " + partitionId + ", shadow index " + shadowIdxId);
+                for (Tablet shadowTablet : entry.getValue().getTablets()) {
+                    Long originTabletId = tabletIdMap.get(shadowTablet.getId());
+                    Preconditions.checkNotNull(originTabletId,
+                            "origin tablet does not exist for shadow tablet " + shadowTablet.getId());
+                    Tablet originTablet = originIdx.getTablet(originTabletId);
+                    Preconditions.checkNotNull(originTablet, originTabletId);
+                    for (Replica shadowReplica : shadowTablet.getReplicas()) {
+                        long backendId = shadowReplica.getBackendIdWithoutException();
+                        Replica originReplica = originTablet.getReplicaByBackendId(backendId);
+                        Preconditions.checkNotNull(originReplica,
+                                "origin replica does not exist on backend " + backendId
+                                        + " for origin tablet " + originTabletId);
+                        if (!isReplicaVersionComplete(originReplica, visibleVersion)) {
+                            LOG.info("wait origin replica {} on backend {} to catch up visible version {} before "
+                                            + "sending schema change tasks, job: {}, partition: {}, shadow tablet: {}, "
+                                            + "origin tablet: {}",
+                                    originReplica.getId(), backendId, visibleVersion, jobId, partitionId,
+                                    shadowTablet.getId(), originTabletId);
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        return true;
     }
 
     /**

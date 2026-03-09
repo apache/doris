@@ -217,6 +217,49 @@ public class RollupJobV2Test {
     }
 
     @Test
+    public void testRollupWaitsBaseReplicaCatchUp() throws Exception {
+        fakeEnv = new FakeEnv();
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
+
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(op);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        materializedViewHandler.process(alterOps, db, olapTable);
+        RollupJobV2 rollupJob = (RollupJobV2) materializedViewHandler.getAlterJobsV2()
+                .values().stream().findAny().get();
+
+        materializedViewHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.WAITING_TXN, rollupJob.getJobState());
+
+        Tablet baseTablet = testPartition.getBaseIndex().getTablets().get(0);
+        List<Replica> baseReplicas = baseTablet.getReplicas();
+        Replica laggingReplica = baseReplicas.get(0);
+        long visibleVersion = testPartition.getVisibleVersion() + 1;
+        testPartition.updateVisibleVersion(visibleVersion);
+        for (Replica replica : baseReplicas) {
+            if (replica == laggingReplica) {
+                replica.updateVersionWithFailed(visibleVersion - 1, visibleVersion, visibleVersion - 1);
+            } else {
+                replica.updateVersionWithFailed(visibleVersion, -1, visibleVersion);
+            }
+        }
+
+        materializedViewHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.WAITING_TXN, rollupJob.getJobState());
+        Assert.assertEquals(0, AgentTaskQueue.getTask(TTaskType.ALTER).size());
+
+        laggingReplica.updateVersionWithFailed(visibleVersion, -1, visibleVersion);
+
+        materializedViewHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.RUNNING, rollupJob.getJobState());
+        Assert.assertEquals(3, AgentTaskQueue.getTask(TTaskType.ALTER).size());
+    }
+
+    @Test
     public void testSchemaChangeWhileTabletNotStable() throws Exception {
         fakeEnv = new FakeEnv();
         fakeEditLog = new FakeEditLog();
