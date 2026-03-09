@@ -81,6 +81,7 @@ jobs:
             'maven'
             'node'
             'llvm@16'
+            'libomp'
           )
           brew install "${cellars[@]}" || true
 
