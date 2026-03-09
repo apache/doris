@@ -20,7 +20,7 @@
 #include "core/column/column_vector.h"
 #include "format/parquet/byte_array_dict_decoder.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class ByteArrayDictDecoderEmptyDictDataTest : public ::testing::Test {
 protected:
@@ -35,8 +35,8 @@ protected:
 TEST_F(ByteArrayDictDecoderEmptyDictDataTest,
        test_convert_dict_column_to_string_column_with_empty_dict_data_error) {
     MutableColumnPtr dict_column = ColumnInt32::create();
-    dict_column->insert(vectorized::Field::create_field<TYPE_INT>(0));
-    dict_column->insert(vectorized::Field::create_field<TYPE_INT>(1));
+    dict_column->insert(Field::create_field<TYPE_INT>(0));
+    dict_column->insert(Field::create_field<TYPE_INT>(1));
     auto io_error = TEST_RESULT_ERROR(_decoder.convert_dict_column_to_string_column(
             assert_cast<ColumnInt32*>(dict_column.get())));
     ASSERT_TRUE(io_error.is<ErrorCode::IO_ERROR>());
@@ -50,4 +50,4 @@ TEST_F(ByteArrayDictDecoderEmptyDictDataTest,
     ASSERT_EQ(string_column->size(), 0);
 }
 
-} // namespace doris::vectorized
+} // namespace doris
