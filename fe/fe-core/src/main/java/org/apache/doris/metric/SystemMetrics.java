@@ -26,6 +26,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * Save system metrics such as CPU, MEM, IO, Networks.
@@ -33,6 +34,7 @@ import java.util.Map;
  */
 public class SystemMetrics {
     private static final Logger LOG = LogManager.getLogger(SystemMetrics.class);
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
     // NOTICE: The following 2 tcp metrics is got from /proc/net/snmp
     // So they can only be got on Linux system.
@@ -75,6 +77,9 @@ public class SystemMetrics {
     protected long cpuGuest = 0;
     // Time spent running niced guest
     protected long cpuGuestNice = 0;
+
+    // Package-private: allows tests to override the /proc/stat resource path
+    String cpuStatTestFile = "data/stat_normal";
 
     // Previous values for calculating deltas
     protected long prevCpuUser = 0;
@@ -180,7 +185,7 @@ public class SystemMetrics {
             while ((line = br.readLine()) != null) {
                 for (String memoryMetric : memoryMetrics) {
                     if (!memInfoMap.containsKey(memoryMetric) && line.startsWith(memoryMetric)) {
-                        parts = line.split("\\s+");
+                        parts = WHITESPACE.split(line);
                         if (parts.length != 3) {
                             throw new Exception("invalid memory metrics: " + line);
                         } else {
@@ -207,7 +212,7 @@ public class SystemMetrics {
     private void updateCpuMetrics() {
         String procFile = "/proc/stat";
         if (FeConstants.runningUnitTest) {
-            procFile = getClass().getClassLoader().getResource("data/stat_normal").getFile();
+            procFile = getClass().getClassLoader().getResource(cpuStatTestFile).getFile();
         }
 
         try (FileReader fileReader = new FileReader(procFile);
@@ -222,7 +227,7 @@ public class SystemMetrics {
             while ((line = br.readLine()) != null) {
                 if (line.startsWith("cpu ")) {  // Overall CPU stats (not per-core)
                     cpuLineFound = true;
-                    String[] parts = line.split("\\s+");
+                    String[] parts = WHITESPACE.split(line);
                     if (parts.length >= 11) {
                         // Full format with guest/guest_nice (kernel >= 2.6.24 with guest, >= 2.6.33 with guest_nice)
                         cpuUser = Long.parseLong(parts[1]);
@@ -261,20 +266,13 @@ public class SystemMetrics {
                         cpuGuestNice = 0;
                     }
                 } else if (line.startsWith("ctxt ")) {
-                    String[] parts = line.split("\\s+");
-                    if (parts.length >= 2) {
-                        ctxt = Long.parseLong(parts[1]);
-                    }
+                    ctxt = parseSingleLongFromLine(line);
+                } else if (line.startsWith("processes ")) {
+                    processes = parseSingleLongFromLine(line);
                 } else if (line.startsWith("procs_running ")) {
-                    String[] parts = line.split("\\s+");
-                    if (parts.length >= 2) {
-                        procsRunning = Long.parseLong(parts[1]);
-                    }
+                    procsRunning = parseSingleLongFromLine(line);
                 } else if (line.startsWith("procs_blocked ")) {
-                    String[] parts = line.split("\\s+");
-                    if (parts.length >= 2) {
-                        procsBlocked = Long.parseLong(parts[1]);
-                    }
+                    procsBlocked = parseSingleLongFromLine(line);
                 }
             }
 
@@ -322,11 +320,14 @@ public class SystemMetrics {
             long currentTime = System.currentTimeMillis();
             long timeDelta = currentTime - lastUpdateTime;
 
-            if (timeDelta > 0 && prevCtxt > 0 && prevProcesses > 0) {
-                // Calculate rates per second
+            if (timeDelta > 0) {
                 double timeInSeconds = timeDelta / 1000.0;
-                ctxtRate = (ctxt - prevCtxt) / timeInSeconds;
-                processesRate = (processes - prevProcesses) / timeInSeconds;
+                if (prevCtxt > 0) {
+                    ctxtRate = (ctxt - prevCtxt) / timeInSeconds;
+                }
+                if (prevProcesses > 0) {
+                    processesRate = (processes - prevProcesses) / timeInSeconds;
+                }
             }
 
             // Store current values as previous for next iteration
@@ -337,6 +338,10 @@ public class SystemMetrics {
         } catch (Exception e) {
             LOG.warn("failed to get /proc/stat: {}", e.getMessage(), e);
         }
+    }
+    private long parseSingleLongFromLine(String line) {
+        String[] parts = WHITESPACE.split(line);
+        return parts.length >= 2 ? Long.parseLong(parts[1]) : 0;
     }
 
 }
