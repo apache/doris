@@ -185,7 +185,8 @@ public:
     // Filters read_ranges by removing row chunks whose condition cache granules are all-false.
     // Pure algorithm, exposed as static for testability.
     static RowRanges filter_ranges_by_cache(const RowRanges& read_ranges,
-                                            const std::vector<bool>& cache, int64_t first_row);
+                                            const std::vector<bool>& cache, int64_t first_row,
+                                            int64_t base_granule = 0);
 
     void set_row_id_column_iterator(
             const std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>&

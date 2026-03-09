@@ -878,44 +878,44 @@ order by
     
     for (String enable_lazy_mat : ["true", "false"]) {
         sql """set enable_orc_lazy_materialization=${enable_lazy_mat}"""
-    for (String hivePrefix : ["hive2", "hive3"]) {
-        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-        String catalog_name = "test_catalog_${hivePrefix}_orc"
-        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        for (String hivePrefix : ["hive2", "hive3"]) {
+            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String catalog_name = "test_catalog_${hivePrefix}_orc"
+            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
-        sql """drop catalog if exists ${catalog_name}"""
-        sql """create catalog if not exists ${catalog_name} properties (
-            "type"="hms",
-            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
-        );"""
-        sql """switch ${catalog_name}"""
-        sql """use `tpch1_orc`"""
+            sql """drop catalog if exists ${catalog_name}"""
+            sql """create catalog if not exists ${catalog_name} properties (
+                "type"="hms",
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+            );"""
+            sql """switch ${catalog_name}"""
+            sql """use `tpch1_orc`"""
 
-        // without file cache
-        enable_file_cache = "false"
-        enable_condition_cache = "false"
-        def startTime = System.currentTimeMillis()
-        run_tpch()
-        def without_cache_time = System.currentTimeMillis() - startTime
+            // without file cache
+            enable_file_cache = "false"
+            enable_condition_cache = "false"
+            def startTime = System.currentTimeMillis()
+            run_tpch()
+            def without_cache_time = System.currentTimeMillis() - startTime
 
-        // with file cache, run the first time
-        enable_file_cache = "true"
-        enable_condition_cache = "true"
-        startTime = System.currentTimeMillis()
-        run_tpch()
-        def with_cache_first_time = System.currentTimeMillis() - startTime
+            // with file cache, run the first time
+            enable_file_cache = "true"
+            enable_condition_cache = "true"
+            startTime = System.currentTimeMillis()
+            run_tpch()
+            def with_cache_first_time = System.currentTimeMillis() - startTime
 
-        // with file cache, run the second time
-        enable_file_cache = "true"
-        enable_condition_cache = "true"
-        startTime = System.currentTimeMillis()
-        run_tpch()
-        def with_cache_second_time = System.currentTimeMillis() - startTime
+            // with file cache, run the second time
+            enable_file_cache = "true"
+            enable_condition_cache = "true"
+            startTime = System.currentTimeMillis()
+            run_tpch()
+            def with_cache_second_time = System.currentTimeMillis() - startTime
 
-        println("""tpch orc running time(disable, enable, enable): ${without_cache_time}ms, ${with_cache_first_time}ms, ${with_cache_second_time}ms""")
+            println("""tpch orc running time(disable, enable, enable): ${without_cache_time}ms, ${with_cache_first_time}ms, ${with_cache_second_time}ms""")
 
-        sql """drop catalog if exists ${catalog_name}"""
-    }
+            sql """drop catalog if exists ${catalog_name}"""
+        }
     }
 }
 

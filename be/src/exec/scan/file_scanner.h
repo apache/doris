@@ -36,11 +36,11 @@
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "io/io_common.h"
-#include "storage/segment/condition_cache.h"
-#include "exec/operator/file_scan_operator.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
 #include "storage/olap_common.h"
+#include "storage/olap_scan_common.h"
+#include "storage/segment/condition_cache.h"
 
 namespace doris {
 class RuntimeState;

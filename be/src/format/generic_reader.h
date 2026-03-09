@@ -41,6 +41,7 @@ class VSlotRef;
 struct ConditionCacheContext {
     bool is_hit = false;
     std::shared_ptr<std::vector<bool>> filter_result; // per-granule: true = has surviving rows
+    int64_t base_granule = 0; // global granule index of the first granule in filter_result
     static constexpr int GRANULE_SIZE = 2048;
 };
 

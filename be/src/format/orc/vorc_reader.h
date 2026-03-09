@@ -233,6 +233,20 @@ public:
 
     void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override {
         _condition_cache_ctx = std::move(ctx);
+        if (_condition_cache_ctx && !_condition_cache_ctx->is_hit && _first_row_in_range > 0) {
+            auto& cache = *_condition_cache_ctx->filter_result;
+            int64_t total_rows = get_total_rows();
+            if (total_rows > 0) {
+                uint64_t last_row = _first_row_in_range + total_rows;
+                size_t first_granule = _first_row_in_range / ConditionCacheContext::GRANULE_SIZE;
+                size_t needed = (last_row + ConditionCacheContext::GRANULE_SIZE - 1) /
+                                        ConditionCacheContext::GRANULE_SIZE -
+                                first_granule;
+                if (needed > cache.size()) {
+                    cache.resize(needed, false);
+                }
+            }
+        }
     }
 
     int64_t get_total_rows() const override {
@@ -722,6 +736,9 @@ private:
     // The absolute row number where the *next* nextBatch call will start reading.
     // Used by _filter_rows_by_condition_cache to decide which granule to seek to.
     uint64_t _current_read_position = 0;
+    // The absolute row number of the first row in this scan range.
+    // Used to convert absolute granule indices to cache-relative indices.
+    uint64_t _first_row_in_range = 0;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     std::unique_ptr<ORCFilterImpl> _orc_filter;
     orc::RowReaderOptions _row_reader_options;

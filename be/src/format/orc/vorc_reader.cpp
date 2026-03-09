@@ -1318,6 +1318,13 @@ Status OrcReader::set_fill_columns(
                                                _string_dict_filter.get());
 
         _batch = _row_reader->createRowBatch(_batch_size);
+
+        // Derive the first row in this scan range from ORC RowReader's initial state.
+        // getRowNumber() returns firstRowOfStripe[firstStripe]-1, or uint64_max if firstStripe==0.
+        uint64_t row_num = _row_reader->getRowNumber();
+        _first_row_in_range = (row_num == std::numeric_limits<uint64_t>::max()) ? 0 : row_num + 1;
+        _current_read_position = _first_row_in_range;
+
         const auto& selected_type = _row_reader->getSelectedType();
         int idx = 0;
         if (_is_acid) {
@@ -2235,20 +2242,21 @@ void OrcReader::_filter_rows_by_condition_cache(size_t* read_rows, bool* eof) {
     // most recently read batch (set after nextBatch returns).
     if (_condition_cache_ctx && _condition_cache_ctx->is_hit) {
         auto& cache = *_condition_cache_ctx->filter_result;
-        uint64_t granule = _current_read_position / ConditionCacheContext::GRANULE_SIZE;
-        auto max_granule = cache.size();
-        while (granule < max_granule && !cache[granule]) {
-            granule++;
+        uint64_t base_granule = _first_row_in_range / ConditionCacheContext::GRANULE_SIZE;
+        uint64_t cur_granule = _current_read_position / ConditionCacheContext::GRANULE_SIZE;
+        uint64_t cache_idx = cur_granule - base_granule;
+        while (cache_idx < cache.size() && !cache[cache_idx]) {
+            cache_idx++;
         }
-        if (granule >= max_granule) {
-            // Cache is pre-allocated with the total number of
-            // granules, so no more surviving rows exist in this file.
+        if (cache_idx >= cache.size()) {
+            // No more surviving rows exist in this scan range.
             *eof = true;
             *read_rows = 0;
-            _statistics.condition_cache_filtered_rows += get_total_rows() - _current_read_position;
+            _statistics.condition_cache_filtered_rows +=
+                    (_first_row_in_range + get_total_rows()) - _current_read_position;
             return;
         }
-        uint64_t target_row = granule * ConditionCacheContext::GRANULE_SIZE;
+        uint64_t target_row = (base_granule + cache_idx) * ConditionCacheContext::GRANULE_SIZE;
         if (target_row > _current_read_position) {
             _row_reader->seekToRow(target_row);
             _statistics.condition_cache_filtered_rows += target_row - _current_read_position;
@@ -2338,12 +2346,14 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
             auto& cache = *_condition_cache_ctx->filter_result;
             auto* filter_data = _filter->data();
             size_t filter_size = _filter->size();
+            size_t base_granule = _first_row_in_range / ConditionCacheContext::GRANULE_SIZE;
             for (size_t i = 0; i < filter_size; i++) {
                 if (filter_data[i]) {
                     size_t granule =
                             (_last_read_row_number + i) / ConditionCacheContext::GRANULE_SIZE;
-                    if (granule < cache.size()) {
-                        cache[granule] = true;
+                    size_t cache_idx = granule - base_granule;
+                    if (cache_idx < cache.size()) {
+                        cache[cache_idx] = true;
                     }
                 }
             }
@@ -2559,12 +2569,14 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
                     auto& cache = *_condition_cache_ctx->filter_result;
                     auto* filter_data = result_filter.data();
                     size_t num_rows = block->rows();
+                    size_t base_granule = _first_row_in_range / ConditionCacheContext::GRANULE_SIZE;
                     for (size_t i = 0; i < num_rows; i++) {
                         if (filter_data[i]) {
                             size_t granule = (_last_read_row_number + i) /
                                              ConditionCacheContext::GRANULE_SIZE;
-                            if (granule < cache.size()) {
-                                cache[granule] = true;
+                            size_t cache_idx = granule - base_granule;
+                            if (cache_idx < cache.size()) {
+                                cache[cache_idx] = true;
                             }
                         }
                     }

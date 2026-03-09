@@ -174,11 +174,9 @@ public:
 
     bool count_read_rows() override { return true; }
 
-    void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override {
-        _condition_cache_ctx = std::move(ctx);
-    }
+    void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override;
 
-    int64_t get_total_rows() const override { return _t_metadata ? _t_metadata->num_rows : 0; }
+    int64_t get_total_rows() const override;
 
     bool has_delete_operations() const override {
         return _delete_rows != nullptr && !_delete_rows->empty();
@@ -253,7 +251,7 @@ private:
             RowRanges* candidate_row_ranges);
 
     // check this range contain this row group.
-    bool _is_misaligned_range_group(const tparquet::RowGroup& row_group);
+    bool _is_misaligned_range_group(const tparquet::RowGroup& row_group) const;
 
     // Row Group min-max Filter
     Status _process_column_stat_filter(
@@ -274,7 +272,8 @@ private:
             const std::vector<std::unique_ptr<MutilColumnBlockPredicate>>& push_down_pred,
             RowRanges* row_ranges);
 
-    int64_t _get_column_start_offset(const tparquet::ColumnMetaData& column_init_column_readers);
+    int64_t _get_column_start_offset(
+            const tparquet::ColumnMetaData& column_init_column_readers) const;
     std::string _meta_cache_key(const std::string& path) { return "meta_" + path; }
     std::vector<io::PrefetchRange> _generate_random_access_ranges(
             const RowGroupReader::RowGroupIndex& group, size_t* avg_io_size);

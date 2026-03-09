@@ -885,7 +885,7 @@ std::vector<io::PrefetchRange> ParquetReader::_generate_random_access_ranges(
     return result;
 }
 
-bool ParquetReader::_is_misaligned_range_group(const tparquet::RowGroup& row_group) {
+bool ParquetReader::_is_misaligned_range_group(const tparquet::RowGroup& row_group) const {
     int64_t start_offset = _get_column_start_offset(row_group.columns[0].meta_data);
 
     auto& last_column = row_group.columns[row_group.columns.size() - 1].meta_data;
@@ -897,6 +897,32 @@ bool ParquetReader::_is_misaligned_range_group(const tparquet::RowGroup& row_gro
         return true;
     }
     return false;
+}
+
+int64_t ParquetReader::get_total_rows() const {
+    if (!_t_metadata) return 0;
+    if (!_filter_groups) return _t_metadata->num_rows;
+    int64_t total = 0;
+    for (const auto& rg : _t_metadata->row_groups) {
+        if (!_is_misaligned_range_group(rg)) {
+            total += rg.num_rows;
+        }
+    }
+    return total;
+}
+
+void ParquetReader::set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) {
+    _condition_cache_ctx = std::move(ctx);
+    if (!_condition_cache_ctx || !_t_metadata || !_filter_groups) return;
+    // Find the first assigned row group to compute base_granule
+    int64_t first_row = 0;
+    for (const auto& rg : _t_metadata->row_groups) {
+        if (!_is_misaligned_range_group(rg)) {
+            _condition_cache_ctx->base_granule = first_row / ConditionCacheContext::GRANULE_SIZE;
+            return;
+        }
+        first_row += rg.num_rows;
+    }
 }
 
 Status ParquetReader::_process_page_index_filter(
@@ -1290,7 +1316,7 @@ Status ParquetReader::_process_column_stat_filter(
     return Status::OK();
 }
 
-int64_t ParquetReader::_get_column_start_offset(const tparquet::ColumnMetaData& column) {
+int64_t ParquetReader::_get_column_start_offset(const tparquet::ColumnMetaData& column) const {
     return has_dict_page(column) ? column.dictionary_page_offset : column.data_page_offset;
 }
 

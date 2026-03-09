@@ -433,8 +433,9 @@ void RowGroupReader::_mark_condition_cache_granules(const uint8_t* filter_data, 
             // global row number in the parquet file
             size_t granule = (_current_row_group_idx.first_row + rg_pos) /
                              ConditionCacheContext::GRANULE_SIZE;
-            if (granule < cache.size()) {
-                cache[granule] = true;
+            size_t cache_idx = granule - _condition_cache_ctx->base_granule;
+            if (cache_idx < cache.size()) {
+                cache[cache_idx] = true;
             }
         }
     }
@@ -455,44 +456,40 @@ void RowGroupReader::_filter_read_ranges_by_condition_cache() {
 
     auto old_row_count = _read_ranges.count();
     _read_ranges =
-            filter_ranges_by_cache(_read_ranges, filter_result, _current_row_group_idx.first_row);
+            filter_ranges_by_cache(_read_ranges, filter_result, _current_row_group_idx.first_row,
+                                   _condition_cache_ctx->base_granule);
     _is_row_group_filtered = _read_ranges.is_empty();
     _condition_cache_filtered_rows += old_row_count - _read_ranges.count();
 }
 
 // Filters read_ranges by removing rows whose cache granule is false.
 //
-// Cache granule i covers global file rows [i*GS, (i+1)*GS). Since read_ranges uses
+// Cache index i maps to global granule (base_granule + i), which covers global file
+// rows [(base_granule+i)*GS, (base_granule+i+1)*GS). Since read_ranges uses
 // row-group-relative indices and first_row is the global position of the row group's
-// first row, granule i maps to row-group-relative range:
-//   [max(0, i*GS - first_row), max(0, (i+1)*GS - first_row))
+// first row, global granule g maps to row-group-relative range:
+//   [max(0, g*GS - first_row), max(0, (g+1)*GS - first_row))
 //
 // We build a RowRanges of all false-granule regions (in row-group-relative coordinates),
 // then subtract from read_ranges via ranges_exception.
 //
 // Granules beyond cache.size() are kept conservatively (assumed true).
 //
-// Example 1: first_row = 0, read_ranges = [0, 8192), cache = {true, false, true, false}
-//   false granules 1,3 -> filtered = [2048, 4096), [6144, 8192)
-//   Result: [0, 2048), [4096, 6144)
-//
-// Example 2: first_row = 1024, read_ranges = [0, 4096), cache = {false, true, false}
-//   granule 0 -> rg [-1024, 1024) clipped to [0, 1024)
-//   granule 2 -> rg [3072, 5120) clipped to [3072, 4096) by ranges_exception
-//   filtered = [0, 1024), [3072, 5120)
-//   Result: [1024, 3072)
+// When base_granule > 0, the cache only covers granules starting from base_granule.
+// This happens when a Parquet file is split across multiple scan ranges and this reader
+// only processes row groups starting at a non-zero offset in the file.
 RowRanges RowGroupReader::filter_ranges_by_cache(const RowRanges& read_ranges,
-                                                 const std::vector<bool>& cache,
-                                                 int64_t first_row) {
+                                                 const std::vector<bool>& cache, int64_t first_row,
+                                                 int64_t base_granule) {
     constexpr int64_t GS = ConditionCacheContext::GRANULE_SIZE;
     RowRanges filtered_ranges;
 
     for (size_t i = 0; i < cache.size(); i++) {
         if (!cache[i]) {
-            int64_t rg_from =
-                    std::max(static_cast<int64_t>(0), static_cast<int64_t>(i) * GS - first_row);
-            int64_t rg_to = std::max(static_cast<int64_t>(0),
-                                     (static_cast<int64_t>(i) + 1) * GS - first_row);
+            int64_t global_granule = base_granule + static_cast<int64_t>(i);
+            int64_t rg_from = std::max(static_cast<int64_t>(0), global_granule * GS - first_row);
+            int64_t rg_to =
+                    std::max(static_cast<int64_t>(0), (global_granule + 1) * GS - first_row);
             if (rg_from < rg_to) {
                 filtered_ranges.add(RowRange(rg_from, rg_to));
             }
