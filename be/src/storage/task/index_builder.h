@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "storage/field.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/iterator/olap_data_convertor.h"
@@ -34,6 +35,8 @@ class IndexColumnWriter;
 class IndexFileWriter;
 } // namespace segment_v2
 class OlapBlockDataConvertor;
+
+class StorageField;
 
 class StorageEngine;
 class RowsetWriter;
@@ -60,10 +63,10 @@ private:
     Status _write_inverted_index_data(TabletSchemaSPtr tablet_schema, int64_t segment_idx,
                                       Block* block);
     Status _add_data(const std::string& column_name,
-                     const std::pair<int64_t, int64_t>& index_writer_sign, Field* field,
+                     const std::pair<int64_t, int64_t>& index_writer_sign, StorageField* field,
                      const uint8_t** ptr, size_t num_rows);
     Status _add_nullable(const std::string& column_name,
-                         const std::pair<int64_t, int64_t>& index_writer_sign, Field* field,
+                         const std::pair<int64_t, int64_t>& index_writer_sign, StorageField* field,
                          const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
 
 private:
