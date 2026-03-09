@@ -98,7 +98,7 @@ public:
 constexpr int64_t recvr_fragment_id = 2;
 constexpr int64_t sender_fragment_id = 2;
 
-TUniqueId create_TUniqueId(int64_t hi, int64_t lo) {
+static inline TUniqueId create_TUniqueId(int64_t hi, int64_t lo) {
     TUniqueId t {};
     t.hi = hi;
     t.lo = lo;

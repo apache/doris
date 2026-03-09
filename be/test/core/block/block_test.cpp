@@ -86,7 +86,7 @@ void block_to_pb(
     EXPECT_EQ(type_and_name.name, pblock->column_metas()[0].name());
 }
 
-void fill_block_with_array_int(Block& block) {
+static void fill_block_with_array_int(Block& block) {
     auto off_column = ColumnOffset64::create();
     auto data_column = ColumnInt32::create();
     // init column array with [[1,2,3],[],[4],[5,6]]
@@ -106,7 +106,7 @@ void fill_block_with_array_int(Block& block) {
     block.insert(test_array_int);
 }
 
-void fill_block_with_array_string(Block& block) {
+static void fill_block_with_array_string(Block& block) {
     auto off_column = ColumnOffset64::create();
     auto data_column = ColumnString::create();
     // init column array with [["abc","de"],["fg"],[], [""]];

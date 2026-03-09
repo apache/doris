@@ -37,14 +37,13 @@
 namespace doris {
 using namespace ErrorCode;
 
-
 class VGenericIteratorsTest : public testing::Test {
 public:
     VGenericIteratorsTest() {}
     virtual ~VGenericIteratorsTest() {}
 };
 
-Schema create_schema() {
+static Schema create_schema() {
     std::vector<TabletColumnPtr> col_schemas;
     col_schemas.emplace_back(
             std::make_shared<TabletColumn>(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
@@ -156,8 +155,7 @@ TEST(VGenericIteratorsTest, MergeAgg) {
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
-    auto iter = new_merge_iterator(std::move(inputs), -1, false, false, nullptr,
-                                               output_schema);
+    auto iter = new_merge_iterator(std::move(inputs), -1, false, false, nullptr, output_schema);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
@@ -207,8 +205,7 @@ TEST(VGenericIteratorsTest, MergeUnique) {
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
-    auto iter = new_merge_iterator(std::move(inputs), -1, true, false, nullptr,
-                                               output_schema);
+    auto iter = new_merge_iterator(std::move(inputs), -1, true, false, nullptr, output_schema);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
@@ -331,8 +328,8 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
                 schema, num_rows, rows_begin, seq_column_id, seq_id_in_every_file));
     }
 
-    auto iter = new_merge_iterator(std::move(inputs), seq_column_id, true, false,
-                                               nullptr, output_schema);
+    auto iter = new_merge_iterator(std::move(inputs), seq_column_id, true, false, nullptr,
+                                   output_schema);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
@@ -355,6 +352,5 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     size_t actual_value = (*seq_col)[0].get<TYPE_BIGINT>();
     EXPECT_EQ(seg_iter_num - 1, actual_value);
 }
-
 
 } // namespace doris

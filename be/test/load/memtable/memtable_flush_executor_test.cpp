@@ -70,7 +70,7 @@ void tear_down() {
                         .ok());
 }
 
-Schema create_schema() {
+static Schema create_schema() {
     std::vector<TabletColumnPtr> col_schemas;
     col_schemas.emplace_back(
             std::make_shared<TabletColumn>(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
