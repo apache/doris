@@ -20,6 +20,7 @@
 
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -246,6 +247,63 @@ TEST(FunctionLikeTest, regexp_extract_all) {
         static_cast<void>(check_function<DataTypeString, true>(func_name, const_pattern_input_types,
                                                                const_pattern_dataset));
     }
+}
+
+TEST(FunctionLikeTest, regexp_extract_all_array) {
+    std::string func_name = "regexp_extract_all_array";
+    auto str_type = std::make_shared<DataTypeString>();
+    auto return_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>())));
+
+    auto run_case = [&](const std::string& str, const std::string& pattern,
+                        const std::string& expected, bool expect_null = false) {
+        auto col_str = ColumnString::create();
+        col_str->insert_data(str.data(), str.size());
+        auto col_pattern = ColumnString::create();
+        col_pattern->insert_data(pattern.data(), pattern.size());
+
+        Block block;
+        block.insert({std::move(col_str), str_type, "str"});
+        block.insert({ColumnConst::create(std::move(col_pattern), 1), str_type, "pattern"});
+        block.insert({nullptr, return_type, "result"});
+
+        ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1)};
+        auto func =
+                SimpleFunctionFactory::instance().get_function(func_name, arg_cols, return_type);
+        ASSERT_TRUE(func != nullptr);
+
+        std::vector<DataTypePtr> arg_types = {str_type, str_type};
+        FunctionUtils fn_utils({}, arg_types, false);
+        auto* fn_ctx = fn_utils.get_fn_ctx();
+        fn_ctx->set_constant_cols(
+                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column)});
+
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+        ASSERT_EQ(Status::OK(), func->execute(fn_ctx, block, {0, 1}, 2, 1));
+
+        auto result_col = block.get_by_position(2).column;
+        ASSERT_TRUE(result_col.get() != nullptr);
+        if (expect_null) {
+            EXPECT_TRUE(result_col->is_null_at(0));
+        } else {
+            ASSERT_FALSE(result_col->is_null_at(0));
+            auto result_str = return_type->to_string(*result_col, 0);
+            EXPECT_EQ(expected, result_str)
+                    << "input: '" << str << "', pattern: '" << pattern << "'";
+        }
+
+        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    };
+
+    run_case("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd", "x=([0-9]+)([a-z]+)", "[\"18\", \"17\"]");
+    run_case("x=a3&x=18abc&x=2&y=3&x=4", "^x=([a-z]+)([0-9]+)", "[\"a\"]");
+    run_case("http://a.m.baidu.com/i41915173660.htm", "i([0-9]+)", "[\"41915173660\"]");
+    run_case("http://a.m.baidu.com/i41915i73660.htm", "i([0-9]+)", "[\"41915\", \"73660\"]");
+    run_case("hitdecisiondlist", "(i)(.*?)(e)", "[\"i\"]");
+    run_case("no_match_here", "x=([0-9]+)", "[]");
+    run_case("abc", "([a-z]+)", "[\"abc\"]");
 }
 
 TEST(FunctionLikeTest, regexp_replace) {
