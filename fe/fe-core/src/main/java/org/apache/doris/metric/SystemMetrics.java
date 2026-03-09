@@ -339,6 +339,7 @@ public class SystemMetrics {
             LOG.warn("failed to get /proc/stat: {}", e.getMessage(), e);
         }
     }
+
     private long parseSingleLongFromLine(String line) {
         String[] parts = WHITESPACE.split(line);
         return parts.length >= 2 ? Long.parseLong(parts[1]) : 0;
