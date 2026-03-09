@@ -23,10 +23,10 @@
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/jemalloc_control.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/workload_group/workload_group.h"
 #include "util/mem_info.h"
-#include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {

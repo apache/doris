@@ -30,13 +30,13 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/status.h"
+#include "core/custom_allocator.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
-#include "util/runtime_profile.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
-#include "vec/common/custom_allocator.h"
 namespace doris {
 
 #include "common/compile_check_begin.h"

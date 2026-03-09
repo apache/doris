@@ -25,12 +25,12 @@
 
 #include "common/status.h"
 #include "cpp/sync_point.h"
-#include "http/http_channel.h"
-#include "http/http_request.h"
-#include "http/http_status.h"
 #include "io/cache/cached_remote_file_reader.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/segment_v2/page_io.h"
+#include "service/http/http_channel.h"
+#include "service/http/http_request.h"
+#include "service/http/http_status.h"
+#include "storage/rowset/rowset.h"
+#include "storage/segment/page_io.h"
 #include "util/stack_util.h"
 
 namespace doris {

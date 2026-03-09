@@ -21,7 +21,7 @@
 #include "cloud/cloud_rowset_builder.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
-#include "olap/delta_writer.h"
+#include "load/delta_writer/delta_writer.h"
 #include "runtime/thread_context.h"
 
 namespace doris {

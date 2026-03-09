@@ -27,8 +27,11 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "common/status.h"
-#include "olap/lru_cache.h"
+#include "cpp/sync_point.h"
 #include "runtime/memory/cache_policy.h"
+#include "util/debug_points.h"
+#include "util/lru_cache.h"
+#include "util/stack_util.h"
 
 namespace doris {
 uint64_t g_tablet_report_inactive_duration_ms = 0;

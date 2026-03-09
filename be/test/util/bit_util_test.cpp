@@ -25,11 +25,11 @@
 #include <boost/utility/binary.hpp>
 #include <random>
 
+#include "core/column/column_nullable.h"
+#include "core/data_type/primitive_type.h"
+#include "exec/common/endian.h"
 #include "gtest/gtest_pred_impl.h"
-#include "runtime/primitive_type.h"
 #include "util/simd/bits.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/common/endian.h"
 
 namespace doris {
 

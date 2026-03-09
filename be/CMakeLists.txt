@@ -524,20 +524,18 @@ set(DORIS_LINK_LIBS
     ${WL_START_GROUP}
     Agent
     Common
+    Core
     Exec
     Exprs
+    Format
     IO
-    Olap
+    Storage
     Runtime
-    RuntimeFilter
     Service
     Util
     DorisGen
-    Webserver
-    Geo
-    GeoType
-    Vec
-    Pipeline
+    Load
+    InformationSchema
     Cloud
     ${WL_END_GROUP}
     CommonCPP
@@ -868,21 +866,23 @@ endfunction(pch_reuse target)
 
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)
+add_subdirectory(${SRC_DIR}/core)
 add_subdirectory(${SRC_DIR}/exec)
 add_subdirectory(${SRC_DIR}/exprs)
+add_subdirectory(${SRC_DIR}/format)
 add_subdirectory(${SRC_DIR}/gen_cpp)
-add_subdirectory(${SRC_DIR}/geo)
-add_subdirectory(${SRC_DIR}/http)
 add_subdirectory(${SRC_DIR}/io)
-add_subdirectory(${SRC_DIR}/olap/rowset/segment_v2/ann_index)
-add_subdirectory(${SRC_DIR}/olap)
+add_subdirectory(${SRC_DIR}/storage/index/ann)
+add_subdirectory(${SRC_DIR}/storage)
 add_subdirectory(${SRC_DIR}/runtime)
-add_subdirectory(${SRC_DIR}/runtime_filter)
 add_subdirectory(${SRC_DIR}/service) # this include doris_be
 add_subdirectory(${SRC_DIR}/cloud)
+add_subdirectory(${SRC_DIR}/load)
+add_subdirectory(${SRC_DIR}/information_schema)
 
 option(BUILD_META_TOOL "Build meta tool" OFF)
-if (BUILD_META_TOOL)
+option(BUILD_INDEX_TOOL "Build index tool" OFF)
+if (BUILD_META_TOOL OR BUILD_INDEX_TOOL)
     add_subdirectory(${SRC_DIR}/tools)
 endif()
 
@@ -897,14 +897,7 @@ if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
         DESTINATION ${OUTPUT_DIR}/bin)
 endif()
 
-option(BUILD_INDEX_TOOL "Build index tool" OFF)
-if (BUILD_INDEX_TOOL)
-    add_subdirectory(${SRC_DIR}/index-tools)
-endif()
-
 add_subdirectory(${SRC_DIR}/util)
-add_subdirectory(${SRC_DIR}/vec)
-add_subdirectory(${SRC_DIR}/pipeline)
 
 # this include doris_be_test
 if (MAKE_TEST)

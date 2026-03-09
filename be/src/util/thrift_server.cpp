@@ -40,8 +40,8 @@
 #include <thread>
 
 #include "common/config.h"
+#include "common/metrics/doris_metrics.h"
 #include "service/backend_options.h"
-#include "util/doris_metrics.h"
 
 namespace apache {
 namespace thrift {

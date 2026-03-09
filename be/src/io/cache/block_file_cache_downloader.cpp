@@ -39,7 +39,7 @@
 #include "cpp/sync_point.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
-#include "olap/rowset/beta_rowset.h"
+#include "storage/rowset/beta_rowset.h"
 #include "util/bvar_helper.h"
 
 namespace doris::io {

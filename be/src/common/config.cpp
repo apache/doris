@@ -44,6 +44,10 @@
 #include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "load/memtable/memtable_flush_executor.h"
+#include "runtime/exec_env.h"
+#include "runtime/workload_group/workload_group_manager.h"
+#include "storage/storage_engine.h"
 #include "util/cpu_info.h"
 
 namespace doris::config {

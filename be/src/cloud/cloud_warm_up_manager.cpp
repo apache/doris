@@ -35,12 +35,13 @@
 #include "common/cast_set.h"
 #include "common/logging.h"
 #include "io/cache/block_file_cache_downloader.h"
-#include "olap/rowset/beta_rowset.h"
-#include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/tablet.h"
-#include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/rowset/beta_rowset.h"
+#include "storage/tablet/tablet.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
+#include "util/client_cache.h"
+#include "util/stack_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 

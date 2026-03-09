@@ -46,14 +46,17 @@
 #include "common/consts.h"
 #include "common/exception.h"
 #include "common/signal_handler.h"
-#include "exec/tablet_info.h" // DorisNodesInfo
-#include "olap/olap_common.h"
-#include "olap/rowset/beta_rowset.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet_fwd.h"
-#include "olap/tablet_manager.h"
-#include "olap/tablet_schema.h"
-#include "olap/utils.h"
+#include "core/assert_cast.h"
+#include "core/block/block.h" // Block
+#include "core/column/column.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/data_type/data_type_struct.h"
+#include "core/data_type_serde/data_type_serde.h"
+#include "core/string_ref.h"
+#include "exec/scan/file_scanner.h"
+#include "format/orc/vorc_reader.h"
+#include "format/parquet/vparquet_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"      // ExecEnv
 #include "runtime/fragment_mgr.h"  // FragmentMgr
@@ -61,22 +64,17 @@
 #include "runtime/types.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "semaphore"
+#include "storage/olap_common.h"
+#include "storage/rowset/beta_rowset.h"
+#include "storage/segment/column_reader.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet_fwd.h"
+#include "storage/tablet/tablet_schema.h"
+#include "storage/tablet_info.h" // DorisNodesInfo
+#include "storage/utils.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
 #include "util/defer_op.h"
-#include "vec/columns/column.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/common/assert_cast.h"
-#include "vec/common/string_ref.h"
-#include "vec/core/block.h" // Block
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_struct.h"
-#include "vec/data_types/serde/data_type_serde.h"
-#include "vec/exec/format/orc/vorc_reader.h"
-#include "vec/exec/format/parquet/vparquet_reader.h"
-#include "vec/exec/scan/file_scanner.h"
-#include "vec/functions/function_helpers.h"
-#include "vec/jsonb/serialize.h"
+#include "util/jsonb/serialize.h"
 
 namespace doris {
 

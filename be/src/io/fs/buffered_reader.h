@@ -28,17 +28,18 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/custom_allocator.h"
+#include "core/typeid_cast.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/file_factory.h"
 #include "io/fs/broker_file_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_reader.h"
-#include "olap/olap_define.h"
-#include "util/runtime_profile.h"
+#include "io/io_common.h"
+#include "runtime/runtime_profile.h"
+#include "storage/olap_define.h"
 #include "util/slice.h"
-#include "vec/common/custom_allocator.h"
-#include "vec/common/typeid_cast.h"
 namespace doris {
 
 #include "common/compile_check_begin.h"

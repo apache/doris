@@ -26,9 +26,9 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "core/string_ref.h"
 #include "util/simd/lower_upper_impl.h"
 #include "util/sse_util.hpp"
-#include "vec/common/string_ref.h"
 
 namespace doris {
 

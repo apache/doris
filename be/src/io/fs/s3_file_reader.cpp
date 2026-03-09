@@ -32,15 +32,16 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/metrics/doris_metrics.h"
+#include "io/cache/block_file_cache.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_common.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "util/bvar_helper.h"
 #include "util/debug_points.h"
-#include "util/doris_metrics.h"
-#include "util/runtime_profile.h"
 #include "util/s3_util.h"
 
 namespace doris::io {

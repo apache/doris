@@ -17,10 +17,11 @@
 
 #include "cloud/pb_convert.h"
 
-#include <common/logging.h>
 #include <gen_cpp/olap_file.pb.h>
 
 #include <utility>
+
+#include "common/logging.h"
 
 namespace doris::cloud {
 #include "common/compile_check_begin.h"

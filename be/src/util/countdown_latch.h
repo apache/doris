@@ -23,7 +23,7 @@
 #include <mutex>
 
 #include "common/logging.h"
-#include "olap/olap_define.h"
+#include "storage/olap_define.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

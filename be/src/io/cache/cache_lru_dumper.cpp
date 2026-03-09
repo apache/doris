@@ -19,10 +19,10 @@
 
 #include <crc32c/crc32c.h>
 
+#include "exec/common/endian.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/lru_queue_recorder.h"
 #include "util/coding.h"
-#include "vec/common/endian.h"
 
 namespace doris::io {
 

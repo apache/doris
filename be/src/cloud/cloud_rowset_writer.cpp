@@ -22,7 +22,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/packed_file_manager.h"
 #include "io/fs/packed_file_writer.h"
-#include "olap/rowset/rowset_factory.h"
+#include "storage/rowset/rowset_factory.h"
 
 namespace doris {
 

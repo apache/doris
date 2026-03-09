@@ -23,8 +23,8 @@
 #include <vector>
 
 #include "common/cast_set.h"
-#include "olap/olap_common.h"
-#include "olap/uint24.h"
+#include "core/uint24.h"
+#include "storage/olap_common.h"
 #include "util/faststring.h"
 
 namespace doris {

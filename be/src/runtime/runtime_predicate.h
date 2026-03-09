@@ -24,16 +24,16 @@
 #include <string>
 
 #include "common/status.h"
-#include "exec/olap_common.h"
-#include "olap/shared_predicate.h"
-#include "olap/tablet_schema.h"
-#include "runtime/define_primitive_type.h"
-#include "runtime/primitive_type.h"
-#include "util/binary_cast.hpp"
-#include "vec/common/arena.h"
-#include "vec/core/field.h"
-#include "vec/core/types.h"
-#include "vec/runtime/vdatetime_value.h"
+#include "core/arena.h"
+#include "core/binary_cast.hpp"
+#include "core/data_type/define_primitive_type.h"
+#include "core/data_type/primitive_type.h"
+#include "core/field.h"
+#include "core/types.h"
+#include "core/value/vdatetime_value.h"
+#include "storage/olap_scan_common.h"
+#include "storage/predicate/shared_predicate.h"
+#include "storage/tablet/tablet_schema.h"
 
 namespace doris {
 class ColumnPredicate;

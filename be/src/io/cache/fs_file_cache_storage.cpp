@@ -44,6 +44,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
+#include "exec/common/hex.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
@@ -54,7 +55,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
-#include "vec/common/hex.h"
 
 namespace doris::io {
 

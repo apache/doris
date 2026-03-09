@@ -23,11 +23,11 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test")
 
 file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS *.cpp)
 
-# Remove all cpp files from vector_search subdirectory
+# Remove all cpp files from vector search (ANN index) subdirectory
 # Since cpp files in vector search subdirs use header files from faiss.
 # The compile check used by doris can not be applied to faiss headers.
 # So vector_search cpp files are compiled in a separate library using different compile options.
-file(GLOB_RECURSE VECTOR_FILES CONFIGURE_DEPENDS olap/vector_search/*.cpp)
+file(GLOB_RECURSE VECTOR_FILES CONFIGURE_DEPENDS storage/index/ann/*.cpp)
 list(REMOVE_ITEM UT_FILES ${VECTOR_FILES})
 
 if(NOT DEFINED DORIS_WITH_LZO)
@@ -44,20 +44,19 @@ list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/tools/benchmark_tool.cpp)
 list(REMOVE_ITEM UT_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/agent/heartbeat_server_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/common/config_validator_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/http/metrics_action_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/binary_plain_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/binary_prefix_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/bitshuffle_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/column_reader_writer_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/frame_of_reference_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/plain_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/rle_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/segment_iterator_apply_index_expr_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/service/http/metrics_action_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/binary_plain_page_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/binary_prefix_page_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/bitshuffle_page_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/column_reader_writer_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/frame_of_reference_page_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/plain_page_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/rle_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/decimal_value_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/util/decompress_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/util/url_coding_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/io/fs/remote_file_system_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/olap/remote_rowset_gc_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage/remote_rowset_gc_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/jsonb_value_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/large_int_value_test.cpp
 )
@@ -106,7 +105,7 @@ include_directories(
 )
 
 # Removed test files are added back using separate compile arguments.
-add_subdirectory(olap/vector_search)
+add_subdirectory(storage/index/ann)
 
 add_executable(doris_be_test ${UT_FILES})
 
