@@ -28,7 +28,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
-#include "runtime/client_cache.h"
+#include "util/client_cache.h"
 #include "util/slice.h"
 
 namespace doris::io {

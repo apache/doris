@@ -21,8 +21,8 @@
 #include "io/cache/file_cache_common.h"
 
 #include "common/config.h"
+#include "exec/common/hex.h"
 #include "io/cache/block_file_cache.h"
-#include "vec/common/hex.h"
 
 namespace doris::io {
 

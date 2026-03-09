@@ -26,10 +26,10 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
-#include "olap/cumulative_compaction_time_series_policy.h"
-#include "olap/olap_common.h"
-#include "olap/tablet.h"
-#include "olap/tablet_meta.h"
+#include "storage/compaction/cumulative_compaction_time_series_policy.h"
+#include "storage/olap_common.h"
+#include "storage/tablet/tablet.h"
+#include "storage/tablet/tablet_meta.h"
 #include "util/defer_op.h"
 
 namespace doris {

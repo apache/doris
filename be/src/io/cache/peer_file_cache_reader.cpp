@@ -27,15 +27,15 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/metrics/doris_metrics.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
 #include "util/brpc_client_cache.h"
 #include "util/bvar_helper.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
-#include "util/doris_metrics.h"
 #include "util/network_util.h"
-#include "util/runtime_profile.h"
 
 namespace doris::io {
 // read from peer

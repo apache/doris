@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "olap/rowset_builder.h"
+#include "storage/rowset_builder.h"
 
 namespace doris {
 

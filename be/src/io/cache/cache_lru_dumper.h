@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/file_cache.pb.h>
+
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -30,7 +32,6 @@
 #include <tuple>
 #include <vector>
 
-#include "gen_cpp/file_cache.pb.h"
 #include "io/cache/file_cache_common.h"
 
 namespace doris::io {

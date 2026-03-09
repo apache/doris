@@ -29,11 +29,11 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "json2pb/json_to_pb.h"
-#include "olap/olap_common.h"
-#include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/rowset_meta.h"
-#include "olap/storage_policy.h"
-#include "olap/tablet_meta.h"
+#include "storage/olap_common.h"
+#include "storage/rowset/rowset_factory.h"
+#include "storage/rowset/rowset_meta.h"
+#include "storage/storage_policy.h"
+#include "storage/tablet/tablet_meta.h"
 #include "util/uid_util.h"
 
 namespace doris {

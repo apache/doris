@@ -21,9 +21,9 @@
 #include <string>
 
 #include "common/config.h"
+#include "exec/runtime_filter/utils.h"
 #include "exprs/create_predicate_function.h"
 #include "gtest/internal/gtest-internal.h"
-#include "runtime_filter/utils.h"
 #include "testutil/column_helper.h"
 
 namespace doris {

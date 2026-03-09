@@ -19,8 +19,8 @@
 
 #include <memory>
 
-#include "olap/metadata_adder.h"
 #include "runtime/memory/memory_profile.h"
+#include "storage/metadata_adder.h"
 
 namespace doris {
 

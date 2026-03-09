@@ -24,8 +24,8 @@
 #include <fstream>
 
 #include "cloud/cloud_storage_engine.h"
-#include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
+#include "storage/storage_engine.h"
 
 namespace doris {
 

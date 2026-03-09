@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "byte_stream_split.h"
+#include "util/byte_stream_split.h"
 
 #include <glog/logging.h>
 

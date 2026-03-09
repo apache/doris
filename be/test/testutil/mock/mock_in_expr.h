@@ -20,9 +20,9 @@
 #include <string>
 
 #include "common/status.h"
-#include "vec/exprs/vectorized_fn_call.h"
-#include "vec/exprs/vexpr.h"
-#include "vec/exprs/vin_predicate.h"
+#include "exprs/vectorized_fn_call.h"
+#include "exprs/vexpr.h"
+#include "exprs/vin_predicate.h"
 
 namespace doris::vectorized {
 class Block;

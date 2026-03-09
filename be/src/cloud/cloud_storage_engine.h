@@ -26,12 +26,12 @@
 //#include "cloud/cloud_full_compaction.h"
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/cloud_txn_delete_bitmap_cache.h"
 #include "cloud/config.h"
-#include "cloud_txn_delete_bitmap_cache.h"
 #include "io/cache/block_file_cache_factory.h"
-#include "olap/compaction.h"
-#include "olap/storage_engine.h"
-#include "olap/storage_policy.h"
+#include "storage/compaction/compaction.h"
+#include "storage/storage_engine.h"
+#include "storage/storage_policy.h"
 #include "util/threadpool.h"
 
 namespace doris {

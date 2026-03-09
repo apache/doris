@@ -32,13 +32,13 @@
 
 #include "arrow/type_fwd.h"
 #include "common/config.h"
-#include "pipeline/dependency.h"
+#include "core/block/block.h"
+#include "exec/pipeline/dependency.h"
+#include "exec/sink/writer/varrow_flight_result_writer.h"
+#include "exec/sink/writer/vmysql_result_writer.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
-#include "util/runtime_profile.h"
 #include "util/thrift_util.h"
-#include "vec/core/block.h"
-#include "vec/sink/varrow_flight_result_writer.h"
-#include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

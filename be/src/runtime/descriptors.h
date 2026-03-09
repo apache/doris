@@ -38,10 +38,9 @@
 #include "common/global_types.h"
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "olap/utils.h"
-#include "runtime/define_primitive_type.h"
-#include "runtime/types.h"
-#include "vec/data_types/data_type.h"
+#include "core/data_type/data_type.h"
+#include "core/data_type/define_primitive_type.h"
+#include "storage/utils.h"
 
 namespace google::protobuf {
 template <typename Element>

@@ -25,11 +25,10 @@
 #include <vector>
 
 #include "common/status.h"
-#include "runtime/types.h"
-#include "util/runtime_profile.h"
-#include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/data_types/data_type.h"
-#include "vec/exprs/vexpr_fwd.h"
+#include "core/data_type/data_type.h"
+#include "exprs/aggregate/aggregate_function.h"
+#include "exprs/vexpr_fwd.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris {
 class RuntimeState;

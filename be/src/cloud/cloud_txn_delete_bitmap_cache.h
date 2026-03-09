@@ -19,13 +19,13 @@
 
 #include <mutex>
 
-#include "olap/lru_cache.h"
-#include "olap/olap_common.h"
-#include "olap/partial_update_info.h"
-#include "olap/rowset/rowset.h"
-#include "olap/tablet_meta.h"
-#include "olap/txn_manager.h"
+#include "storage/olap_common.h"
+#include "storage/partial_update_info.h"
+#include "storage/rowset/rowset.h"
+#include "storage/tablet/tablet_meta.h"
+#include "storage/txn/txn_manager.h"
 #include "util/countdown_latch.h"
+#include "util/lru_cache.h"
 
 namespace doris {
 

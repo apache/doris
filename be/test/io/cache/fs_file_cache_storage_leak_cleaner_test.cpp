@@ -41,7 +41,7 @@
 #undef private
 #undef protected
 
-#include "block_file_cache_test_common.h"
+#include "io/cache/block_file_cache_test_common.h"
 
 namespace doris::io {
 

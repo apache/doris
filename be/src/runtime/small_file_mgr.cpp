@@ -32,14 +32,14 @@
 #include <utility>
 #include <vector>
 
+#include "common/metrics/doris_metrics.h"
+#include "common/metrics/metrics.h"
 #include "common/status.h"
-#include "http/http_client.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
-#include "util/doris_metrics.h"
+#include "service/http/http_client.h"
 #include "util/md5.h"
-#include "util/metrics.h"
 #include "util/string_util.h"
 
 namespace doris {

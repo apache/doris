@@ -18,7 +18,7 @@
 #pragma once
 
 #include "cloud/cloud_storage_engine.h"
-#include "olap/rowset/beta_rowset_writer.h"
+#include "storage/rowset/beta_rowset_writer.h"
 
 namespace doris {
 

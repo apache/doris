@@ -21,7 +21,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
-#include "olap/storage_policy.h"
+#include "storage/storage_policy.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

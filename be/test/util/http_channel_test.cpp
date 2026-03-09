@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "http/http_channel.h"
+#include "service/http/http_channel.h"
 
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>

@@ -17,13 +17,12 @@
 
 #include "util/decompress.h"
 
+#include <gen_cpp/Descriptors_types.h>
 #include <gtest/gtest.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include <iostream>
-
-#include "gen_cpp/Descriptors_types.h"
 
 using namespace std;
 

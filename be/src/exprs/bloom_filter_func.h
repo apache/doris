@@ -19,10 +19,10 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "core/column/column_dictionary.h"
+#include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exprs/bloom_filter_func_impl.h"
 #include "exprs/filter_base.h"
-#include "runtime_filter/runtime_filter_definitions.h"
-#include "vec/columns/column_dictionary.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

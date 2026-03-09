@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <common/multi_version.h>
 #include <gen_cpp/olap_file.pb.h>
 
 #include <atomic>
@@ -29,16 +28,17 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/multi_version.h"
 #include "common/status.h"
-#include "exec/schema_scanner/schema_routine_load_job_scanner.h"
+#include "exec/pipeline/pipeline_tracing.h"
+#include "information_schema/schema_routine_load_job_scanner.h"
 #include "io/cache/fs_file_cache_storage.h"
-#include "olap/memtable_memory_limiter.h"
-#include "olap/options.h"
-#include "olap/rowset/segment_v2/inverted_index_writer.h"
-#include "olap/tablet_fwd.h"
-#include "pipeline/pipeline_tracing.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/cluster_info.h"
 #include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
+#include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/options.h"
+#include "storage/tablet/tablet_fwd.h"
 #include "util/threadpool.h"
 
 namespace orc {

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/common/sort/sorter.h"
+#include "exec/sort/sorter.h"
 
 namespace doris::vectorized {
 

@@ -17,13 +17,14 @@
 
 #pragma once
 
+#include <gen_cpp/BackendService.h>
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <memory>
 
-#include "gen_cpp/BackendService.h"
-#include "olap/tablet.h"
+#include "storage/tablet/tablet.h"
 
 namespace doris {
 

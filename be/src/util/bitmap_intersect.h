@@ -18,8 +18,8 @@
 #include <parallel_hashmap/phmap.h>
 
 #include "common/cast_set.h"
-#include "util/bitmap_value.h"
-#include "vec/common/string_ref.h"
+#include "core/string_ref.h"
+#include "core/value/bitmap_value.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

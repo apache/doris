@@ -28,8 +28,8 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
-#include "exec/tablet_info.h"
-#include "olap/tablet_schema.h"
+#include "storage/tablet/tablet_schema.h"
+#include "storage/tablet_info.h"
 #include "util/thrift_server.h"
 
 namespace apache::thrift::protocol {

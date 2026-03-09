@@ -29,9 +29,9 @@
 
 #include "common/compiler_util.h"
 #include "common/status.h"
+#include "format/arrow/arrow_utils.h"
 #include "udf/python/python_udf_meta.h"
 #include "udf/python/python_udf_runtime.h"
-#include "util/arrow/utils.h"
 
 namespace doris {
 

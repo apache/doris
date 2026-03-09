@@ -23,8 +23,8 @@
 #include "arrow/flight/client.h"
 #include "arrow/flight/server.h"
 #include "common/status.h"
-#include "util/arrow/row_batch.h"
-#include "vec/data_types/data_type.h"
+#include "core/data_type/data_type.h"
+#include "format/arrow/arrow_row_batch.h"
 
 namespace doris {
 

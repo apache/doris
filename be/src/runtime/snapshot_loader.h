@@ -26,8 +26,8 @@
 #include <vector>
 
 #include "common/status.h"
-#include "olap/tablet_fwd.h"
 #include "runtime/workload_management/resource_context.h"
+#include "storage/tablet/tablet_fwd.h"
 
 namespace doris {
 namespace io {

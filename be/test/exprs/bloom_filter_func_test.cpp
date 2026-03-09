@@ -25,14 +25,14 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "core/column/column_decimal.h"
+#include "core/data_type/define_primitive_type.h"
+#include "core/data_type/primitive_type.h"
+#include "core/value/vdatetime_value.h"
 #include "exprs/create_predicate_function.h"
 #include "gtest/gtest.h"
-#include "runtime/define_primitive_type.h"
-#include "runtime/primitive_type.h"
 #include "testutil/column_helper.h"
 #include "util/url_coding.h"
-#include "vec/columns/column_decimal.h"
-#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 class BloomFilterFuncTest : public testing::Test {

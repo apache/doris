@@ -22,8 +22,8 @@
 #include <memory>
 #include <vector>
 
-#include "vec/data_types/data_type.h"
-#include "vec/exprs/function_context.h"
+#include "core/data_type/data_type.h"
+#include "exprs/function_context.h"
 
 namespace doris {
 

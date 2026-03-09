@@ -21,7 +21,7 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
-#include "olap/compaction.h"
+#include "storage/compaction/compaction.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

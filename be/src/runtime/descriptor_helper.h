@@ -22,8 +22,8 @@
 
 #include <vector>
 
-#include "runtime/define_primitive_type.h"
-#include "runtime/primitive_type.h"
+#include "core/data_type/define_primitive_type.h"
+#include "core/data_type/primitive_type.h"
 
 namespace doris {
 

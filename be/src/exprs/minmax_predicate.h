@@ -19,10 +19,10 @@
 
 #include <gen_cpp/internal_service.pb.h>
 
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/type_limit.h"
 #include "exprs/filter_base.h"
-#include "runtime/type_limit.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
 
 namespace doris {
 

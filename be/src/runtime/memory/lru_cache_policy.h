@@ -22,11 +22,11 @@
 #include <memory>
 
 #include "common/be_mock_util.h"
-#include "olap/lru_cache.h"
 #include "runtime/memory/cache_policy.h"
 #include "runtime/memory/lru_cache_value_base.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "util/lru_cache.h"
 #include "util/time.h"
 
 namespace doris {

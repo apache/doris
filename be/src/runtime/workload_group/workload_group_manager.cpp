@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "workload_group_manager.h"
+#include "runtime/workload_group/workload_group_manager.h"
 
 #include <glog/logging.h>
 
@@ -26,8 +26,10 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "exec/schema_scanner/schema_scanner_helper.h"
-#include "pipeline/task_scheduler.h"
+#include "core/block/block.h"
+#include "exec/pipeline/task_scheduler.h"
+#include "exec/scan/scanner_scheduler.h"
+#include "information_schema/schema_scanner_helper.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/workload_group/workload_group.h"
@@ -36,8 +38,6 @@
 #include "util/pretty_printer.h"
 #include "util/threadpool.h"
 #include "util/time.h"
-#include "vec/core/block.h"
-#include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris {
 

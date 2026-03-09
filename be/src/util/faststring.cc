@@ -19,7 +19,7 @@
 
 #include <glog/logging.h>
 
-#include "vec/common/custom_allocator.h"
+#include "core/custom_allocator.h"
 
 namespace doris {
 

@@ -17,15 +17,15 @@
 
 #include "runtime/result_buffer_mgr.h"
 
+#include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest.h>
 
-#include "gen_cpp/PaloInternalService_types.h"
+#include "core/block/block.h"
+#include "exec/sink/writer/varrow_flight_result_writer.h"
+#include "exec/sink/writer/vmysql_result_writer.h"
 #include "runtime/result_block_buffer.h"
 #include "util/cpu_info.h"
 #include "util/thread.h"
-#include "vec/core/block.h"
-#include "vec/sink/varrow_flight_result_writer.h"
-#include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
 

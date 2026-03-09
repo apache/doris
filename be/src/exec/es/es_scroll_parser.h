@@ -23,8 +23,8 @@
 #include <string>
 #include <vector>
 
+#include "core/data_type/data_type.h"
 #include "rapidjson/document.h"
-#include "vec/data_types/data_type.h"
 
 namespace doris {
 

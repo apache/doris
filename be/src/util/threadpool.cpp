@@ -30,9 +30,9 @@
 #include "absl/strings/substitute.h"
 #include "common/exception.h"
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
+#include "common/metrics/metrics.h"
 #include "util/debug_points.h"
-#include "util/doris_metrics.h"
-#include "util/metrics.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 

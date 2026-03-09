@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "vec/data_types/data_type.h"
+#include "core/data_type/data_type.h"
 
 namespace doris::simd {
 #include "common/compile_check_begin.h"

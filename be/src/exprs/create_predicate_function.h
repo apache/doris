@@ -19,15 +19,15 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "core/data_type/define_primitive_type.h"
+#include "exprs/function_filter.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
-#include "function_filter.h"
-#include "olap/bitmap_filter_predicate.h"
-#include "olap/bloom_filter_predicate.h"
-#include "olap/column_predicate.h"
-#include "olap/in_list_predicate.h"
-#include "olap/like_column_predicate.h"
-#include "runtime/define_primitive_type.h"
+#include "storage/predicate/bitmap_filter_predicate.h"
+#include "storage/predicate/bloom_filter_predicate.h"
+#include "storage/predicate/column_predicate.h"
+#include "storage/predicate/in_list_predicate.h"
+#include "storage/predicate/like_column_predicate.h"
 
 namespace doris {
 

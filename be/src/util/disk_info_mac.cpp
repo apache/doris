@@ -28,8 +28,8 @@
 #include <string>
 #include <vector>
 
-#include "disk_info.h"
 #include "io/fs/local_file_system.h"
+#include "util/disk_info.h"
 
 namespace doris {
 

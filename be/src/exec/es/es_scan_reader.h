@@ -21,7 +21,7 @@
 #include <memory>
 #include <string>
 
-#include "http/http_client.h"
+#include "service/http/http_client.h"
 
 namespace doris {
 class ScrollParser;

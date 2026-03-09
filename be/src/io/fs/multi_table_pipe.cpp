@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "multi_table_pipe.h"
+#include "io/fs/multi_table_pipe.h"
 
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
@@ -27,11 +27,11 @@
 #include <type_traits>
 
 #include "common/status.h"
-#include "runtime/client_cache.h"
+#include "load/stream_load/new_load_stream_mgr.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
-#include "runtime/stream_load/new_load_stream_mgr.h"
+#include "util/client_cache.h"
 #include "util/debug_points.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_util.h"

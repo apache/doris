@@ -26,7 +26,7 @@
 #include "agent/agent_server.h"
 #include "agent/topic_subscriber.h"
 #include "common/status.h"
-#include "runtime/stream_load/stream_load_recorder.h"
+#include "load/stream_load/stream_load_recorder.h"
 
 namespace doris {
 

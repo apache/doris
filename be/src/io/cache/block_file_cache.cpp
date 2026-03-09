@@ -20,6 +20,8 @@
 
 #include "io/cache/block_file_cache.h"
 
+#include <gen_cpp/file_cache.pb.h>
+
 #include <cstdio>
 #include <exception>
 #include <fstream>
@@ -27,7 +29,6 @@
 
 #include "common/status.h"
 #include "cpp/sync_point.h"
-#include "gen_cpp/file_cache.pb.h"
 #include "runtime/exec_env.h"
 
 #if defined(__APPLE__)
@@ -43,19 +44,19 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "core/uint128.h"
+#include "exec/common/sip_hash.h"
 #include "io/cache/block_file_cache_ttl_mgr.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/cache/mem_file_cache_storage.h"
+#include "runtime/runtime_profile.h"
 #include "util/concurrency_stats.h"
-#include "util/runtime_profile.h"
 #include "util/stack_util.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 #include "util/time.h"
-#include "vec/common/sip_hash.h"
-#include "vec/common/uint128.h"
 namespace doris::io {
 #include "common/compile_check_begin.h"
 

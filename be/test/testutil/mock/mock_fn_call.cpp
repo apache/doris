@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "mock_fn_call.h"
+#include "testutil/mock/mock_fn_call.h"
 
 #include <gtest/gtest.h>
 
+#include "core/data_type/data_type_number.h"
 #include "testutil/column_helper.h"
-#include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
 

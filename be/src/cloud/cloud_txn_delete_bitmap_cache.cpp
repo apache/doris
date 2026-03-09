@@ -26,9 +26,9 @@
 #include "cloud/config.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
-#include "olap/olap_common.h"
-#include "olap/tablet_meta.h"
-#include "olap/txn_manager.h"
+#include "storage/olap_common.h"
+#include "storage/tablet/tablet_meta.h"
+#include "storage/txn/txn_manager.h"
 
 namespace doris {
 

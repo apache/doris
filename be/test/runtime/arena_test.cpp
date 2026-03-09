@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/common/arena.h"
+#include "core/arena.h"
 
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>

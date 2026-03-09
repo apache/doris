@@ -37,7 +37,7 @@
 #include <utility>
 
 #include "common/logging.h"
-#include "vec/common/endian.h"
+#include "exec/common/endian.h"
 
 namespace doris::util_hash {
 #include "common/compile_check_begin.h"

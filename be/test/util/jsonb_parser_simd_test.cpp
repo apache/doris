@@ -16,8 +16,8 @@
 // under the License.
 
 #include "common/status.h"
+#include "core/value/jsonb_value.h"
 #include "gtest/gtest.h"
-#include "runtime/jsonb_value.h"
 
 namespace doris {
 class JsonbParserTest : public testing::Test {};

@@ -25,9 +25,9 @@
 #include <functional>
 #include <limits>
 
-#include "vec/common/pod_array_fwd.h"
-#include "vec/common/string_buffer.hpp"
-#include "vec/core/types.h"
+#include "core/pod_array_fwd.h"
+#include "core/string_buffer.hpp"
+#include "core/types.h"
 
 namespace doris {
 

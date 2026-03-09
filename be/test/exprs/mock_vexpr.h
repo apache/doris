@@ -20,7 +20,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "vec/exprs/vexpr.h"
+#include "exprs/vexpr.h"
 
 namespace doris {
 namespace vectorized {

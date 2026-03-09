@@ -63,9 +63,9 @@
 #include <limits>
 
 #include "common/status.h"
-#include "jsonb_document.h"
-#include "jsonb_writer.h"
-#include "string_parser.hpp"
+#include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
+#include "util/string_parser.hpp"
 
 namespace doris {
 #include "common/compile_check_begin.h"

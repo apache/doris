@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/schema_scanner/schema_cluster_snapshot_properties_scanner.h"
+#include "information_schema/schema_cluster_snapshot_properties_scanner.h"
 
 #include <gtest/gtest.h>
 
-#include "vec/core/block.h"
-#include "vec/core/types.h"
+#include "core/block/block.h"
+#include "core/types.h"
 
 namespace doris {
 

@@ -38,12 +38,12 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "runtime/large_int_value.h"
-#include "runtime/primitive_type.h"
-#include "vec/common/int_exp.h"
-#include "vec/common/string_utils/string_utils.h"
-#include "vec/core/extended_types.h"
-#include "vec/data_types/number_traits.h"
+#include "core/data_type/number_traits.h"
+#include "core/data_type/primitive_type.h"
+#include "core/extended_types.h"
+#include "core/value/large_int_value.h"
+#include "exec/common/int_exp.h"
+#include "exec/common/string_utils/string_utils.h"
 
 namespace doris {
 #include "common/compile_check_avoid_begin.h"

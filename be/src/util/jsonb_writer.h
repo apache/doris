@@ -44,9 +44,9 @@
 #include <string>
 
 #include "common/status.h"
-#include "jsonb_document.h"
-#include "jsonb_stream.h"
-#include "vec/core/types.h"
+#include "core/types.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_stream.h"
 
 namespace doris {
 

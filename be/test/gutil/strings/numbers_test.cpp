@@ -20,9 +20,9 @@
 
 #include <limits>
 
+#include "exprs/function/cast/cast_to_string.h"
 #include "gtest/gtest_pred_impl.h"
 #include "util/mysql_global.h"
-#include "vec/functions/cast/cast_to_string.h"
 
 namespace doris {
 

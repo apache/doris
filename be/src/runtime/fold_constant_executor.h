@@ -25,12 +25,11 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "core/data_type/data_type.h"
+#include "core/data_type_serde/data_type_serde.h"
+#include "exprs/aggregate/aggregate_function.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
-#include "runtime/types.h"
-#include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
 

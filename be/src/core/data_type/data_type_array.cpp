@@ -1,0 +1,189 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+// This file is copied from
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/DataTypes/DataTypeArray.h
+// and modified by Doris
+
+#include "core/data_type/data_type_array.h"
+
+#include <ctype.h>
+#include <gen_cpp/data.pb.h>
+#include <glog/logging.h>
+#include <string.h>
+
+#include <typeinfo>
+#include <utility>
+
+#include "agent/be_exec_version_manager.h"
+#include "core/assert_cast.h"
+#include "core/column/column.h"
+#include "core/column/column_array.h"
+#include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/define_primitive_type.h"
+#include "core/packed_int128.h"
+#include "core/string_buffer.hpp"
+#include "core/string_ref.h"
+#include "core/typeid_cast.h"
+#include "core/value/decimalv2_value.h"
+
+namespace doris::vectorized {
+
+namespace ErrorCodes {
+extern const int NUMBER_OF_ARGUMENTS_DOESNT_MATCH;
+}
+
+DataTypeArray::DataTypeArray(const DataTypePtr& nested_) : nested {nested_} {}
+
+MutableColumnPtr DataTypeArray::create_column() const {
+    return ColumnArray::create(nested->create_column(), ColumnArray::ColumnOffsets::create());
+}
+
+Status DataTypeArray::check_column(const IColumn& column) const {
+    const auto* column_array = DORIS_TRY(check_column_nested_type<ColumnArray>(column));
+    return nested->check_column(column_array->get_data());
+}
+
+Field DataTypeArray::get_default() const {
+    Array a;
+    a.push_back(nested->get_default());
+    return Field::create_field<TYPE_ARRAY>(a);
+}
+
+bool DataTypeArray::equals(const IDataType& rhs) const {
+    return typeid(rhs) == typeid(*this) &&
+           nested->equals(*static_cast<const DataTypeArray&>(rhs).nested);
+}
+
+// here we should remove nullable, otherwise here always be 1
+size_t DataTypeArray::get_number_of_dimensions() const {
+    const DataTypeArray* nested_array =
+            typeid_cast<const DataTypeArray*>(remove_nullable(nested).get());
+    if (!nested_array) return 1;
+    return 1 +
+           nested_array
+                   ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
+}
+// binary : const flag | row num | real saved num | offsets | data
+// offsets: data_off1 | data_off2 | ...
+// data   : data1 | data2 | ...
+int64_t DataTypeArray::get_uncompressed_serialized_bytes(const IColumn& column,
+                                                         int be_exec_version) const {
+    auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
+    bool is_const_column = is_column_const(column);
+    auto real_need_copy_num = is_const_column ? 1 : column.size();
+    const IColumn* array_column = &column;
+    if (is_const_column) {
+        const auto& const_column = assert_cast<const ColumnConst&>(column);
+        array_column = &(const_column.get_data_column());
+    }
+    const auto& data_column = assert_cast<const ColumnArray&>(*array_column);
+    size = size + sizeof(ColumnArray::Offset64) * real_need_copy_num;
+    return size + get_nested_type()->get_uncompressed_serialized_bytes(data_column.get_data(),
+                                                                       be_exec_version);
+}
+
+char* DataTypeArray::serialize(const IColumn& column, char* buf, int be_exec_version) const {
+    const auto* array_column = &column;
+    size_t real_need_copy_num = 0;
+    buf = serialize_const_flag_and_row_num(&array_column, buf, &real_need_copy_num);
+
+    const auto& data_column = assert_cast<const ColumnArray&>(*array_column);
+    // offsets
+    memcpy(buf, data_column.get_offsets().data(),
+           real_need_copy_num * sizeof(ColumnArray::Offset64));
+    buf += real_need_copy_num * sizeof(ColumnArray::Offset64);
+    // children
+    return get_nested_type()->serialize(data_column.get_data(), buf, be_exec_version);
+}
+
+const char* DataTypeArray::deserialize(const char* buf, MutableColumnPtr* column,
+                                       int be_exec_version) const {
+    auto* origin_column = column->get();
+    size_t real_have_saved_num = 0;
+    buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
+
+    auto* data_column = assert_cast<ColumnArray*>(origin_column);
+    auto& offsets = data_column->get_offsets();
+
+    // offsets
+    offsets.resize(real_have_saved_num);
+    memcpy(offsets.data(), buf, sizeof(ColumnArray::Offset64) * real_have_saved_num);
+    buf += sizeof(ColumnArray::Offset64) * real_have_saved_num;
+    // children
+    auto nested_column = data_column->get_data_ptr()->assume_mutable();
+    buf = get_nested_type()->deserialize(buf, &nested_column, be_exec_version);
+    return buf;
+}
+
+void DataTypeArray::to_pb_column_meta(PColumnMeta* col_meta) const {
+    IDataType::to_pb_column_meta(col_meta);
+    auto children = col_meta->add_children();
+    get_nested_type()->to_pb_column_meta(children);
+}
+
+FieldWithDataType DataTypeArray::get_field_with_data_type(const IColumn& column,
+                                                          size_t row_num) const {
+    const auto& array_column = assert_cast<const ColumnArray&>(column);
+    int precision = -1;
+    int scale = -1;
+    auto nested_type = get_nested_type();
+    PrimitiveType nested_type_id = nested_type->get_primitive_type();
+    uint8_t num_dimensions = 1;
+    while (nested_type_id == TYPE_ARRAY) {
+        nested_type = remove_nullable(nested_type);
+        const auto& nested_array = assert_cast<const DataTypeArray&>(*nested_type);
+        nested_type_id = nested_array.get_nested_type()->get_primitive_type();
+        num_dimensions++;
+    }
+    if (is_decimal(nested_type_id)) {
+        precision = nested_type->get_precision();
+        scale = nested_type->get_scale();
+    } else if (nested_type_id == TYPE_DATETIMEV2 || nested_type_id == TYPE_TIMESTAMPTZ) {
+        scale = nested_type->get_scale();
+    } else if (nested_type_id == TYPE_JSONB) {
+        // Array<Jsonb> should return JsonbField as element
+        // Currently only Array<Jsonb> is supported
+        DCHECK(num_dimensions == 1);
+        Array arr;
+        size_t offset = array_column.offset_at(row_num);
+        size_t size = array_column.size_at(row_num);
+        for (size_t i = 0; i < size; ++i) {
+            auto field = Field::create_field<TYPE_JSONB>({});
+            array_column.get_data().get(offset + i, field);
+            arr.push_back(field);
+        }
+        return FieldWithDataType {
+                .field = Field::create_field<TYPE_ARRAY>(arr),
+                .base_scalar_type_id = nested_type_id,
+                .num_dimensions = num_dimensions,
+                .precision = precision,
+                .scale = scale,
+        };
+    }
+    auto field = array_column[row_num];
+    return FieldWithDataType {
+            .field = std::move(field),
+            .base_scalar_type_id = nested_type_id,
+            .num_dimensions = num_dimensions,
+            .precision = precision,
+            .scale = scale,
+    };
+}
+
+} // namespace doris::vectorized

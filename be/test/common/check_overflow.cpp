@@ -19,9 +19,9 @@
 
 #include <limits>
 
-#include "vec/common/arithmetic_overflow.h"
-#include "vec/core/types.h"
-#include "vec/io/io_helper.h"
+#include "core/types.h"
+#include "exec/common/arithmetic_overflow.h"
+#include "util/io_helper.h"
 
 namespace doris::vectorized {
 

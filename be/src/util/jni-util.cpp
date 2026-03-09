@@ -34,7 +34,7 @@
 #include "absl/strings/substitute.h"
 #include "common/cast_set.h"
 #include "common/config.h"
-#include "util/doris_metrics.h"
+#include "common/metrics/doris_metrics.h"
 #include "util/jni_native_method.h"
 // #include "util/libjvm_loader.h"
 

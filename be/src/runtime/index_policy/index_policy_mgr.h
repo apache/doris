@@ -22,8 +22,8 @@
 #include <shared_mutex>
 #include <unordered_set>
 
-#include "olap/rowset/segment_v2/inverted_index/analyzer/custom_analyzer.h"
-#include "olap/rowset/segment_v2/inverted_index/normalizer/custom_normalizer.h"
+#include "storage/index/inverted/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/normalizer/custom_normalizer.h"
 
 namespace doris {
 

@@ -25,9 +25,9 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "core/data_type/define_primitive_type.h"
 #include "exprs/create_predicate_function.h"
 #include "gtest/gtest_pred_impl.h"
-#include "runtime/define_primitive_type.h"
 
 namespace doris {
 class BitmapFilterPredicateTest : public testing::Test {

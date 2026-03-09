@@ -23,11 +23,11 @@
 #include <string>
 
 #include "common/status.h"
-#include "http/http_client.h"
 #include "io/fs/file_handle_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
-#include "util/runtime_profile.h"
+#include "runtime/runtime_profile.h"
+#include "service/http/http_client.h"
 #include "util/slice.h"
 
 namespace doris::io {

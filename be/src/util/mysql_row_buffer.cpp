@@ -28,16 +28,16 @@
 #include <string>
 
 #include "common/logging.h"
-#include "date_func.h"
-#include "olap/olap_common.h"
-#include "runtime/decimalv2_value.h"
-#include "runtime/large_int_value.h"
+#include "core/value/decimalv2_value.h"
+#include "core/value/ipv4_value.h"
+#include "core/value/ipv6_value.h"
+#include "core/value/large_int_value.h"
+#include "core/value/timestamptz_value.h"
+#include "core/value/vdatetime_value.h" // IWYU pragma: keep
+#include "exprs/function/cast/cast_to_string.h"
+#include "storage/olap_common.h"
+#include "util/date_func.h"
 #include "util/mysql_global.h"
-#include "vec/functions/cast/cast_to_string.h"
-#include "vec/runtime/ipv4_value.h"
-#include "vec/runtime/ipv6_value.h"
-#include "vec/runtime/timestamptz_value.h"
-#include "vec/runtime/vdatetime_value.h" // IWYU pragma: keep
 
 namespace doris {
 

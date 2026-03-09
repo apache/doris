@@ -16,9 +16,9 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "olap/olap_common.h"
+#include "exec/common/endian.h"
+#include "storage/olap_common.h"
 #include "util/slice.h"
-#include "vec/common/endian.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

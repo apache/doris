@@ -25,7 +25,7 @@
 #include <sstream>
 
 #include "common/status.h"
-#include "util/arrow/utils.h"
+#include "format/arrow/arrow_utils.h"
 #include "util/string_util.h"
 
 namespace doris {

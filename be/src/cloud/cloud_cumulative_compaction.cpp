@@ -17,6 +17,8 @@
 
 #include "cloud/cloud_cumulative_compaction.h"
 
+#include <gen_cpp/cloud.pb.h>
+
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
@@ -24,10 +26,9 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
-#include "gen_cpp/cloud.pb.h"
-#include "olap/compaction.h"
-#include "olap/cumulative_compaction_policy.h"
 #include "service/backend_options.h"
+#include "storage/compaction/compaction.h"
+#include "storage/compaction/cumulative_compaction_policy.h"
 #include "util/debug_points.h"
 #include "util/trace.h"
 #include "util/uuid_generator.h"

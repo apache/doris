@@ -25,7 +25,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "common/logging.h"
-#include "olap/delete_handler.h"
+#include "storage/delete/delete_handler.h"
 
 namespace doris {
 using namespace ErrorCode;

@@ -17,11 +17,10 @@
 
 #pragma once
 
-#include <common/multi_version.h>
-
+#include "common/multi_version.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/memory_profile.h"
-#include "util/runtime_profile.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris {
 

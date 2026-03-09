@@ -14,11 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "column_helper.h"
+#include "testutil/column_helper.h"
 
 #include <gtest/gtest.h>
 
-#include "vec/data_types/data_type_number.h"
+#include "core/data_type/data_type_number.h"
 
 namespace doris::vectorized {
 

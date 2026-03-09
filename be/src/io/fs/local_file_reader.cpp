@@ -32,17 +32,17 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/metrics/doris_metrics.h"
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
-#include "olap/data_dir.h"
-#include "olap/olap_common.h"
-#include "olap/options.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
+#include "storage/data_dir.h"
+#include "storage/olap_common.h"
+#include "storage/options.h"
 #include "util/async_io.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
-#include "util/doris_metrics.h"
 
 namespace doris {
 namespace io {

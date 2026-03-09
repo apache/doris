@@ -22,10 +22,10 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/status.h"
-#include "olap/accept_null_predicate.h"
-#include "olap/column_predicate.h"
-#include "olap/predicate_creator.h"
-#include "runtime/define_primitive_type.h"
+#include "core/data_type/define_primitive_type.h"
+#include "storage/predicate/accept_null_predicate.h"
+#include "storage/predicate/column_predicate.h"
+#include "storage/predicate/predicate_creator.h"
 
 namespace doris::vectorized {
 

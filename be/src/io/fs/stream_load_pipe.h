@@ -28,12 +28,12 @@
 #include <string>
 
 #include "common/status.h"
+#include "core/custom_allocator.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/path.h"
-#include "runtime/message_body_sink.h"
+#include "load/message_body_sink.h"
 #include "util/byte_buffer.h"
 #include "util/slice.h"
-#include "vec/common/custom_allocator.h"
 
 namespace doris::io {
 struct IOContext;

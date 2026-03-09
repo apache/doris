@@ -16,7 +16,7 @@
 // under the License.
 
 #include "common/object_pool.h"
-#include "vec/exprs/vectorized_agg_fn.h"
+#include "exprs/vectorized_agg_fn.h"
 
 namespace doris::vectorized {
 

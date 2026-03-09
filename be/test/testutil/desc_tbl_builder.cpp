@@ -20,8 +20,8 @@
 #include <gtest/gtest.h>
 
 #include "common/status.h"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_struct.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 
 namespace doris {
 

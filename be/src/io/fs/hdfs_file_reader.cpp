@@ -28,13 +28,13 @@
 #include "bvar/reducer.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/hdfs_util.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "service/backend_options.h"
-#include "util/doris_metrics.h"
 
 namespace doris::io {
 #include "common/compile_check_begin.h"

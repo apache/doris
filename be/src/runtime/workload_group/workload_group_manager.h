@@ -22,7 +22,7 @@
 #include <unordered_map>
 
 #include "common/be_mock_util.h"
-#include "workload_group.h"
+#include "runtime/workload_group/workload_group.h"
 
 namespace doris {
 

@@ -29,11 +29,11 @@
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/global_memory_arbitrator.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group.h"
 #include "service/backend_options.h"
 #include "util/mem_info.h"
-#include "util/runtime_profile.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

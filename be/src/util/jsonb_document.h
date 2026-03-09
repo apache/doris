@@ -77,10 +77,10 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "runtime/define_primitive_type.h"
+#include "core/data_type/define_primitive_type.h"
+#include "core/string_ref.h"
+#include "core/types.h"
 #include "util/string_util.h"
-#include "vec/common/string_ref.h"
-#include "vec/core/types.h"
 
 // #include "util/string_parser.hpp"
 

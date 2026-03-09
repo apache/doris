@@ -23,8 +23,8 @@
 #include <algorithm>
 #include <string>
 
-#include "runtime/string_search.hpp"
-#include "vec/common/string_ref.h"
+#include "core/string_ref.h"
+#include "util/string_search.hpp"
 
 namespace doris {
 #include "common/compile_check_begin.h"

@@ -17,13 +17,13 @@
 
 #include "cloud/cloud_cluster_info.h"
 
+#include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
-#include "gen_cpp/cloud.pb.h"
-#include "olap/tablet_meta.h"
+#include "storage/tablet/tablet_meta.h"
 #include "util/time.h"
 #include "util/uid_util.h"
 

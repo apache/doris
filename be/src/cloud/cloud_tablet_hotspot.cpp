@@ -21,8 +21,8 @@
 #include <mutex>
 
 #include "cloud/config.h"
-#include "olap/tablet_fwd.h"
 #include "runtime/exec_env.h"
+#include "storage/tablet/tablet_fwd.h"
 
 namespace doris {
 

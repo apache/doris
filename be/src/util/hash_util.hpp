@@ -30,11 +30,11 @@
 #include <functional>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "exec/common/endian.h"
 #include "util/cpu_info.h"
 #include "util/hash/city.h"
-#include "util/murmur_hash3.h"
+#include "util/hash/murmur_hash3.h"
 #include "util/sse_util.hpp"
-#include "vec/common/endian.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

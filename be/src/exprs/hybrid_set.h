@@ -21,13 +21,13 @@
 #include <pdqsort.h>
 
 #include "common/object_pool.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/primitive_type.h"
+#include "exec/common/hash_table/phmap_fwd_decl.h"
+#include "exec/runtime_filter/utils.h"
 #include "exprs/filter_base.h"
-#include "runtime/primitive_type.h"
-#include "runtime_filter/utils.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_vector.h"
-#include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

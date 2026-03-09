@@ -22,8 +22,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "core/uint128.h"
 #include "io/io_common.h"
-#include "vec/common/uint128.h"
 
 namespace doris::io {
 

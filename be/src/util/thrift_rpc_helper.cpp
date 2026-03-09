@@ -28,8 +28,8 @@
 #include <thread>
 
 #include "common/status.h"
-#include "runtime/client_cache.h"
 #include "runtime/exec_env.h" // IWYU pragma: keep
+#include "util/client_cache.h"
 #include "util/debug_points.h"
 #include "util/network_util.h"
 

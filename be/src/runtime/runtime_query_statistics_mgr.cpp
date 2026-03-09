@@ -35,15 +35,15 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "exec/schema_scanner/schema_scanner_helper.h"
-#include "runtime/client_cache.h"
+#include "core/block/block.h"
+#include "information_schema/schema_scanner_helper.h"
 #include "runtime/exec_env.h"
+#include "util/client_cache.h"
 #include "util/debug_util.h"
 #include "util/threadpool.h"
 #include "util/thrift_client.h"
 #include "util/time.h"
 #include "util/uid_util.h"
-#include "vec/core/block.h"
 
 namespace doris {
 // TODO: Currently this function is only used to report profile.

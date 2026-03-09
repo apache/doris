@@ -19,8 +19,8 @@
 
 #include <limits>
 
-#include "vec/core/extended_types.h"
-#include "vec/core/types.h"
+#include "core/extended_types.h"
+#include "core/types.h"
 namespace doris {
 #include "common/compile_check_avoid_begin.h"
 // Supported decimal number format:
