@@ -362,6 +362,27 @@ public class Memo {
         GroupExpression logicalExpression = group.getFirstLogicalExpression();
         return copyOut(logicalExpression, includeGroupExpression);
     }
+
+    /**
+     * copyOut the logicalExpression.
+     * @param logicalExpression the logicalExpression what want to copyOut
+     * @param includeGroupExpression whether include group expression in the plan
+     * @return plan
+     */
+    public Plan copyOut(GroupExpression logicalExpression, boolean includeGroupExpression) {
+        List<Plan> children = Lists.newArrayList();
+        for (Group child : logicalExpression.children()) {
+            children.add(copyOut(child, includeGroupExpression));
+        }
+        Plan planWithChildren = logicalExpression.getPlan().withChildren(children);
+
+        Optional<GroupExpression> groupExpression = includeGroupExpression
+                ? Optional.of(logicalExpression)
+                : Optional.empty();
+
+        return planWithChildren.withGroupExpression(groupExpression);
+    }
+
     public Plan copyOutBestLogicalPlan() {
         return copyOutBestLogicalPlan(root, PhysicalProperties.ANY);
     }
@@ -380,7 +401,8 @@ public class Memo {
                     rootGroup.setChosenProperties(physicalProperties);
                     rootGroup.setChosenGroupExpressionId(groupExpression.getId().asInt());
                 }
-                List<PhysicalProperties> inputPropertiesList = groupExpression.getInputPropertiesList(physicalProperties);
+                List<PhysicalProperties> inputPropertiesList =
+                        groupExpression.getInputPropertiesList(physicalProperties);
                 List<Plan> planChildren = Lists.newArrayList();
                 for (int i = 0; i < groupExpression.arity(); i++) {
                     planChildren.add(copyOutBestLogicalPlan(groupExpression.child(i), inputPropertiesList.get(i)));
@@ -419,26 +441,6 @@ public class Memo {
             }
             throw new AnalysisException("Failed to choose best plan: " + e.getMessage(), e);
         }
-    }
-
-    /**
-     * copyOut the logicalExpression.
-     * @param logicalExpression the logicalExpression what want to copyOut
-     * @param includeGroupExpression whether include group expression in the plan
-     * @return plan
-     */
-    public Plan copyOut(GroupExpression logicalExpression, boolean includeGroupExpression) {
-        List<Plan> children = Lists.newArrayList();
-        for (Group child : logicalExpression.children()) {
-            children.add(copyOut(child, includeGroupExpression));
-        }
-        Plan planWithChildren = logicalExpression.getPlan().withChildren(children);
-
-        Optional<GroupExpression> groupExpression = includeGroupExpression
-                ? Optional.of(logicalExpression)
-                : Optional.empty();
-
-        return planWithChildren.withGroupExpression(groupExpression);
     }
 
     /**

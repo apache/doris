@@ -275,7 +275,8 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     }
 
     @Override
-    public Plan visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, PruneContext context) {
+    public Plan visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
+            PruneContext context) {
         return skipPruneThisAndFirstLevelChildren(cteAnchor);
     }
 

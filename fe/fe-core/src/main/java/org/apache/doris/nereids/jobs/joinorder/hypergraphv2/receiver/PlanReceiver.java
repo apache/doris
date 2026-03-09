@@ -51,7 +51,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * The Receiver is used for cached the plan that has been emitted and build the new plan, it's the dp table in paper
@@ -121,10 +120,7 @@ public class PlanReceiver extends AbstractReceiver {
         }
 
         emitCount += 1;
-//        if (emitCount > limit || System.currentTimeMillis() - startTime > timeLimit) {
-//            return EmitState.FAIL;
-//        }
-        if (emitCount > limit) {
+        if (emitCount > limit || System.currentTimeMillis() - startTime > timeLimit) {
             return EmitState.FAIL;
         }
         edges.addAll(missingEdges);

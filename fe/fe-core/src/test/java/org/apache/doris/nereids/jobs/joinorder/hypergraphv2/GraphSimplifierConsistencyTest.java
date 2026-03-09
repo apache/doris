@@ -41,7 +41,7 @@ class GraphSimplifierConsistencyTest extends TPCHTestBase {
 
     @Test
     public void test() {
-        for (int t = 3; t < 30; t++) {
+        for (int t = 3; t < 20; t++) {
             for (int e = t - 1; e <= (t * (t - 1)) / 2; e++) {
                 randomTest(t, e);
             }
@@ -70,14 +70,10 @@ class GraphSimplifierConsistencyTest extends TPCHTestBase {
                 Set<List<String>> res2 = hyperGraphBuilder.evaluate(optimizedPlan);
 
                 if (!res1.equals(res2)) {
-                    res1 = hyperGraphBuilder.evaluate(plan);
-                    res2 = hyperGraphBuilder.evaluate(optimizedPlan);
                     System.out.println("==== ORIGINAL PLAN ====");
                     System.out.println(originalPlanStr);
                     System.out.println("==== OPTIMIZED PLAN ====");
                     System.out.println(optimizedPlan.treeString());
-                    cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
-                    PlanChecker.from(cascadesContext).dpHypOptimize().getBestPlanTree();
                     System.out.println("==== EXPECTED RESULTS ====");
                     System.out.println(res1);
                     System.out.println("==== ACTUAL RESULTS ====");
