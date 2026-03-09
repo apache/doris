@@ -246,7 +246,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
     }
     TabletColumn item_column(OLAP_FIELD_AGGREGATION_NONE, item_type, true, 0, item_length);
     list_column.add_sub_column(item_column);
-    Field* field = FieldFactory::create(list_column);
+    Field* field = StorageFieldFactory::create(list_column);
 
     // write data
     std::string fname = TEST_DIR + "/" + test_name;
