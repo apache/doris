@@ -45,26 +45,40 @@ endif ()
 
 # On macOS, CMake's FindOpenMP auto-detection often fails because:
 # - Apple Clang doesn't support -fopenmp natively
-# - Even Homebrew LLVM's clang may fail try_compile if libomp isn't in the default search path
-# Provide explicit hints so find_package(OpenMP) succeeds.
+# - Even Homebrew LLVM's clang may fail FindOpenMP's try_compile if libomp
+#   isn't in the default search path (macOS -isysroot restricts library search)
+# We must:
+# 1. Provide OpenMP cache variable hints (so FindOpenMP knows which flags to use)
+# 2. Add -L<lib_dir> to CMAKE_C/CXX_FLAGS (so try_compile's linker can find libomp)
+#    NOTE: CMAKE_C_FLAGS IS propagated to check_c_source_compiles/try_compile,
+#    but CMAKE_EXE_LINKER_FLAGS is NOT for source-file try_compile.
 if (CMAKE_SYSTEM_NAME MATCHES "Darwin")
     # Try to find libomp from the compiler's own lib directory (Homebrew LLVM bundles it)
     get_filename_component(_COMPILER_DIR "${CMAKE_C_COMPILER}" DIRECTORY)
     get_filename_component(_COMPILER_PREFIX "${_COMPILER_DIR}" DIRECTORY)
     if (EXISTS "${_COMPILER_PREFIX}/lib/libomp.dylib")
-        set(_OMP_LIB "${_COMPILER_PREFIX}/lib/libomp.dylib")
+        set(_OMP_LIB_DIR "${_COMPILER_PREFIX}/lib")
+        set(_OMP_INC_DIR "${_COMPILER_PREFIX}/include")
+        set(_OMP_LIB "${_OMP_LIB_DIR}/libomp.dylib")
         set(_OMP_FLAG "-fopenmp")
     else()
         # Fallback: try Homebrew's standalone libomp formula
         execute_process(COMMAND brew --prefix libomp
             OUTPUT_VARIABLE _LIBOMP_PREFIX OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
         if (_LIBOMP_PREFIX AND EXISTS "${_LIBOMP_PREFIX}/lib/libomp.dylib")
-            set(_OMP_LIB "${_LIBOMP_PREFIX}/lib/libomp.dylib")
+            set(_OMP_LIB_DIR "${_LIBOMP_PREFIX}/lib")
+            set(_OMP_INC_DIR "${_LIBOMP_PREFIX}/include")
+            set(_OMP_LIB "${_OMP_LIB_DIR}/libomp.dylib")
             set(_OMP_FLAG "-Xclang -fopenmp")
-            include_directories("${_LIBOMP_PREFIX}/include")
         endif()
     endif()
     if (DEFINED _OMP_LIB)
+        # Add lib/include paths to CMAKE_C/CXX_FLAGS so they are propagated to
+        # FindOpenMP's internal try_compile (check_c_source_compiles).
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -I${_OMP_INC_DIR} -L${_OMP_LIB_DIR}")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -I${_OMP_INC_DIR} -L${_OMP_LIB_DIR}")
+
+        # Set OpenMP cache hints so FindOpenMP knows exactly which flags/libs to use
         set(OpenMP_C_FLAGS "${_OMP_FLAG}" CACHE STRING "C compiler flags for OpenMP" FORCE)
         set(OpenMP_CXX_FLAGS "${_OMP_FLAG}" CACHE STRING "CXX compiler flags for OpenMP" FORCE)
         set(OpenMP_C_LIB_NAMES "omp" CACHE STRING "C OpenMP lib names" FORCE)
