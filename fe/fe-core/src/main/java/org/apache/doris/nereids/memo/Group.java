@@ -255,6 +255,9 @@ public class Group {
         return null;
     }
 
+    /**
+     * extract the best physical plan's corresponding logical plan
+     */
     public Plan getBestLogicalPlan(GroupExpression groupExpression) {
         List<Group> childrenGroups = groupExpression.children();
         for (GroupExpression logicalExpression : logicalExpressions) {
@@ -262,7 +265,8 @@ public class Group {
                 return logicalExpression.getPlan();
             }
         }
-        if (groupExpression.getPlan() instanceof PhysicalDistribute || groupExpression.getPlan() instanceof PhysicalQuickSort || logicalExpressions.isEmpty()) {
+        if (groupExpression.getPlan() instanceof PhysicalDistribute
+                || groupExpression.getPlan() instanceof PhysicalQuickSort || logicalExpressions.isEmpty()) {
             return null;
         } else {
             return getLogicalExpression().getPlan();
