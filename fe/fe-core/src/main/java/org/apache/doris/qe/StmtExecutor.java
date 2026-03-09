@@ -339,7 +339,9 @@ public class StmtExecutor {
         builder.instancesNumPerBe(
                 beToInstancesNum.entrySet().stream().map(entry -> entry.getKey() + ":" + entry.getValue())
                         .collect(Collectors.joining(",")));
-        builder.parallelFragmentExecInstance(String.valueOf(context.sessionVariable.getParallelExecInstanceNum()));
+        String clusterName = context.sessionVariable.resolveCloudClusterName(context);
+        builder.parallelFragmentExecInstance(
+                String.valueOf(context.sessionVariable.getParallelExecInstanceNum(clusterName)));
         builder.traceId(context.getSessionVariable().getTraceId());
         builder.isNereids(context.getState().isNereids() ? "Yes" : "No");
         try {

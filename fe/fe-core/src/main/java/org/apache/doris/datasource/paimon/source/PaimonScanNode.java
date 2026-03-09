@@ -38,6 +38,7 @@ import org.apache.doris.datasource.paimon.profile.PaimonMetricRegistry;
 import org.apache.doris.datasource.paimon.profile.PaimonScanMetricsReporter;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TExplainLevel;
@@ -150,8 +151,9 @@ public class PaimonScanNode extends FileQueryScanNode {
     public PaimonScanNode(PlanNodeId id,
                           TupleDescriptor desc,
                           boolean needCheckColumnPriv,
-                          SessionVariable sv) {
-        super(id, desc, "PAIMON_SCAN_NODE", needCheckColumnPriv, sv);
+                          SessionVariable sv,
+                          ScanContext scanContext) {
+        super(id, desc, "PAIMON_SCAN_NODE", scanContext, needCheckColumnPriv, sv);
     }
 
     @Override
@@ -442,7 +444,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         // if applyCountPushdown is true, calcute row count for count pushdown
         if (applyCountPushdown && !pushDownCountSplits.isEmpty()) {
             if (pushDownCountSum > COUNT_WITH_PARALLEL_SPLITS) {
-                int minSplits = sessionVariable.getParallelExecInstanceNum() * numBackends;
+                int minSplits = sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName())
+                        * numBackends;
                 pushDownCountSplits = pushDownCountSplits.subList(0, Math.min(pushDownCountSplits.size(), minSplits));
             } else {
                 pushDownCountSplits = Collections.singletonList(pushDownCountSplits.get(0));

@@ -237,8 +237,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
      * Assign ParallelExecNum by default value for Asynchronous request
      */
     public void setParallelExecNumIfExists() {
-        if (ConnectContext.get() != null) {
-            parallelExecNum = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+        ConnectContext context = ConnectContext.get();
+        if (context != null) {
+            String clusterName = context.getSessionVariable().resolveCloudClusterName(context);
+            parallelExecNum = context.getSessionVariable().getParallelExecInstanceNum(clusterName);
         }
     }
 
