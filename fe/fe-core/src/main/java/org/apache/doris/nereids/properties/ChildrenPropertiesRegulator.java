@@ -616,10 +616,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 DistributionSpec distributionSpec = physicalProperties.getDistributionSpec();
                 if (distributionSpec instanceof DistributionSpecStorageAny
                         || distributionSpec instanceof DistributionSpecStorageGather
-                        || distributionSpec instanceof DistributionSpecGather
-                        || (distributionSpec instanceof DistributionSpecHash
-                        && ((DistributionSpecHash) distributionSpec)
-                        .getShuffleType() == ShuffleType.NATURAL)) {
+                        || distributionSpec instanceof DistributionSpecGather) {
                     updateChildEnforceAndCost(i, PhysicalProperties.EXECUTION_ANY);
                 }
             }
