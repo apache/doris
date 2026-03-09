@@ -25,6 +25,7 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
 
+#include <mutex>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -120,10 +121,10 @@ Status RuntimeFilterMgr::get_local_merge_producer_filters(int filter_id,
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _local_merge_map.find(filter_id);
     if (iter == _local_merge_map.end()) {
-        return Status::InternalError(
-                "get_local_merge_producer_filters meet unknown filter: {}, role: "
-                "LOCAL_MERGE_PRODUCER.",
-                filter_id);
+        // Filter may have been removed during a recursive CTE stage reset.
+        // Return OK with nullptr to let the caller skip gracefully.
+        *local_merge_filters = nullptr;
+        return Status::OK();
     }
     *local_merge_filters = &iter->second;
     if (!iter->second.merger) {
@@ -236,6 +237,10 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
     }
     auto& cnt_val = iter->second;
     std::unique_lock<std::mutex> l(iter->second.mtx);
+    // discard low stage rf
+    if (request->stage() != iter->second.stage) {
+        return Status::OK();
+    }
     cnt_val.source_addrs.push_back(request->source_addr());
 
     Status st = Status::OK();
@@ -253,9 +258,12 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
                 continue;
             }
 
+            auto sync_request = std::make_shared<PSyncFilterSizeRequest>();
+            sync_request->set_stage(iter->second.stage);
+
             auto closure = AutoReleaseClosure<PSyncFilterSizeRequest,
                                               DummyBrpcCallback<PSyncFilterSizeResponse>>::
-                    create_unique(std::make_shared<PSyncFilterSizeRequest>(),
+                    create_unique(sync_request,
                                   DummyBrpcCallback<PSyncFilterSizeResponse>::create_shared(), ctx);
 
             auto* pquery_id = closure->request_->mutable_query_id();
@@ -281,6 +289,10 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
 Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
     LocalMergeContext* local_merge_filters = nullptr;
     RETURN_IF_ERROR(get_local_merge_producer_filters(request->filter_id(), &local_merge_filters));
+    if (local_merge_filters == nullptr) {
+        // Filter was removed during a recursive CTE stage reset; discard stale request.
+        return Status::OK();
+    }
     for (auto producer : local_merge_filters->producers) {
         producer->set_synced_size(request->filter_size());
     }
@@ -326,6 +338,14 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
     bool is_ready = false;
     {
         std::lock_guard<std::mutex> l(iter->second.mtx);
+        // discard low stage rf
+        if (request->stage() != iter->second.stage) {
+            return Status::OK();
+        }
+        if (cnt_val.merger == nullptr) {
+            return Status::InternalError("Merger is null for filter id {}",
+                                         std::to_string(request->filter_id()));
+        }
         // Skip the other broadcast join runtime filter
         if (cnt_val.arrive_id.size() == 1 && cnt_val.runtime_filter_desc.is_broadcast_join) {
             return Status::OK();
@@ -372,6 +392,8 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext
     butil::IOBuf request_attachment;
 
     PPublishFilterRequestV2 apply_request;
+    apply_request.set_stage(cnt_val.stage);
+
     // serialize filter
     void* data = nullptr;
     int len = 0;
@@ -441,12 +463,14 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext
 }
 
 Status GlobalMergeContext::reset(QueryContext* query_ctx) {
+    std::unique_lock<std::mutex> lock(mtx);
     int producer_size = merger->get_expected_producer_num();
     RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, &runtime_filter_desc, &merger));
     merger->set_expected_producer_num(producer_size);
     arrive_id.clear();
     source_addrs.clear();
     done = false;
+    stage++;
     return Status::OK();
 }
 

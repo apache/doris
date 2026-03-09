@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <brpc/closure_guard.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/QueryPlanExtra_types.h>
 #include <gen_cpp/Types_types.h>
@@ -25,8 +26,10 @@
 #include <cstdint>
 #include <functional>
 #include <iosfwd>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -74,7 +77,7 @@ public:
     Value find(const Key& query_id);
     void insert(const Key& query_id, std::shared_ptr<ValueType>);
     void clear();
-    void erase(const Key& query_id);
+    bool erase(const Key& query_id);
     size_t num_items() const {
         size_t n = 0;
         for (auto& pair : _internal_map) {
@@ -189,7 +192,8 @@ public:
                                   const google::protobuf::RepeatedPtrField<PBlock>& pblocks,
                                   bool eos);
 
-    Status rerun_fragment(const TUniqueId& query_id, int fragment,
+    Status rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& guard,
+                          const TUniqueId& query_id, int fragment,
                           PRerunFragmentParams_Opcode stage);
 
     Status reset_global_rf(const TUniqueId& query_id,
@@ -229,6 +233,19 @@ private:
     ConcurrentContextMap<std::pair<TUniqueId, int>, std::shared_ptr<PipelineFragmentContext>,
                          PipelineFragmentContext>
             _pipeline_map;
+
+    // Saved params and callback for rerunnable (recursive CTE) fragments.
+    // Only populated when need_notify_close == true during exec_plan_fragment.
+    struct RerunableFragmentInfo {
+        std::set<int> deregister_runtime_filter_ids;
+        TPipelineFragmentParams params;
+        TPipelineFragmentParamsList parent;
+        FinishCallback finish_callback;
+        std::shared_ptr<QueryContext> query_ctx; // avoid query_ctx release
+        uint32_t stage = 0;
+    };
+    std::mutex _rerunnable_params_lock;
+    std::map<std::pair<TUniqueId, int>, RerunableFragmentInfo> _rerunnable_params_map;
 
     // query id -> QueryContext
     ConcurrentContextMap<TUniqueId, std::weak_ptr<QueryContext>, QueryContext> _query_ctx_map;

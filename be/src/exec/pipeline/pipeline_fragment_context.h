@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <brpc/closure_guard.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 
@@ -26,6 +27,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -89,6 +91,8 @@ public:
 
     void cancel(const Status reason);
 
+    bool notify_close();
+
     TUniqueId get_query_id() const { return _query_id; }
 
     [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
@@ -126,11 +130,20 @@ public:
     std::string get_load_error_url();
     std::string get_first_error_msg();
 
-    Status wait_close(bool close);
-    Status rebuild(ThreadPool* thread_pool);
-    Status set_to_rerun();
+    std::set<int> get_deregister_runtime_filter() const;
 
-    bool need_notify_close() const { return _need_notify_close; }
+    Status listen_wait_close(const std::shared_ptr<brpc::ClosureGuard>& guard,
+                             bool need_send_report_on_destruction) {
+        if (_wait_close_guard) {
+            return Status::InternalError("Already listening wait close");
+        }
+        if (need_send_report_on_destruction) {
+            return send_report(true);
+        } else {
+            _wait_close_guard = guard;
+        }
+        return Status::OK();
+    }
 
 private:
     void _release_resource();
@@ -339,6 +352,16 @@ private:
     TPipelineFragmentParams _params;
     int32_t _parallel_instances = 0;
 
-    bool _need_notify_close = false;
+    std::atomic<bool> _need_notify_close = false;
+    std::shared_ptr<brpc::ClosureGuard> _wait_close_guard = nullptr;
+
+    // The recursion round number for recursive CTE fragments.
+    // Incremented each time the fragment is rebuilt via rerun_fragment(rebuild).
+    // Used to stamp runtime filter RPCs so stale messages from old rounds are discarded.
+    uint32_t _rec_cte_stage = 0;
+
+public:
+    uint32_t rec_cte_stage() const { return _rec_cte_stage; }
+    void set_rec_cte_stage(uint32_t stage) { _rec_cte_stage = stage; }
 };
 } // namespace doris
