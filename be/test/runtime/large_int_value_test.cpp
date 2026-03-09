@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/large_int_value.h"
+#include "core/value/large_int_value.h"
 
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>

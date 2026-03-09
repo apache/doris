@@ -16,6 +16,7 @@
 // under the License.
 
 #include <crc32c/crc32c.h>
+#include <gen_cpp/file_cache.pb.h>
 #include <gflags/gflags.h>
 
 #include <fstream>
@@ -23,7 +24,6 @@
 #include <sstream>
 
 #include "common/status.h"
-#include "gen_cpp/file_cache.pb.h"
 #include "io/cache/cache_lru_dumper.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/lru_queue_recorder.h"

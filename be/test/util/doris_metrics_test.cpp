@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/doris_metrics.h"
+#include "common/metrics/doris_metrics.h"
 
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>

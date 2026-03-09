@@ -29,10 +29,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.datasource.systable.SysTable;
-import org.apache.doris.datasource.systable.TvfSysTable;
-import org.apache.doris.info.TableValuedFunctionRefInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -190,11 +187,6 @@ public interface TableIf {
     TTableDescriptor toThrift();
 
     BaseAnalysisTask createAnalysisTask(AnalysisInfo info);
-
-    // For empty table, nereids require getting 1 as row count. This is a wrap function for nereids to call getRowCount.
-    default long getRowCountForNereids() {
-        return Math.max(getRowCount(), 1);
-    }
 
     DatabaseIf getDatabase();
 
@@ -579,10 +571,6 @@ public interface TableIf {
         return 0;
     }
 
-    default boolean isDistributionColumn(String columnName) {
-        return false;
-    }
-
     default boolean isPartitionColumn(Column column) {
         return false;
     }
@@ -626,43 +614,5 @@ public interface TableIf {
             return Optional.empty();
         }
         return Optional.ofNullable(getSupportedSysTables().get(sysTableName));
-    }
-
-    /**
-     * Get TableValuedFunction by tableNameWithSysTableName.
-     * Only works for system tables that use TVF path (TvfSysTable).
-     *
-     * @param ctlName catalog name
-     * @param dbName database name
-     * @param tableNameWithSysTableName source table name with system table suffix (e.g., "table$partitions")
-     * @return the TableValuedFunction if found and the system table uses TVF path, empty otherwise
-     */
-    default Optional<TableValuedFunction> getSysTableFunction(
-            String ctlName, String dbName, String tableNameWithSysTableName) {
-        Optional<SysTable> sysTableTypeOpt = findSysTable(tableNameWithSysTableName);
-        if (sysTableTypeOpt.isPresent() && sysTableTypeOpt.get() instanceof TvfSysTable) {
-            TvfSysTable tvfType = (TvfSysTable) sysTableTypeOpt.get();
-            return Optional.of(tvfType.createFunction(ctlName, dbName, tableNameWithSysTableName));
-        }
-        return Optional.empty();
-    }
-
-    /**
-     * Get TableValuedFunctionRef by tableNameWithSysTableName.
-     * Only works for system tables that use TVF path (TvfSysTable).
-     *
-     * @param ctlName catalog name
-     * @param dbName database name
-     * @param tableNameWithSysTableName source table name with system table suffix (e.g., "table$partitions")
-     * @return the TableValuedFunctionRefInfo if found and the system table uses TVF path, empty otherwise
-     */
-    default Optional<TableValuedFunctionRefInfo> getSysTableFunctionRef(
-            String ctlName, String dbName, String tableNameWithSysTableName) {
-        Optional<SysTable> sysTableTypeOpt = findSysTable(tableNameWithSysTableName);
-        if (sysTableTypeOpt.isPresent() && sysTableTypeOpt.get() instanceof TvfSysTable) {
-            TvfSysTable tvfType = (TvfSysTable) sysTableTypeOpt.get();
-            return Optional.of(tvfType.createFunctionRef(ctlName, dbName, tableNameWithSysTableName));
-        }
-        return Optional.empty();
     }
 }

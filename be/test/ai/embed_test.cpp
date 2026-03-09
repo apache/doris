@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/functions/ai/embed.h"
+#include "exprs/function/ai/embed.h"
 
 #include <curl/curl.h>
 #include <gen_cpp/PaloInternalService_types.h>
@@ -25,9 +25,9 @@
 #include <string>
 #include <vector>
 
+#include "exprs/function/ai/ai_adapter.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
-#include "vec/functions/ai/ai_adapter.h"
 
 namespace doris::vectorized {
 

@@ -30,8 +30,8 @@
 #include "io/cache/block_file_cache.h"
 #include "io/cache/cache_block_meta_store.h"
 #include "io/cache/file_block.h"
-#include "olap/base_tablet.h"
 #include "runtime/exec_env.h"
+#include "storage/tablet/base_tablet.h"
 #include "util/time.h"
 
 namespace doris::io {

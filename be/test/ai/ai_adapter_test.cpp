@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/functions/ai/ai_adapter.h"
+#include "exprs/function/ai/ai_adapter.h"
 
 #include <curl/curl.h>
 #include <gen_cpp/PaloInternalService_types.h>
@@ -26,10 +26,10 @@
 #include <vector>
 
 #include "common/status.h"
-#include "vec/functions/ai/ai_classify.h"
-#include "vec/functions/ai/ai_extract.h"
-#include "vec/functions/ai/ai_sentiment.h"
-#include "vec/functions/ai/ai_summarize.h"
+#include "exprs/function/ai/ai_classify.h"
+#include "exprs/function/ai/ai_extract.h"
+#include "exprs/function/ai/ai_sentiment.h"
+#include "exprs/function/ai/ai_summarize.h"
 
 namespace doris::vectorized {
 class MockHttpClient : public HttpClient {

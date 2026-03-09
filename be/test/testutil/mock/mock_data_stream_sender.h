@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "vec/sink/vdata_stream_sender.h"
+#include "exec/exchange/vdata_stream_sender.h"
 
 namespace doris::vectorized {
 struct MockChannel : public Channel {

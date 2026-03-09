@@ -935,12 +935,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public boolean isDistributionColumn(String columnName) {
-        return getRemoteTable().getSd().getBucketCols().stream().map(String::toLowerCase)
-                .collect(Collectors.toSet()).contains(columnName.toLowerCase());
-    }
-
-    @Override
     public Set<String> getDistributionColumnNames() {
         return getRemoteTable().getSd().getBucketCols().stream().map(String::toLowerCase)
                 .collect(Collectors.toSet());

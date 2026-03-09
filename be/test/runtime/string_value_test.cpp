@@ -20,8 +20,8 @@
 
 #include <string>
 
+#include "core/string_ref.h"
 #include "gtest/gtest_pred_impl.h"
-#include "vec/common/string_ref.h"
 
 using std::string;
 

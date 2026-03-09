@@ -23,9 +23,9 @@
 #include <cmath>
 #include <queue>
 
-#include "vec/common/pod_array.h"
-#include "vec/common/string_buffer.hpp"
-#include "vec/io/io_helper.h"
+#include "core/pod_array.h"
+#include "core/string_buffer.hpp"
+#include "util/io_helper.h"
 
 namespace doris {
 
