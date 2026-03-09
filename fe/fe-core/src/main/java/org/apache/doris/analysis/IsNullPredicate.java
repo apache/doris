@@ -22,8 +22,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -79,15 +77,8 @@ public class IsNullPredicate extends Predicate {
     }
 
     @Override
-    public String toSqlImpl() {
-        return getChild(0).toSql() + (isNotNull ? " IS NOT NULL" : " IS NULL");
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + (isNotNull ? " IS NOT NULL"
-                : " IS NULL");
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitIsNullPredicate(this, context);
     }
 
     public boolean isSlotRefChildren() {

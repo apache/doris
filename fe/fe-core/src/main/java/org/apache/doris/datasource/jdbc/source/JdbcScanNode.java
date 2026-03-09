@@ -25,11 +25,14 @@ import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
+import org.apache.doris.analysis.ExprToExternalSqlVisitor;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcTable;
@@ -40,6 +43,7 @@ import org.apache.doris.datasource.ExternalFunctionRules;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TJdbcScanNode;
@@ -69,8 +73,8 @@ public class JdbcScanNode extends ExternalScanNode {
     private JdbcTable tbl;
     private long catalogId;
 
-    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable) {
-        super(id, desc, "JdbcScanNode", false);
+    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable, ScanContext scanContext) {
+        super(id, desc, "JdbcScanNode", scanContext, false);
         if (isJdbcExternalTable) {
             JdbcExternalTable jdbcExternalTable = (JdbcExternalTable) (desc.getTable());
             tbl = jdbcExternalTable.getJdbcTable();
@@ -81,8 +85,9 @@ public class JdbcScanNode extends ExternalScanNode {
         tableName = tbl.getProperRemoteFullTableName(jdbcType);
     }
 
-    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isTableValuedFunction, String query) {
-        super(id, desc, "JdbcScanNode", false);
+    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isTableValuedFunction, String query,
+            ScanContext scanContext) {
+        super(id, desc, "JdbcScanNode", scanContext, false);
         this.isTableValuedFunction = isTableValuedFunction;
         this.query = query;
         tbl = (JdbcTable) desc.getTable();
@@ -225,7 +230,8 @@ public class JdbcScanNode extends ExternalScanNode {
             output.append(prefix).append("QUERY: ").append(getJdbcQueryStr()).append("\n");
             if (!conjuncts.isEmpty()) {
                 Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
-                output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+                output.append(prefix).append("PREDICATES: ")
+                        .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
             }
         }
         if (useTopnFilter()) {
@@ -267,7 +273,11 @@ public class JdbcScanNode extends ExternalScanNode {
 
     @Override
     public int getNumInstances() {
-        return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+        ConnectContext context = ConnectContext.get();
+        if (context == null) {
+            return 1;
+        }
+        return context.getSessionVariable().getParallelExecInstanceNum(scanContext.getClusterName());
     }
 
     private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
@@ -331,7 +341,8 @@ public class JdbcScanNode extends ExternalScanNode {
 
         if (expr.contains(DateLiteral.class) && expr instanceof BinaryPredicate) {
             ArrayList<Expr> children = expr.getChildren();
-            String filter = children.get(0).toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+            ToSqlParams params = new ToSqlParams(false, true, TableType.JDBC_EXTERNAL_TABLE, tbl);
+            String filter = children.get(0).accept(ExprToExternalSqlVisitor.INSTANCE, params);
             filter += " " + ((BinaryPredicate) expr).getOp().toString() + " ";
 
             if (tableType.equals(TOdbcTableType.ORACLE)) {
@@ -341,7 +352,7 @@ public class JdbcScanNode extends ExternalScanNode {
             } else if (tableType.equals(TOdbcTableType.SQLSERVER)) {
                 filter += handleSQLServerDateFormat(children.get(1), tbl);
             } else {
-                filter += children.get(1).toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+                filter += children.get(1).accept(ExprToExternalSqlVisitor.INSTANCE, params);
             }
 
             return filter;
@@ -350,7 +361,8 @@ public class JdbcScanNode extends ExternalScanNode {
         if (expr.contains(DateLiteral.class) && expr instanceof InPredicate) {
             InPredicate inPredicate = (InPredicate) expr;
             Expr leftChild = inPredicate.getChild(0);
-            String filter = leftChild.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+            ToSqlParams params = new ToSqlParams(false, true, TableType.JDBC_EXTERNAL_TABLE, tbl);
+            String filter = leftChild.accept(ExprToExternalSqlVisitor.INSTANCE, params);
 
             if (inPredicate.isNotIn()) {
                 filter += " NOT";
@@ -367,7 +379,7 @@ public class JdbcScanNode extends ExternalScanNode {
                 } else if (tableType.equals(TOdbcTableType.SQLSERVER)) {
                     inItemStrings.add(handleSQLServerDateFormat(inItem, tbl));
                 } else {
-                    inItemStrings.add(inItem.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl));
+                    inItemStrings.add(inItem.accept(ExprToExternalSqlVisitor.INSTANCE, params));
                 }
             }
 
@@ -382,7 +394,8 @@ public class JdbcScanNode extends ExternalScanNode {
             return "1 = 1";
         }
 
-        return expr.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+        return expr.accept(ExprToExternalSqlVisitor.INSTANCE,
+                new ToSqlParams(false, true, TableType.JDBC_EXTERNAL_TABLE, tbl));
     }
 
     private static String handleOracleDateFormat(Expr expr, TableIf tbl) {
@@ -399,7 +412,8 @@ public class JdbcScanNode extends ExternalScanNode {
             // Regular datetime without fractional seconds
             return "to_date('" + dateStr + "', 'yyyy-mm-dd hh24:mi:ss')";
         }
-        return expr.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+        return expr.accept(ExprToExternalSqlVisitor.INSTANCE,
+                new ToSqlParams(false, true, TableType.JDBC_EXTERNAL_TABLE, tbl));
     }
 
     @NotNull
@@ -426,7 +440,8 @@ public class JdbcScanNode extends ExternalScanNode {
                 return "timestamp '" + expr.getStringValue() + "'";
             }
         }
-        return expr.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+        return expr.accept(ExprToExternalSqlVisitor.INSTANCE,
+                new ToSqlParams(false, true, TableType.JDBC_EXTERNAL_TABLE, tbl));
     }
 
     private static String handleSQLServerDateFormat(Expr expr, TableIf tbl) {
@@ -441,7 +456,8 @@ public class JdbcScanNode extends ExternalScanNode {
                 return "CONVERT(DATE, '" + expr.getStringValue() + "', 23)";
             }
         }
-        return expr.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+        return expr.accept(ExprToExternalSqlVisitor.INSTANCE,
+                new ToSqlParams(false, true, TableType.JDBC_EXTERNAL_TABLE, tbl));
     }
 
     private static boolean containsNullLiteral(Expr expr) {

@@ -17,10 +17,10 @@
 
 #pragma once
 
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_variant.h"
-#include "vec/common/variant_util.h"
-#include "vec/data_types/data_type_string.h"
+#include "core/column/column_string.h"
+#include "core/column/column_variant.h"
+#include "core/data_type/data_type_string.h"
+#include "exec/common/variant_util.h"
 
 namespace doris {
 

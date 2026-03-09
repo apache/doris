@@ -20,8 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.thrift.TExprNode;
@@ -30,14 +28,11 @@ import org.apache.doris.thrift.TStringLiteral;
 
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.UnsupportedEncodingException;
 import java.util.Objects;
 
 public class StringLiteral extends LiteralExpr {
-    private static final Logger LOG = LogManager.getLogger(StringLiteral.class);
     @SerializedName("v")
     private String value;
 
@@ -120,14 +115,8 @@ public class StringLiteral extends LiteralExpr {
     }
 
     @Override
-    public String toSqlImpl() {
-        return "'" + value.replaceAll("'", "''") + "'";
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return "'" + value.replaceAll("'", "''") + "'";
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitStringLiteral(this, context);
     }
 
     @Override

@@ -18,8 +18,8 @@
 #pragma once
 #include <memory>
 
-#include "pipeline/exec/hashjoin_probe_operator.h"
-#include "pipeline/exec/partitioned_hash_join_probe_operator.h"
+#include "exec/operator/hashjoin_probe_operator.h"
+#include "exec/operator/partitioned_hash_join_probe_operator.h"
 #include "testutil/mock/mock_descriptors.h"
 
 namespace doris::pipeline {

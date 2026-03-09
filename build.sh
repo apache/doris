@@ -102,6 +102,7 @@ clean_gensrc() {
     pushd "${DORIS_HOME}/gensrc"
     make clean
     rm -rf "${DORIS_HOME}/gensrc/build"
+    rm -rf "${DORIS_HOME}/fe/fe-thrift/target"
     rm -rf "${DORIS_HOME}/fe/fe-common/target"
     rm -rf "${DORIS_HOME}/fe/fe-core/target"
     popd
@@ -581,18 +582,15 @@ fi
 FE_MODULES=''
 modules=("")
 if [[ "${BUILD_FE}" -eq 1 ]]; then
-    modules+=("fe-common")
     modules+=("fe-core")
     if [[ "${WITH_TDE_DIR}" != "" ]]; then
         modules+=("fe-${WITH_TDE_DIR}")
     fi
 fi
 if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
-    modules+=("fe-common")
     modules+=("hive-udf")
 fi
 if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
-    modules+=("fe-common")
     modules+=("be-java-extensions/iceberg-metadata-scanner")
     modules+=("be-java-extensions/hadoop-hudi-scanner")
     modules+=("be-java-extensions/java-common")
@@ -790,15 +788,15 @@ if [[ "${FE_MODULES}" != '' ]]; then
     if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
         # Allowed user customer set env param USER_SETTINGS_MVN_REPO means settings.xml file path
         if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -am -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
         else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -am -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
         fi
     else
         if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -am -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
         else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -am -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
         fi
     fi
     cd "${DORIS_HOME}"

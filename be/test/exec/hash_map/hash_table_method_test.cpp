@@ -17,12 +17,12 @@
 
 #include <gtest/gtest.h>
 
+#include "core/data_type/data_type_number.h"
+#include "exec/common/columns_hashing.h"
+#include "exec/common/hash_table/hash.h"
+#include "exec/common/hash_table/hash_map_context.h"
+#include "exec/common/hash_table/ph_hash_map.h"
 #include "testutil/column_helper.h"
-#include "vec/common/columns_hashing.h"
-#include "vec/common/hash_table/hash.h"
-#include "vec/common/hash_table/hash_map_context.h"
-#include "vec/common/hash_table/ph_hash_map.h"
-#include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
 

@@ -18,12 +18,14 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TableSample;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.AggregateType;
@@ -42,6 +44,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -51,7 +54,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.plans.ScoreRangeInfo;
 import org.apache.doris.planner.normalize.Normalizer;
@@ -201,8 +203,8 @@ public class OlapScanNode extends ScanNode {
     private Column globalRowIdColumn;
 
     // Constructs node to scan given data files of table 'tbl'.
-    public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
-        super(id, desc, planNodeName);
+    public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, ScanContext scanContext) {
+        super(id, desc, planNodeName, scanContext);
         olapTable = (OlapTable) desc.getTable();
         distributionColumnIds = Sets.newTreeSet();
 
@@ -993,7 +995,8 @@ public class OlapScanNode extends ScanNode {
         if (sortInfo != null) {
             output.append(prefix).append("SORT INFO:\n");
             sortInfo.getOrderingExprs().forEach(expr -> {
-                output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
+                output.append(prefix).append(prefix)
+                        .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
             });
         }
         if (sortLimit != -1) {
@@ -1002,7 +1005,8 @@ public class OlapScanNode extends ScanNode {
         if (scoreSortInfo != null) {
             output.append(prefix).append("SCORE SORT INFO:\n");
             scoreSortInfo.getOrderingExprs().forEach(expr -> {
-                output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
+                output.append(prefix).append(prefix)
+                        .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
             });
         }
         if (scoreSortLimit != -1) {
@@ -1012,7 +1016,8 @@ public class OlapScanNode extends ScanNode {
         if (annSortInfo != null) {
             output.append(prefix).append("ANN SORT INFO:\n");
             annSortInfo.getOrderingExprs().forEach(expr -> {
-                output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
+                output.append(prefix).append(prefix)
+                        .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
             });
         }
         if (annSortLimit != -1) {
@@ -1028,7 +1033,8 @@ public class OlapScanNode extends ScanNode {
 
         if (!conjuncts.isEmpty()) {
             Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
-            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+            output.append(prefix).append("PREDICATES: ")
+                    .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
         }
 
         String selectedPartitions = getSelectedPartitionIds().stream().sorted()
@@ -1065,8 +1071,9 @@ public class OlapScanNode extends ScanNode {
     public int getNumInstances() {
         // In pipeline exec engine, the instance num equals be_num * parallel instance.
         // so here we need count distinct be_num to do the work. make sure get right instance
-        if (ConnectContext.get().getSessionVariable().isIgnoreStorageDataDistribution()) {
-            return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+        ConnectContext context = ConnectContext.get();
+        if (context != null && context.getSessionVariable().isIgnoreStorageDataDistribution()) {
+            return context.getSessionVariable().getParallelExecInstanceNum(scanContext.getClusterName());
         }
         return scanRangeLocations.size();
     }

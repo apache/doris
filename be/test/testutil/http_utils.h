@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "http/http_client.h"
+#include "service/http/http_client.h"
 
 #define POST_HTTP_TO_TEST_SERVER(uri)                                                     \
     {                                                                                     \

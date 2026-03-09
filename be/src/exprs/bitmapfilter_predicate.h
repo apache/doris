@@ -20,10 +20,10 @@
 #include <algorithm>
 
 #include "common/cast_set.h"
-#include "runtime/define_primitive_type.h"
-#include "runtime/primitive_type.h"
-#include "runtime_filter/runtime_filter_definitions.h"
-#include "util/bitmap_value.h"
+#include "core/data_type/define_primitive_type.h"
+#include "core/data_type/primitive_type.h"
+#include "core/value/bitmap_value.h"
+#include "exec/runtime_filter/runtime_filter_definitions.h"
 
 namespace doris {
 

@@ -18,7 +18,9 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -73,7 +75,7 @@ public class TableFunctionNode extends PlanNode {
         StringBuilder output = new StringBuilder();
         output.append(prefix).append("table function: ");
         for (Expr fnExpr : fnCallExprList) {
-            output.append(fnExpr.toSql()).append(" ");
+            output.append(fnExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append(" ");
         }
         output.append("\n");
 

@@ -23,7 +23,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 
 import com.google.common.collect.ImmutableMap;
-import org.apache.iceberg.GenericManifestFile;
 import org.apache.iceberg.GenericPartitionFieldSummary;
 import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.ManifestContent;
@@ -107,19 +106,19 @@ public class IcebergUtilsTest {
     public void testGetMatchingManifest() {
 
         // partition : 100 - 200
-        GenericManifestFile f1 = getGenericManifestFileForDataTypeWithPartitionSummary(
+        ManifestFile f1 = getManifestFileForDataTypeWithPartitionSummary(
                 "manifest_f1.avro",
                 Collections.singletonList(new GenericPartitionFieldSummary(
                     false, false, getByteBufferForLong(100), getByteBufferForLong(200))));
 
         // partition : 300 - 400
-        GenericManifestFile f2 = getGenericManifestFileForDataTypeWithPartitionSummary(
+        ManifestFile f2 = getManifestFileForDataTypeWithPartitionSummary(
                 "manifest_f2.avro",
                 Collections.singletonList(new GenericPartitionFieldSummary(
                     false, false, getByteBufferForLong(300), getByteBufferForLong(400))));
 
         // partition : 500 - 600
-        GenericManifestFile f3 = getGenericManifestFileForDataTypeWithPartitionSummary(
+        ManifestFile f3 = getManifestFileForDataTypeWithPartitionSummary(
                 "manifest_f3.avro",
                     Collections.singletonList(new GenericPartitionFieldSummary(
                         false, false, getByteBufferForLong(500), getByteBufferForLong(600))));
@@ -204,25 +203,28 @@ public class IcebergUtilsTest {
         return Conversions.toByteBuffer(Types.LongType.get(), num);
     }
 
-    private GenericManifestFile getGenericManifestFileForDataTypeWithPartitionSummary(
+    private ManifestFile getManifestFileForDataTypeWithPartitionSummary(
             String path,
             List<PartitionFieldSummary> partitionFieldSummaries) {
-        return new GenericManifestFile(
-            path,
-            1024L,
-            0,
-            ManifestContent.DATA,
-            1,
-            1,
-            123456789L,
-            2,
-            100,
-            0,
-            0,
-            0,
-            0,
-            partitionFieldSummaries,
-            null);
+        ManifestFile file = Mockito.mock(ManifestFile.class);
+        Mockito.when(file.path()).thenReturn(path);
+        Mockito.when(file.length()).thenReturn(1024L);
+        Mockito.when(file.partitionSpecId()).thenReturn(0);
+        Mockito.when(file.content()).thenReturn(ManifestContent.DATA);
+        Mockito.when(file.sequenceNumber()).thenReturn(1L);
+        Mockito.when(file.minSequenceNumber()).thenReturn(1L);
+        Mockito.when(file.snapshotId()).thenReturn(123456789L);
+        Mockito.when(file.partitions()).thenReturn(partitionFieldSummaries);
+        Mockito.when(file.addedFilesCount()).thenReturn(1);
+        Mockito.when(file.addedRowsCount()).thenReturn(100L);
+        Mockito.when(file.existingFilesCount()).thenReturn(0);
+        Mockito.when(file.existingRowsCount()).thenReturn(0L);
+        Mockito.when(file.deletedFilesCount()).thenReturn(0);
+        Mockito.when(file.deletedRowsCount()).thenReturn(0L);
+        Mockito.when(file.hasAddedFiles()).thenReturn(true);
+        Mockito.when(file.hasExistingFiles()).thenReturn(false);
+        Mockito.when(file.copy()).thenReturn(file);
+        return file;
     }
 
     @Test

@@ -38,6 +38,7 @@
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/metrics/doris_metrics.h"
 #include "cpp/s3_rate_limiter.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
@@ -49,18 +50,17 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
-#include "olap/storage_policy.h"
-#include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "service/backend_options.h"
+#include "storage/storage_policy.h"
 #include "util/bit_util.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
+#include "util/client_cache.h"
 #include "util/concurrency_stats.h"
 #include "util/debug_points.h"
-#include "util/doris_metrics.h"
-#include "util/runtime_profile.h"
 
 namespace doris::io {
 
@@ -81,6 +81,8 @@ bvar::Adder<uint64_t> g_read_cache_direct_partial_bytes(
 bvar::Adder<uint64_t> g_read_cache_indirect_bytes("cached_remote_reader_cache_indirect_bytes");
 bvar::Adder<uint64_t> g_read_cache_indirect_total_bytes(
         "cached_remote_reader_cache_indirect_total_bytes");
+bvar::Adder<uint64_t> g_read_cache_self_heal_on_not_found(
+        "cached_remote_reader_self_heal_on_not_found");
 bvar::Window<bvar::Adder<uint64_t>> g_read_cache_indirect_bytes_1min_window(
         "cached_remote_reader_indirect_bytes_1min_window", &g_read_cache_indirect_bytes, 60);
 bvar::Window<bvar::Adder<uint64_t>> g_read_cache_indirect_total_bytes_1min_window(
@@ -488,6 +490,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
 
     size_t current_offset = offset;
     size_t end_offset = offset + bytes_req - 1;
+    bool need_self_heal = false;
     *bytes_read = 0;
     for (auto& block : holder.file_blocks) {
         if (current_offset > end_offset) {
@@ -549,6 +552,17 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                 if (is_dryrun) [[unlikely]] {
                     // dryrun mode uses a null buffer, skip actual remote IO
                 } else {
+                    if (block_state == FileBlock::State::DOWNLOADED &&
+                        st.is<ErrorCode::NOT_FOUND>()) {
+                        need_self_heal = true;
+                        g_read_cache_self_heal_on_not_found << 1;
+                        LOG_EVERY_N(WARNING, 100)
+                                << "Cache block file is missing, will self-heal by clearing cache "
+                                   "hash. "
+                                << "path=" << path().native()
+                                << ", hash=" << _cache_hash.to_string() << ", offset=" << left
+                                << ", err=" << st.msg();
+                    }
                     LOG(WARNING) << "Read data failed from file cache downloaded by others. err="
                                  << st.msg() << ", block state=" << block_state;
                     size_t nest_bytes_read {0};
@@ -567,6 +581,9 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         }
         *bytes_read += read_size;
         current_offset = right + 1;
+    }
+    if (need_self_heal && _cache != nullptr) {
+        _cache->remove_if_cached_async(_cache_hash);
     }
     g_read_cache_indirect_bytes << indirect_read_bytes;
     g_read_cache_indirect_total_bytes << *bytes_read;

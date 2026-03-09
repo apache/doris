@@ -109,7 +109,8 @@ public class SetVar {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append(type.toSql());
-        sb.append(" ").append(variable).append(" = ").append(value.toSql());
+        sb.append(" ").append(variable).append(" = ").append(
+                value.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
         return sb.toString();
     }
 

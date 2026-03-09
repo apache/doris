@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "jsonb_document.h"
-#include "runtime/primitive_type.h"
+#include "core/data_type/primitive_type.h"
+#include "core/types.h"
+#include "exprs/function/cast/cast_base.h"
+#include "exprs/function/cast/cast_to_basic_number_common.h"
+#include "exprs/function/cast/cast_to_boolean.h"
+#include "exprs/function/cast/cast_to_decimal.h"
+#include "util/jsonb_document.h"
 #include "util/jsonb_utils.h"
-#include "vec/core/types.h"
-#include "vec/functions/cast/cast_base.h"
-#include "vec/functions/cast/cast_to_basic_number_common.h"
-#include "vec/functions/cast/cast_to_boolean.h"
-#include "vec/functions/cast/cast_to_decimal.h"
 namespace doris::vectorized {
 
 struct JsonbCast {

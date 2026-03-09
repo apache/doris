@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -28,6 +30,7 @@ import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -43,7 +46,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.datasource.systable.SysTableResolver;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableValuedFunctionRefInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -342,8 +344,8 @@ public class DescribeCommand extends ShowCommand {
                             String defineExprStr = "";
                             Expr defineExpr = column.getDefineExpr();
                             if (defineExpr != null) {
-                                column.getDefineExpr().disableTableName();
-                                defineExprStr = defineExpr.toSqlWithoutTbl();
+                                defineExprStr = defineExpr.accept(
+                                        ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
                             }
 
                             List<String> row = Arrays.asList(
@@ -367,7 +369,8 @@ public class DescribeCommand extends ShowCommand {
                                 row.set(1, indexMeta.getKeysType().name());
                                 Expr where = indexMeta.getWhereClause();
                                 row.set(getMetaData().getColumns().size() - 1,
-                                        where == null ? "" : where.toSqlWithoutTbl());
+                                        where == null ? "" : where.accept(
+                                                ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
                             }
 
                             rows.add(row);
