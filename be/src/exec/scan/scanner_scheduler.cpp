@@ -172,17 +172,16 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             need_update_profile = false;
         }
     };
+
     Status status = Status::OK();
     bool eos = false;
-
     Defer defer_scanner([&] {
         if (status.ok() && !eos) {
             // if status is not ok, it means the scanner is failed, and the counter may be not updated correctly, so no need to update counter again. if eos is true, it means the scanner is finished successfully, and the counter is updated correctly, so no need to update counter again.
             scanner->start_wait_worker_timer();
         }
     });
-    Status status = Status::OK();
-    bool eos = false;
+
     ASSIGN_STATUS_IF_CATCH_EXCEPTION(
             RuntimeState* state = ctx->state(); DCHECK(nullptr != state);
             // scanner->open may alloc plenty amount of memory(read blocks of data),
