@@ -113,6 +113,7 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
 --conf spark.sql.catalog.${sparkSeedCatalogName}.uri=jdbc:postgresql://${externalEnvIp}:${jdbcPort}/postgres \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.jdbc.user=postgres \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.jdbc.password=123456 \
+--conf spark.sql.catalog.${sparkSeedCatalogName}.lock.enabled=false \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.s3.endpoint=http://${externalEnvIp}:${minioPort} \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.s3.access-key=${minioAk} \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.s3.secret-key=${minioSk} \
