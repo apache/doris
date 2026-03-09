@@ -18,12 +18,14 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TableSample;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.AggregateType;
@@ -993,7 +995,8 @@ public class OlapScanNode extends ScanNode {
         if (sortInfo != null) {
             output.append(prefix).append("SORT INFO:\n");
             sortInfo.getOrderingExprs().forEach(expr -> {
-                output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
+                output.append(prefix).append(prefix)
+                        .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
             });
         }
         if (sortLimit != -1) {
@@ -1002,7 +1005,8 @@ public class OlapScanNode extends ScanNode {
         if (scoreSortInfo != null) {
             output.append(prefix).append("SCORE SORT INFO:\n");
             scoreSortInfo.getOrderingExprs().forEach(expr -> {
-                output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
+                output.append(prefix).append(prefix)
+                        .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
             });
         }
         if (scoreSortLimit != -1) {
@@ -1012,7 +1016,8 @@ public class OlapScanNode extends ScanNode {
         if (annSortInfo != null) {
             output.append(prefix).append("ANN SORT INFO:\n");
             annSortInfo.getOrderingExprs().forEach(expr -> {
-                output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
+                output.append(prefix).append(prefix)
+                        .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
             });
         }
         if (annSortLimit != -1) {
@@ -1028,7 +1033,8 @@ public class OlapScanNode extends ScanNode {
 
         if (!conjuncts.isEmpty()) {
             Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
-            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+            output.append(prefix).append("PREDICATES: ")
+                    .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
         }
 
         String selectedPartitions = getSelectedPartitionIds().stream().sorted()

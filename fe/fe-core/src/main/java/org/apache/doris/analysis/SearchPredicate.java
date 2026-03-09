@@ -77,15 +77,8 @@ public class SearchPredicate extends Predicate {
     }
 
     @Override
-    protected String toSqlImpl() {
-        return buildSqlForExplain();
-    }
-
-    @Override
-    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql,
-            org.apache.doris.catalog.TableIf.TableType tableType,
-            org.apache.doris.catalog.TableIf table) {
-        return buildSqlForExplain();
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitSearchPredicate(this, context);
     }
 
     @Override
@@ -220,33 +213,7 @@ public class SearchPredicate extends Predicate {
         return param;
     }
 
-    private String buildSqlForExplain() {
-        if (!isExplainVerboseContext()) {
-            return "search('" + dslString + "')";
-        }
-
-        StringBuilder sb = new StringBuilder("search('" + dslString + "')");
-
-        List<String> astLines = buildDslAstExplainLines();
-        if (!astLines.isEmpty()) {
-            sb.append("\n|      dsl_ast:");
-            for (String line : astLines) {
-                sb.append("\n|        ").append(line);
-            }
-        }
-
-        List<String> bindings = buildFieldBindingExplainLines();
-        if (!bindings.isEmpty()) {
-            sb.append("\n|      field_bindings:");
-            for (String binding : bindings) {
-                sb.append("\n|        ").append(binding);
-            }
-        }
-
-        return sb.toString();
-    }
-
-    private boolean isExplainVerboseContext() {
+    boolean isExplainVerboseContext() {
         ConnectContext ctx = ConnectContext.get();
         if (ctx == null) {
             return false;
@@ -259,7 +226,7 @@ public class SearchPredicate extends Predicate {
         return executor.getParsedStmt().getExplainOptions().isVerbose();
     }
 
-    private List<String> buildDslAstExplainLines() {
+    List<String> buildDslAstExplainLines() {
         List<String> lines = new ArrayList<>();
         if (qsPlan == null || qsPlan.getRoot() == null) {
             return lines;
@@ -290,7 +257,7 @@ public class SearchPredicate extends Predicate {
         }
     }
 
-    private List<String> buildFieldBindingExplainLines() {
+    List<String> buildFieldBindingExplainLines() {
         List<String> lines = new ArrayList<>();
         if (qsPlan == null || qsPlan.getFieldBindings() == null || qsPlan.getFieldBindings().isEmpty()) {
             return lines;
@@ -302,9 +269,9 @@ public class SearchPredicate extends Predicate {
                 SlotRef slotRef = (SlotRef) children.get(index);
                 slotDesc = slotRef.getSlotId() != null
                         ? "slot=" + slotRef.getSlotId().asInt()
-                        : slotRef.toSqlWithoutTbl();
+                        : slotRef.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
             } else if (index < children.size()) {
-                slotDesc = children.get(index).toSqlWithoutTbl();
+                slotDesc = children.get(index).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
             }
             lines.add(binding.getFieldName() + " -> " + slotDesc);
         });
