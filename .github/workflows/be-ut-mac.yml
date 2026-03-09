@@ -80,8 +80,7 @@ jobs:
             'openjdk@17'
             'maven'
             'node'
-            'llvm@16'
-            'libomp'
+            'llvm@18'
           )
           brew install "${cellars[@]}" || true
 
@@ -98,4 +97,5 @@ jobs:
           popd
 
           export JAVA_HOME="${JAVA_HOME_17_arm64%\/}"
+          export DORIS_CLANG_HOME="$(brew --prefix llvm@18)"
           ./run-be-ut.sh --run -j "$(nproc)" --clean
