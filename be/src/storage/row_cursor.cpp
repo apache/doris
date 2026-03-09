@@ -116,20 +116,21 @@ Status RowCursor::_init_scan_key(TabletSchemaSPtr schema,
         fixed_ptr = _fixed_buf + _schema->column_offset(cid);
         FieldType type = column.type();
         if (type == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
-            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
-            slice->data = variable_ptr;
-            slice->size = scan_keys[cid].length();
+            // Use memcpy to avoid misaligned store on fixed_ptr + 1
+            Slice slice(variable_ptr, scan_keys[cid].length());
+            memcpy(fixed_ptr + 1, &slice, sizeof(Slice));
             variable_ptr += scan_keys[cid].length();
         } else if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
-            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
-            slice->data = variable_ptr;
-            slice->size = std::max(scan_keys[cid].length(), static_cast<size_t>(column.length()));
-            variable_ptr += slice->size;
+            // Use memcpy to avoid misaligned store on fixed_ptr + 1
+            size_t len = std::max(scan_keys[cid].length(), static_cast<size_t>(column.length()));
+            Slice slice(variable_ptr, len);
+            memcpy(fixed_ptr + 1, &slice, sizeof(Slice));
+            variable_ptr += len;
         } else if (type == FieldType::OLAP_FIELD_TYPE_STRING) {
+            // Use memcpy to avoid misaligned store on fixed_ptr + 1
             _schema->mutable_column(cid)->set_long_text_buf(long_text_ptr);
-            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
-            slice->data = *(long_text_ptr);
-            slice->size = DEFAULT_TEXT_LENGTH;
+            Slice slice(*(long_text_ptr), DEFAULT_TEXT_LENGTH);
+            memcpy(fixed_ptr + 1, &slice, sizeof(Slice));
             ++long_text_ptr;
         }
     }
