@@ -334,7 +334,7 @@ under the License.
         <jetty-servlet.version>11.0.26</jetty-servlet.version>
         <jetty-websocket.version>9.4.58.v20250814</jetty-websocket.version>
         <logging-interceptor.version>4.12.0</logging-interceptor.version>
-        <okhttp.version>5.3.2</okhttp.version>
+        <okhttp.version>4.9.3</okhttp.version>
         <okio.version>3.4.0</okio.version>
         <snakeyaml.version>2.0</snakeyaml.version>
         <validation-api.version>2.0.1.Final</validation-api.version>
