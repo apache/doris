@@ -98,8 +98,8 @@ public:
 
     Status prepare_for_spill(RuntimeState* state);
 
-    Status merge_sort_read_for_spill(RuntimeState* state, doris::Block* block,
-                                     int batch_size, bool* eos);
+    Status merge_sort_read_for_spill(RuntimeState* state, doris::Block* block, int batch_size,
+                                     bool* eos);
     Status reset(RuntimeState* state) override;
 
     int64_t limit() const { return _limit; }

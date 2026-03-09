@@ -78,8 +78,8 @@ Status SchemaWorkloadGroupPrivilegesScanner::_get_workload_group_privs_block_fro
 
     _workload_groups_privs_block = Block::create_unique();
     for (int i = 0; i < _s_tbls_columns.size(); ++i) {
-        auto data_type = DataTypeFactory::instance().create_data_type(
-                _s_tbls_columns[i].type, true);
+        auto data_type =
+                DataTypeFactory::instance().create_data_type(_s_tbls_columns[i].type, true);
         _workload_groups_privs_block->insert(ColumnWithTypeAndName(
                 data_type->create_column(), data_type, _s_tbls_columns[i].name));
     }
@@ -106,8 +106,7 @@ Status SchemaWorkloadGroupPrivilegesScanner::_get_workload_group_privs_block_fro
     return Status::OK();
 }
 
-Status SchemaWorkloadGroupPrivilegesScanner::get_next_block_internal(Block* block,
-                                                                     bool* eos) {
+Status SchemaWorkloadGroupPrivilegesScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }

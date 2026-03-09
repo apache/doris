@@ -35,17 +35,13 @@
 #include "testutil/mock/mock_slot_ref.h"
 namespace doris {
 
-
 class MockTableFunctionChildOperator : public OperatorXBase {
 public:
-    Status get_block_after_projects(RuntimeState* state, Block* block,
-                                    bool* eos) override {
+    Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos) override {
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
-        return Status::OK();
-    }
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override { return Status::OK(); }
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
         return Status::OK();
     }
@@ -186,10 +182,8 @@ TEST_F(TableFunctionOperatorTest, single_fn_test2) {
         op->_output_slot_ids.push_back(true);
         child_op->_mock_row_desc.reset(
                 new MockRowDescriptor {{std::make_shared<DataTypeInt32>()}, &pool});
-        op->_mock_row_descriptor.reset(
-                new MockRowDescriptor {{std::make_shared<DataTypeInt32>(),
-                                        std::make_shared<DataTypeInt32>()},
-                                       &pool});
+        op->_mock_row_descriptor.reset(new MockRowDescriptor {
+                {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()}, &pool});
         op->_fn_num = 1;
         EXPECT_TRUE(op->prepare(state.get()));
 
@@ -242,10 +236,8 @@ TEST_F(TableFunctionOperatorTest, single_two_test) {
         }
 
         child_op->_mock_row_desc.reset(new MockRowDescriptor {{}, &pool});
-        op->_mock_row_descriptor.reset(
-                new MockRowDescriptor {{std::make_shared<DataTypeInt32>(),
-                                        std::make_shared<DataTypeInt32>()},
-                                       &pool});
+        op->_mock_row_descriptor.reset(new MockRowDescriptor {
+                {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()}, &pool});
         op->_fn_num = 2;
         EXPECT_TRUE(op->prepare(state.get()));
 
@@ -302,10 +294,8 @@ TEST_F(TableFunctionOperatorTest, single_two_eos_test) {
         }
 
         child_op->_mock_row_desc.reset(new MockRowDescriptor {{}, &pool});
-        op->_mock_row_descriptor.reset(
-                new MockRowDescriptor {{std::make_shared<DataTypeInt32>(),
-                                        std::make_shared<DataTypeInt32>()},
-                                       &pool});
+        op->_mock_row_descriptor.reset(new MockRowDescriptor {
+                {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()}, &pool});
         op->_fn_num = 2;
         EXPECT_TRUE(op->prepare(state.get()));
 
@@ -728,8 +718,7 @@ TEST_F(UnnestTest, inner) {
 
     DataTypePtr data_type_int(std::make_shared<DataTypeInt32>());
     auto data_type_int_nullable = make_nullable(data_type_int);
-    DataTypePtr data_type_array_type(
-            std::make_shared<DataTypeArray>(data_type_int_nullable));
+    DataTypePtr data_type_array_type(std::make_shared<DataTypeArray>(data_type_int_nullable));
     auto data_type_array_type_nullable = make_nullable(data_type_array_type);
 
     auto build_input_block = [&](const std::vector<int32_t>& ids,
@@ -837,8 +826,7 @@ TEST_F(UnnestTest, outer) {
 
     DataTypePtr data_type_int(std::make_shared<DataTypeInt32>());
     auto data_type_int_nullable = make_nullable(data_type_int);
-    DataTypePtr data_type_array_type(
-            std::make_shared<DataTypeArray>(data_type_int_nullable));
+    DataTypePtr data_type_array_type(std::make_shared<DataTypeArray>(data_type_int_nullable));
     auto data_type_array_type_nullable = make_nullable(data_type_array_type);
 
     auto build_input_block = [&](const std::vector<int32_t>& ids,

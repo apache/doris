@@ -151,10 +151,10 @@ public:
     }
     void set_path_info(const PathInData& path);
     FieldAggregationMethod aggregation() const { return _aggregation; }
-    AggregateFunctionPtr get_aggregate_function_union(
-            DataTypePtr type, int current_be_exec_version) const;
+    AggregateFunctionPtr get_aggregate_function_union(DataTypePtr type,
+                                                      int current_be_exec_version) const;
     AggregateFunctionPtr get_aggregate_function(std::string suffix,
-                                                            int current_be_exec_version) const;
+                                                int current_be_exec_version) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
@@ -322,8 +322,8 @@ private:
     int _be_exec_version = -1;
 
     // The extracted sub-columns from "variant" contain the following information:
-    int32_t _parent_col_unique_id = -1;     // "variant" -> col_unique_id
-    PathInDataPtr _column_path; // the path of the sub-columns themselves
+    int32_t _parent_col_unique_id = -1; // "variant" -> col_unique_id
+    PathInDataPtr _column_path;         // the path of the sub-columns themselves
     PatternTypePB _pattern_type = PatternTypePB::MATCH_NAME_GLOB;
 
     VariantParams _variant;
@@ -768,8 +768,7 @@ private:
     std::vector<TabletIndexPtr> _indexes;
     std::unordered_map<StringRef, int32_t, StringRefHash> _field_name_to_index;
     std::unordered_map<int32_t, int32_t> _field_uniqueid_to_index;
-    std::unordered_map<PathInDataRef, int32_t, PathInDataRef::Hash>
-            _field_path_to_index;
+    std::unordered_map<PathInDataRef, int32_t, PathInDataRef::Hash> _field_path_to_index;
 
     // index_type/col_unique_id/suffix -> idxs in _indexes
     using IndexKey = std::tuple<IndexType, int32_t, std::string>;

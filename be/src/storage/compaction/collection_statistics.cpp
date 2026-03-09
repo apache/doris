@@ -36,10 +36,11 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-Status CollectionStatistics::collect(
-        RuntimeState* state, const std::vector<RowSetSplits>& rs_splits,
-        const TabletSchemaSPtr& tablet_schema,
-        const VExprContextSPtrs& common_expr_ctxs_push_down, io::IOContext* io_ctx) {
+Status CollectionStatistics::collect(RuntimeState* state,
+                                     const std::vector<RowSetSplits>& rs_splits,
+                                     const TabletSchemaSPtr& tablet_schema,
+                                     const VExprContextSPtrs& common_expr_ctxs_push_down,
+                                     io::IOContext* io_ctx) {
     std::unordered_map<std::wstring, CollectInfo> collect_infos;
     RETURN_IF_ERROR(
             extract_collect_info(state, common_expr_ctxs_push_down, tablet_schema, &collect_infos));

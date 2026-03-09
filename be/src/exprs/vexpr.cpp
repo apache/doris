@@ -187,8 +187,8 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
     return node;
 }
 
-TExprNode create_texpr_node_from(const Field& field, const PrimitiveType& type,
-                                 int precision, int scale) {
+TExprNode create_texpr_node_from(const Field& field, const PrimitiveType& type, int precision,
+                                 int scale) {
     TExprNode node;
     switch (type) {
     case TYPE_BOOLEAN: {

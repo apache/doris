@@ -125,8 +125,8 @@ void OrBlockColumnPredicate::evaluate_and(MutableColumns& block, uint16_t* sel,
     }
 }
 
-bool OrBlockColumnPredicate::evaluate_and(
-        ParquetPredicate::CachedPageIndexStat* statistic, RowRanges* row_ranges) const {
+bool OrBlockColumnPredicate::evaluate_and(ParquetPredicate::CachedPageIndexStat* statistic,
+                                          RowRanges* row_ranges) const {
     if (num_of_column_predicate() >= 1) {
         _block_column_predicate_vec[0]->evaluate_and(statistic, row_ranges);
         for (int i = 1; i < num_of_column_predicate(); ++i) {
@@ -138,8 +138,8 @@ bool OrBlockColumnPredicate::evaluate_and(
     return row_ranges->count() != 0;
 }
 
-bool AndBlockColumnPredicate::evaluate_and(
-        ParquetPredicate::CachedPageIndexStat* statistic, RowRanges* row_ranges) const {
+bool AndBlockColumnPredicate::evaluate_and(ParquetPredicate::CachedPageIndexStat* statistic,
+                                           RowRanges* row_ranges) const {
     if (num_of_column_predicate() >= 1) {
         for (int i = 0; i < num_of_column_predicate(); ++i) {
             RowRanges tmp_row_ranges;

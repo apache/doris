@@ -44,8 +44,7 @@ private:
     bool _should_push_down_common_expr() override { return true; }
     PushDownType _should_push_down_topn_filter() const override { return PushDownType::ACCEPTABLE; }
 
-    PushDownType _should_push_down_is_null_predicate(
-            VectorizedFnCall* fn_call) const override {
+    PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const override {
         return fn_call->fn().name.function_name == "is_null_pred" ||
                                fn_call->fn().name.function_name == "is_not_null_pred"
                        ? PushDownType::ACCEPTABLE
@@ -55,8 +54,8 @@ private:
         return PushDownType::ACCEPTABLE;
     }
     PushDownType _should_push_down_binary_predicate(
-            VectorizedFnCall* fn_call, VExprContext* expr_ctx,
-            Field& constant_val, const std::set<std::string> fn_name) const override {
+            VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
+            const std::set<std::string> fn_name) const override {
         if (!fn_name.contains(fn_call->fn().name.function_name)) {
             return PushDownType::UNACCEPTABLE;
         }
@@ -66,8 +65,8 @@ private:
         if (children[1]->is_constant()) {
             std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             THROW_IF_ERROR(children[1]->get_const_col(expr_ctx, &const_col_wrapper));
-            const auto* const_column = assert_cast<const ColumnConst*>(
-                    const_col_wrapper->column_ptr.get());
+            const auto* const_column =
+                    assert_cast<const ColumnConst*>(const_col_wrapper->column_ptr.get());
             constant_val = const_column->operator[](0);
             return PushDownType::ACCEPTABLE;
         } else {

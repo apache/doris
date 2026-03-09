@@ -54,13 +54,11 @@ public:
 
     virtual Status close(Status) = 0;
 
-    virtual Status exec_stmt_write(Block* block,
-                                   const VExprContextSPtrs& _output_vexpr_ctxs,
+    virtual Status exec_stmt_write(Block* block, const VExprContextSPtrs& _output_vexpr_ctxs,
                                    uint32_t* num_rows_sent) = 0;
 
     //write data into table vectorized
-    virtual Status append(Block* block,
-                          const VExprContextSPtrs& _output_vexpr_ctxs,
+    virtual Status append(Block* block, const VExprContextSPtrs& _output_vexpr_ctxs,
                           uint32_t start_send_row, uint32_t* num_rows_sent,
                           TOdbcTableType::type table_type = TOdbcTableType::MYSQL) = 0;
 

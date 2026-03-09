@@ -710,8 +710,7 @@ TEST_F(SchemaUtilTest, TestParseVariantColumns) {
     auto variant_type = std::make_shared<DataTypeVariant>(10);
     auto variant_column = ColumnVariant::create(10);
     auto root_column = ColumnString::create();
-    root_column->insert(
-            Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 1, 'b': 'test'}"));
+    root_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 1, 'b': 'test'}"));
     variant_column->create_root(std::make_shared<DataTypeString>(), root_column->get_ptr());
 
     block.insert({variant_column->get_ptr(), variant_type, "variant_col"});
@@ -824,10 +823,8 @@ TEST_F(SchemaUtilTest, TestCastColumnWithExecuteFailure) {
     // Insert some test dataset
     auto nested_array =
             ColumnArray::create(ColumnIPv4::create(), ColumnArray::ColumnOffsets::create());
-    nested_array->insert(
-            Field::create_field<PrimitiveType::TYPE_ARRAY>(Array(IPv4(1))));
-    nested_array->insert(
-            Field::create_field<PrimitiveType::TYPE_ARRAY>(Array(IPv4(2))));
+    nested_array->insert(Field::create_field<PrimitiveType::TYPE_ARRAY>(Array(IPv4(1))));
+    nested_array->insert(Field::create_field<PrimitiveType::TYPE_ARRAY>(Array(IPv4(2))));
 
     ColumnWithTypeAndName src_col;
     src_col.type = complex_type;
@@ -1223,12 +1220,9 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
     auto root_column = ColumnString::create();
 
     // Add some test JSON data
-    root_column->insert(
-            Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 1, 'b': 'test'}"));
-    root_column->insert(
-            Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 2, 'c': [1,2,3]}"));
-    root_column->insert(
-            Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 3, 'd': {'x': 1}}"));
+    root_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 1, 'b': 'test'}"));
+    root_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 2, 'c': [1,2,3]}"));
+    root_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 3, 'd': {'x': 1}}"));
 
     variant_column->create_root(std::make_shared<DataTypeString>(), root_column->get_ptr());
     block.insert({variant_column->get_ptr(), variant_type, "variant_col"});
@@ -1404,10 +1398,8 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_subpaths) {
 
     output_schema = std::make_shared<TabletSchema>();
     path_to_data_types.clear();
-    path_to_data_types[PathInData("a")] = {
-            std::make_shared<DataTypeInt32>()};
-    path_to_data_types[PathInData("b")] = {
-            std::make_shared<DataTypeString>()};
+    path_to_data_types[PathInData("a")] = {std::make_shared<DataTypeInt32>()};
+    path_to_data_types[PathInData("b")] = {std::make_shared<DataTypeString>()};
     variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
             paths_set_info, parent_column, schema, path_to_data_types, sparse_paths, output_schema);
     EXPECT_EQ(output_schema->num_columns(), 2);
@@ -1493,10 +1485,8 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_advanced) {
 
     output_schema = std::make_shared<TabletSchema>();
     path_to_data_types.clear();
-    path_to_data_types[PathInData("a")] = {
-            std::make_shared<DataTypeInt32>()};
-    path_to_data_types[PathInData("b")] = {
-            std::make_shared<DataTypeString>()};
+    path_to_data_types[PathInData("a")] = {std::make_shared<DataTypeInt32>()};
+    path_to_data_types[PathInData("b")] = {std::make_shared<DataTypeString>()};
     variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
             paths_set_info, parent_column, schema, path_to_data_types, sparse_paths, output_schema);
     EXPECT_EQ(output_schema->num_columns(), 4);
@@ -1560,11 +1550,9 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
     TabletColumnPtr parent_column = target->columns().front();
     // Build path -> data types
     doris::variant_util::PathToDataTypes path_to_data_types;
-    path_to_data_types[PathInData("a")] = {
-            std::make_shared<DataTypeInt32>(),
-            std::make_shared<DataTypeInt64>()}; // -> BIGINT
-    path_to_data_types[PathInData("b")] = {
-            std::make_shared<DataTypeString>()}; // -> STRING
+    path_to_data_types[PathInData("a")] = {std::make_shared<DataTypeInt32>(),
+                                           std::make_shared<DataTypeInt64>()};  // -> BIGINT
+    path_to_data_types[PathInData("b")] = {std::make_shared<DataTypeString>()}; // -> STRING
 
     TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
     TabletSchema::PathsSetInfo paths_set_info;
@@ -1800,8 +1788,7 @@ TEST_F(SchemaUtilTest, check_path_conflicts_with_existing) {
         std::vector<TabletSchemaSPtr> schemas = {tablet_schema};
         TabletSchemaSPtr output_schema;
 
-        auto status = variant_util::get_least_common_schema(schemas, nullptr,
-                                                                        output_schema, false);
+        auto status = variant_util::get_least_common_schema(schemas, nullptr, output_schema, false);
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
 
@@ -1824,8 +1811,7 @@ TEST_F(SchemaUtilTest, check_path_conflicts_with_existing) {
         std::vector<TabletSchemaSPtr> schemas = {tablet_schema};
         TabletSchemaSPtr output_schema;
 
-        auto status = variant_util::get_least_common_schema(schemas, nullptr,
-                                                                        output_schema, false);
+        auto status = variant_util::get_least_common_schema(schemas, nullptr, output_schema, false);
         // This should succeed since we don't have conflicting paths in this simple case
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
@@ -1859,8 +1845,7 @@ TEST_F(SchemaUtilTest, check_path_conflicts_with_existing) {
         std::vector<TabletSchemaSPtr> schemas = {tablet_schema1, tablet_schema2};
         TabletSchemaSPtr output_schema;
 
-        auto status = variant_util::get_least_common_schema(schemas, nullptr,
-                                                                        output_schema, false);
+        auto status = variant_util::get_least_common_schema(schemas, nullptr, output_schema, false);
         // This should succeed since the paths are the same and we're just checking for structure conflicts
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
@@ -1886,8 +1871,7 @@ TEST_F(SchemaUtilTest, parse_and_materialize_variant_columns_ambiguous_paths) {
 
     // Construct the block
     Block block;
-    block.insert(
-            ColumnWithTypeAndName(variant_col->assume_mutable(), variant_type, "v"));
+    block.insert(ColumnWithTypeAndName(variant_col->assume_mutable(), variant_type, "v"));
 
     // The variant column is at index 0
     std::vector<uint32_t> variant_pos = {0};

@@ -178,8 +178,8 @@ public:
     // When `read_options` is provided, the decision (e.g. flat-leaf vs hierarchical) can depend
     // on the reader type and tablet schema; when it is nullptr, we treat it as a query reader.
     // nullptr will be returned if storage type does not contain such column.
-    std::shared_ptr<const IDataType> get_data_type_of(
-            const TabletColumn& column, const StorageReadOptions& read_options);
+    std::shared_ptr<const IDataType> get_data_type_of(const TabletColumn& column,
+                                                      const StorageReadOptions& read_options);
 
     // If column in segment is the same type in schema, then it is safe to apply predicate.
     bool can_apply_predicate_safely(
@@ -188,8 +188,7 @@ public:
             const StorageReadOptions& read_options) {
         const doris::StorageField* col = schema.column(cid);
         DCHECK(col != nullptr) << "Column not found in schema for cid=" << cid;
-        DataTypePtr storage_column_type =
-                get_data_type_of(col->get_desc(), read_options);
+        DataTypePtr storage_column_type = get_data_type_of(col->get_desc(), read_options);
         if (storage_column_type == nullptr || col->type() != FieldType::OLAP_FIELD_TYPE_VARIANT ||
             !target_cast_type_for_variants.contains(col->name())) {
             // Default column iterator or not variant column

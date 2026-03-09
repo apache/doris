@@ -31,7 +31,6 @@
 
 namespace doris {
 
-
 Status ParallelScannerBuilder::build_scanners(std::list<ScannerSPtr>& scanners) {
     RETURN_IF_ERROR(_load());
     if (_scan_parallelism_by_per_segment) {

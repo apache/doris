@@ -56,7 +56,6 @@ namespace doris {
 class DeltaWriterV2;
 class RuntimeProfile;
 
-
 class DeltaWriterV2Pool;
 
 class DeltaWriterV2Map {

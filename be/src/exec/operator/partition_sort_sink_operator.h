@@ -120,10 +120,9 @@ private:
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
 
-    Status _split_block_by_partition(Block* input_block,
-                                     PartitionSortSinkLocalState& local_state, bool eos);
-    Status _emplace_into_hash_table(const ColumnRawPtrs& key_columns,
-                                    Block* input_block,
+    Status _split_block_by_partition(Block* input_block, PartitionSortSinkLocalState& local_state,
+                                     bool eos);
+    Status _emplace_into_hash_table(const ColumnRawPtrs& key_columns, Block* input_block,
                                     PartitionSortSinkLocalState& local_state, bool eos);
 };
 

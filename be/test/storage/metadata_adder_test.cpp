@@ -124,8 +124,7 @@ TEST_F(MetadataAdderTest, meta_load_with_pb_test) {
         auto fs = io::global_local_filesystem();
         TabletColumnPtr int_column = create_int_key(0);
         StorageField* int_field = StorageFieldFactory::create(*int_column);
-        auto int_data_type_ptr =
-                DataTypeFactory::instance().create_data_type(TYPE_INT, false);
+        auto int_data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
 
         // 1 load first column
         segment_v2::ColumnIndexMetaPB index_meta1;
@@ -163,8 +162,7 @@ TEST_F(MetadataAdderTest, meta_load_with_pb_test) {
         segment_v2::ColumnIndexMetaPB index_meta2;
         TabletColumnPtr varchar_column = create_varchar_key(0);
         StorageField* str_field = StorageFieldFactory::create(*varchar_column);
-        auto str_data_type_ptr =
-                DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, false);
+        auto str_data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, false);
 
         std::string file2 = kTestDir + "/copy_obj2";
         {

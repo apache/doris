@@ -64,8 +64,8 @@ public:
     static const std::string FileReadTimeProfile;
 
     FileScanner(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
-                std::shared_ptr<SplitSourceConnector> split_source,
-                RuntimeProfile* profile, ShardedKVCache* kv_cache,
+                std::shared_ptr<SplitSourceConnector> split_source, RuntimeProfile* profile,
+                ShardedKVCache* kv_cache,
                 const std::unordered_map<std::string, int>* colname_to_slot_id);
 
     Status _open_impl(RuntimeState* state) override;

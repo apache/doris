@@ -76,8 +76,7 @@ public:
 
     template <typename HashTableCtxType, typename KeyType>
     Status to_block(HashTableCtxType& context, std::vector<KeyType>& keys,
-                    std::vector<AggregateDataPtr>& values,
-                    const AggregateDataPtr null_key_data);
+                    std::vector<AggregateDataPtr>& values, const AggregateDataPtr null_key_data);
 
     void _reset_tmp_data();
     void _clear_tmp_data();

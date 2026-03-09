@@ -833,8 +833,8 @@ TEST(PODArrayTest, PODArrayTrackingMemory) {
         static constexpr size_t initial_bytes = 32;
         using Array =
                 PODArray<uint64_t, initial_bytes,
-                                     AllocatorWithStackMemory<Allocator<
-                                             false, false, false, DefaultMemoryAllocator, false>>>;
+                         AllocatorWithStackMemory<
+                                 Allocator<false, false, false, DefaultMemoryAllocator, false>>>;
         Array array;
 
         array.push_back(1);
@@ -882,9 +882,8 @@ TEST(PODArrayTest, PODArrayTrackingMemory) {
         static constexpr size_t PRE_GROWTH_SIZE = (1ULL << 20); // 1M
 
         static constexpr size_t initial_bytes = 32;
-        using Array =
-                PODArray<uint64_t, initial_bytes,
-                                     Allocator<false, false, false, DefaultMemoryAllocator, false>>;
+        using Array = PODArray<uint64_t, initial_bytes,
+                               Allocator<false, false, false, DefaultMemoryAllocator, false>>;
         Array array;
 
         array.push_back(1);

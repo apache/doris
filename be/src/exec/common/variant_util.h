@@ -135,8 +135,7 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
 bool is_bf_supported_by_fe_for_variant_subcolumn(FieldType type);
 
 // get sorted subcolumns of variant
-ColumnVariant::Subcolumns get_sorted_subcolumns(
-        const ColumnVariant::Subcolumns& subcolumns);
+ColumnVariant::Subcolumns get_sorted_subcolumns(const ColumnVariant::Subcolumns& subcolumns);
 
 bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* old_schema,
                            int32_t new_col_idx, int32_t old_col_idx);
@@ -226,8 +225,7 @@ public:
                                                TabletSchema::PathsSetInfo& paths_set_info);
 
     static Status get_compaction_nested_columns(
-            const std::unordered_set<PathInData, PathInData::Hash>&
-                    nested_paths,
+            const std::unordered_set<PathInData, PathInData::Hash>& nested_paths,
             const PathToDataTypes& path_to_data_types, const TabletColumnPtr parent_column,
             TabletSchemaSPtr& output_schema, TabletSchema::PathsSetInfo& paths_set_info);
 };

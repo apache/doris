@@ -39,7 +39,6 @@
 
 namespace doris {
 
-
 struct ScanNormalizePredicate : public ::testing::Test {
     void SetUp() override {
         state = std::make_shared<MockRuntimeState>();
@@ -177,8 +176,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot1) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
-    slot_desc._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_BIGINT, false);
+    slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     local_state->_slot_id_to_value_range[SlotId] = range;
@@ -236,8 +235,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot2) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
-    slot_desc._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_BIGINT, false);
+    slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     local_state->_slot_id_to_value_range[SlotId] = range;
@@ -318,8 +317,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot3) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
-    slot_desc._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_BIGINT, false);
+    slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     local_state->_slot_id_to_value_range[SlotId] = range;
@@ -364,8 +363,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot4) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
-    slot_desc._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_BIGINT, false);
+    slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     local_state->_slot_id_to_value_range[SlotId] = range;
@@ -422,8 +421,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot5) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
-    slot_desc._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_BIGINT, false);
+    slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     local_state->_slot_id_to_value_range[SlotId] = range;
@@ -480,8 +479,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot6) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
-    slot_desc._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_BIGINT, false);
+    slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     local_state->_slot_id_to_value_range[SlotId] = range;
@@ -538,8 +537,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot7) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
-    slot_desc._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_BIGINT, false);
+    slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     local_state->_slot_id_to_value_range[SlotId] = range;
@@ -591,8 +590,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot8) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
-    slot_desc._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_BIGINT, false);
+    slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     EXPECT_TRUE(range.add_fixed_value(1));
@@ -648,8 +647,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot10) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
-    slot_desc._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_BIGINT, false);
+    slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
 
@@ -687,8 +686,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot11) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
-    slot_desc._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_BIGINT, false);
+    slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
 
@@ -729,8 +728,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot12) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
-    slot_desc._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_BIGINT, false);
+    slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     EXPECT_TRUE(range.add_fixed_value(1));
@@ -786,8 +785,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot13) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
-    slot_desc._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_BIGINT, false);
+    slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     EXPECT_TRUE(range.add_fixed_value(1));
@@ -843,8 +842,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot14) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
-    slot_desc._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_BIGINT, false);
+    slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     EXPECT_TRUE(range.add_fixed_value(1));
@@ -904,8 +903,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot15) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
-    slot_desc._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_BIGINT, false);
+    slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     EXPECT_TRUE(range.add_fixed_value(1));
@@ -969,11 +968,11 @@ TEST_F(ScanNormalizePredicate, test_double_predicate) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
-    slot_desc._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_DOUBLE, false);
+    slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DOUBLE, false);
     SlotDescriptor nullable_slot_desc;
-    nullable_slot_desc._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_DOUBLE, true);
+    nullable_slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DOUBLE, true);
     // test eq
     for (auto const_v : test_values) {
         auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
@@ -1445,8 +1444,8 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
-    slot_desc._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_TIMESTAMPTZ, false, 0, test_scale);
+    slot_desc._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_TIMESTAMPTZ,
+                                                                   false, 0, test_scale);
     SlotDescriptor nullable_slot_desc;
     nullable_slot_desc._type = DataTypeFactory::instance().create_data_type(
             PrimitiveType::TYPE_TIMESTAMPTZ, true, 0, test_scale);

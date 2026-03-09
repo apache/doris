@@ -1599,8 +1599,7 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryPhrase) {
     auto context = std::make_shared<IndexQueryContext>();
 
     std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
-    data_type_with_names.emplace("content",
-                                 IndexFieldNameAndTypePair {"content", nullptr});
+    data_type_with_names.emplace("content", IndexFieldNameAndTypePair {"content", nullptr});
 
     std::unordered_map<std::string, IndexIterator*> iterators;
     FieldReaderResolver resolver(data_type_with_names, iterators, context);

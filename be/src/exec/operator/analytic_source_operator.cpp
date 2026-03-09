@@ -43,8 +43,7 @@ AnalyticSourceOperatorX::AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNo
                                                  int operator_id, const DescriptorTbl& descs)
         : OperatorX<AnalyticLocalState>(pool, tnode, operator_id, descs) {}
 
-Status AnalyticSourceOperatorX::get_block(RuntimeState* state, Block* output_block,
-                                          bool* eos) {
+Status AnalyticSourceOperatorX::get_block(RuntimeState* state, Block* output_block, bool* eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());

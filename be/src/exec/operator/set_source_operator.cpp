@@ -75,8 +75,7 @@ Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
 }
 
 template <bool is_intersect>
-Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, Block* block,
-                                                   bool* eos) {
+Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, Block* block, bool* eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -100,8 +99,8 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, Block* b
     }
     {
         SCOPED_TIMER(local_state._filter_timer);
-        RETURN_IF_ERROR(VExprContext::filter_block(local_state._conjuncts, block,
-                                                               block->columns()));
+        RETURN_IF_ERROR(
+                VExprContext::filter_block(local_state._conjuncts, block, block->columns()));
     }
     local_state.reached_limit(block, eos);
     return Status::OK();
@@ -159,9 +158,8 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
 
     if (!output_block->mem_reuse()) {
         for (int i = 0; i < left_col_len; ++i) {
-            output_block->insert(
-                    ColumnWithTypeAndName(std::move(local_state._mutable_cols[i]),
-                                                      local_state._left_table_data_types[i], ""));
+            output_block->insert(ColumnWithTypeAndName(std::move(local_state._mutable_cols[i]),
+                                                       local_state._left_table_data_types[i], ""));
         }
     } else {
         local_state._mutable_cols.clear();

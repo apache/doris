@@ -28,7 +28,6 @@ namespace doris {
 class RuntimeProfile;
 class ThreadPool;
 
-
 class Block;
 class SpillDataDir;
 

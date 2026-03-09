@@ -76,8 +76,8 @@ public:
 
     std::string get_name() const override { return name; }
 
-    Status execute(VExprContext* context, const Block* block, Selector* expr_selector,
-                   size_t count, ColumnPtr& result_column, const DataTypePtr& result_type,
+    Status execute(VExprContext* context, const Block* block, Selector* expr_selector, size_t count,
+                   ColumnPtr& result_column, const DataTypePtr& result_type,
                    const VExprSPtrs& children) const override {
         LambdaArgs args_info;
         // collect used slot ref in lambda function body
@@ -277,8 +277,8 @@ public:
 
             if (!mem_reuse) {
                 for (int i = 0; i < column_size; ++i) {
-                    lambda_block.insert(ColumnWithTypeAndName(std::move(columns[i]),
-                                                                          data_types[i], names[i]));
+                    lambda_block.insert(
+                            ColumnWithTypeAndName(std::move(columns[i]), data_types[i], names[i]));
                 }
             }
             //3. child[0]->execute(new_block)

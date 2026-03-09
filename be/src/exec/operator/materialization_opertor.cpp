@@ -138,8 +138,8 @@ void MaterializationSharedState::_update_profile_info(int64_t backend_id,
     update_profile_info_key(FileScanner::FileReadTimeProfile);
 }
 
-Status MaterializationSharedState::create_muiltget_result(const Columns& columns,
-                                                          bool child_eos, bool gc_id_map) {
+Status MaterializationSharedState::create_muiltget_result(const Columns& columns, bool child_eos,
+                                                          bool gc_id_map) {
     const auto rows = columns.empty() ? 0 : columns[0]->size();
     block_order_results.resize(columns.size());
 
@@ -150,8 +150,8 @@ Status MaterializationSharedState::create_muiltget_result(const Columns& columns
 
         if (auto column_ptr = check_and_get_column<ColumnNullable>(*column)) {
             null_map = column_ptr->get_null_map_data().data();
-            column_rowid = assert_cast<const ColumnString*>(
-                    column_ptr->get_nested_column_ptr().get());
+            column_rowid =
+                    assert_cast<const ColumnString*>(column_ptr->get_nested_column_ptr().get());
         } else {
             column_rowid = assert_cast<const ColumnString*>(column.get());
         }
@@ -218,8 +218,7 @@ Status MaterializationSharedState::init_multi_requests(
     const auto& tuple_desc =
             state->desc_tbl().get_tuple_descriptor(materialization_node.intermediate_tuple_id);
     const auto& slots = tuple_desc->slots();
-    response_blocks =
-            std::vector<MutableBlock>(materialization_node.column_descs_lists.size());
+    response_blocks = std::vector<MutableBlock>(materialization_node.column_descs_lists.size());
 
     for (int i = 0; i < materialization_node.column_descs_lists.size(); ++i) {
         auto request_block_desc = multi_get_request.add_request_block_descs();
@@ -290,8 +289,7 @@ bool MaterializationOperator::need_more_input_data(RuntimeState* state) const {
            !local_state._materialization_state.eos;
 }
 
-Status MaterializationOperator::pull(RuntimeState* state, Block* output_block,
-                                     bool* eos) const {
+Status MaterializationOperator::pull(RuntimeState* state, Block* output_block, bool* eos) const {
     auto& local_state = get_local_state(state);
     output_block->clear();
     if (local_state._materialization_state.need_merge_block) {
@@ -315,8 +313,7 @@ Status MaterializationOperator::pull(RuntimeState* state, Block* output_block,
     return Status::OK();
 }
 
-Status MaterializationOperator::push(RuntimeState* state, Block* in_block,
-                                     bool eos) const {
+Status MaterializationOperator::push(RuntimeState* state, Block* in_block, bool eos) const {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     if (!local_state._materialization_state.rpc_struct_inited) {

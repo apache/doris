@@ -69,7 +69,6 @@ class ExchangeSinkOperatorX;
 class Dependency;
 class ExchangeSinkLocalState;
 
-
 class BlockSerializer {
 public:
     BlockSerializer(ExchangeSinkLocalState* parent, bool is_local = true);
@@ -163,8 +162,8 @@ public:
 
     InstanceLoId dest_ins_id() const { return _fragment_instance_id.lo; }
 
-    std::shared_ptr<ExchangeSendCallback<PTransmitDataResult>> get_send_callback(
-            RpcInstance* ins, bool eos) {
+    std::shared_ptr<ExchangeSendCallback<PTransmitDataResult>> get_send_callback(RpcInstance* ins,
+                                                                                 bool eos) {
         if (!_send_callback) {
             _send_callback = ExchangeSendCallback<PTransmitDataResult>::create_shared();
         } else {

@@ -99,8 +99,7 @@ using namespace ErrorCode;
 const std::string FileScanner::FileReadBytesProfile = "FileReadBytes";
 const std::string FileScanner::FileReadTimeProfile = "FileReadTime";
 
-FileScanner::FileScanner(RuntimeState* state, FileScanLocalState* local_state,
-                         int64_t limit,
+FileScanner::FileScanner(RuntimeState* state, FileScanLocalState* local_state, int64_t limit,
                          std::shared_ptr<SplitSourceConnector> split_source,
                          RuntimeProfile* profile, ShardedKVCache* kv_cache,
                          const std::unordered_map<std::string, int>* colname_to_slot_id)
@@ -176,12 +175,11 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
                                               std::vector<TupleId>({_input_tuple_desc->id()})));
         // prepare pre filters
         if (_params->__isset.pre_filter_exprs_list) {
-            RETURN_IF_ERROR(doris::VExpr::create_expr_trees(
-                    _params->pre_filter_exprs_list, _pre_conjunct_ctxs));
+            RETURN_IF_ERROR(doris::VExpr::create_expr_trees(_params->pre_filter_exprs_list,
+                                                            _pre_conjunct_ctxs));
         } else if (_params->__isset.pre_filter_exprs) {
             VExprContextSPtr context;
-            RETURN_IF_ERROR(
-                    doris::VExpr::create_expr_tree(_params->pre_filter_exprs, context));
+            RETURN_IF_ERROR(doris::VExpr::create_expr_tree(_params->pre_filter_exprs, context));
             _pre_conjunct_ctxs.emplace_back(context);
         }
 
@@ -699,8 +697,8 @@ Status FileScanner::_pre_filter_src_block() {
         SCOPED_TIMER(_pre_filter_timer);
         auto origin_column_num = _src_block_ptr->columns();
         auto old_rows = _src_block_ptr->rows();
-        RETURN_IF_ERROR(VExprContext::filter_block(_pre_conjunct_ctxs, _src_block_ptr,
-                                                               origin_column_num));
+        RETURN_IF_ERROR(
+                VExprContext::filter_block(_pre_conjunct_ctxs, _src_block_ptr, origin_column_num));
         _counter.num_rows_unselected += old_rows - _src_block_ptr->rows();
     }
     return Status::OK();
@@ -767,8 +765,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
         // is likely to be nullable
         if (LIKELY(column_ptr->is_nullable())) {
-            const auto* nullable_column =
-                    reinterpret_cast<const ColumnNullable*>(column_ptr.get());
+            const auto* nullable_column = reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             for (int i = 0; i < rows; ++i) {
                 if (filter_map[i] && nullable_column->is_null_at(i)) {
                     // skip checks for non-mentioned columns in flexible partial update
@@ -822,9 +819,8 @@ Status FileScanner::_convert_to_output_block(Block* block) {
 
     size_t dest_size = block->columns();
     // do filter
-    block->insert(ColumnWithTypeAndName(std::move(filter_column),
-                                                    std::make_shared<DataTypeUInt8>(),
-                                                    "filter column"));
+    block->insert(ColumnWithTypeAndName(std::move(filter_column), std::make_shared<DataTypeUInt8>(),
+                                        "filter column"));
     RETURN_IF_ERROR(Block::filter_block(block, dest_size, dest_size));
 
     _counter.num_rows_filtered += rows - block->rows();
@@ -898,9 +894,9 @@ void FileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int le
 
 Status FileScanner::_create_row_id_column_iterator() {
     auto& id_file_map = _state->get_id_file_map();
-    auto file_id = id_file_map->get_file_mapping_id(std::make_shared<FileMapping>(
-            ((FileScanLocalState*)_local_state)->parent_id(), _current_range,
-            _should_enable_file_meta_cache()));
+    auto file_id = id_file_map->get_file_mapping_id(
+            std::make_shared<FileMapping>(((FileScanLocalState*)_local_state)->parent_id(),
+                                          _current_range, _should_enable_file_meta_cache()));
     _row_id_column_iterator_pair.first = std::make_shared<RowIdColumnIteratorV2>(
             IdManager::ID_VERSION, BackendOptions::get_backend_id(), file_id);
     return Status::OK();
@@ -1535,10 +1531,9 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
             [&]() -> Status {
                 switch (format_type) {
                 case TFileFormatType::FORMAT_PARQUET: {
-                    std::unique_ptr<ParquetReader> parquet_reader =
-                            ParquetReader::create_unique(
-                                    _profile, *_params, range, 1, &_state->timezone_obj(),
-                                    _io_ctx.get(), _state, file_meta_cache_ptr, false);
+                    std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
+                            _profile, *_params, range, 1, &_state->timezone_obj(), _io_ctx.get(),
+                            _state, file_meta_cache_ptr, false);
 
                     RETURN_IF_ERROR(parquet_reader->read_by_rows(row_ids));
                     RETURN_IF_ERROR(
@@ -1546,10 +1541,9 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
                     break;
                 }
                 case TFileFormatType::FORMAT_ORC: {
-                    std::unique_ptr<OrcReader> orc_reader =
-                            OrcReader::create_unique(
-                                    _profile, _state, *_params, range, 1, _state->timezone(),
-                                    _io_ctx.get(), file_meta_cache_ptr, false);
+                    std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
+                            _profile, _state, *_params, range, 1, _state->timezone(), _io_ctx.get(),
+                            file_meta_cache_ptr, false);
 
                     RETURN_IF_ERROR(orc_reader->read_by_rows(row_ids));
                     RETURN_IF_ERROR(_init_orc_reader(std::move(orc_reader), file_meta_cache_ptr));
@@ -1775,8 +1769,7 @@ void FileScanner::try_stop() {
 }
 
 void FileScanner::update_realtime_counters() {
-    FileScanLocalState* local_state =
-            static_cast<FileScanLocalState*>(_local_state);
+    FileScanLocalState* local_state = static_cast<FileScanLocalState*>(_local_state);
 
     COUNTER_UPDATE(local_state->_scan_bytes, _file_reader_stats->read_bytes);
     COUNTER_UPDATE(local_state->_scan_rows, _file_reader_stats->read_rows);
@@ -1837,8 +1830,7 @@ void FileScanner::_collect_profile_before_close() {
         _cur_reader->collect_profile_before_close();
     }
 
-    FileScanLocalState* local_state =
-            static_cast<FileScanLocalState*>(_local_state);
+    FileScanLocalState* local_state = static_cast<FileScanLocalState*>(_local_state);
     COUNTER_UPDATE(local_state->_scan_bytes, _file_reader_stats->read_bytes);
     COUNTER_UPDATE(local_state->_scan_rows, _file_reader_stats->read_rows);
 

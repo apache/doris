@@ -213,8 +213,8 @@ private:
     void _aggregate_two_row_in_block(MutableBlock& mutable_block, RowInBlock* new_row,
                                      RowInBlock* row_in_skiplist);
 
-    void _aggregate_two_row_with_sequence_map(MutableBlock& mutable_block,
-                                              RowInBlock* new_row, RowInBlock* row_in_skiplist);
+    void _aggregate_two_row_with_sequence_map(MutableBlock& mutable_block, RowInBlock* new_row,
+                                              RowInBlock* row_in_skiplist);
 
     // Used to wrapped by to_block to do exception handle logic
     Status _to_block(std::unique_ptr<Block>* res);
@@ -262,8 +262,7 @@ private:
     void _sort_one_column(DorisVector<std::shared_ptr<RowInBlock>>& row_in_blocks, Tie& tie,
                           std::function<int(RowInBlock*, RowInBlock*)> cmp);
     template <bool is_final>
-    void _finalize_one_row(RowInBlock* row, const ColumnsWithTypeAndName& block_data,
-                           int row_pos);
+    void _finalize_one_row(RowInBlock* row, const ColumnsWithTypeAndName& block_data, int row_pos);
     void _init_row_for_agg(RowInBlock* row, MutableBlock& mutable_block);
     void _clear_row_agg(RowInBlock* row);
 
@@ -272,14 +271,12 @@ private:
 
     template <bool is_final>
     void _aggregate_for_flexible_partial_update_without_seq_col(
-            const ColumnsWithTypeAndName& block_data,
-            MutableBlock& mutable_block,
+            const ColumnsWithTypeAndName& block_data, MutableBlock& mutable_block,
             DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks);
 
     template <bool is_final>
     void _aggregate_for_flexible_partial_update_with_seq_col(
-            const ColumnsWithTypeAndName& block_data,
-            MutableBlock& mutable_block,
+            const ColumnsWithTypeAndName& block_data, MutableBlock& mutable_block,
             DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks);
 
     Status _put_into_output(Block& in_block);

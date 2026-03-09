@@ -364,8 +364,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, RevokeMemory) {
 
     std::vector<int32_t> large_data(3 * 1024 * 1024);
     std::iota(large_data.begin(), large_data.end(), 0);
-    Block large_block =
-            ColumnHelper::create_block<DataTypeInt32>(large_data);
+    Block large_block = ColumnHelper::create_block<DataTypeInt32>(large_data);
 
     sink_state->_shared_state->partitioned_build_blocks[0] =
             MutableBlock::create_unique(std::move(large_block));

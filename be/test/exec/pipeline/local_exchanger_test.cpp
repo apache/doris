@@ -122,10 +122,8 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
                         .build();
         auto slot = doris::VSlotRef::create_shared(texpr);
         slot->_column_id = 0;
-        ((Crc32HashPartitioner<ShuffleChannelIds>*)_sink_local_states[i]
-                 ->_partitioner.get())
-                ->_partition_expr_ctxs.push_back(
-                        std::make_shared<doris::VExprContext>(slot));
+        ((Crc32HashPartitioner<ShuffleChannelIds>*)_sink_local_states[i]->_partitioner.get())
+                ->_partition_expr_ctxs.push_back(std::make_shared<doris::VExprContext>(slot));
         _sink_local_states[i]->_channel_id = i;
         _sink_local_states[i]->_shared_state = shared_state.get();
         _sink_local_states[i]->_dependency = sink_dep.get();
@@ -1198,10 +1196,8 @@ TEST_F(LocalExchangerTest, TestShuffleExchangerWrongMap) {
                         num_partitions);
         auto slot = doris::VSlotRef::create_shared(texpr);
         slot->_column_id = 0;
-        ((Crc32HashPartitioner<ShuffleChannelIds>*)_sink_local_states[i]
-                 ->_partitioner.get())
-                ->_partition_expr_ctxs.push_back(
-                        std::make_shared<doris::VExprContext>(slot));
+        ((Crc32HashPartitioner<ShuffleChannelIds>*)_sink_local_states[i]->_partitioner.get())
+                ->_partition_expr_ctxs.push_back(std::make_shared<doris::VExprContext>(slot));
         _sink_local_states[i]->_channel_id = i;
         _sink_local_states[i]->_shared_state = shared_state.get();
         _sink_local_states[i]->_dependency = sink_dep.get();

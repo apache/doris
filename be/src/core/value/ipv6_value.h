@@ -68,7 +68,7 @@ public:
         }
         // parse and store in little-endian
         return parse_ipv6_whole(ipv6_str + begin, ipv6_str + end + 1,
-                                            reinterpret_cast<unsigned char*>(&value));
+                                reinterpret_cast<unsigned char*>(&value));
     }
 
     static bool from_string(IPv6& value, const std::string& ipv6_str) {
@@ -102,7 +102,7 @@ public:
             --end;
         }
         return parse_ipv6_whole(ipv6_str + begin, ipv6_str + end + 1,
-                                            reinterpret_cast<unsigned char*>(&value));
+                                reinterpret_cast<unsigned char*>(&value));
     }
 
 private:

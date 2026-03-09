@@ -48,9 +48,8 @@ std::string LoadBlockQueue::_get_load_ids() {
     return ss.str();
 }
 
-Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
-                                 std::shared_ptr<Block> block, bool write_wal,
-                                 UniqueId& load_id) {
+Status LoadBlockQueue::add_block(RuntimeState* runtime_state, std::shared_ptr<Block> block,
+                                 bool write_wal, UniqueId& load_id) {
     DBUG_EXECUTE_IF("LoadBlockQueue.add_block.failed",
                     { return Status::InternalError("LoadBlockQueue.add_block.failed"); });
     std::unique_lock l(mutex);
@@ -115,9 +114,8 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
     return Status::OK();
 }
 
-Status LoadBlockQueue::get_block(RuntimeState* runtime_state, Block* block,
-                                 bool* find_block, bool* eos,
-                                 std::shared_ptr<Dependency> get_block_dep) {
+Status LoadBlockQueue::get_block(RuntimeState* runtime_state, Block* block, bool* find_block,
+                                 bool* eos, std::shared_ptr<Dependency> get_block_dep) {
     *find_block = false;
     *eos = false;
     std::unique_lock l(mutex);
@@ -246,8 +244,7 @@ void LoadBlockQueue::_cancel_without_lock(const Status& st) {
 Status GroupCommitTable::get_first_block_load_queue(
         int64_t table_id, int64_t base_schema_version, int64_t index_size, const UniqueId& load_id,
         std::shared_ptr<LoadBlockQueue>& load_block_queue, int be_exe_version,
-        std::shared_ptr<MemTrackerLimiter> mem_tracker,
-        std::shared_ptr<Dependency> create_plan_dep,
+        std::shared_ptr<MemTrackerLimiter> mem_tracker, std::shared_ptr<Dependency> create_plan_dep,
         std::shared_ptr<Dependency> put_block_dep) {
     DCHECK(table_id == _table_id);
     std::unique_lock l(_lock);
@@ -634,8 +631,7 @@ Status GroupCommitMgr::get_first_block_load_queue(
         int64_t db_id, int64_t table_id, int64_t base_schema_version, int64_t index_size,
         const UniqueId& load_id, std::shared_ptr<LoadBlockQueue>& load_block_queue,
         int be_exe_version, std::shared_ptr<MemTrackerLimiter> mem_tracker,
-        std::shared_ptr<Dependency> create_plan_dep,
-        std::shared_ptr<Dependency> put_block_dep) {
+        std::shared_ptr<Dependency> create_plan_dep, std::shared_ptr<Dependency> put_block_dep) {
     std::shared_ptr<GroupCommitTable> group_commit_table;
     {
         std::lock_guard wlock(_lock);
@@ -683,8 +679,8 @@ Status LoadBlockQueue::create_wal(int64_t db_id, int64_t tb_id, int64_t wal_id,
                                      : import_label;
     RETURN_IF_ERROR(ExecEnv::GetInstance()->wal_mgr()->create_wal_path(
             db_id, tb_id, wal_id, real_label, _wal_base_path, WAL_VERSION));
-    _v_wal_writer = std::make_shared<VWalWriter>(
-            db_id, tb_id, wal_id, real_label, wal_manager, slot_desc, be_exe_version);
+    _v_wal_writer = std::make_shared<VWalWriter>(db_id, tb_id, wal_id, real_label, wal_manager,
+                                                 slot_desc, be_exe_version);
     return _v_wal_writer->init();
 }
 

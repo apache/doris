@@ -33,8 +33,7 @@ class JdbcTableSinkLocalState final
 public:
     using Base = AsyncWriterSink<VJdbcTableWriter, JdbcTableSinkOperatorX>;
     JdbcTableSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : AsyncWriterSink<VJdbcTableWriter, JdbcTableSinkOperatorX>(parent, state) {
-    }
+            : AsyncWriterSink<VJdbcTableWriter, JdbcTableSinkOperatorX>(parent, state) {}
 
 private:
     friend class JdbcTableSinkOperatorX;

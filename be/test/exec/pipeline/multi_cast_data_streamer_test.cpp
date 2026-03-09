@@ -168,7 +168,6 @@ public:
 };
 
 TEST_F(MultiCastDataStreamerTest, NormTest) {
-
     for (auto dep : deps) {
         EXPECT_FALSE(dep->ready());
     }
@@ -207,7 +206,6 @@ TEST_F(MultiCastDataStreamerTest, NormTest) {
 }
 
 TEST_F(MultiCastDataStreamerTest, MultiTest) {
-
     std::vector<Block> blocks;
     const auto input_count = 50;
     for (int i = 0; i < input_count; i++) {
@@ -260,7 +258,6 @@ TEST_F(MultiCastDataStreamerTest, MultiTest) {
 }
 
 TEST_F(MultiCastDataStreamerTest, SpillTest) {
-
     state.set_enable_spill(true);
     auto exchg_node_buffer_size_bytes = config::exchg_node_buffer_size_bytes;
     config::exchg_node_buffer_size_bytes = 1;

@@ -194,8 +194,7 @@ int RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* r
                                *_pblock, -1);
 }
 
-Status MemTable::insert(const Block* input_block,
-                        const DorisVector<uint32_t>& row_idxs) {
+Status MemTable::insert(const Block* input_block, const DorisVector<uint32_t>& row_idxs) {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
             _resource_ctx->memory_context()->mem_tracker()->write_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
@@ -275,10 +274,9 @@ void MemTable::_aggregate_two_row_with_sequence_map(MutableBlock& mutable_block,
             }
         }
         if (sequence < _num_columns) {
-            _agg_functions[sequence]->add(
-                    dst_row->agg_places(sequence),
-                    const_cast<const doris::IColumn**>(&sequence_col_ptr),
-                    src_row->_row_pos, _arena);
+            _agg_functions[sequence]->add(dst_row->agg_places(sequence),
+                                          const_cast<const doris::IColumn**>(&sequence_col_ptr),
+                                          src_row->_row_pos, _arena);
             // must use replace column instead of update row_pos
             // because one row may have multi sequence column
             // and agg function add method won't change the real column value
@@ -289,8 +287,8 @@ void MemTable::_aggregate_two_row_with_sequence_map(MutableBlock& mutable_block,
 }
 
 template <bool has_skip_bitmap_col>
-void MemTable::_aggregate_two_row_in_block(MutableBlock& mutable_block,
-                                           RowInBlock* src_row, RowInBlock* dst_row) {
+void MemTable::_aggregate_two_row_in_block(MutableBlock& mutable_block, RowInBlock* src_row,
+                                           RowInBlock* dst_row) {
     // for flexible partial update, the caller must guarantees that either src_row and dst_row
     // both specify the sequence column, or src_row and dst_row both don't specify the
     // sequence column
@@ -393,8 +391,7 @@ Status MemTable::_sort_by_cluster_keys() {
     _stat.sort_times++;
     // sort all rows
     Block in_block = _output_mutable_block.to_block();
-    MutableBlock mutable_block =
-            MutableBlock::build_mutable_block(&in_block);
+    MutableBlock mutable_block = MutableBlock::build_mutable_block(&in_block);
     auto clone_block = in_block.clone_without_columns();
     _output_mutable_block = MutableBlock::build_mutable_block(&clone_block);
 
@@ -457,8 +454,7 @@ void MemTable::_sort_one_column(DorisVector<std::shared_ptr<RowInBlock>>& row_in
 }
 
 template <bool is_final>
-void MemTable::_finalize_one_row(RowInBlock* row,
-                                 const ColumnsWithTypeAndName& block_data,
+void MemTable::_finalize_one_row(RowInBlock* row, const ColumnsWithTypeAndName& block_data,
                                  int row_pos) {
     // move key columns
     for (size_t i = 0; i < _tablet_schema->num_key_columns(); ++i) {
@@ -487,8 +483,8 @@ void MemTable::_finalize_one_row(RowInBlock* row,
                 auto function = _agg_functions[i];
                 auto* agg_place = row->agg_places(i);
                 auto* col_ptr = _output_mutable_block.get_column_by_position(i).get();
-                function->add(agg_place, const_cast<const doris::IColumn**>(&col_ptr),
-                              row_pos, _arena);
+                function->add(agg_place, const_cast<const doris::IColumn**>(&col_ptr), row_pos,
+                              _arena);
             }
         }
     } else {
@@ -510,8 +506,8 @@ void MemTable::_init_row_for_agg(RowInBlock* row, MutableBlock& mutable_block) {
         auto* col_ptr = mutable_block.mutable_columns()[cid].get();
         auto* data = row->agg_places(cid);
         _agg_functions[cid]->create(data);
-        _agg_functions[cid]->add(data, const_cast<const doris::IColumn**>(&col_ptr),
-                                 row->_row_pos, _arena);
+        _agg_functions[cid]->add(data, const_cast<const doris::IColumn**>(&col_ptr), row->_row_pos,
+                                 _arena);
     }
 }
 void MemTable::_clear_row_agg(RowInBlock* row) {
@@ -530,8 +526,7 @@ void MemTable::_aggregate() {
     SCOPED_RAW_TIMER(&_stat.agg_ns);
     _stat.agg_times++;
     Block in_block = _input_mutable_block.to_block();
-    MutableBlock mutable_block =
-            MutableBlock::build_mutable_block(&in_block);
+    MutableBlock mutable_block = MutableBlock::build_mutable_block(&in_block);
     _vec_row_comparator->set_block(&mutable_block);
     auto& block_data = in_block.get_columns_with_type_and_name();
     DorisVector<std::shared_ptr<RowInBlock>> temp_row_in_blocks;
@@ -590,8 +585,7 @@ void MemTable::_aggregate() {
         _input_mutable_block.swap(_output_mutable_block);
         //TODO(weixang):opt here.
         std::unique_ptr<Block> empty_input_block = in_block.create_same_struct_block(0);
-        _output_mutable_block =
-                MutableBlock::build_mutable_block(empty_input_block.get());
+        _output_mutable_block = MutableBlock::build_mutable_block(empty_input_block.get());
         _output_mutable_block.clear_column_data();
         *_row_in_blocks = temp_row_in_blocks;
         _last_sorted_pos = _row_in_blocks->size();
@@ -600,17 +594,16 @@ void MemTable::_aggregate() {
 
 template <bool is_final>
 void MemTable::_aggregate_for_flexible_partial_update_without_seq_col(
-        const ColumnsWithTypeAndName& block_data,
-        MutableBlock& mutable_block,
+        const ColumnsWithTypeAndName& block_data, MutableBlock& mutable_block,
         DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks) {
     std::shared_ptr<RowInBlock> prev_row {nullptr};
     int row_pos = -1;
-    auto& skip_bitmaps = assert_cast<ColumnBitmap*>(
-                                 mutable_block.mutable_columns()[_skip_bitmap_col_idx].get())
-                                 ->get_data();
-    auto& delete_signs = assert_cast<ColumnInt8*>(
-                                 mutable_block.mutable_columns()[_delete_sign_col_idx].get())
-                                 ->get_data();
+    auto& skip_bitmaps =
+            assert_cast<ColumnBitmap*>(mutable_block.mutable_columns()[_skip_bitmap_col_idx].get())
+                    ->get_data();
+    auto& delete_signs =
+            assert_cast<ColumnInt8*>(mutable_block.mutable_columns()[_delete_sign_col_idx].get())
+                    ->get_data();
     std::shared_ptr<RowInBlock> row_with_delete_sign {nullptr};
     std::shared_ptr<RowInBlock> row_without_delete_sign {nullptr};
 
@@ -678,8 +671,7 @@ void MemTable::_aggregate_for_flexible_partial_update_without_seq_col(
 
 template <bool is_final>
 void MemTable::_aggregate_for_flexible_partial_update_with_seq_col(
-        const ColumnsWithTypeAndName& block_data,
-        MutableBlock& mutable_block,
+        const ColumnsWithTypeAndName& block_data, MutableBlock& mutable_block,
         DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks) {
     // For flexible partial update, when table has sequence column, we don't do any aggregation
     // in memtable. These duplicate rows will be aggregated in VerticalSegmentWriter

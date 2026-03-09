@@ -45,8 +45,7 @@ public:
 protected:
     template <typename ChannelPtrType>
     Status _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st) const;
-    Status _add_rows_impl(RuntimeState* state,
-                          std::vector<std::shared_ptr<Channel>>& channels,
+    Status _add_rows_impl(RuntimeState* state, std::vector<std::shared_ptr<Channel>>& channels,
                           size_t channel_count, Block* block, bool eos);
 
     // myself as a visitor of local state
@@ -70,8 +69,7 @@ public:
     Status write(RuntimeState* state, Block* block, bool eos) override;
 
 private:
-    Status _channel_add_rows(RuntimeState* state,
-                             std::vector<std::shared_ptr<Channel>>& channels,
+    Status _channel_add_rows(RuntimeState* state, std::vector<std::shared_ptr<Channel>>& channels,
                              size_t channel_count, const std::vector<HashValType>& channel_ids,
                              size_t rows, Block* block, bool eos);
 };
@@ -85,11 +83,9 @@ public:
 
 private:
     Status _write_impl(RuntimeState* state, Block* block, bool eos = false);
-    Status _channel_add_rows(RuntimeState* state,
-                             std::vector<std::shared_ptr<Channel>>& channels,
+    Status _channel_add_rows(RuntimeState* state, std::vector<std::shared_ptr<Channel>>& channels,
                              size_t channel_count, const std::vector<HashValType>& channel_ids,
-                             size_t rows, Block* block, bool eos,
-                             HashValType invalid_val);
+                             size_t rows, Block* block, bool eos, HashValType invalid_val);
 };
 #include "common/compile_check_end.h"
 } // namespace doris

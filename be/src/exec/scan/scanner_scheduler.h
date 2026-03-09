@@ -359,8 +359,8 @@ public:
     void reset_thread_num(int new_max_thread_num, int new_min_thread_num,
                           int min_active_scan_threads) override {
         _min_active_scan_threads = min_active_scan_threads;
-        auto task_executor = std::dynamic_pointer_cast<doris::TimeSharingTaskExecutor>(
-                _task_executor);
+        auto task_executor =
+                std::dynamic_pointer_cast<doris::TimeSharingTaskExecutor>(_task_executor);
         int cur_max_thread_num = task_executor->max_threads();
         int cur_min_thread_num = task_executor->min_threads();
         if (cur_max_thread_num == new_max_thread_num && cur_min_thread_num == new_min_thread_num) {
@@ -392,20 +392,20 @@ public:
     }
 
     int get_queue_size() override {
-        auto task_executor = std::dynamic_pointer_cast<doris::TimeSharingTaskExecutor>(
-                _task_executor);
+        auto task_executor =
+                std::dynamic_pointer_cast<doris::TimeSharingTaskExecutor>(_task_executor);
         return task_executor->get_queue_size();
     }
 
     int get_active_threads() override {
-        auto task_executor = std::dynamic_pointer_cast<doris::TimeSharingTaskExecutor>(
-                _task_executor);
+        auto task_executor =
+                std::dynamic_pointer_cast<doris::TimeSharingTaskExecutor>(_task_executor);
         return task_executor->num_active_threads();
     }
 
     std::vector<int> thread_debug_info() override {
-        auto task_executor = std::dynamic_pointer_cast<doris::TimeSharingTaskExecutor>(
-                _task_executor);
+        auto task_executor =
+                std::dynamic_pointer_cast<doris::TimeSharingTaskExecutor>(_task_executor);
         return task_executor->debug_info();
     }
 

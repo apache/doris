@@ -447,8 +447,7 @@ public:
         DCHECK(!is_column_const(*src_logical_column)) << src_logical_column->dump_structure();
         const ColumnUInt8* uint8_col = nullptr;
         if (is_column_nullable(*src_physical_col)) {
-            const auto& nullable =
-                    assert_cast<const ColumnNullable*>(src_physical_col.get());
+            const auto& nullable = assert_cast<const ColumnNullable*>(src_physical_col.get());
             uint8_col = &assert_cast<const ColumnUInt8&>(nullable->get_nested_column());
         } else {
             uint8_col = &assert_cast<const ColumnUInt8&>(*src_physical_col);
@@ -457,8 +456,7 @@ public:
         MutableColumnPtr to_col = nullptr;
         // nullmap flag seems have been handled in upper level
         if (src_logical_column->is_nullable()) {
-            const auto* nullable =
-                    assert_cast<const ColumnNullable*>(src_logical_column.get());
+            const auto* nullable = assert_cast<const ColumnNullable*>(src_logical_column.get());
             to_col = nullable->get_nested_column_ptr()->assume_mutable();
         } else {
             to_col = src_logical_column->assume_mutable();

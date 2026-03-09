@@ -414,8 +414,8 @@ void RuntimeState::resize_op_id_to_local_state(int operator_size) {
     _op_id_to_local_state.resize(-operator_size);
 }
 
-void RuntimeState::emplace_local_state(
-        int id, std::unique_ptr<doris::PipelineXLocalStateBase> state) {
+void RuntimeState::emplace_local_state(int id,
+                                       std::unique_ptr<doris::PipelineXLocalStateBase> state) {
     id = -id;
     DCHECK_LT(id, _op_id_to_local_state.size())
             << state->parent()->get_name() << " node id = " << state->parent()->node_id();

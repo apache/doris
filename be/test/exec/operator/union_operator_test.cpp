@@ -31,7 +31,6 @@
 #include "testutil/mock/mock_slot_ref.h"
 namespace doris {
 
-
 struct MockUnionSourceOperator : public UnionSourceOperatorX {
     MockUnionSourceOperator(int32_t child_size, DataTypes types, ObjectPool* pool)
             : UnionSourceOperatorX(child_size), _mock_row_descriptor(types, pool) {}

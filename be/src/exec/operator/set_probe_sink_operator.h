@@ -30,7 +30,6 @@ class Block;
 template <class HashTableContext, bool is_intersected>
 struct HashTableProbe;
 
-
 template <bool is_intersect>
 class SetProbeSinkOperatorX;
 
@@ -122,9 +121,8 @@ public:
 
 private:
     void _finalize_probe(SetProbeSinkLocalState<is_intersect>& local_state);
-    Status _extract_probe_column(SetProbeSinkLocalState<is_intersect>& local_state,
-                                 Block& block, ColumnRawPtrs& raw_ptrs,
-                                 int child_id);
+    Status _extract_probe_column(SetProbeSinkLocalState<is_intersect>& local_state, Block& block,
+                                 ColumnRawPtrs& raw_ptrs, int child_id);
     void _refresh_hash_table(SetProbeSinkLocalState<is_intersect>& local_state);
     const int _cur_child_id;
     // every child has its result expr list

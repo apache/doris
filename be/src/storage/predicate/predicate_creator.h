@@ -130,9 +130,7 @@ std::shared_ptr<ColumnPredicate> create_in_list_predicate(const uint32_t cid,
     case TYPE_CHAR: {
         return create_in_list_predicate<TYPE_CHAR, PT>(
                 cid, col_name, set, is_opposite,
-                assert_cast<const DataTypeString*>(
-                        remove_nullable(data_type).get())
-                        ->len());
+                assert_cast<const DataTypeString*>(remove_nullable(data_type).get())->len());
     }
     case TYPE_VARCHAR: {
         return create_in_list_predicate<TYPE_VARCHAR, PT>(cid, col_name, set, is_opposite);
@@ -172,9 +170,10 @@ std::shared_ptr<ColumnPredicate> create_in_list_predicate(const uint32_t cid,
 }
 
 template <PredicateType PT>
-std::shared_ptr<ColumnPredicate> create_comparison_predicate(
-        const uint32_t cid, const std::string col_name, const DataTypePtr& data_type,
-        const Field& value, bool opposite) {
+std::shared_ptr<ColumnPredicate> create_comparison_predicate(const uint32_t cid,
+                                                             const std::string col_name,
+                                                             const DataTypePtr& data_type,
+                                                             const Field& value, bool opposite) {
     switch (data_type->get_primitive_type()) {
     case TYPE_TINYINT: {
         return ComparisonPredicateBase<TYPE_TINYINT, PT>::create_shared(cid, col_name, value,
@@ -224,22 +223,19 @@ std::shared_ptr<ColumnPredicate> create_comparison_predicate(
                                                                            opposite);
     }
     case TYPE_CHAR: {
-        auto target =
-                std::max(cast_set<size_t>(assert_cast<const DataTypeString*>(
-                                                  remove_nullable(data_type).get())
-                                                  ->len()),
-                         value.template get<TYPE_CHAR>().size());
+        auto target = std::max(cast_set<size_t>(assert_cast<const DataTypeString*>(
+                                                        remove_nullable(data_type).get())
+                                                        ->len()),
+                               value.template get<TYPE_CHAR>().size());
         if (target > value.template get<TYPE_CHAR>().size()) {
             std::string tmp(target, '\0');
             memcpy(tmp.data(), value.template get<TYPE_CHAR>().data(),
                    value.template get<TYPE_CHAR>().size());
             return ComparisonPredicateBase<TYPE_CHAR, PT>::create_shared(
-                    cid, col_name, Field::create_field<TYPE_CHAR>(std::move(tmp)),
-                    opposite);
+                    cid, col_name, Field::create_field<TYPE_CHAR>(std::move(tmp)), opposite);
         } else {
             return ComparisonPredicateBase<TYPE_CHAR, PT>::create_shared(
-                    cid, col_name,
-                    Field::create_field<TYPE_CHAR>(value.template get<TYPE_CHAR>()),
+                    cid, col_name, Field::create_field<TYPE_CHAR>(value.template get<TYPE_CHAR>()),
                     opposite);
         }
     }

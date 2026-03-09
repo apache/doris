@@ -58,8 +58,8 @@ protected:
         for (const auto& spill_path : spill_paths) {
             spill_store_map.emplace(
                     spill_path.path,
-                    std::make_unique<SpillDataDir>(
-                            spill_path.path, spill_path.capacity_bytes, spill_path.storage_medium));
+                    std::make_unique<SpillDataDir>(spill_path.path, spill_path.capacity_bytes,
+                                                   spill_path.storage_medium));
         }
 
         ExecEnv::GetInstance()->_runtime_query_statistics_mgr = new RuntimeQueryStatisticsMgr();
@@ -67,8 +67,7 @@ protected:
                 new SpillStreamManager(std::move(spill_store_map));
         auto st = ExecEnv::GetInstance()->_spill_stream_mgr->init();
         EXPECT_TRUE(st.ok()) << "init spill stream manager failed: " << st.to_string();
-        ExecEnv::GetInstance()->_pipeline_tracer_ctx =
-                std::make_unique<PipelineTracerContext>();
+        ExecEnv::GetInstance()->_pipeline_tracer_ctx = std::make_unique<PipelineTracerContext>();
 
         config::spill_in_paused_queue_timeout_ms = 2000;
         doris::ExecEnv::GetInstance()->set_memtable_memory_limiter(new MemTableMemoryLimiter());

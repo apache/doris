@@ -124,8 +124,7 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
             if (is_nullable) {
                 {
                     auto column_vector_int32 = ColumnVector<TYPE_INT>::create();
-                    auto column_nullable_vector =
-                            make_nullable(std::move(column_vector_int32));
+                    auto column_nullable_vector = make_nullable(std::move(column_vector_int32));
                     auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
                     for (int i = 0; i < row_num; i++) {
                         if (i % 2 == 0) {
@@ -135,10 +134,9 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
                                     Field::create_field<TYPE_INT>(int32_t(i)));
                         }
                     }
-                    auto data_type = make_nullable(
-                            std::make_shared<DataTypeInt32>());
-                    ColumnWithTypeAndName type_and_name(
-                            mutable_nullable_vector->get_ptr(), data_type, col_name);
+                    auto data_type = make_nullable(std::make_shared<DataTypeInt32>());
+                    ColumnWithTypeAndName type_and_name(mutable_nullable_vector->get_ptr(),
+                                                        data_type, col_name);
                     block->insert(type_and_name);
                 }
             } else {
@@ -148,8 +146,7 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
                     data.push_back(i);
                 }
                 DataTypePtr data_type(std::make_shared<DataTypeInt32>());
-                ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type,
-                                                                col_name);
+                ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
                 block->insert(std::move(type_and_name));
             }
             break;
@@ -175,8 +172,8 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
                 data.push_back(val);
             }
 
-            ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
-                                                            decimal_data_type, col_name);
+            ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(), decimal_data_type,
+                                                col_name);
             block->insert(type_and_name);
         } break;
         case TYPE_DECIMAL64: {
@@ -199,13 +196,12 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
                 EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);
                 data.push_back(val);
             }
-            ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
-                                                            decimal_data_type, col_name);
+            ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(), decimal_data_type,
+                                                col_name);
             block->insert(type_and_name);
         } break;
         case TYPE_DECIMAL128I: {
-            DataTypePtr decimal_data_type(
-                    doris::create_decimal(27, 9, true));
+            DataTypePtr decimal_data_type(doris::create_decimal(27, 9, true));
             type_desc = decimal_data_type;
             auto decimal_column = decimal_data_type->create_column();
             auto& data = ((ColumnDecimal128V3*)decimal_column.get())->get_data();
@@ -213,8 +209,8 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
                 auto value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
                 data.push_back(value);
             }
-            ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
-                                                            decimal_data_type, col_name);
+            ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(), decimal_data_type,
+                                                col_name);
             block->insert(type_and_name);
         } break;
         case TYPE_STRING: {
@@ -230,15 +226,13 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
         case TYPE_HLL: {
             DataTypePtr hll_data_type(std::make_shared<DataTypeHLL>());
             auto hll_column = hll_data_type->create_column();
-            std::vector<HyperLogLog>& container =
-                    ((ColumnHLL*)hll_column.get())->get_data();
+            std::vector<HyperLogLog>& container = ((ColumnHLL*)hll_column.get())->get_data();
             for (int i = 0; i < row_num; ++i) {
                 HyperLogLog hll;
                 hll.update(i);
                 container.push_back(hll);
             }
-            ColumnWithTypeAndName type_and_name(hll_column->get_ptr(), hll_data_type,
-                                                            col_name);
+            ColumnWithTypeAndName type_and_name(hll_column->get_ptr(), hll_data_type, col_name);
 
             block->insert(type_and_name);
         } break;
@@ -251,8 +245,8 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
                 date_v2_data.push_back(*reinterpret_cast<UInt32*>(&value));
             }
             DataTypePtr date_v2_type(std::make_shared<DataTypeDateV2>());
-            ColumnWithTypeAndName test_date_v2(column_vector_date_v2->get_ptr(),
-                                                           date_v2_type, col_name);
+            ColumnWithTypeAndName test_date_v2(column_vector_date_v2->get_ptr(), date_v2_type,
+                                               col_name);
             block->insert(test_date_v2);
         } break;
         case TYPE_DATE: // int64
@@ -265,8 +259,7 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
                 date_data.push_back(value);
             }
             DataTypePtr date_type(std::make_shared<DataTypeDate>());
-            ColumnWithTypeAndName test_date(column_vector_date->get_ptr(), date_type,
-                                                        col_name);
+            ColumnWithTypeAndName test_date(column_vector_date->get_ptr(), date_type, col_name);
             block->insert(test_date);
         } break;
         case TYPE_DATETIME: // int64
@@ -279,8 +272,8 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
                 datetime_data.push_back(value);
             }
             DataTypePtr datetime_type(std::make_shared<DataTypeDateTime>());
-            ColumnWithTypeAndName test_datetime(column_vector_datetime->get_ptr(),
-                                                            datetime_type, col_name);
+            ColumnWithTypeAndName test_datetime(column_vector_datetime->get_ptr(), datetime_type,
+                                                col_name);
             block->insert(test_datetime);
         } break;
         case TYPE_DATETIMEV2: // uint64
@@ -296,10 +289,9 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
             for (int i = 0; i < row_num; ++i) {
                 column_vector_datetimev2->insert(Field::create_field<TYPE_DATETIMEV2>(value));
             }
-            DataTypePtr datetimev2_type(
-                    std::make_shared<DataTypeDateTimeV2>(3));
+            DataTypePtr datetimev2_type(std::make_shared<DataTypeDateTimeV2>(3));
             ColumnWithTypeAndName test_datetimev2(column_vector_datetimev2->get_ptr(),
-                                                              datetimev2_type, col_name);
+                                                  datetimev2_type, col_name);
             block->insert(test_datetimev2);
         } break;
         case TYPE_ARRAY: // array

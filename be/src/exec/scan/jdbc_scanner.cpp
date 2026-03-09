@@ -35,8 +35,8 @@
 
 namespace doris {
 
-JdbcScanner::JdbcScanner(RuntimeState* state, doris::JDBCScanLocalState* local_state,
-                         int64_t limit, const TupleId& tuple_id, const std::string& query_string,
+JdbcScanner::JdbcScanner(RuntimeState* state, doris::JDBCScanLocalState* local_state, int64_t limit,
+                         const TupleId& tuple_id, const std::string& query_string,
                          TOdbcTableType::type table_type, bool is_tvf, RuntimeProfile* profile)
         : Scanner(state, local_state, limit, profile),
           _jdbc_eos(false),

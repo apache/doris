@@ -58,8 +58,7 @@ size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state
         return 0;
     }
 
-    auto* sort_writer =
-            dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
+    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
     if (!sort_writer || !sort_writer->sorter()) {
         return 0;
     }
@@ -72,8 +71,7 @@ size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* sta
         return 0;
     }
 
-    auto* sort_writer =
-            dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
+    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
     if (!sort_writer || !sort_writer->sorter()) {
         return 0;
     }
@@ -90,8 +88,7 @@ Status SpillIcebergTableSinkLocalState::revoke_memory(
         return Status::OK();
     }
 
-    auto* sort_writer =
-            dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
+    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
 
     if (!sort_writer || !sort_writer->sorter()) {
         if (spill_context) {
@@ -136,8 +133,7 @@ Status SpillIcebergTableSinkOperatorX::prepare(RuntimeState* state) {
     return VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status SpillIcebergTableSinkOperatorX::sink(RuntimeState* state, Block* in_block,
-                                            bool eos) {
+Status SpillIcebergTableSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());

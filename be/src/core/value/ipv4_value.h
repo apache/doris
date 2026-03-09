@@ -59,7 +59,7 @@ public:
             --end;
         }
         if (!parse_ipv4_whole(ipv4_str + begin, ipv4_str + end + 1,
-                                          reinterpret_cast<unsigned char*>(&parse_value))) {
+                              reinterpret_cast<unsigned char*>(&parse_value))) {
             return false;
         }
         value = static_cast<IPv4>(parse_value);
@@ -94,7 +94,7 @@ public:
             --end;
         }
         return parse_ipv4_whole(ipv4_str + begin, ipv4_str + end + 1,
-                                            reinterpret_cast<unsigned char*>(&parse_value));
+                                reinterpret_cast<unsigned char*>(&parse_value));
     }
 
 private:

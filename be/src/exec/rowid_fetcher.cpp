@@ -214,33 +214,28 @@ bool _has_char_type(const DataTypePtr& type) {
         return true;
     }
     case TYPE_ARRAY: {
-        const auto* arr_type =
-                assert_cast<const DataTypeArray*>(remove_nullable(type).get());
+        const auto* arr_type = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
         return _has_char_type(arr_type->get_nested_type());
     }
     case TYPE_MAP: {
-        const auto* map_type =
-                assert_cast<const DataTypeMap*>(remove_nullable(type).get());
+        const auto* map_type = assert_cast<const DataTypeMap*>(remove_nullable(type).get());
         return _has_char_type(map_type->get_key_type()) ||
                _has_char_type(map_type->get_value_type());
     }
     case TYPE_STRUCT: {
-        const auto* struct_type =
-                assert_cast<const DataTypeStruct*>(remove_nullable(type).get());
-        return std::any_of(
-                struct_type->get_elements().begin(), struct_type->get_elements().end(),
-                [&](const DataTypePtr& dt) -> bool { return _has_char_type(dt); });
+        const auto* struct_type = assert_cast<const DataTypeStruct*>(remove_nullable(type).get());
+        return std::any_of(struct_type->get_elements().begin(), struct_type->get_elements().end(),
+                           [&](const DataTypePtr& dt) -> bool { return _has_char_type(dt); });
     }
     default:
         return false;
     }
 }
 
-Status RowIDFetcher::fetch(const ColumnPtr& column_row_ids,
-                           Block* res_block) {
+Status RowIDFetcher::fetch(const ColumnPtr& column_row_ids, Block* res_block) {
     CHECK(!_stubs.empty());
-    PMultiGetRequest mget_req = _init_fetch_request(assert_cast<const ColumnString&>(
-            *remove_nullable(column_row_ids).get()));
+    PMultiGetRequest mget_req = _init_fetch_request(
+            assert_cast<const ColumnString&>(*remove_nullable(column_row_ids).get()));
     std::vector<PMultiGetResponse> resps(_stubs.size());
     std::vector<brpc::Controller> cntls(_stubs.size());
     bthread::CountdownEvent counter(cast_set<int>(_stubs.size()));
@@ -468,8 +463,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                                   row_location.row_location.row_id);
         for (int x = 0; x < slots.size(); ++x) {
             auto row_id = static_cast<segment_v2::rowid_t>(row_loc.ordinal_id());
-            MutableColumnPtr column =
-                    result_block.get_by_position(x).column->assume_mutable();
+            MutableColumnPtr column = result_block.get_by_position(x).column->assume_mutable();
             IteratorKey iterator_key {.tablet_id = tablet->tablet_id(),
                                       .rowset_id = rowset_id,
                                       .segment_id = row_loc.segment_id(),
@@ -644,9 +638,9 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
 
 Status RowIdStorageReader::read_batch_doris_format_row(
         const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
-        std::vector<SlotDescriptor>& slots, const TUniqueId& query_id,
-        Block& result_block, OlapReaderStatistics& stats, int64_t* acquire_tablet_ms,
-        int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms) {
+        std::vector<SlotDescriptor>& slots, const TUniqueId& query_id, Block& result_block,
+        OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
+        int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms) {
     if (result_block.is_empty_column()) [[likely]] {
         result_block = Block(slots, request_block_desc.row_id_size());
     }
@@ -709,8 +703,7 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
         size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,
         const std::shared_ptr<FileMapping>& file_mapping, const std::vector<SlotDescriptor>& slots,
         const TUniqueId& query_id, const std::shared_ptr<RuntimeState>& runtime_state,
-        std::vector<Block>& scan_blocks,
-        std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
+        std::vector<Block>& scan_blocks, std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
         std::vector<RowIdStorageReader::ExternalFetchStatistics>& fetch_statistics,
         const TFileScanRangeParams& rpc_scan_params,
         const std::unordered_map<std::string, int>& colname_to_slot_id,
@@ -744,9 +737,8 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
             std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
     {
         std::unique_ptr<FileScanner> vfile_scanner_ptr =
-                FileScanner::create_unique(runtime_state.get(),
-                                                       sub_runtime_profile.get(), &rpc_scan_params,
-                                                       &colname_to_slot_id, &tuple_desc);
+                FileScanner::create_unique(runtime_state.get(), sub_runtime_profile.get(),
+                                           &rpc_scan_params, &colname_to_slot_id, &tuple_desc);
 
         RETURN_IF_ERROR(vfile_scanner_ptr->prepare_for_read_lines(scan_range_desc));
         RETURN_IF_ERROR(vfile_scanner_ptr->read_lines_from_range(
@@ -946,8 +938,7 @@ Status RowIdStorageReader::read_batch_external_row(
     for (size_t column_id = 0; column_id < result_block.get_columns().size(); column_id++) {
         // The non-const Block(result_block) is passed in read_by_rowids, but columns[i] in get_columns
         // is at bottom an immutable_ptr of Cow<IColumn>, so use const_cast
-        auto dst_col =
-                const_cast<IColumn*>(result_block.get_columns()[column_id].get());
+        auto dst_col = const_cast<IColumn*>(result_block.get_columns()[column_id].get());
 
         std::vector<const IColumn*> scan_src_columns;
         scan_src_columns.reserve(row_id_block_idx.size());
@@ -1104,8 +1095,7 @@ Status RowIdStorageReader::read_doris_format_row(
         }
     } else {
         for (int x = 0; x < slots.size(); ++x) {
-            MutableColumnPtr column =
-                    result_block.get_by_position(x).column->assume_mutable();
+            MutableColumnPtr column = result_block.get_by_position(x).column->assume_mutable();
             IteratorKey iterator_key {.tablet_id = tablet_id,
                                       .rowset_id = rowset_id,
                                       .segment_id = segment_id,

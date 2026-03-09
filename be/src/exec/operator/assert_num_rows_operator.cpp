@@ -38,8 +38,7 @@ AssertNumRowsOperatorX::AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode
             tnode.assert_num_rows_node.should_convert_output_to_nullable;
 }
 
-Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, Block* block,
-                                    bool* eos) {
+Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     SCOPED_PEAK_MEM(&local_state.estimate_memory_usage());
@@ -86,8 +85,7 @@ Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, Block* block,
             }
         } else if (!has_more_rows && _assertion == TAssertion::EQ && num_rows_returned == 0 &&
                    _desired_num_rows == 1) {
-            auto new_block =
-                    VectorizedUtils::create_columns_with_type_and_name(_row_descriptor);
+            auto new_block = VectorizedUtils::create_columns_with_type_and_name(_row_descriptor);
             block->swap(new_block);
             for (size_t i = 0; i != block->columns(); ++i) {
                 auto& column = block->get_by_position(i).column;

@@ -121,11 +121,9 @@ Status RuntimeFilterWrapper::insert(const ColumnPtr& column, size_t start) {
         std::vector<const BitmapValue*> bitmaps;
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
-            const auto& col =
-                    assert_cast<const ColumnBitmap&>(nullable->get_nested_column());
+            const auto& col = assert_cast<const ColumnBitmap&>(nullable->get_nested_column());
             const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
+                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
             for (size_t i = start; i < column->size(); i++) {
                 if (!nullmap[i]) {
                     bitmaps.push_back(&(col.get_data()[i]));

@@ -47,8 +47,7 @@ public:
               _target_ctx(std::move(target_ctx)) {}
     bool is_topn_filter() const override { return true; }
 
-    static Status create_vtopn_pred(const TExpr& target_expr, int source_node_id,
-                                    VExprSPtr& expr) {
+    static Status create_vtopn_pred(const TExpr& target_expr, int source_node_id, VExprSPtr& expr) {
         VExprContextSPtr target_ctx;
         RETURN_IF_ERROR(VExpr::create_expr_tree(target_expr, target_ctx));
 

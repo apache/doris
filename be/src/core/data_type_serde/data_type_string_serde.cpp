@@ -437,8 +437,7 @@ void DataTypeStringSerDeBase<ColumnType>::to_string(const IColumn& column, size_
 }
 
 template <typename ColumnType>
-std::string DataTypeStringSerDeBase<ColumnType>::to_olap_string(
-        const Field& field) const {
+std::string DataTypeStringSerDeBase<ColumnType>::to_olap_string(const Field& field) const {
     return field.get<TYPE_STRING>();
 }
 

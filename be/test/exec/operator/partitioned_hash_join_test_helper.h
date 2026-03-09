@@ -62,9 +62,8 @@ public:
     MockRuntimeFilterProducerHelper() = default;
     ~MockRuntimeFilterProducerHelper() override = default;
 
-    Status send_filter_size(
-            RuntimeState* state, uint64_t hash_table_size,
-            const std::shared_ptr<CountedFinishDependency>& dependency) override {
+    Status send_filter_size(RuntimeState* state, uint64_t hash_table_size,
+                            const std::shared_ptr<CountedFinishDependency>& dependency) override {
         return Status::OK();
     }
 
@@ -116,9 +115,7 @@ public:
         return Status::OK();
     }
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override {
-        return Status::OK();
-    }
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override { return Status::OK(); }
 
     std::string get_memory_usage_debug_str(RuntimeState* state) const override { return "mock"; }
 };
@@ -153,8 +150,7 @@ public:
         return Status::OK();
     }
 
-    Status pull(doris::RuntimeState* state, Block* output_block,
-                bool* eos_) const override {
+    Status pull(doris::RuntimeState* state, Block* output_block, bool* eos_) const override {
         output_block->swap(const_cast<MockHashJoinProbeOperator*>(this)->block);
         *eos_ = eos;
         const_cast<MockHashJoinProbeOperator*>(this)->block.clear_column_data();

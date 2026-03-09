@@ -226,8 +226,7 @@ private:
     ExecEnv* _exec_env = nullptr;
 
     // (QueryID, FragmentID) -> PipelineFragmentContext
-    ConcurrentContextMap<std::pair<TUniqueId, int>,
-                         std::shared_ptr<PipelineFragmentContext>,
+    ConcurrentContextMap<std::pair<TUniqueId, int>, std::shared_ptr<PipelineFragmentContext>,
                          PipelineFragmentContext>
             _pipeline_map;
 

@@ -43,8 +43,8 @@ public:
 
     MOCK_FUNCTION void on_failure(const Status& status);
     MOCK_FUNCTION void on_close(int64_t packet_seq, int64_t /* returned_rows */);
-    MOCK_FUNCTION Status on_data(const std::shared_ptr<Block>& block,
-                                 const int64_t packet_seq, ResultBlockBufferBase* buffer);
+    MOCK_FUNCTION Status on_data(const std::shared_ptr<Block>& block, const int64_t packet_seq,
+                                 ResultBlockBufferBase* buffer);
 
 private:
 #ifndef BE_TEST

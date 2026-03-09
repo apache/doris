@@ -252,8 +252,7 @@ protected:
             bool eof = false;
             while (!eof) {
                 std::shared_ptr<Block> output_block =
-                        std::make_shared<Block>(
-                                tablet_schema->create_block(return_columns));
+                        std::make_shared<Block>(tablet_schema->create_block(return_columns));
                 std::vector<bool> row_is_same;
                 BlockWithSameBit block_with_same_bit {.block = output_block.get(),
                                                       .same_bit = row_is_same};

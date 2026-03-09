@@ -432,15 +432,13 @@ Status FixedReadPlan::fill_missing_columns(
                 if (tablet_column.has_default_value()) {
                     missing_col->insert_from(*mutable_default_value_columns[i], 0);
                 } else if (tablet_column.is_nullable()) {
-                    auto* nullable_column =
-                            assert_cast<ColumnNullable*>(missing_col.get());
+                    auto* nullable_column = assert_cast<ColumnNullable*>(missing_col.get());
                     nullable_column->insert_many_defaults(1);
                 } else if (tablet_schema.auto_increment_column() == tablet_column.name()) {
                     const auto& column =
                             *DORIS_TRY(rowset_ctx->tablet_schema->column(tablet_column.name()));
                     DCHECK(column.type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
-                    auto* auto_inc_column =
-                            assert_cast<ColumnInt64*>(missing_col.get());
+                    auto* auto_inc_column = assert_cast<ColumnInt64*>(missing_col.get());
                     int pos = block->get_position_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL);
                     if (pos == -1) {
                         return Status::InternalError("auto increment column not found in block {}",
@@ -478,8 +476,7 @@ void FlexibleReadPlan::prepare_to_read(const RowLocation& row_location, size_t p
 
 Status FlexibleReadPlan::read_columns_by_plan(
         const TabletSchema& tablet_schema,
-        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-        Block& old_value_block,
+        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset, Block& old_value_block,
         std::map<uint32_t, std::map<uint32_t, uint32_t>>* read_index) const {
     auto mutable_columns = old_value_block.mutate_columns();
 
@@ -518,8 +515,8 @@ Status FlexibleReadPlan::read_columns_by_plan(
 
 Status FlexibleReadPlan::read_columns_by_plan(
         const TabletSchema& tablet_schema, const std::vector<uint32_t>& cids_to_read,
-        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-        Block& old_value_block, std::map<uint32_t, uint32_t>* read_index) const {
+        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset, Block& old_value_block,
+        std::map<uint32_t, uint32_t>* read_index) const {
     DCHECK(use_row_store);
     uint32_t read_idx = 0;
     for (const auto& [rowset_id, segment_row_mappings] : row_store_plan) {
@@ -573,10 +570,10 @@ Status FlexibleReadPlan::fill_non_primary_key_columns(
 
 static void fill_non_primary_key_cell_for_column_store(
         const TabletColumn& tablet_column, uint32_t cid, MutableColumnPtr& new_col,
-        const IColumn& default_value_col, const IColumn& old_value_col,
-        const IColumn& cur_col, std::size_t block_pos, uint32_t segment_pos,
-        bool skipped, bool row_has_sequence_col, bool use_default,
-        const signed char* delete_sign_column_data, const TabletSchema& tablet_schema,
+        const IColumn& default_value_col, const IColumn& old_value_col, const IColumn& cur_col,
+        std::size_t block_pos, uint32_t segment_pos, bool skipped, bool row_has_sequence_col,
+        bool use_default, const signed char* delete_sign_column_data,
+        const TabletSchema& tablet_schema,
         std::map<uint32_t, std::map<uint32_t, uint32_t>>& read_index,
         const PartialUpdateInfo* info) {
     if (skipped) {
@@ -686,11 +683,10 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
 
 static void fill_non_primary_key_cell_for_row_store(
         const TabletColumn& tablet_column, uint32_t cid, MutableColumnPtr& new_col,
-        const IColumn& default_value_col, const IColumn& old_value_col,
-        const IColumn& cur_col, std::size_t block_pos, bool skipped,
-        bool row_has_sequence_col, bool use_default, const signed char* delete_sign_column_data,
-        uint32_t pos_in_old_block, const TabletSchema& tablet_schema,
-        const PartialUpdateInfo* info) {
+        const IColumn& default_value_col, const IColumn& old_value_col, const IColumn& cur_col,
+        std::size_t block_pos, bool skipped, bool row_has_sequence_col, bool use_default,
+        const signed char* delete_sign_column_data, uint32_t pos_in_old_block,
+        const TabletSchema& tablet_schema, const PartialUpdateInfo* info) {
     if (skipped) {
         DCHECK(cid != tablet_schema.skip_bitmap_col_idx());
         DCHECK(cid != tablet_schema.version_col_idx());
@@ -793,8 +789,7 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
 BlockAggregator::BlockAggregator(segment_v2::VerticalSegmentWriter& vertical_segment_writer)
         : _writer(vertical_segment_writer), _tablet_schema(*_writer._tablet_schema) {}
 
-void BlockAggregator::merge_one_row(MutableBlock& dst_block,
-                                    Block* src_block, int rid,
+void BlockAggregator::merge_one_row(MutableBlock& dst_block, Block* src_block, int rid,
                                     BitmapValue& skip_bitmap) {
     for (size_t cid {_tablet_schema.num_key_columns()}; cid < _tablet_schema.num_columns(); cid++) {
         if (cid == _tablet_schema.skip_bitmap_col_idx()) {
@@ -819,8 +814,7 @@ void BlockAggregator::merge_one_row(MutableBlock& dst_block,
                               dst_block.rows(), _state.to_string());
 }
 
-void BlockAggregator::append_one_row(MutableBlock& dst_block,
-                                     Block* src_block, int rid) {
+void BlockAggregator::append_one_row(MutableBlock& dst_block, Block* src_block, int rid) {
     dst_block.add_row(src_block, rid);
     _state.rows++;
     VLOG_DEBUG << fmt::format("append a new row, after append, output_block.rows()={}, state: {}",
@@ -836,8 +830,7 @@ void BlockAggregator::remove_last_n_rows(MutableBlock& dst_block, int n) {
     }
 }
 
-void BlockAggregator::append_or_merge_row(MutableBlock& dst_block,
-                                          Block* src_block, int rid,
+void BlockAggregator::append_or_merge_row(MutableBlock& dst_block, Block* src_block, int rid,
                                           BitmapValue& skip_bitmap, bool have_delete_sign) {
     if (have_delete_sign) {
         // remove all the previous batched rows
@@ -856,10 +849,9 @@ void BlockAggregator::append_or_merge_row(MutableBlock& dst_block,
 };
 
 Status BlockAggregator::aggregate_rows(
-        MutableBlock& output_block, Block* block, int start, int end,
-        std::string key, std::vector<BitmapValue>* skip_bitmaps, const signed char* delete_signs,
-        IOlapColumnDataAccessor* seq_column,
-        const std::vector<RowsetSharedPtr>& specified_rowsets,
+        MutableBlock& output_block, Block* block, int start, int end, std::string key,
+        std::vector<BitmapValue>* skip_bitmaps, const signed char* delete_signs,
+        IOlapColumnDataAccessor* seq_column, const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
     VLOG_DEBUG << fmt::format("merge rows in range=[{}-{})", start, end);
     if (end - start == 1) {
@@ -946,25 +938,21 @@ Status BlockAggregator::aggregate_rows(
 };
 
 Status BlockAggregator::aggregate_for_sequence_column(
-        Block* block, int num_rows,
-        const std::vector<IOlapColumnDataAccessor*>& key_columns,
-        IOlapColumnDataAccessor* seq_column,
-        const std::vector<RowsetSharedPtr>& specified_rowsets,
+        Block* block, int num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
+        IOlapColumnDataAccessor* seq_column, const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
     DCHECK_EQ(block->columns(), _tablet_schema.num_columns());
     // the process logic here is the same as MemTable::_aggregate_for_flexible_partial_update_without_seq_col()
     // after this function, there will be at most 2 rows for a specified key
-    std::vector<BitmapValue>* skip_bitmaps =
-            &(assert_cast<ColumnBitmap*>(
-                      block->get_by_position(_tablet_schema.skip_bitmap_col_idx())
-                              .column->assume_mutable()
-                              .get())
-                      ->get_data());
+    std::vector<BitmapValue>* skip_bitmaps = &(
+            assert_cast<ColumnBitmap*>(block->get_by_position(_tablet_schema.skip_bitmap_col_idx())
+                                               .column->assume_mutable()
+                                               .get())
+                    ->get_data());
     const auto* delete_signs = BaseTablet::get_delete_sign_column_data(*block, num_rows);
 
     auto filtered_block = _tablet_schema.create_block();
-    MutableBlock output_block =
-            MutableBlock::build_mutable_block(&filtered_block);
+    MutableBlock output_block = MutableBlock::build_mutable_block(&filtered_block);
 
     int same_key_rows {0};
     std::string previous_key {};
@@ -1022,20 +1010,18 @@ Status BlockAggregator::fill_sequence_column(Block* block, size_t num_rows,
 }
 
 Status BlockAggregator::aggregate_for_insert_after_delete(
-        Block* block, size_t num_rows,
-        const std::vector<IOlapColumnDataAccessor*>& key_columns,
+        Block* block, size_t num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
     DCHECK_EQ(block->columns(), _tablet_schema.num_columns());
     // there will be at most 2 rows for a specified key in block when control flow reaches here
     // after this function, there will not be duplicate rows in block
 
-    std::vector<BitmapValue>* skip_bitmaps =
-            &(assert_cast<ColumnBitmap*>(
-                      block->get_by_position(_tablet_schema.skip_bitmap_col_idx())
-                              .column->assume_mutable()
-                              .get())
-                      ->get_data());
+    std::vector<BitmapValue>* skip_bitmaps = &(
+            assert_cast<ColumnBitmap*>(block->get_by_position(_tablet_schema.skip_bitmap_col_idx())
+                                               .column->assume_mutable()
+                                               .get())
+                    ->get_data());
     const auto* delete_signs = BaseTablet::get_delete_sign_column_data(*block, num_rows);
 
     auto filter_column = ColumnUInt8::create(num_rows, 1);
@@ -1113,12 +1099,10 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
     return Status::OK();
 }
 
-Status BlockAggregator::filter_block(Block* block, size_t num_rows,
-                                     MutableColumnPtr filter_column, int duplicate_rows,
-                                     std::string col_name) {
+Status BlockAggregator::filter_block(Block* block, size_t num_rows, MutableColumnPtr filter_column,
+                                     int duplicate_rows, std::string col_name) {
     auto num_cols = block->columns();
-    block->insert(
-            {std::move(filter_column), std::make_shared<DataTypeUInt8>(), col_name});
+    block->insert({std::move(filter_column), std::make_shared<DataTypeUInt8>(), col_name});
     RETURN_IF_ERROR(Block::filter_block(block, num_cols, num_cols));
     DCHECK_EQ(num_cols, block->columns());
     size_t merged_rows = num_rows - block->rows();
@@ -1133,9 +1117,8 @@ Status BlockAggregator::filter_block(Block* block, size_t num_rows,
     return Status::OK();
 }
 
-Status BlockAggregator::convert_pk_columns(
-        Block* block, size_t row_pos, size_t num_rows,
-        std::vector<IOlapColumnDataAccessor*>& key_columns) {
+Status BlockAggregator::convert_pk_columns(Block* block, size_t row_pos, size_t num_rows,
+                                           std::vector<IOlapColumnDataAccessor*>& key_columns) {
     key_columns.clear();
     for (uint32_t cid {0}; cid < _tablet_schema.num_key_columns(); cid++) {
         RETURN_IF_ERROR(_writer._olap_data_convertor->set_source_content_with_specifid_column(
@@ -1149,8 +1132,7 @@ Status BlockAggregator::convert_pk_columns(
     return Status::OK();
 }
 
-Status BlockAggregator::convert_seq_column(Block* block, size_t row_pos,
-                                           size_t num_rows,
+Status BlockAggregator::convert_seq_column(Block* block, size_t row_pos, size_t num_rows,
                                            IOlapColumnDataAccessor*& seq_column) {
     seq_column = nullptr;
     if (_tablet_schema.has_sequence_col()) {
@@ -1167,8 +1149,7 @@ Status BlockAggregator::convert_seq_column(Block* block, size_t row_pos,
 };
 
 Status BlockAggregator::aggregate_for_flexible_partial_update(
-        Block* block, size_t num_rows,
-        const std::vector<RowsetSharedPtr>& specified_rowsets,
+        Block* block, size_t num_rows, const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
     std::vector<IOlapColumnDataAccessor*> key_columns {};
     IOlapColumnDataAccessor* seq_column {nullptr};

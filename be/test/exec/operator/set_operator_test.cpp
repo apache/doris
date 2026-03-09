@@ -30,7 +30,6 @@
 #include "testutil/mock/mock_slot_ref.h"
 namespace doris {
 
-
 template <bool is_intersect>
 struct MockSetSourceOperatorX : public SetSourceOperatorX<is_intersect> {
     MockSetSourceOperatorX(int child_size, DataTypes types, ObjectPool* pool)

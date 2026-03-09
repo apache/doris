@@ -50,5 +50,4 @@ private:
     int64_t _next_number = 0;
 };
 
-
 } // namespace doris

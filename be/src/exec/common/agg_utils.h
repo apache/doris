@@ -38,59 +38,43 @@ using AggregatedDataWithStringKey = PHHashMap<StringRef, AggregateDataPtr>;
 using AggregatedDataWithShortStringKey = StringHashMap<AggregateDataPtr>;
 
 using AggregatedDataWithUInt32KeyPhase2 =
-        PHHashMap<UInt32, AggregateDataPtr,
-                  HashMixWrapper<UInt32>>;
+        PHHashMap<UInt32, AggregateDataPtr, HashMixWrapper<UInt32>>;
 using AggregatedDataWithUInt64KeyPhase2 =
-        PHHashMap<UInt64, AggregateDataPtr,
-                  HashMixWrapper<UInt64>>;
+        PHHashMap<UInt64, AggregateDataPtr, HashMixWrapper<UInt64>>;
 
 using AggregatedDataWithNullableUInt32KeyPhase2 =
         DataWithNullKey<AggregatedDataWithUInt32KeyPhase2>;
 using AggregatedDataWithNullableUInt64KeyPhase2 =
         DataWithNullKey<AggregatedDataWithUInt64KeyPhase2>;
-using AggregatedDataWithNullableShortStringKey =
-        DataWithNullKey<AggregatedDataWithShortStringKey>;
+using AggregatedDataWithNullableShortStringKey = DataWithNullKey<AggregatedDataWithShortStringKey>;
 
 using AggregatedMethodVariants = std::variant<
         std::monostate, MethodSerialized<AggregatedDataWithStringKey>,
-        MethodOneNumber<UInt8, AggData<UInt8>>,
-        MethodOneNumber<UInt16, AggData<UInt16>>,
-        MethodOneNumber<UInt32, AggData<UInt32>>,
-        MethodOneNumber<UInt64, AggData<UInt64>>,
+        MethodOneNumber<UInt8, AggData<UInt8>>, MethodOneNumber<UInt16, AggData<UInt16>>,
+        MethodOneNumber<UInt32, AggData<UInt32>>, MethodOneNumber<UInt64, AggData<UInt64>>,
         MethodStringNoCache<AggregatedDataWithShortStringKey>,
-        MethodOneNumber<UInt128, AggData<UInt128>>,
-        MethodOneNumber<UInt256, AggData<UInt256>>,
+        MethodOneNumber<UInt128, AggData<UInt128>>, MethodOneNumber<UInt256, AggData<UInt256>>,
         MethodOneNumber<UInt32, AggregatedDataWithUInt32KeyPhase2>,
         MethodOneNumber<UInt64, AggregatedDataWithUInt64KeyPhase2>,
+        MethodSingleNullableColumn<MethodOneNumber<UInt8, AggDataNullable<UInt8>>>,
+        MethodSingleNullableColumn<MethodOneNumber<UInt16, AggDataNullable<UInt16>>>,
+        MethodSingleNullableColumn<MethodOneNumber<UInt32, AggDataNullable<UInt32>>>,
+        MethodSingleNullableColumn<MethodOneNumber<UInt64, AggDataNullable<UInt64>>>,
         MethodSingleNullableColumn<
-                MethodOneNumber<UInt8, AggDataNullable<UInt8>>>,
-        MethodSingleNullableColumn<MethodOneNumber<
-                UInt16, AggDataNullable<UInt16>>>,
-        MethodSingleNullableColumn<MethodOneNumber<
-                UInt32, AggDataNullable<UInt32>>>,
-        MethodSingleNullableColumn<MethodOneNumber<
-                UInt64, AggDataNullable<UInt64>>>,
-        MethodSingleNullableColumn<MethodOneNumber<
-                UInt32, AggregatedDataWithNullableUInt32KeyPhase2>>,
-        MethodSingleNullableColumn<MethodOneNumber<
-                UInt64, AggregatedDataWithNullableUInt64KeyPhase2>>,
-        MethodSingleNullableColumn<MethodOneNumber<
-                UInt128, AggDataNullable<UInt128>>>,
-        MethodSingleNullableColumn<MethodOneNumber<
-                UInt256, AggDataNullable<UInt256>>>,
+                MethodOneNumber<UInt32, AggregatedDataWithNullableUInt32KeyPhase2>>,
         MethodSingleNullableColumn<
-                MethodStringNoCache<AggregatedDataWithNullableShortStringKey>>,
-        MethodKeysFixed<AggData<UInt64>>,
-        MethodKeysFixed<AggData<UInt72>>,
-        MethodKeysFixed<AggData<UInt96>>,
-        MethodKeysFixed<AggData<UInt104>>,
-        MethodKeysFixed<AggData<UInt128>>,
-        MethodKeysFixed<AggData<UInt136>>,
+                MethodOneNumber<UInt64, AggregatedDataWithNullableUInt64KeyPhase2>>,
+        MethodSingleNullableColumn<MethodOneNumber<UInt128, AggDataNullable<UInt128>>>,
+        MethodSingleNullableColumn<MethodOneNumber<UInt256, AggDataNullable<UInt256>>>,
+        MethodSingleNullableColumn<MethodStringNoCache<AggregatedDataWithNullableShortStringKey>>,
+        MethodKeysFixed<AggData<UInt64>>, MethodKeysFixed<AggData<UInt72>>,
+        MethodKeysFixed<AggData<UInt96>>, MethodKeysFixed<AggData<UInt104>>,
+        MethodKeysFixed<AggData<UInt128>>, MethodKeysFixed<AggData<UInt136>>,
         MethodKeysFixed<AggData<UInt256>>>;
 
 struct AggregatedDataVariants
-        : public DataVariants<AggregatedMethodVariants, MethodSingleNullableColumn,
-                              MethodOneNumber, DataWithNullKey> {
+        : public DataVariants<AggregatedMethodVariants, MethodSingleNullableColumn, MethodOneNumber,
+                              DataWithNullKey> {
     AggregatedDataWithoutKey without_key = nullptr;
 
     void init(const std::vector<DataTypePtr>& data_types, HashKeyType type) {
@@ -128,41 +112,32 @@ struct AggregatedDataVariants
             break;
         case HashKeyType::string_key:
             if (nullable) {
-                method_variant.emplace<
-                        MethodSingleNullableColumn<MethodStringNoCache<
-                                AggregatedDataWithNullableShortStringKey>>>();
+                method_variant.emplace<MethodSingleNullableColumn<
+                        MethodStringNoCache<AggregatedDataWithNullableShortStringKey>>>();
             } else {
-                method_variant.emplace<
-                        MethodStringNoCache<AggregatedDataWithShortStringKey>>();
+                method_variant.emplace<MethodStringNoCache<AggregatedDataWithShortStringKey>>();
             }
             break;
         case HashKeyType::fixed64:
-            method_variant.emplace<MethodKeysFixed<AggData<UInt64>>>(
-                    get_key_sizes(data_types));
+            method_variant.emplace<MethodKeysFixed<AggData<UInt64>>>(get_key_sizes(data_types));
             break;
         case HashKeyType::fixed72:
-            method_variant.emplace<MethodKeysFixed<AggData<UInt72>>>(
-                    get_key_sizes(data_types));
+            method_variant.emplace<MethodKeysFixed<AggData<UInt72>>>(get_key_sizes(data_types));
             break;
         case HashKeyType::fixed96:
-            method_variant.emplace<MethodKeysFixed<AggData<UInt96>>>(
-                    get_key_sizes(data_types));
+            method_variant.emplace<MethodKeysFixed<AggData<UInt96>>>(get_key_sizes(data_types));
             break;
         case HashKeyType::fixed104:
-            method_variant.emplace<MethodKeysFixed<AggData<UInt104>>>(
-                    get_key_sizes(data_types));
+            method_variant.emplace<MethodKeysFixed<AggData<UInt104>>>(get_key_sizes(data_types));
             break;
         case HashKeyType::fixed128:
-            method_variant.emplace<MethodKeysFixed<AggData<UInt128>>>(
-                    get_key_sizes(data_types));
+            method_variant.emplace<MethodKeysFixed<AggData<UInt128>>>(get_key_sizes(data_types));
             break;
         case HashKeyType::fixed136:
-            method_variant.emplace<MethodKeysFixed<AggData<UInt136>>>(
-                    get_key_sizes(data_types));
+            method_variant.emplace<MethodKeysFixed<AggData<UInt136>>>(get_key_sizes(data_types));
             break;
         case HashKeyType::fixed256:
-            method_variant.emplace<MethodKeysFixed<AggData<UInt256>>>(
-                    get_key_sizes(data_types));
+            method_variant.emplace<MethodKeysFixed<AggData<UInt256>>>(get_key_sizes(data_types));
             break;
         default:
             throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -305,8 +280,8 @@ private:
             _current_keys = _arena_pool.alloc(_size_of_key * SUB_CONTAINER_CAPACITY);
             _key_containers.emplace_back(_current_keys);
 
-            _current_agg_data = (AggregateDataPtr)_arena_pool.alloc(
-                    _size_of_aggregate_states * SUB_CONTAINER_CAPACITY);
+            _current_agg_data = (AggregateDataPtr)_arena_pool.alloc(_size_of_aggregate_states *
+                                                                    SUB_CONTAINER_CAPACITY);
             _value_containers.emplace_back(_current_agg_data);
         } catch (...) {
             if (_current_keys) {

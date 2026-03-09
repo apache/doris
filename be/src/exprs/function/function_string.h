@@ -712,8 +712,7 @@ public:
                     _execute<is_ascii, str_const, len_const>(str_col, len_col, *res,
                                                              input_rows_count);
                 },
-                make_bool_variant(is_ascii),
-                make_bool_variant(col_const[0]),
+                make_bool_variant(is_ascii), make_bool_variant(col_const[0]),
                 make_bool_variant(col_const[1]));
 
         block.get_by_position(result).column = std::move(res);
@@ -1540,8 +1539,7 @@ public:
                             strcol_offsets, strcol_chars, col_len_data, padcol_offsets,
                             padcol_chars, res_offsets, res_chars, null_map_data, input_rows_count);
                 },
-                make_bool_variant(col_const[0]),
-                make_bool_variant(col_const[1]),
+                make_bool_variant(col_const[0]), make_bool_variant(col_const[1]),
                 make_bool_variant(col_const[2]));
 
         block.get_by_position(result).column =
@@ -2085,8 +2083,7 @@ public:
                                                          *dest_nested_column, dest_offsets,
                                                          input_rows_count);
                 },
-                make_bool_variant(left_const),
-                make_bool_variant(right_const));
+                make_bool_variant(left_const), make_bool_variant(right_const));
 
         // all elements in dest_nested_column are not null
         dest_nullable_col.get_null_map_column().get_data().resize_fill(dest_nested_column->size(),
@@ -2252,8 +2249,7 @@ public:
                         _execute<str_const, pattern_const>(src_column_string, pattern_column,
                                                            dest_column_data, input_rows_count);
                     },
-                    make_bool_variant(col_const[0]),
-                    make_bool_variant(col_const[1]));
+                    make_bool_variant(col_const[0]), make_bool_variant(col_const[1]));
         } else {
             const auto& src_column_string = assert_cast<const ColumnString&>(*argument_columns[0]);
             const auto& pattern_column = assert_cast<const ColumnString&>(*argument_columns[1]);
@@ -2264,8 +2260,7 @@ public:
                                 src_column_string, pattern_column, start_pos_column,
                                 dest_column_data, input_rows_count);
                     },
-                    make_bool_variant(col_const[0]),
-                    make_bool_variant(col_const[1]),
+                    make_bool_variant(col_const[0]), make_bool_variant(col_const[1]),
                     make_bool_variant(col_const[2]));
         }
 
@@ -2651,8 +2646,7 @@ public:
                                 url_col, url_parts, key_col, input_rows_count, null_map_data,
                                 res_chars, res_offsets);
                     },
-                    make_bool_variant(url_const),
-                    make_bool_variant(part_const),
+                    make_bool_variant(url_const), make_bool_variant(part_const),
                     make_bool_variant(key_const)));
         } else {
             const bool url_const = col_const[0];
@@ -2662,8 +2656,7 @@ public:
                                                                    input_rows_count, null_map_data,
                                                                    res_chars, res_offsets);
                     },
-                    make_bool_variant(url_const),
-                    make_bool_variant(part_const)));
+                    make_bool_variant(url_const), make_bool_variant(part_const)));
         }
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res), std::move(null_map));
@@ -3564,8 +3557,7 @@ public:
                                 col_left->get_data_at(0), col_right, col_pos->get_data(), vec_res,
                                 input_rows_count);
                     },
-                    make_bool_variant(is_ascii),
-                    make_bool_variant(col_const[1]),
+                    make_bool_variant(is_ascii), make_bool_variant(col_const[1]),
                     make_bool_variant(col_const[2]));
 
         } else {
@@ -3575,8 +3567,7 @@ public:
                                                                       col_pos->get_data(), vec_res,
                                                                       input_rows_count);
                     },
-                    make_bool_variant(is_ascii),
-                    make_bool_variant(col_const[1]),
+                    make_bool_variant(is_ascii), make_bool_variant(col_const[1]),
                     make_bool_variant(col_const[2]));
         }
         block.replace_by_position(result, std::move(col_res));
@@ -3729,8 +3720,7 @@ public:
                         col_res->insert_data(result.data(), result.length());
                     }
                 },
-                make_bool_variant(col_const[0]),
-                make_bool_variant(col_const[1]),
+                make_bool_variant(col_const[0]), make_bool_variant(col_const[1]),
                 make_bool_variant(col_const[2]));
 
         block.replace_by_position(result, std::move(col_res));
@@ -3864,10 +3854,8 @@ struct SubReplaceImpl {
                                 input_rows_count);
                     }
                 },
-                make_bool_variant(col_const[0]),
-                make_bool_variant(col_const[1]),
-                make_bool_variant(col_const[2]),
-                make_bool_variant(col_const[3]));
+                make_bool_variant(col_const[0]), make_bool_variant(col_const[1]),
+                make_bool_variant(col_const[2]), make_bool_variant(col_const[3]));
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(res_column), std::move(args_null_map));
         return Status::OK();
@@ -4455,10 +4443,8 @@ public:
                                 input_rows_count);
                     }
                 },
-                make_bool_variant(col_const[0]),
-                make_bool_variant(col_const[1]),
-                make_bool_variant(col_const[2]),
-                make_bool_variant(col_const[3]));
+                make_bool_variant(col_const[0]), make_bool_variant(col_const[1]),
+                make_bool_variant(col_const[2]), make_bool_variant(col_const[3]));
         block.replace_by_position(result, std::move(col_res));
         return Status::OK();
     }

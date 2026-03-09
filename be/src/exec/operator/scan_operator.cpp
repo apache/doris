@@ -337,8 +337,7 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
 }
 
 template <typename Derived>
-Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context,
-                                                     const VExprSPtr& root,
+Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, const VExprSPtr& root,
                                                      VExprSPtr& output_expr) {
     auto expr_root = root->is_rf_wrapper() ? root->get_impl() : root;
     PushDownType pdt = PushDownType::UNACCEPTABLE;
@@ -361,8 +360,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context,
             // not a slot ref(column)
             continue;
         }
-        slotref = std::dynamic_pointer_cast<VSlotRef>(
-                VExpr::expr_without_cast(child));
+        slotref = std::dynamic_pointer_cast<VSlotRef>(VExpr::expr_without_cast(child));
     }
     if (_is_predicate_acting_on_slot(expr_root->children(), &slot, &range)) {
         Status status = Status::OK();
@@ -372,8 +370,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context,
                     {
                         Defer attach_defer = [&]() {
                             if (pdt != PushDownType::UNACCEPTABLE && root->is_rf_wrapper()) {
-                                auto* rf_expr =
-                                        assert_cast<VRuntimeFilterWrapper*>(root.get());
+                                auto* rf_expr = assert_cast<VRuntimeFilterWrapper*>(root.get());
                                 _slot_id_to_predicates[slot->id()].back()->attach_profile_counter(
                                         rf_expr->filter_id(),
                                         rf_expr->predicate_filtered_rows_counter(),
@@ -559,9 +556,8 @@ Status ScanLocalState<Derived>::_normalize_function_filters(VExprContext* expr_c
         doris::FunctionContext* fn_ctx = nullptr;
         StringRef val;
         PushDownType temp_pdt;
-        RETURN_IF_ERROR(_should_push_down_function_filter(
-                assert_cast<VectorizedFnCall*>(fn_expr), expr_ctx, &val, &fn_ctx,
-                temp_pdt));
+        RETURN_IF_ERROR(_should_push_down_function_filter(assert_cast<VectorizedFnCall*>(fn_expr),
+                                                          expr_ctx, &val, &fn_ctx, temp_pdt));
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
             std::string col = slot->col_name();
             _push_down_functions.emplace_back(opposite, col, fn_ctx, val);
@@ -591,8 +587,7 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(const VExprSPtrs& chi
         return false;
     }
     std::shared_ptr<VSlotRef> slot_ref =
-            std::dynamic_pointer_cast<VSlotRef>(
-                    VExpr::expr_without_cast(children[0]));
+            std::dynamic_pointer_cast<VSlotRef>(VExpr::expr_without_cast(children[0]));
     *slot_desc =
             _parent->cast<typename Derived::Parent>()._slot_id_to_slot_desc[slot_ref->slot_id()];
     auto entry = _slot_id_to_predicates.find(slot_ref->slot_id());
@@ -628,8 +623,7 @@ std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
 }
 
 template <typename Derived>
-Status ScanLocalState<Derived>::_eval_const_conjuncts(VExprContext* expr_ctx,
-                                                      PushDownType* pdt) {
+Status ScanLocalState<Derived>::_eval_const_conjuncts(VExprContext* expr_ctx, PushDownType* pdt) {
     auto vexpr =
             expr_ctx->root()->is_rf_wrapper() ? expr_ctx->root()->get_impl() : expr_ctx->root();
     // Used to handle constant expressions, such as '1 = 1' _eval_const_conjuncts does not handle cases like 'colA = 1'
@@ -637,16 +631,16 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(VExprContext* expr_ctx,
     if (vexpr->is_constant()) {
         std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         RETURN_IF_ERROR(vexpr->get_const_col(expr_ctx, &const_col_wrapper));
-        if (const auto* const_column = check_and_get_column<ColumnConst>(
-                    const_col_wrapper->column_ptr.get())) {
+        if (const auto* const_column =
+                    check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr.get())) {
             constant_val = const_column->get_data_at(0).data;
             if (constant_val == nullptr || !*reinterpret_cast<const bool*>(constant_val)) {
                 *pdt = PushDownType::ACCEPTABLE;
                 _eos = true;
                 _scan_dependency->set_ready();
             }
-        } else if (const auto* bool_column = check_and_get_column<ColumnUInt8>(
-                           const_col_wrapper->column_ptr.get())) {
+        } else if (const auto* bool_column =
+                           check_and_get_column<ColumnUInt8>(const_col_wrapper->column_ptr.get())) {
             // TODO: If `vexpr->is_constant()` is true, a const column is expected here.
             //  But now we still don't cover all predicates for const expression.
             //  For example, for query `SELECT col FROM tbl WHERE 'PROMOTION' LIKE 'AAA%'`,
@@ -755,10 +749,10 @@ Status ScanLocalState<Derived>::_normalize_in_predicate(
             const auto* value = iter->get_value();
             if constexpr (is_string_type(T)) {
                 const auto* str_value = reinterpret_cast<const StringRef*>(value);
-                RETURN_IF_ERROR(_change_value_range(is_in, temp_range,
-                                                    Field::create_field<T>(std::string(
-                                                            str_value->data, str_value->size)),
-                                                    fn, is_in ? "in" : "not_in"));
+                RETURN_IF_ERROR(_change_value_range(
+                        is_in, temp_range,
+                        Field::create_field<T>(std::string(str_value->data, str_value->size)), fn,
+                        is_in ? "in" : "not_in"));
             } else {
                 RETURN_IF_ERROR(_change_value_range(
                         is_in, temp_range,
@@ -816,9 +810,8 @@ Status ScanLocalState<Derived>::_normalize_binary_predicate(
     DCHECK(TExprNodeType::BINARY_PRED == root->node_type()) << root->debug_string();
     DCHECK(root->get_num_children() == 2);
     Field value;
-    *pdt = _should_push_down_binary_predicate(
-            assert_cast<VectorizedFnCall*>(root.get()), expr_ctx, value,
-            {"eq", "ne", "lt", "gt", "le", "ge"});
+    *pdt = _should_push_down_binary_predicate(assert_cast<VectorizedFnCall*>(root.get()), expr_ctx,
+                                              value, {"eq", "ne", "lt", "gt", "le", "ge"});
     if (*pdt == PushDownType::UNACCEPTABLE) {
         return Status::OK();
     }
@@ -1015,14 +1008,14 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_start_scanners(
         const std::list<std::shared_ptr<ScannerDelegate>>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
-    _scanner_ctx.store(ScannerContext::create_shared(
-            state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
-            _scan_dependency
+    _scanner_ctx.store(ScannerContext::create_shared(state(), this, p._output_tuple_desc,
+                                                     p.output_row_descriptor(), scanners, p.limit(),
+                                                     _scan_dependency
 #ifdef BE_TEST
-            ,
-            max_scanners_concurrency(state())
+                                                     ,
+                                                     max_scanners_concurrency(state())
 #endif
-                    ));
+                                                             ));
     return Status::OK();
 }
 
@@ -1091,8 +1084,7 @@ Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
     for (auto id : get_topn_filter_source_node_ids(state, false)) {
         const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
         VExprSPtr topn_pred;
-        RETURN_IF_ERROR(VTopNPred::create_vtopn_pred(pred.get_texpr(p.node_id()), id,
-                                                                 topn_pred));
+        RETURN_IF_ERROR(VTopNPred::create_vtopn_pred(pred.get_texpr(p.node_id()), id, topn_pred));
 
         VExprContextSPtr conjunct = VExprContext::create_shared(topn_pred);
         RETURN_IF_ERROR(conjunct->prepare(
@@ -1103,8 +1095,7 @@ Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
     for (auto id : get_topn_filter_source_node_ids(state, true)) {
         const auto& pred = state->get_query_ctx()->get_runtime_predicate(id);
         VExprSPtr topn_pred;
-        RETURN_IF_ERROR(VTopNPred::create_vtopn_pred(pred.get_texpr(p.node_id()), id,
-                                                                 topn_pred));
+        RETURN_IF_ERROR(VTopNPred::create_vtopn_pred(pred.get_texpr(p.node_id()), id, topn_pred));
 
         VExprContextSPtr conjunct = VExprContext::create_shared(topn_pred);
         RETURN_IF_ERROR(conjunct->prepare(
@@ -1118,8 +1109,7 @@ Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
 template <typename Derived>
 void ScanLocalState<Derived>::_filter_and_collect_cast_type_for_variant(
         const VExpr* expr,
-        std::unordered_map<std::string, std::vector<DataTypePtr>>&
-                colname_to_cast_types) {
+        std::unordered_map<std::string, std::vector<DataTypePtr>>& colname_to_cast_types) {
     auto& p = _parent->cast<typename Derived::Parent>();
     const auto* cast_expr = dynamic_cast<const VCastExpr*>(expr);
     if (cast_expr != nullptr) {
@@ -1286,8 +1276,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
 }
 
 template <typename LocalStateType>
-Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, Block* block,
-                                                bool* eos) {
+Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
 

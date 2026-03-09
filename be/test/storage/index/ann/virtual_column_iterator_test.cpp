@@ -383,8 +383,7 @@ TEST_F(VirtualColumnIteratorTest, TestPrepare1) {
     ASSERT_EQ(row_id_to_idx.find(100)->second, 4);
 
     auto materialization_col = iterator.get_materialized_column();
-    auto int_col_m =
-            assert_cast<const ColumnVector<TYPE_INT>*>(materialization_col.get());
+    auto int_col_m = assert_cast<const ColumnVector<TYPE_INT>*>(materialization_col.get());
     ASSERT_EQ(int_col_m->get_data()[0], 20);
     ASSERT_EQ(int_col_m->get_data()[1], 40);
     ASSERT_EQ(int_col_m->get_data()[2], 30);
@@ -421,8 +420,8 @@ TEST_F(VirtualColumnIteratorTest, TestColumnNothing) {
     ASSERT_TRUE(status.ok());
     auto tmp_nothing = check_and_get_column<ColumnNothing>(*dst);
     ASSERT_TRUE(tmp_nothing == nullptr);
-    auto tmp_col_i32 = check_and_get_column<ColumnVector<TYPE_INT>>(
-            *iterator.get_materialized_column());
+    auto tmp_col_i32 =
+            check_and_get_column<ColumnVector<TYPE_INT>>(*iterator.get_materialized_column());
     ASSERT_TRUE(tmp_col_i32 != nullptr);
     ASSERT_EQ(dst->size(), 3);
     ASSERT_EQ(tmp_col_i32->get_data()[0], 20);

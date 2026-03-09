@@ -78,8 +78,8 @@ Status VNumbersTVF::get_next(RuntimeState* state, Block* block, bool* eos) {
         size_t n_columns = 0;
         for (const auto* slot_desc : _tuple_desc->slots()) {
             block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
-                                                            slot_desc->get_data_type_ptr(),
-                                                            slot_desc->col_name()));
+                                                slot_desc->get_data_type_ptr(),
+                                                slot_desc->col_name()));
         }
     }
     return Status::OK();

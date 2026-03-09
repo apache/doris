@@ -48,8 +48,7 @@ Status SchemaBackendConfigurationScanner::start(doris::RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaBackendConfigurationScanner::get_next_block_internal(Block* block,
-                                                                  bool* eos) {
+Status SchemaBackendConfigurationScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }

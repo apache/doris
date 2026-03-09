@@ -73,8 +73,7 @@ using DistinctDataWithShortStringKey = PHHashSet<StringRef>;
 
 using DistinctMethodVariants = std::variant<
         std::monostate, MethodSerialized<DistinctDataWithStringKey>,
-        MethodOneNumber<UInt8, DistinctData<UInt8>>,
-        MethodOneNumber<UInt16, DistinctData<UInt16>>,
+        MethodOneNumber<UInt8, DistinctData<UInt8>>, MethodOneNumber<UInt16, DistinctData<UInt16>>,
         MethodOneNumber<UInt32, DistinctData<UInt32>>,
         MethodOneNumber<UInt64, DistinctData<UInt64>>,
         MethodStringNoCache<DistinctDataWithShortStringKey>,
@@ -82,39 +81,28 @@ using DistinctMethodVariants = std::variant<
         MethodOneNumber<UInt256, DistinctData<UInt256>>,
         MethodOneNumber<UInt32, DistinctDataPhase2<UInt32>>,
         MethodOneNumber<UInt64, DistinctDataPhase2<UInt64>>,
-        MethodSingleNullableColumn<MethodOneNumber<
-                UInt8, DataWithNullKey<DistinctData<UInt8>>>>,
-        MethodSingleNullableColumn<MethodOneNumber<
-                UInt16, DataWithNullKey<DistinctData<UInt16>>>>,
-        MethodSingleNullableColumn<MethodOneNumber<
-                UInt32, DataWithNullKey<DistinctData<UInt32>>>>,
-        MethodSingleNullableColumn<MethodOneNumber<
-                UInt64, DataWithNullKey<DistinctData<UInt64>>>>,
-        MethodSingleNullableColumn<MethodOneNumber<
-                UInt32,
-                DataWithNullKey<DistinctDataPhase2<UInt32>>>>,
-        MethodSingleNullableColumn<MethodOneNumber<
-                UInt64,
-                DataWithNullKey<DistinctDataPhase2<UInt64>>>>,
-        MethodSingleNullableColumn<MethodOneNumber<
-                UInt128,
-                DataWithNullKey<DistinctData<UInt128>>>>,
-        MethodSingleNullableColumn<MethodOneNumber<
-                UInt256,
-                DataWithNullKey<DistinctData<UInt256>>>>,
-        MethodSingleNullableColumn<MethodStringNoCache<
-                DataWithNullKey<DistinctDataWithShortStringKey>>>,
-        MethodKeysFixed<DistinctData<UInt64>>,
-        MethodKeysFixed<DistinctData<UInt72>>,
-        MethodKeysFixed<DistinctData<UInt96>>,
-        MethodKeysFixed<DistinctData<UInt104>>,
-        MethodKeysFixed<DistinctData<UInt128>>,
-        MethodKeysFixed<DistinctData<UInt136>>,
+        MethodSingleNullableColumn<MethodOneNumber<UInt8, DataWithNullKey<DistinctData<UInt8>>>>,
+        MethodSingleNullableColumn<MethodOneNumber<UInt16, DataWithNullKey<DistinctData<UInt16>>>>,
+        MethodSingleNullableColumn<MethodOneNumber<UInt32, DataWithNullKey<DistinctData<UInt32>>>>,
+        MethodSingleNullableColumn<MethodOneNumber<UInt64, DataWithNullKey<DistinctData<UInt64>>>>,
+        MethodSingleNullableColumn<
+                MethodOneNumber<UInt32, DataWithNullKey<DistinctDataPhase2<UInt32>>>>,
+        MethodSingleNullableColumn<
+                MethodOneNumber<UInt64, DataWithNullKey<DistinctDataPhase2<UInt64>>>>,
+        MethodSingleNullableColumn<
+                MethodOneNumber<UInt128, DataWithNullKey<DistinctData<UInt128>>>>,
+        MethodSingleNullableColumn<
+                MethodOneNumber<UInt256, DataWithNullKey<DistinctData<UInt256>>>>,
+        MethodSingleNullableColumn<
+                MethodStringNoCache<DataWithNullKey<DistinctDataWithShortStringKey>>>,
+        MethodKeysFixed<DistinctData<UInt64>>, MethodKeysFixed<DistinctData<UInt72>>,
+        MethodKeysFixed<DistinctData<UInt96>>, MethodKeysFixed<DistinctData<UInt104>>,
+        MethodKeysFixed<DistinctData<UInt128>>, MethodKeysFixed<DistinctData<UInt136>>,
         MethodKeysFixed<DistinctData<UInt256>>>;
 
 struct DistinctDataVariants
-        : public DataVariants<DistinctMethodVariants, MethodSingleNullableColumn,
-                              MethodOneNumber, DataWithNullKey> {
+        : public DataVariants<DistinctMethodVariants, MethodSingleNullableColumn, MethodOneNumber,
+                              DataWithNullKey> {
     void init(const std::vector<DataTypePtr>& data_types, HashKeyType type) {
         bool nullable = data_types.size() == 1 && data_types[0]->is_nullable();
         switch (type) {
@@ -147,12 +135,10 @@ struct DistinctDataVariants
             break;
         case HashKeyType::string_key:
             if (nullable) {
-                method_variant.emplace<
-                        MethodSingleNullableColumn<MethodStringNoCache<
-                                DataWithNullKey<DistinctDataWithShortStringKey>>>>();
+                method_variant.emplace<MethodSingleNullableColumn<
+                        MethodStringNoCache<DataWithNullKey<DistinctDataWithShortStringKey>>>>();
             } else {
-                method_variant
-                        .emplace<MethodStringNoCache<DistinctDataWithShortStringKey>>();
+                method_variant.emplace<MethodStringNoCache<DistinctDataWithShortStringKey>>();
             }
             break;
         case HashKeyType::fixed64:

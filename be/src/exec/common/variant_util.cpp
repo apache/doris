@@ -352,8 +352,8 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     return Status::OK();
 }
 
-void get_column_by_type(const DataTypePtr& data_type, const std::string& name,
-                        TabletColumn& column, const ExtraInfo& ext_info) {
+void get_column_by_type(const DataTypePtr& data_type, const std::string& name, TabletColumn& column,
+                        const ExtraInfo& ext_info) {
     column.set_name(name);
     column.set_type(data_type->get_storage_field_type());
     if (ext_info.unique_id >= 0) {
@@ -701,8 +701,7 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
 }
 
 // sort by paths in lexicographical order
-ColumnVariant::Subcolumns get_sorted_subcolumns(
-        const ColumnVariant::Subcolumns& subcolumns) {
+ColumnVariant::Subcolumns get_sorted_subcolumns(const ColumnVariant::Subcolumns& subcolumns) {
     // sort by paths in lexicographical order
     ColumnVariant::Subcolumns sorted = subcolumns;
     std::sort(sorted.begin(), sorted.end(), [](const auto& lhsItem, const auto& rhsItem) {
@@ -1056,8 +1055,7 @@ Status VariantCompactionUtil::get_compaction_typed_columns(
 }
 
 Status VariantCompactionUtil::get_compaction_nested_columns(
-        const std::unordered_set<PathInData, PathInData::Hash>&
-                nested_paths,
+        const std::unordered_set<PathInData, PathInData::Hash>& nested_paths,
         const PathToDataTypes& path_to_data_types, const TabletColumnPtr parent_column,
         TabletSchemaSPtr& output_schema, TabletSchema::PathsSetInfo& paths_set_info) {
     const auto& parent_indexes = output_schema->inverted_indexs(parent_column->unique_id());

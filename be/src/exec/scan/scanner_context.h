@@ -49,7 +49,6 @@ class WorkloadGroup;
 class ScanLocalStateBase;
 class Dependency;
 
-
 class Scanner;
 class ScannerDelegate;
 class ScannerScheduler;
@@ -115,8 +114,8 @@ public:
     ScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
                    const TupleDescriptor* output_tuple_desc,
                    const RowDescriptor* output_row_descriptor,
-                   const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
-                   int64_t limit_, std::shared_ptr<Dependency> dependency
+                   const std::list<std::shared_ptr<ScannerDelegate>>& scanners, int64_t limit_,
+                   std::shared_ptr<Dependency> dependency
 #ifdef BE_TEST
                    ,
                    int num_parallel_instances

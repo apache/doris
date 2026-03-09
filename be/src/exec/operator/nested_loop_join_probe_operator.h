@@ -86,8 +86,7 @@ private:
     void _reset_with_next_probe_row();
     void _append_probe_data_with_null(Block& block) const;
     template <typename Filter, bool SetBuildSideFlag, bool SetProbeSideFlag>
-    void _do_filtering_and_update_visited_flags_impl(Block* block,
-                                                     uint32_t column_to_keep,
+    void _do_filtering_and_update_visited_flags_impl(Block* block, uint32_t column_to_keep,
                                                      size_t build_block_idx,
                                                      size_t processed_blocks_num, bool materialize,
                                                      Filter& filter) {
@@ -232,8 +231,7 @@ public:
     Status prepare(RuntimeState* state) override;
 
     Status push(RuntimeState* state, Block* input_block, bool eos) const override;
-    Status pull(doris::RuntimeState* state, Block* output_block,
-                bool* eos) const override;
+    Status pull(doris::RuntimeState* state, Block* output_block, bool* eos) const override;
     const RowDescriptor& intermediate_row_desc() const override {
         return _old_version_flag ? _row_descriptor : *_intermediate_row_desc;
     }

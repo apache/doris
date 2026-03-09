@@ -29,9 +29,9 @@ Status MetaScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     auto& p = _parent->cast<MetaScanOperatorX>();
 
     for (auto& scan_range : _scan_ranges) {
-        std::shared_ptr<MetaScanner> scanner = MetaScanner::create_shared(
-                state(), this, p._tuple_id, scan_range, p._limit, custom_profile(),
-                p._user_identity);
+        std::shared_ptr<MetaScanner> scanner =
+                MetaScanner::create_shared(state(), this, p._tuple_id, scan_range, p._limit,
+                                           custom_profile(), p._user_identity);
         RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
         scanners->push_back(scanner);
     }

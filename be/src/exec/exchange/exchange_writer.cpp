@@ -45,9 +45,9 @@ Status ExchangeWriterBase::_handle_eof_channel(RuntimeState* state, ChannelPtrTy
 }
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
-Status ExchangeWriterBase::_add_rows_impl(
-        RuntimeState* state, std::vector<std::shared_ptr<Channel>>& channels,
-        size_t channel_count, Block* block, bool eos) {
+Status ExchangeWriterBase::_add_rows_impl(RuntimeState* state,
+                                          std::vector<std::shared_ptr<Channel>>& channels,
+                                          size_t channel_count, Block* block, bool eos) {
     Status status = Status::OK();
     uint32_t offset = 0;
     for (size_t i = 0; i < channel_count; ++i) {
@@ -145,10 +145,12 @@ Status ExchangeTrivialWriter::write(RuntimeState* state, Block* block, bool eos)
     return Status::OK();
 }
 
-Status ExchangeOlapWriter::_channel_add_rows(
-        RuntimeState* state, std::vector<std::shared_ptr<Channel>>& channels,
-        size_t channel_count, const std::vector<HashValType>& channel_ids, size_t rows,
-        Block* block, bool eos, HashValType invalid_val) {
+Status ExchangeOlapWriter::_channel_add_rows(RuntimeState* state,
+                                             std::vector<std::shared_ptr<Channel>>& channels,
+                                             size_t channel_count,
+                                             const std::vector<HashValType>& channel_ids,
+                                             size_t rows, Block* block, bool eos,
+                                             HashValType invalid_val) {
     size_t effective_rows = 0;
     effective_rows =
             std::ranges::count_if(channel_ids, [=](int64_t cid) { return cid != invalid_val; });
@@ -180,10 +182,11 @@ Status ExchangeOlapWriter::_channel_add_rows(
     return _add_rows_impl(state, channels, channel_count, block, eos);
 }
 
-Status ExchangeTrivialWriter::_channel_add_rows(
-        RuntimeState* state, std::vector<std::shared_ptr<Channel>>& channels,
-        size_t channel_count, const std::vector<HashValType>& channel_ids, size_t rows,
-        Block* block, bool eos) {
+Status ExchangeTrivialWriter::_channel_add_rows(RuntimeState* state,
+                                                std::vector<std::shared_ptr<Channel>>& channels,
+                                                size_t channel_count,
+                                                const std::vector<HashValType>& channel_ids,
+                                                size_t rows, Block* block, bool eos) {
     _origin_row_idx.resize(rows);
     _channel_rows_histogram.assign(channel_count, 0U);
     _channel_pos_offsets.resize(channel_count);

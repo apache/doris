@@ -26,7 +26,6 @@ namespace doris {
 template <class HashTableContext, bool is_intersected>
 struct HashTableBuild;
 
-
 template <bool is_intersect>
 class SetSinkOperatorX;
 
@@ -128,11 +127,10 @@ private:
     template <class HashTableContext, bool is_intersected>
     friend struct HashTableBuild;
 
-    Status _process_build_block(SetSinkLocalState<is_intersect>& local_state,
-                                Block& block, RuntimeState* state);
-    Status _extract_build_column(SetSinkLocalState<is_intersect>& local_state,
-                                 Block& block, ColumnRawPtrs& raw_ptrs,
-                                 size_t& rows);
+    Status _process_build_block(SetSinkLocalState<is_intersect>& local_state, Block& block,
+                                RuntimeState* state);
+    Status _extract_build_column(SetSinkLocalState<is_intersect>& local_state, Block& block,
+                                 ColumnRawPtrs& raw_ptrs, size_t& rows);
 
     const int _cur_child_id = 0;
     const size_t _child_quantity;

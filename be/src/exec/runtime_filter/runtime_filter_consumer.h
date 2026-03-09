@@ -103,8 +103,7 @@ private:
 
     Status _apply_ready_expr(std::vector<VRuntimeFilterPtr>& push_exprs);
 
-    Status _get_push_exprs(std::vector<VRuntimeFilterPtr>& container,
-                           const TExpr& probe_expr);
+    Status _get_push_exprs(std::vector<VRuntimeFilterPtr>& container, const TExpr& probe_expr);
     void _check_state(std::vector<State> assumed_states) {
         if (!check_state_impl<RuntimeFilterConsumer>(_rf_state, assumed_states)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,

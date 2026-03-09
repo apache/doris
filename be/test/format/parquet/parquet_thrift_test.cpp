@@ -160,8 +160,8 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
 
 static int fill_nullable_column(ColumnPtr& doris_column, level_t* definitions, size_t num_values) {
     CHECK(doris_column->is_nullable());
-    auto* nullable_column = const_cast<ColumnNullable*>(
-            static_cast<const ColumnNullable*>(doris_column.get()));
+    auto* nullable_column =
+            const_cast<ColumnNullable*>(static_cast<const ColumnNullable*>(doris_column.get()));
     NullMap& map_data = nullable_column->get_null_map_data();
     int null_cnt = 0;
     for (int i = 0; i < num_values; ++i) {
@@ -216,8 +216,8 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
     if (src_column->is_nullable()) {
         // fill nullable values
         fill_nullable_column(src_column, definitions, rows);
-        auto* nullable_column = const_cast<ColumnNullable*>(
-                static_cast<const ColumnNullable*>(src_column.get()));
+        auto* nullable_column =
+                const_cast<ColumnNullable*>(static_cast<const ColumnNullable*>(src_column.get()));
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = src_column->assume_mutable();

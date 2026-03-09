@@ -55,14 +55,11 @@ public:
     Status close(RuntimeState* state) override;
 
     void prepare_for_next();
-    Status filter_data_and_build_output(RuntimeState* state, Block* output_block,
-                                        bool* eos, Block* temp_block,
-                                        bool check_rows_count = true);
+    Status filter_data_and_build_output(RuntimeState* state, Block* output_block, bool* eos,
+                                        Block* temp_block, bool check_rows_count = true);
 
     bool has_null_in_build_side() { return _shared_state->_has_null_in_build_side; }
-    const std::shared_ptr<Block>& build_block() const {
-        return _shared_state->build_block;
-    }
+    const std::shared_ptr<Block>& build_block() const { return _shared_state->build_block; }
     bool empty_right_table_shortcut() const {
         return _shared_state->empty_right_table_need_probe_dispose;
     }
@@ -125,8 +122,7 @@ public:
     Status prepare(RuntimeState* state) override;
 
     Status push(RuntimeState* state, Block* input_block, bool eos) const override;
-    Status pull(doris::RuntimeState* state, Block* output_block,
-                bool* eos) const override;
+    Status pull(doris::RuntimeState* state, Block* output_block, bool* eos) const override;
 
     bool need_more_input_data(RuntimeState* state) const override;
     DataDistribution required_data_distribution(RuntimeState* state) const override {

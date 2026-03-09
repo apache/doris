@@ -148,11 +148,11 @@ TEST_P(DataTypeQuantileStateTest, SerializeDeserializeAsStreamTest) {
     column_res->resize(rows_value);
     for (size_t i = 0; i != rows_value; ++i) {
         doris::DataTypeQuantileState::serialize_as_stream(column_data->get_element(i),
-                                                                      buffer_writer);
+                                                          buffer_writer);
         buffer_writer.commit();
         BufferReadable buffer_readable(ser_col->get_data_at(i));
         doris::DataTypeQuantileState::deserialize_as_stream(column_res->get_element(i),
-                                                                        buffer_readable);
+                                                            buffer_readable);
         ASSERT_EQ(column_data->get_data()[i].get_serialized_size(),
                   column_res->get_data()[i].get_serialized_size());
     }

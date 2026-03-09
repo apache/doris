@@ -139,13 +139,10 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(MutableColumns&
     }
     if (_parent->_mark_column_id != -1) {
         // resize mark column and fill with true
-        auto& mark_column =
-                assert_cast<ColumnNullable&>(*mcol[_parent->_mark_column_id]);
+        auto& mark_column = assert_cast<ColumnNullable&>(*mcol[_parent->_mark_column_id]);
         mark_column.resize(size);
         auto* null_map = mark_column.get_null_map_column().get_data().data();
-        auto* data = assert_cast<ColumnUInt8&>(mark_column.get_nested_column())
-                             .get_data()
-                             .data();
+        auto* data = assert_cast<ColumnUInt8&>(mark_column.get_nested_column()).get_data().data();
         std::fill(null_map, null_map + size, 0);
         std::fill(data, data + size, 1);
     }
@@ -210,9 +207,10 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
 
 template <int JoinOpType>
 template <typename HashTableType>
-void ProcessHashTableProbe<JoinOpType>::process_direct_return(
-        HashTableType& hash_table_ctx, MutableBlock& mutable_block,
-        Block* output_block, uint32_t probe_rows) {
+void ProcessHashTableProbe<JoinOpType>::process_direct_return(HashTableType& hash_table_ctx,
+                                                              MutableBlock& mutable_block,
+                                                              Block* output_block,
+                                                              uint32_t probe_rows) {
     _probe_indexs.resize(probe_rows);
     auto* probe_indexs_data = _probe_indexs.get_data().data();
     for (uint32_t i = 0; i < probe_rows; i++) {
@@ -228,8 +226,7 @@ template <int JoinOpType>
 template <typename HashTableType>
 Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
                                                   const uint8_t* null_map,
-                                                  MutableBlock& mutable_block,
-                                                  Block* output_block,
+                                                  MutableBlock& mutable_block, Block* output_block,
                                                   uint32_t probe_rows, bool is_mark_join) {
     if (_right_col_len && !_build_block) {
         return Status::InternalError("build block is nullptr");
@@ -360,11 +357,11 @@ uint32_t ProcessHashTableProbe<JoinOpType>::_process_probe_null_key(uint32_t pro
 }
 
 template <int JoinOpType>
-Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(
-        Block* output_block, size_t filter_column_id, size_t column_to_keep) {
+Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(Block* output_block,
+                                                                     size_t filter_column_id,
+                                                                     size_t column_to_keep) {
     ColumnPtr filter_ptr = output_block->get_by_position(filter_column_id).column;
-    RETURN_IF_ERROR(
-            Block::filter_block(output_block, filter_column_id, column_to_keep));
+    RETURN_IF_ERROR(Block::filter_block(output_block, filter_column_id, column_to_keep));
     if (!_parent_operator->can_do_lazy_materialized()) {
         return Status::OK();
     }
@@ -382,8 +379,7 @@ Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(
         if (column_ids.empty()) {
             return;
         }
-        const auto& column_filter =
-                assert_cast<const ColumnUInt8*>(filter_ptr.get())->get_data();
+        const auto& column_filter = assert_cast<const ColumnUInt8*>(filter_ptr.get())->get_data();
         bool need_filter = simd::contain_zero(column_filter.data(), column_filter.size());
         if (need_filter) {
             row_indexs.filter(column_filter);
@@ -469,11 +465,9 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(Block* output_b
     auto mark_column_mutable =
             output_block->get_by_position(_parent->_mark_column_id).column->assume_mutable();
     auto& mark_column = assert_cast<ColumnNullable&>(*mark_column_mutable);
-    IColumn::Filter& filter =
-            assert_cast<ColumnUInt8&>(mark_column.get_nested_column()).get_data();
-    RETURN_IF_ERROR(
-            VExprContext::execute_conjuncts(_parent->_mark_join_conjuncts, output_block,
-                                                        mark_column.get_null_map_column(), filter));
+    IColumn::Filter& filter = assert_cast<ColumnUInt8&>(mark_column.get_nested_column()).get_data();
+    RETURN_IF_ERROR(VExprContext::execute_conjuncts(_parent->_mark_join_conjuncts, output_block,
+                                                    mark_column.get_null_map_column(), filter));
     uint8_t* mark_filter_data = filter.data();
     uint8_t* mark_null_map = mark_column.get_null_map_data().data();
 
@@ -515,9 +509,9 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(Block* output_b
         IColumn::Filter other_conjunct_filter(row_count, 1);
         {
             bool can_be_filter_all = false;
-            RETURN_IF_ERROR(VExprContext::execute_conjuncts(
-                    _parent->_other_join_conjuncts, nullptr, output_block, &other_conjunct_filter,
-                    &can_be_filter_all));
+            RETURN_IF_ERROR(VExprContext::execute_conjuncts(_parent->_other_join_conjuncts, nullptr,
+                                                            output_block, &other_conjunct_filter,
+                                                            &can_be_filter_all));
         }
         DCHECK_EQ(filter.size(), other_conjunct_filter.size());
         const auto* other_filter_data = other_conjunct_filter.data();
@@ -592,8 +586,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(Block* output_b
         }
 
         auto result_column_id = output_block->columns();
-        output_block->insert(
-                {std::move(filter_column), std::make_shared<DataTypeUInt8>(), ""});
+        output_block->insert({std::move(filter_column), std::make_shared<DataTypeUInt8>(), ""});
         return finalize_block_with_filter(output_block, result_column_id, result_column_id);
     }
 }
@@ -612,16 +605,15 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(Block* output_
     IColumn::Filter other_conjunct_filter(row_count, 1);
     {
         bool can_be_filter_all = false;
-        RETURN_IF_ERROR(VExprContext::execute_conjuncts(
-                _parent->_other_join_conjuncts, nullptr, output_block, &other_conjunct_filter,
-                &can_be_filter_all));
+        RETURN_IF_ERROR(VExprContext::execute_conjuncts(_parent->_other_join_conjuncts, nullptr,
+                                                        output_block, &other_conjunct_filter,
+                                                        &can_be_filter_all));
     }
 
     auto filter_column = ColumnUInt8::create();
     filter_column->get_data() = std::move(other_conjunct_filter);
     auto result_column_id = output_block->columns();
-    output_block->insert(
-            {std::move(filter_column), std::make_shared<DataTypeUInt8>(), ""});
+    output_block->insert({std::move(filter_column), std::make_shared<DataTypeUInt8>(), ""});
     uint8_t* __restrict filter_column_ptr =
             assert_cast<ColumnUInt8&>(
                     output_block->get_by_position(result_column_id).column->assume_mutable_ref())
@@ -760,8 +752,8 @@ Status ProcessHashTableProbe<JoinOpType>::finish_probing(HashTableType& hash_tab
                 }
 
                 // mark column is nullable
-                auto* mark_column = assert_cast<ColumnNullable*>(
-                        mcol[_parent->_mark_column_id].get());
+                auto* mark_column =
+                        assert_cast<ColumnNullable*>(mcol[_parent->_mark_column_id].get());
                 mark_column->resize(block_size);
                 auto* null_map = mark_column->get_null_map_data().data();
                 auto* data = assert_cast<ColumnUInt8&>(mark_column->get_nested_column())
@@ -786,8 +778,7 @@ Status ProcessHashTableProbe<JoinOpType>::finish_probing(HashTableType& hash_tab
         if constexpr (JoinOpType == TJoinOp::RIGHT_OUTER_JOIN ||
                       JoinOpType == TJoinOp::FULL_OUTER_JOIN) {
             for (int i = 0; i < _right_col_idx; ++i) {
-                assert_cast<ColumnNullable*>(mcol[i].get())
-                        ->insert_many_defaults(block_size);
+                assert_cast<ColumnNullable*>(mcol[i].get())->insert_many_defaults(block_size);
             }
         }
         output_block->swap(mutable_block.to_block(0));
@@ -807,20 +798,20 @@ struct ExtractType<T(U)> {
 #define INSTANTIATION(JoinOpType, T)                                                               \
     template Status ProcessHashTableProbe<JoinOpType>::process<ExtractType<void(T)>::Type>(        \
             ExtractType<void(T)>::Type & hash_table_ctx, const uint8_t* null_map,                  \
-            MutableBlock& mutable_block, Block* output_block,              \
-            uint32_t probe_rows, bool is_mark_join);                                               \
+            MutableBlock& mutable_block, Block* output_block, uint32_t probe_rows,                 \
+            bool is_mark_join);                                                                    \
     template void                                                                                  \
     ProcessHashTableProbe<JoinOpType>::process_direct_return<ExtractType<void(T)>::Type>(          \
-            ExtractType<void(T)>::Type & hash_table_ctx, MutableBlock & mutable_block, \
-            Block * output_block, uint32_t probe_rows);                                \
+            ExtractType<void(T)>::Type & hash_table_ctx, MutableBlock & mutable_block,             \
+            Block * output_block, uint32_t probe_rows);                                            \
     template Status ProcessHashTableProbe<JoinOpType>::finish_probing<ExtractType<void(T)>::Type>( \
-            ExtractType<void(T)>::Type & hash_table_ctx, MutableBlock & mutable_block, \
+            ExtractType<void(T)>::Type & hash_table_ctx, MutableBlock & mutable_block,             \
             Block * output_block, bool* eos, bool is_mark_join);
 
-#define INSTANTIATION_FOR(JoinOpType)                                                    \
-    template struct ProcessHashTableProbe<JoinOpType>;                                   \
-                                                                                         \
-    INSTANTIATION(JoinOpType, (SerializedHashTableContext));                             \
+#define INSTANTIATION_FOR(JoinOpType)                                        \
+    template struct ProcessHashTableProbe<JoinOpType>;                       \
+                                                                             \
+    INSTANTIATION(JoinOpType, (SerializedHashTableContext));                 \
     INSTANTIATION(JoinOpType, (DirectPrimaryTypeHashTableContext<UInt8>));   \
     INSTANTIATION(JoinOpType, (DirectPrimaryTypeHashTableContext<UInt16>));  \
     INSTANTIATION(JoinOpType, (DirectPrimaryTypeHashTableContext<UInt32>));  \

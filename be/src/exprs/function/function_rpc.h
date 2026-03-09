@@ -47,13 +47,12 @@ class RPCFnImpl {
 public:
     RPCFnImpl(const TFunction& fn);
     ~RPCFnImpl() = default;
-    Status vec_call(FunctionContext* context, Block& block,
-                    const ColumnNumbers& arguments, uint32_t result, size_t input_rows_count);
+    Status vec_call(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                    uint32_t result, size_t input_rows_count);
     bool available() { return _client != nullptr; }
 
 private:
-    Status _convert_block_to_proto(Block& block,
-                                   const ColumnNumbers& arguments,
+    Status _convert_block_to_proto(Block& block, const ColumnNumbers& arguments,
                                    size_t input_rows_count, PFunctionCallRequest* request);
     Status _convert_to_block(Block& block, const PValues& result, size_t pos);
 

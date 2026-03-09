@@ -30,7 +30,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-
 class StreamingAggOperatorX;
 
 class StreamingAggLocalState MOCK_REMOVE(final) : public PipelineXLocalState<FakeSharedState> {
@@ -44,8 +43,7 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    Status do_pre_agg(RuntimeState* state, Block* input_block,
-                      Block* output_block);
+    Status do_pre_agg(RuntimeState* state, Block* input_block, Block* output_block);
     void make_nullable_output_key(Block* block);
     void build_limit_heap(size_t hash_table_size);
 
@@ -59,8 +57,7 @@ private:
     bool _do_limit_filter(size_t num_rows, ColumnRawPtrs& key_columns);
     void _refresh_limit_heap(size_t i, ColumnRawPtrs& key_columns);
 
-    Status _pre_agg_with_serialized_key(doris::Block* in_block,
-                                        doris::Block* out_block);
+    Status _pre_agg_with_serialized_key(doris::Block* in_block, doris::Block* out_block);
     bool _should_expand_preagg_hash_tables();
 
     MOCK_FUNCTION bool _should_not_do_pre_agg(size_t rows);
@@ -68,12 +65,10 @@ private:
     Status _execute_with_serialized_key(Block* block);
     void _update_memusage_with_serialized_key();
     Status _init_hash_method(const VExprContextSPtrs& probe_exprs);
-    Status _get_results_with_serialized_key(RuntimeState* state, Block* block,
-                                            bool* eos);
-    void _emplace_into_hash_table(AggregateDataPtr* places,
-                                  ColumnRawPtrs& key_columns, const uint32_t num_rows);
-    bool _emplace_into_hash_table_limit(AggregateDataPtr* places,
-                                        Block* block,
+    Status _get_results_with_serialized_key(RuntimeState* state, Block* block, bool* eos);
+    void _emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
+                                  const uint32_t num_rows);
+    bool _emplace_into_hash_table_limit(AggregateDataPtr* places, Block* block,
                                         ColumnRawPtrs& key_columns, uint32_t num_rows);
     Status _create_agg_status(AggregateDataPtr data);
     size_t _get_hash_table_size();
@@ -179,24 +174,23 @@ private:
     void _destroy_agg_status(AggregateDataPtr data);
 
     void _close_with_serialized_key() {
-        std::visit(
-                Overload {[&](std::monostate& arg) -> void {
-                                          // Do nothing
-                                      },
-                                      [&](auto& agg_method) -> void {
-                                          auto& data = *agg_method.hash_table;
-                                          data.for_each_mapped([&](auto& mapped) {
-                                              if (mapped) {
-                                                  _destroy_agg_status(mapped);
-                                                  mapped = nullptr;
-                                              }
-                                          });
-                                          if (data.has_null_key_data()) {
-                                              _destroy_agg_status(data.template get_null_key_data<
-                                                                  AggregateDataPtr>());
-                                          }
-                                      }},
-                _agg_data->method_variant);
+        std::visit(Overload {[&](std::monostate& arg) -> void {
+                                 // Do nothing
+                             },
+                             [&](auto& agg_method) -> void {
+                                 auto& data = *agg_method.hash_table;
+                                 data.for_each_mapped([&](auto& mapped) {
+                                     if (mapped) {
+                                         _destroy_agg_status(mapped);
+                                         mapped = nullptr;
+                                     }
+                                 });
+                                 if (data.has_null_key_data()) {
+                                     _destroy_agg_status(
+                                             data.template get_null_key_data<AggregateDataPtr>());
+                                 }
+                             }},
+                   _agg_data->method_variant);
     }
 };
 

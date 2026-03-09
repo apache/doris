@@ -151,8 +151,8 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
 
     Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
-        block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->type(), slot_desc->col_name()));
+        block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(), slot_desc->type(),
+                                           slot_desc->col_name()));
     }
     auto columns = block.mutate_columns();
     {

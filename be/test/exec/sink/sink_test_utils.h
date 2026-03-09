@@ -89,8 +89,7 @@ inline TExpr make_slot_ref_expr(TSlotId slot_id, TTupleId tuple_id) {
     return expr;
 }
 
-inline void build_desc_tbl_and_schema(doris::OperatorContext& ctx,
-                                      TOlapTableSchemaParam& tschema,
+inline void build_desc_tbl_and_schema(doris::OperatorContext& ctx, TOlapTableSchemaParam& tschema,
                                       TTupleId& tablet_sink_tuple_id, int64_t& schema_index_id,
                                       bool is_nullable = true) {
     TDescriptorTableBuilder dtb;

@@ -93,10 +93,10 @@ Status SchemaDatabasePropertiesScanner::get_onedb_info_from_fe(int64_t dbId) {
 
     _dbproperties_block = Block::create_unique();
     for (int i = 0; i < _s_tbls_columns.size(); ++i) {
-        auto data_type = DataTypeFactory::instance().create_data_type(
-                _s_tbls_columns[i].type, true);
-        _dbproperties_block->insert(ColumnWithTypeAndName(
-                data_type->create_column(), data_type, _s_tbls_columns[i].name));
+        auto data_type =
+                DataTypeFactory::instance().create_data_type(_s_tbls_columns[i].type, true);
+        _dbproperties_block->insert(ColumnWithTypeAndName(data_type->create_column(), data_type,
+                                                          _s_tbls_columns[i].name));
     }
     _dbproperties_block->reserve(_block_rows_limit);
     if (result_data.size() > 0) {
@@ -128,8 +128,7 @@ bool SchemaDatabasePropertiesScanner::check_and_mark_eos(bool* eos) const {
     return false;
 }
 
-Status SchemaDatabasePropertiesScanner::get_next_block_internal(Block* block,
-                                                                bool* eos) {
+Status SchemaDatabasePropertiesScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }

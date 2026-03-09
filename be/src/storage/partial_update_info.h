@@ -156,8 +156,7 @@ public:
                                 std::map<uint32_t, uint32_t>* read_index) const;
     Status fill_non_primary_key_columns(RowsetWriterContext* rowset_ctx,
                                         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-                                        const TabletSchema& tablet_schema,
-                                        Block& full_block,
+                                        const TabletSchema& tablet_schema, Block& full_block,
                                         const std::vector<bool>& use_default_or_null_flag,
                                         bool has_default_or_nullable, uint32_t segment_start_pos,
                                         uint32_t block_start_pos, const Block* block,
@@ -197,42 +196,36 @@ public:
     Status convert_seq_column(Block* block, size_t row_pos, size_t num_rows,
                               IOlapColumnDataAccessor*& seq_column);
     Status aggregate_for_flexible_partial_update(
-            Block* block, size_t num_rows,
-            const std::vector<RowsetSharedPtr>& specified_rowsets,
+            Block* block, size_t num_rows, const std::vector<RowsetSharedPtr>& specified_rowsets,
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
 
 private:
     Status aggregate_for_sequence_column(
-            Block* block, int num_rows,
-            const std::vector<IOlapColumnDataAccessor*>& key_columns,
+            Block* block, int num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
             IOlapColumnDataAccessor* seq_column,
             const std::vector<RowsetSharedPtr>& specified_rowsets,
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
     Status aggregate_for_insert_after_delete(
-            Block* block, size_t num_rows,
-            const std::vector<IOlapColumnDataAccessor*>& key_columns,
+            Block* block, size_t num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
             const std::vector<RowsetSharedPtr>& specified_rowsets,
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
-    Status filter_block(Block* block, size_t num_rows,
-                        MutableColumnPtr filter_column, int duplicate_rows,
-                        std::string col_name);
+    Status filter_block(Block* block, size_t num_rows, MutableColumnPtr filter_column,
+                        int duplicate_rows, std::string col_name);
 
-    Status fill_sequence_column(Block* block, size_t num_rows,
-                                const FixedReadPlan& read_plan,
+    Status fill_sequence_column(Block* block, size_t num_rows, const FixedReadPlan& read_plan,
                                 std::vector<BitmapValue>& skip_bitmaps);
 
-    void append_or_merge_row(MutableBlock& dst_block, Block* src_block,
-                             int rid, BitmapValue& skip_bitmap, bool have_delete_sign);
+    void append_or_merge_row(MutableBlock& dst_block, Block* src_block, int rid,
+                             BitmapValue& skip_bitmap, bool have_delete_sign);
     void merge_one_row(MutableBlock& dst_block, Block* src_block, int rid,
                        BitmapValue& skip_bitmap);
     void append_one_row(MutableBlock& dst_block, Block* src_block, int rid);
     void remove_last_n_rows(MutableBlock& dst_block, int n);
 
     // aggregate rows with same keys in range [start, end) from block to output_block
-    Status aggregate_rows(MutableBlock& output_block, Block* block,
-                          int start, int end, std::string key,
-                          std::vector<BitmapValue>* skip_bitmaps, const signed char* delete_signs,
-                          IOlapColumnDataAccessor* seq_column,
+    Status aggregate_rows(MutableBlock& output_block, Block* block, int start, int end,
+                          std::string key, std::vector<BitmapValue>* skip_bitmaps,
+                          const signed char* delete_signs, IOlapColumnDataAccessor* seq_column,
                           const std::vector<RowsetSharedPtr>& specified_rowsets,
                           std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
 

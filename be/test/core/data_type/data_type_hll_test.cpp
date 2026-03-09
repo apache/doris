@@ -147,12 +147,10 @@ TEST_P(DataTypeHLLTest, SerializeDeserializeAsStreamTest) {
     auto* column_res = assert_cast<ColumnHLL*>(c.get());
     column_res->resize(rows_value);
     for (size_t i = 0; i != rows_value; ++i) {
-        doris::DataTypeHLL::serialize_as_stream(column_data->get_element(i),
-                                                            buffer_writer);
+        doris::DataTypeHLL::serialize_as_stream(column_data->get_element(i), buffer_writer);
         buffer_writer.commit();
         BufferReadable buffer_readable(ser_col->get_data_at(i));
-        doris::DataTypeHLL::deserialize_as_stream(column_res->get_element(i),
-                                                              buffer_readable);
+        doris::DataTypeHLL::deserialize_as_stream(column_res->get_element(i), buffer_readable);
         ASSERT_EQ(column_data->get_data()[i].to_string(), column_res->get_data()[i].to_string());
     }
     std::cout << "finish serialize deserialize as stream test" << std::endl;

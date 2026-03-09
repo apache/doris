@@ -53,8 +53,8 @@ using DictHashMapVariants = std::variant<
         MethodKeysFixed<DictHashMap<UInt256>>>;
 
 struct DictionaryHashMapMethod
-        : public DataVariants<DictHashMapVariants, MethodSingleNullableColumn,
-                              MethodOneNumber, DataWithNullKey> {
+        : public DataVariants<DictHashMapVariants, MethodSingleNullableColumn, MethodOneNumber,
+                              DataWithNullKey> {
     void init(const std::vector<DataTypePtr>& data_types, HashKeyType type) {
         switch (type) {
         case HashKeyType::serialized:

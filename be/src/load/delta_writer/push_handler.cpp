@@ -454,8 +454,8 @@ Status PushBrokerReader::_init_src_block() {
                                         slot->col_name());
         }
         MutableColumnPtr data_column = data_type->create_column();
-        _src_block.insert(ColumnWithTypeAndName(std::move(data_column), data_type,
-                                                            slot->col_name()));
+        _src_block.insert(
+                ColumnWithTypeAndName(std::move(data_column), data_type, slot->col_name()));
         _src_block_name_to_idx.emplace(slot->col_name(), idx++);
     }
     _src_block_ptr = &_src_block;
@@ -485,9 +485,8 @@ Status PushBrokerReader::_cast_to_input_block() {
                                                     arg.column->size()));
             _src_block_ptr->get_by_position(idx).type = std::move(base64_return_type);
             auto& arg_base64 = _src_block_ptr->get_by_position(idx);
-            auto func_bitmap_from_base64 =
-                    SimpleFunctionFactory::instance().get_function(
-                            "bitmap_from_base64", {arg_base64}, return_type);
+            auto func_bitmap_from_base64 = SimpleFunctionFactory::instance().get_function(
+                    "bitmap_from_base64", {arg_base64}, return_type);
             RETURN_IF_ERROR(func_bitmap_from_base64->execute(nullptr, *_src_block_ptr, {idx}, idx,
                                                              arg_base64.column->size()));
             _src_block_ptr->get_by_position(idx).type = std::move(return_type);
@@ -501,8 +500,8 @@ Status PushBrokerReader::_cast_to_input_block() {
                                              ? "Decimal"
                                              : remove_nullable(return_type)->get_family_name())),
                      std::make_shared<DataTypeString>(), ""}};
-            auto func_cast = SimpleFunctionFactory::instance().get_function(
-                    "CAST", arguments, return_type);
+            auto func_cast =
+                    SimpleFunctionFactory::instance().get_function("CAST", arguments, return_type);
             RETURN_IF_ERROR(
                     func_cast->execute(nullptr, *_src_block_ptr, {idx}, idx, arg.column->size()));
             _src_block_ptr->get_by_position(idx).type = std::move(return_type);
@@ -538,16 +537,14 @@ Status PushBrokerReader::_convert_to_output_block(Block* block) {
         } else if (slot_desc->is_nullable()) {
             column_ptr = make_nullable(column_ptr);
         }
-        block->insert(dest_index,
-                      ColumnWithTypeAndName(column_ptr, slot_desc->get_data_type_ptr(),
+        block->insert(dest_index, ColumnWithTypeAndName(column_ptr, slot_desc->get_data_type_ptr(),
                                                         slot_desc->col_name()));
     }
     _src_block.clear();
 
     size_t dest_size = block->columns();
-    block->insert(ColumnWithTypeAndName(std::move(filter_column),
-                                                    std::make_shared<DataTypeUInt8>(),
-                                                    "filter column"));
+    block->insert(ColumnWithTypeAndName(std::move(filter_column), std::make_shared<DataTypeUInt8>(),
+                                        "filter column"));
     RETURN_IF_ERROR(Block::filter_block(block, dest_size, dest_size));
     return Status::OK();
 }
@@ -586,8 +583,7 @@ Status PushBrokerReader::_init_expr_ctxes() {
 
     if (!_pre_filter_texprs.empty()) {
         DCHECK(_pre_filter_texprs.size() == 1);
-        RETURN_IF_ERROR(
-                VExpr::create_expr_tree(_pre_filter_texprs[0], _pre_filter_ctx_ptr));
+        RETURN_IF_ERROR(VExpr::create_expr_tree(_pre_filter_texprs[0], _pre_filter_ctx_ptr));
         RETURN_IF_ERROR(_pre_filter_ctx_ptr->prepare(_runtime_state.get(), *_row_desc));
         RETURN_IF_ERROR(_pre_filter_ctx_ptr->open(_runtime_state.get()));
     }
@@ -638,11 +634,9 @@ Status PushBrokerReader::_get_next_reader() {
     Status init_status;
     switch (_file_params.format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
-        std::unique_ptr<ParquetReader> parquet_reader =
-                ParquetReader::create_unique(_runtime_profile, _file_params, range,
-                                                         _runtime_state->query_options().batch_size,
-                                                         &_runtime_state->timezone_obj(),
-                                                         _io_ctx.get(), _runtime_state.get());
+        std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
+                _runtime_profile, _file_params, range, _runtime_state->query_options().batch_size,
+                &_runtime_state->timezone_obj(), _io_ctx.get(), _runtime_state.get());
 
         init_status = parquet_reader->init_reader(
                 _all_col_names, &_col_name_to_block_idx, _push_down_exprs, _slot_id_to_predicates,

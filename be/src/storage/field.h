@@ -367,14 +367,17 @@ public:
                 return local;
             }
             case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-                std::unique_ptr<StorageField> item_field(StorageFieldFactory::create(column.get_sub_column(0)));
+                std::unique_ptr<StorageField> item_field(
+                        StorageFieldFactory::create(column.get_sub_column(0)));
                 auto* local = new ArrayField(column);
                 local->add_sub_field(std::move(item_field));
                 return local;
             }
             case FieldType::OLAP_FIELD_TYPE_MAP: {
-                std::unique_ptr<StorageField> key_field(StorageFieldFactory::create(column.get_sub_column(0)));
-                std::unique_ptr<StorageField> val_field(StorageFieldFactory::create(column.get_sub_column(1)));
+                std::unique_ptr<StorageField> key_field(
+                        StorageFieldFactory::create(column.get_sub_column(0)));
+                std::unique_ptr<StorageField> val_field(
+                        StorageFieldFactory::create(column.get_sub_column(1)));
                 auto* local = new MapField(column);
                 local->add_sub_field(std::move(key_field));
                 local->add_sub_field(std::move(val_field));
@@ -428,7 +431,8 @@ public:
                 return local;
             }
             case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-                std::unique_ptr<StorageField> item_field(StorageFieldFactory::create(column.get_sub_column(0)));
+                std::unique_ptr<StorageField> item_field(
+                        StorageFieldFactory::create(column.get_sub_column(0)));
                 auto* local = new ArrayField(column);
                 local->add_sub_field(std::move(item_field));
                 return local;
@@ -436,8 +440,10 @@ public:
             case FieldType::OLAP_FIELD_TYPE_MAP: {
                 DCHECK(column.get_subtype_count() == 2);
                 auto* local = new MapField(column);
-                std::unique_ptr<StorageField> key_field(StorageFieldFactory::create(column.get_sub_column(0)));
-                std::unique_ptr<StorageField> value_field(StorageFieldFactory::create(column.get_sub_column(1)));
+                std::unique_ptr<StorageField> key_field(
+                        StorageFieldFactory::create(column.get_sub_column(0)));
+                std::unique_ptr<StorageField> value_field(
+                        StorageFieldFactory::create(column.get_sub_column(1)));
                 local->add_sub_field(std::move(key_field));
                 local->add_sub_field(std::move(value_field));
                 return local;

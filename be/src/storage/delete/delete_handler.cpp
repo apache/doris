@@ -52,8 +52,8 @@ using ::google::protobuf::RepeatedPtrField;
 namespace doris {
 
 template <PrimitiveType PType>
-Status convert(const DataTypePtr& data_type, const std::string& str,
-               Arena& arena, typename PrimitiveTypeTraits<PType>::CppType& res) {
+Status convert(const DataTypePtr& data_type, const std::string& str, Arena& arena,
+               typename PrimitiveTypeTraits<PType>::CppType& res) {
     if constexpr (PType == TYPE_TINYINT || PType == TYPE_SMALLINT || PType == TYPE_INT ||
                   PType == TYPE_BIGINT || PType == TYPE_LARGEINT) {
         CastParameters parameters;
@@ -75,8 +75,8 @@ Status convert(const DataTypePtr& data_type, const std::string& str,
     }
     if constexpr (PType == TYPE_DATE) {
         CastParameters parameters;
-        if (!CastToDateOrDatetime::from_string<false>({str.data(), str.size()}, res,
-                                                                  nullptr, parameters)) {
+        if (!CastToDateOrDatetime::from_string<false>({str.data(), str.size()}, res, nullptr,
+                                                      parameters)) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
                     str);
@@ -85,8 +85,8 @@ Status convert(const DataTypePtr& data_type, const std::string& str,
     }
     if constexpr (PType == TYPE_DATETIME) {
         CastParameters parameters;
-        if (!CastToDateOrDatetime::from_string<true>({str.data(), str.size()}, res,
-                                                                 nullptr, parameters)) {
+        if (!CastToDateOrDatetime::from_string<true>({str.data(), str.size()}, res, nullptr,
+                                                     parameters)) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
                     str);
@@ -95,8 +95,7 @@ Status convert(const DataTypePtr& data_type, const std::string& str,
     }
     if constexpr (PType == TYPE_DATEV2) {
         CastParameters parameters;
-        if (!CastToDateV2::from_string({str.data(), str.size()}, res, nullptr,
-                                                   parameters)) {
+        if (!CastToDateV2::from_string({str.data(), str.size()}, res, nullptr, parameters)) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
                     str);
@@ -106,7 +105,7 @@ Status convert(const DataTypePtr& data_type, const std::string& str,
     if constexpr (PType == TYPE_DATETIMEV2) {
         CastParameters parameters;
         if (!CastToDatetimeV2::from_string({str.data(), str.size()}, res, nullptr,
-                                                       data_type->get_scale(), parameters)) {
+                                           data_type->get_scale(), parameters)) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
                     str);
@@ -115,8 +114,8 @@ Status convert(const DataTypePtr& data_type, const std::string& str,
     }
     if constexpr (PType == TYPE_TIMESTAMPTZ) {
         CastParameters parameters;
-        if (!CastToTimstampTz::from_string({str.data(), str.size()}, res, parameters,
-                                                       nullptr, data_type->get_scale())) {
+        if (!CastToTimstampTz::from_string({str.data(), str.size()}, res, parameters, nullptr,
+                                           data_type->get_scale())) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
                     str);
@@ -124,9 +123,7 @@ Status convert(const DataTypePtr& data_type, const std::string& str,
         return Status::OK();
     }
     if constexpr (PType == TYPE_CHAR) {
-        size_t target = assert_cast<const DataTypeString*>(
-                                remove_nullable(data_type).get())
-                                ->len();
+        size_t target = assert_cast<const DataTypeString*>(remove_nullable(data_type).get())->len();
         res = {str.data(), str.size()};
         if (target > str.size()) {
             char* buffer = arena.alloc(target);
@@ -174,9 +171,8 @@ Status convert(const DataTypePtr& data_type, const std::string& str,
     if constexpr (PType == TYPE_DECIMALV2) {
         CastParameters parameters;
         Decimal128V2 tmp;
-        if (!CastToDecimal::from_string({str.data(), str.size()}, tmp,
-                                                    data_type->get_precision(),
-                                                    data_type->get_scale(), parameters)) {
+        if (!CastToDecimal::from_string({str.data(), str.size()}, tmp, data_type->get_precision(),
+                                        data_type->get_scale(), parameters)) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
                     str);
@@ -185,9 +181,8 @@ Status convert(const DataTypePtr& data_type, const std::string& str,
         return Status::OK();
     } else if constexpr (is_decimal(PType)) {
         CastParameters parameters;
-        if (!CastToDecimal::from_string({str.data(), str.size()}, res,
-                                                    data_type->get_precision(),
-                                                    data_type->get_scale(), parameters)) {
+        if (!CastToDecimal::from_string({str.data(), str.size()}, res, data_type->get_precision(),
+                                        data_type->get_scale(), parameters)) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
                     str);
@@ -209,8 +204,8 @@ Status convert(const DataTypePtr& data_type, const std::string& str,
         }                                                              \
         return Status::OK();                                           \
     }
-Status convert(const DataTypePtr& data_type, const std::list<std::string>& str,
-               Arena& arena, std::shared_ptr<HybridSetBase>& set) {
+Status convert(const DataTypePtr& data_type, const std::list<std::string>& str, Arena& arena,
+               std::shared_ptr<HybridSetBase>& set) {
     switch (data_type->get_primitive_type()) {
         CONVERT_CASE(TYPE_TINYINT);
         CONVERT_CASE(TYPE_SMALLINT);
@@ -248,7 +243,7 @@ Status convert(const DataTypePtr& data_type, const std::list<std::string>& str,
     case PType: {                                                                                 \
         typename PrimitiveTypeTraits<PType>::CppType tmp;                                         \
         RETURN_IF_ERROR(convert<PType>(type, res.value_str.front(), arena, tmp));                 \
-        v = Field::create_field<PType>(tmp);                                          \
+        v = Field::create_field<PType>(tmp);                                                      \
         switch (res.condition_op) {                                                               \
         case PredicateType::EQ:                                                                   \
             predicate = create_comparison_predicate<PredicateType::EQ>(index, col_name, type, v,  \
@@ -279,8 +274,7 @@ Status convert(const DataTypePtr& data_type, const std::list<std::string>& str,
                     "invalid condition operator. operator={}", type_to_op_str(res.condition_op)); \
         }                                                                                         \
     }
-Status parse_to_predicate(const uint32_t index, const std::string col_name,
-                          const DataTypePtr& type,
+Status parse_to_predicate(const uint32_t index, const std::string col_name, const DataTypePtr& type,
                           DeleteHandler::ConditionParseResult& res, Arena& arena,
                           std::shared_ptr<ColumnPredicate>& predicate) {
     DCHECK_EQ(res.value_str.size(), 1);
@@ -358,9 +352,8 @@ Status parse_to_predicate(const uint32_t index, const std::string col_name,
 }
 
 Status parse_to_in_predicate(const uint32_t index, const std::string& col_name,
-                             const DataTypePtr& type,
-                             DeleteHandler::ConditionParseResult& res, Arena& arena,
-                             std::shared_ptr<ColumnPredicate>& predicate) {
+                             const DataTypePtr& type, DeleteHandler::ConditionParseResult& res,
+                             Arena& arena, std::shared_ptr<ColumnPredicate>& predicate) {
     DCHECK_GT(res.value_str.size(), 1);
     switch (res.condition_op) {
     case PredicateType::IN_LIST: {

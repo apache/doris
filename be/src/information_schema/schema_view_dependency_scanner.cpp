@@ -87,8 +87,8 @@ Status SchemaViewDependencyScanner::_get_view_dependency_block_from_fe() {
     for (int i = 0; i < _s_view_dependency_columns.size(); ++i) {
         auto data_type = DataTypeFactory::instance().create_data_type(
                 _s_view_dependency_columns[i].type, true);
-        _view_dependency_block->insert(ColumnWithTypeAndName(
-                data_type->create_column(), data_type, _s_view_dependency_columns[i].name));
+        _view_dependency_block->insert(ColumnWithTypeAndName(data_type->create_column(), data_type,
+                                                             _s_view_dependency_columns[i].name));
     }
 
     _view_dependency_block->reserve(_block_rows_limit);

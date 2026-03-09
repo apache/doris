@@ -42,8 +42,8 @@ struct AggregateFunctiontest : public testing::Test {
 private:
     void execute_single(Block block, ColumnWithTypeAndName expected_column) const {
         Arena arena;
-        auto* place = reinterpret_cast<AggregateDataPtr>(
-                arena.alloc(agg_fn->function()->size_of_data()));
+        auto* place =
+                reinterpret_cast<AggregateDataPtr>(arena.alloc(agg_fn->function()->size_of_data()));
 
         agg_fn->create(place);
 

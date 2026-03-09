@@ -82,12 +82,12 @@ protected:
     void _update_memusage_with_serialized_key();
     template <bool limit>
     Status _execute_with_serialized_key_helper(Block* block);
-    void _find_in_hash_table(AggregateDataPtr* places,
-                             ColumnRawPtrs& key_columns, uint32_t num_rows);
-    void _emplace_into_hash_table(AggregateDataPtr* places,
-                                  ColumnRawPtrs& key_columns, uint32_t num_rows);
-    bool _emplace_into_hash_table_limit(AggregateDataPtr* places,
-                                        Block* block, const std::vector<int>& key_locs,
+    void _find_in_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
+                             uint32_t num_rows);
+    void _emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
+                                  uint32_t num_rows);
+    bool _emplace_into_hash_table_limit(AggregateDataPtr* places, Block* block,
+                                        const std::vector<int>& key_locs,
                                         ColumnRawPtrs& key_columns, uint32_t num_rows);
     size_t _get_hash_table_size() const;
 

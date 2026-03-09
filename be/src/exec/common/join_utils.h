@@ -38,38 +38,29 @@ using JoinOpVariants =
                      std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>>;
 
 template <class T>
-using PrimaryTypeHashTableContext =
-        MethodOneNumber<T, JoinHashMap<T, HashCRC32<T>, false>>;
+using PrimaryTypeHashTableContext = MethodOneNumber<T, JoinHashMap<T, HashCRC32<T>, false>>;
 
 template <class T>
 using DirectPrimaryTypeHashTableContext =
         MethodOneNumberDirect<T, JoinHashMap<T, HashCRC32<T>, true>>;
 
 template <class Key>
-using FixedKeyHashTableContext =
-        MethodKeysFixed<JoinHashMap<Key, HashCRC32<Key>, false>>;
+using FixedKeyHashTableContext = MethodKeysFixed<JoinHashMap<Key, HashCRC32<Key>, false>>;
 
 using SerializedHashTableContext =
         MethodSerialized<JoinHashMap<StringRef, DefaultHash<StringRef>, false>>;
-using MethodOneString =
-        MethodStringNoCache<JoinHashMap<StringRef, DefaultHash<StringRef>, false>>;
+using MethodOneString = MethodStringNoCache<JoinHashMap<StringRef, DefaultHash<StringRef>, false>>;
 
 using HashTableVariants = std::variant<
         std::monostate, SerializedHashTableContext, PrimaryTypeHashTableContext<UInt8>,
-        PrimaryTypeHashTableContext<UInt16>,
-        PrimaryTypeHashTableContext<UInt32>,
-        PrimaryTypeHashTableContext<UInt64>,
-        PrimaryTypeHashTableContext<UInt128>,
-        PrimaryTypeHashTableContext<UInt256>,
-        DirectPrimaryTypeHashTableContext<UInt8>,
-        DirectPrimaryTypeHashTableContext<UInt16>,
-        DirectPrimaryTypeHashTableContext<UInt32>,
-        DirectPrimaryTypeHashTableContext<UInt64>,
-        DirectPrimaryTypeHashTableContext<UInt128>,
+        PrimaryTypeHashTableContext<UInt16>, PrimaryTypeHashTableContext<UInt32>,
+        PrimaryTypeHashTableContext<UInt64>, PrimaryTypeHashTableContext<UInt128>,
+        PrimaryTypeHashTableContext<UInt256>, DirectPrimaryTypeHashTableContext<UInt8>,
+        DirectPrimaryTypeHashTableContext<UInt16>, DirectPrimaryTypeHashTableContext<UInt32>,
+        DirectPrimaryTypeHashTableContext<UInt64>, DirectPrimaryTypeHashTableContext<UInt128>,
         FixedKeyHashTableContext<UInt64>, FixedKeyHashTableContext<UInt72>,
         FixedKeyHashTableContext<UInt96>, FixedKeyHashTableContext<UInt104>,
-        FixedKeyHashTableContext<UInt128>,
-        FixedKeyHashTableContext<UInt136>,
+        FixedKeyHashTableContext<UInt128>, FixedKeyHashTableContext<UInt136>,
         FixedKeyHashTableContext<UInt256>, MethodOneString>;
 
 struct JoinDataVariants {
@@ -102,32 +93,25 @@ struct JoinDataVariants {
             method_variant.emplace<MethodOneString>();
             break;
         case HashKeyType::fixed64:
-            method_variant.emplace<FixedKeyHashTableContext<UInt64>>(
-                    get_key_sizes(data_types));
+            method_variant.emplace<FixedKeyHashTableContext<UInt64>>(get_key_sizes(data_types));
             break;
         case HashKeyType::fixed72:
-            method_variant.emplace<FixedKeyHashTableContext<UInt72>>(
-                    get_key_sizes(data_types));
+            method_variant.emplace<FixedKeyHashTableContext<UInt72>>(get_key_sizes(data_types));
             break;
         case HashKeyType::fixed96:
-            method_variant.emplace<FixedKeyHashTableContext<UInt96>>(
-                    get_key_sizes(data_types));
+            method_variant.emplace<FixedKeyHashTableContext<UInt96>>(get_key_sizes(data_types));
             break;
         case HashKeyType::fixed104:
-            method_variant.emplace<FixedKeyHashTableContext<UInt104>>(
-                    get_key_sizes(data_types));
+            method_variant.emplace<FixedKeyHashTableContext<UInt104>>(get_key_sizes(data_types));
             break;
         case HashKeyType::fixed128:
-            method_variant.emplace<FixedKeyHashTableContext<UInt128>>(
-                    get_key_sizes(data_types));
+            method_variant.emplace<FixedKeyHashTableContext<UInt128>>(get_key_sizes(data_types));
             break;
         case HashKeyType::fixed136:
-            method_variant.emplace<FixedKeyHashTableContext<UInt136>>(
-                    get_key_sizes(data_types));
+            method_variant.emplace<FixedKeyHashTableContext<UInt136>>(get_key_sizes(data_types));
             break;
         case HashKeyType::fixed256:
-            method_variant.emplace<FixedKeyHashTableContext<UInt256>>(
-                    get_key_sizes(data_types));
+            method_variant.emplace<FixedKeyHashTableContext<UInt256>>(get_key_sizes(data_types));
             break;
         default:
             throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -145,11 +129,10 @@ void primary_to_direct_mapping(Method* context, const ColumnRawPtrs& key_columns
 
     size_t num_rows = key_columns[0]->size();
     if (key_columns[0]->is_nullable()) {
-        const FieldType* input_keys =
-                (FieldType*)assert_cast<const ColumnNullable*>(key_columns[0])
-                        ->get_nested_column_ptr()
-                        ->get_raw_data()
-                        .data;
+        const FieldType* input_keys = (FieldType*)assert_cast<const ColumnNullable*>(key_columns[0])
+                                              ->get_nested_column_ptr()
+                                              ->get_raw_data()
+                                              .data;
         const NullMap& null_map =
                 assert_cast<const ColumnNullable*>(key_columns[0])->get_null_map_data();
         // skip first mocked row
@@ -185,36 +168,31 @@ void try_convert_to_direct_mapping(
         const std::vector<std::shared_ptr<JoinDataVariants>>& variant_ptrs) {}
 
 inline void try_convert_to_direct_mapping(
-        PrimaryTypeHashTableContext<UInt8>* context,
-        const ColumnRawPtrs& key_columns,
+        PrimaryTypeHashTableContext<UInt8>* context, const ColumnRawPtrs& key_columns,
         const std::vector<std::shared_ptr<JoinDataVariants>>& variant_ptrs) {
     primary_to_direct_mapping(context, key_columns, variant_ptrs);
 }
 
 inline void try_convert_to_direct_mapping(
-        PrimaryTypeHashTableContext<UInt16>* context,
-        const ColumnRawPtrs& key_columns,
+        PrimaryTypeHashTableContext<UInt16>* context, const ColumnRawPtrs& key_columns,
         const std::vector<std::shared_ptr<JoinDataVariants>>& variant_ptrs) {
     primary_to_direct_mapping(context, key_columns, variant_ptrs);
 }
 
 inline void try_convert_to_direct_mapping(
-        PrimaryTypeHashTableContext<UInt32>* context,
-        const ColumnRawPtrs& key_columns,
+        PrimaryTypeHashTableContext<UInt32>* context, const ColumnRawPtrs& key_columns,
         const std::vector<std::shared_ptr<JoinDataVariants>>& variant_ptrs) {
     primary_to_direct_mapping(context, key_columns, variant_ptrs);
 }
 
 inline void try_convert_to_direct_mapping(
-        PrimaryTypeHashTableContext<UInt64>* context,
-        const ColumnRawPtrs& key_columns,
+        PrimaryTypeHashTableContext<UInt64>* context, const ColumnRawPtrs& key_columns,
         const std::vector<std::shared_ptr<JoinDataVariants>>& variant_ptrs) {
     primary_to_direct_mapping(context, key_columns, variant_ptrs);
 }
 
 inline void try_convert_to_direct_mapping(
-        PrimaryTypeHashTableContext<UInt128>* context,
-        const ColumnRawPtrs& key_columns,
+        PrimaryTypeHashTableContext<UInt128>* context, const ColumnRawPtrs& key_columns,
         const std::vector<std::shared_ptr<JoinDataVariants>>& variant_ptrs) {
     primary_to_direct_mapping(context, key_columns, variant_ptrs);
 }

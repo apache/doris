@@ -235,14 +235,13 @@ Status OperatorXBase::prepare(RuntimeState* state) {
     };
 
     for (int i = 0; i < _intermediate_projections.size(); i++) {
-        RETURN_IF_ERROR(VExpr::prepare(_intermediate_projections[i], state,
-                                                   intermediate_row_desc(i)));
+        RETURN_IF_ERROR(
+                VExpr::prepare(_intermediate_projections[i], state, intermediate_row_desc(i)));
     }
     RETURN_IF_ERROR(VExpr::prepare(_projections, state, projections_row_desc()));
 
     if (has_output_row_desc()) {
-        RETURN_IF_ERROR(
-                VExpr::check_expr_output_type(_projections, *_output_row_descriptor));
+        RETURN_IF_ERROR(VExpr::check_expr_output_type(_projections, *_output_row_descriptor));
     }
 
     for (auto& conjunct : _conjuncts) {
@@ -290,8 +289,7 @@ void PipelineXLocalStateBase::clear_origin_block() {
     _origin_block.clear_column_data(_parent->intermediate_row_desc().num_materialized_slots());
 }
 
-Status PipelineXLocalStateBase::filter_block(const VExprContextSPtrs& expr_contexts,
-                                             Block* block) {
+Status PipelineXLocalStateBase::filter_block(const VExprContextSPtrs& expr_contexts, Block* block) {
     RETURN_IF_ERROR(VExprContext::filter_block(expr_contexts, block, block->columns()));
 
     _estimate_memory_usage += VExprContext::get_memory_usage(expr_contexts);
@@ -299,9 +297,8 @@ Status PipelineXLocalStateBase::filter_block(const VExprContextSPtrs& expr_conte
 }
 
 bool PipelineXLocalStateBase::is_blockable() const {
-    return std::any_of(
-            _projections.begin(), _projections.end(),
-            [&](VExprContextSPtr expr) -> bool { return expr->is_blockable(); });
+    return std::any_of(_projections.begin(), _projections.end(),
+                       [&](VExprContextSPtr expr) -> bool { return expr->is_blockable(); });
 }
 
 Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
@@ -365,8 +362,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
     };
 
     MutableBlock mutable_block =
-            VectorizedUtils::build_mutable_mem_reuse_block(output_block,
-                                                                       *_output_row_descriptor);
+            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
         const size_t origin_columns_count = input_block.columns();
@@ -396,8 +392,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
     return Status::OK();
 }
 
-Status OperatorXBase::get_block_after_projects(RuntimeState* state, Block* block,
-                                               bool* eos) {
+Status OperatorXBase::get_block_after_projects(RuntimeState* state, Block* block, bool* eos) {
     DBUG_EXECUTE_IF("Pipeline::return_empty_block", {
         if (this->_op_name == "AGGREGATION_OPERATOR" || this->_op_name == "HASH_JOIN_OPERATOR" ||
             this->_op_name == "PARTITIONED_AGGREGATION_OPERATOR" ||
@@ -713,15 +708,13 @@ Status PipelineXSinkLocalState<SharedState>::close(RuntimeState* state, Status e
 }
 
 template <typename LocalStateType>
-Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, Block* block,
-                                                     bool* eos) {
+Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, Block* block, bool* eos) {
     RETURN_IF_ERROR(OperatorX<LocalStateType>::_child->get_block_after_projects(state, block, eos));
     return pull(state, block, eos);
 }
 
 template <typename LocalStateType>
-Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, Block* block,
-                                                    bool* eos) {
+Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     if (need_more_input_data(state)) {
         local_state._child_block->clear_column_data(
@@ -780,8 +773,7 @@ Status AsyncWriterSink<Writer, Parent>::open(RuntimeState* state) {
 
 template <typename Writer, typename Parent>
     requires(std::is_base_of_v<AsyncResultWriter, Writer>)
-Status AsyncWriterSink<Writer, Parent>::sink(RuntimeState* state, Block* block,
-                                             bool eos) {
+Status AsyncWriterSink<Writer, Parent>::sink(RuntimeState* state, Block* block, bool eos) {
     return _writer->sink(block, eos);
 }
 
@@ -941,8 +933,7 @@ template class AsyncWriterSink<doris::VTabletWriter, OlapTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VTabletWriterV2, OlapTableSinkV2OperatorX>;
 template class AsyncWriterSink<doris::VHiveTableWriter, HiveTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VIcebergTableWriter, IcebergTableSinkOperatorX>;
-template class AsyncWriterSink<doris::VIcebergTableWriter,
-                               SpillIcebergTableSinkOperatorX>;
+template class AsyncWriterSink<doris::VIcebergTableWriter, SpillIcebergTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VMCTableWriter, MCTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VTVFTableWriter, TVFTableSinkOperatorX>;
 

@@ -53,9 +53,9 @@ class VExprContext;
 namespace doris {
 #include "common/compile_check_begin.h"
 
-MetaScanner::MetaScanner(RuntimeState* state, ScanLocalStateBase* local_state,
-                         TupleId tuple_id, const TScanRangeParams& scan_range, int64_t limit,
-                         RuntimeProfile* profile, TUserIdentity user_identity)
+MetaScanner::MetaScanner(RuntimeState* state, ScanLocalStateBase* local_state, TupleId tuple_id,
+                         const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile,
+                         TUserIdentity user_identity)
         : Scanner(state, local_state, limit, profile),
           _meta_eos(false),
           _tuple_id(tuple_id),
@@ -222,8 +222,7 @@ Status MetaScanner::_fill_block_with_remote_data(const std::vector<MutableColumn
                 case TYPE_CHAR:
                 case TYPE_VARCHAR: {
                     std::string data = cell.stringVal;
-                    assert_cast<ColumnString*>(col_ptr)->insert_data(data.c_str(),
-                                                                                 data.length());
+                    assert_cast<ColumnString*>(col_ptr)->insert_data(data.c_str(), data.length());
                     break;
                 }
                 default: {

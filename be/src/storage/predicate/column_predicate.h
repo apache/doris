@@ -269,9 +269,7 @@ public:
 
     virtual bool evaluate_del(const segment_v2::ZoneMap& zone_map) const { return false; }
 
-    virtual bool evaluate_and(const ParquetBlockSplitBloomFilter* bf) const {
-        return true;
-    }
+    virtual bool evaluate_and(const ParquetBlockSplitBloomFilter* bf) const { return true; }
 
     virtual bool evaluate_and(const BloomFilter* bf) const { return true; }
 
@@ -303,8 +301,7 @@ public:
     virtual void evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const {
         DCHECK(false) << "should not reach here";
     }
-    virtual void evaluate_and_vec(const IColumn& column, uint16_t size,
-                                  bool* flags) const {
+    virtual void evaluate_and_vec(const IColumn& column, uint16_t size, bool* flags) const {
         DCHECK(false) << "should not reach here";
     }
 
@@ -397,8 +394,7 @@ public:
 
 protected:
     virtual bool _can_ignore() const { return _runtime_filter_id != -1; }
-    virtual uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel,
-                                     uint16_t size) const {
+    virtual uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const {
         throw Exception(INTERNAL_ERROR, "Not Implemented _evaluate_inner");
     }
 

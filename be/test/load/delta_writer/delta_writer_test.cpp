@@ -557,8 +557,8 @@ TEST_F(TestDeltaWriter, vec_write) {
 
     Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
-        block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->type(), slot_desc->col_name()));
+        block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(), slot_desc->type(),
+                                           slot_desc->col_name()));
     }
 
     auto columns = block.mutate_columns();
@@ -720,8 +720,8 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
 
     Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
-        block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->type(), slot_desc->col_name()));
+        block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(), slot_desc->type(),
+                                           slot_desc->col_name()));
     }
 
     generate_data(&block, 123, 456, 100);
@@ -844,8 +844,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         Block block;
         for (const auto& slot_desc : tuple_desc->slots()) {
             block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                           slot_desc->type(),
-                                                           slot_desc->col_name()));
+                                               slot_desc->type(), slot_desc->col_name()));
         }
 
         generate_data(&block, 10, 123, 100);
@@ -874,8 +873,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         Block block;
         for (const auto& slot_desc : tuple_desc->slots()) {
             block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                           slot_desc->type(),
-                                                           slot_desc->col_name()));
+                                               slot_desc->type(), slot_desc->col_name()));
         }
 
         generate_data(&block, 10, 123, 110);

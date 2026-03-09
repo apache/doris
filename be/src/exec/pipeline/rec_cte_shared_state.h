@@ -57,37 +57,36 @@ struct RecCTESharedState : public BasicSharedState {
                 raw_columns.push_back(col.get());
             }
 
-            std::visit(Overload {
-                               [&](std::monostate& arg) -> void {
-                                   throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                                          "uninited hash table");
-                               },
-                               [&](auto& agg_method) -> void {
-                                   SCOPED_TIMER(hash_table_compute_timer);
-                                   using HashMethodType = std::decay_t<decltype(agg_method)>;
-                                   using AggState = typename HashMethodType::State;
+            std::visit(Overload {[&](std::monostate& arg) -> void {
+                                     throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                            "uninited hash table");
+                                 },
+                                 [&](auto& agg_method) -> void {
+                                     SCOPED_TIMER(hash_table_compute_timer);
+                                     using HashMethodType = std::decay_t<decltype(agg_method)>;
+                                     using AggState = typename HashMethodType::State;
 
-                                   AggState agg_state(raw_columns);
-                                   agg_method.init_serialized_keys(raw_columns, num_rows);
-                                   distinct_row.clear();
+                                     AggState agg_state(raw_columns);
+                                     agg_method.init_serialized_keys(raw_columns, num_rows);
+                                     distinct_row.clear();
 
-                                   size_t row = 0;
-                                   auto creator = [&](const auto& ctor, auto& key, auto& origin) {
-                                       HashMethodType::try_presis_key(key, origin, arena);
-                                       ctor(key);
-                                       distinct_row.push_back(row);
-                                   };
-                                   auto creator_for_null_key = [&]() {
-                                       distinct_row.push_back(row);
-                                   };
+                                     size_t row = 0;
+                                     auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                                         HashMethodType::try_presis_key(key, origin, arena);
+                                         ctor(key);
+                                         distinct_row.push_back(row);
+                                     };
+                                     auto creator_for_null_key = [&]() {
+                                         distinct_row.push_back(row);
+                                     };
 
-                                   SCOPED_TIMER(hash_table_emplace_timer);
-                                   for (; row < num_rows; ++row) {
-                                       agg_method.lazy_emplace(agg_state, row, creator,
-                                                               creator_for_null_key);
-                                   }
-                                   COUNTER_UPDATE(hash_table_input_counter, num_rows);
-                               }},
+                                     SCOPED_TIMER(hash_table_emplace_timer);
+                                     for (; row < num_rows; ++row) {
+                                         agg_method.lazy_emplace(agg_state, row, creator,
+                                                                 creator_for_null_key);
+                                     }
+                                     COUNTER_UPDATE(hash_table_input_counter, num_rows);
+                                 }},
                        agg_data->method_variant);
 
             if (distinct_row.size() == block.rows()) {

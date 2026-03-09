@@ -109,8 +109,7 @@ struct CommonFindOp {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& col = nullable->get_nested_column();
             const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
+                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
 
             const T* data = (T*)col.get_raw_data().data;
             for (size_t i = start; i < size; i++) {
@@ -136,18 +135,16 @@ struct CommonFindOp {
         }
     }
 
-    static void find_batch(const BloomFilterAdaptor& bloom_filter,
-                           const ColumnPtr& column, uint8_t* results,
-                           const uint8_t* __restrict filter) {
+    static void find_batch(const BloomFilterAdaptor& bloom_filter, const ColumnPtr& column,
+                           uint8_t* results, const uint8_t* __restrict filter) {
         const T* __restrict data = nullptr;
         const uint8_t* __restrict nullmap = nullptr;
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             if (nullable->has_null()) {
-                nullmap =
-                        assert_cast<const ColumnUInt8&>(nullable->get_null_map_column())
-                                .get_data()
-                                .data();
+                nullmap = assert_cast<const ColumnUInt8&>(nullable->get_null_map_column())
+                                  .get_data()
+                                  .data();
             }
             data = (T*)nullable->get_nested_column().get_raw_data().data;
         } else {
@@ -193,12 +190,11 @@ struct StringFindOp : CommonFindOp<fixed_len_to_uint32_method, StringRef> {
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
+                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
             if (nullable->get_nested_column().is_column_string64()) {
-                _insert_batch_col_str(assert_cast<const ColumnString64&>(
-                                              nullable->get_nested_column()),
-                                      nullmap.data(), start, nullmap.size());
+                _insert_batch_col_str(
+                        assert_cast<const ColumnString64&>(nullable->get_nested_column()),
+                        nullmap.data(), start, nullmap.size());
             } else {
                 _insert_batch_col_str(
                         assert_cast<const ColumnString&>(nullable->get_nested_column()),
@@ -206,25 +202,22 @@ struct StringFindOp : CommonFindOp<fixed_len_to_uint32_method, StringRef> {
             }
         } else {
             if (column->is_column_string64()) {
-                _insert_batch_col_str(assert_cast<const ColumnString64&>(*column),
-                                      nullptr, start, column->size());
+                _insert_batch_col_str(assert_cast<const ColumnString64&>(*column), nullptr, start,
+                                      column->size());
             } else {
-                _insert_batch_col_str(assert_cast<const ColumnString&>(*column),
-                                      nullptr, start, column->size());
+                _insert_batch_col_str(assert_cast<const ColumnString&>(*column), nullptr, start,
+                                      column->size());
             }
         }
     }
 
-    static void find_batch(const BloomFilterAdaptor& bloom_filter,
-                           const ColumnPtr& column, uint8_t* results,
-                           const uint8_t* __restrict filter) {
+    static void find_batch(const BloomFilterAdaptor& bloom_filter, const ColumnPtr& column,
+                           uint8_t* results, const uint8_t* __restrict filter) {
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
-            const auto& col =
-                    assert_cast<const ColumnString&>(nullable->get_nested_column());
+            const auto& col = assert_cast<const ColumnString&>(nullable->get_nested_column());
             const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
+                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
             if (nullable->has_null()) {
                 auto update = [&](size_t i) {
                     if (!nullmap[i]) {

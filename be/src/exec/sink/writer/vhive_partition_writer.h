@@ -34,7 +34,6 @@ class RuntimeState;
 class RuntimeProfile;
 class THiveColumn;
 
-
 class Block;
 class VFileFormatTransformer;
 

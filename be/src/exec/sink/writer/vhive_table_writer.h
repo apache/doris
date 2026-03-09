@@ -31,7 +31,6 @@ class ObjectPool;
 class RuntimeState;
 class RuntimeProfile;
 
-
 class Block;
 class VHivePartitionWriter;
 struct ColumnWithTypeAndName;
@@ -39,8 +38,7 @@ struct ColumnWithTypeAndName;
 class VHiveTableWriter final : public AsyncResultWriter {
 public:
     VHiveTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                     std::shared_ptr<Dependency> dep,
-                     std::shared_ptr<Dependency> fin_dep);
+                     std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
 
     ~VHiveTableWriter() override = default;
 

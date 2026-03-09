@@ -27,7 +27,6 @@
 namespace doris {
 
 TEST(DataGenSourceOperatorTest, testRows) {
-
     OperatorContext ctx;
 
     DataGenSourceOperatorX op;
@@ -57,7 +56,6 @@ TEST(DataGenSourceOperatorTest, testRows) {
 }
 
 TEST(DataGenSourceOperatorTest, testtotalNumbers) {
-
     OperatorContext ctx;
 
     DataGenSourceOperatorX op;
@@ -91,7 +89,6 @@ TEST(DataGenSourceOperatorTest, testtotalNumbers) {
 }
 
 TEST(DataGenSourceOperatorTest, testConst) {
-
     OperatorContext ctx;
 
     DataGenSourceOperatorX op;

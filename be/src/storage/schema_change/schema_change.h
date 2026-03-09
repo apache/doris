@@ -85,8 +85,7 @@ public:
     bool has_where() const { return _where_expr != nullptr; }
 
 private:
-    static Status _check_cast_valid(ColumnPtr ref_column,
-                                    ColumnPtr new_column);
+    static Status _check_cast_valid(ColumnPtr ref_column, ColumnPtr new_column);
 
     // @brief column-mapping specification of new schema
     SchemaMapping _schema_mapping;
@@ -216,9 +215,8 @@ public:
                           TabletSchemaSPtr new_tablet_schema) override;
 
     virtual Result<RowsetSharedPtr> _internal_sorting(
-            const std::vector<std::unique_ptr<Block>>& blocks,
-            const Version& temp_delta_versions, int64_t newest_write_timestamp,
-            BaseTabletSPtr new_tablet, RowsetTypePB new_rowset_type,
+            const std::vector<std::unique_ptr<Block>>& blocks, const Version& temp_delta_versions,
+            int64_t newest_write_timestamp, BaseTabletSPtr new_tablet, RowsetTypePB new_rowset_type,
             SegmentsOverlapPB segments_overlap, TabletSchemaSPtr new_tablet_schema);
 
     Status _external_sorting(std::vector<RowsetSharedPtr>& src_rowsets, RowsetWriter* rowset_writer,
@@ -255,9 +253,8 @@ public:
                           TabletSchemaSPtr new_tablet_schema) override;
 
     Result<RowsetSharedPtr> _internal_sorting(
-            const std::vector<std::unique_ptr<Block>>& blocks,
-            const Version& temp_delta_versions, int64_t newest_write_timestamp,
-            BaseTabletSPtr new_tablet, RowsetTypePB new_rowset_type,
+            const std::vector<std::unique_ptr<Block>>& blocks, const Version& temp_delta_versions,
+            int64_t newest_write_timestamp, BaseTabletSPtr new_tablet, RowsetTypePB new_rowset_type,
             SegmentsOverlapPB segments_overlap, TabletSchemaSPtr new_tablet_schema) override;
 
 private:

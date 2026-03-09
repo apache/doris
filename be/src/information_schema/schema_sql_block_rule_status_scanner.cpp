@@ -131,8 +131,7 @@ Status SchemaSqlBlockRuleStatusScanner::_get_sql_block_rule_status_block_from_fe
     return Status::OK();
 }
 
-Status SchemaSqlBlockRuleStatusScanner::get_next_block_internal(Block* block,
-                                                                bool* eos) {
+Status SchemaSqlBlockRuleStatusScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }

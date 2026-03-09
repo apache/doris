@@ -35,7 +35,6 @@ class TExpr;
 class Dependency;
 class PipelineTask;
 
-
 class Block;
 /*
  *  In the pipeline execution engine, there are usually a large number of io operations on the sink side that
@@ -51,8 +50,7 @@ class Block;
  */
 class AsyncResultWriter : public ResultWriter {
 public:
-    AsyncResultWriter(const VExprContextSPtrs& output_expr_ctxs,
-                      std::shared_ptr<Dependency> dep,
+    AsyncResultWriter(const VExprContextSPtrs& output_expr_ctxs, std::shared_ptr<Dependency> dep,
                       std::shared_ptr<Dependency> fin_dep);
 
     void force_close(Status s);

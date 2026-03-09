@@ -30,8 +30,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-inline Status materialize_block(const VExprContextSPtrs& exprs,
-                                Block* src_block, Block* res_block,
+inline Status materialize_block(const VExprContextSPtrs& exprs, Block* src_block, Block* res_block,
                                 bool need_clone) {
     ColumnsWithTypeAndName columns;
     auto rows = src_block->rows();
@@ -154,15 +153,13 @@ private:
         DCHECK_LT(child_idx, _child_size);
         return child_idx < _first_materialized_child_idx;
     }
-    Status materialize_child_block(RuntimeState* state, int child_id,
-                                   Block* input_block,
+    Status materialize_child_block(RuntimeState* state, int child_id, Block* input_block,
                                    Block* output_block) {
         DCHECK_LT(child_id, _child_size);
         DCHECK(!is_child_passthrough(child_id));
         if (input_block->rows() > 0) {
             MutableBlock mblock =
-                    VectorizedUtils::build_mutable_mem_reuse_block(output_block,
-                                                                               row_descriptor());
+                    VectorizedUtils::build_mutable_mem_reuse_block(output_block, row_descriptor());
             Block res;
             auto& local_state = get_local_state(state);
             {

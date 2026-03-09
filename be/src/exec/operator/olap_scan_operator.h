@@ -72,8 +72,7 @@ private:
     Status _process_conjuncts(RuntimeState* state) override;
     bool _is_key_column(const std::string& col_name) override;
 
-    Status _should_push_down_function_filter(VectorizedFnCall* fn_call,
-                                             VExprContext* expr_ctx,
+    Status _should_push_down_function_filter(VectorizedFnCall* fn_call, VExprContext* expr_ctx,
                                              StringRef* constant_str,
                                              doris::FunctionContext** fn_ctx,
                                              PushDownType& pdt) override;
@@ -87,8 +86,7 @@ private:
         return PushDownType::ACCEPTABLE;
     }
 
-    PushDownType _should_push_down_is_null_predicate(
-            VectorizedFnCall* fn_call) const override {
+    PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const override {
         return fn_call->fn().name.function_name == "is_null_pred" ||
                                fn_call->fn().name.function_name == "is_not_null_pred"
                        ? PushDownType::ACCEPTABLE
@@ -98,8 +96,8 @@ private:
         return PushDownType::ACCEPTABLE;
     }
     PushDownType _should_push_down_binary_predicate(
-            VectorizedFnCall* fn_call, VExprContext* expr_ctx,
-            Field& constant_val, const std::set<std::string> fn_name) const override;
+            VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
+            const std::set<std::string> fn_name) const override;
 
     bool _should_push_down_common_expr() override;
 

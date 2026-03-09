@@ -31,7 +31,6 @@ class ObjectPool;
 class RuntimeState;
 class RuntimeProfile;
 
-
 class Block;
 class VJniFormatTransformer;
 

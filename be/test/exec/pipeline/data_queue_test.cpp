@@ -48,7 +48,6 @@ public:
 };
 
 TEST_F(DataQueueTest, MultiTest) {
-
     int output_count = 0;
     auto output_func = [&]() {
         while (true) {

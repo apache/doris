@@ -55,8 +55,7 @@ auto get_convertor() {
         };
     } else if constexpr (std::is_same_v<T, std::string>) {
         return [](PColumnValue* value, const T& data) { value->set_stringval(data); };
-    } else if constexpr (std::is_same_v<T, StringRef> ||
-                         std::is_same_v<T, Decimal128V2> ||
+    } else if constexpr (std::is_same_v<T, StringRef> || std::is_same_v<T, Decimal128V2> ||
                          std::is_same_v<T, DecimalV2Value>) {
         return [](PColumnValue* value, const T& data) { value->set_stringval(data.to_string()); };
     } else if constexpr (std::is_same_v<T, VecDateTimeValue>) {
@@ -93,11 +92,10 @@ RuntimeFilterType get_type(int filter_type);
 // RuntimeFilterType -> PFilterType
 PFilterType get_type(RuntimeFilterType type);
 
-Status create_literal(const DataTypePtr& type, const void* data,
-                      VExprSPtr& expr);
+Status create_literal(const DataTypePtr& type, const void* data, VExprSPtr& expr);
 
-Status create_vbin_predicate(const DataTypePtr& type, TExprOpcode::type opcode,
-                             VExprSPtr& expr, TExprNode* tnode, bool contain_null);
+Status create_vbin_predicate(const DataTypePtr& type, TExprOpcode::type opcode, VExprSPtr& expr,
+                             TExprNode* tnode, bool contain_null);
 
 template <typename T>
 std::string states_to_string(std::vector<typename T::State> assumed_states) {

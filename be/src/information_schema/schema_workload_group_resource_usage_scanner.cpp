@@ -50,8 +50,7 @@ Status SchemaBackendWorkloadGroupResourceUsage::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaBackendWorkloadGroupResourceUsage::get_next_block_internal(Block* block,
-                                                                        bool* eos) {
+Status SchemaBackendWorkloadGroupResourceUsage::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -64,10 +63,10 @@ Status SchemaBackendWorkloadGroupResourceUsage::get_next_block_internal(Block* b
         _block = Block::create_unique();
 
         for (int i = 0; i < _s_tbls_columns.size(); ++i) {
-            auto data_type = DataTypeFactory::instance().create_data_type(
-                    _s_tbls_columns[i].type, true);
+            auto data_type =
+                    DataTypeFactory::instance().create_data_type(_s_tbls_columns[i].type, true);
             _block->insert(ColumnWithTypeAndName(data_type->create_column(), data_type,
-                                                             _s_tbls_columns[i].name));
+                                                 _s_tbls_columns[i].name));
         }
 
         ExecEnv::GetInstance()->workload_group_mgr()->get_wg_resource_usage(_block.get());

@@ -135,8 +135,7 @@ bool PartitionedAggSourceOperatorX::is_shuffled_operator() const {
     return _agg_source_operator->is_shuffled_operator();
 }
 
-Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, Block* block,
-                                                bool* eos) {
+Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     local_state.copy_shared_spill_profile();
     Status status;
@@ -277,8 +276,7 @@ Status PartitionedAggLocalState::_recover_spill_data_from_disk(RuntimeState* sta
                     accumulated_blocks_size += block.allocated_bytes();
                     _blocks.emplace_back(std::move(block));
 
-                    if (accumulated_blocks_size >=
-                        SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
+                    if (accumulated_blocks_size >= SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
                         break;
                     }
                 }

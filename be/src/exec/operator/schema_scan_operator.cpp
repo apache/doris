@@ -215,18 +215,18 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, Block* block, bool* e
         block->clear();
         for (int i = 0; i < _slot_num; ++i) {
             auto* dest_slot_desc = _dest_tuple_desc->slots()[i];
-            block->insert(ColumnWithTypeAndName(
-                    dest_slot_desc->get_empty_mutable_column(), dest_slot_desc->get_data_type_ptr(),
-                    dest_slot_desc->col_name()));
+            block->insert(ColumnWithTypeAndName(dest_slot_desc->get_empty_mutable_column(),
+                                                dest_slot_desc->get_data_type_ptr(),
+                                                dest_slot_desc->col_name()));
         }
 
         // src block columns desc is filled by schema_scanner->get_column_desc.
         Block src_block;
         for (int i = 0; i < columns_desc.size(); ++i) {
-            auto data_type = DataTypeFactory::instance().create_data_type(
-                    columns_desc[i].type, true);
-            src_block.insert(ColumnWithTypeAndName(data_type->create_column(),
-                                                               data_type, columns_desc[i].name));
+            auto data_type =
+                    DataTypeFactory::instance().create_data_type(columns_desc[i].type, true);
+            src_block.insert(ColumnWithTypeAndName(data_type->create_column(), data_type,
+                                                   columns_desc[i].name));
         }
         while (true) {
             RETURN_IF_CANCELLED(state);
@@ -251,8 +251,7 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, Block* block, bool* e
         if (src_block.rows()) {
             // block->check_number_of_rows();
             for (int i = 0; i < _slot_num; ++i) {
-                MutableColumnPtr column_ptr =
-                        std::move(*block->get_by_position(i).column).mutate();
+                MutableColumnPtr column_ptr = std::move(*block->get_by_position(i).column).mutate();
                 column_ptr->insert_range_from(
                         *src_block.safe_get_by_position(_slot_offsets[i]).column, 0,
                         src_block.rows());

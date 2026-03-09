@@ -82,8 +82,8 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
         break;
     }
     case TResultSinkType::ARROW_FLIGHT_PROTOCOL: {
-        _writer.reset(new (std::nothrow) VArrowFlightResultWriter(
-                _sender, _output_vexpr_ctxs, custom_profile()));
+        _writer.reset(new (std::nothrow) VArrowFlightResultWriter(_sender, _output_vexpr_ctxs,
+                                                                  custom_profile()));
         break;
     }
     default:
@@ -153,8 +153,7 @@ Status ResultSinkOperatorX::sink(RuntimeState* state, Block* block, bool eos) {
     return Status::OK();
 }
 
-Status ResultSinkOperatorX::_second_phase_fetch_data(RuntimeState* state,
-                                                     Block* final_block) {
+Status ResultSinkOperatorX::_second_phase_fetch_data(RuntimeState* state, Block* final_block) {
     auto row_id_col = final_block->get_by_position(final_block->columns() - 1);
     CHECK(row_id_col.name == BeConsts::ROWID_COL);
     auto* tuple_desc = _row_desc.tuple_descriptors()[0];

@@ -68,10 +68,10 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 // !FIXME: Here we should consider using MutableBlock, due to potential data reorganization
-Status OlapTableBlockConvertor::validate_and_convert_block(
-        RuntimeState* state, Block* input_block,
-        std::shared_ptr<Block>& block, VExprContextSPtrs output_vexpr_ctxs,
-        size_t rows, bool& has_filtered_rows) {
+Status OlapTableBlockConvertor::validate_and_convert_block(RuntimeState* state, Block* input_block,
+                                                           std::shared_ptr<Block>& block,
+                                                           VExprContextSPtrs output_vexpr_ctxs,
+                                                           size_t rows, bool& has_filtered_rows) {
     DCHECK(input_block->rows() > 0);
 
     block = Block::create_shared(input_block->get_columns_with_type_and_name());
@@ -193,10 +193,12 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const DataTypePtr
     return value;
 }
 
-Status OlapTableBlockConvertor::_internal_validate_column(
-        RuntimeState* state, Block* block, const DataTypePtr& type,
-        ColumnPtr column, size_t slot_index, fmt::memory_buffer& error_prefix,
-        const size_t row_count, IColumn::Permutation* rows) {
+Status OlapTableBlockConvertor::_internal_validate_column(RuntimeState* state, Block* block,
+                                                          const DataTypePtr& type, ColumnPtr column,
+                                                          size_t slot_index,
+                                                          fmt::memory_buffer& error_prefix,
+                                                          const size_t row_count,
+                                                          IColumn::Permutation* rows) {
     DCHECK((rows == nullptr) || (rows->size() == row_count));
     fmt::memory_buffer error_msg;
     auto set_invalid_and_append_error_msg = [&](size_t row) {
@@ -222,8 +224,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     // may change orig_column if substring function is performed
     auto string_column_checker = [&state, &error_msg, need_to_validate,
                                   set_invalid_and_append_error_msg](
-                                         ColumnPtr& orig_column,
-                                         const DataTypePtr& orig_type,
+                                         ColumnPtr& orig_column, const DataTypePtr& orig_type,
                                          IColumn::Permutation* rows,
                                          const std::vector<char>& filter_map) {
         int limit = config::string_type_length_soft_limit_bytes;
@@ -238,12 +239,10 @@ Status OlapTableBlockConvertor::_internal_validate_column(
             }
         }
 
-        const auto* tmp_column_ptr =
-                check_and_get_column<ColumnNullable>(*orig_column);
+        const auto* tmp_column_ptr = check_and_get_column<ColumnNullable>(*orig_column);
         const auto& tmp_real_column_ptr =
                 tmp_column_ptr == nullptr ? orig_column : (tmp_column_ptr->get_nested_column_ptr());
-        const auto* column_string =
-                assert_cast<const ColumnString*>(tmp_real_column_ptr.get());
+        const auto* column_string = assert_cast<const ColumnString*>(tmp_real_column_ptr.get());
         const auto* null_map =
                 tmp_column_ptr == nullptr ? nullptr : tmp_column_ptr->get_null_map_data().data();
 
@@ -283,8 +282,8 @@ Status OlapTableBlockConvertor::_internal_validate_column(
                                  {len_column, len_type, "len"},
                                  {nullptr, input_type, "result"}});
                 RETURN_IF_ERROR(func->execute(nullptr, tmp_block, {0, 1, 2}, 3, row_count));
-                column_string = assert_cast<const ColumnString*>(
-                        tmp_block.get_by_position(3).column.get());
+                column_string =
+                        assert_cast<const ColumnString*>(tmp_block.get_by_position(3).column.get());
                 orig_column =
                         orig_column->is_nullable()
                                 ? ColumnNullable::create(tmp_block.get_by_position(3).column,
@@ -331,8 +330,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         break;
     }
     case TYPE_JSONB: {
-        const auto* column_string =
-                assert_cast<const ColumnString*>(real_column_ptr.get());
+        const auto* column_string = assert_cast<const ColumnString*>(real_column_ptr.get());
         for (size_t j = 0; j < row_count; ++j) {
             if (!_filter_map[j]) {
                 if (type->is_nullable() && column_ptr && column_ptr->is_null_at(j)) {
@@ -358,8 +356,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         for (size_t j = 0; j < row_count; ++j) {
             auto row = rows ? (*rows)[j] : j;
             if (need_to_validate(j, row, _filter_map, null_map)) {
-                auto dec_val = binary_cast<Int128, DecimalV2Value>(
-                        column_decimal->get_data()[j]);
+                auto dec_val = binary_cast<Int128, DecimalV2Value>(column_decimal->get_data()[j]);
                 bool invalid = false;
 
                 if (dec_val.greater_than_scale(type->get_scale())) {
@@ -392,8 +389,8 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     }
     case TYPE_DECIMAL32: {
 #define CHECK_VALIDATION_FOR_DECIMALV3(DecimalType)                                               \
-    auto column_decimal = assert_cast<const ColumnDecimal<DecimalType::PType>*>(      \
-            real_column_ptr.get());                                                               \
+    auto column_decimal =                                                                         \
+            assert_cast<const ColumnDecimal<DecimalType::PType>*>(real_column_ptr.get());         \
     const auto& max_decimal = _get_decimalv3_min_or_max<DecimalType, false>(type);                \
     const auto& min_decimal = _get_decimalv3_min_or_max<DecimalType, true>(type);                 \
     const auto* __restrict datas = column_decimal->get_data().data();                             \
@@ -440,10 +437,8 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     }
 #undef CHECK_VALIDATION_FOR_DECIMALV3
     case TYPE_ARRAY: {
-        const auto* column_array =
-                assert_cast<const ColumnArray*>(real_column_ptr.get());
-        const auto* type_array =
-                assert_cast<const DataTypeArray*>(remove_nullable(type).get());
+        const auto* column_array = assert_cast<const ColumnArray*>(real_column_ptr.get());
+        const auto* type_array = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
         auto nested_type = type_array->get_nested_type();
         const auto& offsets = column_array->get_offsets();
         IColumn::Permutation permutation(offsets.back());
@@ -460,8 +455,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         case TYPE_STRING: {
             RETURN_IF_ERROR(
                     string_column_checker(data_column_ptr, nested_type, &permutation, _filter_map));
-            const_cast<ColumnArray*>(column_array)->get_data_ptr() =
-                    std::move(data_column_ptr);
+            const_cast<ColumnArray*>(column_array)->get_data_ptr() = std::move(data_column_ptr);
             break;
         }
         default:
@@ -476,8 +470,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         // column_map utilizes the ColumnPtr from the block* block in _validate_data and can be modified.
         RETURN_IF_ERROR((const_cast<ColumnMap*>(column_map))->deduplicate_keys(true));
 
-        const auto* type_map =
-                assert_cast<const DataTypeMap*>(remove_nullable(type).get());
+        const auto* type_map = assert_cast<const DataTypeMap*>(remove_nullable(type).get());
         auto key_type = type_map->get_key_type();
         auto val_type = type_map->get_value_type();
         const auto& offsets = column_map->get_offsets();
@@ -496,8 +489,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
             auto key_column_ptr = column_map->get_keys_ptr();
             RETURN_IF_ERROR(
                     string_column_checker(key_column_ptr, key_type, &permutation, _filter_map));
-            const_cast<ColumnMap*>(column_map)->get_keys_ptr() =
-                    std::move(key_column_ptr);
+            const_cast<ColumnMap*>(column_map)->get_keys_ptr() = std::move(key_column_ptr);
             break;
         }
         default:
@@ -514,8 +506,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
             auto value_column_ptr = column_map->get_values_ptr();
             RETURN_IF_ERROR(
                     string_column_checker(value_column_ptr, val_type, &permutation, _filter_map));
-            const_cast<ColumnMap*>(column_map)->get_values_ptr() =
-                    std::move(value_column_ptr);
+            const_cast<ColumnMap*>(column_map)->get_values_ptr() = std::move(value_column_ptr);
             break;
         }
         default:
@@ -527,10 +518,8 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         break;
     }
     case TYPE_STRUCT: {
-        const auto column_struct =
-                assert_cast<const ColumnStruct*>(real_column_ptr.get());
-        const auto* type_struct =
-                assert_cast<const DataTypeStruct*>(remove_nullable(type).get());
+        const auto column_struct = assert_cast<const ColumnStruct*>(real_column_ptr.get());
+        const auto* type_struct = assert_cast<const DataTypeStruct*>(remove_nullable(type).get());
         DCHECK(type_struct->get_elements().size() == column_struct->tuple_size());
         fmt::format_to(error_prefix, "STRUCT type failed: ");
         for (size_t sc = 0; sc < column_struct->tuple_size(); ++sc) {
@@ -585,8 +574,8 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     return Status::OK();
 }
 
-Status OlapTableBlockConvertor::_validate_data(RuntimeState* state, Block* block,
-                                               const size_t rows, int& filtered_rows) {
+Status OlapTableBlockConvertor::_validate_data(RuntimeState* state, Block* block, const size_t rows,
+                                               int& filtered_rows) {
     filtered_rows = 0;
     Defer defer {[&] {
         for (int i = 0; i < rows; ++i) {
@@ -612,17 +601,15 @@ void OlapTableBlockConvertor::_convert_to_dest_desc_block(doris::Block* block) {
         SlotDescriptor* desc = _output_tuple_desc->slots()[i];
         if (desc->is_nullable() != block->get_by_position(i).type->is_nullable()) {
             if (desc->is_nullable()) {
-                block->get_by_position(i).type =
-                        make_nullable(block->get_by_position(i).type);
-                block->get_by_position(i).column =
-                        make_nullable(block->get_by_position(i).column);
+                block->get_by_position(i).type = make_nullable(block->get_by_position(i).type);
+                block->get_by_position(i).column = make_nullable(block->get_by_position(i).column);
             } else {
-                block->get_by_position(i).type = assert_cast<const DataTypeNullable&>(
-                                                         *block->get_by_position(i).type)
-                                                         .get_nested_type();
-                block->get_by_position(i).column = assert_cast<const ColumnNullable&>(
-                                                           *block->get_by_position(i).column)
-                                                           .get_nested_column_ptr();
+                block->get_by_position(i).type =
+                        assert_cast<const DataTypeNullable&>(*block->get_by_position(i).type)
+                                .get_nested_type();
+                block->get_by_position(i).column =
+                        assert_cast<const ColumnNullable&>(*block->get_by_position(i).column)
+                                .get_nested_column_ptr();
             }
         }
     }
@@ -639,8 +626,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(Block* block, size_t rows) {
     ColumnInt64::Container& dst_values = dst_column->get_data();
 
     ColumnPtr src_column_ptr = block->get_by_position(idx).column;
-    if (const auto* const_column =
-                check_and_get_column<ColumnConst>(src_column_ptr.get())) {
+    if (const auto* const_column = check_and_get_column<ColumnConst>(src_column_ptr.get())) {
         // for insert stmt like "insert into tbl1 select null,col1,col2,... from tbl2" or
         // "insert into tbl1 select 1,col1,col2,... from tbl2", the type of literal's column
         // will be `ColumnConst`
@@ -689,8 +675,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(Block* block, size_t rows) {
     return Status::OK();
 }
 
-Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(Block* block,
-                                                                   size_t rows) {
+Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(Block* block, size_t rows) {
     auto dst_column = ColumnInt64::create();
     ColumnInt64::Container& dst_values = dst_column->get_data();
     size_t null_value_count = rows;
@@ -703,9 +688,8 @@ Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(Block* block,
     for (size_t i = 0; i < rows; i++) {
         dst_values.emplace_back(_auto_inc_id_allocator.next_id());
     }
-    block->insert(ColumnWithTypeAndName(std::move(dst_column),
-                                                    std::make_shared<DataTypeInt64>(),
-                                                    BeConsts::PARTIAL_UPDATE_AUTO_INC_COL));
+    block->insert(ColumnWithTypeAndName(std::move(dst_column), std::make_shared<DataTypeInt64>(),
+                                        BeConsts::PARTIAL_UPDATE_AUTO_INC_COL));
     return Status::OK();
 }
 

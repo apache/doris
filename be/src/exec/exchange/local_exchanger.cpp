@@ -112,8 +112,8 @@ bool Exchanger<BlockType>::_dequeue_data(BlockType& block, bool* eos, Block* dat
     return false;
 }
 
-Status ShuffleExchanger::sink(RuntimeState* state, Block* in_block, bool eos,
-                              Profile&& profile, SinkInfo& sink_info) {
+Status ShuffleExchanger::sink(RuntimeState* state, Block* in_block, bool eos, Profile&& profile,
+                              SinkInfo& sink_info) {
     if (in_block->empty()) {
         return Status::OK();
     }
@@ -144,8 +144,8 @@ void ShuffleExchanger::close(SourceInfo&& source_info) {
     }
 }
 
-Status ShuffleExchanger::get_block(RuntimeState* state, Block* block, bool* eos,
-                                   Profile&& profile, SourceInfo&& source_info) {
+Status ShuffleExchanger::get_block(RuntimeState* state, Block* block, bool* eos, Profile&& profile,
+                                   SourceInfo&& source_info) {
     PartitionedBlock partitioned_block;
     MutableBlock mutable_block;
 
@@ -287,8 +287,8 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const std::vector<uint
     return Status::OK();
 }
 
-Status PassthroughExchanger::sink(RuntimeState* state, Block* in_block, bool eos,
-                                  Profile&& profile, SinkInfo& sink_info) {
+Status PassthroughExchanger::sink(RuntimeState* state, Block* in_block, bool eos, Profile&& profile,
+                                  SinkInfo& sink_info) {
     if (in_block->empty()) {
         return Status::OK();
     }
@@ -339,8 +339,8 @@ Status PassthroughExchanger::get_block(RuntimeState* state, Block* block, bool* 
     return Status::OK();
 }
 
-Status PassToOneExchanger::sink(RuntimeState* state, Block* in_block, bool eos,
-                                Profile&& profile, SinkInfo& sink_info) {
+Status PassToOneExchanger::sink(RuntimeState* state, Block* in_block, bool eos, Profile&& profile,
+                                SinkInfo& sink_info) {
     if (in_block->empty()) {
         return Status::OK();
     }
@@ -380,8 +380,8 @@ void ExchangerBase::finalize() {
     }
 }
 
-Status BroadcastExchanger::sink(RuntimeState* state, Block* in_block, bool eos,
-                                Profile&& profile, SinkInfo& sink_info) {
+Status BroadcastExchanger::sink(RuntimeState* state, Block* in_block, bool eos, Profile&& profile,
+                                SinkInfo& sink_info) {
     if (in_block->empty()) {
         return Status::OK();
     }
@@ -420,9 +420,8 @@ Status BroadcastExchanger::get_block(RuntimeState* state, Block* block, bool* eo
     if (_dequeue_data(source_info.local_state, partitioned_block, eos, block,
                       source_info.channel_id)) {
         SCOPED_TIMER(profile.copy_data_timer);
-        MutableBlock mutable_block =
-                VectorizedUtils::build_mutable_mem_reuse_block(
-                        block, partitioned_block.first->_data_block);
+        MutableBlock mutable_block = VectorizedUtils::build_mutable_mem_reuse_block(
+                block, partitioned_block.first->_data_block);
         auto block_wrapper = partitioned_block.first;
         RETURN_IF_ERROR(mutable_block.add_rows(&block_wrapper->_data_block,
                                                partitioned_block.second.offset_start,
@@ -432,8 +431,7 @@ Status BroadcastExchanger::get_block(RuntimeState* state, Block* block, bool* eo
     return Status::OK();
 }
 
-Status AdaptivePassthroughExchanger::_passthrough_sink(RuntimeState* state,
-                                                       Block* in_block,
+Status AdaptivePassthroughExchanger::_passthrough_sink(RuntimeState* state, Block* in_block,
                                                        SinkInfo& sink_info) {
     Block new_block;
     if (!_free_blocks.try_dequeue(new_block)) {
@@ -516,8 +514,8 @@ Status AdaptivePassthroughExchanger::_split_rows(RuntimeState* state,
     return Status::OK();
 }
 
-Status AdaptivePassthroughExchanger::sink(RuntimeState* state, Block* in_block,
-                                          bool eos, Profile&& profile, SinkInfo& sink_info) {
+Status AdaptivePassthroughExchanger::sink(RuntimeState* state, Block* in_block, bool eos,
+                                          Profile&& profile, SinkInfo& sink_info) {
     if (in_block->empty()) {
         return Status::OK();
     }
@@ -531,9 +529,8 @@ Status AdaptivePassthroughExchanger::sink(RuntimeState* state, Block* in_block,
     }
 }
 
-Status AdaptivePassthroughExchanger::get_block(RuntimeState* state, Block* block,
-                                               bool* eos, Profile&& profile,
-                                               SourceInfo&& source_info) {
+Status AdaptivePassthroughExchanger::get_block(RuntimeState* state, Block* block, bool* eos,
+                                               Profile&& profile, SourceInfo&& source_info) {
     BlockWrapperSPtr next_block;
     _dequeue_data(source_info.local_state, next_block, eos, block, source_info.channel_id);
     return Status::OK();

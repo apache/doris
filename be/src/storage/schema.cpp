@@ -90,8 +90,8 @@ void Schema::_init(const std::vector<TabletColumnPtr>& cols, const std::vector<C
     _schema_size = offset;
 }
 
-void Schema::_init(const std::vector<const StorageField*>& cols, const std::vector<ColumnId>& col_ids,
-                   size_t num_key_columns) {
+void Schema::_init(const std::vector<const StorageField*>& cols,
+                   const std::vector<ColumnId>& col_ids, size_t num_key_columns) {
     _col_ids = col_ids;
     _num_key_columns = num_key_columns;
 
@@ -130,9 +130,8 @@ IColumn::MutablePtr Schema::get_column_by_field(const StorageField& field) {
     return get_data_type_ptr(field)->create_column();
 }
 
-IColumn::MutablePtr Schema::get_predicate_column_ptr(const FieldType& type,
-                                                                 bool is_nullable,
-                                                                 const ReaderType reader_type) {
+IColumn::MutablePtr Schema::get_predicate_column_ptr(const FieldType& type, bool is_nullable,
+                                                     const ReaderType reader_type) {
     IColumn::MutablePtr ptr = nullptr;
     switch (type) {
     case FieldType::OLAP_FIELD_TYPE_BOOL:
@@ -218,8 +217,7 @@ IColumn::MutablePtr Schema::get_predicate_column_ptr(const FieldType& type,
     }
 
     if (is_nullable) {
-        return doris::ColumnNullable::create(std::move(ptr),
-                                                         doris::ColumnUInt8::create());
+        return doris::ColumnNullable::create(std::move(ptr), doris::ColumnUInt8::create());
     }
     return ptr;
 }

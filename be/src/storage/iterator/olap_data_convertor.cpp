@@ -273,8 +273,7 @@ Status OlapBlockDataConvertor::set_source_content_with_specifid_column(
 }
 
 Status OlapBlockDataConvertor::set_source_content_with_specifid_columns(
-        const Block* block, size_t row_pos, size_t num_rows,
-        std::vector<uint32_t> cids) {
+        const Block* block, size_t row_pos, size_t num_rows, std::vector<uint32_t> cids) {
     DCHECK(block != nullptr);
     DCHECK(num_rows > 0);
     DCHECK(row_pos + num_rows <= block->rows());
@@ -359,8 +358,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorBitMap::convert_to_olap() 
     if (_nullmap) {
         const auto* nullable_column =
                 assert_cast<const ColumnNullable*>(_typed_column.column.get());
-        column_bitmap = assert_cast<const ColumnBitmap*>(
-                nullable_column->get_nested_column_ptr().get());
+        column_bitmap =
+                assert_cast<const ColumnBitmap*>(nullable_column->get_nested_column_ptr().get());
     } else {
         column_bitmap = assert_cast<const ColumnBitmap*>(_typed_column.column.get());
     }
@@ -436,8 +435,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorQuantileState::convert_to_
     if (_nullmap) {
         return Status::NotSupported("QuantileState column does not support nullable");
     }
-    column_quantile_state =
-            assert_cast<const ColumnQuantileState*>(_typed_column.column.get());
+    column_quantile_state = assert_cast<const ColumnQuantileState*>(_typed_column.column.get());
 
     assert(column_quantile_state);
     const QuantileState* quantile_state = column_quantile_state->get_data().data() + _row_pos;
@@ -542,8 +540,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
     if (_nullmap) {
         const auto* nullable_column =
                 assert_cast<const ColumnNullable*>(_typed_column.column.get());
-        column_string = assert_cast<const ColumnString*>(
-                nullable_column->get_nested_column_ptr().get());
+        column_string =
+                assert_cast<const ColumnString*>(nullable_column->get_nested_column_ptr().get());
     } else {
         column_string = assert_cast<const ColumnString*>(_typed_column.column.get());
     }
@@ -661,8 +659,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap()
     if (_nullmap) {
         const auto* nullable_column =
                 assert_cast<const ColumnNullable*>(_typed_column.column.get());
-        column_string = assert_cast<const ColumnString*>(
-                nullable_column->get_nested_column_ptr().get());
+        column_string =
+                assert_cast<const ColumnString*>(nullable_column->get_nested_column_ptr().get());
     } else {
         column_string = assert_cast<const ColumnString*>(_typed_column.column.get());
     }
@@ -688,8 +686,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorAggState::convert_to_olap(
         return Status::NotSupported("QuantileState column does not support nullable");
     }
 
-    column_fixed_object =
-            assert_cast<const ColumnFixedLengthObject*>(_typed_column.column.get());
+    column_fixed_object = assert_cast<const ColumnFixedLengthObject*>(_typed_column.column.get());
 
     assert(column_fixed_object);
     auto item_size = column_fixed_object->item_size();
@@ -721,8 +718,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDate::convert_to_olap() {
     if (_nullmap) {
         const auto* nullable_column =
                 assert_cast<const ColumnNullable*>(_typed_column.column.get());
-        column_datetime = assert_cast<const ColumnDate*>(
-                nullable_column->get_nested_column_ptr().get());
+        column_datetime =
+                assert_cast<const ColumnDate*>(nullable_column->get_nested_column_ptr().get());
     } else {
         column_datetime = assert_cast<const ColumnDate*>(_typed_column.column.get());
     }
@@ -769,11 +766,10 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDateTime::convert_to_olap(
     if (_nullmap) {
         const auto* nullable_column =
                 assert_cast<const ColumnNullable*>(_typed_column.column.get());
-        column_datetime = assert_cast<const ColumnDateTime*>(
-                nullable_column->get_nested_column_ptr().get());
-    } else {
         column_datetime =
-                assert_cast<const ColumnDateTime*>(_typed_column.column.get());
+                assert_cast<const ColumnDateTime*>(nullable_column->get_nested_column_ptr().get());
+    } else {
+        column_datetime = assert_cast<const ColumnDateTime*>(_typed_column.column.get());
     }
 
     assert(column_datetime);
@@ -815,8 +811,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDecimal::convert_to_olap()
         column_decimal = assert_cast<const ColumnDecimal128V2*>(
                 nullable_column->get_nested_column_ptr().get());
     } else {
-        column_decimal =
-                assert_cast<const ColumnDecimal128V2*>(_typed_column.column.get());
+        column_decimal = assert_cast<const ColumnDecimal128V2*>(_typed_column.column.get());
     }
 
     assert(column_decimal);
@@ -868,8 +863,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorStruct::convert_to_olap() 
     if (_nullmap) {
         const auto* nullable_column =
                 assert_cast<const ColumnNullable*>(_typed_column.column.get());
-        column_struct = assert_cast<const ColumnStruct*>(
-                nullable_column->get_nested_column_ptr().get());
+        column_struct =
+                assert_cast<const ColumnStruct*>(nullable_column->get_nested_column_ptr().get());
         data_type_struct = assert_cast<const DataTypeStruct*>(
                 (assert_cast<const DataTypeNullable*>(_typed_column.type.get())->get_nested_type())
                         .get());
@@ -1018,11 +1013,10 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
         nullable_column = assert_cast<const ColumnNullable*>(typed_column.column.get());
         _nullmap = nullable_column->get_null_map_data().data();
     }
-    const auto* variant =
-            nullable_column == nullptr
-                    ? check_and_get_column<const ColumnVariant>(*typed_column.column)
-                    : check_and_get_column<const ColumnVariant>(
-                              nullable_column->get_nested_column());
+    const auto* variant = nullable_column == nullptr
+                                  ? check_and_get_column<const ColumnVariant>(*typed_column.column)
+                                  : check_and_get_column<const ColumnVariant>(
+                                            nullable_column->get_nested_column());
     OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos,
                                                                            num_rows);
 

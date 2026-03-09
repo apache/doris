@@ -47,9 +47,7 @@ static void empty_function(RuntimeState*, Status*) {}
 
 class PipelineTest : public testing::Test {
 public:
-    PipelineTest()
-            : _obj_pool(new ObjectPool()),
-              _mgr(std::make_unique<doris::VDataStreamMgr>()) {}
+    PipelineTest() : _obj_pool(new ObjectPool()), _mgr(std::make_unique<doris::VDataStreamMgr>()) {}
     ~PipelineTest() override = default;
     void SetUp() override {
         _query_options = TQueryOptionsBuilder()
@@ -1039,8 +1037,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
             {
                 Block block;
                 {
-                    DataTypePtr int_type =
-                            std::make_shared<DataTypeInt32>();
+                    DataTypePtr int_type = std::make_shared<DataTypeInt32>();
 
                     auto int_col0 = ColumnInt32::create();
                     if (j == 0 || i == 0) {

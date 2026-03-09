@@ -25,8 +25,7 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-Status RuntimeFilterConsumer::_apply_ready_expr(
-        std::vector<VRuntimeFilterPtr>& push_exprs) {
+Status RuntimeFilterConsumer::_apply_ready_expr(std::vector<VRuntimeFilterPtr>& push_exprs) {
     _check_state({State::READY});
     _set_state(State::APPLIED);
 
@@ -69,8 +68,8 @@ void RuntimeFilterConsumer::signal(RuntimeFilter* other) {
 std::shared_ptr<RuntimeFilterTimer> RuntimeFilterConsumer::create_filter_timer(
         std::shared_ptr<Dependency> dependencies) {
     std::unique_lock<std::recursive_mutex> l(_rmtx);
-    auto timer = std::make_shared<RuntimeFilterTimer>(_registration_time,
-                                                                _rf_wait_time_ms, dependencies);
+    auto timer = std::make_shared<RuntimeFilterTimer>(_registration_time, _rf_wait_time_ms,
+                                                      dependencies);
     _filter_timer.push_back(timer);
     return timer;
 }
@@ -193,9 +192,9 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<VRuntimeFilterPtr>& co
         auto bloom_pred = VBloomPredicate::create_shared(node);
         bloom_pred->set_filter(_wrapper->bloom_filter_func());
         bloom_pred->add_child(probe_ctx->root());
-        auto wrapper = VRuntimeFilterWrapper::create_shared(
-                node, bloom_pred, get_bloom_filter_ignore_thredhold(), null_aware,
-                _wrapper->filter_id());
+        auto wrapper = VRuntimeFilterWrapper::create_shared(node, bloom_pred,
+                                                            get_bloom_filter_ignore_thredhold(),
+                                                            null_aware, _wrapper->filter_id());
         container.push_back(wrapper);
         break;
     }
@@ -214,8 +213,8 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<VRuntimeFilterPtr>& co
         if (null_aware) {
             return Status::InternalError("bitmap predicate do not support null aware");
         }
-        auto wrapper = VRuntimeFilterWrapper::create_shared(
-                node, bitmap_pred, 0, null_aware, _wrapper->filter_id());
+        auto wrapper = VRuntimeFilterWrapper::create_shared(node, bitmap_pred, 0, null_aware,
+                                                            _wrapper->filter_id());
         container.push_back(wrapper);
         break;
     }

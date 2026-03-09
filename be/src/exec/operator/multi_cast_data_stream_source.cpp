@@ -80,8 +80,8 @@ Status MultiCastDataStreamSourceLocalState::close(RuntimeState* state) {
     return Base::close(state);
 }
 
-Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
-                                                       Block* block, bool* eos) {
+Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state, Block* block,
+                                                       bool* eos) {
     //auto& local_state = get_local_state(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -105,7 +105,7 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
     if (!local_state._conjuncts.empty() && !output_block->empty()) {
         SCOPED_TIMER(local_state._filter_timer);
         RETURN_IF_ERROR(VExprContext::filter_block(local_state._conjuncts, output_block,
-                                                               output_block->columns()));
+                                                   output_block->columns()));
     }
 
     if (!local_state._output_expr_contexts.empty() && output_block->rows() > 0) {

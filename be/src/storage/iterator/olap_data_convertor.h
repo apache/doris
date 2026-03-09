@@ -54,7 +54,6 @@ namespace doris {
 class TabletSchema;
 class TabletColumn;
 
-
 #include "common/compile_check_begin.h"
 
 class Block;
@@ -184,8 +183,7 @@ private:
 
         static ColumnPtr clone_and_padding(const ColumnString* input, size_t padding_length) {
             auto column = ColumnString::create();
-            auto padded_column =
-                    assert_cast<ColumnString*>(column->assume_mutable().get());
+            auto padded_column = assert_cast<ColumnString*>(column->assume_mutable().get());
 
             column->offsets.resize(input->size());
             column->chars.resize(input->size() * padding_length);
@@ -368,8 +366,7 @@ private:
                 column_data = assert_cast<const ColumnDateV2*>(
                         nullable_column->get_nested_column_ptr().get());
             } else {
-                column_data =
-                        assert_cast<const ColumnDateV2*>(_typed_column.column.get());
+                column_data = assert_cast<const ColumnDateV2*>(_typed_column.column.get());
             }
 
             assert(column_data);
@@ -410,8 +407,7 @@ private:
                 column_data = assert_cast<const ColumnDateTimeV2*>(
                         nullable_column->get_nested_column_ptr().get());
             } else {
-                column_data = assert_cast<const ColumnDateTimeV2*>(
-                        _typed_column.column.get());
+                column_data = assert_cast<const ColumnDateTimeV2*>(_typed_column.column.get());
             }
 
             assert(column_data);
@@ -434,8 +430,8 @@ private:
             using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
             const ColumnType* column_data = nullptr;
             if (this->_nullmap) {
-                auto nullable_column = assert_cast<const ColumnNullable*>(
-                        this->_typed_column.column.get());
+                auto nullable_column =
+                        assert_cast<const ColumnNullable*>(this->_typed_column.column.get());
                 column_data = assert_cast<const ColumnType*>(
                         nullable_column->get_nested_column_ptr().get());
             } else {

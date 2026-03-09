@@ -341,9 +341,8 @@ TEST(FunctionVariantCast, CastFromVariantWithEmptyRoot) {
         MutableColumnPtr root = ColumnInt32::create();
         root->insert(Field::create_field<TYPE_INT>(42));
         ColumnVariant::Subcolumns dynamic_subcolumns;
-        dynamic_subcolumns.add(
-                PathInData(ColumnVariant::COLUMN_NAME_DUMMY),
-                ColumnVariant::Subcolumn {root->get_ptr(), int32_type, true, true});
+        dynamic_subcolumns.add(PathInData(ColumnVariant::COLUMN_NAME_DUMMY),
+                               ColumnVariant::Subcolumn {root->get_ptr(), int32_type, true, true});
         auto variant_col = ColumnVariant::create(0, std::move(dynamic_subcolumns));
 
         variant_col->finalize();

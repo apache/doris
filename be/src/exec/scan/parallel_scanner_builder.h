@@ -73,9 +73,9 @@ private:
     // Build scanners so that each segment is handled by its own scanner.
     Status _build_scanners_by_per_segment(std::list<ScannerSPtr>& scanners);
 
-    std::shared_ptr<OlapScanner> _build_scanner(
-            BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
-            TabletReadSource&& read_source);
+    std::shared_ptr<OlapScanner> _build_scanner(BaseTabletSPtr tablet, int64_t version,
+                                                const std::vector<OlapScanRange*>& key_ranges,
+                                                TabletReadSource&& read_source);
 
     OlapScanLocalState* _parent;
 

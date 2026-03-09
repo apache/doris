@@ -46,7 +46,6 @@ struct StringRef;
 using IPv4 = uint32_t;
 using IPv6 = uint128_t;
 
-
 /// Data types for representing elementary values from a database in RAM.
 
 struct Null {};
@@ -589,8 +588,7 @@ template <>
 struct std::hash<doris::Decimal128V2> {
     size_t operator()(const doris::Decimal128V2& x) const {
         return std::hash<doris::Int64>()(x.value >> 64) ^
-               std::hash<doris::Int64>()(
-                       x.value & std::numeric_limits<doris::UInt64>::max());
+               std::hash<doris::Int64>()(x.value & std::numeric_limits<doris::UInt64>::max());
     }
 };
 
@@ -598,8 +596,7 @@ template <>
 struct std::hash<doris::Decimal128V3> {
     size_t operator()(const doris::Decimal128V3& x) const {
         return std::hash<doris::Int64>()(x.value >> 64) ^
-               std::hash<doris::Int64>()(
-                       x.value & std::numeric_limits<doris::UInt64>::max());
+               std::hash<doris::Int64>()(x.value & std::numeric_limits<doris::UInt64>::max());
     }
 };
 

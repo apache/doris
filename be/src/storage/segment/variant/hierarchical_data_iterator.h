@@ -120,8 +120,7 @@ private:
 
     Status _process_nested_columns(
             ColumnVariant& container_variant,
-            const std::map<PathInData, PathsWithColumnAndType>& nested_subcolumns,
-            size_t nrows);
+            const std::map<PathInData, PathsWithColumnAndType>& nested_subcolumns, size_t nrows);
 
     Status _process_sparse_column(ColumnVariant& container_variant, size_t nrows);
 
@@ -130,13 +129,12 @@ private:
     // 3. init container with subcolumns
     // 4. init container with nested subcolumns
     // 5. init container with sparse column
-    Status _init_container(MutableColumnPtr& container, size_t nrows,
-                           int max_subcolumns_count);
+    Status _init_container(MutableColumnPtr& container, size_t nrows, int max_subcolumns_count);
 
     // clear all subcolumns's column data for next batch read
     // set null map for nullable column
-    Status _init_null_map_and_clear_columns(MutableColumnPtr& container,
-                                            MutableColumnPtr& dst, size_t nrows);
+    Status _init_null_map_and_clear_columns(MutableColumnPtr& container, MutableColumnPtr& dst,
+                                            size_t nrows);
 
     // process read
     template <typename ReadFunction>

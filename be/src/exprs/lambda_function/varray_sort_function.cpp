@@ -67,8 +67,8 @@ public:
 
     std::string get_name() const override { return name; }
 
-    Status execute(VExprContext* context, const Block* block, Selector* expr_selector,
-                   size_t count, ColumnPtr& result_column, const DataTypePtr& result_type,
+    Status execute(VExprContext* context, const Block* block, Selector* expr_selector, size_t count,
+                   ColumnPtr& result_column, const DataTypePtr& result_type,
                    const VExprSPtrs& children) const override {
         ///* array_sort(lambda, arg) *///
 
@@ -135,8 +135,8 @@ public:
          */
         Block lambda_block;
         for (int i = 0; i <= 2; i++) {
-            lambda_block.insert(ColumnWithTypeAndName(
-                    nested_nullable_column.clone_empty(), col_type.get_nested_type(), "temp"));
+            lambda_block.insert(ColumnWithTypeAndName(nested_nullable_column.clone_empty(),
+                                                      col_type.get_nested_type(), "temp"));
         }
 
         MutableColumnPtr temp_data[2];

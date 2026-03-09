@@ -175,10 +175,8 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
     doris::segment_v2::VirtualColumnIterator* virtual_column_iter =
             dynamic_cast<doris::segment_v2::VirtualColumnIterator*>(column_iterators[3].get());
     IColumn::Ptr column = virtual_column_iter->get_materialized_column();
-    const ColumnFloat32* float_column =
-            check_and_get_column<const ColumnFloat32>(column.get());
-    const ColumnNothing* nothing_column =
-            check_and_get_column<const ColumnNothing>(column.get());
+    const ColumnFloat32* float_column = check_and_get_column<const ColumnFloat32>(column.get());
+    const ColumnNothing* nothing_column = check_and_get_column<const ColumnNothing>(column.get());
     ASSERT_EQ(float_column, nullptr);
     ASSERT_NE(nothing_column, nullptr);
     EXPECT_EQ(column->size(), 0);
@@ -275,10 +273,8 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
             dynamic_cast<doris::segment_v2::VirtualColumnIterator*>(column_iterators[3].get());
 
     IColumn::Ptr column = virtual_column_iter->get_materialized_column();
-    const ColumnFloat32* nullable_column =
-            check_and_get_column<const ColumnFloat32>(column.get());
-    const ColumnNothing* nothing_column =
-            check_and_get_column<const ColumnNothing>(column.get());
+    const ColumnFloat32* nullable_column = check_and_get_column<const ColumnFloat32>(column.get());
+    const ColumnNothing* nothing_column = check_and_get_column<const ColumnNothing>(column.get());
     ASSERT_NE(nullable_column, nullptr);
     ASSERT_EQ(nothing_column, nullptr);
     EXPECT_EQ(nullable_column->size(), 10);

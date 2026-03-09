@@ -43,9 +43,8 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-VDataStreamRecvr::SenderQueue::SenderQueue(
-        VDataStreamRecvr* parent_recvr, int num_senders,
-        std::shared_ptr<Dependency> local_channel_dependency)
+VDataStreamRecvr::SenderQueue::SenderQueue(VDataStreamRecvr* parent_recvr, int num_senders,
+                                           std::shared_ptr<Dependency> local_channel_dependency)
         : _recvr(parent_recvr),
           _is_cancelled(false),
           _num_remaining_senders(num_senders),
@@ -492,8 +491,7 @@ std::string VDataStreamRecvr::debug_string() {
     return fmt::to_string(debug_string_buffer);
 }
 
-std::shared_ptr<Dependency> VDataStreamRecvr::get_local_channel_dependency(
-        int sender_id) {
+std::shared_ptr<Dependency> VDataStreamRecvr::get_local_channel_dependency(int sender_id) {
     DCHECK(_sender_to_local_channel_dependency[_is_merging ? sender_id : 0] != nullptr);
     return _sender_to_local_channel_dependency[_is_merging ? sender_id : 0];
 }

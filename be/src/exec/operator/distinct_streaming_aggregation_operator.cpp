@@ -157,8 +157,7 @@ bool DistinctStreamingAggLocalState::_should_expand_preagg_hash_tables() {
             _agg_data->method_variant);
 }
 
-Status DistinctStreamingAggLocalState::_init_hash_method(
-        const VExprContextSPtrs& probe_exprs) {
+Status DistinctStreamingAggLocalState::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
     RETURN_IF_ERROR(init_hash_method<DistinctDataVariants>(
             _agg_data.get(), get_data_types(probe_exprs),
             Base::_parent->template cast<DistinctStreamingAggOperatorX>()._is_first_phase));
@@ -280,42 +279,40 @@ void DistinctStreamingAggLocalState::_make_nullable_output_key(Block* block) {
 }
 
 void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
-        IColumn::Selector& distinct_row, ColumnRawPtrs& key_columns,
-        const uint32_t num_rows) {
+        IColumn::Selector& distinct_row, ColumnRawPtrs& key_columns, const uint32_t num_rows) {
     std::visit(
-            Overload {
-                    [&](std::monostate& arg) -> void {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                    },
-                    [&](auto& agg_method) -> void {
-                        SCOPED_TIMER(_hash_table_compute_timer);
-                        using HashMethodType = std::decay_t<decltype(agg_method)>;
-                        using AggState = typename HashMethodType::State;
-                        auto& hash_tbl = *agg_method.hash_table;
-                        if (_parent->cast<DistinctStreamingAggOperatorX>()._is_streaming_preagg &&
-                            hash_tbl.add_elem_size_overflow(num_rows)) {
-                            if (!_should_expand_preagg_hash_tables()) {
-                                _stop_emplace_flag = true;
-                                return;
-                            }
-                        }
-                        AggState state(key_columns);
-                        agg_method.init_serialized_keys(key_columns, num_rows);
-                        size_t row = 0;
-                        auto creator = [&](const auto& ctor, auto& key, auto& origin) {
-                            HashMethodType::try_presis_key(key, origin, _arena);
-                            ctor(key);
-                            distinct_row.push_back(row);
-                        };
-                        auto creator_for_null_key = [&]() { distinct_row.push_back(row); };
+            Overload {[&](std::monostate& arg) -> void {
+                          throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                      },
+                      [&](auto& agg_method) -> void {
+                          SCOPED_TIMER(_hash_table_compute_timer);
+                          using HashMethodType = std::decay_t<decltype(agg_method)>;
+                          using AggState = typename HashMethodType::State;
+                          auto& hash_tbl = *agg_method.hash_table;
+                          if (_parent->cast<DistinctStreamingAggOperatorX>()._is_streaming_preagg &&
+                              hash_tbl.add_elem_size_overflow(num_rows)) {
+                              if (!_should_expand_preagg_hash_tables()) {
+                                  _stop_emplace_flag = true;
+                                  return;
+                              }
+                          }
+                          AggState state(key_columns);
+                          agg_method.init_serialized_keys(key_columns, num_rows);
+                          size_t row = 0;
+                          auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                              HashMethodType::try_presis_key(key, origin, _arena);
+                              ctor(key);
+                              distinct_row.push_back(row);
+                          };
+                          auto creator_for_null_key = [&]() { distinct_row.push_back(row); };
 
-                        SCOPED_TIMER(_hash_table_emplace_timer);
-                        for (; row < num_rows; ++row) {
-                            agg_method.lazy_emplace(state, row, creator, creator_for_null_key);
-                        }
+                          SCOPED_TIMER(_hash_table_emplace_timer);
+                          for (; row < num_rows; ++row) {
+                              agg_method.lazy_emplace(state, row, creator, creator_for_null_key);
+                          }
 
-                        COUNTER_UPDATE(_hash_table_input_counter, num_rows);
-                    }},
+                          COUNTER_UPDATE(_hash_table_input_counter, num_rows);
+                      }},
             _agg_data->method_variant);
 }
 
@@ -340,8 +337,7 @@ DistinctStreamingAggOperatorX::DistinctStreamingAggOperatorX(ObjectPool* pool, i
 Status DistinctStreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(StatefulOperatorX<DistinctStreamingAggLocalState>::init(tnode, state));
     // ignore return status for now , so we need to introduce ExecNode::init()
-    RETURN_IF_ERROR(
-            VExpr::create_expr_trees(tnode.agg_node.grouping_exprs, _probe_expr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.agg_node.grouping_exprs, _probe_expr_ctxs));
 
     _op_name = "DISTINCT_STREAMING_AGGREGATION_OPERATOR";
     return Status::OK();
@@ -368,8 +364,7 @@ void DistinctStreamingAggOperatorX::init_make_nullable(RuntimeState* state) {
     }
 }
 
-Status DistinctStreamingAggOperatorX::push(RuntimeState* state, Block* in_block,
-                                           bool eos) const {
+Status DistinctStreamingAggOperatorX::push(RuntimeState* state, Block* in_block, bool eos) const {
     auto& local_state = get_local_state(state);
     local_state._input_num_rows += in_block->rows();
     if (in_block->rows() == 0) {
@@ -388,8 +383,7 @@ Status DistinctStreamingAggOperatorX::push(RuntimeState* state, Block* in_block,
     return Status::OK();
 }
 
-Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, Block* block,
-                                           bool* eos) const {
+Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, Block* block, bool* eos) const {
     auto& local_state = get_local_state(state);
     if (!local_state._aggregated_block->empty()) {
         block->swap(*local_state._aggregated_block);
@@ -431,12 +425,12 @@ Status DistinctStreamingAggLocalState::close(RuntimeState* state) {
     /// _hash_table_size_counter may be null if prepare failed.
     if (_hash_table_size_counter && !_probe_expr_ctxs.empty()) {
         std::visit(Overload {[&](std::monostate& arg) {
-                                             // Do nothing
-                                         },
-                                         [&](auto& agg_method) {
-                                             COUNTER_SET(_hash_table_size_counter,
-                                                         int64_t(agg_method.hash_table->size()));
-                                         }},
+                                 // Do nothing
+                             },
+                             [&](auto& agg_method) {
+                                 COUNTER_SET(_hash_table_size_counter,
+                                             int64_t(agg_method.hash_table->size()));
+                             }},
                    _agg_data->method_variant);
     }
     if (Base::_closed) {

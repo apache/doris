@@ -688,8 +688,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     // test VariantRootColumnIterator for next_batch and read_by_rowids
     {
         auto iter = assert_cast<VariantRootColumnIterator*>(it3.get());
-        auto nullable_dt = std::make_shared<DataTypeNullable>(
-                std::make_shared<DataTypeVariant>(3));
+        auto nullable_dt = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeVariant>(3));
         MutableColumnPtr root_column_object = nullable_dt->create_column();
         nrows = 1000;
         st = iter->seek_to_ordinal(0);
@@ -1106,8 +1105,7 @@ TEST_F(VariantColumnWriterReaderTest,
     compact_read_opts.tablet_schema = _tablet_schema;
     OlapReaderStatistics compact_stats;
     compact_read_opts.stats = &compact_stats;
-    TabletColumn doc_bucket_col =
-            variant_util::create_doc_value_column(parent_column, 0);
+    TabletColumn doc_bucket_col = variant_util::create_doc_value_column(parent_column, 0);
     ColumnIteratorUPtr bucket_it;
     st = variant_column_reader->new_iterator(&bucket_it, &doc_bucket_col, &compact_read_opts,
                                              &column_reader_cache);
@@ -1219,8 +1217,7 @@ TEST_F(VariantColumnWriterReaderTest, test_read_doc_compact_from_doc_value_bucke
 
     // 6. Read and validate each doc value bucket column: should choose ReadKind::DOC_COMPACT.
     for (int bucket = 0; bucket < kDocBuckets; ++bucket) {
-        TabletColumn doc_bucket_col =
-                variant_util::create_doc_value_column(parent_column, bucket);
+        TabletColumn doc_bucket_col = variant_util::create_doc_value_column(parent_column, bucket);
         ColumnIteratorUPtr it;
         st = variant_column_reader->new_iterator(&it, &doc_bucket_col, &storage_read_opts,
                                                  &column_reader_cache);
@@ -1412,8 +1409,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_compact_writer_and_read_doc
     OlapReaderStatistics stats;
     storage_read_opts.stats = &stats;
 
-    TabletColumn doc_bucket_map =
-            variant_util::create_doc_value_column(parent_column, kBucket);
+    TabletColumn doc_bucket_map = variant_util::create_doc_value_column(parent_column, kBucket);
     ColumnIteratorUPtr it;
     st = variant_column_reader->new_iterator(&it, &doc_bucket_map, &storage_read_opts,
                                              &column_reader_cache);
@@ -1648,8 +1644,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_sparse_write_array_gap_and_
     auto* variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
     EXPECT_TRUE(variant_column_reader != nullptr);
 
-    const auto* arr_node =
-            variant_column_reader->get_subcolumn_meta_by_path(PathInData("arr"));
+    const auto* arr_node = variant_column_reader->get_subcolumn_meta_by_path(PathInData("arr"));
     EXPECT_TRUE(arr_node != nullptr);
 
     bool found_arr_meta = false;
@@ -3203,8 +3198,8 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter) {
         // fill nested_subcolumns with different offset of array
         PathInData parent_path("a");
         PathInData relative_path("b");
-        DataTypePtr base_data_type = std::make_shared<DataTypeArray>(
-                std::make_shared<DataTypeString>());
+        DataTypePtr base_data_type =
+                std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
         auto base_column = base_data_type->create_column();
         PathWithColumnAndType base = {relative_path, base_column->get_ptr(), base_data_type};
         nested_subcolumns[parent_path].emplace_back(base);

@@ -112,8 +112,8 @@ void ColumnStr<T>::shrink_padding_chars() {
 // will be converted to ColumnStr<uint64_t> if the total string length
 // exceeds the 4G limit by calling Block::replace_if_overflow.
 template <typename T>
-void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::IColumn& src,
-                                                     size_t start, size_t length) {
+void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::IColumn& src, size_t start,
+                                                     size_t length) {
     if (length == 0) {
         return;
     }

@@ -66,8 +66,8 @@ private:
     int _find_last_fn_eos_idx() const;
     bool _is_inner_and_empty();
 
-    Status _get_expanded_block_for_outer_conjuncts(RuntimeState* state,
-                                                   Block* output_block, bool* eos);
+    Status _get_expanded_block_for_outer_conjuncts(RuntimeState* state, Block* output_block,
+                                                   bool* eos);
 
     std::vector<TableFunction*> _fns;
     VExprContextSPtrs _vfn_ctxs;

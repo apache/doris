@@ -60,16 +60,13 @@ Status LocalExchangeSinkOperatorX::init(RuntimeState* state, ExchangeType type,
             state->query_options().enable_new_shuffle_hash_method) {
             _partitioner = std::make_unique<Crc32CHashPartitioner>(_num_partitions);
         } else {
-            _partitioner = std::make_unique<
-                    Crc32HashPartitioner<ShuffleChannelIds>>(
-                    _num_partitions);
+            _partitioner =
+                    std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(_num_partitions);
         }
         RETURN_IF_ERROR(_partitioner->init(_texprs));
     } else if (_type == ExchangeType::BUCKET_HASH_SHUFFLE) {
         DCHECK_GT(num_buckets, 0);
-        _partitioner =
-                std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(
-                        num_buckets);
+        _partitioner = std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(num_buckets);
         RETURN_IF_ERROR(_partitioner->init(_texprs));
     }
     return Status::OK();
@@ -144,8 +141,7 @@ std::string LocalExchangeSinkLocalState::debug_string(int indentation_level) con
     return fmt::to_string(debug_string_buffer);
 }
 
-Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, Block* in_block,
-                                        bool eos) {
+Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());

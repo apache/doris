@@ -123,8 +123,7 @@ PFilterType get_type(RuntimeFilterType type) {
     }
 }
 
-Status create_literal(const DataTypePtr& type, const void* data,
-                      VExprSPtr& expr) {
+Status create_literal(const DataTypePtr& type, const void* data, VExprSPtr& expr) {
     try {
         TExprNode node = create_texpr_node_from(data, type->get_primitive_type(),
                                                 type->get_precision(), type->get_scale());
@@ -136,8 +135,8 @@ Status create_literal(const DataTypePtr& type, const void* data,
     return Status::OK();
 }
 
-Status create_vbin_predicate(const DataTypePtr& type, TExprOpcode::type opcode,
-                             VExprSPtr& expr, TExprNode* tnode, bool contain_null) {
+Status create_vbin_predicate(const DataTypePtr& type, TExprOpcode::type opcode, VExprSPtr& expr,
+                             TExprNode* tnode, bool contain_null) {
     TExprNode node;
     TScalarType tscalar_type;
     tscalar_type.__set_type(TPrimitiveType::BOOLEAN);

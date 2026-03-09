@@ -221,14 +221,13 @@ void AsyncResultWriter::_set_ready_to_finish() {
     _finish_dependency->set_ready();
 }
 
-Status AsyncResultWriter::_projection_block(doris::Block& input_block,
-                                            doris::Block* output_block) {
+Status AsyncResultWriter::_projection_block(doris::Block& input_block, doris::Block* output_block) {
     Status status = Status::OK();
     if (input_block.rows() == 0) {
         return status;
     }
-    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(
-            _vec_output_expr_ctxs, input_block, output_block));
+    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_vec_output_expr_ctxs,
+                                                                       input_block, output_block));
     materialize_block_inplace(*output_block);
     return status;
 }
@@ -254,8 +253,7 @@ void AsyncResultWriter::_return_free_block(std::unique_ptr<Block> b) {
     }
 }
 
-std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::Block* block,
-                                                          size_t rows) {
+std::unique_ptr<Block> AsyncResultWriter::_get_free_block(doris::Block* block, size_t rows) {
     std::unique_ptr<Block> b;
     if (!_free_blocks.try_dequeue(b)) {
         b = block->create_same_struct_block(rows, true);

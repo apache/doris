@@ -54,8 +54,8 @@ Status TableFunctionLocalState::_clone_table_function(RuntimeState* state) {
         RETURN_IF_ERROR(p._vfn_ctxs[i]->clone(state, _vfn_ctxs[i]));
 
         TableFunction* fn = nullptr;
-        RETURN_IF_ERROR(TableFunctionFactory::get_fn(
-                _vfn_ctxs[i]->root()->fn(), state->obj_pool(), &fn, state->be_exec_version()));
+        RETURN_IF_ERROR(TableFunctionFactory::get_fn(_vfn_ctxs[i]->root()->fn(), state->obj_pool(),
+                                                     &fn, state->be_exec_version()));
         fn->set_expr_context(_vfn_ctxs[i]);
         _fns.push_back(fn);
     }
@@ -160,16 +160,16 @@ bool TableFunctionLocalState::_is_inner_and_empty() {
     return false;
 }
 
-Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
-                                                   Block* output_block, bool* eos) {
+Status TableFunctionLocalState::get_expanded_block(RuntimeState* state, Block* output_block,
+                                                   bool* eos) {
     SCOPED_TIMER(_process_rows_timer);
     if (_need_to_handle_outer_conjuncts) {
         return _get_expanded_block_for_outer_conjuncts(state, output_block, eos);
     }
 
     auto& p = _parent->cast<TableFunctionOperatorX>();
-    MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(
-            output_block, p._output_slots);
+    MutableBlock m_block =
+            VectorizedUtils::build_mutable_mem_reuse_block(output_block, p._output_slots);
     MutableColumns& columns = m_block.mutable_columns();
 
     for (int i = 0; i < p._fn_num; i++) {
@@ -233,20 +233,21 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
     {
         SCOPED_TIMER(_filter_timer); // 3. eval conjuncts
         RETURN_IF_ERROR(VExprContext::filter_block(_expand_conjuncts_ctxs, output_block,
-                                                               output_block->columns()));
-        RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block,
-                                                               output_block->columns()));
+                                                   output_block->columns()));
+        RETURN_IF_ERROR(
+                VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     }
 
     *eos = _child_eos && _cur_child_offset == -1;
     return Status::OK();
 }
 
-Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(
-        RuntimeState* state, Block* output_block, bool* eos) {
+Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(RuntimeState* state,
+                                                                        Block* output_block,
+                                                                        bool* eos) {
     auto& p = _parent->cast<TableFunctionOperatorX>();
-    MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(
-            output_block, p._output_slots);
+    MutableBlock m_block =
+            VectorizedUtils::build_mutable_mem_reuse_block(output_block, p._output_slots);
     MutableColumns& columns = m_block.mutable_columns();
     auto child_slot_count = p._child_slots.size();
     for (int i = 0; i < p._fn_num; i++) {
@@ -413,9 +414,8 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(
                 }
             }
             if (!null_row_indices.empty()) {
-                MutableBlock m_block2 =
-                        VectorizedUtils::build_mutable_mem_reuse_block(output_block,
-                                                                                   p._output_slots);
+                MutableBlock m_block2 = VectorizedUtils::build_mutable_mem_reuse_block(
+                        output_block, p._output_slots);
                 MutableColumns& columns2 = m_block2.mutable_columns();
                 for (auto index : p._output_slot_indexs) {
                     auto src_column = _child_block->get_by_position(index).column;
@@ -438,8 +438,8 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(
 
     {
         SCOPED_TIMER(_filter_timer); // 3. eval conjuncts
-        RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block,
-                                                               output_block->columns()));
+        RETURN_IF_ERROR(
+                VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     }
 
     *eos = _child_eos && _cur_child_offset == -1;
@@ -501,8 +501,8 @@ Status TableFunctionOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
 
         auto root = ctx->root();
         TableFunction* fn = nullptr;
-        RETURN_IF_ERROR(TableFunctionFactory::get_fn(root->fn(), _pool, &fn,
-                                                                 state->be_exec_version()));
+        RETURN_IF_ERROR(
+                TableFunctionFactory::get_fn(root->fn(), _pool, &fn, state->be_exec_version()));
         fn->set_expr_context(ctx);
         _fns.push_back(fn);
     }

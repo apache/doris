@@ -34,14 +34,12 @@ namespace doris {
 class ObjectPool;
 class RuntimeState;
 
-
 class VMCPartitionWriter;
 
 class VMCTableWriter final : public AsyncResultWriter {
 public:
     VMCTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                   std::shared_ptr<Dependency> dep,
-                   std::shared_ptr<Dependency> fin_dep);
+                   std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
 
     ~VMCTableWriter() = default;
 

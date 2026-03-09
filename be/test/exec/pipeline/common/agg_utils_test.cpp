@@ -216,8 +216,7 @@ TEST_F(AggregatedDataVariantsTest, TestStringKey) {
 
     // Test string key
     _variants->init(types, HashKeyType::string_key);
-    auto value = std::holds_alternative<
-            MethodStringNoCache<AggregatedDataWithShortStringKey>>(
+    auto value = std::holds_alternative<MethodStringNoCache<AggregatedDataWithShortStringKey>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 }
@@ -227,70 +226,61 @@ TEST_F(AggregatedDataVariantsTest, TestNumericKeys) {
 
     // Test int8 key
     _variants->init(types, HashKeyType::int8_key);
-    auto value = std::holds_alternative<
-            MethodOneNumber<UInt8, AggData<UInt8>>>(
+    auto value = std::holds_alternative<MethodOneNumber<UInt8, AggData<UInt8>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int16 key
     _variants->init(types, HashKeyType::int16_key);
-    value = std::holds_alternative<
-            MethodOneNumber<UInt16, AggData<UInt16>>>(
+    value = std::holds_alternative<MethodOneNumber<UInt16, AggData<UInt16>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int32 key
     _variants->init(types, HashKeyType::int32_key);
-    value = std::holds_alternative<
-            MethodOneNumber<UInt32, AggData<UInt32>>>(
+    value = std::holds_alternative<MethodOneNumber<UInt32, AggData<UInt32>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int32 key phase2
     _variants->init(types, HashKeyType::int32_key_phase2);
-    value = std::holds_alternative<
-            MethodOneNumber<UInt32, AggregatedDataWithUInt32KeyPhase2>>(
+    value = std::holds_alternative<MethodOneNumber<UInt32, AggregatedDataWithUInt32KeyPhase2>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int64 key
     _variants->init(types, HashKeyType::int64_key);
-    value = std::holds_alternative<
-            MethodOneNumber<UInt64, AggData<UInt64>>>(
+    value = std::holds_alternative<MethodOneNumber<UInt64, AggData<UInt64>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int64 key phase2
     _variants->init(types, HashKeyType::int64_key_phase2);
-    value = std::holds_alternative<
-            MethodOneNumber<UInt64, AggregatedDataWithUInt64KeyPhase2>>(
+    value = std::holds_alternative<MethodOneNumber<UInt64, AggregatedDataWithUInt64KeyPhase2>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int128 key
     _variants->init(types, HashKeyType::int128_key);
-    value = std::holds_alternative<
-            MethodOneNumber<UInt128, AggData<UInt128>>>(
+    value = std::holds_alternative<MethodOneNumber<UInt128, AggData<UInt128>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int256 key
     _variants->init(types, HashKeyType::int256_key);
-    value = std::holds_alternative<
-            MethodOneNumber<UInt256, AggData<UInt256>>>(
+    value = std::holds_alternative<MethodOneNumber<UInt256, AggData<UInt256>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 }
 
 TEST_F(AggregatedDataVariantsTest, TestNullableKeys) {
-    auto nullable_type = std::make_shared<DataTypeNullable>(
-            std::make_shared<DataTypeInt32>());
+    auto nullable_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
     std::vector<DataTypePtr> types {nullable_type};
 
     // Test nullable int32
     _variants->init(types, HashKeyType::int32_key);
-    auto value = std::holds_alternative<MethodSingleNullableColumn<
-            MethodOneNumber<UInt32, AggDataNullable<UInt32>>>>(
+    auto value = std::holds_alternative<
+            MethodSingleNullableColumn<MethodOneNumber<UInt32, AggDataNullable<UInt32>>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
@@ -304,27 +294,27 @@ TEST_F(AggregatedDataVariantsTest, TestNullableKeys) {
 
 TEST_F(AggregatedDataVariantsTest, TestFixedKeys) {
     std::vector<DataTypePtr> types {std::make_shared<DataTypeInt32>(),
-                                                std::make_shared<DataTypeInt32>()};
+                                    std::make_shared<DataTypeInt32>()};
 
     // Test fixed64
     _variants->init(types, HashKeyType::fixed64);
-    ASSERT_TRUE(std::holds_alternative<MethodKeysFixed<AggData<UInt64>>>(
-            _variants->method_variant));
+    ASSERT_TRUE(
+            std::holds_alternative<MethodKeysFixed<AggData<UInt64>>>(_variants->method_variant));
 
     // Test fixed128
     _variants->init(types, HashKeyType::fixed128);
-    ASSERT_TRUE(std::holds_alternative<MethodKeysFixed<AggData<UInt128>>>(
-            _variants->method_variant));
+    ASSERT_TRUE(
+            std::holds_alternative<MethodKeysFixed<AggData<UInt128>>>(_variants->method_variant));
 
     // Test fixed136
     _variants->init(types, HashKeyType::fixed136);
-    ASSERT_TRUE(std::holds_alternative<MethodKeysFixed<AggData<UInt136>>>(
-            _variants->method_variant));
+    ASSERT_TRUE(
+            std::holds_alternative<MethodKeysFixed<AggData<UInt136>>>(_variants->method_variant));
 
     // Test fixed256
     _variants->init(types, HashKeyType::fixed256);
-    ASSERT_TRUE(std::holds_alternative<MethodKeysFixed<AggData<UInt256>>>(
-            _variants->method_variant));
+    ASSERT_TRUE(
+            std::holds_alternative<MethodKeysFixed<AggData<UInt256>>>(_variants->method_variant));
 }
 
 TEST_F(AggregatedDataVariantsTest, TestInvalidKeyType) {

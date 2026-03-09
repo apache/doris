@@ -39,7 +39,6 @@ using UIntGauge = AtomicGauge<uint64_t>;
 class MetricEntity;
 struct MetricPrototype;
 
-
 class SpillStreamManager;
 class SpillDataDir {
 public:
@@ -114,8 +113,8 @@ private:
 class SpillStreamManager {
 public:
     ~SpillStreamManager();
-    SpillStreamManager(std::unordered_map<std::string, std::unique_ptr<SpillDataDir>>&&
-                               spill_store_map);
+    SpillStreamManager(
+            std::unordered_map<std::string, std::unique_ptr<SpillDataDir>>&& spill_store_map);
 
     Status init();
 

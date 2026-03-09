@@ -84,8 +84,7 @@ TEST_F(InvertedIndexQueryParamTest, TestTinyIntTemplateWithNativeValue) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestSmallIntWithField) {
-    auto field =
-            Field::create_field<TYPE_SMALLINT>(static_cast<Int16>(1234));
+    auto field = Field::create_field<TYPE_SMALLINT>(static_cast<Int16>(1234));
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_SMALLINT,
                                                                      &field, param);
@@ -125,8 +124,7 @@ TEST_F(InvertedIndexQueryParamTest, TestIntTemplateWithNativeValue) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestBigIntWithField) {
-    auto field = Field::create_field<TYPE_BIGINT>(
-            static_cast<Int64>(9223372036854775807LL));
+    auto field = Field::create_field<TYPE_BIGINT>(static_cast<Int64>(9223372036854775807LL));
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_BIGINT,
                                                                      &field, param);
@@ -169,8 +167,7 @@ TEST_F(InvertedIndexQueryParamTest, TestLargeIntTemplateWithNativeValue) {
 // ==================== Float/Double Types Tests ====================
 
 TEST_F(InvertedIndexQueryParamTest, TestFloatWithField) {
-    auto field =
-            Field::create_field<TYPE_FLOAT>(static_cast<Float32>(3.14f));
+    auto field = Field::create_field<TYPE_FLOAT>(static_cast<Float32>(3.14f));
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_FLOAT,
                                                                      &field, param);
@@ -190,8 +187,7 @@ TEST_F(InvertedIndexQueryParamTest, TestFloatTemplateWithNativeValue) {
 }
 
 TEST_F(InvertedIndexQueryParamTest, TestDoubleWithField) {
-    auto field = Field::create_field<TYPE_DOUBLE>(
-            static_cast<Float64>(3.14159265358979));
+    auto field = Field::create_field<TYPE_DOUBLE>(static_cast<Float64>(3.14159265358979));
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_DOUBLE,
                                                                      &field, param);
@@ -349,8 +345,7 @@ TEST_F(InvertedIndexQueryParamTest, TestDecimal128IWithField) {
 TEST_F(InvertedIndexQueryParamTest, TestDecimal256WithField) {
     // Decimal256 uses Int128 for Field storage
     Int128 dec_value = 123456789012345LL;
-    auto field = Field::create_field<TYPE_DECIMAL256>(
-            Decimal<wide::Int256>(dec_value));
+    auto field = Field::create_field<TYPE_DECIMAL256>(Decimal<wide::Int256>(dec_value));
     std::unique_ptr<InvertedIndexQueryParamFactory> param;
     auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_DECIMAL256,
                                                                      &field, param);
@@ -480,8 +475,7 @@ TEST_F(InvertedIndexQueryParamTest, TestUnsupportedTypeStruct) {
 TEST_F(InvertedIndexQueryParamTest, TestIntegerBoundaryMin) {
     // Test minimum values
     {
-        auto field =
-                Field::create_field<TYPE_TINYINT>(static_cast<Int8>(-128));
+        auto field = Field::create_field<TYPE_TINYINT>(static_cast<Int8>(-128));
         std::unique_ptr<InvertedIndexQueryParamFactory> param;
         auto status = InvertedIndexQueryParamFactory::create_query_value(
                 PrimitiveType::TYPE_TINYINT, &field, param);
@@ -490,8 +484,7 @@ TEST_F(InvertedIndexQueryParamTest, TestIntegerBoundaryMin) {
         EXPECT_EQ(*value, -128);
     }
     {
-        auto field = Field::create_field<TYPE_SMALLINT>(
-                static_cast<Int16>(-32768));
+        auto field = Field::create_field<TYPE_SMALLINT>(static_cast<Int16>(-32768));
         std::unique_ptr<InvertedIndexQueryParamFactory> param;
         auto status = InvertedIndexQueryParamFactory::create_query_value(
                 PrimitiveType::TYPE_SMALLINT, &field, param);
@@ -504,8 +497,7 @@ TEST_F(InvertedIndexQueryParamTest, TestIntegerBoundaryMin) {
 TEST_F(InvertedIndexQueryParamTest, TestIntegerBoundaryMax) {
     // Test maximum values
     {
-        auto field =
-                Field::create_field<TYPE_TINYINT>(static_cast<Int8>(127));
+        auto field = Field::create_field<TYPE_TINYINT>(static_cast<Int8>(127));
         std::unique_ptr<InvertedIndexQueryParamFactory> param;
         auto status = InvertedIndexQueryParamFactory::create_query_value(
                 PrimitiveType::TYPE_TINYINT, &field, param);
@@ -514,8 +506,7 @@ TEST_F(InvertedIndexQueryParamTest, TestIntegerBoundaryMax) {
         EXPECT_EQ(*value, 127);
     }
     {
-        auto field = Field::create_field<TYPE_SMALLINT>(
-                static_cast<Int16>(32767));
+        auto field = Field::create_field<TYPE_SMALLINT>(static_cast<Int16>(32767));
         std::unique_ptr<InvertedIndexQueryParamFactory> param;
         auto status = InvertedIndexQueryParamFactory::create_query_value(
                 PrimitiveType::TYPE_SMALLINT, &field, param);
@@ -537,8 +528,7 @@ TEST_F(InvertedIndexQueryParamTest, TestZeroValues) {
         EXPECT_EQ(*value, 0);
     }
     {
-        auto field =
-                Field::create_field<TYPE_DOUBLE>(static_cast<Float64>(0.0));
+        auto field = Field::create_field<TYPE_DOUBLE>(static_cast<Float64>(0.0));
         std::unique_ptr<InvertedIndexQueryParamFactory> param;
         auto status = InvertedIndexQueryParamFactory::create_query_value(PrimitiveType::TYPE_DOUBLE,
                                                                          &field, param);

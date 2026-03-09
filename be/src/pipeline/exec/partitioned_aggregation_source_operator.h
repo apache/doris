@@ -30,7 +30,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-
 class PartitionedAggSourceOperatorX;
 class PartitionedAggLocalState;
 
@@ -44,8 +43,7 @@ struct AggSpillPartitionInfo {
     int level = 0;
 
     AggSpillPartitionInfo() = default;
-    AggSpillPartitionInfo(SpillFileSPtr s, int lvl)
-            : spill_file(std::move(s)), level(lvl) {}
+    AggSpillPartitionInfo(SpillFileSPtr s, int lvl) : spill_file(std::move(s)), level(lvl) {}
 };
 
 class PartitionedAggLocalState MOCK_REMOVE(final)

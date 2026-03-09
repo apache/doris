@@ -50,12 +50,10 @@ private:
     friend class DistinctStreamingAggOperatorX;
     template <typename LocalStateType>
     friend class StatefulOperatorX;
-    Status _distinct_pre_agg_with_serialized_key(Block* in_block,
-                                                 Block* out_block);
+    Status _distinct_pre_agg_with_serialized_key(Block* in_block, Block* out_block);
     Status _init_hash_method(const VExprContextSPtrs& probe_exprs);
     void _emplace_into_hash_table_to_distinct(IColumn::Selector& distinct_row,
-                                              ColumnRawPtrs& key_columns,
-                                              const uint32_t num_rows);
+                                              ColumnRawPtrs& key_columns, const uint32_t num_rows);
     void _make_nullable_output_key(Block* block);
     bool _should_expand_preagg_hash_tables();
 

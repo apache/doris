@@ -37,8 +37,7 @@ public:
     DataQueue(int child_count = 1);
     ~DataQueue() = default;
 
-    Status get_block_from_queue(std::unique_ptr<Block>* block,
-                                int* child_idx = nullptr);
+    Status get_block_from_queue(std::unique_ptr<Block>* block, int* child_idx = nullptr);
 
     Status push_block(std::unique_ptr<Block> block, int child_idx = 0);
 

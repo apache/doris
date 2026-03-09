@@ -721,8 +721,7 @@ TEST_F(ColumnArrayTest, GetNumberOfDimensionsTest) {
         auto check_type = remove_nullable(array_types[i]);
         auto dimension = 0;
         while (check_type->get_primitive_type() == TYPE_ARRAY && !check_type->is_nullable()) {
-            auto nested_type =
-                    assert_cast<const DataTypeArray&>(*check_type).get_nested_type();
+            auto nested_type = assert_cast<const DataTypeArray&>(*check_type).get_nested_type();
             dimension++;
             check_type = nested_type;
         }

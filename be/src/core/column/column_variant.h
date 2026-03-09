@@ -404,9 +404,8 @@ public:
 
     // use sparse_subcolumns_schema to record sparse column's path info and type
     static MutableColumnPtr create_binary_column_fn() {
-        return ColumnMap::create(ColumnString::create(),
-                                             ColumnString::create(),
-                                             ColumnArray::ColumnOffsets::create());
+        return ColumnMap::create(ColumnString::create(), ColumnString::create(),
+                                 ColumnArray::ColumnOffsets::create());
     }
 
     static const DataTypePtr& get_binary_column_type() {

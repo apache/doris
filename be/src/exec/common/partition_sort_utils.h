@@ -93,8 +93,7 @@ public:
     void create_or_reset_sorter_state();
 
     void append_whole_block(Block* input_block, const RowDescriptor& row_desc) {
-        auto empty_block = Block::create_unique(
-                VectorizedUtils::create_empty_block(row_desc));
+        auto empty_block = Block::create_unique(VectorizedUtils::create_empty_block(row_desc));
         empty_block->swap(*input_block);
         _blocks.emplace_back(std::move(empty_block));
     }
@@ -125,30 +124,23 @@ template <typename T>
 using PartitionDataSingle = MethodOneNumber<T, PartitionData<T>>;
 
 template <typename T>
-using PartitionDataSingleNullable = MethodSingleNullableColumn<
-        MethodOneNumber<T, DataWithNullKey<PartitionData<T>>>>;
+using PartitionDataSingleNullable =
+        MethodSingleNullableColumn<MethodOneNumber<T, DataWithNullKey<PartitionData<T>>>>;
 
 using PartitionedMethodVariants = std::variant<
-        std::monostate, MethodSerialized<PartitionDataWithStringKey>,
-        PartitionDataSingle<UInt8>, PartitionDataSingle<UInt16>,
-        PartitionDataSingle<UInt32>, PartitionDataSingle<UInt64>,
+        std::monostate, MethodSerialized<PartitionDataWithStringKey>, PartitionDataSingle<UInt8>,
+        PartitionDataSingle<UInt16>, PartitionDataSingle<UInt32>, PartitionDataSingle<UInt64>,
         PartitionDataSingle<UInt128>, PartitionDataSingle<UInt256>,
-        PartitionDataSingleNullable<UInt8>,
-        PartitionDataSingleNullable<UInt16>,
-        PartitionDataSingleNullable<UInt32>,
-        PartitionDataSingleNullable<UInt64>,
-        PartitionDataSingleNullable<UInt128>,
-        PartitionDataSingleNullable<UInt256>,
-        MethodKeysFixed<PartitionData<UInt64>>,
-        MethodKeysFixed<PartitionData<UInt72>>,
-        MethodKeysFixed<PartitionData<UInt96>>,
-        MethodKeysFixed<PartitionData<UInt104>>,
-        MethodKeysFixed<PartitionData<UInt128>>,
-        MethodKeysFixed<PartitionData<UInt136>>,
+        PartitionDataSingleNullable<UInt8>, PartitionDataSingleNullable<UInt16>,
+        PartitionDataSingleNullable<UInt32>, PartitionDataSingleNullable<UInt64>,
+        PartitionDataSingleNullable<UInt128>, PartitionDataSingleNullable<UInt256>,
+        MethodKeysFixed<PartitionData<UInt64>>, MethodKeysFixed<PartitionData<UInt72>>,
+        MethodKeysFixed<PartitionData<UInt96>>, MethodKeysFixed<PartitionData<UInt104>>,
+        MethodKeysFixed<PartitionData<UInt128>>, MethodKeysFixed<PartitionData<UInt136>>,
         MethodKeysFixed<PartitionData<UInt256>>,
         MethodStringNoCache<PartitionDataWithShortStringKey>,
-        MethodSingleNullableColumn<MethodStringNoCache<
-                DataWithNullKey<PartitionDataWithShortStringKey>>>>;
+        MethodSingleNullableColumn<
+                MethodStringNoCache<DataWithNullKey<PartitionDataWithShortStringKey>>>>;
 
 struct PartitionedHashMapVariants
         : public DataVariants<PartitionedMethodVariants, MethodSingleNullableColumn,
@@ -189,12 +181,10 @@ struct PartitionedHashMapVariants
         }
         case HashKeyType::string_key: {
             if (nullable) {
-                method_variant.emplace<
-                        MethodSingleNullableColumn<MethodStringNoCache<
-                                DataWithNullKey<PartitionDataWithShortStringKey>>>>();
+                method_variant.emplace<MethodSingleNullableColumn<
+                        MethodStringNoCache<DataWithNullKey<PartitionDataWithShortStringKey>>>>();
             } else {
-                method_variant.emplace<
-                        MethodStringNoCache<PartitionDataWithShortStringKey>>();
+                method_variant.emplace<MethodStringNoCache<PartitionDataWithShortStringKey>>();
             }
             break;
         }

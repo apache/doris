@@ -263,8 +263,7 @@ public:
     //  override in Scan  MultiCastSink
     virtual std::vector<Dependency*> execution_dependencies() { return {}; }
 
-    Status filter_block(const VExprContextSPtrs& expr_contexts,
-                        Block* block);
+    Status filter_block(const VExprContextSPtrs& expr_contexts, Block* block);
 
     int64_t& estimate_memory_usage() { return _estimate_memory_usage; }
 
@@ -926,8 +925,7 @@ public:
     Status prepare(RuntimeState* state) override;
 
     Status terminate(RuntimeState* state) override;
-    [[nodiscard]] virtual Status get_block(RuntimeState* state, Block* block,
-                                           bool* eos) = 0;
+    [[nodiscard]] virtual Status get_block(RuntimeState* state, Block* block, bool* eos) = 0;
 
     Status close(RuntimeState* state) override;
 
@@ -1003,12 +1001,11 @@ public:
 
     bool has_output_row_desc() const { return _output_row_descriptor != nullptr; }
 
-    [[nodiscard]] virtual Status get_block_after_projects(RuntimeState* state,
-                                                          Block* block, bool* eos);
+    [[nodiscard]] virtual Status get_block_after_projects(RuntimeState* state, Block* block,
+                                                          bool* eos);
 
     /// Only use in vectorized exec engine try to do projections to trans _row_desc -> _output_row_desc
-    Status do_projections(RuntimeState* state, Block* origin_block,
-                          Block* output_block) const;
+    Status do_projections(RuntimeState* state, Block* origin_block, Block* output_block) const;
     void set_parallel_tasks(int parallel_tasks) { _parallel_tasks = parallel_tasks; }
     int parallel_tasks() const { return _parallel_tasks; }
 
@@ -1148,13 +1145,10 @@ public:
 
     using OperatorX<LocalStateType>::get_local_state;
 
-    [[nodiscard]] Status get_block(RuntimeState* state, Block* block,
-                                   bool* eos) override;
+    [[nodiscard]] Status get_block(RuntimeState* state, Block* block, bool* eos) override;
 
-    [[nodiscard]] virtual Status pull(RuntimeState* state, Block* block,
-                                      bool* eos) const = 0;
-    [[nodiscard]] virtual Status push(RuntimeState* state, Block* input_block,
-                                      bool eos) const = 0;
+    [[nodiscard]] virtual Status pull(RuntimeState* state, Block* block, bool* eos) const = 0;
+    [[nodiscard]] virtual Status push(RuntimeState* state, Block* input_block, bool eos) const = 0;
     bool need_more_input_data(RuntimeState* state) const override { return true; }
 };
 

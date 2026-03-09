@@ -46,8 +46,7 @@ struct PythonUDFMeta {
     PythonUDFLoadType type;
     PythonClientType client_type;
 
-    static Status convert_types_to_schema(const DataTypes& types,
-                                          const std::string& timezone,
+    static Status convert_types_to_schema(const DataTypes& types, const std::string& timezone,
                                           std::shared_ptr<arrow::Schema>* schema);
 
     static Status serialize_arrow_schema(const std::shared_ptr<arrow::Schema>& schema,

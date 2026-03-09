@@ -54,9 +54,8 @@ inline std::shared_ptr<QueryContext> generate_one_query() {
 }
 
 inline std::pair<PipelinePtr, PipelinePtr> generate_hash_join_pipeline(
-        std::shared_ptr<OperatorXBase> probe_operator,
-        DataSinkOperatorPtr probe_side_sink_operator, DataSinkOperatorPtr sink_operator,
-        std::shared_ptr<OperatorXBase> build_side_source) {
+        std::shared_ptr<OperatorXBase> probe_operator, DataSinkOperatorPtr probe_side_sink_operator,
+        DataSinkOperatorPtr sink_operator, std::shared_ptr<OperatorXBase> build_side_source) {
     auto probe_pipeline = std::make_shared<Pipeline>(0, 1, 1);
     auto build_pipeline = std::make_shared<Pipeline>(1, 1, 1);
 

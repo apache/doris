@@ -100,8 +100,8 @@ class MultiBlockMerger {
 public:
     MultiBlockMerger(BaseTabletSPtr tablet) : _tablet(tablet), _cmp(*tablet) {}
 
-    Status merge(const std::vector<std::unique_ptr<Block>>& blocks,
-                 RowsetWriter* rowset_writer, uint64_t* merged_rows) {
+    Status merge(const std::vector<std::unique_ptr<Block>>& blocks, RowsetWriter* rowset_writer,
+                 uint64_t* merged_rows) {
         int rows = 0;
         for (const auto& block : blocks) {
             rows += block->rows();
@@ -134,10 +134,8 @@ public:
 
             for (int i = key_number; i < columns; i++) {
                 try {
-                    AggregateFunctionPtr function =
-                            tablet_schema->column(i).get_aggregate_function(
-                                    AGG_LOAD_SUFFIX,
-                                    tablet_schema->column(i).get_be_exec_version());
+                    AggregateFunctionPtr function = tablet_schema->column(i).get_aggregate_function(
+                            AGG_LOAD_SUFFIX, tablet_schema->column(i).get_be_exec_version());
                     if (!function) {
                         return Status::InternalError(
                                 "could not find aggregate function on column {}, aggregation={}",
@@ -169,10 +167,9 @@ public:
                 auto row_ref = row_refs[i];
                 for (int j = key_number; j < columns; j++) {
                     const auto* column_ptr = row_ref.get_column(j).get();
-                    agg_functions[j - key_number]->add(
-                            agg_places[j - key_number],
-                            const_cast<const IColumn**>(&column_ptr), row_ref.position,
-                            _arena);
+                    agg_functions[j - key_number]->add(agg_places[j - key_number],
+                                                       const_cast<const IColumn**>(&column_ptr),
+                                                       row_ref.position, _arena);
                 }
 
                 if (i == rows - 1 || _cmp.compare(row_refs[i], row_refs[i + 1])) {
@@ -248,11 +245,8 @@ public:
 
 private:
     struct RowRef {
-        RowRef(Block* block_, uint16_t position_)
-                : block(block_), position(position_) {}
-        ColumnPtr get_column(int index) const {
-            return block->get_by_position(index).column;
-        }
+        RowRef(Block* block_, uint16_t position_) : block(block_), position(position_) {}
+        ColumnPtr get_column(int index) const { return block->get_by_position(index).column; }
         const Block* block;
         uint16_t position;
     };
@@ -311,8 +305,7 @@ ColumnMapping* BlockChanger::get_mutable_column_mapping(size_t column_index) {
     return &(_schema_mapping[column_index]);
 }
 
-Status BlockChanger::change_block(Block* ref_block,
-                                  Block* new_block) const {
+Status BlockChanger::change_block(Block* ref_block, Block* new_block) const {
     // for old version request compatibility
     _state->set_desc_tbl(&_desc_tbl);
     _state->set_be_exec_version(_fe_compatible_version);
@@ -432,8 +425,7 @@ Status BlockChanger::change_block(Block* ref_block,
 }
 
 // This check can prevent schema-change from causing data loss after type cast
-Status BlockChanger::_check_cast_valid(ColumnPtr input_column,
-                                       ColumnPtr output_column) {
+Status BlockChanger::_check_cast_valid(ColumnPtr input_column, ColumnPtr output_column) {
     if (input_column->size() != output_column->size()) {
         return Status::InternalError(
                 "column size is changed, input_column_size={}, output_column_size={}; "
@@ -445,11 +437,10 @@ Status BlockChanger::_check_cast_valid(ColumnPtr input_column,
 
     if (input_column->is_nullable() != output_column->is_nullable()) {
         if (input_column->is_nullable()) {
-            const auto* ref_null_map =
-                    check_and_get_column<ColumnNullable>(input_column.get())
-                            ->get_null_map_column()
-                            .get_data()
-                            .data();
+            const auto* ref_null_map = check_and_get_column<ColumnNullable>(input_column.get())
+                                               ->get_null_map_column()
+                                               .get_data()
+                                               .data();
 
             bool is_changed = false;
             for (size_t i = 0; i < input_column->size(); i++) {
@@ -461,14 +452,10 @@ Status BlockChanger::_check_cast_valid(ColumnPtr input_column,
                         input_column->get_name());
             }
         } else {
-            const auto& null_map_column =
-                    check_and_get_column<ColumnNullable>(
-                            output_column.get())
-                            ->get_null_map_column();
+            const auto& null_map_column = check_and_get_column<ColumnNullable>(output_column.get())
+                                                  ->get_null_map_column();
             const auto& nested_column =
-                    check_and_get_column<ColumnNullable>(
-                            output_column.get())
-                            ->get_nested_column();
+                    check_and_get_column<ColumnNullable>(output_column.get())->get_nested_column();
             const auto* new_null_map = null_map_column.get_data().data();
 
             if (null_map_column.size() != output_column->size()) {
@@ -498,16 +485,14 @@ Status BlockChanger::_check_cast_valid(ColumnPtr input_column,
     }
 
     if (input_column->is_nullable() && output_column->is_nullable()) {
-        const auto* ref_null_map =
-                check_and_get_column<ColumnNullable>(input_column.get())
-                        ->get_null_map_column()
-                        .get_data()
-                        .data();
-        const auto* new_null_map =
-                check_and_get_column<ColumnNullable>(output_column.get())
-                        ->get_null_map_column()
-                        .get_data()
-                        .data();
+        const auto* ref_null_map = check_and_get_column<ColumnNullable>(input_column.get())
+                                           ->get_null_map_column()
+                                           .get_data()
+                                           .data();
+        const auto* new_null_map = check_and_get_column<ColumnNullable>(output_column.get())
+                                           ->get_null_map_column()
+                                           .get_data()
+                                           .data();
 
         bool is_changed = false;
         for (size_t i = 0; i < input_column->size(); i++) {
@@ -1523,9 +1508,9 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
             return Status::OK();
         } else if (column_mapping->ref_column_idx >= 0) {
             // index changed
-            if (variant_util::has_schema_index_diff(
-                        new_tablet_schema, base_tablet_schema, cast_set<int32_t>(i),
-                        column_mapping->ref_column_idx)) {
+            if (variant_util::has_schema_index_diff(new_tablet_schema, base_tablet_schema,
+                                                    cast_set<int32_t>(i),
+                                                    column_mapping->ref_column_idx)) {
                 *sc_directly = true;
                 return Status::OK();
             }

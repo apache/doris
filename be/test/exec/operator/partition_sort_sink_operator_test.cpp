@@ -31,17 +31,13 @@
 #include "testutil/mock/mock_slot_ref.h"
 namespace doris {
 
-
 class PartitionSortOperatorMockOperator : public OperatorXBase {
 public:
-    Status get_block_after_projects(RuntimeState* state, Block* block,
-                                    bool* eos) override {
+    Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos) override {
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
-        return Status::OK();
-    }
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override { return Status::OK(); }
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
         return Status::OK();
     }
@@ -254,58 +250,50 @@ TEST_F(PartitionSortOperatorTest, TestNumericKeys) {
             std::make_unique<PartitionedHashMapVariants>();
     // Test int8 key
     _variants->init(types, HashKeyType::int8_key);
-    auto value = std::holds_alternative<
-            MethodOneNumber<UInt8, PartitionData<UInt8>>>(
+    auto value = std::holds_alternative<MethodOneNumber<UInt8, PartitionData<UInt8>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int16 key
     _variants->init(types, HashKeyType::int16_key);
-    value = std::holds_alternative<
-            MethodOneNumber<UInt16, PartitionData<UInt16>>>(
+    value = std::holds_alternative<MethodOneNumber<UInt16, PartitionData<UInt16>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int32 key
     _variants->init(types, HashKeyType::int32_key);
-    value = std::holds_alternative<
-            MethodOneNumber<UInt32, PartitionData<UInt32>>>(
+    value = std::holds_alternative<MethodOneNumber<UInt32, PartitionData<UInt32>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int64 key
     _variants->init(types, HashKeyType::int64_key);
-    value = std::holds_alternative<
-            MethodOneNumber<UInt64, PartitionData<UInt64>>>(
+    value = std::holds_alternative<MethodOneNumber<UInt64, PartitionData<UInt64>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int128 key
     _variants->init(types, HashKeyType::int128_key);
-    value = std::holds_alternative<
-            MethodOneNumber<UInt128, PartitionData<UInt128>>>(
+    value = std::holds_alternative<MethodOneNumber<UInt128, PartitionData<UInt128>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int256 key
     _variants->init(types, HashKeyType::int256_key);
-    value = std::holds_alternative<
-            MethodOneNumber<UInt256, PartitionData<UInt256>>>(
+    value = std::holds_alternative<MethodOneNumber<UInt256, PartitionData<UInt256>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 }
 
 TEST_F(PartitionSortOperatorTest, TestNullableKeys) {
-    auto nullable_type = std::make_shared<DataTypeNullable>(
-            std::make_shared<DataTypeInt32>());
+    auto nullable_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
     std::vector<DataTypePtr> types {nullable_type};
     std::unique_ptr<PartitionedHashMapVariants> _variants =
             std::make_unique<PartitionedHashMapVariants>();
     // Test nullable int32
     _variants->init(types, HashKeyType::int32_key);
-    auto value = std::holds_alternative<
-            MethodSingleNullableColumn<MethodOneNumber<
-                    UInt32, DataWithNullKey<PartitionData<UInt32>>>>>(
+    auto value = std::holds_alternative<MethodSingleNullableColumn<
+            MethodOneNumber<UInt32, DataWithNullKey<PartitionData<UInt32>>>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
@@ -320,40 +308,35 @@ TEST_F(PartitionSortOperatorTest, TestNullableKeys) {
     auto string_type = std::make_shared<DataTypeString>();
     std::vector<DataTypePtr> types2 {string_type};
     _variants->init(types2, HashKeyType::string_key);
-    auto value3 = std::holds_alternative<
-            MethodStringNoCache<PartitionDataWithShortStringKey>>(
+    auto value3 = std::holds_alternative<MethodStringNoCache<PartitionDataWithShortStringKey>>(
             _variants->method_variant);
     ASSERT_TRUE(value3);
 }
 
 TEST_F(PartitionSortOperatorTest, TestFixedKeys) {
     std::vector<DataTypePtr> types {std::make_shared<DataTypeInt32>(),
-                                                std::make_shared<DataTypeInt32>()};
+                                    std::make_shared<DataTypeInt32>()};
     std::unique_ptr<PartitionedHashMapVariants> _variants =
             std::make_unique<PartitionedHashMapVariants>();
     // Test fixed64
     _variants->init(types, HashKeyType::fixed64);
-    ASSERT_TRUE(
-            std::holds_alternative<MethodKeysFixed<PartitionData<UInt64>>>(
-                    _variants->method_variant));
+    ASSERT_TRUE(std::holds_alternative<MethodKeysFixed<PartitionData<UInt64>>>(
+            _variants->method_variant));
 
     // Test fixed128
     _variants->init(types, HashKeyType::fixed128);
-    ASSERT_TRUE(
-            std::holds_alternative<MethodKeysFixed<PartitionData<UInt128>>>(
-                    _variants->method_variant));
+    ASSERT_TRUE(std::holds_alternative<MethodKeysFixed<PartitionData<UInt128>>>(
+            _variants->method_variant));
 
     // Test fixed136
     _variants->init(types, HashKeyType::fixed136);
-    ASSERT_TRUE(
-            std::holds_alternative<MethodKeysFixed<PartitionData<UInt136>>>(
-                    _variants->method_variant));
+    ASSERT_TRUE(std::holds_alternative<MethodKeysFixed<PartitionData<UInt136>>>(
+            _variants->method_variant));
 
     // Test fixed256
     _variants->init(types, HashKeyType::fixed256);
-    ASSERT_TRUE(
-            std::holds_alternative<MethodKeysFixed<PartitionData<UInt256>>>(
-                    _variants->method_variant));
+    ASSERT_TRUE(std::holds_alternative<MethodKeysFixed<PartitionData<UInt256>>>(
+            _variants->method_variant));
 }
 
 TEST_F(PartitionSortOperatorTest, TestInvalidKeyType) {

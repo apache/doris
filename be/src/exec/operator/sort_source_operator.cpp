@@ -41,8 +41,7 @@ Status SortSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* e
     return Status::OK();
 }
 
-const SortDescription& SortSourceOperatorX::get_sort_description(
-        RuntimeState* state) const {
+const SortDescription& SortSourceOperatorX::get_sort_description(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
     return local_state._shared_state->sorter->get_sort_description();
 }

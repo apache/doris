@@ -331,9 +331,7 @@ public:
         }
     }
 
-    void deep_copy(void* dest, const void* src, Arena& arena) const override {
-        DCHECK(false);
-    }
+    void deep_copy(void* dest, const void* src, Arena& arena) const override { DCHECK(false); }
 
     void direct_copy(void* dest, const void* src) const override { CHECK(false); }
 
@@ -1136,8 +1134,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>
         CastParameters params;
         TimestampTzValue value;
         auto tz = cctz::utc_time_zone();
-        if (!CastToTimstampTz::from_string(StringRef(scan_key), value, params, &tz,
-                                                       6)) {
+        if (!CastToTimstampTz::from_string(StringRef(scan_key), value, params, &tz, 6)) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>("parse timestamptz error, value: {}",
                                                               scan_key);
         }

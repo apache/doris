@@ -52,16 +52,16 @@ namespace doris {
 
 using namespace std::chrono_literals;
 #include "common/compile_check_begin.h"
-ScannerContext::ScannerContext(
-        RuntimeState* state, ScanLocalStateBase* local_state,
-        const TupleDescriptor* output_tuple_desc, const RowDescriptor* output_row_descriptor,
-        const std::list<std::shared_ptr<ScannerDelegate>>& scanners, int64_t limit_,
-        std::shared_ptr<Dependency> dependency
+ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
+                               const TupleDescriptor* output_tuple_desc,
+                               const RowDescriptor* output_row_descriptor,
+                               const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
+                               int64_t limit_, std::shared_ptr<Dependency> dependency
 #ifdef BE_TEST
-        ,
-        int num_parallel_instances
+                               ,
+                               int num_parallel_instances
 #endif
-        )
+                               )
         : HasTaskExecutionCtx(state),
           _state(state),
           _local_state(local_state),
@@ -267,8 +267,7 @@ void ScannerContext::push_back_scan_task(std::shared_ptr<ScanTask> scan_task) {
     _dependency->set_ready();
 }
 
-Status ScannerContext::get_block_from_queue(RuntimeState* state, Block* block,
-                                            bool* eos, int id) {
+Status ScannerContext::get_block_from_queue(RuntimeState* state, Block* block, bool* eos, int id) {
     if (state->is_cancelled()) {
         _set_scanner_done();
         return state->cancel_reason();

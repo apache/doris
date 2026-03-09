@@ -265,8 +265,7 @@ public:
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         auto* data = reinterpret_cast<const Data*>(col.get_data().data());
         for (size_t i = begin; i <= end; ++i) {
-            doris::AggregateFunctionCountNotNullUnary::data(place).count +=
-                    data[i].count;
+            doris::AggregateFunctionCountNotNullUnary::data(place).count += data[i].count;
         }
     }
 

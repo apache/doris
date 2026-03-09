@@ -93,8 +93,7 @@ void VirtualColumnIterator::prepare_materialization(IColumn::Ptr column,
 }
 
 Status VirtualColumnIterator::seek_to_ordinal(ordinal_t ord_idx) {
-    if (_size == 0 ||
-        check_and_get_column<ColumnNothing>(*_materialized_column_ptr)) {
+    if (_size == 0 || check_and_get_column<ColumnNothing>(*_materialized_column_ptr)) {
         // _materialized_column is not set. do nothing.
         return Status::OK();
     }
@@ -110,11 +109,9 @@ Status VirtualColumnIterator::seek_to_ordinal(ordinal_t ord_idx) {
 }
 
 // Next batch implementation
-Status VirtualColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst,
-                                         bool* has_null) {
+Status VirtualColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
     size_t rows_num_to_read = *n;
-    if (rows_num_to_read == 0 ||
-        check_and_get_column<ColumnNothing>(*_materialized_column_ptr)) {
+    if (rows_num_to_read == 0 || check_and_get_column<ColumnNothing>(*_materialized_column_ptr)) {
         return Status::OK();
     }
 
@@ -141,8 +138,7 @@ Status VirtualColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst,
 
 Status VirtualColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
                                              MutableColumnPtr& dst) {
-    if (count == 0 ||
-        check_and_get_column<ColumnNothing>(*_materialized_column_ptr)) {
+    if (count == 0 || check_and_get_column<ColumnNothing>(*_materialized_column_ptr)) {
         return Status::OK();
     }
 

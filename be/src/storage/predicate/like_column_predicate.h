@@ -71,8 +71,7 @@ public:
     PredicateType type() const override { return PredicateType::EQ; }
     void evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const override;
 
-    void evaluate_and_vec(const IColumn& column, uint16_t size,
-                          bool* flags) const override;
+    void evaluate_and_vec(const IColumn& column, uint16_t size, bool* flags) const override;
 
     std::string get_search_str() const override {
         return std::string(reinterpret_cast<const char*>(pattern.data), pattern.size);
@@ -93,19 +92,16 @@ public:
     bool can_do_bloom_filter(bool ngram) const override { return ngram; }
 
 private:
-    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel,
-                             uint16_t size) const override;
+    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override;
 
     template <bool is_and>
     void _evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const {
         if (column.is_nullable()) {
-            auto* nullable_col =
-                    check_and_get_column<ColumnNullable>(column);
+            auto* nullable_col = check_and_get_column<ColumnNullable>(column);
             auto& null_map_data = nullable_col->get_null_map_column().get_data();
             auto& nested_col = nullable_col->get_nested_column();
             if (nested_col.is_column_dictionary()) {
-                auto* nested_col_ptr =
-                        check_and_get_column<ColumnDictI32>(nested_col);
+                auto* nested_col_ptr = check_and_get_column<ColumnDictI32>(nested_col);
                 const auto& dict_res = _find_code_from_dictionary_column(*nested_col_ptr);
                 auto& data_array = nested_col_ptr->get_data();
                 for (uint16_t i = 0; i < size; i++) {
@@ -131,8 +127,7 @@ private:
             }
         } else {
             if (column.is_column_dictionary()) {
-                auto* nested_col_ptr =
-                        check_and_get_column<ColumnDictI32>(column);
+                auto* nested_col_ptr = check_and_get_column<ColumnDictI32>(column);
                 auto& data_array = nested_col_ptr->get_data();
                 const auto& dict_res = _find_code_from_dictionary_column(*nested_col_ptr);
                 for (uint16_t i = 0; i < size; i++) {

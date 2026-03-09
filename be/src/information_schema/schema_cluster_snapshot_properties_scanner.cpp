@@ -56,8 +56,7 @@ Status SchemaClusterSnapshotPropertiesScanner::start(RuntimeState* state) {
             _switch_status, _max_reserved_snapshots, _snapshot_interval_seconds);
 }
 
-Status SchemaClusterSnapshotPropertiesScanner::get_next_block_internal(Block* block,
-                                                                       bool* eos) {
+Status SchemaClusterSnapshotPropertiesScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }

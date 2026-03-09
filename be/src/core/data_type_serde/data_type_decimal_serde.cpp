@@ -326,8 +326,7 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
         const auto arrow_scale = arrow_decimal_type->scale();
         // TODO check precision
         for (auto value_i = start; value_i < end; ++value_i) {
-            auto value = *reinterpret_cast<const Decimal128V2*>(
-                    concrete_array->Value(value_i));
+            auto value = *reinterpret_cast<const Decimal128V2*>(concrete_array->Value(value_i));
             // convert scale to 9;
             if (9 > arrow_scale) {
                 using MaxNativeType = typename Decimal128V2::NativeType;
@@ -395,8 +394,7 @@ template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
                                                     const IColumn& column, const NullMap* null_map,
                                                     orc::ColumnVectorBatch* orc_col_batch,
-                                                    int64_t start, int64_t end,
-                                                    Arena& arena,
+                                                    int64_t start, int64_t end, Arena& arena,
                                                     const FormatOptions& options) const {
     if constexpr (T == TYPE_DECIMAL256) {
         return Status::NotSupported("write_column_to_orc with type " + column.get_name());

@@ -46,8 +46,7 @@ MultiCastBlock::MultiCastBlock(Block* block, int un_finish_copy, size_t mem_size
     block->clear();
 }
 
-Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, Block* block,
-                                   bool* eos) {
+Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, Block* block, bool* eos) {
     MultiCastBlock* multi_cast_block = nullptr;
     {
         INJECT_MOCK_SLEEP(std::unique_lock l(_mutex));
@@ -151,8 +150,7 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, Block* b
     return _copy_block(state, sender_idx, block, *multi_cast_block);
 }
 
-Status MultiCastDataStreamer::_copy_block(RuntimeState* state, int32_t sender_idx,
-                                          Block* block,
+Status MultiCastDataStreamer::_copy_block(RuntimeState* state, int32_t sender_idx, Block* block,
                                           MultiCastBlock& multi_cast_block) {
     const auto rows = block->rows();
     for (int i = 0; i < block->columns(); ++i) {
@@ -237,8 +235,7 @@ Status MultiCastDataStreamer::_trigger_spill_if_need(RuntimeState* state, bool* 
     return Status::OK();
 }
 
-Status MultiCastDataStreamer::_start_spill_task(RuntimeState* state,
-                                                SpillStreamSPtr spill_stream) {
+Status MultiCastDataStreamer::_start_spill_task(RuntimeState* state, SpillStreamSPtr spill_stream) {
     std::vector<Block> blocks;
     for (auto& block : _multi_cast_blocks) {
         DCHECK_GT(block._block->rows(), 0);
@@ -313,8 +310,7 @@ Status MultiCastDataStreamer::push(RuntimeState* state, doris::Block* block, boo
                 bool spilled = false;
                 RETURN_IF_ERROR(_trigger_spill_if_need(state, &spilled));
                 if (spilled) {
-                    _pending_block = Block::create_unique(
-                            block->get_columns_with_type_and_name());
+                    _pending_block = Block::create_unique(block->get_columns_with_type_and_name());
                     block->clear();
                     return Status::OK();
                 }

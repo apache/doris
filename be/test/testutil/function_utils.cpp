@@ -28,8 +28,7 @@
 namespace doris {
 
 FunctionUtils::FunctionUtils(const DataTypePtr& return_type,
-                             const std::vector<DataTypePtr>& arg_types,
-                             bool enable_strict_cast) {
+                             const std::vector<DataTypePtr>& arg_types, bool enable_strict_cast) {
     TQueryGlobals globals;
     globals.__set_now_string("2019-08-06 01:38:57");
     globals.__set_timestamp_ms(1565026737805);

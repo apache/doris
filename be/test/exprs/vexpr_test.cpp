@@ -58,8 +58,8 @@
 TEST(TEST_VEXPR, ABSTEST) {
     doris::ObjectPool object_pool;
     doris::DescriptorTblBuilder builder(&object_pool);
-    builder.declare_tuple() << doris::DataTypeFactory::instance().create_data_type(
-                                       doris::TYPE_INT, false)
+    builder.declare_tuple() << doris::DataTypeFactory::instance().create_data_type(doris::TYPE_INT,
+                                                                                   false)
                             << doris::DataTypeFactory::instance().create_data_type(
                                        doris::TYPE_DOUBLE, false);
     doris::DescriptorTbl* desc_tbl = builder.build();

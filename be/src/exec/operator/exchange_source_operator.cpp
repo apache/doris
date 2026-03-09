@@ -143,8 +143,7 @@ Status ExchangeSourceOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status ExchangeSourceOperatorX::get_block(RuntimeState* state, Block* block,
-                                          bool* eos) {
+Status ExchangeSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     Defer is_eos([&]() {
         if (*eos) {
@@ -166,8 +165,8 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, Block* block,
     }
     {
         SCOPED_TIMER(local_state.filter_timer);
-        RETURN_IF_ERROR(doris::VExprContext::filter_block(local_state.conjuncts(),
-                                                                      block, block->columns()));
+        RETURN_IF_ERROR(doris::VExprContext::filter_block(local_state.conjuncts(), block,
+                                                          block->columns()));
     }
 
     // In non-merge cases, if eos = true, the block must be empty

@@ -339,8 +339,8 @@ Status get_float_value(const rapidjson::Value& col, PrimitiveType type, void* sl
 }
 
 template <typename T>
-Status insert_float_value(const rapidjson::Value& col, PrimitiveType type,
-                          IColumn* col_ptr, bool pure_doc_value, bool nullable) {
+Status insert_float_value(const rapidjson::Value& col, PrimitiveType type, IColumn* col_ptr,
+                          bool pure_doc_value, bool nullable) {
     static_assert(sizeof(T) == 4 || sizeof(T) == 8);
     if (col.IsNumber() && nullable) {
         T value = (T)(sizeof(T) == 4 ? col.GetFloat() : col.GetDouble());
@@ -369,8 +369,8 @@ Status insert_float_value(const rapidjson::Value& col, PrimitiveType type,
 }
 
 template <typename T>
-Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
-                        IColumn* col_ptr, bool pure_doc_value, bool nullable) {
+Status insert_int_value(const rapidjson::Value& col, PrimitiveType type, IColumn* col_ptr,
+                        bool pure_doc_value, bool nullable) {
     if (col.IsNumber()) {
         T value;
         // ES allows inserting float and double in int/long types.
@@ -631,8 +631,7 @@ const std::string& ScrollParser::get_scroll_id() {
 }
 
 Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
-                                  std::vector<MutableColumnPtr>& columns,
-                                  bool* line_eof,
+                                  std::vector<MutableColumnPtr>& columns, bool* line_eof,
                                   const std::map<std::string, std::string>& docvalue_context,
                                   const cctz::time_zone& time_zone) {
     *line_eof = true;
@@ -852,11 +851,10 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
         }
         case TYPE_ARRAY: {
             Array array;
-            const auto& sub_type =
-                    assert_cast<const DataTypeArray*>(
-                            remove_nullable(tuple_desc->slots()[i]->type()).get())
-                            ->get_nested_type()
-                            ->get_primitive_type();
+            const auto& sub_type = assert_cast<const DataTypeArray*>(
+                                           remove_nullable(tuple_desc->slots()[i]->type()).get())
+                                           ->get_nested_type()
+                                           ->get_primitive_type();
             RETURN_IF_ERROR(parse_column(col, sub_type, pure_doc_value, array, time_zone));
             col_ptr->insert(Field::create_field<TYPE_ARRAY>(array));
             break;

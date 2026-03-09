@@ -143,14 +143,13 @@ private:
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
     void _maybe_invalid_row_cache(const std::string& key) const;
-    std::string _encode_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns,
-                             size_t pos);
+    std::string _encode_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos);
     // used for unique-key with merge on write and segment min_max key
-    std::string _full_encode_keys(
-            const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos);
-    std::string _full_encode_keys(
-            const std::vector<const KeyCoder*>& key_coders,
-            const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos);
+    std::string _full_encode_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns,
+                                  size_t pos);
+    std::string _full_encode_keys(const std::vector<const KeyCoder*>& key_coders,
+                                  const std::vector<IOlapColumnDataAccessor*>& key_columns,
+                                  size_t pos);
     // used for unique-key with merge on write
     void _encode_seq_column(const IOlapColumnDataAccessor* seq_column, size_t pos,
                             std::string* encoded_keys);
@@ -171,8 +170,7 @@ private:
                               PartialUpdateStats& stats);
     Status _partial_update_preconditions_check(size_t row_pos, bool is_flexible_update);
     Status _append_block_with_partial_content(RowsInBlock& data, Block& full_block);
-    Status _append_block_with_flexible_partial_content(RowsInBlock& data,
-                                                       Block& full_block);
+    Status _append_block_with_flexible_partial_content(RowsInBlock& data, Block& full_block);
     Status _generate_encoded_default_seq_value(const TabletSchema& tablet_schema,
                                                const PartialUpdateInfo& info,
                                                std::string* encoded_value);
@@ -186,10 +184,10 @@ private:
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
             bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
             PartialUpdateStats& stats);
-    Status _generate_key_index(
-            RowsInBlock& data, std::vector<IOlapColumnDataAccessor*>& key_columns,
-            IOlapColumnDataAccessor* seq_column,
-            std::map<uint32_t, IOlapColumnDataAccessor*>& cid_to_column);
+    Status _generate_key_index(RowsInBlock& data,
+                               std::vector<IOlapColumnDataAccessor*>& key_columns,
+                               IOlapColumnDataAccessor* seq_column,
+                               std::map<uint32_t, IOlapColumnDataAccessor*>& cid_to_column);
     Status _generate_primary_key_index(
             const std::vector<const KeyCoder*>& primary_key_coders,
             const std::vector<IOlapColumnDataAccessor*>& primary_key_columns,

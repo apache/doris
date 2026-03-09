@@ -27,7 +27,6 @@ class ObjectPool;
 class RuntimeState;
 class RuntimeProfile;
 
-
 // IPartitionWriterBase
 //     ├── VIcebergPartitionWriter
 //     └── VIcebergSortWriter

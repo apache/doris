@@ -90,8 +90,8 @@ Status PartitionSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
     }
     //partition by key
     if (tnode.partition_sort_node.__isset.partition_exprs) {
-        RETURN_IF_ERROR(VExpr::create_expr_trees(
-                tnode.partition_sort_node.partition_exprs, _partition_expr_ctxs));
+        RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.partition_sort_node.partition_exprs,
+                                                 _partition_expr_ctxs));
     }
 
     return Status::OK();
@@ -106,8 +106,7 @@ Status PartitionSortSinkOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status PartitionSortSinkOperatorX::sink(RuntimeState* state, Block* input_block,
-                                        bool eos) {
+Status PartitionSortSinkOperatorX::sink(RuntimeState* state, Block* input_block, bool eos) {
     auto& local_state = get_local_state(state);
     auto current_rows = input_block->rows();
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -193,12 +192,12 @@ Status PartitionSortSinkOperatorX::_split_block_by_partition(
 size_t PartitionSortSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
     auto& local_state = get_local_state(state);
     auto rows = state->batch_size();
-    size_t reserve_mem_size = std::visit(
-            Overload {[&](std::monostate&) -> size_t { return 0; },
-                                  [&](auto& agg_method) -> size_t {
-                                      return agg_method.hash_table->estimate_memory(rows);
-                                  }},
-            local_state._partitioned_data->method_variant);
+    size_t reserve_mem_size =
+            std::visit(Overload {[&](std::monostate&) -> size_t { return 0; },
+                                 [&](auto& agg_method) -> size_t {
+                                     return agg_method.hash_table->estimate_memory(rows);
+                                 }},
+                       local_state._partitioned_data->method_variant);
     reserve_mem_size += rows * sizeof(size_t); // hash values
     return reserve_mem_size;
 }

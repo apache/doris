@@ -287,8 +287,8 @@ void ColumnNullable::deserialize(StringRef* keys, const size_t num_rows) {
     _nested_column->deserialize_with_nullable(keys, num_rows, null_maps);
 }
 
-void ColumnNullable::insert_range_from_ignore_overflow(const doris::IColumn& src,
-                                                       size_t start, size_t length) {
+void ColumnNullable::insert_range_from_ignore_overflow(const doris::IColumn& src, size_t start,
+                                                       size_t length) {
     const auto& nullable_col = assert_cast<const ColumnNullable&>(src);
     get_null_map_column().insert_range_from(nullable_col.get_null_map_column(), start, length);
     get_nested_column().insert_range_from_ignore_overflow(*nullable_col._nested_column, start,

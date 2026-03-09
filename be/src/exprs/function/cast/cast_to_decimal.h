@@ -599,8 +599,7 @@ struct CastToDecimal {
               typename MaxNativeType =
                       std::conditional_t<(sizeof(FromCppT) > sizeof(typename ToCppT::NativeType)),
                                          FromCppT, typename ToCppT::NativeType>>
-        requires(IsDecimalV2<ToCppT> &&
-                 (IsCppTypeInt<FromCppT> || std::is_same_v<FromCppT, UInt8>))
+        requires(IsDecimalV2<ToCppT> && (IsCppTypeInt<FromCppT> || std::is_same_v<FromCppT, UInt8>))
     static inline bool _from_int(const FromCppT& from, ToCppT& to, UInt32 precision, UInt32 scale,
                                  const MaxNativeType& scale_multiplier,
                                  const typename ToCppT::NativeType& min_result,

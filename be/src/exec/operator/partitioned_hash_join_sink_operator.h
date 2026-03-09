@@ -34,7 +34,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-
 class PartitionedHashJoinSinkOperatorX;
 
 class PartitionedHashJoinSinkLocalState
@@ -61,11 +60,9 @@ protected:
     PartitionedHashJoinSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSpillSinkLocalState<PartitionedHashJoinSharedState>(parent, state) {}
 
-    Status _spill_to_disk(uint32_t partition_index,
-                          const SpillStreamSPtr& spilling_stream);
+    Status _spill_to_disk(uint32_t partition_index, const SpillStreamSPtr& spilling_stream);
 
-    Status _partition_block(RuntimeState* state, Block* in_block, size_t begin,
-                            size_t end);
+    Status _partition_block(RuntimeState* state, Block* in_block, size_t begin, size_t end);
 
     Status _revoke_unpartitioned_block(RuntimeState* state,
                                        const std::shared_ptr<SpillContext>& spill_context);

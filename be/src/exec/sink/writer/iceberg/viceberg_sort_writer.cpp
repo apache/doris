@@ -40,9 +40,8 @@ Status VIcebergSortWriter::open(RuntimeState* state, RuntimeProfile* profile,
 
     // Create FullSorter for in-memory sorting with spill support enabled.
     // Parameters: limit=-1 (no limit), offset=0 (no offset)
-    _sorter = FullSorter::create_unique(_vsort_exec_exprs, -1, 0, &_pool,
-                                                    _sort_info.is_asc_order, _sort_info.nulls_first,
-                                                    *row_desc, state, _profile);
+    _sorter = FullSorter::create_unique(_vsort_exec_exprs, -1, 0, &_pool, _sort_info.is_asc_order,
+                                        _sort_info.nulls_first, *row_desc, state, _profile);
     _sorter->init_profile(_profile);
     // Enable spill support so the sorter can be used with the spill framework
     _sorter->set_enable_spill();
@@ -328,8 +327,8 @@ int VIcebergSortWriter::_calc_max_merge_streams() const {
 Status VIcebergSortWriter::_create_merger(bool is_final_merge, size_t batch_size, int num_streams) {
     // Create a multi-way merge sorter that reads from multiple sorted spill streams
     std::vector<BlockSupplier> child_block_suppliers;
-    _merger = std::make_unique<VSortedRunMerger>(_sorter->get_sort_description(),
-                                                             batch_size, -1, 0, _profile);
+    _merger = std::make_unique<VSortedRunMerger>(_sorter->get_sort_description(), batch_size, -1, 0,
+                                                 _profile);
     _current_merging_streams.clear();
 
     // For final merge: merge all remaining streams

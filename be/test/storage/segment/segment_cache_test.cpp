@@ -250,8 +250,8 @@ TEST_F(SegmentCacheTest, vec_sequence_col) {
 
     Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
-        block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->type(), slot_desc->col_name()));
+        block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(), slot_desc->type(),
+                                           slot_desc->col_name()));
     }
 
     generate_data(&block, 123, 456, 100);

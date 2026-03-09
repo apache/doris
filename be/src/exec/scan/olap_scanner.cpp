@@ -268,9 +268,8 @@ Status OlapScanner::prepare() {
 
         // Initialize tablet_reader_params
         RETURN_IF_ERROR(_init_tablet_reader_params(
-                local_state->_parent->cast<OlapScanOperatorX>()._slot_id_to_slot_desc,
-                _key_ranges, local_state->_slot_id_to_predicates,
-                local_state->_push_down_functions));
+                local_state->_parent->cast<OlapScanOperatorX>()._slot_id_to_slot_desc, _key_ranges,
+                local_state->_slot_id_to_predicates, local_state->_push_down_functions));
     }
 
     // add read columns in profile
@@ -366,11 +365,9 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.vir_cid_to_idx_in_block = _vir_cid_to_idx_in_block;
     _tablet_reader_params.vir_col_idx_to_type = _vir_col_idx_to_type;
     _tablet_reader_params.score_runtime = _score_runtime;
-    _tablet_reader_params.output_columns =
-            ((OlapScanLocalState*)_local_state)->_output_column_ids;
+    _tablet_reader_params.output_columns = ((OlapScanLocalState*)_local_state)->_output_column_ids;
     _tablet_reader_params.ann_topn_runtime = _ann_topn_runtime;
-    for (const auto& ele :
-         ((OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
+    for (const auto& ele : ((OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
         _tablet_reader_params.target_cast_type_for_variants[ele.first] = ele.second;
     };
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
@@ -665,8 +662,7 @@ Status OlapScanner::close(RuntimeState* state) {
 }
 
 void OlapScanner::update_realtime_counters() {
-    OlapScanLocalState* local_state =
-            static_cast<OlapScanLocalState*>(_local_state);
+    OlapScanLocalState* local_state = static_cast<OlapScanLocalState*>(_local_state);
     const OlapReaderStatistics& stats = _tablet_reader->stats();
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
     COUNTER_UPDATE(local_state->_read_uncompressed_counter, stats.uncompressed_bytes_read);

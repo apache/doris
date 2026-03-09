@@ -79,8 +79,7 @@ public:
 private:
     bool _can_ignore() const override { return false; }
 
-    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel,
-                             uint16_t size) const override;
+    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override;
 
     template <bool is_nullable>
     uint16_t evaluate(const IColumn& column, const uint8_t* null_map, uint16_t* sel,
@@ -91,8 +90,7 @@ private:
 
         uint16_t new_size = 0;
         new_size = _specific_filter->find_fixed_len_olap_engine(
-                (char*)assert_cast<
-                        const PredicateColumnType<PredicateEvaluateType<T>>*>(&column)
+                (char*)assert_cast<const PredicateColumnType<PredicateEvaluateType<T>>*>(&column)
                         ->get_data()
                         .data(),
                 null_map, sel, size);
@@ -106,8 +104,8 @@ private:
 };
 
 template <PrimitiveType T>
-uint16_t BitmapFilterColumnPredicate<T>::_evaluate_inner(const IColumn& column,
-                                                         uint16_t* sel, uint16_t size) const {
+uint16_t BitmapFilterColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t* sel,
+                                                         uint16_t size) const {
     uint16_t new_size = 0;
     if (column.is_nullable()) {
         const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);

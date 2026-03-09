@@ -50,8 +50,8 @@ protected:
         auto* nullable_column = dynamic_cast<ColumnNullable*>(scores.get());
         ASSERT_NE(nullable_column, nullptr);
 
-        const auto* float_column = dynamic_cast<const ColumnFloat32*>(
-                &nullable_column->get_nested_column());
+        const auto* float_column =
+                dynamic_cast<const ColumnFloat32*>(&nullable_column->get_nested_column());
         ASSERT_NE(float_column, nullptr);
 
         const auto& data = float_column->get_data();

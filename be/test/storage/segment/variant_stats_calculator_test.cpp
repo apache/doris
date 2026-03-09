@@ -84,7 +84,7 @@ protected:
 
     // Helper method to create a nullable column for testing
     ColumnPtr create_nullable_column(const std::vector<bool>& null_map,
-                                                 const std::vector<std::string>& values) {
+                                     const std::vector<std::string>& values) {
         auto string_column = ColumnString::create();
         auto null_column = ColumnUInt8::create();
 
@@ -116,8 +116,7 @@ protected:
         offsets->insert_value(0);
         offsets->insert_value(2);
 
-        return ColumnMap::create(std::move(keys), std::move(values),
-                                             std::move(offsets));
+        return ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
     }
 
     TabletSchemaSPtr _tablet_schema;
@@ -167,8 +166,7 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithNoVariantColumns) {
     Block block;
     auto int_column = ColumnVector<PrimitiveType::TYPE_INT>::create();
     int_column->insert_value(123);
-    block.insert(
-            {std::move(int_column), std::make_shared<DataTypeInt32>(), "regular_col"});
+    block.insert({std::move(int_column), std::make_shared<DataTypeInt32>(), "regular_col"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 1);
     EXPECT_TRUE(status.ok());
@@ -190,8 +188,7 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithSubColumn) {
     Block block;
     auto nullable_column = create_nullable_column({false, true, false}, {"val1", "", "val3"});
     block.insert({std::move(nullable_column),
-                  std::make_shared<DataTypeNullable>(
-                          std::make_shared<DataTypeString>()),
+                  std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
                   "sub_column_1"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 3);
@@ -222,12 +219,10 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithSparseColumn) {
     auto map_column = create_map_column();
     auto string_column = ColumnString::create();
     // add parant column to block
-    block.insert({std::move(string_column), std::make_shared<DataTypeString>(),
-                  "variant_column"});
+    block.insert({std::move(string_column), std::make_shared<DataTypeString>(), "variant_column"});
     block.insert({std::move(map_column),
-                  std::make_shared<DataTypeMap>(
-                          std::make_shared<DataTypeString>(),
-                          std::make_shared<DataTypeString>()),
+                  std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(),
+                                                std::make_shared<DataTypeString>()),
                   "sparse_column"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 1);
@@ -250,8 +245,7 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithMissingFooterEntry) 
     Block block;
     auto nullable_column = create_nullable_column({false, true}, {"val1", ""});
     block.insert({std::move(nullable_column),
-                  std::make_shared<DataTypeNullable>(
-                          std::make_shared<DataTypeString>()),
+                  std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
                   "missing_sub"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 2);
@@ -275,8 +269,7 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithMissingPathInFooter)
     Block block;
     auto nullable_column = create_nullable_column({false}, {"val1"});
     block.insert({std::move(nullable_column),
-                  std::make_shared<DataTypeNullable>(
-                          std::make_shared<DataTypeString>()),
+                  std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
                   "sub_column"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 1);
@@ -313,26 +306,21 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithMultipleColumns) {
     // parent column
     auto string_column = ColumnString::create();
     string_column->insert_data("test", 4);
-    block.insert({std::move(string_column), std::make_shared<DataTypeString>(),
-                  "variant_column"});
+    block.insert({std::move(string_column), std::make_shared<DataTypeString>(), "variant_column"});
     auto nullable_col1 = create_nullable_column({false, true, false}, {"a", "", "c"});
     block.insert({std::move(nullable_col1),
-                  std::make_shared<DataTypeNullable>(
-                          std::make_shared<DataTypeString>()),
-                  "sub1"});
+                  std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()), "sub1"});
 
     auto map_col = create_map_column();
     map_col->assume_mutable()->insert_many_defaults(3);
     block.insert({std::move(map_col),
-                  std::make_shared<DataTypeMap>(
-                          std::make_shared<DataTypeString>(),
-                          std::make_shared<DataTypeString>()),
+                  std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(),
+                                                std::make_shared<DataTypeString>()),
                   "sparse"});
 
     auto nullable_col2 = create_nullable_column({true, false, true}, {"", "x", ""});
     block.insert({std::move(nullable_col2),
-                  std::make_shared<DataTypeNullable>(
-                          std::make_shared<DataTypeString>()),
+                  std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
                   "another_sub"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 3);
@@ -357,8 +345,7 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithEmptyBlock) {
     Block block;
     auto empty_column = create_nullable_column({}, {});
     block.insert({std::move(empty_column),
-                  std::make_shared<DataTypeNullable>(
-                          std::make_shared<DataTypeString>()),
+                  std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
                   "sub_column"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 0);
@@ -381,8 +368,7 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithAllNullValues) {
     Block block;
     auto nullable_column = create_nullable_column({true, true, true}, {"", "", ""});
     block.insert({std::move(nullable_column),
-                  std::make_shared<DataTypeNullable>(
-                          std::make_shared<DataTypeString>()),
+                  std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
                   "sub_column"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 3);
@@ -408,8 +394,7 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithNoPathInfo) {
     Block block;
     auto string_column = ColumnString::create();
     string_column->insert_data("test", 4);
-    block.insert(
-            {std::move(string_column), std::make_shared<DataTypeString>(), "regular"});
+    block.insert({std::move(string_column), std::make_shared<DataTypeString>(), "regular"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 1);
     EXPECT_TRUE(status.ok()); // Should skip columns without path info
@@ -430,8 +415,7 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsAccumulatesNonNullCount)
     Block block;
     auto nullable_column = create_nullable_column({false, true, false}, {"a", "", "c"});
     block.insert({std::move(nullable_column),
-                  std::make_shared<DataTypeNullable>(
-                          std::make_shared<DataTypeString>()),
+                  std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
                   "sub_column"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 3);
@@ -456,8 +440,7 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithExtendedSchema) {
     Block block;
     auto nullable_column = create_nullable_column({false, true, false}, {"a", "", "c"});
     block.insert({std::move(nullable_column),
-                  std::make_shared<DataTypeNullable>(
-                          std::make_shared<DataTypeString>()),
+                  std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
                   "sub_column"});
 
     auto status = calculator.calculate_variant_stats(&block, 0, 3);

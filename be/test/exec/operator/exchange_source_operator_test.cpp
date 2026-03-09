@@ -30,7 +30,6 @@
 #include "testutil/mock/mock_slot_ref.h"
 namespace doris {
 
-
 struct MOCKVDataStreamRecvr : public VDataStreamRecvr {
     MOCKVDataStreamRecvr(RuntimeState* state, RuntimeProfile::HighWaterMarkCounter* counter,
                          RuntimeProfile* profile, int num_senders, bool is_merging)

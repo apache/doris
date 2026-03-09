@@ -270,10 +270,9 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
 void SchemaScanner::_init_block(Block* src_block) {
     const std::vector<SchemaScanner::ColumnDesc>& columns_desc(get_column_desc());
     for (int i = 0; i < columns_desc.size(); ++i) {
-        auto data_type = DataTypeFactory::instance().create_data_type(
-                columns_desc[i].type, true);
-        src_block->insert(ColumnWithTypeAndName(data_type->create_column(), data_type,
-                                                            columns_desc[i].name));
+        auto data_type = DataTypeFactory::instance().create_data_type(columns_desc[i].type, true);
+        src_block->insert(
+                ColumnWithTypeAndName(data_type->create_column(), data_type, columns_desc[i].name));
     }
 }
 
@@ -308,8 +307,7 @@ Status SchemaScanner::fill_dest_column_for_range(Block* block, size_t pos,
         case TYPE_CHAR:
         case TYPE_STRING: {
             auto* str_slot = reinterpret_cast<StringRef*>(data);
-            assert_cast<ColumnString*>(col_ptr)->insert_data(str_slot->data,
-                                                                         str_slot->size);
+            assert_cast<ColumnString*>(col_ptr)->insert_data(str_slot->data, str_slot->size);
             break;
         }
 
@@ -363,8 +361,7 @@ Status SchemaScanner::fill_dest_column_for_range(Block* block, size_t pos,
         }
 
         case TYPE_DATE: {
-            assert_cast<ColumnDate*>(col_ptr)->insert_data(
-                    reinterpret_cast<char*>(data), 0);
+            assert_cast<ColumnDate*>(col_ptr)->insert_data(reinterpret_cast<char*>(data), 0);
             break;
         }
 
@@ -375,8 +372,7 @@ Status SchemaScanner::fill_dest_column_for_range(Block* block, size_t pos,
         }
 
         case TYPE_DATETIME: {
-            assert_cast<ColumnDateTime*>(col_ptr)->insert_data(
-                    reinterpret_cast<char*>(data), 0);
+            assert_cast<ColumnDateTime*>(col_ptr)->insert_data(reinterpret_cast<char*>(data), 0);
             break;
         }
 
@@ -407,15 +403,15 @@ Status SchemaScanner::fill_dest_column_for_range(Block* block, size_t pos,
 
         case TYPE_DECIMAL32: {
             const int32_t num = *reinterpret_cast<int32_t*>(data);
-            assert_cast<ColumnDecimal32*>(col_ptr)->insert_data(
-                    reinterpret_cast<const char*>(&num), 0);
+            assert_cast<ColumnDecimal32*>(col_ptr)->insert_data(reinterpret_cast<const char*>(&num),
+                                                                0);
             break;
         }
 
         case TYPE_DECIMAL64: {
             const int64_t num = *reinterpret_cast<int64_t*>(data);
-            assert_cast<ColumnDecimal64*>(col_ptr)->insert_data(
-                    reinterpret_cast<const char*>(&num), 0);
+            assert_cast<ColumnDecimal64*>(col_ptr)->insert_data(reinterpret_cast<const char*>(&num),
+                                                                0);
             break;
         }
 
@@ -466,7 +462,7 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, Block* bloc
     case TYPE_VARCHAR:
     case TYPE_CHAR: {
         reinterpret_cast<ColumnString*>(col_ptr)->insert_data(cell.stringVal.data(),
-                                                                          cell.stringVal.size());
+                                                              cell.stringVal.size());
         break;
     }
 
@@ -476,8 +472,7 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, Block* bloc
         src[0].from_date_str(cell.stringVal.data(), cell.stringVal.size());
         datas[0] = src;
         auto data = datas[0];
-        reinterpret_cast<ColumnDateTime*>(col_ptr)->insert_data(
-                reinterpret_cast<char*>(data), 0);
+        reinterpret_cast<ColumnDateTime*>(col_ptr)->insert_data(reinterpret_cast<char*>(data), 0);
         break;
     }
     default: {

@@ -149,8 +149,7 @@ TEST_F(JsonbSerializeTest, serialization2) {
     writer.writeDecimal(decimal_value, 27, 8);
 
     writer.writeKey("key_decimal256");
-    Decimal256 decimal256_value(
-            (wide::Int256(std::numeric_limits<__int128_t>::max()) * 2));
+    Decimal256 decimal256_value((wide::Int256(std::numeric_limits<__int128_t>::max()) * 2));
     writer.writeDecimal(decimal256_value, 40, 8);
 
     writer.writeEndObject();

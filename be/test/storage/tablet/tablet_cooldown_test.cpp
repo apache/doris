@@ -329,8 +329,8 @@ static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t rep
 
     Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
-        block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->type(), slot_desc->col_name()));
+        block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(), slot_desc->type(),
+                                           slot_desc->col_name()));
     }
     Status st;
     auto columns = block.mutate_columns();

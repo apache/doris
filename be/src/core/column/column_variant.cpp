@@ -1950,8 +1950,8 @@ Status ColumnVariant::convert_typed_path_to_storage_type(
             DataTypePtr finalized_type = entry->data.get_least_common_type();
             auto current_column = entry->data.get_finalized_column_ptr()->get_ptr();
             if (!storage_type->equals(*finalized_type)) {
-                RETURN_IF_ERROR(variant_util::cast_column(
-                        {current_column, finalized_type, ""}, storage_type, &current_column));
+                RETURN_IF_ERROR(variant_util::cast_column({current_column, finalized_type, ""},
+                                                          storage_type, &current_column));
             }
             VLOG_DEBUG << "convert " << entry->path.get_path() << " from type"
                        << entry->data.get_least_common_type()->get_name() << " to "
@@ -2252,13 +2252,12 @@ bool NO_SANITIZE_UNDEFINED ColumnVariant::is_scalar_variant() const {
            doc_value_offsets[num_rows - 1] == 0; // no sparse data
 }
 
-const DataTypePtr ColumnVariant::NESTED_TYPE = std::make_shared<DataTypeNullable>(
-        std::make_shared<DataTypeArray>(std::make_shared<DataTypeNullable>(
-                std::make_shared<DataTypeVariant>(0))));
+const DataTypePtr ColumnVariant::NESTED_TYPE =
+        std::make_shared<DataTypeNullable>(std::make_shared<DataTypeArray>(
+                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeVariant>(0))));
 
-const DataTypePtr ColumnVariant::NESTED_TYPE_AS_ARRAY_OF_JSONB =
-        std::make_shared<DataTypeArray>(std::make_shared<DataTypeNullable>(
-                std::make_shared<DataTypeJsonb>()));
+const DataTypePtr ColumnVariant::NESTED_TYPE_AS_ARRAY_OF_JSONB = std::make_shared<DataTypeArray>(
+        std::make_shared<DataTypeNullable>(std::make_shared<DataTypeJsonb>()));
 
 DataTypePtr ColumnVariant::get_root_type() const {
     return subcolumns.get_root()->data.get_least_common_type();

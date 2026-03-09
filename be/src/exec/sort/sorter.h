@@ -194,8 +194,8 @@ public:
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) const override;
 
-    Status merge_sort_read_for_spill(RuntimeState* state, doris::Block* block,
-                                     int batch_size, bool* eos) override;
+    Status merge_sort_read_for_spill(RuntimeState* state, doris::Block* block, int batch_size,
+                                     bool* eos) override;
     void reset() override;
 
     void set_max_buffered_block_bytes(size_t max_buffered_block_bytes) {

@@ -96,8 +96,7 @@ Status BetaRowsetWriterV2::add_segment(uint32_t segment_id, const SegmentStatist
     return Status::OK();
 }
 
-Status BetaRowsetWriterV2::flush_memtable(Block* block, int32_t segment_id,
-                                          int64_t* flush_size) {
+Status BetaRowsetWriterV2::flush_memtable(Block* block, int32_t segment_id, int64_t* flush_size) {
     if (block->rows() == 0) {
         return Status::OK();
     }

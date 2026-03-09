@@ -166,8 +166,8 @@ Dependency* PartitionedHashJoinSinkLocalState::finishdependency() {
     return _finish_dependency.get();
 }
 
-Status PartitionedHashJoinSinkLocalState::_execute_spill_unpartitioned_block(
-        RuntimeState* state, Block&& build_block) {
+Status PartitionedHashJoinSinkLocalState::_execute_spill_unpartitioned_block(RuntimeState* state,
+                                                                             Block&& build_block) {
     Defer defer1 {[&]() { update_memory_usage(); }};
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     auto& partitioned_blocks = _shared_state->partitioned_build_blocks;
@@ -208,11 +208,9 @@ Status PartitionedHashJoinSinkLocalState::_execute_spill_unpartitioned_block(
             auto* begin = partitions_indexes[partition_idx].data();
             auto* end = begin + partitions_indexes[partition_idx].size();
             auto& partition_block = partitioned_blocks[partition_idx];
-            SpillStreamSPtr& spilling_stream =
-                    _shared_state->spilled_streams[partition_idx];
+            SpillStreamSPtr& spilling_stream = _shared_state->spilled_streams[partition_idx];
             if (UNLIKELY(!partition_block)) {
-                partition_block =
-                        MutableBlock::create_unique(build_block.clone_empty());
+                partition_block = MutableBlock::create_unique(build_block.clone_empty());
             }
 
             int64_t old_mem = partition_block->allocated_bytes();
@@ -226,8 +224,7 @@ Status PartitionedHashJoinSinkLocalState::_execute_spill_unpartitioned_block(
             if (partition_block->rows() >= reserved_size || is_last_block) {
                 auto block = partition_block->to_block();
                 RETURN_IF_ERROR(spilling_stream->spill_block(state, block, false));
-                partition_block =
-                        MutableBlock::create_unique(build_block.clone_empty());
+                partition_block = MutableBlock::create_unique(build_block.clone_empty());
                 COUNTER_UPDATE(_memory_used_counter, -new_mem);
             } else {
                 COUNTER_UPDATE(_memory_used_counter, new_mem - old_mem);
@@ -419,8 +416,7 @@ Status PartitionedHashJoinSinkLocalState::_finish_spilling() {
     return Status::OK();
 }
 
-Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
-                                                           Block* in_block,
+Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state, Block* in_block,
                                                            size_t begin, size_t end) {
     const auto rows = in_block->rows();
     if (!rows) {
@@ -450,8 +446,7 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
         }
 
         if (UNLIKELY(!partitioned_blocks[i])) {
-            partitioned_blocks[i] =
-                    MutableBlock::create_unique(in_block->clone_empty());
+            partitioned_blocks[i] = MutableBlock::create_unique(in_block->clone_empty());
         }
         RETURN_IF_ERROR(partitioned_blocks[i]->add_rows(in_block, partition_indexes[i].data(),
                                                         partition_indexes[i].data() + count));
@@ -463,8 +458,8 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
     return Status::OK();
 }
 
-Status PartitionedHashJoinSinkLocalState::_spill_to_disk(
-        uint32_t partition_index, const SpillStreamSPtr& spilling_stream) {
+Status PartitionedHashJoinSinkLocalState::_spill_to_disk(uint32_t partition_index,
+                                                         const SpillStreamSPtr& spilling_stream) {
     auto& partitioned_block = _shared_state->partitioned_build_blocks[partition_index];
 
     if (!_state->is_cancelled()) {
@@ -601,8 +596,7 @@ static bool is_revocable_mem_high_watermark(RuntimeState* state, size_t revocabl
                    (double)query_mem_limit / 100.0 * revocable_memory_high_watermark_percent;
 }
 
-Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, Block* in_block,
-                                              bool eos) {
+Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
 

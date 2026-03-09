@@ -86,10 +86,9 @@
 
 // Concept to check for supported decimal types
 template <typename T>
-concept JsonbDecimalType = std::same_as<T, doris::Decimal256> ||
-                           std::same_as<T, doris::Decimal64> ||
-                           std::same_as<T, doris::Decimal128V3> ||
-                           std::same_as<T, doris::Decimal32>;
+concept JsonbDecimalType =
+        std::same_as<T, doris::Decimal256> || std::same_as<T, doris::Decimal64> ||
+        std::same_as<T, doris::Decimal128V3> || std::same_as<T, doris::Decimal32>;
 
 namespace doris {
 

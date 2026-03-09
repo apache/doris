@@ -33,12 +33,12 @@ class PythonUDFMetaTest : public ::testing::Test {
 protected:
     void SetUp() override {
         // Create common test data types using PrimitiveType
-        nullable_int32_ = DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_INT, true);
-        nullable_string_ = DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_STRING, true);
-        nullable_double_ = DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_DOUBLE, true);
+        nullable_int32_ =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+        nullable_string_ =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true);
+        nullable_double_ =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DOUBLE, true);
     }
 
     DataTypePtr nullable_int32_;

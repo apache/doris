@@ -312,8 +312,7 @@ using StringRefs = std::vector<StringRef>;
 
 /// Parts are taken from CityHash.
 
-inline doris::UInt64 hash_len16(doris::UInt64 u,
-                                            doris::UInt64 v) {
+inline doris::UInt64 hash_len16(doris::UInt64 u, doris::UInt64 v) {
     return util_hash::HashLen16(u, v);
 }
 
@@ -365,8 +364,7 @@ inline size_t crc32_hash(const char* pos, size_t size) {
         pos += 8;
     } while (pos + 8 < end);
 
-    auto word =
-            unaligned_load<doris::UInt64>(end - 8); /// I'm not sure if this is normal.
+    auto word = unaligned_load<doris::UInt64>(end - 8); /// I'm not sure if this is normal.
     res = _mm_crc32_u64(res, word);
 
     return res;

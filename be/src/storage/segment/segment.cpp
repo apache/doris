@@ -565,7 +565,7 @@ Status Segment::healthy_status() {
 
 // Return the storage datatype of related column to field.
 DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
-                                                  const StorageReadOptions& read_options) {
+                                      const StorageReadOptions& read_options) {
     const PathInDataPtr path = column.path_info_ptr();
 
     // none variant column
@@ -950,8 +950,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         ColumnPtr source_ptr;
         // storage may have different type with schema, so we need to cast the column
         RETURN_IF_ERROR(variant_util::cast_column(
-                ColumnWithTypeAndName(file_storage_column->get_ptr(), storage_type,
-                                                  column.name()),
+                ColumnWithTypeAndName(file_storage_column->get_ptr(), storage_type, column.name()),
                 slot->type(), &source_ptr));
         RETURN_IF_CATCH_EXCEPTION(result->insert_range_from(*source_ptr, 0, 1));
     } else {

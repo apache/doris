@@ -156,8 +156,7 @@ void DataTypeVariantSerDe::to_string(const IColumn& column, size_t row_num, Buff
 Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                  const NullMap* null_map,
                                                  orc::ColumnVectorBatch* orc_col_batch,
-                                                 int64_t start, int64_t end,
-                                                 Arena& arena,
+                                                 int64_t start, int64_t end, Arena& arena,
                                                  const FormatOptions& options) const {
     const auto* var = check_and_get_column<ColumnVariant>(column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
@@ -201,6 +200,5 @@ Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, co
     cur_batch->numElements = end - start;
     return Status::OK();
 }
-
 
 } // namespace doris

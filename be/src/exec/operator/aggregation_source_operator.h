@@ -47,10 +47,8 @@ protected:
 
     Status _get_without_key_result(RuntimeState* state, Block* block, bool* eos);
     Status _get_results_without_key(RuntimeState* state, Block* block, bool* eos);
-    Status _get_with_serialized_key_result(RuntimeState* state, Block* block,
-                                           bool* eos);
-    Status _get_results_with_serialized_key(RuntimeState* state, Block* block,
-                                            bool* eos);
+    Status _get_with_serialized_key_result(RuntimeState* state, Block* block, bool* eos);
+    Status _get_results_with_serialized_key(RuntimeState* state, Block* block, bool* eos);
     Status _create_agg_status(AggregateDataPtr data);
     void _make_nullable_output_key(Block* block) {
         if (block->rows() != 0) {
@@ -63,8 +61,8 @@ protected:
         }
     }
 
-    void _emplace_into_hash_table(AggregateDataPtr* places,
-                                  ColumnRawPtrs& key_columns, uint32_t num_rows);
+    void _emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
+                                  uint32_t num_rows);
 
     PODArray<AggregateDataPtr> _places;
     std::vector<char> _deserialize_buffer;

@@ -369,13 +369,12 @@ void VerticalSegmentWriter::_serialize_block_to_row_column(const Block& block) {
             auto* row_store_column = static_cast<ColumnString*>(
                     block.get_by_position(i).column->assume_mutable_ref().assume_mutable().get());
             row_store_column->clear();
-            DataTypeSerDeSPtrs serdes =
-                    create_data_type_serdes(block.get_data_types());
+            DataTypeSerDeSPtrs serdes = create_data_type_serdes(block.get_data_types());
             std::unordered_set<int> row_store_cids_set(_tablet_schema->row_columns_uids().begin(),
                                                        _tablet_schema->row_columns_uids().end());
-            JsonbSerializeUtil::block_to_jsonb(
-                    *_tablet_schema, block, *row_store_column,
-                    cast_set<int>(_tablet_schema->num_columns()), serdes, row_store_cids_set);
+            JsonbSerializeUtil::block_to_jsonb(*_tablet_schema, block, *row_store_column,
+                                               cast_set<int>(_tablet_schema->num_columns()), serdes,
+                                               row_store_cids_set);
             break;
         }
     }
@@ -693,8 +692,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     return Status::OK();
 }
 
-Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
-        RowsInBlock& data, Block& full_block) {
+Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsInBlock& data,
+                                                                          Block& full_block) {
     RETURN_IF_ERROR(_partial_update_preconditions_check(data.row_pos, true));
 
     // data.block has the same schema with full_block
@@ -735,8 +734,7 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
 
     // 1. aggregate duplicate rows in block
     RETURN_IF_ERROR(_block_aggregator.aggregate_for_flexible_partial_update(
-            const_cast<Block*>(data.block), data.num_rows, specified_rowsets,
-            segment_caches));
+            const_cast<Block*>(data.block), data.num_rows, specified_rowsets, segment_caches));
     if (data.block->rows() != data.num_rows) {
         data.num_rows = data.block->rows();
         _olap_data_convertor->clear_source_content();
@@ -947,8 +945,7 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
     return Status::OK();
 }
 
-Status VerticalSegmentWriter::batch_block(const Block* block, size_t row_pos,
-                                          size_t num_rows) {
+Status VerticalSegmentWriter::batch_block(const Block* block, size_t row_pos, size_t num_rows) {
     if (_opts.rowset_ctx->partial_update_info &&
         _opts.rowset_ctx->partial_update_info->is_partial_update() &&
         _opts.write_type == DataWriteType::TYPE_DIRECT &&
@@ -1212,9 +1209,8 @@ std::string VerticalSegmentWriter::_full_encode_keys(
     return encoded_keys;
 }
 
-void VerticalSegmentWriter::_encode_seq_column(
-        const IOlapColumnDataAccessor* seq_column, size_t pos,
-        std::string* encoded_keys) {
+void VerticalSegmentWriter::_encode_seq_column(const IOlapColumnDataAccessor* seq_column,
+                                               size_t pos, std::string* encoded_keys) {
     const auto* field = seq_column->get_data_at(pos);
     // To facilitate the use of the primary key index, encode the seq column
     // to the minimum value of the corresponding length when the seq column

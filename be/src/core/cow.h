@@ -399,8 +399,7 @@ class Field;
 template <typename Base, typename Derived>
 class COWHelper : public Base {
 public:
-    static_assert(std::is_base_of_v<doris::IColumn, Base>,
-                  "COWHelper only use in IColumn");
+    static_assert(std::is_base_of_v<doris::IColumn, Base>, "COWHelper only use in IColumn");
     using Ptr = typename Base::template immutable_ptr<Derived>;
     using MutablePtr = typename Base::template mutable_ptr<Derived>;
 

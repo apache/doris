@@ -86,8 +86,7 @@ TEST_F(RuntimeFilterUtilsTest, TestRuntimeFilterFromThrift) {
 
 TEST_F(RuntimeFilterUtilsTest, TestCreateLiteral) {
     VExprSPtr literal;
-    auto type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT,
-                                                                         false);
+    auto type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, false);
     const int value = 1;
     EXPECT_TRUE(create_literal(type, (const void*)&value, literal).ok());
     EXPECT_TRUE(literal->is_literal());
@@ -98,24 +97,21 @@ TEST_F(RuntimeFilterUtilsTest, TestCreateBinaryPredicate) {
     {
         VExprSPtr expr;
         TExprNode pred_node;
-        auto type = DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_INT, false);
+        auto type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, false);
         auto op = TExprOpcode::EQ;
         EXPECT_FALSE(create_vbin_predicate(type, op, expr, &pred_node, false).ok());
     }
     {
         VExprSPtr expr;
         TExprNode pred_node;
-        auto type = DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_INT, false);
+        auto type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, false);
         auto op = TExprOpcode::GE;
         EXPECT_TRUE(create_vbin_predicate(type, op, expr, &pred_node, true).ok());
     }
     {
         VExprSPtr expr;
         TExprNode pred_node;
-        auto type = DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_INT, false);
+        auto type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, false);
         auto op = TExprOpcode::LE;
         EXPECT_TRUE(create_vbin_predicate(type, op, expr, &pred_node, false).ok());
     }

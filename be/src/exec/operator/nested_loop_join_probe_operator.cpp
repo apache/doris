@@ -97,9 +97,9 @@ void NestedLoopJoinProbeLocalState::_reset_with_next_probe_row() {
 // probe rows based on a build row. Their implementation approach and
 // code structure are similar.
 
-void process_probe_block(int64_t probe_block_pos, Block& block,
-                         const Block& probe_block, size_t probe_side_columns,
-                         const Block& build_block, size_t build_side_columns) {
+void process_probe_block(int64_t probe_block_pos, Block& block, const Block& probe_block,
+                         size_t probe_side_columns, const Block& build_block,
+                         size_t build_side_columns) {
     auto dst_columns = block.mutate_columns();
     const size_t max_added_rows = build_block.rows();
     for (size_t i = 0; i < probe_side_columns; ++i) {
@@ -138,9 +138,9 @@ void process_probe_block(int64_t probe_block_pos, Block& block,
     block.set_columns(std::move(dst_columns));
 }
 
-void process_build_block(int64_t build_block_pos, Block& block,
-                         const Block& build_block, size_t build_side_columns,
-                         const Block& probe_block, size_t probe_side_columns) {
+void process_build_block(int64_t build_block_pos, Block& block, const Block& build_block,
+                         size_t build_side_columns, const Block& probe_block,
+                         size_t probe_side_columns) {
     auto dst_columns = block.mutate_columns();
     const size_t max_added_rows = probe_block.rows();
     for (size_t i = 0; i < probe_side_columns; ++i) {
@@ -398,8 +398,7 @@ Status NestedLoopJoinProbeLocalState::generate_other_join_block_data(RuntimeStat
 }
 
 template <bool BuildSide, bool IsSemi>
-void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block,
-                                                            size_t batch_size) {
+void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block, size_t batch_size) {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
     auto dst_columns = block.mutate_columns();
     DCHECK_GT(dst_columns.size(), 0);
@@ -411,8 +410,7 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block,
         for (; i < build_block_sz && column_size < batch_size; i++) {
             const auto& cur_block = _shared_state->build_blocks[i];
             const auto* __restrict cur_visited_flags =
-                    assert_cast<ColumnUInt8*>(
-                            _shared_state->build_side_visited_flags[i].get())
+                    assert_cast<ColumnUInt8*>(_shared_state->build_side_visited_flags[i].get())
                             ->get_data()
                             .data();
             const auto num_rows = cur_block.rows();
@@ -444,13 +442,11 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block,
                 if (!src_column.column->is_nullable() &&
                     dst_columns[p._num_probe_side_columns + j]->is_nullable()) {
                     DCHECK(p._join_op == TJoinOp::FULL_OUTER_JOIN);
-                    assert_cast<ColumnNullable*>(
-                            dst_columns[p._num_probe_side_columns + j].get())
+                    assert_cast<ColumnNullable*>(dst_columns[p._num_probe_side_columns + j].get())
                             ->get_nested_column_ptr()
                             ->insert_indices_from(*src_column.column, selector.data(),
                                                   selector.data() + selector_idx);
-                    assert_cast<ColumnNullable*>(
-                            dst_columns[p._num_probe_side_columns + j].get())
+                    assert_cast<ColumnNullable*>(dst_columns[p._num_probe_side_columns + j].get())
                             ->get_null_map_column()
                             .get_data()
                             .resize_fill(column_size, 0);
@@ -471,8 +467,7 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block,
                 if (_cur_probe_row_visited_flags[j] == IsSemi) {
                     new_size++;
                     for (size_t i = 0; i < p._num_probe_side_columns; ++i) {
-                        const ColumnWithTypeAndName src_column =
-                                _child_block->get_by_position(i);
+                        const ColumnWithTypeAndName src_column = _child_block->get_by_position(i);
                         if (!src_column.column->is_nullable() && dst_columns[i]->is_nullable()) {
                             DCHECK(p._join_op == TJoinOp::FULL_OUTER_JOIN);
                             assert_cast<ColumnNullable*>(dst_columns[i].get())
@@ -503,8 +498,7 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(Block& block,
                 mark_column.insert_value(IsSemi == _cur_probe_row_visited_flags[j]);
             }
             for (size_t i = 0; i < p._num_probe_side_columns; ++i) {
-                const ColumnWithTypeAndName src_column =
-                        _child_block->get_by_position(i);
+                const ColumnWithTypeAndName src_column = _child_block->get_by_position(i);
                 DCHECK(p._join_op != TJoinOp::FULL_OUTER_JOIN);
                 dst_columns[i]->insert_range_from(*src_column.column, _probe_block_start_pos,
                                                   _probe_side_process_count);
@@ -545,8 +539,7 @@ void NestedLoopJoinProbeLocalState::_append_probe_data_with_null(Block& block) c
         dst_columns[p._num_probe_side_columns + i]->insert_many_defaults(_probe_side_process_count);
     }
     auto& mark_column = *dst_columns[dst_columns.size() - 1];
-    ColumnFilterHelper(mark_column)
-            .resize_fill(mark_column.size() + _probe_side_process_count, 0);
+    ColumnFilterHelper(mark_column).resize_fill(mark_column.size() + _probe_side_process_count, 0);
     block.set_columns(std::move(dst_columns));
 }
 
@@ -565,12 +558,12 @@ Status NestedLoopJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* 
 
     if (tnode.nested_loop_join_node.__isset.join_conjuncts &&
         !tnode.nested_loop_join_node.join_conjuncts.empty()) {
-        RETURN_IF_ERROR(VExpr::create_expr_trees(
-                tnode.nested_loop_join_node.join_conjuncts, _join_conjuncts));
+        RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.nested_loop_join_node.join_conjuncts,
+                                                 _join_conjuncts));
     } else if (tnode.nested_loop_join_node.__isset.vjoin_conjunct) {
         VExprContextSPtr context;
-        RETURN_IF_ERROR(VExpr::create_expr_tree(
-                tnode.nested_loop_join_node.vjoin_conjunct, context));
+        RETURN_IF_ERROR(
+                VExpr::create_expr_tree(tnode.nested_loop_join_node.vjoin_conjunct, context));
         _join_conjuncts.emplace_back(context);
     }
 
@@ -625,16 +618,14 @@ Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, Block* blo
             }
         };
         SCOPED_TIMER(local_state._loop_join_timer);
-        RETURN_IF_ERROR(
-                std::visit(func, local_state._shared_state->join_op_variants,
-                           make_bool_variant(_match_all_build || _is_right_semi_anti),
-                           make_bool_variant(_match_all_probe || _is_left_semi_anti)));
+        RETURN_IF_ERROR(std::visit(func, local_state._shared_state->join_op_variants,
+                                   make_bool_variant(_match_all_build || _is_right_semi_anti),
+                                   make_bool_variant(_match_all_probe || _is_left_semi_anti)));
     }
     return Status::OK();
 }
 
-Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, Block* block,
-                                          bool* eos) const {
+Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, Block* block, bool* eos) const {
     auto& local_state = get_local_state(state);
     if (_is_output_probe_side_only) {
         SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
@@ -680,10 +671,9 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, Block* block,
             };
             SCOPED_TIMER(local_state._loop_join_timer);
             SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
-            RETURN_IF_ERROR(std::visit(
-                    func, local_state._shared_state->join_op_variants,
-                    make_bool_variant(_match_all_build || _is_right_semi_anti),
-                    make_bool_variant(_match_all_probe || _is_left_semi_anti)));
+            RETURN_IF_ERROR(std::visit(func, local_state._shared_state->join_op_variants,
+                                       make_bool_variant(_match_all_build || _is_right_semi_anti),
+                                       make_bool_variant(_match_all_probe || _is_left_semi_anti)));
         }
     }
 

@@ -431,8 +431,7 @@ TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segmen
             RowsetReaderSharedPtr input_rs_reader;
             create_and_init_rowset_reader(rowset.get(), input_reader_context, &input_rs_reader);
 
-            Block input_block =
-                    tablet_schema->create_block_by_cids(input_return_columns);
+            Block input_block = tablet_schema->create_block_by_cids(input_return_columns);
             auto st = input_rs_reader->next_batch(&input_block);
             ASSERT_TRUE(st.ok()) << st.to_json();
             ASSERT_EQ(1, input_block.columns());

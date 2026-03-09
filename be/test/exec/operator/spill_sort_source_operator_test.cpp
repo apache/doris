@@ -123,11 +123,10 @@ TEST_F(SpillSortSourceOperatorTest, GetBlock) {
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto input_block = ColumnHelper::create_block<DataTypeInt32>(
-            {1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
+    auto input_block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
 
-    input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(
-            {10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
+    input_block.insert(
+            ColumnHelper::create_column_with_name<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
 
     const auto rows = input_block.rows();
 
@@ -232,9 +231,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
 
         auto input_block = ColumnHelper::create_block<DataTypeInt32>(data);
 
-        input_block.insert(
-                ColumnHelper::create_column_with_name<DataTypeInt64>(
-                        data2));
+        input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(data2));
 
         st = spill_stream->spill_block(_helper.runtime_state.get(), input_block, true);
         ASSERT_TRUE(st.ok()) << "spill_block failed: " << st.to_string();
@@ -378,9 +375,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
 
         auto input_block = ColumnHelper::create_block<DataTypeInt32>(data);
 
-        input_block.insert(
-                ColumnHelper::create_column_with_name<DataTypeInt64>(
-                        data2));
+        input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(data2));
 
         st = spill_stream->spill_block(_helper.runtime_state.get(), input_block, true);
         ASSERT_TRUE(st.ok()) << "spill_block failed: " << st.to_string();
@@ -525,9 +520,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
 
         auto input_block = ColumnHelper::create_block<DataTypeInt32>(data);
 
-        input_block.insert(
-                ColumnHelper::create_column_with_name<DataTypeInt64>(
-                        data2));
+        input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(data2));
 
         st = spill_stream->spill_block(_helper.runtime_state.get(), input_block, true);
         ASSERT_TRUE(st.ok()) << "spill_block failed: " << st.to_string();

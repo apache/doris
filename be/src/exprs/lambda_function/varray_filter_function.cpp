@@ -52,8 +52,8 @@ public:
 
     std::string get_name() const override { return name; }
 
-    doris::Status execute(VExprContext* context, const doris::Block* block,
-                          Selector* expr_selector, size_t output_count, ColumnPtr& result_column,
+    doris::Status execute(VExprContext* context, const doris::Block* block, Selector* expr_selector,
+                          size_t output_count, ColumnPtr& result_column,
                           const DataTypePtr& result_type,
                           const VExprSPtrs& children) const override {
         ///* array_filter(array, array<boolean>) *///

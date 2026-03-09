@@ -154,17 +154,16 @@ public:
 
 private:
     // Core configuration
-    const bool _asc;     ///< Sort order for results
-    const size_t _limit; ///< Maximum number of results (K in K-NN)
-    VExprContextSPtr
-            _order_by_expr_ctx; ///< Expression context for distance calculation
+    const bool _asc;                     ///< Sort order for results
+    const size_t _limit;                 ///< Maximum number of results (K in K-NN)
+    VExprContextSPtr _order_by_expr_ctx; ///< Expression context for distance calculation
 
     // Runtime metadata
     std::string _name = "ann_topn_runtime";     ///< Runtime identifier for logging
     size_t _src_column_idx = -1;                ///< Source vector column index
     size_t _dest_column_idx = -1;               ///< Destination distance column index
     segment_v2::AnnIndexMetric _metric_type;    ///< Distance metric type
-    IColumn::Ptr _query_array;      ///< Query vector data (contiguous float buffer)
+    IColumn::Ptr _query_array;                  ///< Query vector data (contiguous float buffer)
     doris::VectorSearchUserParams _user_params; ///< User-defined search parameters
 };
 #include "common/compile_check_end.h"

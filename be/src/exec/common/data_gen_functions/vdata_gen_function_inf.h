@@ -29,7 +29,6 @@ class RuntimeState;
 class Status;
 class TScanRangeParams;
 
-
 class VDataGenFunctionInf {
 public:
     VDataGenFunctionInf(TupleId tuple_id, const TupleDescriptor* tuple_desc)
@@ -49,6 +48,5 @@ protected:
     // Descriptor of tuples generated
     const TupleDescriptor* _tuple_desc = nullptr;
 };
-
 
 } // namespace doris

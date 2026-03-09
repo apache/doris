@@ -92,8 +92,8 @@ Status VHiveTableWriter::write(RuntimeState* state, Block& block) {
         return Status::OK();
     }
     Block output_block;
-    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(
-            _vec_output_expr_ctxs, block, &output_block, false));
+    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_vec_output_expr_ctxs, block,
+                                                                       &output_block, false));
     materialize_block_inplace(output_block);
 
     std::unordered_map<std::shared_ptr<VHivePartitionWriter>, IColumn::Filter> writer_positions;
@@ -219,8 +219,7 @@ Status VHiveTableWriter::write(RuntimeState* state, Block& block) {
     return Status::OK();
 }
 
-Status VHiveTableWriter::_filter_block(doris::Block& block,
-                                       const IColumn::Filter* filter,
+Status VHiveTableWriter::_filter_block(doris::Block& block, const IColumn::Filter* filter,
                                        doris::Block* output_block) {
     const ColumnsWithTypeAndName& columns_with_type_and_name =
             block.get_columns_with_type_and_name();
@@ -395,13 +394,11 @@ std::shared_ptr<VHivePartitionWriter> VHiveTableWriter::_create_partition_writer
             hive_table_sink.hadoop_config);
 }
 
-std::vector<std::string> VHiveTableWriter::_create_partition_values(Block& block,
-                                                                    int position) {
+std::vector<std::string> VHiveTableWriter::_create_partition_values(Block& block, int position) {
     std::vector<std::string> partition_values;
     for (int i = 0; i < _partition_columns_input_index.size(); ++i) {
         int partition_column_idx = _partition_columns_input_index[i];
-        ColumnWithTypeAndName partition_column =
-                block.get_by_position(partition_column_idx);
+        ColumnWithTypeAndName partition_column = block.get_by_position(partition_column_idx);
         std::string value = _to_partition_value(
                 _vec_output_expr_ctxs[partition_column_idx]->root()->data_type(), partition_column,
                 position);
@@ -451,8 +448,7 @@ std::string VHiveTableWriter::_to_partition_value(const DataTypePtr& type_desc,
     auto [item, size] = column->get_data_at(position);
     switch (type_desc->get_primitive_type()) {
     case TYPE_BOOLEAN: {
-        Field field =
-                check_and_get_column<const ColumnUInt8>(*column)->operator[](position);
+        Field field = check_and_get_column<const ColumnUInt8>(*column)->operator[](position);
         return std::to_string(field.get<TYPE_BOOLEAN>());
     }
     case TYPE_TINYINT: {

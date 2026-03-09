@@ -153,8 +153,7 @@ using OlapTableIndexTablets = TOlapTableIndexTablets;
 // }
 
 using BlockRow = std::pair<Block*, int32_t>;
-using BlockRowWithIndicator =
-        std::tuple<Block*, int32_t, bool>; // [block, row, is_transformed]
+using BlockRowWithIndicator = std::tuple<Block*, int32_t, bool>; // [block, row, is_transformed]
 
 struct VOlapTablePartition {
     int64_t id = 0;
@@ -231,8 +230,7 @@ public:
             std::vector<uint32_t>& tablet_indexes /*result*/,
             /*TODO: check if flat hash map will be better*/
             std::map<VOlapTablePartition*, int64_t>* partition_tablets_buffer = nullptr) const {
-        std::function<uint32_t(Block*, uint32_t, const VOlapTablePartition&)>
-                compute_function;
+        std::function<uint32_t(Block*, uint32_t, const VOlapTablePartition&)> compute_function;
         if (!_distributed_slot_locs.empty()) {
             //TODO: refactor by saving the hash values. then we can calculate in columnwise.
             compute_function = [this](Block* block, uint32_t row,

@@ -62,8 +62,7 @@ struct ColumnWithTypeAndName {
 
     void dump_structure(std::ostream& out) const;
     String dump_structure() const;
-    std::string to_string(size_t row_num,
-                          const DataTypeSerDe::FormatOptions& format_options) const;
+    std::string to_string(size_t row_num, const DataTypeSerDe::FormatOptions& format_options) const;
 #ifdef BE_TEST
     std::string to_string(size_t row_num) const;
 #endif

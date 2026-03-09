@@ -227,15 +227,13 @@ public:
 
     // Get the types of all subcolumns in the variant column.
     void get_subcolumns_types(
-            std::unordered_map<PathInData, DataTypes,
-                               PathInData::Hash>* subcolumns_types) const;
+            std::unordered_map<PathInData, DataTypes, PathInData::Hash>* subcolumns_types) const;
 
     // Get the typed paths in the variant column.
     void get_typed_paths(std::unordered_set<std::string>* typed_paths) const;
 
     // Get the nested paths in the variant column.
-    void get_nested_paths(std::unordered_set<PathInData, PathInData::Hash>*
-                                  nested_paths) const;
+    void get_nested_paths(std::unordered_set<PathInData, PathInData::Hash>* nested_paths) const;
 
     // Infer the storage data type for a variant subcolumn using full StorageReadOptions
     // (reader type, tablet schema, etc). This shares the same decision logic as
@@ -248,10 +246,10 @@ public:
     // This method will first try inline footer.columns via footer_ordinal and then
     // fall back to external meta if available. Callers do not need to care about
     // the underlying layout (inline vs external).
-    Status create_path_reader(const PathInData& relative_path,
-                              const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
-                              const SegmentFooterPB& footer, const io::FileReaderSPtr& file_reader,
-                              uint64_t num_rows, std::shared_ptr<ColumnReader>* out);
+    Status create_path_reader(const PathInData& relative_path, const ColumnReaderOptions& opts,
+                              ColumnMetaAccessor* accessor, const SegmentFooterPB& footer,
+                              const io::FileReaderSPtr& file_reader, uint64_t num_rows,
+                              std::shared_ptr<ColumnReader>* out);
 
     // Try create a ColumnReader from externalized meta (path -> ColumnMetaPB bytes) if present.
     // Only used internally by create_path_reader. External callers should not rely
@@ -363,8 +361,7 @@ private:
     bool _try_build_nested_group_plan(ReadPlan* plan, const TabletColumn& target_col,
                                       const StorageReadOptions* opt, int32_t col_uid,
                                       const PathInData& relative_path) const;
-    Status _try_build_leaf_plan(ReadPlan* plan, int32_t col_uid,
-                                const PathInData& relative_path,
+    Status _try_build_leaf_plan(ReadPlan* plan, int32_t col_uid, const PathInData& relative_path,
                                 const SubcolumnColumnMetaInfo::Node* node,
                                 ColumnReaderCache* column_reader_cache,
                                 OlapReaderStatistics* stats);
@@ -383,8 +380,7 @@ private:
                                               const StorageReadOptions* opt,
                                               ColumnReaderCache* column_reader_cache);
 
-    Status _create_hierarchical_reader(ColumnIteratorUPtr* reader, int32_t col_uid,
-                                       PathInData path,
+    Status _create_hierarchical_reader(ColumnIteratorUPtr* reader, int32_t col_uid, PathInData path,
                                        const SubcolumnColumnMetaInfo::Node* node,
                                        const SubcolumnColumnMetaInfo::Node* root,
                                        ColumnReaderCache* column_reader_cache,
@@ -462,16 +458,14 @@ public:
             PrefetcherInitMethod init_method) override;
 
 private:
-    Status _process_root_column(MutableColumnPtr& dst,
-                                MutableColumnPtr& root_column,
+    Status _process_root_column(MutableColumnPtr& dst, MutableColumnPtr& root_column,
                                 const DataTypePtr& most_common_type);
     std::unique_ptr<FileColumnIterator> _inner_iter;
 };
 
 class DefaultNestedColumnIterator : public ColumnIterator {
 public:
-    DefaultNestedColumnIterator(ColumnIteratorUPtr sibling,
-                                DataTypePtr file_column_type)
+    DefaultNestedColumnIterator(ColumnIteratorUPtr sibling, DataTypePtr file_column_type)
             : _sibling_iter(std::move(sibling)), _file_column_type(std::move(file_column_type)) {}
 
     Status init(const ColumnIteratorOptions& opts) override {

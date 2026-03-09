@@ -35,7 +35,6 @@
 
 namespace doris {
 
-
 class TestSplitSourceConnectorStub : public SplitSourceConnector {
 private:
     std::mutex _range_lock;
@@ -239,20 +238,18 @@ void VfileScannerExceptionTest::init() {
     _tnode.file_scan_node.tuple_id = 0;
     _tnode.__isset.file_scan_node = true;
 
-    _scan_node =
-            std::make_shared<FileScanOperatorX>(&_obj_pool, _tnode, 0, *_desc_tbl, 1);
+    _scan_node = std::make_shared<FileScanOperatorX>(&_obj_pool, _tnode, 0, *_desc_tbl, 1);
     _scan_node->_output_tuple_desc = _runtime_state.desc_tbl().get_tuple_descriptor(_dst_tuple_id);
     WARN_IF_ERROR(_scan_node->init(_tnode, &_runtime_state), "fail to init scan_node");
     WARN_IF_ERROR(_scan_node->prepare(&_runtime_state), "fail to open scan_node");
 
-    auto local_state =
-            FileScanLocalState::create_unique(&_runtime_state, _scan_node.get());
+    auto local_state = FileScanLocalState::create_unique(&_runtime_state, _scan_node.get());
     std::vector<TScanRangeParams> scan_ranges;
     LocalStateInfo info {.parent_profile = &_global_profile,
-                                   .scan_ranges = scan_ranges,
-                                   .shared_state = nullptr,
-                                   .shared_state_map = {},
-                                   .task_idx = 0};
+                         .scan_ranges = scan_ranges,
+                         .shared_state = nullptr,
+                         .shared_state_map = {},
+                         .task_idx = 0};
     WARN_IF_ERROR(local_state->init(&_runtime_state, info), "fail to init local_state");
     _runtime_state.emplace_local_state(_scan_node->operator_id(), std::move(local_state));
 
@@ -277,8 +274,7 @@ void VfileScannerExceptionTest::generate_scanner(std::shared_ptr<FileScanner>& s
     auto split_source = std::make_shared<TestSplitSourceConnectorStub>(_scan_range);
     std::unordered_map<std::string, int> _colname_to_slot_id;
     scanner = std::make_shared<FileScanner>(
-            &_runtime_state,
-            &(_runtime_state.get_local_state(0)->cast<FileScanLocalState>()), -1,
+            &_runtime_state, &(_runtime_state.get_local_state(0)->cast<FileScanLocalState>()), -1,
             split_source, _profile, _kv_cache.get(), &_colname_to_slot_id);
     scanner->_is_load = false;
     VExprContextSPtrs _conjuncts;

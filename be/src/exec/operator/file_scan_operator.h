@@ -73,8 +73,7 @@ private:
     PushDownType _should_push_down_bitmap_filter() const override {
         return PushDownType::UNACCEPTABLE;
     }
-    PushDownType _should_push_down_is_null_predicate(
-            VectorizedFnCall* fn_call) const override {
+    PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const override {
         return fn_call->fn().name.function_name == "is_null_pred" ||
                                fn_call->fn().name.function_name == "is_not_null_pred"
                        ? PushDownType::PARTIAL_ACCEPTABLE
@@ -84,8 +83,8 @@ private:
         return PushDownType::PARTIAL_ACCEPTABLE;
     }
     PushDownType _should_push_down_binary_predicate(
-            VectorizedFnCall* fn_call, VExprContext* expr_ctx,
-            Field& constant_val, const std::set<std::string> fn_name) const override;
+            VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
+            const std::set<std::string> fn_name) const override;
     std::shared_ptr<SplitSourceConnector> _split_source = nullptr;
     int _max_scanners;
     // A in memory cache to save some common components

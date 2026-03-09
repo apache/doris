@@ -416,8 +416,8 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
         SCOPED_RAW_TIMER(&_decode_null_map_time);
         // doris_column either originates from a mutable block in vparquet_group_reader
         // or is a newly created ColumnPtr, and therefore can be modified.
-        auto* nullable_column = const_cast<ColumnNullable*>(
-                assert_cast<const ColumnNullable*>(doris_column.get()));
+        auto* nullable_column =
+                const_cast<ColumnNullable*>(assert_cast<const ColumnNullable*>(doris_column.get()));
         data_column = nullable_column->get_nested_column_ptr();
         map_data_column = &(nullable_column->get_null_map_data());
     } else {

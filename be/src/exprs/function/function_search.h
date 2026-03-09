@@ -58,8 +58,7 @@ struct FieldReaderBinding {
 class FieldReaderResolver {
 public:
     FieldReaderResolver(
-            const std::unordered_map<std::string, IndexFieldNameAndTypePair>&
-                    data_type_with_names,
+            const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
             const std::unordered_map<std::string, IndexIterator*>& iterators,
             std::shared_ptr<IndexQueryContext> context,
             const std::vector<TSearchFieldBinding>& field_bindings = {})
@@ -113,8 +112,7 @@ private:
         return stored_field_name + "#" + std::to_string(static_cast<int>(query_type));
     }
 
-    const std::unordered_map<std::string, IndexFieldNameAndTypePair>&
-            _data_type_with_names;
+    const std::unordered_map<std::string, IndexFieldNameAndTypePair>& _data_type_with_names;
     const std::unordered_map<std::string, IndexIterator*>& _iterators;
     std::shared_ptr<IndexQueryContext> _context;
     std::vector<TSearchFieldBinding> _field_bindings;
@@ -166,15 +164,13 @@ public:
 
     Status evaluate_inverted_index_with_search_param(
             const TSearchParam& search_param,
-            const std::unordered_map<std::string, IndexFieldNameAndTypePair>&
-                    data_type_with_names,
+            const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
             std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
             InvertedIndexResultBitmap& bitmap_result, bool enable_cache = true) const;
 
     Status evaluate_inverted_index_with_search_param(
             const TSearchParam& search_param,
-            const std::unordered_map<std::string, IndexFieldNameAndTypePair>&
-                    data_type_with_names,
+            const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
             std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
             InvertedIndexResultBitmap& bitmap_result, bool enable_cache,
             const IndexExecContext* index_exec_ctx,

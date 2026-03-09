@@ -53,20 +53,17 @@ Status TabletSinkHashPartitioner::open(RuntimeState* state) {
     _vpartition = std::make_unique<VOlapTablePartitionParam>(_schema, _tablet_sink_partition);
     RETURN_IF_ERROR(_vpartition->init());
     auto find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW;
-    _tablet_finder =
-            std::make_unique<OlapTabletFinder>(_vpartition.get(), find_tablet_mode);
+    _tablet_finder = std::make_unique<OlapTabletFinder>(_vpartition.get(), find_tablet_mode);
     _tablet_sink_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tablet_sink_tuple_id);
     _tablet_sink_row_desc = state->obj_pool()->add(new RowDescriptor(_tablet_sink_tuple_desc));
-    auto& ctxs =
-            _local_state->parent()->cast<ExchangeSinkOperatorX>().tablet_sink_expr_ctxs();
+    auto& ctxs = _local_state->parent()->cast<ExchangeSinkOperatorX>().tablet_sink_expr_ctxs();
     _tablet_sink_expr_ctxs.resize(ctxs.size());
     for (size_t i = 0; i < _tablet_sink_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(ctxs[i]->clone(state, _tablet_sink_expr_ctxs[i]));
     }
     // if _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED, we handle the processing of auto_increment column
     // on exchange node rather than on TabletWriter
-    _block_convertor =
-            std::make_unique<OlapTableBlockConvertor>(_tablet_sink_tuple_desc);
+    _block_convertor = std::make_unique<OlapTableBlockConvertor>(_tablet_sink_tuple_desc);
     _block_convertor->init_autoinc_info(_schema->db_id(), _schema->table_id(), state->batch_size());
     _location = state->obj_pool()->add(new OlapTableLocationParam(_tablet_sink_location));
     _row_distribution.init(

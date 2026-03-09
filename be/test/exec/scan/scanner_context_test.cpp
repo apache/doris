@@ -124,8 +124,8 @@ private:
 
 TEST_F(ScannerContextTest, test_init) {
     const int parallel_tasks = 1;
-    auto scan_operator = std::make_unique<OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
             OlapScanLocalState::create_unique(state.get(), scan_operator.get());
@@ -184,8 +184,8 @@ TEST_F(ScannerContextTest, test_init) {
 
 TEST_F(ScannerContextTest, test_serial_run) {
     const int parallel_tasks = 1;
-    auto scan_operator = std::make_unique<OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
             OlapScanLocalState::create_unique(state.get(), scan_operator.get());
@@ -242,8 +242,8 @@ TEST_F(ScannerContextTest, test_serial_run) {
 
 TEST_F(ScannerContextTest, test_max_column_reader_num) {
     const int parallel_tasks = 1;
-    auto scan_operator = std::make_unique<OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
             OlapScanLocalState::create_unique(state.get(), scan_operator.get());
@@ -292,8 +292,8 @@ TEST_F(ScannerContextTest, test_max_column_reader_num) {
 
 TEST_F(ScannerContextTest, test_push_back_scan_task) {
     const int parallel_tasks = 1;
-    auto scan_operator = std::make_unique<OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
             OlapScanLocalState::create_unique(state.get(), scan_operator.get());
@@ -329,8 +329,8 @@ TEST_F(ScannerContextTest, test_push_back_scan_task) {
 
 TEST_F(ScannerContextTest, get_margin) {
     const int parallel_tasks = 4;
-    auto scan_operator = std::make_unique<OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
             OlapScanLocalState::create_unique(state.get(), scan_operator.get());
@@ -425,8 +425,8 @@ TEST_F(ScannerContextTest, get_margin) {
 
 TEST_F(ScannerContextTest, pull_next_scan_task) {
     const int parallel_tasks = 4;
-    auto scan_operator = std::make_unique<OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
             OlapScanLocalState::create_unique(state.get(), scan_operator.get());
@@ -501,8 +501,8 @@ TEST_F(ScannerContextTest, pull_next_scan_task) {
 
 TEST_F(ScannerContextTest, schedule_scan_task) {
     const int parallel_tasks = 4;
-    auto scan_operator = std::make_unique<OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
             OlapScanLocalState::create_unique(state.get(), scan_operator.get());
@@ -619,8 +619,8 @@ TEST_F(ScannerContextTest, scan_queue_mem_limit) {
     ASSERT_EQ(state->scan_queue_mem_limit(), 200 / 20);
 
     const int parallel_tasks = 1;
-    auto scan_operator = std::make_unique<OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
             OlapScanLocalState::create_unique(state.get(), scan_operator.get());
@@ -663,8 +663,8 @@ TEST_F(ScannerContextTest, scan_queue_mem_limit) {
 
 TEST_F(ScannerContextTest, get_free_block) {
     const int parallel_tasks = 1;
-    auto scan_operator = std::make_unique<OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
             OlapScanLocalState::create_unique(state.get(), scan_operator.get());
@@ -716,8 +716,8 @@ TEST_F(ScannerContextTest, get_free_block) {
 
 TEST_F(ScannerContextTest, return_free_block) {
     const int parallel_tasks = 1;
-    auto scan_operator = std::make_unique<OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
             OlapScanLocalState::create_unique(state.get(), scan_operator.get());
@@ -760,8 +760,8 @@ TEST_F(ScannerContextTest, return_free_block) {
 
 TEST_F(ScannerContextTest, get_block_from_queue) {
     const int parallel_tasks = 1;
-    auto scan_operator = std::make_unique<OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
             OlapScanLocalState::create_unique(state.get(), scan_operator.get());

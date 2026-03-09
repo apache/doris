@@ -103,8 +103,7 @@ public:
                              const std::function<Status()>& not_found_cb,
                              PartialUpdateStats& stats);
     Status partial_update_preconditions_check(size_t row_pos);
-    Status append_block_with_partial_content(const Block* block, size_t row_pos,
-                                             size_t num_rows);
+    Status append_block_with_partial_content(const Block* block, size_t row_pos, size_t num_rows);
 
     int64_t max_row_to_add(size_t row_avg_size_in_bytes);
 
@@ -169,17 +168,14 @@ private:
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
     void _maybe_invalid_row_cache(const std::string& key);
-    std::string _encode_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns,
-                             size_t pos);
+    std::string _encode_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos);
     // used for unique-key with merge on write and segment min_max key
-    std::string _full_encode_keys(
-            const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos,
-            bool null_first = true);
+    std::string _full_encode_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns,
+                                  size_t pos, bool null_first = true);
 
-    static std::string _full_encode_keys(
-            const std::vector<const KeyCoder*>& key_coders,
-            const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos,
-            bool null_first = true);
+    static std::string _full_encode_keys(const std::vector<const KeyCoder*>& key_coders,
+                                         const std::vector<IOlapColumnDataAccessor*>& key_columns,
+                                         size_t pos, bool null_first = true);
 
     // used for unique-key with merge on write
     void _encode_seq_column(const IOlapColumnDataAccessor* seq_column, size_t pos,

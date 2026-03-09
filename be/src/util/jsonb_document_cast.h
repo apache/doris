@@ -71,29 +71,25 @@ struct JsonbCast {
             auto val = jsonb_value->unpack<JsonbDecimal32>()->val();
             UInt32 precision = jsonb_value->unpack<JsonbDecimal32>()->precision;
             UInt32 scale = jsonb_value->unpack<JsonbDecimal32>()->scale;
-            return CastToBool::from_decimal(Decimal32 {val}, to, precision, scale,
-                                            params);
+            return CastToBool::from_decimal(Decimal32 {val}, to, precision, scale, params);
         }
         case JsonbType::T_Decimal64: {
             auto val = jsonb_value->unpack<JsonbDecimal64>()->val();
             UInt32 precision = jsonb_value->unpack<JsonbDecimal64>()->precision;
             UInt32 scale = jsonb_value->unpack<JsonbDecimal64>()->scale;
-            return CastToBool::from_decimal(Decimal64 {val}, to, precision, scale,
-                                            params);
+            return CastToBool::from_decimal(Decimal64 {val}, to, precision, scale, params);
         }
         case JsonbType::T_Decimal128: {
             auto val = jsonb_value->unpack<JsonbDecimal128>()->val();
             UInt32 precision = jsonb_value->unpack<JsonbDecimal128>()->precision;
             UInt32 scale = jsonb_value->unpack<JsonbDecimal128>()->scale;
-            return CastToBool::from_decimal(Decimal128V3 {val}, to, precision, scale,
-                                            params);
+            return CastToBool::from_decimal(Decimal128V3 {val}, to, precision, scale, params);
         }
         case JsonbType::T_Decimal256: {
             auto val = jsonb_value->unpack<JsonbDecimal256>()->val();
             UInt32 precision = jsonb_value->unpack<JsonbDecimal256>()->precision;
             UInt32 scale = jsonb_value->unpack<JsonbDecimal256>()->scale;
-            return CastToBool::from_decimal(Decimal256 {val}, to, precision, scale,
-                                            params);
+            return CastToBool::from_decimal(Decimal256 {val}, to, precision, scale, params);
         }
         case JsonbType::T_String: {
             const auto* blob = jsonb_value->unpack<JsonbBinaryVal>();
@@ -147,29 +143,25 @@ struct JsonbCast {
             auto val = jsonb_value->unpack<JsonbDecimal32>()->val();
             UInt32 precision = jsonb_value->unpack<JsonbDecimal32>()->precision;
             UInt32 scale = jsonb_value->unpack<JsonbDecimal32>()->scale;
-            return CastToInt::from_decimal(Decimal32 {val}, precision, scale, to,
-                                           params);
+            return CastToInt::from_decimal(Decimal32 {val}, precision, scale, to, params);
         }
         case JsonbType::T_Decimal64: {
             auto val = jsonb_value->unpack<JsonbDecimal64>()->val();
             UInt32 precision = jsonb_value->unpack<JsonbDecimal64>()->precision;
             UInt32 scale = jsonb_value->unpack<JsonbDecimal64>()->scale;
-            return CastToInt::from_decimal(Decimal64 {val}, precision, scale, to,
-                                           params);
+            return CastToInt::from_decimal(Decimal64 {val}, precision, scale, to, params);
         }
         case JsonbType::T_Decimal128: {
             auto val = jsonb_value->unpack<JsonbDecimal128>()->val();
             UInt32 precision = jsonb_value->unpack<JsonbDecimal128>()->precision;
             UInt32 scale = jsonb_value->unpack<JsonbDecimal128>()->scale;
-            return CastToInt::from_decimal(Decimal128V3 {val}, precision, scale, to,
-                                           params);
+            return CastToInt::from_decimal(Decimal128V3 {val}, precision, scale, to, params);
         }
         case JsonbType::T_Decimal256: {
             auto val = jsonb_value->unpack<JsonbDecimal256>()->val();
             UInt32 precision = jsonb_value->unpack<JsonbDecimal256>()->precision;
             UInt32 scale = jsonb_value->unpack<JsonbDecimal256>()->scale;
-            return CastToInt::from_decimal(Decimal256 {val}, precision, scale, to,
-                                           params);
+            return CastToInt::from_decimal(Decimal256 {val}, precision, scale, to, params);
         }
         case JsonbType::T_String: {
             const auto* blob = jsonb_value->unpack<JsonbBinaryVal>();

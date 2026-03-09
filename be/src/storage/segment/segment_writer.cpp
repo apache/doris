@@ -391,13 +391,11 @@ void SegmentWriter::_serialize_block_to_row_column(const Block& block) {
             auto* row_store_column = static_cast<ColumnString*>(
                     block.get_by_position(i).column->assume_mutable_ref().assume_mutable().get());
             row_store_column->clear();
-            DataTypeSerDeSPtrs serdes =
-                    create_data_type_serdes(block.get_data_types());
-            JsonbSerializeUtil::block_to_jsonb(
-                    *_tablet_schema, block, *row_store_column,
-                    cast_set<int>(_tablet_schema->num_columns()), serdes,
-                    {_tablet_schema->row_columns_uids().begin(),
-                     _tablet_schema->row_columns_uids().end()});
+            DataTypeSerDeSPtrs serdes = create_data_type_serdes(block.get_data_types());
+            JsonbSerializeUtil::block_to_jsonb(*_tablet_schema, block, *row_store_column,
+                                               cast_set<int>(_tablet_schema->num_columns()), serdes,
+                                               {_tablet_schema->row_columns_uids().begin(),
+                                                _tablet_schema->row_columns_uids().end()});
             break;
         }
     }
@@ -508,8 +506,8 @@ Status SegmentWriter::partial_update_preconditions_check(size_t row_pos) {
 //       2.2 build read plan to read by batch
 //       2.3 fill block
 // 3. set columns to data convertor and then write all columns
-Status SegmentWriter::append_block_with_partial_content(const Block* block,
-                                                        size_t row_pos, size_t num_rows) {
+Status SegmentWriter::append_block_with_partial_content(const Block* block, size_t row_pos,
+                                                        size_t num_rows) {
     if (block->columns() < _tablet_schema->num_key_columns() ||
         block->columns() >= _tablet_schema->num_columns()) {
         return Status::InvalidArgument(
@@ -676,8 +674,7 @@ Status SegmentWriter::append_block_with_partial_content(const Block* block,
     return Status::OK();
 }
 
-Status SegmentWriter::append_block(const Block* block, size_t row_pos,
-                                   size_t num_rows) {
+Status SegmentWriter::append_block(const Block* block, size_t row_pos, size_t num_rows) {
     if (_opts.rowset_ctx->partial_update_info &&
         _opts.rowset_ctx->partial_update_info->is_partial_update() &&
         _opts.write_type == DataWriteType::TYPE_DIRECT &&
@@ -820,8 +817,7 @@ int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
 }
 
 std::string SegmentWriter::_full_encode_keys(
-        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos,
-        bool null_first) {
+        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos, bool null_first) {
     assert(_key_index_size.size() == _num_sort_key_columns);
     assert(key_columns.size() == _num_sort_key_columns &&
            _key_coders.size() == _num_sort_key_columns);
@@ -830,8 +826,7 @@ std::string SegmentWriter::_full_encode_keys(
 
 std::string SegmentWriter::_full_encode_keys(
         const std::vector<const KeyCoder*>& key_coders,
-        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos,
-        bool null_first) {
+        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos, bool null_first) {
     assert(key_columns.size() == key_coders.size());
 
     std::string encoded_keys;
@@ -855,8 +850,8 @@ std::string SegmentWriter::_full_encode_keys(
     return encoded_keys;
 }
 
-void SegmentWriter::_encode_seq_column(const IOlapColumnDataAccessor* seq_column,
-                                       size_t pos, std::string* encoded_keys) {
+void SegmentWriter::_encode_seq_column(const IOlapColumnDataAccessor* seq_column, size_t pos,
+                                       std::string* encoded_keys) {
     auto field = seq_column->get_data_at(pos);
     // To facilitate the use of the primary key index, encode the seq column
     // to the minimum value of the corresponding length when the seq column
@@ -876,8 +871,8 @@ void SegmentWriter::_encode_rowid(const uint32_t rowid, std::string* encoded_key
     _rowid_coder->full_encode_ascending(&rowid, encoded_keys);
 }
 
-std::string SegmentWriter::_encode_keys(
-        const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos) {
+std::string SegmentWriter::_encode_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns,
+                                        size_t pos) {
     assert(key_columns.size() == _num_short_key_columns);
 
     std::string encoded_keys;
@@ -1258,9 +1253,9 @@ Status SegmentWriter::_generate_primary_key_index(
     return Status::OK();
 }
 
-Status SegmentWriter::_generate_short_key_index(
-        std::vector<IOlapColumnDataAccessor*>& key_columns, size_t num_rows,
-        const std::vector<size_t>& short_key_pos) {
+Status SegmentWriter::_generate_short_key_index(std::vector<IOlapColumnDataAccessor*>& key_columns,
+                                                size_t num_rows,
+                                                const std::vector<size_t>& short_key_pos) {
     // use _key_coders
     set_min_key(_full_encode_keys(key_columns, 0));
     set_max_key(_full_encode_keys(key_columns, num_rows - 1));

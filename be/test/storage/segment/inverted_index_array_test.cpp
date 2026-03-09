@@ -325,8 +325,7 @@ public:
         a2.push_back(Field::create_field<TYPE_STRING>("commiter"));
 
         // Construct array type: DataTypeArray(DataTypeNullable(DataTypeString))
-        DataTypePtr s1 = std::make_shared<DataTypeNullable>(
-                std::make_shared<DataTypeString>());
+        DataTypePtr s1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
         DataTypePtr array_type = std::make_shared<DataTypeArray>(s1);
         MutableColumnPtr col = array_type->create_column();
         col->insert(Field::create_field<TYPE_ARRAY>(a1));
@@ -410,13 +409,11 @@ public:
         std::vector<uint8_t> outer_null_map = {1, 0, 0, 1, 0};
 
         // Construct inner array type: DataTypeArray(DataTypeNullable(DataTypeString))
-        DataTypePtr inner_string_type = std::make_shared<DataTypeNullable>(
-                std::make_shared<DataTypeString>());
-        DataTypePtr array_type =
-                std::make_shared<DataTypeArray>(inner_string_type);
+        DataTypePtr inner_string_type =
+                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+        DataTypePtr array_type = std::make_shared<DataTypeArray>(inner_string_type);
         // To support outer array null values, wrap it in a Nullable type
-        DataTypePtr final_type =
-                std::make_shared<DataTypeNullable>(array_type);
+        DataTypePtr final_type = std::make_shared<DataTypeNullable>(array_type);
 
         // Construct 5 rows of data:
         // Row 0: null
@@ -525,13 +522,11 @@ public:
         std::vector<uint8_t> outer_null_map = {1, 0, 0, 1, 0};
 
         // Construct inner array type: DataTypeArray(DataTypeNullable(DataTypeString))
-        DataTypePtr inner_string_type = std::make_shared<DataTypeNullable>(
-                std::make_shared<DataTypeString>());
-        DataTypePtr array_type =
-                std::make_shared<DataTypeArray>(inner_string_type);
+        DataTypePtr inner_string_type =
+                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+        DataTypePtr array_type = std::make_shared<DataTypeArray>(inner_string_type);
         // To support outer array null values, wrap it in a Nullable type
-        DataTypePtr final_type =
-                std::make_shared<DataTypeNullable>(array_type);
+        DataTypePtr final_type = std::make_shared<DataTypeNullable>(array_type);
 
         // Construct 5 rows of data:
         // Row 0: null
@@ -640,12 +635,10 @@ public:
         {
             const int row_num = 4;
             // construct data type: Nullable( Array( Nullable(String) ) )
-            DataTypePtr inner_string = std::make_shared<DataTypeNullable>(
-                    std::make_shared<DataTypeString>());
-            DataTypePtr array_type =
-                    std::make_shared<DataTypeArray>(inner_string);
-            DataTypePtr final_type =
-                    std::make_shared<DataTypeNullable>(array_type);
+            DataTypePtr inner_string =
+                    std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+            DataTypePtr array_type = std::make_shared<DataTypeArray>(inner_string);
+            DataTypePtr final_type = std::make_shared<DataTypeNullable>(array_type);
 
             // construct MutableColumn
             MutableColumnPtr col = final_type->create_column();
@@ -702,12 +695,10 @@ public:
         // --- Block 2 ---
         {
             const int row_num = 2;
-            DataTypePtr inner_string = std::make_shared<DataTypeNullable>(
-                    std::make_shared<DataTypeString>());
-            DataTypePtr array_type =
-                    std::make_shared<DataTypeArray>(inner_string);
-            DataTypePtr final_type =
-                    std::make_shared<DataTypeNullable>(array_type);
+            DataTypePtr inner_string =
+                    std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+            DataTypePtr array_type = std::make_shared<DataTypeArray>(inner_string);
+            DataTypePtr final_type = std::make_shared<DataTypeNullable>(array_type);
 
             MutableColumnPtr col = final_type->create_column();
             // row0: non-null, array with 1 element: "block2_data1"
@@ -752,12 +743,10 @@ public:
         // --- Block 3 ---
         {
             const int row_num = 2;
-            DataTypePtr inner_string = std::make_shared<DataTypeNullable>(
-                    std::make_shared<DataTypeString>());
-            DataTypePtr array_type =
-                    std::make_shared<DataTypeArray>(inner_string);
-            DataTypePtr final_type =
-                    std::make_shared<DataTypeNullable>(array_type);
+            DataTypePtr inner_string =
+                    std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+            DataTypePtr array_type = std::make_shared<DataTypeArray>(inner_string);
+            DataTypePtr final_type = std::make_shared<DataTypeNullable>(array_type);
 
             MutableColumnPtr col = final_type->create_column();
             // row0: non-null, array with 1 element: "block3_data1"
@@ -835,8 +824,7 @@ public:
 
         DataTypePtr inner_int = std::make_shared<DataTypeInt32>();
         DataTypePtr array_type = std::make_shared<DataTypeArray>(inner_int);
-        DataTypePtr final_type =
-                std::make_shared<DataTypeNullable>(array_type);
+        DataTypePtr final_type = std::make_shared<DataTypeNullable>(array_type);
 
         // create a MutableColumnPtr
         MutableColumnPtr col = final_type->create_column();
@@ -977,13 +965,11 @@ public:
                   Status::OK());
 
         // Construct inner array type: DataTypeArray(DataTypeNullable(DataTypeString))
-        DataTypePtr inner_string_type = std::make_shared<DataTypeNullable>(
-                std::make_shared<DataTypeString>());
-        DataTypePtr array_type =
-                std::make_shared<DataTypeArray>(inner_string_type);
+        DataTypePtr inner_string_type =
+                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+        DataTypePtr array_type = std::make_shared<DataTypeArray>(inner_string_type);
         // To support outer array null values, wrap it in a Nullable type
-        DataTypePtr final_type =
-                std::make_shared<DataTypeNullable>(array_type);
+        DataTypePtr final_type = std::make_shared<DataTypeNullable>(array_type);
 
         MutableColumnPtr col = final_type->create_column();
         col->insert(Field());
@@ -1025,8 +1011,8 @@ public:
     }
 
 private:
-    static void build_slices(PaddedPODArray<Slice>& slices,
-                             const ColumnPtr& column_array, size_t num_strings) {
+    static void build_slices(PaddedPODArray<Slice>& slices, const ColumnPtr& column_array,
+                             size_t num_strings) {
         const auto* col_arr = assert_cast<const ColumnArray*>(column_array.get());
         const UInt8* nested_null_map =
                 assert_cast<const ColumnNullable*>(col_arr->get_data_ptr().get())

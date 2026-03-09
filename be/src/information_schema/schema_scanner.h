@@ -111,11 +111,9 @@ public:
 
 protected:
     void _init_block(Block* src_block);
-    Status fill_dest_column_for_range(Block* block, size_t pos,
-                                      const std::vector<void*>& datas);
+    Status fill_dest_column_for_range(Block* block, size_t pos, const std::vector<void*>& datas);
 
-    Status insert_block_column(TCell cell, int col_index, Block* block,
-                               PrimitiveType type);
+    Status insert_block_column(TCell cell, int col_index, Block* block, PrimitiveType type);
 
     // get dbname from catalogname.dbname
     // if full_name does not have catalog part, just return origin name.

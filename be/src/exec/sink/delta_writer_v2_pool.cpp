@@ -24,7 +24,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class TExpr;
 
-
 DeltaWriterV2Map::DeltaWriterV2Map(UniqueId load_id, int num_use, DeltaWriterV2Pool* pool)
         : _load_id(load_id), _use_cnt(num_use), _pool(pool) {}
 

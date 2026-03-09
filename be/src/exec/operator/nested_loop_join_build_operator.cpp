@@ -94,8 +94,7 @@ Status NestedLoopJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
     return VExpr::open(_filter_src_expr_ctxs, state);
 }
 
-Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, Block* block,
-                                              bool eos) {
+Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, Block* block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());

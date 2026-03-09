@@ -33,8 +33,8 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 PushDownType FileScanLocalState::_should_push_down_binary_predicate(
-        VectorizedFnCall* fn_call, VExprContext* expr_ctx,
-        Field& constant_val, const std::set<std::string> fn_name) const {
+        VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
+        const std::set<std::string> fn_name) const {
     if (!fn_name.contains(fn_call->fn().name.function_name)) {
         return PushDownType::UNACCEPTABLE;
     }
@@ -104,9 +104,9 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
 
     auto& p = _parent->cast<FileScanOperatorX>();
     // There's only one scan range for each backend in batch split mode. Each backend only starts up one ScanNode instance.
-    uint32_t shard_num = std::min(
-            ScannerScheduler::default_remote_scan_thread_num() / p.parallelism(state()),
-            _max_scanners);
+    uint32_t shard_num =
+            std::min(ScannerScheduler::default_remote_scan_thread_num() / p.parallelism(state()),
+                     _max_scanners);
     shard_num = std::max(shard_num, 1U);
     _kv_cache.reset(new ShardedKVCache(shard_num));
     for (int i = 0; i < _max_scanners; ++i) {
@@ -131,8 +131,8 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
     auto& p = _parent->cast<FileScanOperatorX>();
 
     auto calc_max_scanners = [&](int parallel_instance_num) -> int {
-        int max_scanners = ScannerScheduler::default_remote_scan_thread_num() /
-                           parallel_instance_num;
+        int max_scanners =
+                ScannerScheduler::default_remote_scan_thread_num() / parallel_instance_num;
         // For external tables, each scanner is not bound to specific splits.
         // Instead, when a scanner is scheduled, it dynamically fetches the next scan range
         // from a unified split source for scanning.
@@ -161,8 +161,7 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
     if (!p._batch_split_mode) {
         _max_scanners = calc_max_scanners(p.parallelism(state));
         if (_split_source == nullptr) {
-            _split_source = std::make_shared<LocalSplitSourceConnector>(scan_ranges,
-                                                                                    _max_scanners);
+            _split_source = std::make_shared<LocalSplitSourceConnector>(scan_ranges, _max_scanners);
         }
         // currently the total number of splits in the bach split mode cannot be accurately obtained,
         // so we don't do it in the batch split mode.

@@ -35,22 +35,19 @@ TEST(MockTableSchemaChangeHelper, OrcNameNoSchemaChange) {
     std::vector<std::string> column_names;
 
     SlotDescriptor slot1;
-    slot1._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_BIGINT, true);
+    slot1._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
     slot1._col_name = "col1";
 
     SlotDescriptor slot2;
     slot2._type = std::make_shared<DataTypeStruct>(
-            std::vector<DataTypePtr> {DataTypeFactory::instance().create_data_type(
-                                              PrimitiveType::TYPE_BIGINT, true),
-                                      DataTypeFactory::instance().create_data_type(
-                                              PrimitiveType::TYPE_BIGINT, true)},
+            std::vector<DataTypePtr> {
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true),
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true)},
             Strings {"a", "b"});
     slot2._col_name = "col2";
 
     SlotDescriptor slot3;
-    slot3._type =
-            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+    slot3._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
     slot3._col_name = "col3";
 
     TupleDescriptor tuple_desc;
@@ -88,22 +85,19 @@ TEST(MockTableSchemaChangeHelper, OrcNameSchemaChange1) {
     std::vector<std::string> column_names;
 
     SlotDescriptor slot1;
-    slot1._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_BIGINT, true);
+    slot1._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
     slot1._col_name = "col1";
 
     SlotDescriptor slot2;
     slot2._type = std::make_shared<DataTypeStruct>(
-            std::vector<DataTypePtr> {DataTypeFactory::instance().create_data_type(
-                                              PrimitiveType::TYPE_BIGINT, true),
-                                      DataTypeFactory::instance().create_data_type(
-                                              PrimitiveType::TYPE_BIGINT, true)},
+            std::vector<DataTypePtr> {
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true),
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true)},
             Strings {"a", "b"});
     slot2._col_name = "col2";
 
     SlotDescriptor slot3;
-    slot3._type =
-            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+    slot3._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
     slot3._col_name = "col3";
 
     TupleDescriptor tuple_desc;
@@ -195,22 +189,19 @@ TEST(MockTableSchemaChangeHelper, ParquetNameSchemaChange) {
     std::vector<std::string> column_names;
 
     SlotDescriptor slot1;
-    slot1._type = DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_BIGINT, true);
+    slot1._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
     slot1._col_name = "col1";
 
     SlotDescriptor slot2;
     slot2._type = std::make_shared<DataTypeStruct>(
-            std::vector<DataTypePtr> {DataTypeFactory::instance().create_data_type(
-                                              PrimitiveType::TYPE_BIGINT, true),
-                                      DataTypeFactory::instance().create_data_type(
-                                              PrimitiveType::TYPE_BIGINT, true)},
+            std::vector<DataTypePtr> {
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true),
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true)},
             Strings {"a", "b"});
     slot2._col_name = "col2";
 
     SlotDescriptor slot3;
-    slot3._type =
-            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+    slot3._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
     slot3._col_name = "col3";
 
     TupleDescriptor tuple_desc;
@@ -223,8 +214,8 @@ TEST(MockTableSchemaChangeHelper, ParquetNameSchemaChange) {
     FieldSchema parquet_field_col1;
     {
         parquet_field_col1.name = "col1";
-        parquet_field_col1.data_type = DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_BIGINT, true);
+        parquet_field_col1.data_type =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
         parquet_field_col1.field_id = -1;
         parquet_field._fields.emplace_back(parquet_field_col1);
     }
@@ -291,8 +282,8 @@ TEST(MockTableSchemaChangeHelper, IcebergParquetSchemaChange) {
         {
             FieldSchema parquet_field_col1;
             parquet_field_col1.name = "col1";
-            parquet_field_col1.data_type = DataTypeFactory::instance().create_data_type(
-                    PrimitiveType::TYPE_BIGINT, true);
+            parquet_field_col1.data_type =
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
             parquet_field_col1.field_id = 1;
             parquet_field._fields.emplace_back(parquet_field_col1);
         }
@@ -439,14 +430,12 @@ TEST(MockTableSchemaChangeHelper, NestedMapArrayStruct) {
     SlotDescriptor slot1;
     slot1._type = std::make_shared<DataTypeMap>(
             std::make_shared<DataTypeArray>(
-                    DataTypeFactory::instance().create_data_type(
-                            PrimitiveType::TYPE_INT, true)),
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true)),
             std::make_shared<DataTypeStruct>(
-                    std::vector<DataTypePtr> {
-                            DataTypeFactory::instance().create_data_type(
-                                    PrimitiveType::TYPE_INT, true),
-                            DataTypeFactory::instance().create_data_type(
-                                    PrimitiveType::TYPE_INT, true)},
+                    std::vector<DataTypePtr> {DataTypeFactory::instance().create_data_type(
+                                                      PrimitiveType::TYPE_INT, true),
+                                              DataTypeFactory::instance().create_data_type(
+                                                      PrimitiveType::TYPE_INT, true)},
                     Strings {"a", "b"}));
     slot1._col_name = "col1";
 
@@ -484,11 +473,9 @@ TEST(MockTableSchemaChangeHelper, NestedArrayStruct) {
     SlotDescriptor slot1;
     slot1._type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeStruct>(
             std::vector<DataTypePtr> {
-                    DataTypeFactory::instance().create_data_type(
-                            PrimitiveType::TYPE_INT, true),
-                    std::make_shared<DataTypeArray>(
-                            DataTypeFactory::instance().create_data_type(
-                                    PrimitiveType::TYPE_INT, true))},
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true),
+                    std::make_shared<DataTypeArray>(DataTypeFactory::instance().create_data_type(
+                            PrimitiveType::TYPE_INT, true))},
             Strings {"a", "b"}));
     slot1._col_name = "col1";
 
@@ -525,14 +512,13 @@ TEST(MockTableSchemaChangeHelper, NestedMapStruct) {
     slot1._type = std::make_shared<DataTypeMap>(
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true),
             std::make_shared<DataTypeStruct>(
-                    std::vector<DataTypePtr> {
-                            DataTypeFactory::instance().create_data_type(
-                                    PrimitiveType::TYPE_INT, true),
-                            std::make_shared<DataTypeMap>(
-                                    DataTypeFactory::instance().create_data_type(
-                                            PrimitiveType::TYPE_INT, true),
-                                    DataTypeFactory::instance().create_data_type(
-                                            PrimitiveType::TYPE_INT, true))},
+                    std::vector<DataTypePtr> {DataTypeFactory::instance().create_data_type(
+                                                      PrimitiveType::TYPE_INT, true),
+                                              std::make_shared<DataTypeMap>(
+                                                      DataTypeFactory::instance().create_data_type(
+                                                              PrimitiveType::TYPE_INT, true),
+                                                      DataTypeFactory::instance().create_data_type(
+                                                              PrimitiveType::TYPE_INT, true))},
                     Strings {"a", "b"}));
     slot1._col_name = "col1";
 
@@ -571,11 +557,9 @@ TEST(MockTableSchemaChangeHelper, ParquetNestedArrayStruct) {
     SlotDescriptor slot1;
     slot1._type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeStruct>(
             std::vector<DataTypePtr> {
-                    DataTypeFactory::instance().create_data_type(
-                            PrimitiveType::TYPE_INT, true),
-                    std::make_shared<DataTypeArray>(
-                            DataTypeFactory::instance().create_data_type(
-                                    PrimitiveType::TYPE_INT, true))},
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true),
+                    std::make_shared<DataTypeArray>(DataTypeFactory::instance().create_data_type(
+                            PrimitiveType::TYPE_INT, true))},
             Strings {"a", "b"}));
     slot1._col_name = "col1";
 
@@ -590,18 +574,17 @@ TEST(MockTableSchemaChangeHelper, ParquetNestedArrayStruct) {
         {
             FieldSchema col1_element;
             col1_element.data_type = std::make_shared<DataTypeStruct>(
-                    std::vector<DataTypePtr> {
-                            DataTypeFactory::instance().create_data_type(
-                                    PrimitiveType::TYPE_INT, true),
-                            std::make_shared<DataTypeArray>(
-                                    DataTypeFactory::instance().create_data_type(
-                                            PrimitiveType::TYPE_INT, true))},
+                    std::vector<DataTypePtr> {DataTypeFactory::instance().create_data_type(
+                                                      PrimitiveType::TYPE_INT, true),
+                                              std::make_shared<DataTypeArray>(
+                                                      DataTypeFactory::instance().create_data_type(
+                                                              PrimitiveType::TYPE_INT, true))},
                     Strings {"a", "B"});
             {
                 FieldSchema a_field;
                 a_field.name = "a";
-                a_field.data_type = DataTypeFactory::instance().create_data_type(
-                        PrimitiveType::TYPE_INT, true);
+                a_field.data_type =
+                        DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
                 col1_element.children.emplace_back(a_field);
             }
 
@@ -609,13 +592,12 @@ TEST(MockTableSchemaChangeHelper, ParquetNestedArrayStruct) {
                 FieldSchema b_field;
                 b_field.name = "B";
                 b_field.data_type = std::make_shared<DataTypeArray>(
-                        DataTypeFactory::instance().create_data_type(
-                                PrimitiveType::TYPE_INT, true));
+                        DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT,
+                                                                     true));
                 {
                     FieldSchema b_element_field;
-                    b_element_field.data_type =
-                            DataTypeFactory::instance().create_data_type(
-                                    PrimitiveType::TYPE_INT, true);
+                    b_element_field.data_type = DataTypeFactory::instance().create_data_type(
+                            PrimitiveType::TYPE_INT, true);
 
                     b_field.children.emplace_back(b_element_field);
                 }
@@ -627,8 +609,7 @@ TEST(MockTableSchemaChangeHelper, ParquetNestedArrayStruct) {
 
         col1_field.data_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeStruct>(
                 std::vector<DataTypePtr> {
-                        DataTypeFactory::instance().create_data_type(
-                                PrimitiveType::TYPE_INT, true),
+                        DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true),
                         std::make_shared<DataTypeArray>(
                                 DataTypeFactory::instance().create_data_type(
                                         PrimitiveType::TYPE_INT, true))},

@@ -37,7 +37,6 @@ class RuntimeState;
 class SlotDescriptor;
 class TupleDescriptor;
 
-
 class Block;
 class IColumn;
 class VExprContext;

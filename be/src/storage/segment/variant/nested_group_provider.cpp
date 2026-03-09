@@ -34,8 +34,8 @@ class DefaultNestedGroupWriteProvider final : public NestedGroupWriteProvider {
 public:
     Status prepare(const ColumnVariant& /*variant*/, bool /*include_jsonb_subcolumns*/,
                    const TabletColumn* /*tablet_column*/, const ColumnWriterOptions& /*opts*/,
-                   OlapBlockDataConvertor* /*converter*/, size_t /*num_rows*/,
-                   int* /*column_id*/, VariantStatistics* /*statistics*/) override {
+                   OlapBlockDataConvertor* /*converter*/, size_t /*num_rows*/, int* /*column_id*/,
+                   VariantStatistics* /*statistics*/) override {
         // No-op: NestedGroup write is not available in this build.
         return Status::OK();
     }
@@ -74,9 +74,9 @@ public:
             const TabletColumn& /*target_col*/, const StorageReadOptions* /*opt*/,
             int32_t /*col_uid*/, const PathInData& /*relative_path*/,
             // outputs:
-            bool* /*out_is_whole*/, DataTypePtr* /*out_type*/,
-            PathInData* /*out_relative_path*/, std::string* /*out_child_path*/,
-            std::string* /*out_pruned_path*/, std::vector<const NestedGroupReader*>* /*out_chain*/,
+            bool* /*out_is_whole*/, DataTypePtr* /*out_type*/, PathInData* /*out_relative_path*/,
+            std::string* /*out_child_path*/, std::string* /*out_pruned_path*/,
+            std::vector<const NestedGroupReader*>* /*out_chain*/,
             std::optional<NestedGroupPathFilter>* /*out_path_filter*/) const override {
         // Always returns false: NestedGroup read planning is not available.
         return false;

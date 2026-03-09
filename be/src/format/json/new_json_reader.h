@@ -59,7 +59,6 @@ class FileSystem;
 struct IOContext;
 } // namespace io
 
-
 struct ScannerCounter;
 class Block;
 class IColumn;
@@ -78,9 +77,9 @@ public:
                   io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
     ~NewJsonReader() override = default;
 
-    Status init_reader(const std::unordered_map<std::string, VExprContextSPtr>&
-                               col_default_value_ctx,
-                       bool is_load);
+    Status init_reader(
+            const std::unordered_map<std::string, VExprContextSPtr>& col_default_value_ctx,
+            bool is_load);
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
@@ -145,8 +144,7 @@ private:
 
     template <bool use_string_cache>
     Status _simdjson_write_data_to_column(simdjson::ondemand::value& value,
-                                          const DataTypePtr& type_desc,
-                                          IColumn* column_ptr,
+                                          const DataTypePtr& type_desc, IColumn* column_ptr,
                                           const std::string& column_name, DataTypeSerDeSPtr serde,
                                           bool* valid);
 
@@ -163,8 +161,7 @@ private:
                                                     bool* is_empty_row, bool* eof);
     Status _get_column_default_value(
             const std::vector<SlotDescriptor*>& slot_descs,
-            const std::unordered_map<std::string, VExprContextSPtr>&
-                    col_default_value_ctx);
+            const std::unordered_map<std::string, VExprContextSPtr>& col_default_value_ctx);
 
     Status _fill_missing_column(SlotDescriptor* slot_desc, DataTypeSerDeSPtr serde,
                                 IColumn* column_ptr, bool* valid);

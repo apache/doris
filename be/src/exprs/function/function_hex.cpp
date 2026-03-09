@@ -109,9 +109,7 @@ struct HexStringImpl {
 };
 
 struct HexIntImpl {
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeInt64>()};
-    }
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeInt64>()}; }
 
     static std::string_view hex(uint64_t num, char* ans) {
         static constexpr auto hex_table = "0123456789ABCDEF";
@@ -152,9 +150,7 @@ struct HexIntImpl {
 };
 
 struct HexHLLImpl {
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeHLL>()};
-    }
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeHLL>()}; }
 
     static Status vector(ColumnPtr argument_column, size_t input_rows_count,
                          ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {

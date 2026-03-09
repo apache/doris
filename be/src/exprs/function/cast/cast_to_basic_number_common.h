@@ -34,7 +34,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 template <typename CppT>
-static inline constexpr const char* int_type_name = std::is_same_v<CppT, UInt8> ? "bool"
+static inline constexpr const char* int_type_name = std::is_same_v<CppT, UInt8>        ? "bool"
                                                     : std::is_same_v<CppT, int8_t>     ? "tinyint"
                                                     : std::is_same_v<CppT, int16_t>    ? "smallint"
                                                     : std::is_same_v<CppT, int32_t>    ? "int"

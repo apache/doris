@@ -77,8 +77,7 @@ struct SubBinaryUtil {
                             specific_binary_column, specific_start_column, specific_len_column,
                             res.get(), input_rows_count);
                 },
-                make_bool_variant(col_const[0]),
-                make_bool_variant(col_const[1]),
+                make_bool_variant(col_const[0]), make_bool_variant(col_const[1]),
                 make_bool_variant(col_const[2]));
         block.get_by_position(result).column = std::move(res);
     }

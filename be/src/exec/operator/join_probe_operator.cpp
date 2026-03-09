@@ -73,8 +73,8 @@ void JoinProbeLocalState<SharedStateArg, Derived>::_construct_mutable_join_block
 }
 
 template <typename SharedStateArg, typename Derived>
-Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
-        Block* origin_block, Block* output_block) {
+Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(Block* origin_block,
+                                                                         Block* output_block) {
     if (!output_block->mem_reuse()) {
         output_block->swap(origin_block->clone_empty());
     }

@@ -213,16 +213,15 @@ protected:
     virtual PushDownType _should_push_down_bitmap_filter() const {
         return PushDownType::UNACCEPTABLE;
     }
-    virtual PushDownType _should_push_down_is_null_predicate(
-            VectorizedFnCall* fn_call) const {
+    virtual PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const {
         return PushDownType::UNACCEPTABLE;
     }
     virtual PushDownType _should_push_down_in_predicate() const {
         return PushDownType::UNACCEPTABLE;
     }
     virtual PushDownType _should_push_down_binary_predicate(
-            VectorizedFnCall* fn_call, VExprContext* expr_ctx,
-            Field& constant_val, const std::set<std::string> fn_name) const {
+            VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
+            const std::set<std::string> fn_name) const {
         return PushDownType::UNACCEPTABLE;
     }
 
@@ -240,40 +239,37 @@ protected:
     // predicate conditions, and scheduling strategy.
     // So this method needs to be implemented separately by the subclass of ScanNode.
     // Finally, a set of scanners that have been prepared are returned.
-    virtual Status _init_scanners(std::list<ScannerSPtr>* scanners) {
-        return Status::OK();
-    }
+    virtual Status _init_scanners(std::list<ScannerSPtr>* scanners) { return Status::OK(); }
 
     Status _normalize_conjuncts(RuntimeState* state);
     // Normalize a conjunct and try to convert it to column predicate recursively.
-    Status _normalize_predicate(VExprContext* context,
-                                const VExprSPtr& root,
+    Status _normalize_predicate(VExprContext* context, const VExprSPtr& root,
                                 VExprSPtr& output_expr);
-    bool _is_predicate_acting_on_slot(const VExprSPtrs& children,
-                                      SlotDescriptor** slot_desc, ColumnValueRangeType** range);
+    bool _is_predicate_acting_on_slot(const VExprSPtrs& children, SlotDescriptor** slot_desc,
+                                      ColumnValueRangeType** range);
     Status _eval_const_conjuncts(VExprContext* expr_ctx, PushDownType* pdt);
 
     template <PrimitiveType T>
-    Status _normalize_in_predicate(VExprContext* expr_ctx,
-                                   const VExprSPtr& root, SlotDescriptor* slot,
+    Status _normalize_in_predicate(VExprContext* expr_ctx, const VExprSPtr& root,
+                                   SlotDescriptor* slot,
                                    std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                    ColumnValueRange<T>& range, PushDownType* pdt);
     template <PrimitiveType T>
-    Status _normalize_binary_predicate(VExprContext* expr_ctx,
-                                       const VExprSPtr& root, SlotDescriptor* slot,
+    Status _normalize_binary_predicate(VExprContext* expr_ctx, const VExprSPtr& root,
+                                       SlotDescriptor* slot,
                                        std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                        ColumnValueRange<T>& range, PushDownType* pdt);
-    Status _normalize_bloom_filter(VExprContext* expr_ctx,
-                                   const VExprSPtr& root, SlotDescriptor* slot,
+    Status _normalize_bloom_filter(VExprContext* expr_ctx, const VExprSPtr& root,
+                                   SlotDescriptor* slot,
                                    std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                    PushDownType* pdt);
-    Status _normalize_topn_filter(VExprContext* expr_ctx,
-                                  const VExprSPtr& root, SlotDescriptor* slot,
+    Status _normalize_topn_filter(VExprContext* expr_ctx, const VExprSPtr& root,
+                                  SlotDescriptor* slot,
                                   std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                   PushDownType* pdt);
 
-    Status _normalize_bitmap_filter(VExprContext* expr_ctx,
-                                    const VExprSPtr& root, SlotDescriptor* slot,
+    Status _normalize_bitmap_filter(VExprContext* expr_ctx, const VExprSPtr& root,
+                                    SlotDescriptor* slot,
                                     std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                     PushDownType* pdt);
 
@@ -281,15 +277,15 @@ protected:
                                        PushDownType* pdt);
 
     template <PrimitiveType T>
-    Status _normalize_is_null_predicate(VExprContext* expr_ctx,
-                                        const VExprSPtr& root, SlotDescriptor* slot,
+    Status _normalize_is_null_predicate(VExprContext* expr_ctx, const VExprSPtr& root,
+                                        SlotDescriptor* slot,
                                         std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                         ColumnValueRange<T>& range, PushDownType* pdt);
 
     template <PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
     Status _change_value_range(bool is_equal_op, ColumnValueRange<PrimitiveType>& range,
-                               const Field& value,
-                               const ChangeFixedValueRangeFunc& func, const std::string& fn_name);
+                               const Field& value, const ChangeFixedValueRangeFunc& func,
+                               const std::string& fn_name);
 
     Status _prepare_scanners();
 
@@ -302,8 +298,7 @@ protected:
     void get_cast_types_for_variants();
     void _filter_and_collect_cast_type_for_variant(
             const VExpr* expr,
-            std::unordered_map<std::string, std::vector<DataTypePtr>>&
-                    colname_to_cast_types);
+            std::unordered_map<std::string, std::vector<DataTypePtr>>& colname_to_cast_types);
 
     Status _get_topn_filters(RuntimeState* state);
 
@@ -342,8 +337,7 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status get_block(RuntimeState* state, Block* block, bool* eos) override;
-    Status get_block_after_projects(RuntimeState* state, Block* block,
-                                    bool* eos) override {
+    Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos) override {
         Status status = get_block(state, block, eos);
         if (status.ok()) {
             if (auto rows = block->rows()) {

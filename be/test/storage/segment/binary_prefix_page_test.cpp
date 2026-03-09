@@ -195,8 +195,7 @@ public:
 
         {
             //check values
-            auto data_type = DataTypeFactory::instance().create_data_type(
-                    type_info->type(), 1, 0);
+            auto data_type = DataTypeFactory::instance().create_data_type(type_info->type(), 1, 0);
             auto column = data_type->create_column();
 
             ret = page_decoder->next_batch(&size, column);
@@ -213,8 +212,8 @@ public:
             int n = 0;
             while (true) {
                 //check values
-                auto data_type = DataTypeFactory::instance().create_data_type(
-                        type_info->type(), 1, 0);
+                auto data_type =
+                        DataTypeFactory::instance().create_data_type(type_info->type(), 1, 0);
                 auto column = data_type->create_column();
                 size_t size = 6;
                 ret = page_decoder->next_batch(&size, column);
@@ -230,8 +229,7 @@ public:
         }
 
         {
-            auto data_type = DataTypeFactory::instance().create_data_type(
-                    type_info->type(), 1, 0);
+            auto data_type = DataTypeFactory::instance().create_data_type(type_info->type(), 1, 0);
             auto column = data_type->create_column();
             ret = page_decoder->seek_to_position_in_page(15);
             EXPECT_TRUE(ret.ok());

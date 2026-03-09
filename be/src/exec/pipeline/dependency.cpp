@@ -206,38 +206,37 @@ LocalExchangeSharedState::LocalExchangeSharedState(int num_instances) {
 
 MutableColumns AggSharedState::_get_keys_hash_table() {
     return std::visit(
-            Overload {
-                    [&](std::monostate& arg) {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                        return MutableColumns();
-                    },
-                    [&](auto&& agg_method) -> MutableColumns {
-                        MutableColumns key_columns;
-                        for (int i = 0; i < probe_expr_ctxs.size(); ++i) {
-                            key_columns.emplace_back(
-                                    probe_expr_ctxs[i]->root()->data_type()->create_column());
-                        }
-                        auto& data = *agg_method.hash_table;
-                        bool has_null_key = data.has_null_key_data();
-                        const auto size = data.size() - has_null_key;
-                        using KeyType = std::decay_t<decltype(agg_method)>::Key;
-                        std::vector<KeyType> keys(size);
+            Overload {[&](std::monostate& arg) {
+                          throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                          return MutableColumns();
+                      },
+                      [&](auto&& agg_method) -> MutableColumns {
+                          MutableColumns key_columns;
+                          for (int i = 0; i < probe_expr_ctxs.size(); ++i) {
+                              key_columns.emplace_back(
+                                      probe_expr_ctxs[i]->root()->data_type()->create_column());
+                          }
+                          auto& data = *agg_method.hash_table;
+                          bool has_null_key = data.has_null_key_data();
+                          const auto size = data.size() - has_null_key;
+                          using KeyType = std::decay_t<decltype(agg_method)>::Key;
+                          std::vector<KeyType> keys(size);
 
-                        uint32_t num_rows = 0;
-                        auto iter = aggregate_data_container->begin();
-                        {
-                            while (iter != aggregate_data_container->end()) {
-                                keys[num_rows] = iter.get_key<KeyType>();
-                                ++iter;
-                                ++num_rows;
-                            }
-                        }
-                        agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
-                        if (has_null_key) {
-                            key_columns[0]->insert_data(nullptr, 0);
-                        }
-                        return key_columns;
-                    }},
+                          uint32_t num_rows = 0;
+                          auto iter = aggregate_data_container->begin();
+                          {
+                              while (iter != aggregate_data_container->end()) {
+                                  keys[num_rows] = iter.get_key<KeyType>();
+                                  ++iter;
+                                  ++num_rows;
+                              }
+                          }
+                          agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
+                          if (has_null_key) {
+                              key_columns[0]->insert_data(nullptr, 0);
+                          }
+                          return key_columns;
+                      }},
             agg_data->method_variant);
 }
 
@@ -284,37 +283,36 @@ bool AggSharedState::do_limit_filter(Block* block, size_t num_rows,
 
 Status AggSharedState::reset_hash_table() {
     return std::visit(
-            Overload {
-                    [&](std::monostate& arg) -> Status {
-                        return Status::InternalError("Uninited hash table");
-                    },
-                    [&](auto& agg_method) {
-                        auto& hash_table = *agg_method.hash_table;
-                        using HashTableType = std::decay_t<decltype(hash_table)>;
+            Overload {[&](std::monostate& arg) -> Status {
+                          return Status::InternalError("Uninited hash table");
+                      },
+                      [&](auto& agg_method) {
+                          auto& hash_table = *agg_method.hash_table;
+                          using HashTableType = std::decay_t<decltype(hash_table)>;
 
-                        agg_method.arena.clear();
-                        agg_method.inited_iterator = false;
+                          agg_method.arena.clear();
+                          agg_method.inited_iterator = false;
 
-                        hash_table.for_each_mapped([&](auto& mapped) {
-                            if (mapped) {
-                                _destroy_agg_status(mapped);
-                                mapped = nullptr;
-                            }
-                        });
+                          hash_table.for_each_mapped([&](auto& mapped) {
+                              if (mapped) {
+                                  _destroy_agg_status(mapped);
+                                  mapped = nullptr;
+                              }
+                          });
 
-                        if (hash_table.has_null_key_data()) {
-                            _destroy_agg_status(hash_table.template get_null_key_data<
-                                                AggregateDataPtr>());
-                        }
+                          if (hash_table.has_null_key_data()) {
+                              _destroy_agg_status(
+                                      hash_table.template get_null_key_data<AggregateDataPtr>());
+                          }
 
-                        aggregate_data_container.reset(new AggregateDataContainer(
-                                sizeof(typename HashTableType::key_type),
-                                ((total_size_of_aggregate_states + align_aggregate_states - 1) /
-                                 align_aggregate_states) *
-                                        align_aggregate_states));
-                        agg_method.hash_table.reset(new HashTableType());
-                        return Status::OK();
-                    }},
+                          aggregate_data_container.reset(new AggregateDataContainer(
+                                  sizeof(typename HashTableType::key_type),
+                                  ((total_size_of_aggregate_states + align_aggregate_states - 1) /
+                                   align_aggregate_states) *
+                                          align_aggregate_states));
+                          agg_method.hash_table.reset(new HashTableType());
+                          return Status::OK();
+                      }},
             agg_data->method_variant);
 }
 
@@ -341,8 +339,7 @@ void PartitionedAggSharedState::update_spill_stream_profiles(RuntimeProfile* sou
 }
 
 Status AggSpillPartition::get_spill_stream(RuntimeState* state, int node_id,
-                                           RuntimeProfile* profile,
-                                           SpillStreamSPtr& spill_stream) {
+                                           RuntimeProfile* profile, SpillStreamSPtr& spill_stream) {
     if (spilling_stream_) {
         spill_stream = spilling_stream_;
         return Status::OK();
@@ -401,8 +398,8 @@ void SpillSortSharedState::close() {
 }
 
 MultiCastSharedState::MultiCastSharedState(ObjectPool* pool, int cast_sender_count, int node_id)
-        : multi_cast_data_streamer(std::make_unique<MultiCastDataStreamer>(
-                  pool, cast_sender_count, node_id)) {}
+        : multi_cast_data_streamer(
+                  std::make_unique<MultiCastDataStreamer>(pool, cast_sender_count, node_id)) {}
 
 void MultiCastSharedState::update_spill_stream_profiles(RuntimeProfile* source_profile) {}
 
@@ -460,8 +457,7 @@ Status SetSharedState::hash_table_init() {
     return init_hash_method<SetDataVariants>(hash_table_variants.get(), data_types, true);
 }
 
-void AggSharedState::refresh_top_limit(size_t row_id,
-                                       const ColumnRawPtrs& key_columns) {
+void AggSharedState::refresh_top_limit(size_t row_id, const ColumnRawPtrs& key_columns) {
     for (int j = 0; j < key_columns.size(); ++j) {
         limit_columns[j]->insert_from(*key_columns[j], row_id);
     }

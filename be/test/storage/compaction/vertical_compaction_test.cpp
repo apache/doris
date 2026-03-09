@@ -367,8 +367,7 @@ protected:
             auto data_type = Schema::get_data_type_ptr(*column_desc);
             EXPECT_TRUE(data_type != nullptr);
             auto column = data_type->create_column();
-            block->insert(ColumnWithTypeAndName(std::move(column), data_type,
-                                                            column_desc->name()));
+            block->insert(ColumnWithTypeAndName(std::move(column), data_type, column_desc->name()));
         }
     }
 

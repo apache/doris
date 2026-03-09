@@ -36,7 +36,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-
 Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
@@ -151,8 +150,7 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, Block* block) {
     SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
 
     auto& _const_expr_list_idx = local_state._const_expr_list_idx;
-    MutableBlock mblock =
-            VectorizedUtils::build_mutable_mem_reuse_block(block, row_descriptor());
+    MutableBlock mblock = VectorizedUtils::build_mutable_mem_reuse_block(block, row_descriptor());
 
     ColumnsWithTypeAndName tmp_block_columns;
     for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() < state->batch_size();
@@ -185,8 +183,7 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, Block* block) {
     // the const expr will be in output expr cause the union node return a empty block. so here we
     // need add one row to make sure the union node exec const expr return at least one row
     if (block->rows() == 0) {
-        block->insert({ColumnUInt8::create(1),
-                       std::make_shared<DataTypeUInt8>(), ""});
+        block->insert({ColumnUInt8::create(1), std::make_shared<DataTypeUInt8>(), ""});
     }
     return Status::OK();
 }

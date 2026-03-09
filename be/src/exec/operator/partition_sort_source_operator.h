@@ -26,7 +26,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-
 class PartitionSortSourceOperatorX;
 class PartitionSortSourceLocalState final
         : public PipelineXLocalState<PartitionSortNodeSharedState> {

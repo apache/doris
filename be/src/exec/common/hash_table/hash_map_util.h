@@ -23,8 +23,7 @@
 
 namespace doris {
 
-inline std::vector<DataTypePtr> get_data_types(
-        const VExprContextSPtrs& expr_contexts) {
+inline std::vector<DataTypePtr> get_data_types(const VExprContextSPtrs& expr_contexts) {
     std::vector<DataTypePtr> data_types;
     for (const auto& ctx : expr_contexts) {
         data_types.emplace_back(ctx->root()->data_type());

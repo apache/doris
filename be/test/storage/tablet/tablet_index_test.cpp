@@ -98,11 +98,11 @@ TEST_F(TabletIndexTest, test_schema_index_diff) {
     old_tablet_schema->init_from_pb(old_schema_pb);
 
     EXPECT_FALSE(variant_util::has_schema_index_diff(new_tablet_schema.get(),
-                                                                 old_tablet_schema.get(), 0, 0));
+                                                     old_tablet_schema.get(), 0, 0));
     EXPECT_TRUE(variant_util::has_schema_index_diff(new_tablet_schema.get(),
-                                                                old_tablet_schema.get(), 1, 1));
+                                                    old_tablet_schema.get(), 1, 1));
     EXPECT_TRUE(variant_util::has_schema_index_diff(new_tablet_schema.get(),
-                                                                old_tablet_schema.get(), 2, 2));
+                                                    old_tablet_schema.get(), 2, 2));
 }
 
 } // namespace doris

@@ -249,8 +249,7 @@ public:
         uint64_t offset_now = 0;
 
         auto& nested_column =
-                check_and_get_column<ColumnNullable>(needles_data)
-                        ->get_nested_column();
+                check_and_get_column<ColumnNullable>(needles_data)->get_nested_column();
         const ColumnString* needles_data_string = check_and_get_column<ColumnString>(nested_column);
 
         std::vector<StringRef> needles_for_row;

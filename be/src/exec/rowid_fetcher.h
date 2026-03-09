@@ -75,8 +75,7 @@ private:
     PMultiGetRequest _init_fetch_request(const ColumnString& row_ids) const;
     Status _merge_rpc_results(const PMultiGetRequest& request,
                               const std::vector<PMultiGetResponse>& rsps,
-                              const std::vector<brpc::Controller>& cntls,
-                              Block* output_block,
+                              const std::vector<brpc::Controller>& cntls, Block* output_block,
                               std::vector<PRowLocation>* rows_id) const;
 
     std::vector<std::shared_ptr<PBackendService_Stub>> _stubs;
@@ -117,24 +116,22 @@ private:
 
     static Status read_batch_doris_format_row(
             const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
-            std::vector<SlotDescriptor>& slots, const TUniqueId& query_id,
-            Block& result_block, OlapReaderStatistics& stats,
-            int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
-            int64_t* lookup_row_data_ms);
+            std::vector<SlotDescriptor>& slots, const TUniqueId& query_id, Block& result_block,
+            OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
+            int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms);
 
     static Status read_batch_external_row(
             const uint64_t workload_group_id, const PRequestBlockDesc& request_block_desc,
             std::shared_ptr<IdFileMap> id_file_map, std::vector<SlotDescriptor>& slots,
             std::shared_ptr<FileMapping> first_file_mapping, const TUniqueId& query_id,
-            Block& result_block, PRuntimeProfileTree* pprofile,
-            int64_t* init_reader_avg_ms, int64_t* get_block_avg_ms, size_t* scan_range_cnt);
+            Block& result_block, PRuntimeProfileTree* pprofile, int64_t* init_reader_avg_ms,
+            int64_t* get_block_avg_ms, size_t* scan_range_cnt);
 
     static Status read_external_row_from_file_mapping(
             size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,
             const std::shared_ptr<FileMapping>& file_mapping,
             const std::vector<SlotDescriptor>& slots, const TUniqueId& query_id,
-            const std::shared_ptr<RuntimeState>& runtime_state,
-            std::vector<Block>& scan_blocks,
+            const std::shared_ptr<RuntimeState>& runtime_state, std::vector<Block>& scan_blocks,
             std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
             std::vector<ExternalFetchStatistics>& fetch_statistics,
             const TFileScanRangeParams& rpc_scan_params,

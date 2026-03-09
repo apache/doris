@@ -47,8 +47,8 @@ class EsScanner : public Scanner {
     ENABLE_FACTORY_CREATOR(EsScanner);
 
 public:
-    EsScanner(RuntimeState* state, ScanLocalStateBase* local_state, int64_t limit,
-              TupleId tuple_id, const std::map<std::string, std::string>& properties,
+    EsScanner(RuntimeState* state, ScanLocalStateBase* local_state, int64_t limit, TupleId tuple_id,
+              const std::map<std::string, std::string>& properties,
               const std::map<std::string, std::string>& docvalue_context, bool doc_value_mode,
               RuntimeProfile* profile);
 

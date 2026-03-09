@@ -113,8 +113,7 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
             return Status::InternalError("Unknown bitmap filter target expr.");
         }
         VExprContextSPtr bitmap_target_ctx;
-        RETURN_IF_ERROR(
-                VExpr::create_expr_tree(desc->bitmap_target_expr, bitmap_target_ctx));
+        RETURN_IF_ERROR(VExpr::create_expr_tree(desc->bitmap_target_expr, bitmap_target_ctx));
         params.column_return_type = bitmap_target_ctx->root()->data_type()->get_primitive_type();
 
         if (desc->__isset.bitmap_filter_not_in) {

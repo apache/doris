@@ -365,8 +365,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
             }
         }
         if (t_index.__isset.where_clause) {
-            RETURN_IF_ERROR(
-                    VExpr::create_expr_tree(t_index.where_clause, index->where_clause));
+            RETURN_IF_ERROR(VExpr::create_expr_tree(t_index.where_clause, index->where_clause));
         }
         _indexes.emplace_back(index);
     }
@@ -430,8 +429,8 @@ VOlapTablePartitionParam::VOlapTablePartitionParam(std::shared_ptr<OlapTableSche
                 << "now support only 1 partition column for auto range partitions. "
                 << t_param.partition_type << " " << size;
         for (int i = 0; i < size; ++i) {
-            Status st = VExpr::create_expr_tree(t_param.partition_function_exprs[i],
-                                                            _part_func_ctx[i]);
+            Status st =
+                    VExpr::create_expr_tree(t_param.partition_function_exprs[i], _part_func_ctx[i]);
             if (!st.ok()) {
                 throw Exception(Status::InternalError("Partition function expr is not valid"),
                                 "Partition function expr is not valid");
@@ -563,9 +562,8 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
     //TODO: use assert_cast before insert_data
     switch (t_expr.node_type) {
     case TExprNodeType::DATE_LITERAL: {
-        auto primitive_type = DataTypeFactory::instance()
-                                      .create_data_type(t_expr.type)
-                                      ->get_primitive_type();
+        auto primitive_type =
+                DataTypeFactory::instance().create_data_type(t_expr.type)->get_primitive_type();
         if (primitive_type == TYPE_DATEV2) {
             DateV2Value<DateV2ValueType> dt;
             if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
@@ -610,9 +608,8 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
                 ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
                 return Status::InternalError(ss.str());
             }
-            if (DataTypeFactory::instance()
-                        .create_data_type(t_expr.type)
-                        ->get_primitive_type() == TYPE_DATE) {
+            if (DataTypeFactory::instance().create_data_type(t_expr.type)->get_primitive_type() ==
+                TYPE_DATE) {
                 dt.cast_to_date();
             }
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);

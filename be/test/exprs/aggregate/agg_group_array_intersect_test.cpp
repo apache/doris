@@ -228,77 +228,73 @@ void validate_numeric_nullable_test(MutableColumnPtr& test_col_data) {
         int64_t tmp0 = 1;
         int64_t tmp1 = 3;
         int64_t tmp2 = 11;
-        nullable_nested_column->insert(Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp0));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp0));
         nullable_nested_column->insert(Field());
-        nullable_nested_column->insert(Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
-        nullable_nested_column->insert(Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp2));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp2));
         nullable_nested_column->insert(Field());
-        nullable_nested_column->insert(Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
 
         int64_t tmp_exp2 = 3;
-        expected_result = {Field(),
-                           Field::create_field<T>(
-                                   *(typename PrimitiveTypeTraits<T>::CppType*)&tmp_exp2)};
+        expected_result = {Field(), Field::create_field<T>(
+                                            *(typename PrimitiveTypeTraits<T>::CppType*)&tmp_exp2)};
     } else if constexpr (T == TYPE_DATEV2) {
         uint32_t tmp0 = 1;
         uint32_t tmp1 = 3;
         uint32_t tmp2 = 11;
-        nullable_nested_column->insert(Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp0));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp0));
         nullable_nested_column->insert(Field());
-        nullable_nested_column->insert(Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
-        nullable_nested_column->insert(Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp2));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp2));
         nullable_nested_column->insert(Field());
-        nullable_nested_column->insert(Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
 
         uint32_t tmp_exp2 = 3;
-        expected_result = {Field(),
-                           Field::create_field<T>(
-                                   *(typename PrimitiveTypeTraits<T>::CppType*)&tmp_exp2)};
+        expected_result = {Field(), Field::create_field<T>(
+                                            *(typename PrimitiveTypeTraits<T>::CppType*)&tmp_exp2)};
     } else if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
         uint64_t tmp0 = 1;
         uint64_t tmp1 = 3;
         uint64_t tmp2 = 11;
-        nullable_nested_column->insert(Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp0));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp0));
         nullable_nested_column->insert(Field());
-        nullable_nested_column->insert(Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
-        nullable_nested_column->insert(Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp2));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp2));
         nullable_nested_column->insert(Field());
-        nullable_nested_column->insert(Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
 
         uint64_t tmp_exp2 = 3;
-        expected_result = {Field(),
-                           Field::create_field<T>(
-                                   *(typename PrimitiveTypeTraits<T>::CppType*)&tmp_exp2)};
+        expected_result = {Field(), Field::create_field<T>(
+                                            *(typename PrimitiveTypeTraits<T>::CppType*)&tmp_exp2)};
     } else {
         typename PrimitiveTypeTraits<T>::CppType tmp0 = 1;
         typename PrimitiveTypeTraits<T>::CppType tmp1 = 3;
         typename PrimitiveTypeTraits<T>::CppType tmp2 = 11;
-        nullable_nested_column->insert(Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp0));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp0));
         nullable_nested_column->insert(Field());
-        nullable_nested_column->insert(Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
-        nullable_nested_column->insert(Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp2));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp2));
         nullable_nested_column->insert(Field());
-        nullable_nested_column->insert(Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
 
-        expected_result = {
-                Field(),
-                Field::create_field<T>((typename PrimitiveTypeTraits<T>::CppType)3)};
+        expected_result = {Field(),
+                           Field::create_field<T>((typename PrimitiveTypeTraits<T>::CppType)3)};
     }
 
     auto offsets_column = ColumnArray::ColumnOffsets::create();
@@ -511,8 +507,7 @@ TEST(AggGroupArrayIntersectTest, string_nullable_test) {
     ans.get(0, actual_field);
     const auto& actual_result = actual_field.get<TYPE_ARRAY>();
 
-    Array expected_result = {Field(),
-                             Field::create_field<TYPE_STRING>("c")};
+    Array expected_result = {Field(), Field::create_field<TYPE_STRING>("c")};
 
     Array sorted_actual_result = actual_result;
     Array sorted_expected_result = expected_result;

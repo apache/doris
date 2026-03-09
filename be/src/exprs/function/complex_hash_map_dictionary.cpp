@@ -38,9 +38,9 @@ ComplexHashMapDictionary::~ComplexHashMapDictionary() {
 size_t ComplexHashMapDictionary::allocated_bytes() const {
     size_t bytes = 0;
     std::visit(Overload {[&](const std::monostate& arg) { bytes = 0; },
-                                     [&](const auto& dict_method) {
-                                         bytes = dict_method.hash_table->get_buffer_size_in_bytes();
-                                     }},
+                         [&](const auto& dict_method) {
+                             bytes = dict_method.hash_table->get_buffer_size_in_bytes();
+                         }},
                _hash_map_method.method_variant);
 
     for (const auto& column : _key_columns) {
@@ -56,42 +56,42 @@ void ComplexHashMapDictionary::load_data(const ColumnPtrs& key_columns, const Da
     // save key columns
     _key_columns = key_columns;
 
-    std::visit(Overload {
-                       [&](std::monostate& arg) {
-                           throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                       },
-                       [&](auto&& dict_method) {
-                           using HashMethodType = std::decay_t<decltype(dict_method)>;
-                           using State = typename HashMethodType::State;
+    std::visit(
+            Overload {[&](std::monostate& arg) {
+                          throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                      },
+                      [&](auto&& dict_method) {
+                          using HashMethodType = std::decay_t<decltype(dict_method)>;
+                          using State = typename HashMethodType::State;
 
-                           ColumnRawPtrs key_raw_columns;
-                           for (const auto& column : key_columns) {
-                               key_raw_columns.push_back(column.get());
-                           }
-                           State state(key_raw_columns);
+                          ColumnRawPtrs key_raw_columns;
+                          for (const auto& column : key_columns) {
+                              key_raw_columns.push_back(column.get());
+                          }
+                          State state(key_raw_columns);
 
-                           auto rows = uint32_t(key_columns[0]->size());
-                           dict_method.init_serialized_keys(key_raw_columns, rows);
-                           size_t input_rows = 0;
-                           for (int i = 0; i < rows; i++) {
-                               auto creator = [&](const auto& ctor, auto& key, auto& origin) {
-                                   ctor(key, i);
-                                   input_rows++;
-                               };
+                          auto rows = uint32_t(key_columns[0]->size());
+                          dict_method.init_serialized_keys(key_raw_columns, rows);
+                          size_t input_rows = 0;
+                          for (int i = 0; i < rows; i++) {
+                              auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                                  ctor(key, i);
+                                  input_rows++;
+                              };
 
-                               auto creator_for_null_key = [&](auto& mapped) {
-                                   throw doris::Exception(ErrorCode::INTERNAL_ERROR, "no null key");
-                               };
-                               dict_method.lazy_emplace(state, i, creator, creator_for_null_key);
-                           }
-                           if (input_rows < rows) {
-                               throw doris::Exception(
-                                       ErrorCode::INVALID_ARGUMENT,
-                                       DICT_DATA_ERROR_TAG +
-                                               "The key has duplicate data in HashMapDictionary");
-                           }
-                       }},
-               _hash_map_method.method_variant);
+                              auto creator_for_null_key = [&](auto& mapped) {
+                                  throw doris::Exception(ErrorCode::INTERNAL_ERROR, "no null key");
+                              };
+                              dict_method.lazy_emplace(state, i, creator, creator_for_null_key);
+                          }
+                          if (input_rows < rows) {
+                              throw doris::Exception(
+                                      ErrorCode::INVALID_ARGUMENT,
+                                      DICT_DATA_ERROR_TAG +
+                                              "The key has duplicate data in HashMapDictionary");
+                          }
+                      }},
+            _hash_map_method.method_variant);
 
     // load value column
     load_values(values_column);
@@ -102,22 +102,22 @@ void ComplexHashMapDictionary::init_find_hash_map(DictionaryHashMapMethod& find_
     THROW_IF_ERROR(
             init_hash_method<DictionaryHashMapMethod>(&find_hash_map_method, key_types, true));
 
-    std::visit(Overload {
-                       [&](const std::monostate& arg) {
-                           throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                       },
-                       [&](auto&& dict_method) {
-                           using HashMethodType =
-                                   std::remove_cvref_t<std::decay_t<decltype(dict_method)>>;
-                           if (!std::holds_alternative<HashMethodType>(
-                                       find_hash_map_method.method_variant)) {
-                               throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                                      "key column not match");
-                           }
-                           auto& find_hash_map =
-                                   std::get<HashMethodType>(find_hash_map_method.method_variant);
-                           find_hash_map.hash_table = dict_method.hash_table;
-                       }},
+    std::visit(Overload {[&](const std::monostate& arg) {
+                             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                    "uninited hash table");
+                         },
+                         [&](auto&& dict_method) {
+                             using HashMethodType =
+                                     std::remove_cvref_t<std::decay_t<decltype(dict_method)>>;
+                             if (!std::holds_alternative<HashMethodType>(
+                                         find_hash_map_method.method_variant)) {
+                                 throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                        "key column not match");
+                             }
+                             auto& find_hash_map =
+                                     std::get<HashMethodType>(find_hash_map_method.method_variant);
+                             find_hash_map.hash_table = dict_method.hash_table;
+                         }},
                _hash_map_method.method_variant);
 }
 

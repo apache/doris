@@ -147,9 +147,8 @@ public:
 
     static IColumn::MutablePtr get_column_by_field(const doris::StorageField& field);
 
-    static IColumn::MutablePtr get_predicate_column_ptr(const FieldType& type,
-                                                                    bool is_nullable,
-                                                                    const ReaderType reader_type);
+    static IColumn::MutablePtr get_predicate_column_ptr(const FieldType& type, bool is_nullable,
+                                                        const ReaderType reader_type);
 
     const std::vector<doris::StorageField*>& columns() const { return _cols; }
 
@@ -189,8 +188,8 @@ public:
 private:
     void _init(const std::vector<TabletColumnPtr>& cols, const std::vector<ColumnId>& col_ids,
                size_t num_key_columns);
-    void _init(const std::vector<const doris::StorageField*>& cols, const std::vector<ColumnId>& col_ids,
-               size_t num_key_columns);
+    void _init(const std::vector<const doris::StorageField*>& cols,
+               const std::vector<ColumnId>& col_ids, size_t num_key_columns);
 
     void _copy_from(const Schema& other);
 

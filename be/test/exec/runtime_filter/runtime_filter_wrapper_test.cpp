@@ -88,8 +88,7 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
     }
     {
         // Insert
-        auto col =
-                ColumnHelper::create_column<DataType>({0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
+        auto col = ColumnHelper::create_column<DataType>({0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
         EXPECT_EQ(wrapper->insert(col, 0).code(), ErrorCode::INTERNAL_ERROR);
         wrapper->_state = RuntimeFilterWrapper::State::UNINITED;
         wrapper->_reason.update({});
@@ -828,8 +827,7 @@ TEST_F(RuntimeFilterWrapperTest, TestBitMap) {
         // Insert
         DataTypePtr bitmap_data_type(std::make_shared<DataTypeBitMap>());
         auto bitmap_column = bitmap_data_type->create_column();
-        std::vector<BitmapValue>& container =
-                ((ColumnBitmap*)bitmap_column.get())->get_data();
+        std::vector<BitmapValue>& container = ((ColumnBitmap*)bitmap_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             BitmapValue bv;
             bv.add(i);
@@ -854,19 +852,17 @@ TEST_F(RuntimeFilterWrapperTest, TestBitMap) {
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
         EXPECT_EQ(wrapper->bitmap_filter_func()->size(), 0);
         // Insert nullable column
-        DataTypePtr bitmap_data_type(std::make_shared<DataTypeNullable>(
-                std::make_shared<DataTypeBitMap>()));
+        DataTypePtr bitmap_data_type(
+                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeBitMap>()));
         auto bitmap_column = bitmap_data_type->create_column();
-        std::vector<BitmapValue>& container =
-                ((ColumnBitmap*)((ColumnNullable*)bitmap_column.get())
-                         ->get_nested_column_ptr()
-                         .get())
-                        ->get_data();
-        auto& null_map =
-                ((ColumnUInt8*)((ColumnNullable*)bitmap_column.get())
-                         ->get_null_map_column_ptr()
-                         .get())
-                        ->get_data();
+        std::vector<BitmapValue>& container = ((ColumnBitmap*)((ColumnNullable*)bitmap_column.get())
+                                                       ->get_nested_column_ptr()
+                                                       .get())
+                                                      ->get_data();
+        auto& null_map = ((ColumnUInt8*)((ColumnNullable*)bitmap_column.get())
+                                  ->get_null_map_column_ptr()
+                                  .get())
+                                 ->get_data();
 
         for (int i = 0; i < 1024; ++i) {
             BitmapValue bv;

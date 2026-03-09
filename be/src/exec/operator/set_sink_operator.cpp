@@ -62,8 +62,7 @@ Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_s
 }
 
 template <bool is_intersect>
-Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block,
-                                            bool eos) {
+Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block, bool eos) {
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
@@ -111,8 +110,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block
 
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::_process_build_block(
-        SetSinkLocalState<is_intersect>& local_state, Block& block,
-        RuntimeState* state) {
+        SetSinkLocalState<is_intersect>& local_state, Block& block, RuntimeState* state) {
     size_t rows = block.rows();
     if (rows == 0) {
         return Status::OK();
@@ -126,8 +124,8 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
             [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                    HashTableBuild<HashTableCtxType, is_intersect>
-                            hash_table_build_process(&local_state, uint32_t(rows), raw_ptrs, state);
+                    HashTableBuild<HashTableCtxType, is_intersect> hash_table_build_process(
+                            &local_state, uint32_t(rows), raw_ptrs, state);
                     st = hash_table_build_process(arg, local_state._shared_state->arena);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
@@ -141,8 +139,8 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
 
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::_extract_build_column(
-        SetSinkLocalState<is_intersect>& local_state, Block& block,
-        ColumnRawPtrs& raw_ptrs, size_t& rows) {
+        SetSinkLocalState<is_intersect>& local_state, Block& block, ColumnRawPtrs& raw_ptrs,
+        size_t& rows) {
     // use local state child exprs
     auto& child_expr = local_state._child_exprs;
     std::vector<int> result_locs(child_expr.size(), -1);
@@ -159,8 +157,7 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
 
         if (is_all_const) {
             block.get_by_position(result_col_id).column =
-                    assert_cast<const ColumnConst&>(
-                            *block.get_by_position(result_col_id).column)
+                    assert_cast<const ColumnConst&>(*block.get_by_position(result_col_id).column)
                             .get_data_column_ptr();
         } else {
             block.get_by_position(result_col_id).column =

@@ -21,8 +21,7 @@
 
 namespace doris {
 struct MockChannel : public Channel {
-    MockChannel(ExchangeSinkLocalState* parent, TUniqueId fragment_instance_id,
-                bool is_local)
+    MockChannel(ExchangeSinkLocalState* parent, TUniqueId fragment_instance_id, bool is_local)
             : Channel(parent, TNetworkAddress {}, fragment_instance_id, 0) {
         _is_local = is_local;
     }

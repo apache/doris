@@ -108,9 +108,8 @@ private:
     void _find_next_partition_ends();
     void _update_order_by_range();
     void _find_next_order_by_ends();
-    int64_t find_first_not_equal(IColumn* reference_column,
-                                 IColumn* compared_column, int64_t target,
-                                 int64_t start, int64_t end);
+    int64_t find_first_not_equal(IColumn* reference_column, IColumn* compared_column,
+                                 int64_t target, int64_t start, int64_t end);
 
     std::vector<VExprContextSPtrs> _agg_expr_ctxs;
     VExprContextSPtrs _partition_by_eq_expr_ctxs;
@@ -229,8 +228,8 @@ public:
 
 private:
     friend class AnalyticSinkLocalState;
-    Status _insert_range_column(Block* block, const VExprContextSPtr& expr,
-                                IColumn* dst_column, size_t length);
+    Status _insert_range_column(Block* block, const VExprContextSPtr& expr, IColumn* dst_column,
+                                size_t length);
     Status _add_input_block(doris::RuntimeState* state, Block* input_block);
 
     ObjectPool* _pool = nullptr;

@@ -332,10 +332,9 @@ Status BetaRowsetReader::_init_iterator() {
                 }
             }
         }
-        _iterator = new_merge_iterator(std::move(iterators), sequence_loc,
-                                                   _read_context->is_unique,
-                                                   _read_context->read_orderby_key_reverse,
-                                                   _read_context->merged_rows, _output_schema);
+        _iterator = new_merge_iterator(std::move(iterators), sequence_loc, _read_context->is_unique,
+                                       _read_context->read_orderby_key_reverse,
+                                       _read_context->merged_rows, _output_schema);
     } else {
         if (_read_context->read_orderby_key_reverse) {
             // reverse iterators to read backward for ORDER BY key DESC

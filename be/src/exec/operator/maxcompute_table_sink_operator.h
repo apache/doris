@@ -25,8 +25,7 @@ namespace doris {
 
 class MCTableSinkOperatorX;
 
-class MCTableSinkLocalState final
-        : public AsyncWriterSink<VMCTableWriter, MCTableSinkOperatorX> {
+class MCTableSinkLocalState final : public AsyncWriterSink<VMCTableWriter, MCTableSinkOperatorX> {
 public:
     using Base = AsyncWriterSink<VMCTableWriter, MCTableSinkOperatorX>;
     using Parent = MCTableSinkOperatorX;

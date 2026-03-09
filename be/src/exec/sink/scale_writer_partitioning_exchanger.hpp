@@ -46,8 +46,7 @@ public:
                       min_partition_data_processed_rebalance_threshold),
               _min_data_processed_rebalance_threshold(min_data_processed_rebalance_threshold) {
         _crc_partitioner =
-                std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(
-                        _partition_count);
+                std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(_partition_count);
     }
 
     ~ScaleWriterPartitioner() override = default;

@@ -53,8 +53,7 @@ TEST(HierarchicalDataIteratorTest, ProcessSparseExtractSubpaths) {
     std::unique_ptr<ColumnIterator> sparse_reader = std::make_unique<DummySparseIterator>();
     doris::segment_v2::ColumnIteratorUPtr iter;
     auto sparse_iter = std::make_unique<SubstreamIterator>(
-            doris::ColumnVariant::create_binary_column_fn(), std::move(sparse_reader),
-            nullptr);
+            doris::ColumnVariant::create_binary_column_fn(), std::move(sparse_reader), nullptr);
     ASSERT_TRUE(HierarchicalDataIterator::create(
                         &iter, /*col_uid*/ 0, PathInData("a.b"), /*node*/ nullptr,
                         /*root*/ std::move(sparse_iter), nullptr, nullptr, nullptr,
@@ -114,10 +113,10 @@ TEST(HierarchicalDataIteratorTest, ProcessSparseExtractSubpaths) {
     EXPECT_EQ(abc_subcolumn->get_non_null_value_size(), 2);
     EXPECT_EQ(abd_subcolumn->get_non_null_value_size(), 1);
 
-    const auto& abc_subcolumn_data = assert_cast<const doris::ColumnNullable&>(
-            *abc_subcolumn->get_finalized_column_ptr());
-    const auto& abd_subcolumn_data = assert_cast<const doris::ColumnNullable&>(
-            *abd_subcolumn->get_finalized_column_ptr());
+    const auto& abc_subcolumn_data =
+            assert_cast<const doris::ColumnNullable&>(*abc_subcolumn->get_finalized_column_ptr());
+    const auto& abd_subcolumn_data =
+            assert_cast<const doris::ColumnNullable&>(*abd_subcolumn->get_finalized_column_ptr());
     EXPECT_EQ(abc_subcolumn_data.get_nested_column_ptr()->get_data_at(0).to_string(), "abcvalues");
     EXPECT_EQ(abc_subcolumn_data.get_nested_column_ptr()->get_data_at(1).to_string(), "abcvalues");
     EXPECT_EQ(abd_subcolumn_data.get_nested_column_ptr()->get_data_at(0).to_string(), "abdvalues");

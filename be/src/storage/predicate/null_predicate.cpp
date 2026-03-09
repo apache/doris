@@ -63,8 +63,7 @@ Status NullPredicate::evaluate(const IndexFieldNameAndTypePair& name_with_type,
     return Status::OK();
 }
 
-uint16_t NullPredicate::_evaluate_inner(const IColumn& column, uint16_t* sel,
-                                        uint16_t size) const {
+uint16_t NullPredicate::_evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const {
     uint16_t new_size = 0;
     if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
         if (!nullable->has_null()) {
@@ -124,8 +123,7 @@ void NullPredicate::evaluate_and(const IColumn& column, const uint16_t* sel, uin
     }
 }
 
-void NullPredicate::evaluate_vec(const IColumn& column, uint16_t size,
-                                 bool* flags) const {
+void NullPredicate::evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const {
     if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
         if (!nullable->has_null()) {
             memset(flags, !_is_null, size);

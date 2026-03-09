@@ -121,8 +121,7 @@ private:
 
     void _merge_to(MutableColumnPtr& dst);
 
-    void _process_data_without_sparse_column(MutableColumnPtr& dst,
-                                             size_t num_rows) override;
+    void _process_data_without_sparse_column(MutableColumnPtr& dst, size_t num_rows) override;
 
     void _serialize_nullable_column_to_sparse(const SubstreamReaderTree::Node* src_subcolumn,
                                               ColumnString& dst_sparse_column_paths,

@@ -65,9 +65,8 @@ public:
 
     PredicateType type() const override { return _nested->type(); }
 
-    Status evaluate(const IndexFieldNameAndTypePair& name_with_type,
-                    IndexIterator* iterator, uint32_t num_rows,
-                    roaring::Roaring* bitmap) const override {
+    Status evaluate(const IndexFieldNameAndTypePair& name_with_type, IndexIterator* iterator,
+                    uint32_t num_rows, roaring::Roaring* bitmap) const override {
         roaring::Roaring null_rows_in_bitmap;
         if (iterator != nullptr) {
             bool has_null = DORIS_TRY(iterator->has_null());
@@ -145,8 +144,7 @@ public:
         return _nested->can_do_bloom_filter(ngram);
     }
 
-    void evaluate_vec(const IColumn& column, uint16_t size,
-                      bool* flags) const override {
+    void evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const override {
         if (column.has_null()) {
             const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
             _nested->evaluate_vec(nullable_col.get_nested_column(), size, flags);
@@ -161,8 +159,7 @@ public:
         }
     }
 
-    void evaluate_and_vec(const IColumn& column, uint16_t size,
-                          bool* flags) const override {
+    void evaluate_and_vec(const IColumn& column, uint16_t size, bool* flags) const override {
         if (column.has_null()) {
             // copy original flags
             std::vector<uint8_t> original_flags(size);
@@ -184,8 +181,7 @@ public:
     std::string get_search_str() const override { return _nested->get_search_str(); }
 
 private:
-    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel,
-                             uint16_t size) const override {
+    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override {
         if (column.has_null()) {
             if (size == 0) {
                 return 0;

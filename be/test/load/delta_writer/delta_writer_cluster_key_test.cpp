@@ -257,8 +257,8 @@ TEST_F(TestDeltaWriterClusterKey, vec_sequence_col) {
 
     Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
-        block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->type(), slot_desc->col_name()));
+        block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(), slot_desc->type(),
+                                           slot_desc->col_name()));
     }
 
     auto rows = 4;

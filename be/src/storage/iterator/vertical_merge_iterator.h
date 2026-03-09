@@ -42,7 +42,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 enum KeysType : int;
 
-
 // Row source represent row location in multi-segments
 // use a uint16_t to store info
 // the lower 15 bits means segment_id in segment pool, and the higher 1 bits means agg flag.

@@ -82,10 +82,10 @@ Status SchemaWorkloadSchedulePolicyScanner::_get_workload_schedule_policy_block_
 
     _block = Block::create_unique();
     for (int i = 0; i < _s_tbls_columns.size(); ++i) {
-        auto data_type = DataTypeFactory::instance().create_data_type(
-                _s_tbls_columns[i].type, true);
+        auto data_type =
+                DataTypeFactory::instance().create_data_type(_s_tbls_columns[i].type, true);
         _block->insert(ColumnWithTypeAndName(data_type->create_column(), data_type,
-                                                         _s_tbls_columns[i].name));
+                                             _s_tbls_columns[i].name));
     }
 
     _block->reserve(_block_rows_limit);
@@ -108,8 +108,7 @@ Status SchemaWorkloadSchedulePolicyScanner::_get_workload_schedule_policy_block_
     return Status::OK();
 }
 
-Status SchemaWorkloadSchedulePolicyScanner::get_next_block_internal(Block* block,
-                                                                    bool* eos) {
+Status SchemaWorkloadSchedulePolicyScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }

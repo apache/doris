@@ -92,8 +92,8 @@ bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& ori
                                      int tz_scale) {
     PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType dt_value;
 
-    PROPAGATE_FALSE(transform_date_scale(tz_scale, dt_scale, dt_value,
-                                                     origin_dt.to_date_int_val()));
+    PROPAGATE_FALSE(
+            transform_date_scale(tz_scale, dt_scale, dt_value, origin_dt.to_date_int_val()));
 
     DateV2Value<DateTimeV2ValueType> dt {dt_value};
 
@@ -114,8 +114,7 @@ bool TimestampTzValue::to_datetime(DateV2Value<DateTimeV2ValueType>& dt,
                                    int tz_scale) const {
     PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType dt_value;
 
-    PROPAGATE_FALSE(transform_date_scale(dt_scale, tz_scale, dt_value,
-                                                     _utc_dt.to_date_int_val()));
+    PROPAGATE_FALSE(transform_date_scale(dt_scale, tz_scale, dt_value, _utc_dt.to_date_int_val()));
 
     dt = DateV2Value<DateTimeV2ValueType> {dt_value};
 

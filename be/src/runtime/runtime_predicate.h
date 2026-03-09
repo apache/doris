@@ -38,7 +38,6 @@
 namespace doris {
 class ColumnPredicate;
 
-
 class RuntimePredicate {
 public:
     RuntimePredicate(const TTopnFilterDesc& desc);
@@ -135,8 +134,8 @@ private:
 
     Field _orderby_extrem {PrimitiveType::TYPE_NULL};
     std::function<std::shared_ptr<ColumnPredicate>(const int cid, const std::string& col_name,
-                                                   const DataTypePtr& data_type,
-                                                   const Field& value, bool opposite)>
+                                                   const DataTypePtr& data_type, const Field& value,
+                                                   bool opposite)>
             _pred_constructor;
     bool _detected_source = false;
     bool _detected_target = false;

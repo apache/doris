@@ -30,8 +30,7 @@
 
 namespace doris {
 
-Status PythonUDFMeta::convert_types_to_schema(const DataTypes& types,
-                                              const std::string& timezone,
+Status PythonUDFMeta::convert_types_to_schema(const DataTypes& types, const std::string& timezone,
                                               std::shared_ptr<arrow::Schema>* schema) {
     assert(!types.empty());
     arrow::SchemaBuilder builder;

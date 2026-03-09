@@ -242,8 +242,7 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
 
 Status Merger::vertical_compact_one_group(
         BaseTabletSPtr tablet, ReaderType reader_type, const TabletSchema& tablet_schema,
-        bool is_key, const std::vector<uint32_t>& column_group,
-        RowSourcesBuffer* row_source_buf,
+        bool is_key, const std::vector<uint32_t>& column_group, RowSourcesBuffer* row_source_buf,
         const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
         RowsetWriter* dst_rowset_writer, uint32_t max_rows_per_segment, Statistics* stats_output,
         std::vector<uint32_t> key_group_cluster_key_idxes, int64_t batch_size,
@@ -353,9 +352,9 @@ Status Merger::vertical_compact_one_group(
 Status Merger::vertical_compact_one_group(
         int64_t tablet_id, ReaderType reader_type, const TabletSchema& tablet_schema, bool is_key,
         const std::vector<uint32_t>& column_group, RowSourcesBuffer* row_source_buf,
-        VerticalBlockReader& src_block_reader,
-        segment_v2::SegmentWriter& dst_segment_writer, Statistics* stats_output,
-        uint64_t* index_size, KeyBoundsPB& key_bounds, SimpleRowIdConversion* rowid_conversion) {
+        VerticalBlockReader& src_block_reader, segment_v2::SegmentWriter& dst_segment_writer,
+        Statistics* stats_output, uint64_t* index_size, KeyBoundsPB& key_bounds,
+        SimpleRowIdConversion* rowid_conversion) {
     // TODO: record_rowids
     Block block = tablet_schema.create_block(column_group);
     size_t output_rows = 0;
@@ -506,8 +505,8 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
                   << ", enable_sparse_optimization=" << enable_sparse_optimization;
     }
 
-    RowSourcesBuffer row_sources_buf(
-            tablet->tablet_id(), dst_rowset_writer->context().tablet_path, reader_type);
+    RowSourcesBuffer row_sources_buf(tablet->tablet_id(), dst_rowset_writer->context().tablet_path,
+                                     reader_type);
     Merger::Statistics total_stats;
     if (stats_output != nullptr) {
         total_stats.rowid_conversion = stats_output->rowid_conversion;

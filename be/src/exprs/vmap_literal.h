@@ -24,7 +24,6 @@ class RowDescriptor;
 class RuntimeState;
 class TExprNode;
 
-
 class VMapLiteral : public VLiteral {
     ENABLE_FACTORY_CREATOR(VMapLiteral);
 

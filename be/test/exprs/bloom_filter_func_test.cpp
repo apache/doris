@@ -179,8 +179,7 @@ TEST_F(BloomFilterFuncTest, InsertFixedLen) {
     auto nullmap_column = ColumnUInt8::create(4, 0);
     nullmap_column->get_data()[1] = 1;
     nullmap_column->get_data()[3] = 1;
-    auto nullable_column =
-            ColumnNullable::create(std::move(column), std::move(nullmap_column));
+    auto nullable_column = ColumnNullable::create(std::move(column), std::move(nullmap_column));
     ASSERT_TRUE(nullable_column->has_null());
     bloom_filter_func.insert_fixed_len(std::move(nullable_column), 0);
     bloom_filter_func.set_contain_null(true);
@@ -192,13 +191,11 @@ TEST_F(BloomFilterFuncTest, InsertFixedLen) {
     st = bloom_filter_func2.init_with_fixed_length(runtime_length);
     ASSERT_TRUE(st.ok()) << "Failed to init bloom filter with fixed length: " << st.to_string();
 
-    auto column_string = ColumnHelper::create_column<DataTypeString>(
-            {"aa", "bb", "cc", "dd"});
+    auto column_string = ColumnHelper::create_column<DataTypeString>({"aa", "bb", "cc", "dd"});
     nullmap_column = ColumnUInt8::create(4, 0);
     nullmap_column->get_data()[1] = 1;
     nullmap_column->get_data()[3] = 1;
-    nullable_column =
-            ColumnNullable::create(column_string->clone(), nullmap_column->clone());
+    nullable_column = ColumnNullable::create(column_string->clone(), nullmap_column->clone());
     ASSERT_TRUE(nullable_column->has_null());
 
     bloom_filter_func2.insert_fixed_len(std::move(nullable_column), 0);
@@ -295,8 +292,7 @@ TEST_F(BloomFilterFuncTest, Merge) {
     st = bloom_filter_func.merge(&bloom_filter_func2);
     ASSERT_TRUE(st.ok()) << "Failed to merge bloom filter: " << st.to_string();
 
-    auto column =
-            ColumnHelper::create_column<DataTypeInt32>({1, 2, 3, 4, 7, 8});
+    auto column = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3, 4, 7, 8});
     PODArray<uint8_t> result(column->size());
     bloom_filter_func2.find_fixed_len(column, result.data());
 
@@ -565,8 +561,7 @@ TEST_F(BloomFilterFuncTest, FindFixedLenOlapEngine) {
     st = bloom_filter_func2.init_with_fixed_length(0);
     ASSERT_TRUE(st) << "Failed to init bloom filter with fixed length: " << st.to_string();
 
-    auto string_column = ColumnHelper::create_column<DataTypeString>(
-            {"aa", "bb", "cc", "dd"});
+    auto string_column = ColumnHelper::create_column<DataTypeString>({"aa", "bb", "cc", "dd"});
 
     bloom_filter_func2.insert_fixed_len(string_column->clone(), 0);
 

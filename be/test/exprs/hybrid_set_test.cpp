@@ -446,9 +446,8 @@ TEST_F(HybridSetTest, string) {
     {                                                                                       \
         std::unique_ptr<HybridSetBase> set(create_set<N>(PrimitiveType::TYPE_INT, false));  \
                                                                                             \
-        auto column = ColumnHelper::create_column<DataTypeInt32>(   \
-                {1, 2, 3, 4, 5, 6, 7, 8});                                                  \
-        auto result_column = ColumnUInt8::create(N, 0);                         \
+        auto column = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3, 4, 5, 6, 7, 8}); \
+        auto result_column = ColumnUInt8::create(N, 0);                                     \
         try {                                                                               \
             set->find_batch(*column, N, result_column->get_data());                         \
             ASSERT_TRUE(false) << "should not be here";                                     \
@@ -501,8 +500,7 @@ TEST_F(HybridSetTest, FixedContainer) {
     TEST_FIXED_CONTAINER(8);
 
     std::unique_ptr<HybridSetBase> set(create_set<8>(PrimitiveType::TYPE_INT, false));
-    auto column = ColumnHelper::create_column<DataTypeInt32>(
-            {1, 2, 3, 4, 5, 6, 7, 8});
+    auto column = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3, 4, 5, 6, 7, 8});
 }
 
 TEST_F(HybridSetTest, FindBatch) {
@@ -511,8 +509,7 @@ TEST_F(HybridSetTest, FindBatch) {
             {"ab", "cd", "ef", "gh", "ij", "kl", "mn", "op"});
     auto nullmap_column = ColumnUInt8::create(8, 0);
 
-    auto nullable_column =
-            ColumnNullable::create(string_column->clone(), nullmap_column->clone());
+    auto nullable_column = ColumnNullable::create(string_column->clone(), nullmap_column->clone());
 
     string_set->insert_fixed_len(nullable_column->clone(), 0);
     ASSERT_EQ(string_set->size(), nullable_column->size());
@@ -520,8 +517,7 @@ TEST_F(HybridSetTest, FindBatch) {
     nullmap_column->get_data()[1] = 1;
     nullmap_column->get_data()[3] = 1;
     nullmap_column->get_data()[6] = 1;
-    auto nullable_column2 =
-            ColumnNullable::create(string_column->clone(), nullmap_column->clone());
+    auto nullable_column2 = ColumnNullable::create(string_column->clone(), nullmap_column->clone());
 
     std::unique_ptr<HybridSetBase> string_set2(create_set(PrimitiveType::TYPE_VARCHAR, true));
     string_set2->insert_fixed_len(nullable_column2->clone(), 0);
@@ -621,9 +617,8 @@ TEST_F(HybridSetTest, StringValueSet) {
         test_string_value_set(i);
     }
 
-    ColumnPtr string_column =
-            ColumnHelper::create_column<DataTypeString>(
-                    {"ab", "cd", "ef", "gh", "ij", "kl", "mn", "op", "qr", "st", "uv", "wx"});
+    ColumnPtr string_column = ColumnHelper::create_column<DataTypeString>(
+            {"ab", "cd", "ef", "gh", "ij", "kl", "mn", "op", "qr", "st", "uv", "wx"});
     auto nullmap_column = ColumnUInt8::create(12, 0);
 
     ColumnPtr nullable_column =
@@ -646,8 +641,7 @@ TEST_F(HybridSetTest, StringValueSet) {
     nullmap_column->get_data()[1] = 1;
     nullmap_column->get_data()[3] = 1;
     nullmap_column->get_data()[6] = 1;
-    auto nullable_column2 =
-            ColumnNullable::create(string_column, nullmap_column->clone());
+    auto nullable_column2 = ColumnNullable::create(string_column, nullmap_column->clone());
 
     string_value_set->insert_fixed_len(nullable_column2->clone(), 0);
     ASSERT_EQ(string_value_set->size(), nullable_column2->size() - 3);

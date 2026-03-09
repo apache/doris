@@ -87,16 +87,14 @@ Status MergeSorterState::build_merge_tree(const SortDescription& sort_descriptio
     return Status::OK();
 }
 
-Status MergeSorterState::merge_sort_read(doris::Block* block, int batch_size,
-                                         bool* eos) {
+Status MergeSorterState::merge_sort_read(doris::Block* block, int batch_size, bool* eos) {
     DCHECK(_sorted_blocks.empty());
     DCHECK(unsorted_block()->empty());
     _merge_sort_read_impl(batch_size, block, eos);
     return Status::OK();
 }
 
-void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::Block* block,
-                                             bool* eos) {
+void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::Block* block, bool* eos) {
     size_t num_columns = unsorted_block()->columns();
 
     MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(block, *unsorted_block());
@@ -132,8 +130,8 @@ void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::Block* block
     *eos = merged_rows == 0;
 }
 
-Status Sorter::merge_sort_read_for_spill(RuntimeState* state, doris::Block* block,
-                                         int batch_size, bool* eos) {
+Status Sorter::merge_sort_read_for_spill(RuntimeState* state, doris::Block* block, int batch_size,
+                                         bool* eos) {
     return get_next(state, block, eos);
 }
 

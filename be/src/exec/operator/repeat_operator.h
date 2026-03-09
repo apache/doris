@@ -26,7 +26,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-
 class RepeatOperatorX;
 
 class RepeatLocalState final : public PipelineXLocalState<FakeSharedState> {
@@ -39,11 +38,10 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
 
-    Status get_repeated_block(Block* child_block, int repeat_id_idx,
-                              Block* output_block);
+    Status get_repeated_block(Block* child_block, int repeat_id_idx, Block* output_block);
 
-    Status add_grouping_id_column(std::size_t rows, std::size_t& cur_col,
-                                  MutableColumns& columns, int repeat_id_idx);
+    Status add_grouping_id_column(std::size_t rows, std::size_t& cur_col, MutableColumns& columns,
+                                  int repeat_id_idx);
 
 private:
     friend class RepeatOperatorX;

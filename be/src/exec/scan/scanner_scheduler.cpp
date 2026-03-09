@@ -267,8 +267,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     scan_task->cached_blocks.back().first->rows() + free_block->rows() <=
                             ctx->batch_size()) {
                     size_t block_size = scan_task->cached_blocks.back().first->allocated_bytes();
-                    MutableBlock mutable_block(
-                            scan_task->cached_blocks.back().first.get());
+                    MutableBlock mutable_block(scan_task->cached_blocks.back().first.get());
                     status = mutable_block.merge(*free_block);
                     if (!status.ok()) {
                         LOG(WARNING) << "Block merge failed: " << status.to_string();

@@ -44,8 +44,8 @@ VariantStatsCaculator::VariantStatsCaculator(SegmentFooterPB* footer,
     }
 }
 
-Status VariantStatsCaculator::calculate_variant_stats(const Block* block,
-                                                      size_t row_pos, size_t num_rows) {
+Status VariantStatsCaculator::calculate_variant_stats(const Block* block, size_t row_pos,
+                                                      size_t num_rows) {
     for (size_t i = 0; i < block->columns(); ++i) {
         const TabletColumn& tablet_column = _tablet_schema->column(_column_ids[i]);
         // Only process sub columns and sparse columns during compaction

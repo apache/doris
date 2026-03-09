@@ -839,13 +839,13 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
-            reader = CsvReader::create_unique(nullptr, profile.get(), nullptr, params,
-                                                          range, file_slots, io_ctx.get(), io_ctx);
+            reader = CsvReader::create_unique(nullptr, profile.get(), nullptr, params, range,
+                                              file_slots, io_ctx.get(), io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_TEXT: {
-            reader = TextReader::create_unique(nullptr, profile.get(), nullptr, params,
-                                                           range, file_slots, io_ctx.get());
+            reader = TextReader::create_unique(nullptr, profile.get(), nullptr, params, range,
+                                               file_slots, io_ctx.get());
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
@@ -857,18 +857,17 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             break;
         }
         case TFileFormatType::FORMAT_NATIVE: {
-            reader = NativeReader::create_unique(profile.get(), params, range,
-                                                             io_ctx.get(), nullptr);
+            reader = NativeReader::create_unique(profile.get(), params, range, io_ctx.get(),
+                                                 nullptr);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
-            reader = NewJsonReader::create_unique(profile.get(), params, range,
-                                                              file_slots, io_ctx.get(), io_ctx);
+            reader = NewJsonReader::create_unique(profile.get(), params, range, file_slots,
+                                                  io_ctx.get(), io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_AVRO: {
-            reader = AvroJNIReader::create_unique(profile.get(), params, range,
-                                                              file_slots);
+            reader = AvroJNIReader::create_unique(profile.get(), params, range, file_slots);
             break;
         }
         default:
@@ -1204,8 +1203,7 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
             if (!schemas.empty() && st.ok()) {
                 // merge all
                 TabletSchemaSPtr merged_schema;
-                st = variant_util::get_least_common_schema(schemas, nullptr,
-                                                                       merged_schema);
+                st = variant_util::get_least_common_schema(schemas, nullptr, merged_schema);
                 if (!st.ok()) {
                     LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
                     st = Status::InternalError("Failed to get least common schema: {}",
@@ -1240,15 +1238,16 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                     }
                     auto tablet = res.value();
                     auto rowsets = tablet->get_snapshot_rowset();
-                    auto schema = variant_util::VariantCompactionUtil::
-                            calculate_variant_extended_schema(rowsets, tablet->tablet_schema());
+                    auto schema =
+                            variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+                                    rowsets, tablet->tablet_schema());
                     tablet_schemas.push_back(schema);
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
                     TabletSchemaSPtr merged_schema;
                     st = variant_util::get_least_common_schema(tablet_schemas, nullptr,
-                                                                           merged_schema);
+                                                               merged_schema);
                     if (!st.ok()) {
                         LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
                         st = Status::InternalError("Failed to get least common schema: {}",

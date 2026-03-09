@@ -126,8 +126,7 @@ void serialize_and_deserialize_mysql_test() {
                     data.push_back(i % 2);
                 }
                 DataTypePtr data_type(std::make_shared<DataTypeUInt8>());
-                ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type,
-                                                                col_name);
+                ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
                 block.insert(std::move(type_and_name));
             }
             break;
@@ -136,16 +135,14 @@ void serialize_and_deserialize_mysql_test() {
             if (is_nullable) {
                 {
                     auto column_vector_int32 = ColumnVector<TYPE_INT>::create();
-                    auto column_nullable_vector =
-                            make_nullable(std::move(column_vector_int32));
+                    auto column_nullable_vector = make_nullable(std::move(column_vector_int32));
                     auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
                     for (int i = 0; i < row_num; i++) {
                         mutable_nullable_vector->insert(Field::create_field<TYPE_INT>(int32_t(i)));
                     }
-                    auto data_type = make_nullable(
-                            std::make_shared<DataTypeInt32>());
-                    ColumnWithTypeAndName type_and_name(
-                            mutable_nullable_vector->get_ptr(), data_type, col_name);
+                    auto data_type = make_nullable(std::make_shared<DataTypeInt32>());
+                    ColumnWithTypeAndName type_and_name(mutable_nullable_vector->get_ptr(),
+                                                        data_type, col_name);
                     block.insert(type_and_name);
                 }
             } else {
@@ -155,14 +152,12 @@ void serialize_and_deserialize_mysql_test() {
                     data.push_back(i);
                 }
                 DataTypePtr data_type(std::make_shared<DataTypeInt32>());
-                ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type,
-                                                                col_name);
+                ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
                 block.insert(std::move(type_and_name));
             }
             break;
         case TYPE_DECIMAL128I: {
-            DataTypePtr decimal_data_type(
-                    doris::create_decimal(27, 9, true));
+            DataTypePtr decimal_data_type(doris::create_decimal(27, 9, true));
             type_desc = decimal_data_type;
             tslot.__set_slotType(type_desc->to_thrift());
             auto decimal_column = decimal_data_type->create_column();
@@ -171,8 +166,8 @@ void serialize_and_deserialize_mysql_test() {
                 auto value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
                 data.push_back(value);
             }
-            ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
-                                                            decimal_data_type, col_name);
+            ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(), decimal_data_type,
+                                                col_name);
             block.insert(type_and_name);
         } break;
         case TYPE_STRING:
@@ -184,8 +179,7 @@ void serialize_and_deserialize_mysql_test() {
                     strcol->insert_data(is.c_str(), is.size());
                 }
                 DataTypePtr data_type(std::make_shared<DataTypeString>());
-                ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type,
-                                                                col_name);
+                ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type, col_name);
                 block.insert(type_and_name);
             }
             break;
@@ -194,15 +188,13 @@ void serialize_and_deserialize_mysql_test() {
             {
                 DataTypePtr hll_data_type(std::make_shared<DataTypeHLL>());
                 auto hll_column = hll_data_type->create_column();
-                std::vector<HyperLogLog>& container =
-                        ((ColumnHLL*)hll_column.get())->get_data();
+                std::vector<HyperLogLog>& container = ((ColumnHLL*)hll_column.get())->get_data();
                 for (int i = 0; i < row_num; ++i) {
                     HyperLogLog hll;
                     hll.update(i);
                     container.push_back(hll);
                 }
-                ColumnWithTypeAndName type_and_name(hll_column->get_ptr(),
-                                                                hll_data_type, col_name);
+                ColumnWithTypeAndName type_and_name(hll_column->get_ptr(), hll_data_type, col_name);
 
                 block.insert(type_and_name);
             }
@@ -217,10 +209,9 @@ void serialize_and_deserialize_mysql_test() {
                     value.unchecked_set_time(2022, 6, 6, 0, 0, 0, 0);
                     date_v2_data.push_back(*reinterpret_cast<UInt32*>(&value));
                 }
-                DataTypePtr date_v2_type(
-                        std::make_shared<DataTypeDateV2>());
-                ColumnWithTypeAndName test_date_v2(column_vector_date_v2->get_ptr(),
-                                                               date_v2_type, col_name);
+                DataTypePtr date_v2_type(std::make_shared<DataTypeDateV2>());
+                ColumnWithTypeAndName test_date_v2(column_vector_date_v2->get_ptr(), date_v2_type,
+                                                   col_name);
                 block.insert(test_date_v2);
             }
             break;
@@ -235,8 +226,7 @@ void serialize_and_deserialize_mysql_test() {
                     date_data.push_back(value);
                 }
                 DataTypePtr date_type(std::make_shared<DataTypeDate>());
-                ColumnWithTypeAndName test_date(column_vector_date->get_ptr(),
-                                                            date_type, col_name);
+                ColumnWithTypeAndName test_date(column_vector_date->get_ptr(), date_type, col_name);
                 block.insert(test_date);
             }
             break;
@@ -250,10 +240,9 @@ void serialize_and_deserialize_mysql_test() {
                     value.from_date_int64(20210501080910);
                     datetime_data.push_back(value);
                 }
-                DataTypePtr datetime_type(
-                        std::make_shared<DataTypeDateTime>());
+                DataTypePtr datetime_type(std::make_shared<DataTypeDateTime>());
                 ColumnWithTypeAndName test_datetime(column_vector_datetime->get_ptr(),
-                                                                datetime_type, col_name);
+                                                    datetime_type, col_name);
                 block.insert(test_datetime);
             }
             break;
@@ -269,8 +258,7 @@ void serialize_and_deserialize_mysql_test() {
                     ipv4_data.push_back(ipv4_value.value());
                 }
                 DataTypePtr ipv4_type(std::make_shared<DataTypeIPv4>());
-                ColumnWithTypeAndName test_ipv4(column_vector_ipv4->get_ptr(),
-                                                            ipv4_type, col_name);
+                ColumnWithTypeAndName test_ipv4(column_vector_ipv4->get_ptr(), ipv4_type, col_name);
                 block.insert(test_ipv4);
             }
             break;
@@ -286,8 +274,7 @@ void serialize_and_deserialize_mysql_test() {
                     ipv6_data.push_back(ipv6_value.value());
                 }
                 DataTypePtr ipv6_type(std::make_shared<DataTypeIPv6>());
-                ColumnWithTypeAndName test_ipv6(column_vector_ipv6->get_ptr(),
-                                                            ipv6_type, col_name);
+                ColumnWithTypeAndName test_ipv6(column_vector_ipv6->get_ptr(), ipv6_type, col_name);
                 block.insert(test_ipv6);
             }
             break;

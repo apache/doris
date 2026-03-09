@@ -167,8 +167,7 @@ Status DictSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->dict_factory()->mem_tracker());
 
     if (local_state._dict_input_block.columns() == 0) {
-        local_state._dict_input_block =
-                Block(VectorizedUtils::create_empty_block(_row_desc));
+        local_state._dict_input_block = Block(VectorizedUtils::create_empty_block(_row_desc));
     }
 
     if (in_block->rows() != 0) {

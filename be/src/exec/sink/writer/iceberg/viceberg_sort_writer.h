@@ -43,7 +43,6 @@ namespace doris {
 class RuntimeState;
 class RuntimeProfile;
 
-
 /**
  * VIcebergSortWriter is a decorator around VIcebergPartitionWriter that adds sort-order support.
  *

@@ -780,8 +780,8 @@ bool TabletColumn::is_row_store_column() const {
     return _col_name == BeConsts::ROW_STORE_COL;
 }
 
-AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
-        DataTypePtr type, int current_be_exec_version) const {
+AggregateFunctionPtr TabletColumn::get_aggregate_function_union(DataTypePtr type,
+                                                                int current_be_exec_version) const {
     const auto* state_type = assert_cast<const DataTypeAggState*>(type.get());
     BeExecVersionManager::check_function_compatibility(
             current_be_exec_version, _be_exec_version,
@@ -789,8 +789,8 @@ AggregateFunctionPtr TabletColumn::get_aggregate_function_union(
     return AggregateStateUnion::create(state_type->get_nested_function(), {type}, type);
 }
 
-AggregateFunctionPtr TabletColumn::get_aggregate_function(
-        std::string suffix, int current_be_exec_version) const {
+AggregateFunctionPtr TabletColumn::get_aggregate_function(std::string suffix,
+                                                          int current_be_exec_version) const {
     AggregateFunctionPtr function = nullptr;
 
     auto type = DataTypeFactory::instance().create_data_type(*this);

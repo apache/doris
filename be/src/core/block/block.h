@@ -58,7 +58,6 @@ namespace segment_v2 {
 enum CompressionTypePB : int;
 } // namespace segment_v2
 
-
 /** Container for set of columns for bunch of rows in memory.
   * This is unit of data processing.
   * Also contains metadata - data types of columns and their names

@@ -29,8 +29,7 @@ namespace doris {
 SpillSortSinkLocalState::SpillSortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
         : Base(parent, state) {}
 
-Status SpillSortSinkLocalState::init(doris::RuntimeState* state,
-                                     doris::LocalSinkStateInfo& info) {
+Status SpillSortSinkLocalState::init(doris::RuntimeState* state, doris::LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
@@ -139,8 +138,7 @@ size_t SpillSortSinkOperatorX::revocable_mem_size(RuntimeState* state) const {
     return _sort_sink_operator->get_revocable_mem_size(local_state._runtime_state.get());
 }
 
-Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, Block* in_block,
-                                    bool eos) {
+Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());

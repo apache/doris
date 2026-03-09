@@ -129,8 +129,7 @@ Status PaimonCppReader::get_next_block(Block* block, size_t* read_rows, bool* eo
             // Skip columns that are not in the block (e.g., partition columns handled elsewhere)
             continue;
         }
-        const ColumnWithTypeAndName& column_with_name =
-                block->get_by_position(it->second);
+        const ColumnWithTypeAndName& column_with_name = block->get_by_position(it->second);
         try {
             RETURN_IF_ERROR(column_with_name.type->get_serde()->read_column_from_arrow(
                     column_with_name.column->assume_mutable_ref(), record_batch->column(c).get(), 0,

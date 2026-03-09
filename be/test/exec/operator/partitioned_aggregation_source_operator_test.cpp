@@ -196,11 +196,10 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlock) {
     st = sink_local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto block = ColumnHelper::create_block<DataTypeInt32>(
-            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4});
+    auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 2, 3, 4, 3, 4, 4});
 
-    block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>(
-            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4}));
+    block.insert(
+            ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3, 4, 2, 3, 4, 3, 4, 4}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
@@ -288,11 +287,10 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
     st = sink_local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto block = ColumnHelper::create_block<DataTypeInt32>(
-            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4});
+    auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 2, 3, 4, 3, 4, 4});
 
-    block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>(
-            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4}));
+    block.insert(
+            ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3, 4, 2, 3, 4, 3, 4, 4}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
@@ -390,11 +388,10 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
     st = sink_local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto block = ColumnHelper::create_block<DataTypeInt32>(
-            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4});
+    auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 2, 3, 4, 3, 4, 4});
 
-    block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>(
-            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4}));
+    block.insert(
+            ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3, 4, 2, 3, 4, 3, 4, 4}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();

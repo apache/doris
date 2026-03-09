@@ -38,8 +38,7 @@ namespace doris {
 
 PartitionedHashJoinProbeLocalState::PartitionedHashJoinProbeLocalState(RuntimeState* state,
                                                                        OperatorXBase* parent)
-        : PipelineXSpillLocalState(state, parent),
-          _child_block(Block::create_unique()) {}
+        : PipelineXSpillLocalState(state, parent), _child_block(Block::create_unique()) {}
 
 Status PartitionedHashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSpillLocalState::init(state, info));
@@ -566,8 +565,7 @@ Status PartitionedHashJoinProbeOperatorX::push(RuntimeState* state, Block* input
         }
 
         if (!partitioned_blocks[i]) {
-            partitioned_blocks[i] =
-                    MutableBlock::create_unique(input_block->clone_empty());
+            partitioned_blocks[i] = MutableBlock::create_unique(input_block->clone_empty());
         }
         RETURN_IF_ERROR(partitioned_blocks[i]->add_rows(input_block, partition_indexes[i].data(),
                                                         partition_indexes[i].data() + count));
@@ -658,8 +656,8 @@ Status PartitionedHashJoinProbeOperatorX::_setup_internal_operators(
     return Status::OK();
 }
 
-Status PartitionedHashJoinProbeOperatorX::pull(doris::RuntimeState* state,
-                                               Block* output_block, bool* eos) const {
+Status PartitionedHashJoinProbeOperatorX::pull(doris::RuntimeState* state, Block* output_block,
+                                               bool* eos) const {
     auto& local_state = get_local_state(state);
 
     const auto partition_index = local_state._partition_cursor;
@@ -770,8 +768,8 @@ size_t PartitionedHashJoinProbeOperatorX::revocable_mem_size(RuntimeState* state
 
 size_t PartitionedHashJoinProbeOperatorX::_revocable_mem_size(RuntimeState* state,
                                                               bool force) const {
-    const auto spill_size_threshold = force ? SpillStream::MIN_SPILL_WRITE_BATCH_MEM
-                                            : SpillStream::MAX_SPILL_WRITE_BATCH_MEM;
+    const auto spill_size_threshold =
+            force ? SpillStream::MIN_SPILL_WRITE_BATCH_MEM : SpillStream::MAX_SPILL_WRITE_BATCH_MEM;
     auto& local_state = get_local_state(state);
     size_t mem_size = 0;
     auto& probe_blocks = local_state._probe_blocks;
@@ -843,8 +841,7 @@ bool PartitionedHashJoinProbeOperatorX::_should_revoke_memory(RuntimeState* stat
     return false;
 }
 
-Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, Block* block,
-                                                    bool* eos) {
+Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
     *eos = false;
     auto& local_state = get_local_state(state);
     local_state.copy_shared_spill_profile();

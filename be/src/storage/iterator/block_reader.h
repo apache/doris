@@ -39,7 +39,6 @@ class ColumnPredicate;
 class FunctionFilter;
 class RuntimeProfile;
 
-
 class BlockReader final : public TabletReader {
 public:
     ~BlockReader() override;

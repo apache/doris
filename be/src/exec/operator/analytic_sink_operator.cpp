@@ -407,8 +407,7 @@ void AnalyticSinkLocalState::_insert_result_info(int64_t start, int64_t end) {
             if (_use_null_result[i]) {
                 _result_window_columns[i]->insert_many_defaults(end - start);
             } else {
-                auto* dst =
-                        assert_cast<ColumnNullable*>(_result_window_columns[i].get());
+                auto* dst = assert_cast<ColumnNullable*>(_result_window_columns[i].get());
                 dst->get_null_map_data().resize_fill(
                         dst->get_null_map_data().size() + static_cast<uint32_t>(end - start), 0);
                 _agg_functions[i]->function()->insert_result_into_range(
@@ -615,8 +614,8 @@ void AnalyticSinkLocalState::_find_next_order_by_ends() {
 
 // Compares (*this)[n] and rhs[m]
 int64_t AnalyticSinkLocalState::find_first_not_equal(IColumn* reference_column,
-                                                     IColumn* compared_column,
-                                                     int64_t target, int64_t start, int64_t end) {
+                                                     IColumn* compared_column, int64_t target,
+                                                     int64_t start, int64_t end) {
     while (start + 1 < end) {
         int64_t mid = start + (end - start) / 2;
         if (reference_column->compare_at(target, mid, *compared_column, 1) == 0) {
@@ -659,8 +658,8 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
         // Window function treats all NullableAggregateFunction as AlwaysNullable.
         // Its behavior is same with executed without group by key.
         // https://github.com/apache/doris/pull/40693
-        RETURN_IF_ERROR(AggFnEvaluator::create(_pool, desc, {}, /*without_key*/ true,
-                                                           true, &evaluator));
+        RETURN_IF_ERROR(
+                AggFnEvaluator::create(_pool, desc, {}, /*without_key*/ true, true, &evaluator));
         _agg_functions.emplace_back(evaluator);
 
         int node_idx = 0;
@@ -669,18 +668,16 @@ Status AnalyticSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
             ++node_idx;
             VExprSPtr expr;
             VExprContextSPtr ctx;
-            RETURN_IF_ERROR(
-                    VExpr::create_tree_from_thrift(desc.nodes, &node_idx, expr, ctx));
+            RETURN_IF_ERROR(VExpr::create_tree_from_thrift(desc.nodes, &node_idx, expr, ctx));
             _agg_expr_ctxs[i].emplace_back(ctx);
         }
     }
 
-    RETURN_IF_ERROR(VExpr::create_expr_trees(analytic_node.partition_exprs,
-                                                         _partition_by_eq_expr_ctxs));
-    RETURN_IF_ERROR(VExpr::create_expr_trees(analytic_node.order_by_exprs,
-                                                         _order_by_eq_expr_ctxs));
+    RETURN_IF_ERROR(
+            VExpr::create_expr_trees(analytic_node.partition_exprs, _partition_by_eq_expr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(analytic_node.order_by_exprs, _order_by_eq_expr_ctxs));
     RETURN_IF_ERROR(VExpr::create_expr_trees(analytic_node.range_between_offset_exprs,
-                                                         _range_between_expr_ctxs));
+                                             _range_between_expr_ctxs));
     return Status::OK();
 }
 
@@ -707,18 +704,15 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
         tuple_ids.push_back(_buffered_tuple_id);
         RowDescriptor cmp_row_desc(state->desc_tbl(), tuple_ids);
         if (!_partition_by_eq_expr_ctxs.empty()) {
-            RETURN_IF_ERROR(
-                    VExpr::prepare(_partition_by_eq_expr_ctxs, state, cmp_row_desc));
+            RETURN_IF_ERROR(VExpr::prepare(_partition_by_eq_expr_ctxs, state, cmp_row_desc));
         }
         if (!_order_by_eq_expr_ctxs.empty()) {
-            RETURN_IF_ERROR(
-                    VExpr::prepare(_order_by_eq_expr_ctxs, state, cmp_row_desc));
+            RETURN_IF_ERROR(VExpr::prepare(_order_by_eq_expr_ctxs, state, cmp_row_desc));
         }
     }
     if (!_range_between_expr_ctxs.empty()) {
         DCHECK(_range_between_expr_ctxs.size() == 2);
-        RETURN_IF_ERROR(
-                VExpr::prepare(_range_between_expr_ctxs, state, _child->row_desc()));
+        RETURN_IF_ERROR(VExpr::prepare(_range_between_expr_ctxs, state, _child->row_desc()));
     }
     RETURN_IF_ERROR(VExpr::open(_range_between_expr_ctxs, state));
     RETURN_IF_ERROR(VExpr::open(_partition_by_eq_expr_ctxs, state));
@@ -751,8 +745,7 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, Block* input_block,
-                                   bool eos) {
+Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, Block* input_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
@@ -770,8 +763,7 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, Block* input_bloc
     return Status::OK();
 }
 
-Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
-                                               Block* input_block) {
+Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state, Block* input_block) {
     if (input_block->rows() <= 0) {
         return Status::OK();
     }
@@ -894,8 +886,7 @@ size_t AnalyticSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos
     return local_state._reserve_mem_size;
 }
 
-Status AnalyticSinkOperatorX::_insert_range_column(Block* block,
-                                                   const VExprContextSPtr& expr,
+Status AnalyticSinkOperatorX::_insert_range_column(Block* block, const VExprContextSPtr& expr,
                                                    IColumn* dst_column, size_t length) {
     ColumnPtr column;
     RETURN_IF_ERROR(expr->execute(block, column));

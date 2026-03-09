@@ -31,9 +31,9 @@ std::string JDBCScanLocalState::name_suffix() const {
 
 Status JDBCScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     auto& p = _parent->cast<JDBCScanOperatorX>();
-    std::unique_ptr<JdbcScanner> scanner = JdbcScanner::create_unique(
-            state(), this, p._limit, p._tuple_id, p._query_string, p._table_type, p._is_tvf,
-            _scanner_profile.get());
+    std::unique_ptr<JdbcScanner> scanner =
+            JdbcScanner::create_unique(state(), this, p._limit, p._tuple_id, p._query_string,
+                                       p._table_type, p._is_tvf, _scanner_profile.get());
     RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
     scanners->push_back(std::move(scanner));
     return Status::OK();

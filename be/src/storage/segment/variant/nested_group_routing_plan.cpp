@@ -87,15 +87,14 @@ static std::vector<std::string> _compact_prefixes(std::vector<std::string> prefi
 static bool _is_array_variant_type(const DataTypePtr& type) {
     if (!type) return false;
     auto base_type = variant_util::get_base_type_of_array(type);
-    return base_type != nullptr && remove_nullable(base_type)->get_primitive_type() ==
-                                           PrimitiveType::TYPE_VARIANT;
+    return base_type != nullptr &&
+           remove_nullable(base_type)->get_primitive_type() == PrimitiveType::TYPE_VARIANT;
 }
 // Routing builder: only NON-conflict NG paths go into ng_only_prefixes.
 // Conflict paths are NOT excluded from subcolumn writes so compaction/write
 // can still preserve conflict-path payload in regular subcolumns.
 static Status _build_ng_routing_from_columns(
-        const ColumnVariant& variant,
-        const std::vector<std::string>& ng_candidate_paths,
+        const ColumnVariant& variant, const std::vector<std::string>& ng_candidate_paths,
         const std::vector<std::string>& conflict_candidate_paths,
         std::vector<std::string>* ng_only_prefixes, bool* exclude_all_subcolumns,
         NestedGroupConflictPolicy* conflict_policy, bool* has_conflict_paths) {
@@ -159,8 +158,7 @@ static Status _build_ng_routing_from_columns(
 // Public API
 // --------------------------------------------------------------------------
 
-Status build_nested_group_routing_plan(const ColumnVariant& variant,
-                                       NestedGroupRoutingPlan* plan) {
+Status build_nested_group_routing_plan(const ColumnVariant& variant, NestedGroupRoutingPlan* plan) {
     if (plan == nullptr) {
         return Status::InvalidArgument("plan is null");
     }

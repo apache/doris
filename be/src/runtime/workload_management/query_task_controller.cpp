@@ -173,8 +173,7 @@ Status QueryTaskController::revoke_memory() {
 
     std::weak_ptr<QueryContext> this_ctx = query_ctx;
     auto spill_context = std::make_shared<SpillContext>(
-            chosen_tasks.size(), query_ctx->query_id(),
-            [this_ctx, this](SpillContext* context) {
+            chosen_tasks.size(), query_ctx->query_id(), [this_ctx, this](SpillContext* context) {
                 auto query_context = this_ctx.lock();
                 if (!query_context) {
                     return;

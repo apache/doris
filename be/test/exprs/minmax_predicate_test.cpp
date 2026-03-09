@@ -52,8 +52,7 @@ void test_numeric() {
     }
 
     MutableColumnPtr column;
-    if constexpr (IsDecimalNumber<NumericType> ||
-                  std::is_same_v<NumericType, DecimalV2Value>) {
+    if constexpr (IsDecimalNumber<NumericType> || std::is_same_v<NumericType, DecimalV2Value>) {
         column = ColumnType::create(0, 8);
     } else {
         column = ColumnType::create();
@@ -92,16 +91,15 @@ TEST_F(MinmaxPredicateTest, Numeric) {
 }
 
 TEST_F(MinmaxPredicateTest, InsertFixedLen) {
-    auto column = ColumnHelper::create_column<DataTypeInt32>(
-            {1, 2, 3, 4, 5, 6, 7, 8});
+    auto column = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3, 4, 5, 6, 7, 8});
 
     MinMaxNumFunc<int32_t> minmax_num_func(true);
     minmax_num_func.insert_fixed_len(column, 0);
     ASSERT_EQ(1, *(int32_t*)minmax_num_func.get_min());
     ASSERT_EQ(8, *(int32_t*)minmax_num_func.get_max());
 
-    auto nullable_column = ColumnNullable::create(
-            column->clone(), ColumnUInt8::create(column->size(), 0));
+    auto nullable_column =
+            ColumnNullable::create(column->clone(), ColumnUInt8::create(column->size(), 0));
     minmax_num_func.insert_fixed_len(nullable_column->clone(), 0);
     ASSERT_EQ(1, *(int32_t*)minmax_num_func.get_min());
     ASSERT_EQ(8, *(int32_t*)minmax_num_func.get_max());
@@ -125,8 +123,8 @@ TEST_F(MinmaxPredicateTest, String) {
     ASSERT_EQ("ab", *(std::string*)minmax_num_func.get_min());
     ASSERT_EQ("op", *(std::string*)minmax_num_func.get_max());
 
-    auto nullable_column = ColumnNullable::create(
-            column->clone(), ColumnUInt8::create(column->size(), 0));
+    auto nullable_column =
+            ColumnNullable::create(column->clone(), ColumnUInt8::create(column->size(), 0));
     minmax_num_func.insert_fixed_len(nullable_column->clone(), 0);
     ASSERT_EQ("ab", *(std::string*)minmax_num_func.get_min());
     ASSERT_EQ("op", *(std::string*)minmax_num_func.get_max());
@@ -151,8 +149,8 @@ TEST_F(MinmaxPredicateTest, String) {
     ASSERT_EQ("ab", *(std::string*)minmax_num_func2.get_min());
     ASSERT_EQ("op", *(std::string*)minmax_num_func2.get_max());
 
-    auto nullable_column2 = ColumnNullable::create(
-            column->clone(), ColumnUInt8::create(column->size(), 0));
+    auto nullable_column2 =
+            ColumnNullable::create(column->clone(), ColumnUInt8::create(column->size(), 0));
     nullable_column2->get_null_map_data()[1] = 1;
     nullable_column2->get_null_map_data()[3] = 1;
     nullable_column2->get_null_map_data()[6] = 1;

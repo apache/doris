@@ -42,7 +42,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
-
 // --------------  row source  ---------------//
 RowSource::RowSource(uint16_t source_num, bool agg_flag) {
     _data = (source_num & SOURCE_FLAG) | (source_num & AGG_FLAG);

@@ -224,7 +224,6 @@ ordinal_t CombineMultipleBinaryColumnIterator::get_current_ordinal() const {
 
 void CombineMultipleBinaryColumnIterator::_collect_sparse_data_from_buckets(
         IColumn& binary_data_column) {
-
     // Get path, value, offset from all buckets.
     auto& column_map = assert_cast<ColumnMap&>(binary_data_column);
     auto& dst_paths = assert_cast<ColumnString&>(column_map.get_keys());

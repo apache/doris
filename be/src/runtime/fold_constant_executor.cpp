@@ -86,8 +86,7 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
     SCOPED_ATTACH_TASK(_mem_tracker);
     signal::SignalTaskIdKeeper keeper(_query_id);
 
-    DataTypeSerDe::FormatOptions format_options =
-            DataTypeSerDe::get_default_format_options();
+    DataTypeSerDe::FormatOptions format_options = DataTypeSerDe::get_default_format_options();
     format_options.timezone = &_runtime_state->timezone_obj();
 
     for (const auto& m : expr_map) {
@@ -190,10 +189,8 @@ Status FoldConstantExecutor::_prepare_and_open(Context* ctx) {
     return ctx->open(_runtime_state.get());
 }
 
-Status FoldConstantExecutor::_get_result(void* src, size_t size,
-                                         const DataTypePtr& type,
-                                         const ColumnPtr column_ptr,
-                                         const DataTypePtr column_type,
+Status FoldConstantExecutor::_get_result(void* src, size_t size, const DataTypePtr& type,
+                                         const ColumnPtr column_ptr, const DataTypePtr column_type,
                                          std::string& result,
                                          const DataTypeSerDe::FormatOptions& options) {
     switch (type->get_primitive_type()) {
@@ -270,8 +267,7 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size,
     }
     case TYPE_TIMESTAMPTZ: {
         auto value = binary_cast<uint64_t, TimestampTzValue>(*(int64_t*)src);
-        result = CastToString::from_timestamptz(value, type->get_scale(),
-                                                            options.timezone);
+        result = CastToString::from_timestamptz(value, type->get_scale(), options.timezone);
         break;
     }
     case TYPE_DECIMALV2: {

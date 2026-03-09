@@ -32,7 +32,6 @@ class TDataSink;
 
 class Block;
 
-
 // Forward declaration
 class BlackholeSinkOperatorX;
 

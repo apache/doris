@@ -132,8 +132,7 @@ Status PartitionedAggSinkOperatorX::prepare(RuntimeState* state) {
     return _agg_sink_operator->prepare(state);
 }
 
-Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, Block* in_block,
-                                         bool eos) {
+Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -386,9 +385,8 @@ Status PartitionedAggSinkLocalState::_spill_hash_table(RuntimeState* state,
             status = _spill_partition(
                     state, context, Base::_shared_state->spill_partitions[i], spill_infos[i].keys_,
                     spill_infos[i].values_,
-                    spill_null_key_data
-                            ? hash_table.template get_null_key_data<AggregateDataPtr>()
-                            : nullptr,
+                    spill_null_key_data ? hash_table.template get_null_key_data<AggregateDataPtr>()
+                                        : nullptr,
                     true);
             RETURN_IF_ERROR(status);
         }
@@ -440,8 +438,7 @@ Status PartitionedAggSinkLocalState::_execute_spill_process(RuntimeState* state,
 
     auto* runtime_state = _runtime_state.get();
     auto* agg_data = parent._agg_sink_operator->get_agg_data(runtime_state);
-    status = std::visit(
-            Overload {[&](std::monostate& arg) -> Status {
+    status = std::visit(Overload {[&](std::monostate& arg) -> Status {
                                       return Status::InternalError("Unit hash table");
                                   },
                                   [&](auto& agg_method) -> Status {
@@ -449,7 +446,7 @@ Status PartitionedAggSinkLocalState::_execute_spill_process(RuntimeState* state,
                                       RETURN_IF_CATCH_EXCEPTION(return _spill_hash_table(
                                               state, agg_method, hash_table, size_to_revoke, _eos));
                                   }},
-            agg_data->method_variant);
+                        agg_data->method_variant);
     RETURN_IF_ERROR(status);
     status = parent._agg_sink_operator->reset_hash_table(runtime_state);
     return status;

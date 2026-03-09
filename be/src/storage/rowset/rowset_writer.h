@@ -130,8 +130,7 @@ public:
                 "RowsetWriter not support final_flush");
     }
 
-    virtual Status flush_memtable(Block* block, int32_t segment_id,
-                                  int64_t* flush_size) {
+    virtual Status flush_memtable(Block* block, int32_t segment_id, int64_t* flush_size) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "RowsetWriter not support flush_memtable");
     }

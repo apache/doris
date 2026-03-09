@@ -47,7 +47,6 @@ namespace doris {
 class TabletSchema;
 class RuntimeProfile;
 
-
 class VCollectIterator {
 public:
     // Hold reader point to get reader params

@@ -63,8 +63,7 @@ public:
 
     Status collect(RuntimeState* state, const std::vector<RowSetSplits>& rs_splits,
                    const TabletSchemaSPtr& tablet_schema,
-                   const VExprContextSPtrs& common_expr_ctxs_push_down,
-                   io::IOContext* io_ctx);
+                   const VExprContextSPtrs& common_expr_ctxs_push_down, io::IOContext* io_ctx);
 
     MOCK_FUNCTION float get_or_calculate_idf(const std::wstring& lucene_col_name,
                                              const std::wstring& term);

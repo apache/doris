@@ -231,8 +231,8 @@ private:
                         dest_nested_null_map.push_back(0);
                         offset++;
                         move++;
-                        idx = doris::date_time_add<UNIT::value, TYPE_DATETIMEV2, Int32>(
-                                idx, step_row);
+                        idx = doris::date_time_add<UNIT::value, TYPE_DATETIMEV2, Int32>(idx,
+                                                                                        step_row);
                     }
                     dest_offsets.push_back(offset);
                 }

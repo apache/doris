@@ -104,7 +104,6 @@ private:
     std::mutex _holders_lock;
 };
 
-
 struct TransmitInfo {
     std::unique_ptr<PBlock> block;
     bool eos;
@@ -137,8 +136,7 @@ struct RpcInstance {
     int64_t seq = 0;
 
     // Queue for regular data transmission requests
-    std::unordered_map<Channel*, std::queue<TransmitInfo, std::list<TransmitInfo>>>
-            package_queue;
+    std::unordered_map<Channel*, std::queue<TransmitInfo, std::list<TransmitInfo>>> package_queue;
 
     // Queue for broadcast data transmission requests
     std::unordered_map<Channel*,

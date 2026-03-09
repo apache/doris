@@ -961,8 +961,7 @@ struct DoubleRoundTwoImpl {
     static constexpr auto name = Name::name;
 
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeFloat64>(),
-                std::make_shared<DataTypeInt32>()};
+        return {std::make_shared<DataTypeFloat64>(), std::make_shared<DataTypeInt32>()};
     }
 };
 
@@ -970,9 +969,7 @@ template <typename Name>
 struct DoubleRoundOneImpl {
     static constexpr auto name = Name::name;
 
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeFloat64>()};
-    }
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeFloat64>()}; }
 };
 
 template <typename Name, PrimitiveType Type>

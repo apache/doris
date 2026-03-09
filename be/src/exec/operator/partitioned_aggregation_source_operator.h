@@ -25,7 +25,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-
 class PartitionedAggSourceOperatorX;
 class PartitionedAggLocalState;
 

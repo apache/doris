@@ -61,19 +61,18 @@ static inline void apply_cidr_mask(const char* __restrict src, char* __restrict 
     }
 }
 
-
 class IPAddressVariant {
 public:
     explicit IPAddressVariant(std::string_view address_str) {
         Int64 v4 = 0;
         if (parse_ipv4_whole(address_str.begin(), address_str.end(),
-                                         reinterpret_cast<unsigned char*>(&v4))) {
+                             reinterpret_cast<unsigned char*>(&v4))) {
             _addr = static_cast<UInt32>(v4);
         } else {
             _addr = IPv6AddrType();
             // parse ipv6 in little-endian
             if (!parse_ipv6_whole(address_str.begin(), address_str.end(),
-                                              std::get<IPv6AddrType>(_addr).data())) {
+                                  std::get<IPv6AddrType>(_addr).data())) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT, "Neither IPv4 nor IPv6 address: '{}'",
                                 address_str);
             }

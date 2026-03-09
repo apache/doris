@@ -125,11 +125,10 @@ TEST_F(SpillSortSinkOperatorTest, Sink) {
     st = sink_local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto input_block = ColumnHelper::create_block<DataTypeInt32>(
-            {1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
+    auto input_block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
 
-    input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(
-            {10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
+    input_block.insert(
+            ColumnHelper::create_column_with_name<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &input_block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
@@ -223,11 +222,10 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill) {
     st = sink_local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto input_block = ColumnHelper::create_block<DataTypeInt32>(
-            {1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
+    auto input_block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
 
-    input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(
-            {10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
+    input_block.insert(
+            ColumnHelper::create_column_with_name<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &input_block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
@@ -235,12 +233,10 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill) {
     st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    auto input_block2 = ColumnHelper::create_block<DataTypeInt32>(
-            {1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
+    auto input_block2 = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
 
     input_block2.insert(
-            ColumnHelper::create_column_with_name<DataTypeInt64>(
-                    {10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
+            ColumnHelper::create_column_with_name<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &input_block2, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
@@ -293,11 +289,10 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill2) {
     st = sink_local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto input_block = ColumnHelper::create_block<DataTypeInt32>(
-            {1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
+    auto input_block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
 
-    input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(
-            {10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
+    input_block.insert(
+            ColumnHelper::create_column_with_name<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &input_block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
@@ -350,11 +345,10 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpillError) {
     st = sink_local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto input_block = ColumnHelper::create_block<DataTypeInt32>(
-            {1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
+    auto input_block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
 
-    input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(
-            {10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
+    input_block.insert(
+            ColumnHelper::create_column_with_name<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &input_block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();

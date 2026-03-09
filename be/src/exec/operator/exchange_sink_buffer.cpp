@@ -85,7 +85,6 @@ void BroadcastPBlockHolderMemLimiter::release(const BroadcastPBlockHolder& holde
     }
 }
 
-
 ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id,
                                        PlanNodeId node_id, RuntimeState* state,
                                        const std::vector<InstanceLoId>& sender_ins_ids)
@@ -128,11 +127,9 @@ void ExchangeSinkBuffer::construct_request(TUniqueId fragment_instance_id) {
     instance_data->mutex = std::make_unique<std::mutex>();
     instance_data->seq = 0;
     instance_data->package_queue =
-            std::unordered_map<Channel*,
-                               std::queue<TransmitInfo, std::list<TransmitInfo>>>();
+            std::unordered_map<Channel*, std::queue<TransmitInfo, std::list<TransmitInfo>>>();
     instance_data->broadcast_package_queue = std::unordered_map<
-            Channel*,
-            std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>();
+            Channel*, std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>();
     _queue_capacity = config::exchg_buffer_queue_capacity_factor * _rpc_instances.size();
 
     PUniqueId finst_id;
@@ -193,8 +190,7 @@ Status ExchangeSinkBuffer::add_block(Channel* channel, TransmitInfo&& request) {
     return Status::OK();
 }
 
-Status ExchangeSinkBuffer::add_block(Channel* channel,
-                                     BroadcastTransmitInfo&& request) {
+Status ExchangeSinkBuffer::add_block(Channel* channel, BroadcastTransmitInfo&& request) {
     if (_is_failed) {
         return Status::OK();
     }
@@ -358,10 +354,10 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             }
         });
         {
-            auto send_remote_block_closure =
-                    AutoReleaseClosure<PTransmitDataParams,
-                                       ExchangeSendCallback<PTransmitDataResult>>::
-                            create_unique(brpc_request, send_callback);
+            auto send_remote_block_closure = AutoReleaseClosure<
+                    PTransmitDataParams,
+                    ExchangeSendCallback<PTransmitDataResult>>::create_unique(brpc_request,
+                                                                              send_callback);
             if (enable_http_send_block(*brpc_request)) {
                 RETURN_IF_ERROR(transmit_block_httpv2(_context->exec_env(),
                                                       std::move(send_remote_block_closure),
@@ -487,10 +483,10 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             }
         });
         {
-            auto send_remote_block_closure =
-                    AutoReleaseClosure<PTransmitDataParams,
-                                       ExchangeSendCallback<PTransmitDataResult>>::
-                            create_unique(brpc_request, send_callback);
+            auto send_remote_block_closure = AutoReleaseClosure<
+                    PTransmitDataParams,
+                    ExchangeSendCallback<PTransmitDataResult>>::create_unique(brpc_request,
+                                                                              send_callback);
             if (enable_http_send_block(*brpc_request)) {
                 RETURN_IF_ERROR(transmit_block_httpv2(_context->exec_env(),
                                                       std::move(send_remote_block_closure),

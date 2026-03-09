@@ -53,8 +53,7 @@ Result<IColumn::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr) {
     // Accept either ArrayLiteral([..]) or CAST('..' AS Nullable(Array(Nullable(Float32))))
     // First, check the expr node type for clarity.
 
-    bool is_array_literal =
-            std::dynamic_pointer_cast<VArrayLiteral>(arg_expr) != nullptr;
+    bool is_array_literal = std::dynamic_pointer_cast<VArrayLiteral>(arg_expr) != nullptr;
     bool is_cast_expr = std::dynamic_pointer_cast<VCastExpr>(arg_expr) != nullptr;
     if (!is_array_literal && !is_cast_expr) {
         return ResultError(
@@ -72,16 +71,14 @@ Result<IColumn::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr) {
     }
 
     // Execute the constant array literal and extract its float elements into _query_array
-    IColumn::Ptr col_ptr =
-            column_wrapper->column_ptr->convert_to_full_column_if_const();
+    IColumn::Ptr col_ptr = column_wrapper->column_ptr->convert_to_full_column_if_const();
 
     // The expected runtime column layout for the literal is:
     // Nullable(ColumnArray(Nullable(ColumnFloat32))) with exactly 1 row (one array literal)
     const IColumn* top_col = col_ptr.get();
     const IColumn* array_holder_col = top_col;
     // Handle outer Nullable and remember result nullability preference
-    if (auto* nullable_col =
-                check_and_get_column<ColumnNullable>(*top_col)) {
+    if (auto* nullable_col = check_and_get_column<ColumnNullable>(*top_col)) {
         if (nullable_col->has_null()) {
             return ResultError(Status::InvalidArgument("Ann query vector cannot be NULL"));
         }
@@ -89,8 +86,7 @@ Result<IColumn::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr) {
     }
 
     // Must be an array column with single row
-    const auto* array_col =
-            check_and_get_column<ColumnArray>(*array_holder_col);
+    const auto* array_col = check_and_get_column<ColumnArray>(*array_holder_col);
     if (array_col == nullptr || array_col->size() != 1) {
         return ResultError(Status::InvalidArgument(
                 "Ann topn expr constant should be an Array literal, got column: {}",
@@ -106,8 +102,7 @@ Result<IColumn::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr) {
         return ResultError(Status::InvalidArgument("Ann topn query vector cannot be empty"));
     }
 
-    if (auto* value_nullable_col =
-                check_and_get_column<ColumnNullable>(nested_data_any)) {
+    if (auto* value_nullable_col = check_and_get_column<ColumnNullable>(nested_data_any)) {
         if (value_nullable_col->has_null(0, value_count)) {
             return ResultError(Status::InvalidArgument(
                     "Ann topn query vector elements cannot contain NULL values"));
@@ -222,8 +217,7 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::IndexIterator* ann
                 "Ann topn query vector dimension {} does not match index dimension {}",
                 query_array_size, ann_index_reader->get_dimension());
     }
-    const ColumnFloat32* query =
-            assert_cast<const ColumnFloat32*>(_query_array.get());
+    const ColumnFloat32* query = assert_cast<const ColumnFloat32*>(_query_array.get());
     segment_v2::AnnTopNParam ann_query_params {
             .query_value = query->get_data().data(),
             .query_value_size = query_array_size,

@@ -382,8 +382,7 @@ public:
         }
 
         template <typename HybridSetType>
-        void find_codes(const HybridSetType* values,
-                        std::vector<UInt8>& selected) const {
+        void find_codes(const HybridSetType* values, std::vector<UInt8>& selected) const {
             size_t dict_word_num = _dict_data->size();
             selected.resize(dict_word_num);
             selected.assign(dict_word_num, false);

@@ -38,9 +38,8 @@ public:
 
     Status parse(const std::string& scroll_result, bool exactly_once = false);
     // Add time_zone info to convert time field of ES to local time zone of Doris
-    Status fill_columns(const TupleDescriptor* _tuple_desc,
-                        std::vector<MutableColumnPtr>& columns, bool* line_eof,
-                        const std::map<std::string, std::string>& docvalue_context,
+    Status fill_columns(const TupleDescriptor* _tuple_desc, std::vector<MutableColumnPtr>& columns,
+                        bool* line_eof, const std::map<std::string, std::string>& docvalue_context,
                         const cctz::time_zone& time_zone);
 
     const std::string& get_scroll_id();

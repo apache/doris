@@ -96,8 +96,7 @@ public:
     }
 
 private:
-    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel,
-                             uint16_t size) const override {
+    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override {
         return size;
     }
 

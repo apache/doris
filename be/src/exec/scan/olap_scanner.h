@@ -50,7 +50,6 @@ class TPaloScanRange;
 class ScanLocalStateBase;
 struct FilterPredicates;
 
-
 class Block;
 
 class OlapScanner : public Scanner {

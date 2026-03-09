@@ -58,25 +58,21 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     auto& p = _parent->template cast<AggSourceOperatorX>();
     if (p._without_key) {
         if (p._needs_finalize) {
-            _executor.get_result = [this](RuntimeState* state, Block* block,
-                                          bool* eos) {
+            _executor.get_result = [this](RuntimeState* state, Block* block, bool* eos) {
                 return _get_without_key_result(state, block, eos);
             };
         } else {
-            _executor.get_result = [this](RuntimeState* state, Block* block,
-                                          bool* eos) {
+            _executor.get_result = [this](RuntimeState* state, Block* block, bool* eos) {
                 return _get_results_without_key(state, block, eos);
             };
         }
     } else {
         if (p._needs_finalize) {
-            _executor.get_result = [this](RuntimeState* state, Block* block,
-                                          bool* eos) {
+            _executor.get_result = [this](RuntimeState* state, Block* block, bool* eos) {
                 return _get_with_serialized_key_result(state, block, eos);
             };
         } else {
-            _executor.get_result = [this](RuntimeState* state, Block* block,
-                                          bool* eos) {
+            _executor.get_result = [this](RuntimeState* state, Block* block, bool* eos) {
                 return _get_results_with_serialized_key(state, block, eos);
             };
         }
@@ -102,8 +98,8 @@ Status AggLocalState::_create_agg_status(AggregateDataPtr data) {
     return Status::OK();
 }
 
-Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state,
-                                                       Block* block, bool* eos) {
+Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state, Block* block,
+                                                       bool* eos) {
     SCOPED_TIMER(_get_results_timer);
     auto& shared_state = *_shared_state;
     size_t key_size = _shared_state->probe_expr_ctxs.size();
@@ -331,8 +327,7 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, Block
     return Status::OK();
 }
 
-Status AggLocalState::_get_results_without_key(RuntimeState* state, Block* block,
-                                               bool* eos) {
+Status AggLocalState::_get_results_without_key(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_TIMER(_get_results_timer);
     auto& shared_state = *_shared_state;
     // 1. `child(0)->rows_returned() == 0` mean not data from child
@@ -376,8 +371,7 @@ Status AggLocalState::_get_results_without_key(RuntimeState* state, Block* block
     return Status::OK();
 }
 
-Status AggLocalState::_get_without_key_result(RuntimeState* state, Block* block,
-                                              bool* eos) {
+Status AggLocalState::_get_without_key_result(RuntimeState* state, Block* block, bool* eos) {
     auto& shared_state = *_shared_state;
     DCHECK(_shared_state->agg_data->without_key != nullptr);
     block->clear();
@@ -519,8 +513,7 @@ Status AggLocalState::merge_with_serialized_key_helper(Block* block) {
     return Status::OK();
 }
 
-Status AggSourceOperatorX::merge_with_serialized_key_helper(RuntimeState* state,
-                                                            Block* block) {
+Status AggSourceOperatorX::merge_with_serialized_key_helper(RuntimeState* state, Block* block) {
     auto& local_state = get_local_state(state);
     return local_state.merge_with_serialized_key_helper(block);
 }
@@ -548,64 +541,62 @@ Status AggSourceOperatorX::reset_hash_table(RuntimeState* state) {
     return Status::OK();
 }
 
-void AggLocalState::_emplace_into_hash_table(AggregateDataPtr* places,
-                                             ColumnRawPtrs& key_columns,
+void AggLocalState::_emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
                                              uint32_t num_rows) {
     std::visit(
-            Overload {
-                    [&](std::monostate& arg) -> void {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                    },
-                    [&](auto& agg_method) -> void {
-                        SCOPED_TIMER(_hash_table_compute_timer);
-                        using HashMethodType = std::decay_t<decltype(agg_method)>;
-                        using AggState = typename HashMethodType::State;
-                        AggState state(key_columns);
-                        agg_method.init_serialized_keys(key_columns, num_rows);
+            Overload {[&](std::monostate& arg) -> void {
+                          throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                      },
+                      [&](auto& agg_method) -> void {
+                          SCOPED_TIMER(_hash_table_compute_timer);
+                          using HashMethodType = std::decay_t<decltype(agg_method)>;
+                          using AggState = typename HashMethodType::State;
+                          AggState state(key_columns);
+                          agg_method.init_serialized_keys(key_columns, num_rows);
 
-                        auto creator = [this](const auto& ctor, auto& key, auto& origin) {
-                            HashMethodType::try_presis_key_and_origin(
-                                    key, origin, Base::_shared_state->agg_arena_pool);
-                            auto mapped =
-                                    Base::_shared_state->aggregate_data_container->append_data(
-                                            origin);
-                            auto st = _create_agg_status(mapped);
-                            if (!st) {
-                                throw Exception(st.code(), st.to_string());
-                            }
-                            ctor(key, mapped);
-                        };
+                          auto creator = [this](const auto& ctor, auto& key, auto& origin) {
+                              HashMethodType::try_presis_key_and_origin(
+                                      key, origin, Base::_shared_state->agg_arena_pool);
+                              auto mapped =
+                                      Base::_shared_state->aggregate_data_container->append_data(
+                                              origin);
+                              auto st = _create_agg_status(mapped);
+                              if (!st) {
+                                  throw Exception(st.code(), st.to_string());
+                              }
+                              ctor(key, mapped);
+                          };
 
-                        auto creator_for_null_key = [&](auto& mapped) {
-                            mapped = Base::_shared_state->agg_arena_pool.aligned_alloc(
-                                    _shared_state->total_size_of_aggregate_states,
-                                    _shared_state->align_aggregate_states);
-                            auto st = _create_agg_status(mapped);
-                            if (!st) {
-                                throw Exception(st.code(), st.to_string());
-                            }
-                        };
+                          auto creator_for_null_key = [&](auto& mapped) {
+                              mapped = Base::_shared_state->agg_arena_pool.aligned_alloc(
+                                      _shared_state->total_size_of_aggregate_states,
+                                      _shared_state->align_aggregate_states);
+                              auto st = _create_agg_status(mapped);
+                              if (!st) {
+                                  throw Exception(st.code(), st.to_string());
+                              }
+                          };
 
-                        SCOPED_TIMER(_hash_table_emplace_timer);
-                        for (size_t i = 0; i < num_rows; ++i) {
-                            places[i] = *agg_method.lazy_emplace(state, i, creator,
-                                                                 creator_for_null_key);
-                        }
+                          SCOPED_TIMER(_hash_table_emplace_timer);
+                          for (size_t i = 0; i < num_rows; ++i) {
+                              places[i] = *agg_method.lazy_emplace(state, i, creator,
+                                                                   creator_for_null_key);
+                          }
 
-                        COUNTER_UPDATE(_hash_table_input_counter, num_rows);
-                        COUNTER_SET(_hash_table_memory_usage,
-                                    static_cast<int64_t>(
-                                            agg_method.hash_table->get_buffer_size_in_bytes()));
-                        COUNTER_SET(_hash_table_size_counter,
-                                    static_cast<int64_t>(agg_method.hash_table->size()));
-                        COUNTER_SET(
-                                _memory_usage_container,
-                                static_cast<int64_t>(
-                                        _shared_state->aggregate_data_container->memory_usage()));
-                        COUNTER_SET(
-                                _memory_usage_arena,
-                                static_cast<int64_t>(Base::_shared_state->agg_arena_pool.size()));
-                    }},
+                          COUNTER_UPDATE(_hash_table_input_counter, num_rows);
+                          COUNTER_SET(_hash_table_memory_usage,
+                                      static_cast<int64_t>(
+                                              agg_method.hash_table->get_buffer_size_in_bytes()));
+                          COUNTER_SET(_hash_table_size_counter,
+                                      static_cast<int64_t>(agg_method.hash_table->size()));
+                          COUNTER_SET(
+                                  _memory_usage_container,
+                                  static_cast<int64_t>(
+                                          _shared_state->aggregate_data_container->memory_usage()));
+                          COUNTER_SET(
+                                  _memory_usage_arena,
+                                  static_cast<int64_t>(Base::_shared_state->agg_arena_pool.size()));
+                      }},
             _shared_state->agg_data->method_variant);
 }
 

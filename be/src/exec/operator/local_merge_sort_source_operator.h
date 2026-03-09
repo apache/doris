@@ -27,7 +27,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-
 // The LocalMergeSortSourceOperatorX is an operator that performs merge sort locally.
 // If there is an instance, it will only operate in one instance (referred to as the main source below),
 // while the other instances will directly return EOS (referred to as other sources below).

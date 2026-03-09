@@ -452,8 +452,8 @@ public:
             const PrimitiveType& primitiveType, const doris::Field* value,
             std::unique_ptr<InvertedIndexQueryParamFactory>& result_param) {
         switch (primitiveType) {
-#define M(TYPE)                                                                         \
-    case TYPE: {                                                                        \
+#define M(TYPE)                                                             \
+    case TYPE: {                                                            \
         return create_query_value<TYPE, doris::Field>(value, result_param); \
     }
             M(PrimitiveType::TYPE_BOOLEAN)

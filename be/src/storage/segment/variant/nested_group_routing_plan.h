@@ -65,8 +65,7 @@ struct NestedGroupRoutingPlan {
 
 // Build NG routing plan from variant content. Scans the variant for
 // array<object> paths, detects conflicts, and populates the plan.
-Status build_nested_group_routing_plan(const ColumnVariant& variant,
-                                       NestedGroupRoutingPlan* plan);
+Status build_nested_group_routing_plan(const ColumnVariant& variant, NestedGroupRoutingPlan* plan);
 
 // Collect NG routing metadata from variant content:
 // - out_ng_paths: all NG candidate paths

@@ -43,8 +43,8 @@ class RuntimeFilterProducerHelperTest : public RuntimeFilterTest {
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(_pipeline->set_sink(_sink));
 
         for (int i = 0; i < INSTANCE_NUM; i++) {
-            _tasks.emplace_back(new PipelineTask(_pipeline, 0, _runtime_states[i].get(),
-                                                           nullptr, &_profile, {}, 0));
+            _tasks.emplace_back(new PipelineTask(_pipeline, 0, _runtime_states[i].get(), nullptr,
+                                                 &_profile, {}, 0));
         }
     }
 
@@ -59,8 +59,8 @@ TEST_F(RuntimeFilterProducerHelperTest, basic) {
     auto helper = RuntimeFilterProducerHelper(true, false);
 
     VExprContextSPtr ctx;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(VExpr::create_expr_tree(
-            TRuntimeFilterDescBuilder::get_default_expr(), ctx));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            VExpr::create_expr_tree(TRuntimeFilterDescBuilder::get_default_expr(), ctx));
     ctx->_last_result_column_id = 0;
 
     VExprContextSPtrs build_expr_ctxs = {ctx};
@@ -84,8 +84,8 @@ TEST_F(RuntimeFilterProducerHelperTest, wake_up_eraly) {
     auto helper = RuntimeFilterProducerHelper(true, false);
 
     VExprContextSPtr ctx;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(VExpr::create_expr_tree(
-            TRuntimeFilterDescBuilder::get_default_expr(), ctx));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            VExpr::create_expr_tree(TRuntimeFilterDescBuilder::get_default_expr(), ctx));
     ctx->_last_result_column_id = 0;
 
     VExprContextSPtrs build_expr_ctxs = {ctx};
@@ -108,8 +108,8 @@ TEST_F(RuntimeFilterProducerHelperTest, skip_process) {
     auto helper = RuntimeFilterProducerHelper(true, false);
 
     VExprContextSPtr ctx;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(VExpr::create_expr_tree(
-            TRuntimeFilterDescBuilder::get_default_expr(), ctx));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            VExpr::create_expr_tree(TRuntimeFilterDescBuilder::get_default_expr(), ctx));
     ctx->_last_result_column_id = 0;
 
     VExprContextSPtrs build_expr_ctxs = {ctx};
@@ -139,8 +139,8 @@ TEST_F(RuntimeFilterProducerHelperTest, broadcast) {
     auto helper = RuntimeFilterProducerHelper(true, true);
 
     VExprContextSPtr ctx;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(VExpr::create_expr_tree(
-            TRuntimeFilterDescBuilder::get_default_expr(), ctx));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            VExpr::create_expr_tree(TRuntimeFilterDescBuilder::get_default_expr(), ctx));
     ctx->_last_result_column_id = 0;
 
     VExprContextSPtrs build_expr_ctxs = {ctx};

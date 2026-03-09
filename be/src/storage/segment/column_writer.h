@@ -127,7 +127,8 @@ public:
                                           const TabletColumn* column, io::FileWriter* file_writer,
                                           std::unique_ptr<ColumnWriter>* writer);
 
-    explicit ColumnWriter(std::unique_ptr<StorageField> field, bool is_nullable, ColumnMetaPB* meta);
+    explicit ColumnWriter(std::unique_ptr<StorageField> field, bool is_nullable,
+                          ColumnMetaPB* meta);
 
     virtual ~ColumnWriter() = default;
 
@@ -357,7 +358,8 @@ private:
 
 class StructColumnWriter final : public ColumnWriter {
 public:
-    explicit StructColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<StorageField> field,
+    explicit StructColumnWriter(const ColumnWriterOptions& opts,
+                                std::unique_ptr<StorageField> field,
                                 ScalarColumnWriter* null_writer,
                                 std::vector<std::unique_ptr<ColumnWriter>>& sub_column_writers);
     ~StructColumnWriter() override = default;

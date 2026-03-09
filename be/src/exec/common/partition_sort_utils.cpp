@@ -27,8 +27,7 @@ Status PartitionBlocks::append_block_by_selector(const Block* input_block, bool 
         if (_blocks.empty() || reach_limit()) {
             _init_rows = _partition_sort_info->_runtime_state->batch_size();
             _blocks.push_back(Block::create_unique(
-                    VectorizedUtils::create_empty_block(
-                            _partition_sort_info->_row_desc)));
+                    VectorizedUtils::create_empty_block(_partition_sort_info->_row_desc)));
         }
         auto columns = input_block->get_columns();
         auto mutable_columns = _blocks.back()->mutate_columns();

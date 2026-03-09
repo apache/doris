@@ -190,8 +190,7 @@ public:
         if (bytes > 0) {
             const auto* data = reinterpret_cast<const uint8_t*>(ptr);
             // CLucene IndexOutput::writeBytes accepts at most Int32 bytes at a time.
-            const size_t kMaxChunk =
-                    static_cast<size_t>(std::numeric_limits<Int32>::max());
+            const size_t kMaxChunk = static_cast<size_t>(std::numeric_limits<Int32>::max());
             size_t written = 0;
             while (written < bytes) {
                 size_t to_write = bytes - written;
@@ -225,8 +224,7 @@ public:
         size_t bytes = size * nitems;
         if (bytes > 0) {
             auto* data = reinterpret_cast<uint8_t*>(ptr);
-            const size_t kMaxChunk =
-                    static_cast<size_t>(std::numeric_limits<Int32>::max());
+            const size_t kMaxChunk = static_cast<size_t>(std::numeric_limits<Int32>::max());
             size_t read = 0;
             while (read < bytes) {
                 size_t to_read = bytes - read;

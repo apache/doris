@@ -63,8 +63,7 @@ public:
     double get_ignore_threshold() const override { return get_bloom_filter_ignore_thredhold(); }
 
 private:
-    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel,
-                             uint16_t size) const override;
+    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override;
 
     template <bool is_nullable>
     uint16_t evaluate(const IColumn& column, const uint8_t* null_map, uint16_t* sel,
@@ -82,8 +81,7 @@ private:
                     dict_col, null_map, sel, size);
         } else {
             const auto& data =
-                    assert_cast<const PredicateColumnType<PredicateEvaluateType<T>>*>(
-                            &column)
+                    assert_cast<const PredicateColumnType<PredicateEvaluateType<T>>*>(&column)
                             ->get_data();
             new_size = _specific_filter->find_fixed_len_olap_engine((char*)data.data(), null_map,
                                                                     sel, size, data.size() != size);
@@ -96,8 +94,8 @@ private:
 };
 
 template <PrimitiveType T>
-uint16_t BloomFilterColumnPredicate<T>::_evaluate_inner(const IColumn& column,
-                                                        uint16_t* sel, uint16_t size) const {
+uint16_t BloomFilterColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t* sel,
+                                                        uint16_t size) const {
     if (column.is_nullable()) {
         const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
         const auto& null_map_data = nullable_col->get_null_map_column().get_data();

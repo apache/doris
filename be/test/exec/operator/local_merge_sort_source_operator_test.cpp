@@ -29,7 +29,6 @@
 #include "testutil/mock/mock_sorter.h"
 namespace doris {
 
-
 struct LocalMergeSOrtSourceOperatorTest : public testing::Test {
     LocalMergeSOrtSourceOperatorTest() : profile("LocalMergeSOrtSourceOperatorTest") {}
     ~LocalMergeSOrtSourceOperatorTest() override = default;

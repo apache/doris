@@ -427,8 +427,7 @@ Status DataTypeNullableSerDe::write_column_to_mysql_binary(const IColumn& column
 Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
                                                   const IColumn& column, const NullMap* null_map,
                                                   orc::ColumnVectorBatch* orc_col_batch,
-                                                  int64_t start, int64_t end,
-                                                  Arena& arena,
+                                                  int64_t start, int64_t end, Arena& arena,
                                                   const FormatOptions& options) const {
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
     orc_col_batch->hasNulls = true;

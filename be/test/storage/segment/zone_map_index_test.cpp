@@ -120,8 +120,7 @@ public:
     void test_string_cut(bool pass_all, int32_t length) {
         static_assert(PType == TYPE_CHAR || PType == TYPE_VARCHAR || PType == TYPE_STRING,
                       "only varchar is supported");
-        auto data_type =
-                DataTypeFactory::instance().create_data_type(PType, true, 0, 0, length);
+        auto data_type = DataTypeFactory::instance().create_data_type(PType, true, 0, 0, length);
         TabletColumnPtr tab_col;
         if constexpr (PType == TYPE_CHAR) {
             tab_col = create_char_key(0, true, length);
@@ -247,8 +246,8 @@ public:
 
     void test_char_padding(bool pass_all) {
         int32_t length = 10;
-        auto data_type = DataTypeFactory::instance().create_data_type(TYPE_CHAR, true,
-                                                                                  0, 0, length);
+        auto data_type =
+                DataTypeFactory::instance().create_data_type(TYPE_CHAR, true, 0, 0, length);
         auto tab_col = create_char_key(0, true, length);
         auto field = std::unique_ptr<StorageField>(StorageFieldFactory::create(*tab_col));
         std::string s_less_than_schema_length1(length - 1, 'a');
@@ -340,8 +339,8 @@ public:
     void test_decimalv2(bool pass_all) {
         int precision = 18;
         int scale = 7;
-        auto data_type = DataTypeFactory::instance().create_data_type(
-                TYPE_DECIMALV2, true, precision, scale);
+        auto data_type = DataTypeFactory::instance().create_data_type(TYPE_DECIMALV2, true,
+                                                                      precision, scale);
         TabletColumnPtr tab_col;
         tab_col = create_decimalv2_key(0, true);
         auto field = std::unique_ptr<StorageField>(StorageFieldFactory::create(*tab_col));
@@ -510,8 +509,7 @@ public:
         return column;
     }
     void test_datetimev1(bool pass_all) {
-        auto data_type =
-                DataTypeFactory::instance().create_data_type(TYPE_DATETIME, true);
+        auto data_type = DataTypeFactory::instance().create_data_type(TYPE_DATETIME, true);
         TabletColumnPtr tab_col;
         tab_col = create_datetimev1_key(0, true);
         auto field = std::unique_ptr<StorageField>(StorageFieldFactory::create(*tab_col));
@@ -644,8 +642,7 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
 TEST_F(ColumnZoneMapTest, NormalTestVarcharPage) {
     TabletColumnPtr varchar_column = create_varchar_key(0);
     StorageField* field = StorageFieldFactory::create(*varchar_column);
-    auto str_data_type_ptr =
-            DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, false);
+    auto str_data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, false);
     test_string("NormalTestVarcharPage", field, str_data_type_ptr);
     delete field;
 }
@@ -654,8 +651,7 @@ TEST_F(ColumnZoneMapTest, NormalTestVarcharPage) {
 TEST_F(ColumnZoneMapTest, NormalTestCharPage) {
     TabletColumnPtr char_column = create_char_key(0);
     StorageField* field = StorageFieldFactory::create(*char_column);
-    auto char_data_type_ptr =
-            DataTypeFactory::instance().create_data_type(TYPE_CHAR, false);
+    auto char_data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_CHAR, false);
     test_string("NormalTestCharPage", field, char_data_type_ptr);
     delete field;
 }
@@ -665,8 +661,7 @@ TEST_F(ColumnZoneMapTest, ZoneMapCut) {
     TabletColumnPtr varchar_column = create_varchar_key(0);
     varchar_column->set_index_length(1024);
     StorageField* field = StorageFieldFactory::create(*varchar_column);
-    auto data_type_ptr =
-            DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, false);
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, false);
     test_string("ZoneMapCut", field, data_type_ptr);
     delete field;
 }
@@ -722,8 +717,7 @@ TEST_F(ColumnZoneMapTest, NormalTestFloatPage) {
 
     auto column = create_float_column<FieldType::OLAP_FIELD_TYPE_FLOAT>(0, true);
     StorageField* field = StorageFieldFactory::create(*column);
-    auto data_type_ptr =
-            DataTypeFactory::instance().create_data_type(TYPE_FLOAT, false);
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, false);
 
     std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
     static_cast<void>(ZoneMapIndexWriter::create(data_type_ptr, field, builder));
@@ -775,8 +769,7 @@ TEST_F(ColumnZoneMapTest, NormalTestFloatPage) {
     auto segment_zone_map = index_meta.zone_map_index().segment_zone_map();
     EXPECT_EQ(CastToString::from_number(std::numeric_limits<float>::lowest()),
               segment_zone_map.min());
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<float>::max()),
-              segment_zone_map.max());
+    EXPECT_EQ(CastToString::from_number(std::numeric_limits<float>::max()), segment_zone_map.max());
     EXPECT_EQ(true, segment_zone_map.has_null());
     EXPECT_EQ(true, segment_zone_map.has_not_null());
     EXPECT_EQ(true, segment_zone_map.has_positive_inf());
@@ -790,10 +783,8 @@ TEST_F(ColumnZoneMapTest, NormalTestFloatPage) {
     const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
     EXPECT_EQ(3, zone_maps.size());
 
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<float>::lowest()),
-              zone_maps[0].min());
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<float>::max()),
-              zone_maps[0].max());
+    EXPECT_EQ(CastToString::from_number(std::numeric_limits<float>::lowest()), zone_maps[0].min());
+    EXPECT_EQ(CastToString::from_number(std::numeric_limits<float>::max()), zone_maps[0].max());
     EXPECT_EQ(false, zone_maps[0].has_null());
     EXPECT_EQ(true, zone_maps[0].has_not_null());
     EXPECT_EQ(true, zone_maps[0].has_positive_inf());
@@ -816,8 +807,7 @@ TEST_F(ColumnZoneMapTest, NormalTestDoublePage) {
 
     auto column = create_float_column<FieldType::OLAP_FIELD_TYPE_DOUBLE>(0, true);
     StorageField* field = StorageFieldFactory::create(*column);
-    auto data_type_ptr =
-            DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
 
     std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
     static_cast<void>(ZoneMapIndexWriter::create(data_type_ptr, field, builder));
@@ -884,10 +874,8 @@ TEST_F(ColumnZoneMapTest, NormalTestDoublePage) {
     const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
     EXPECT_EQ(3, zone_maps.size());
 
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<double>::lowest()),
-              zone_maps[0].min());
-    EXPECT_EQ(CastToString::from_number(std::numeric_limits<double>::max()),
-              zone_maps[0].max());
+    EXPECT_EQ(CastToString::from_number(std::numeric_limits<double>::lowest()), zone_maps[0].min());
+    EXPECT_EQ(CastToString::from_number(std::numeric_limits<double>::max()), zone_maps[0].max());
     EXPECT_EQ(false, zone_maps[0].has_null());
     EXPECT_EQ(true, zone_maps[0].has_not_null());
     EXPECT_EQ(true, zone_maps[0].has_positive_inf());
@@ -923,8 +911,7 @@ TEST_F(ColumnZoneMapTest, TimestamptzPage) {
 
     auto column = create_timestamptz_column(0, true);
     StorageField* field = StorageFieldFactory::create(*column);
-    auto data_type_ptr =
-            DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, false);
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, false);
 
     std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
     static_cast<void>(ZoneMapIndexWriter::create(data_type_ptr, field, builder));
@@ -1014,9 +1001,8 @@ TEST_F(ColumnZoneMapTest, TimestamptzPage) {
 
     UInt32 scale = 6;
     auto segment_zone_map = index_meta.zone_map_index().segment_zone_map();
-    EXPECT_EQ(
-            CastToString::from_timestamptz(type_limit<TimestampTzValue>::min(), scale),
-            segment_zone_map.min());
+    EXPECT_EQ(CastToString::from_timestamptz(type_limit<TimestampTzValue>::min(), scale),
+              segment_zone_map.min());
     std::string max_str = "9999-12-31 23:59:59";
     TimestampTzValue tz_max {};
     EXPECT_TRUE(tz_max.from_string(StringRef {max_str}, &time_zone, params, 0));
@@ -1032,17 +1018,15 @@ TEST_F(ColumnZoneMapTest, TimestamptzPage) {
     EXPECT_EQ(5, zone_maps.size());
 
     // page 1
-    EXPECT_EQ(
-            CastToString::from_timestamptz(type_limit<TimestampTzValue>::min(), scale),
-            zone_maps[0].min());
+    EXPECT_EQ(CastToString::from_timestamptz(type_limit<TimestampTzValue>::min(), scale),
+              zone_maps[0].min());
     EXPECT_EQ(CastToString::from_timestamptz(tz_max, scale), zone_maps[0].max());
     EXPECT_EQ(false, zone_maps[0].has_null());
     EXPECT_EQ(true, zone_maps[0].has_not_null());
 
     // page 2
-    EXPECT_EQ(
-            CastToString::from_timestamptz(type_limit<TimestampTzValue>::min(), scale),
-            zone_maps[1].min());
+    EXPECT_EQ(CastToString::from_timestamptz(type_limit<TimestampTzValue>::min(), scale),
+              zone_maps[1].min());
     {
         TimestampTzValue tz {};
         StringRef str = StringRef {"8999-12-31 23:59:59"};

@@ -1108,10 +1108,9 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
     a3.push_back(Field::create_field<TYPE_STRING>("date"));
 
     // Construct array type: DataTypeArray(DataTypeNullable(DataTypeString))
-    DataTypePtr inner_string_type = std::make_shared<DataTypeNullable>(
-            std::make_shared<DataTypeString>());
-    DataTypePtr array_type =
-            std::make_shared<DataTypeArray>(inner_string_type);
+    DataTypePtr inner_string_type =
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+    DataTypePtr array_type = std::make_shared<DataTypeArray>(inner_string_type);
     MutableColumnPtr col = array_type->create_column();
     col->insert(Field::create_field<TYPE_ARRAY>(a1));
     col->insert(Field::create_field<TYPE_ARRAY>(a2));
@@ -1227,8 +1226,7 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
     // Array 1: [42, 100]
     // Array 2: [200, 300, 400]
     DataTypePtr inner_int_type = std::make_shared<DataTypeInt32>();
-    DataTypePtr array_type =
-            std::make_shared<DataTypeArray>(inner_int_type);
+    DataTypePtr array_type = std::make_shared<DataTypeArray>(inner_int_type);
     MutableColumnPtr col = array_type->create_column();
 
     // Array 1: [42, 100]

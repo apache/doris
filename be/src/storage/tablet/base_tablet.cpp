@@ -618,8 +618,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         RETURN_IF_ERROR(pk_idx->new_iterator(&iter, nullptr));
 
         size_t num_to_read = std::min<int64_t>(batch_size, remaining);
-        auto index_type = DataTypeFactory::instance().create_data_type(
-                pk_idx->type_info()->type(), 1, 0);
+        auto index_type =
+                DataTypeFactory::instance().create_data_type(pk_idx->type_info()->type(), 1, 0);
         auto index_column = index_type->create_column();
         Slice last_key_slice(last_key);
         RETURN_IF_ERROR(iter->seek_at_or_after(&last_key_slice, &exact_match));
@@ -829,10 +829,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
 }
 
 Status BaseTablet::sort_block(Block& in_block, Block& output_block) {
-    MutableBlock mutable_input_block =
-            MutableBlock::build_mutable_block(&in_block);
-    MutableBlock mutable_output_block =
-            MutableBlock::build_mutable_block(&output_block);
+    MutableBlock mutable_input_block = MutableBlock::build_mutable_block(&in_block);
+    MutableBlock mutable_output_block = MutableBlock::build_mutable_block(&output_block);
 
     std::shared_ptr<RowInBlockComparator> vec_row_comparator =
             std::make_shared<RowInBlockComparator>(_tablet_meta->tablet_schema());
@@ -865,8 +863,7 @@ Status BaseTablet::sort_block(Block& in_block, Block& output_block) {
 Status BaseTablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset,
                                                   const TabletSchema& tablet_schema, uint32_t segid,
                                                   const std::vector<uint32_t>& rowids,
-                                                  const std::vector<uint32_t>& cids,
-                                                  Block& block) {
+                                                  const std::vector<uint32_t>& cids, Block& block) {
     MonotonicStopWatch watch;
     watch.start();
     Defer _defer([&]() {
@@ -895,21 +892,19 @@ Status BaseTablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset,
     default_values.resize(cids.size());
     for (int i = 0; i < cids.size(); ++i) {
         const TabletColumn& tablet_column = tablet_schema.column(cids[i]);
-        DataTypePtr type =
-                DataTypeFactory::instance().create_data_type(tablet_column);
+        DataTypePtr type = DataTypeFactory::instance().create_data_type(tablet_column);
         col_uid_to_idx[tablet_column.unique_id()] = i;
         default_values[i] = tablet_column.default_value();
         serdes[i] = type->get_serde();
     }
-    RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
-            serdes, *string_column, col_uid_to_idx, block, default_values, {}));
+    RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(serdes, *string_column, col_uid_to_idx,
+                                                       block, default_values, {}));
     return Status::OK();
 }
 
 Status BaseTablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segid,
                                          const std::vector<uint32_t>& rowids,
-                                         const TabletColumn& tablet_column,
-                                         MutableColumnPtr& dst) {
+                                         const TabletColumn& tablet_column, MutableColumnPtr& dst) {
     MonotonicStopWatch watch;
     watch.start();
     Defer _defer([&]() {
@@ -933,8 +928,7 @@ const signed char* BaseTablet::get_delete_sign_column_data(const Block& block,
                                                            size_t rows_at_least) {
     if (int pos = block.get_position_by_name(DELETE_SIGN); pos != -1) {
         const ColumnWithTypeAndName& delete_sign_column = block.get_by_position(pos);
-        const auto& delete_sign_col =
-                assert_cast<const ColumnInt8&>(*(delete_sign_column.column));
+        const auto& delete_sign_col = assert_cast<const ColumnInt8&>(*(delete_sign_column.column));
         if (delete_sign_col.size() >= rows_at_least) {
             return delete_sign_col.get_data().data();
         }
@@ -964,8 +958,7 @@ Status BaseTablet::generate_default_value_block(const TabletSchema& schema,
 Status BaseTablet::generate_new_block_for_partial_update(
         TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
         const FixedReadPlan& read_plan_ori, const FixedReadPlan& read_plan_update,
-        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-        Block* output_block) {
+        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset, Block* output_block) {
     // do partial update related works
     // 1. read columns by read plan
     // 2. generate new block
@@ -1084,10 +1077,9 @@ static void fill_cell_for_flexible_partial_update(
         std::map<uint32_t, uint32_t>& read_index_old,
         std::map<uint32_t, uint32_t>& read_index_update, const TabletSchemaSPtr& rowset_schema,
         const PartialUpdateInfo* partial_update_info, const TabletColumn& tablet_column,
-        std::size_t idx, MutableColumnPtr& new_col,
-        const IColumn& default_value_col, const IColumn& old_value_col,
-        const IColumn& cur_col, bool skipped, bool row_has_sequence_col,
-        const signed char* delete_sign_column_data) {
+        std::size_t idx, MutableColumnPtr& new_col, const IColumn& default_value_col,
+        const IColumn& old_value_col, const IColumn& cur_col, bool skipped,
+        bool row_has_sequence_col, const signed char* delete_sign_column_data) {
     if (skipped) {
         bool use_default = false;
         bool old_row_delete_sign =
@@ -1133,8 +1125,7 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
         TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
         std::set<uint32_t>& rids_be_overwritten, const FixedReadPlan& read_plan_ori,
         const FixedReadPlan& read_plan_update,
-        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-        Block* output_block) {
+        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset, Block* output_block) {
     CHECK(output_block);
 
     int32_t seq_col_unique_id = -1;

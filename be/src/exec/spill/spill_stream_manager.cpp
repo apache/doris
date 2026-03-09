@@ -47,8 +47,7 @@ SpillStreamManager::~SpillStreamManager() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
 }
 SpillStreamManager::SpillStreamManager(
-        std::unordered_map<std::string, std::unique_ptr<SpillDataDir>>&&
-                spill_store_map)
+        std::unordered_map<std::string, std::unique_ptr<SpillDataDir>>&& spill_store_map)
         : _spill_store_map(std::move(spill_store_map)), _stop_background_threads_latch(1) {}
 
 Status SpillStreamManager::init() {

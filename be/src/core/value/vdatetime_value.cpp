@@ -89,22 +89,22 @@ bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
 bool VecDateTimeValue::from_date_str(const char* date_str, size_t len) {
     CastParameters params;
     if (type() == TIME_DATE) {
-        return CastToDateOrDatetime::from_string_non_strict_mode<false>(
-                {date_str, len}, *this, nullptr, params);
+        return CastToDateOrDatetime::from_string_non_strict_mode<false>({date_str, len}, *this,
+                                                                        nullptr, params);
     } else {
-        return CastToDateOrDatetime::from_string_non_strict_mode<true>(
-                {date_str, len}, *this, nullptr, params);
+        return CastToDateOrDatetime::from_string_non_strict_mode<true>({date_str, len}, *this,
+                                                                       nullptr, params);
     }
 }
 bool VecDateTimeValue::from_date_str(const char* date_str, size_t len,
                                      const cctz::time_zone& local_time_zone) {
     CastParameters params;
     if (type() == TIME_DATE) {
-        return CastToDateOrDatetime::from_string_non_strict_mode<false>(
-                {date_str, len}, *this, &local_time_zone, params);
+        return CastToDateOrDatetime::from_string_non_strict_mode<false>({date_str, len}, *this,
+                                                                        &local_time_zone, params);
     } else {
-        return CastToDateOrDatetime::from_string_non_strict_mode<true>(
-                {date_str, len}, *this, &local_time_zone, params);
+        return CastToDateOrDatetime::from_string_non_strict_mode<true>({date_str, len}, *this,
+                                                                       &local_time_zone, params);
     }
 }
 
@@ -1808,11 +1808,10 @@ bool DateV2Value<T>::from_date_str(const char* date_str, size_t len, int scale /
                                    bool convert_zero) {
     CastParameters params;
     if constexpr (is_datetime) {
-        return CastToDatetimeV2::from_string_non_strict_mode({date_str, len}, *this,
-                                                                         nullptr, scale, params);
+        return CastToDatetimeV2::from_string_non_strict_mode({date_str, len}, *this, nullptr, scale,
+                                                             params);
     } else {
-        return CastToDateV2::from_string_non_strict_mode({date_str, len}, *this,
-                                                                     nullptr, params);
+        return CastToDateV2::from_string_non_strict_mode({date_str, len}, *this, nullptr, params);
     }
 }
 
@@ -1822,11 +1821,11 @@ bool DateV2Value<T>::from_date_str(const char* date_str, size_t len,
                                    bool convert_zero) {
     CastParameters params;
     if constexpr (is_datetime) {
-        return CastToDatetimeV2::from_string_non_strict_mode(
-                {date_str, len}, *this, &local_time_zone, scale, params);
+        return CastToDatetimeV2::from_string_non_strict_mode({date_str, len}, *this,
+                                                             &local_time_zone, scale, params);
     } else {
-        return CastToDateV2::from_string_non_strict_mode({date_str, len}, *this,
-                                                                     &local_time_zone, params);
+        return CastToDateV2::from_string_non_strict_mode({date_str, len}, *this, &local_time_zone,
+                                                         params);
     }
 }
 

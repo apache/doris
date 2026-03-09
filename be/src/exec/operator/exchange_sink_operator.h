@@ -35,7 +35,6 @@ namespace doris {
 class RuntimeState;
 class TDataSink;
 
-
 class ExchangeSinkLocalState MOCK_REMOVE(final) : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
     using Base = PipelineXSinkLocalState<>;

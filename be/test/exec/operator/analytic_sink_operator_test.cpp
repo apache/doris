@@ -34,17 +34,13 @@
 #include "testutil/mock/mock_slot_ref.h"
 namespace doris {
 
-
 class MockAnalyticSinkOperator : public OperatorXBase {
 public:
-    Status get_block_after_projects(RuntimeState* state, Block* block,
-                                    bool* eos) override {
+    Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos) override {
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
-        return Status::OK();
-    }
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override { return Status::OK(); }
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
         return Status::OK();
     }

@@ -44,8 +44,7 @@ class RuntimeState;
 class Dependency;
 
 struct BlockData {
-    BlockData(const std::shared_ptr<Block>& block)
-            : block(block), block_bytes(block->bytes()) {};
+    BlockData(const std::shared_ptr<Block>& block) : block(block), block_bytes(block->bytes()) {};
     std::shared_ptr<Block> block;
     size_t block_bytes;
 };
@@ -69,13 +68,12 @@ public:
               _group_commit_data_bytes(group_commit_data_bytes),
               _all_block_queues_bytes(all_block_queues_bytes) {};
 
-    Status add_block(RuntimeState* runtime_state, std::shared_ptr<Block> block,
-                     bool write_wal, UniqueId& load_id);
-    Status get_block(RuntimeState* runtime_state, Block* block, bool* find_block,
-                     bool* eos, std::shared_ptr<Dependency> get_block_dep);
+    Status add_block(RuntimeState* runtime_state, std::shared_ptr<Block> block, bool write_wal,
+                     UniqueId& load_id);
+    Status get_block(RuntimeState* runtime_state, Block* block, bool* find_block, bool* eos,
+                     std::shared_ptr<Dependency> get_block_dep);
     bool contain_load_id(const UniqueId& load_id);
-    Status add_load_id(const UniqueId& load_id,
-                       const std::shared_ptr<Dependency> put_block_dep);
+    Status add_load_id(const UniqueId& load_id, const std::shared_ptr<Dependency> put_block_dep);
     Status remove_load_id(const UniqueId& load_id);
     void cancel(const Status& st);
     bool need_commit() { return _need_commit; }
@@ -190,9 +188,8 @@ private:
     std::unordered_map<UniqueId, std::shared_ptr<LoadBlockQueue>> _load_block_queues;
     bool _is_creating_plan_fragment = false;
     // user_load_id -> <create_plan_dep, put_block_dep, base_schema_version, index_size>
-    std::unordered_map<UniqueId,
-                       std::tuple<std::shared_ptr<Dependency>,
-                                  std::shared_ptr<Dependency>, int64_t, int64_t>>
+    std::unordered_map<UniqueId, std::tuple<std::shared_ptr<Dependency>,
+                                            std::shared_ptr<Dependency>, int64_t, int64_t>>
             _create_plan_deps;
     std::string _create_plan_failed_reason;
 };

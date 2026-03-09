@@ -814,9 +814,8 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
         timespec now;
         clock_gettime(CLOCK_MONOTONIC, &now);
 
-        _pipeline_map.apply([&](phmap::flat_hash_map<
-                                    std::pair<TUniqueId, int>,
-                                    std::shared_ptr<PipelineFragmentContext>>& map)
+        _pipeline_map.apply([&](phmap::flat_hash_map<std::pair<TUniqueId, int>,
+                                                     std::shared_ptr<PipelineFragmentContext>>& map)
                                     -> Status {
             std::set<TUniqueId> query_id_set;
             for (auto& it : map) {
@@ -879,12 +878,11 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     RETURN_IF_ERROR(_get_or_create_query_ctx(params, parent, query_source, query_ctx));
     SCOPED_ATTACH_TASK(query_ctx.get()->resource_ctx());
     int64_t duration_ns = 0;
-    std::shared_ptr<PipelineFragmentContext> context =
-            std::make_shared<PipelineFragmentContext>(
-                    query_ctx->query_id(), params, query_ctx, _exec_env, cb,
-                    [this](const ReportStatusRequest& req, auto&& ctx) {
-                        return this->trigger_pipeline_context_report(req, std::move(ctx));
-                    });
+    std::shared_ptr<PipelineFragmentContext> context = std::make_shared<PipelineFragmentContext>(
+            query_ctx->query_id(), params, query_ctx, _exec_env, cb,
+            [this](const ReportStatusRequest& req, auto&& ctx) {
+                return this->trigger_pipeline_context_report(req, std::move(ctx));
+            });
     {
         SCOPED_RAW_TIMER(&duration_ns);
         Status prepare_st = Status::OK();
@@ -980,8 +978,7 @@ void FragmentMgr::cancel_worker() {
         std::vector<std::shared_ptr<PipelineFragmentContext>> ctx;
         _pipeline_map.apply(
                 [&](phmap::flat_hash_map<std::pair<TUniqueId, int>,
-                                         std::shared_ptr<PipelineFragmentContext>>& map)
-                        -> Status {
+                                         std::shared_ptr<PipelineFragmentContext>>& map) -> Status {
                     ctx.reserve(ctx.size() + map.size());
                     for (auto& pipeline_itr : map) {
                         ctx.push_back(pipeline_itr.second);

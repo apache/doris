@@ -137,8 +137,7 @@ TEST(HashFuncTest, ArrayNestedArrayTest) {
     array_mutable_col->insert(Field::create_field<TYPE_ARRAY>(a2));
     array_mutable_col->insert(Field::create_field<TYPE_ARRAY>(a3));
 
-    auto nested_col =
-            reinterpret_cast<ColumnArray*>(array_mutable_col.get())->get_data_ptr();
+    auto nested_col = reinterpret_cast<ColumnArray*>(array_mutable_col.get())->get_data_ptr();
     EXPECT_EQ(nested_col->size(), 8);
 
     std::vector<uint64_t> xx_hash_vals(4);

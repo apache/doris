@@ -183,8 +183,8 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
     return SpillRecoverRunnable(state, operator_profile(), exception_catch_func).run();
 }
 
-Status SpillSortLocalState::_create_intermediate_merger(
-        int num_blocks, const SortDescription& sort_description) {
+Status SpillSortLocalState::_create_intermediate_merger(int num_blocks,
+                                                        const SortDescription& sort_description) {
     std::vector<BlockSupplier> child_block_suppliers;
     int64_t limit = -1;
     int64_t offset = 0;
@@ -194,8 +194,8 @@ Status SpillSortLocalState::_create_intermediate_merger(
         offset = Base::_shared_state->offset;
     }
 
-    _merger = std::make_unique<VSortedRunMerger>(
-            sort_description, _runtime_state->batch_size(), limit, offset, custom_profile());
+    _merger = std::make_unique<VSortedRunMerger>(sort_description, _runtime_state->batch_size(),
+                                                 limit, offset, custom_profile());
 
     _current_merging_streams.clear();
     for (int i = 0; i < num_blocks && !_shared_state->sorted_streams.empty(); ++i) {
@@ -264,8 +264,7 @@ Status SpillSortSourceOperatorX::close(RuntimeState* state) {
     return _sort_source_operator->close(state);
 }
 
-Status SpillSortSourceOperatorX::get_block(RuntimeState* state, Block* block,
-                                           bool* eos) {
+Status SpillSortSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     local_state.copy_shared_spill_profile();
     Status status;

@@ -64,20 +64,19 @@ TEST(SortMergerTest, NULL_FIRST_ASC) {
     {
         std::vector<BlockSupplier> child_block_suppliers;
         for (int child_idx = 0; child_idx < num_children; child_idx++) {
-            BlockSupplier block_supplier =
-                    [&, round_vec = &round, num_round = num_round, id = child_idx](
-                            Block* block, bool* eos) {
-                        *eos = ++((*round_vec)[id]) == num_round;
-                        if (*eos) {
-                            return Status::OK();
-                        }
-                        *block = ColumnHelper::create_nullable_block<DataTypeInt64>(
-                                {0, (*round_vec)[id] + 0, (*round_vec)[id] + 1,
-                                 (*round_vec)[id] + 2, (*round_vec)[id] + 3},
-                                {1, 0, 0, 0, 0});
+            BlockSupplier block_supplier = [&, round_vec = &round, num_round = num_round,
+                                            id = child_idx](Block* block, bool* eos) {
+                *eos = ++((*round_vec)[id]) == num_round;
+                if (*eos) {
+                    return Status::OK();
+                }
+                *block = ColumnHelper::create_nullable_block<DataTypeInt64>(
+                        {0, (*round_vec)[id] + 0, (*round_vec)[id] + 1, (*round_vec)[id] + 2,
+                         (*round_vec)[id] + 3},
+                        {1, 0, 0, 0, 0});
 
-                        return Status::OK();
-                    };
+                return Status::OK();
+            };
             child_block_suppliers.push_back(block_supplier);
         }
         EXPECT_TRUE(merger->prepare(child_block_suppliers).ok());
@@ -151,20 +150,19 @@ TEST(SortMergerTest, NULL_LAST_DESC) {
     {
         std::vector<BlockSupplier> child_block_suppliers;
         for (int child_idx = 0; child_idx < num_children; child_idx++) {
-            BlockSupplier block_supplier =
-                    [&, round_vec = &round, num_round = num_round, id = child_idx](
-                            Block* block, bool* eos) {
-                        *eos = ++((*round_vec)[id]) == num_round;
-                        if (*eos) {
-                            return Status::OK();
-                        }
-                        *block = ColumnHelper::create_nullable_block<DataTypeInt64>(
-                                {(*round_vec)[id] + 3, (*round_vec)[id] + 2, (*round_vec)[id] + 1,
-                                 (*round_vec)[id] + 0, 0},
-                                {0, 0, 0, 0, 1});
+            BlockSupplier block_supplier = [&, round_vec = &round, num_round = num_round,
+                                            id = child_idx](Block* block, bool* eos) {
+                *eos = ++((*round_vec)[id]) == num_round;
+                if (*eos) {
+                    return Status::OK();
+                }
+                *block = ColumnHelper::create_nullable_block<DataTypeInt64>(
+                        {(*round_vec)[id] + 3, (*round_vec)[id] + 2, (*round_vec)[id] + 1,
+                         (*round_vec)[id] + 0, 0},
+                        {0, 0, 0, 0, 1});
 
-                        return Status::OK();
-                    };
+                return Status::OK();
+            };
             child_block_suppliers.push_back(block_supplier);
         }
         EXPECT_TRUE(merger->prepare(child_block_suppliers).ok());
@@ -234,20 +232,19 @@ TEST(SortMergerTest, TEST_LIMIT) {
     {
         std::vector<BlockSupplier> child_block_suppliers;
         for (int child_idx = 0; child_idx < num_children; child_idx++) {
-            BlockSupplier block_supplier =
-                    [&, round_vec = &round, num_round = num_round, id = child_idx](
-                            Block* block, bool* eos) {
-                        *eos = ++((*round_vec)[id]) == num_round;
-                        if (*eos) {
-                            return Status::OK();
-                        }
-                        *block = ColumnHelper::create_nullable_block<DataTypeInt64>(
-                                {0, (*round_vec)[id] + 0, (*round_vec)[id] + 1,
-                                 (*round_vec)[id] + 2, (*round_vec)[id] + 3},
-                                {1, 0, 0, 0, 0});
+            BlockSupplier block_supplier = [&, round_vec = &round, num_round = num_round,
+                                            id = child_idx](Block* block, bool* eos) {
+                *eos = ++((*round_vec)[id]) == num_round;
+                if (*eos) {
+                    return Status::OK();
+                }
+                *block = ColumnHelper::create_nullable_block<DataTypeInt64>(
+                        {0, (*round_vec)[id] + 0, (*round_vec)[id] + 1, (*round_vec)[id] + 2,
+                         (*round_vec)[id] + 3},
+                        {1, 0, 0, 0, 0});
 
-                        return Status::OK();
-                    };
+                return Status::OK();
+            };
             child_block_suppliers.push_back(block_supplier);
         }
         EXPECT_TRUE(merger->prepare(child_block_suppliers).ok());
@@ -294,16 +291,15 @@ TEST(SortMergerTest, LAST_BLOCK_WITH_EOS) {
     {
         std::vector<BlockSupplier> child_block_suppliers;
         for (int child_idx = 0; child_idx < num_children; child_idx++) {
-            BlockSupplier block_supplier =
-                    [&, round_vec = &round, num_round = num_round, id = child_idx](
-                            Block* block, bool* eos) {
-                        *block = ColumnHelper::create_nullable_block<DataTypeInt64>(
-                                {0, (*round_vec)[id] + 0, (*round_vec)[id] + 1,
-                                 (*round_vec)[id] + 2, (*round_vec)[id] + 3},
-                                {1, 0, 0, 0, 0});
-                        *eos = ++((*round_vec)[id]) == num_round;
-                        return Status::OK();
-                    };
+            BlockSupplier block_supplier = [&, round_vec = &round, num_round = num_round,
+                                            id = child_idx](Block* block, bool* eos) {
+                *block = ColumnHelper::create_nullable_block<DataTypeInt64>(
+                        {0, (*round_vec)[id] + 0, (*round_vec)[id] + 1, (*round_vec)[id] + 2,
+                         (*round_vec)[id] + 3},
+                        {1, 0, 0, 0, 0});
+                *eos = ++((*round_vec)[id]) == num_round;
+                return Status::OK();
+            };
             child_block_suppliers.push_back(block_supplier);
         }
         EXPECT_TRUE(merger->prepare(child_block_suppliers).ok());
@@ -359,16 +355,15 @@ TEST(SortMergerTest, TEST_BIG_OFFSET_SINGLE_STREAM) {
     {
         std::vector<BlockSupplier> child_block_suppliers;
         for (int child_idx = 0; child_idx < num_children; child_idx++) {
-            BlockSupplier block_supplier =
-                    [&, round_vec = &round, num_round = num_round, id = child_idx](
-                            Block* block, bool* eos) {
-                        *block = ColumnHelper::create_nullable_block<DataTypeInt64>(
-                                {0, (*round_vec)[id] + 0, (*round_vec)[id] + 1,
-                                 (*round_vec)[id] + 2, (*round_vec)[id] + 3},
-                                {1, 0, 0, 0, 0});
-                        *eos = ++((*round_vec)[id]) == num_round;
-                        return Status::OK();
-                    };
+            BlockSupplier block_supplier = [&, round_vec = &round, num_round = num_round,
+                                            id = child_idx](Block* block, bool* eos) {
+                *block = ColumnHelper::create_nullable_block<DataTypeInt64>(
+                        {0, (*round_vec)[id] + 0, (*round_vec)[id] + 1, (*round_vec)[id] + 2,
+                         (*round_vec)[id] + 3},
+                        {1, 0, 0, 0, 0});
+                *eos = ++((*round_vec)[id]) == num_round;
+                return Status::OK();
+            };
             child_block_suppliers.push_back(block_supplier);
         }
         EXPECT_TRUE(merger->prepare(child_block_suppliers).ok());
@@ -409,16 +404,15 @@ TEST(SortMergerTest, TEST_SMALL_OFFSET_SINGLE_STREAM) {
     {
         std::vector<BlockSupplier> child_block_suppliers;
         for (int child_idx = 0; child_idx < num_children; child_idx++) {
-            BlockSupplier block_supplier =
-                    [&, round_vec = &round, num_round = num_round, id = child_idx](
-                            Block* block, bool* eos) {
-                        *block = ColumnHelper::create_nullable_block<DataTypeInt64>(
-                                {0, (*round_vec)[id] + 0, (*round_vec)[id] + 1,
-                                 (*round_vec)[id] + 2, (*round_vec)[id] + 3},
-                                {1, 0, 0, 0, 0});
-                        *eos = ++((*round_vec)[id]) == num_round;
-                        return Status::OK();
-                    };
+            BlockSupplier block_supplier = [&, round_vec = &round, num_round = num_round,
+                                            id = child_idx](Block* block, bool* eos) {
+                *block = ColumnHelper::create_nullable_block<DataTypeInt64>(
+                        {0, (*round_vec)[id] + 0, (*round_vec)[id] + 1, (*round_vec)[id] + 2,
+                         (*round_vec)[id] + 3},
+                        {1, 0, 0, 0, 0});
+                *eos = ++((*round_vec)[id]) == num_round;
+                return Status::OK();
+            };
             child_block_suppliers.push_back(block_supplier);
         }
         EXPECT_TRUE(merger->prepare(child_block_suppliers).ok());
@@ -460,13 +454,12 @@ TEST(SortMergerTest, TEST_SINGLE_STREAM) {
     {
         std::vector<BlockSupplier> child_block_suppliers;
         for (int child_idx = 0; child_idx < num_children; child_idx++) {
-            BlockSupplier block_supplier =
-                    [&, round_vec = &round, num_round = num_round, id = child_idx](
-                            Block* block, bool* eos) {
-                        *block = ColumnHelper::create_nullable_block<DataTypeInt64>({0}, {1});
-                        *eos = ++((*round_vec)[id]) == num_round;
-                        return Status::OK();
-                    };
+            BlockSupplier block_supplier = [&, round_vec = &round, num_round = num_round,
+                                            id = child_idx](Block* block, bool* eos) {
+                *block = ColumnHelper::create_nullable_block<DataTypeInt64>({0}, {1});
+                *eos = ++((*round_vec)[id]) == num_round;
+                return Status::OK();
+            };
             child_block_suppliers.push_back(block_supplier);
         }
         EXPECT_TRUE(merger->prepare(child_block_suppliers).ok());

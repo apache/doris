@@ -806,8 +806,7 @@ Status BaseBetaRowsetWriter::flush() {
     return _segment_creator.flush();
 }
 
-Status BaseBetaRowsetWriter::flush_memtable(Block* block, int32_t segment_id,
-                                            int64_t* flush_size) {
+Status BaseBetaRowsetWriter::flush_memtable(Block* block, int32_t segment_id, int64_t* flush_size) {
     if (block->rows() == 0) {
         return Status::OK();
     }

@@ -26,9 +26,10 @@ RuntimeFilterConsumerHelper::RuntimeFilterConsumerHelper(
         const std::vector<TRuntimeFilterDesc>& runtime_filters)
         : _runtime_filter_descs(runtime_filters) {}
 
-Status RuntimeFilterConsumerHelper::init(
-        RuntimeState* state, bool need_local_merge, int32_t node_id, int32_t operator_id,
-        std::vector<std::shared_ptr<Dependency>>& dependencies, const std::string& name) {
+Status RuntimeFilterConsumerHelper::init(RuntimeState* state, bool need_local_merge,
+                                         int32_t node_id, int32_t operator_id,
+                                         std::vector<std::shared_ptr<Dependency>>& dependencies,
+                                         const std::string& name) {
     for (const auto& desc : _runtime_filter_descs) {
         std::shared_ptr<RuntimeFilterConsumer> filter;
         RETURN_IF_ERROR(

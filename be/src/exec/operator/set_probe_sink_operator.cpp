@@ -62,8 +62,7 @@ Status SetProbeSinkOperatorX<is_intersect>::prepare(RuntimeState* state) {
 }
 
 template <bool is_intersect>
-Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block,
-                                                 bool eos) {
+Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block, bool eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -82,8 +81,8 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_
                     using HashTableCtxType = std::decay_t<decltype(arg)>;
                     if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                         SCOPED_TIMER(local_state._probe_timer);
-                        HashTableProbe<HashTableCtxType, is_intersect>
-                                process_hashtable_ctx(&local_state, probe_rows);
+                        HashTableProbe<HashTableCtxType, is_intersect> process_hashtable_ctx(
+                                &local_state, probe_rows);
                         return process_hashtable_ctx.mark_data_in_hashtable(arg);
                     } else {
                         LOG(WARNING) << "Uninited hash table in Set Probe Sink Operator";
@@ -138,8 +137,8 @@ Status SetProbeSinkLocalState<is_intersect>::open(RuntimeState* state) {
 
 template <bool is_intersect>
 Status SetProbeSinkOperatorX<is_intersect>::_extract_probe_column(
-        SetProbeSinkLocalState<is_intersect>& local_state, Block& block,
-        ColumnRawPtrs& raw_ptrs, int child_id) {
+        SetProbeSinkLocalState<is_intersect>& local_state, Block& block, ColumnRawPtrs& raw_ptrs,
+        int child_id) {
     auto& build_not_ignore_null = local_state._shared_state->build_not_ignore_null;
 
     auto& child_exprs = local_state._child_exprs;

@@ -92,16 +92,14 @@ public:
         // init profile for runtime filter
         if (_t_data_stream_sink.__isset.output_exprs) {
             RETURN_IF_ERROR(VExpr::create_expr_trees(_t_data_stream_sink.output_exprs,
-                                                                 _output_expr_contexts));
+                                                     _output_expr_contexts));
             RETURN_IF_ERROR(VExpr::prepare(_output_expr_contexts, state,
-                                                       _multi_cast_output_row_descriptor));
+                                           _multi_cast_output_row_descriptor));
             RETURN_IF_ERROR(VExpr::open(_output_expr_contexts, state));
         }
         if (_t_data_stream_sink.__isset.conjuncts) {
-            RETURN_IF_ERROR(VExpr::create_expr_trees(_t_data_stream_sink.conjuncts,
-                                                                 conjuncts()));
-            RETURN_IF_ERROR(VExpr::prepare(conjuncts(), state,
-                                                       _multi_cast_output_row_descriptor));
+            RETURN_IF_ERROR(VExpr::create_expr_trees(_t_data_stream_sink.conjuncts, conjuncts()));
+            RETURN_IF_ERROR(VExpr::prepare(conjuncts(), state, _multi_cast_output_row_descriptor));
             RETURN_IF_ERROR(VExpr::open(conjuncts(), state));
         }
         return Status::OK();

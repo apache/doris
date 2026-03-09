@@ -38,7 +38,6 @@ namespace iceberg {
 class Schema;
 }
 
-
 class Block;
 class VFileFormatTransformer;
 

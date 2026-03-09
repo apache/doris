@@ -102,8 +102,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     _init_resource_context();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
     _query_watcher.start();
-    _execution_dependency =
-            Dependency::create_unique(-1, -1, "ExecutionDependency", false);
+    _execution_dependency = Dependency::create_unique(-1, -1, "ExecutionDependency", false);
     _memory_sufficient_dependency =
             Dependency::create_unique(-1, -1, "MemorySufficientDependency", true);
 
@@ -386,8 +385,8 @@ std::string QueryContext::print_all_pipeline_context() {
     return fmt::to_string(debug_string_buffer);
 }
 
-void QueryContext::set_pipeline_context(
-        const int fragment_id, std::shared_ptr<PipelineFragmentContext> pip_ctx) {
+void QueryContext::set_pipeline_context(const int fragment_id,
+                                        std::shared_ptr<PipelineFragmentContext> pip_ctx) {
     std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
     _fragment_id_to_pipeline_ctx.insert({fragment_id, pip_ctx});
 }

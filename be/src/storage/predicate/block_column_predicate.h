@@ -60,17 +60,15 @@ public:
     virtual void get_all_column_predicate(
             std::set<std::shared_ptr<const ColumnPredicate>>& predicate_set) const = 0;
 
-    virtual uint16_t evaluate(MutableColumns& block, uint16_t* sel,
-                              uint16_t selected_size) const {
+    virtual uint16_t evaluate(MutableColumns& block, uint16_t* sel, uint16_t selected_size) const {
         return selected_size;
     }
-    virtual void evaluate_and(MutableColumns& block, uint16_t* sel,
-                              uint16_t selected_size, bool* flags) const {}
-    virtual void evaluate_or(MutableColumns& block, uint16_t* sel,
-                             uint16_t selected_size, bool* flags) const {}
+    virtual void evaluate_and(MutableColumns& block, uint16_t* sel, uint16_t selected_size,
+                              bool* flags) const {}
+    virtual void evaluate_or(MutableColumns& block, uint16_t* sel, uint16_t selected_size,
+                             bool* flags) const {}
 
-    virtual void evaluate_vec(MutableColumns& block, uint16_t size, bool* flags) const {
-    }
+    virtual void evaluate_vec(MutableColumns& block, uint16_t size, bool* flags) const {}
 
     virtual bool support_zonemap() const { return true; }
 
@@ -128,8 +126,7 @@ public:
         predicate_set.insert(_predicate);
     }
 
-    uint16_t evaluate(MutableColumns& block, uint16_t* sel,
-                      uint16_t selected_size) const override;
+    uint16_t evaluate(MutableColumns& block, uint16_t* sel, uint16_t selected_size) const override;
     void evaluate_and(MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                       bool* flags) const override;
     bool support_zonemap() const override { return _predicate->support_zonemap(); }
@@ -200,8 +197,7 @@ class OrBlockColumnPredicate : public MutilColumnBlockPredicate {
     ENABLE_FACTORY_CREATOR(OrBlockColumnPredicate);
 
 public:
-    uint16_t evaluate(MutableColumns& block, uint16_t* sel,
-                      uint16_t selected_size) const override;
+    uint16_t evaluate(MutableColumns& block, uint16_t* sel, uint16_t selected_size) const override;
     void evaluate_and(MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                       bool* flags) const override;
     void evaluate_or(MutableColumns& block, uint16_t* sel, uint16_t selected_size,
@@ -229,8 +225,7 @@ class AndBlockColumnPredicate : public MutilColumnBlockPredicate {
     ENABLE_FACTORY_CREATOR(AndBlockColumnPredicate);
 
 public:
-    uint16_t evaluate(MutableColumns& block, uint16_t* sel,
-                      uint16_t selected_size) const override;
+    uint16_t evaluate(MutableColumns& block, uint16_t* sel, uint16_t selected_size) const override;
     void evaluate_and(MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                       bool* flags) const override;
     void evaluate_or(MutableColumns& block, uint16_t* sel, uint16_t selected_size,

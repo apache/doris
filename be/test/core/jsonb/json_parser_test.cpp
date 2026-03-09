@@ -334,8 +334,7 @@ TEST(JsonParserTest, TestHandleNewPathDirectCall) {
     doris::Array array_data;
     array_data.push_back(doris::Field::create_field<doris::TYPE_INT>(1));
     array_data.push_back(doris::Field::create_field<doris::TYPE_INT>(2));
-    doris::Field value =
-            doris::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data));
+    doris::Field value = doris::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data));
 
     // Create hash for the path
     UInt128 hash = doris::PathInData::get_parts_hash(path);
@@ -372,8 +371,7 @@ TEST(JsonParserTest, TestHandleNewPathElseBranch) {
     doris::Array array_data;
     array_data.push_back(doris::Field::create_field<doris::TYPE_INT>(1));
     array_data.push_back(doris::Field::create_field<doris::TYPE_INT>(2));
-    doris::Field value =
-            doris::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data));
+    doris::Field value = doris::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data));
 
     // Create hash for the path
     UInt128 hash = doris::PathInData::get_parts_hash(path);
@@ -389,8 +387,7 @@ TEST(JsonParserTest, TestHandleNewPathElseBranch) {
     doris::Array array_data2;
     array_data2.push_back(doris::Field::create_field<doris::TYPE_INT>(3));
     array_data2.push_back(doris::Field::create_field<doris::TYPE_INT>(4));
-    doris::Field value2 =
-            doris::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data2));
+    doris::Field value2 = doris::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data2));
 
     // Second call should trigger the else branch (nested_sizes is not empty)
     ctx.is_top_array = false;

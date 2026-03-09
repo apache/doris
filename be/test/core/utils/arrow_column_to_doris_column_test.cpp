@@ -145,8 +145,8 @@ void test_arrow_to_datetime_column(std::shared_ptr<ArrowType> type, ColumnWithTy
     MutableColumnPtr data_column = nullptr;
     ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
-        nullable_column = reinterpret_cast<ColumnNullable*>(
-                (*std::move(column.column)).mutate().get());
+        nullable_column =
+                reinterpret_cast<ColumnNullable*>((*std::move(column.column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = (*std::move(column.column)).mutate();
@@ -246,8 +246,8 @@ void test_arrow_to_numeric_column(std::shared_ptr<ArrowType> type, ColumnWithTyp
     MutableColumnPtr data_column = nullptr;
     ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
-        nullable_column = reinterpret_cast<ColumnNullable*>(
-                (*std::move(column.column)).mutate().get());
+        nullable_column =
+                reinterpret_cast<ColumnNullable*>((*std::move(column.column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = (*std::move(column.column)).mutate();
@@ -355,8 +355,8 @@ void test_arrow_to_decimal_column(std::shared_ptr<arrow::Decimal128Type> type,
     MutableColumnPtr data_column = nullptr;
     ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
-        nullable_column = reinterpret_cast<ColumnNullable*>(
-                (*std::move(column.column)).mutate().get());
+        nullable_column =
+                reinterpret_cast<ColumnNullable*>((*std::move(column.column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = (*std::move(column.column)).mutate();
@@ -422,8 +422,8 @@ void test_arrow_to_fixed_binary_column(ColumnWithTypeAndName& column, size_t num
     MutableColumnPtr data_column = nullptr;
     ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
-        nullable_column = reinterpret_cast<ColumnNullable*>(
-                (*std::move(column.column)).mutate().get());
+        nullable_column =
+                reinterpret_cast<ColumnNullable*>((*std::move(column.column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = (*std::move(column.column)).mutate();
@@ -524,8 +524,8 @@ void test_arrow_to_binary_column(ColumnWithTypeAndName& column, size_t num_eleme
     MutableColumnPtr data_column = nullptr;
     ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
-        nullable_column = reinterpret_cast<ColumnNullable*>(
-                (*std::move(column.column)).mutate().get());
+        nullable_column =
+                reinterpret_cast<ColumnNullable*>((*std::move(column.column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = (*std::move(column.column)).mutate();
@@ -622,8 +622,8 @@ void test_arrow_to_array_column(ColumnWithTypeAndName& column,
     MutableColumnPtr data_column = nullptr;
     ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
-        nullable_column = reinterpret_cast<ColumnNullable*>(
-                (*std::move(column.column)).mutate().get());
+        nullable_column =
+                reinterpret_cast<ColumnNullable*>((*std::move(column.column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = (*std::move(column.column)).mutate();

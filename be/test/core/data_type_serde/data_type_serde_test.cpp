@@ -118,8 +118,7 @@ inline void serialize_and_deserialize_pb_test() {
     {
         DataTypePtr bitmap_data_type(std::make_shared<DataTypeBitMap>());
         auto bitmap_column = bitmap_data_type->create_column();
-        std::vector<BitmapValue>& container =
-                ((ColumnBitmap*)bitmap_column.get())->get_data();
+        std::vector<BitmapValue>& container = ((ColumnBitmap*)bitmap_column.get())->get_data();
         for (int i = 0; i < 4; ++i) {
             BitmapValue bv;
             for (int j = 0; j <= i; ++j) {
@@ -133,8 +132,7 @@ inline void serialize_and_deserialize_pb_test() {
     {
         DataTypePtr hll_data_type(std::make_shared<DataTypeHLL>());
         auto hll_column = hll_data_type->create_column();
-        std::vector<HyperLogLog>& container =
-                ((ColumnHLL*)hll_column.get())->get_data();
+        std::vector<HyperLogLog>& container = ((ColumnHLL*)hll_column.get())->get_data();
         for (int i = 0; i < 4; ++i) {
             HyperLogLog hll;
             hll.update(i);
@@ -144,8 +142,7 @@ inline void serialize_and_deserialize_pb_test() {
     }
     // quantilestate
     {
-        DataTypePtr quantile_data_type(
-                std::make_shared<DataTypeQuantileState>());
+        DataTypePtr quantile_data_type(std::make_shared<DataTypeQuantileState>());
         auto quantile_column = quantile_data_type->create_column();
         std::vector<QuantileState>& container =
                 ((ColumnQuantileState*)quantile_column.get())->get_data();
@@ -165,8 +162,7 @@ inline void serialize_and_deserialize_pb_test() {
     // nullable string
     {
         DataTypePtr string_data_type(std::make_shared<DataTypeString>());
-        DataTypePtr nullable_data_type(
-                std::make_shared<DataTypeNullable>(string_data_type));
+        DataTypePtr nullable_data_type(std::make_shared<DataTypeNullable>(string_data_type));
         auto nullable_column = nullable_data_type->create_column();
         ((ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         check_pb_col(nullable_data_type, *nullable_column.get());
@@ -174,8 +170,7 @@ inline void serialize_and_deserialize_pb_test() {
     // nullable decimal
     {
         DataTypePtr decimal_data_type(doris::create_decimal(27, 9, true));
-        DataTypePtr nullable_data_type(
-                std::make_shared<DataTypeNullable>(decimal_data_type));
+        DataTypePtr nullable_data_type(std::make_shared<DataTypeNullable>(decimal_data_type));
         auto nullable_column = nullable_data_type->create_column();
         ((ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
         check_pb_col(nullable_data_type, *nullable_column.get());

@@ -1234,8 +1234,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_rejects_value) {
             [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
                 EXPECT_EQ(col_idx, cid);
                 loader_calls++;
-                current_stat->bloom_filter =
-                        std::make_unique<ParquetBlockSplitBloomFilter>();
+                current_stat->bloom_filter = std::make_unique<ParquetBlockSplitBloomFilter>();
                 auto* bf = static_cast<ParquetBlockSplitBloomFilter*>(
                         current_stat->bloom_filter.get());
                 Status st = bf->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
@@ -1286,8 +1285,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_accepts_value) {
             [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
                 EXPECT_EQ(col_idx, cid);
                 loader_calls++;
-                current_stat->bloom_filter =
-                        std::make_unique<ParquetBlockSplitBloomFilter>();
+                current_stat->bloom_filter = std::make_unique<ParquetBlockSplitBloomFilter>();
                 auto* bf = static_cast<ParquetBlockSplitBloomFilter*>(
                         current_stat->bloom_filter.get());
                 Status st = bf->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
@@ -1382,8 +1380,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_loader_called_when_min_max_allows) {
             [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
                 EXPECT_EQ(col_idx, cid);
                 loader_calls++;
-                current_stat->bloom_filter =
-                        std::make_unique<ParquetBlockSplitBloomFilter>();
+                current_stat->bloom_filter = std::make_unique<ParquetBlockSplitBloomFilter>();
                 auto* bf = static_cast<ParquetBlockSplitBloomFilter*>(
                         current_stat->bloom_filter.get());
                 Status st = bf->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
@@ -1477,8 +1474,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_loader_resets_on_failure) {
             [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
                 EXPECT_EQ(col_idx, cid);
                 loader_calls++;
-                current_stat->bloom_filter =
-                        std::make_unique<ParquetBlockSplitBloomFilter>();
+                current_stat->bloom_filter = std::make_unique<ParquetBlockSplitBloomFilter>();
                 current_stat->bloom_filter.reset();
                 return false;
             };
@@ -1606,8 +1602,7 @@ TEST_F(ParquetExprTest, test_in_list_predicate_uses_bloom_filter) {
             [&](ParquetPredicate::ColumnStat* current_stat, int cid) {
                 EXPECT_EQ(col_idx, cid);
                 loader_calls++;
-                current_stat->bloom_filter =
-                        std::make_unique<ParquetBlockSplitBloomFilter>();
+                current_stat->bloom_filter = std::make_unique<ParquetBlockSplitBloomFilter>();
                 auto* bf = static_cast<ParquetBlockSplitBloomFilter*>(
                         current_stat->bloom_filter.get());
                 Status st = bf->init(256, segment_v2::HashStrategyPB::XX_HASH_64);
@@ -1705,8 +1700,7 @@ TEST_F(ParquetExprTest, test_bloom_filter_reused_after_first_load) {
                 EXPECT_EQ(col_idx, cid);
                 loader_calls++;
                 if (!current_stat->bloom_filter) {
-                    current_stat->bloom_filter =
-                            std::make_unique<ParquetBlockSplitBloomFilter>();
+                    current_stat->bloom_filter = std::make_unique<ParquetBlockSplitBloomFilter>();
                     auto* bf = static_cast<ParquetBlockSplitBloomFilter*>(
                             current_stat->bloom_filter.get());
                     Status st = bf->init(256, segment_v2::HashStrategyPB::XX_HASH_64);

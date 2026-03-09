@@ -51,8 +51,8 @@ const int RowDescriptor::INVALID_IDX = -1;
 
 SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
         : _id(tdesc.id),
-          _type(DataTypeFactory::instance().create_data_type(
-                  tdesc.slotType, tdesc.nullIndicatorBit != -1)),
+          _type(DataTypeFactory::instance().create_data_type(tdesc.slotType,
+                                                             tdesc.nullIndicatorBit != -1)),
           _parent(tdesc.parent),
           _col_pos(tdesc.columnPos),
           _col_name(tdesc.colName),
@@ -90,8 +90,8 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
 
 SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
         : _id(pdesc.id()),
-          _type(DataTypeFactory::instance().create_data_type(
-                  pdesc.slot_type(), pdesc.null_indicator_bit() != -1)),
+          _type(DataTypeFactory::instance().create_data_type(pdesc.slot_type(),
+                                                             pdesc.null_indicator_bit() != -1)),
           _parent(pdesc.parent()),
           _col_pos(pdesc.column_pos()),
           _col_name(pdesc.col_name()),

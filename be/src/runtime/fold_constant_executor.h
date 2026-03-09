@@ -53,9 +53,8 @@ private:
     template <typename Context>
     Status _prepare_and_open(Context* ctx);
 
-    Status _get_result(void* src, size_t size, const DataTypePtr& type,
-                       ColumnPtr column_ptr, DataTypePtr column_type,
-                       std::string& result,
+    Status _get_result(void* src, size_t size, const DataTypePtr& type, ColumnPtr column_ptr,
+                       DataTypePtr column_type, std::string& result,
                        const DataTypeSerDe::FormatOptions& options);
 
     std::unique_ptr<RuntimeState> _runtime_state;

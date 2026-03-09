@@ -75,8 +75,8 @@ Status DataGenSourceOperatorX::get_block(RuntimeState* state, Block* block, bool
     }
     {
         SCOPED_TIMER(local_state._filter_timer);
-        RETURN_IF_ERROR(VExprContext::filter_block(local_state._conjuncts, block,
-                                                               block->columns()));
+        RETURN_IF_ERROR(
+                VExprContext::filter_block(local_state._conjuncts, block, block->columns()));
     }
     local_state.reached_limit(block, eos);
     return Status::OK();

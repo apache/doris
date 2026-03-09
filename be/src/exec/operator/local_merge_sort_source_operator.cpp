@@ -67,12 +67,11 @@ Status LocalMergeSortLocalState::build_merger(RuntimeState* state) {
                 p._vsort_exec_exprs.ordering_expr_ctxs()[i]->clone(state, ordering_expr_ctxs[i]));
     }
     _merger = std::make_unique<VSortedRunMerger>(ordering_expr_ctxs, p._is_asc_order,
-                                                             p._nulls_first, state->batch_size(),
-                                                             p._limit, p._offset, custom_profile());
+                                                 p._nulls_first, state->batch_size(), p._limit,
+                                                 p._offset, custom_profile());
     std::vector<BlockSupplier> child_block_suppliers;
     for (auto sorter : p._sorters) {
-        BlockSupplier block_supplier = [sorter, state](Block* block,
-                                                                   bool* eos) {
+        BlockSupplier block_supplier = [sorter, state](Block* block, bool* eos) {
             return sorter->get_next(state, block, eos);
         };
         child_block_suppliers.push_back(block_supplier);
@@ -116,8 +115,7 @@ void LocalMergeSortSourceOperatorX::init_dependencies_and_sorter() {
     _sorters.resize(_parallel_tasks);
 }
 
-Status LocalMergeSortSourceOperatorX::get_block(RuntimeState* state, Block* block,
-                                                bool* eos) {
+Status LocalMergeSortSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
@@ -131,8 +129,8 @@ Status LocalMergeSortSourceOperatorX::get_block(RuntimeState* state, Block* bloc
     return Status::OK();
 }
 
-Status LocalMergeSortSourceOperatorX::main_source_get_block(RuntimeState* state,
-                                                            Block* block, bool* eos) {
+Status LocalMergeSortSourceOperatorX::main_source_get_block(RuntimeState* state, Block* block,
+                                                            bool* eos) {
     auto& local_state = get_local_state(state);
     if (local_state._merger == nullptr) {
         // Since we cannot control the initialization order of different local states, we set the sorter to the operator during execution.
@@ -143,8 +141,8 @@ Status LocalMergeSortSourceOperatorX::main_source_get_block(RuntimeState* state,
     return Status::OK();
 }
 
-Status LocalMergeSortSourceOperatorX::other_source_get_block(RuntimeState* state,
-                                                             Block* block, bool* eos) {
+Status LocalMergeSortSourceOperatorX::other_source_get_block(RuntimeState* state, Block* block,
+                                                             bool* eos) {
     auto& local_state = get_local_state(state);
     DCHECK(_other_source_deps[local_state._task_idx] != nullptr);
     // Since we cannot control the initialization order of different local states, we set the sorter to the operator during execution.

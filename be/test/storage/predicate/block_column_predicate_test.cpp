@@ -97,8 +97,7 @@ TEST_F(BlockColumnPredicateTest, SINGLE_COLUMN_VEC) {
 
     selected_size = single_column_block_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 1);
-    auto* pred_col =
-            reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], value.template get<TYPE_INT>());
 }
 
@@ -132,8 +131,7 @@ TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN_VEC) {
 
     selected_size = and_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 1);
-    auto* pred_col =
-            reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 4);
 }
 
@@ -167,8 +165,7 @@ TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN_VEC) {
 
     selected_size = or_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 10);
-    auto* pred_col =
-            reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 0);
 }
 
@@ -211,8 +208,7 @@ TEST_F(BlockColumnPredicateTest, OR_AND_MUTI_COLUMN_VEC) {
 
     selected_size = or_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
     EXPECT_EQ(selected_size, 4);
-    auto* pred_col =
-            reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 0);
     EXPECT_EQ(pred_col->get_data()[sel_idx[1]], 1);
     EXPECT_EQ(pred_col->get_data()[sel_idx[2]], 2);
@@ -278,8 +274,7 @@ TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN_VEC) {
 
     selected_size = and_block_column_pred.evaluate(block, sel_idx.data(), selected_size);
 
-    auto* pred_col =
-            reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
+    auto* pred_col = reinterpret_cast<PredicateColumnType<TYPE_INT>*>(block[col_idx].get());
     EXPECT_EQ(selected_size, 1);
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 4);
 
@@ -301,8 +296,8 @@ TEST_F(BlockColumnPredicateTest, AND_OR_MUTI_COLUMN_VEC) {
 }
 
 template <PrimitiveType T, PredicateType PT>
-void single_column_predicate_test_func(const segment_v2::ZoneMap& zone_map_info,
-                                       Field& check_value, bool expect_match) {
+void single_column_predicate_test_func(const segment_v2::ZoneMap& zone_map_info, Field& check_value,
+                                       bool expect_match) {
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<T, PT>(col_idx, "", check_value));
@@ -326,12 +321,9 @@ void single_column_predicate_test_func(const segment_v2::ZoneMap& zone_map_info,
 
 // test zonemap index
 TEST_F(BlockColumnPredicateTest, test_double_single_column_predicate) {
-    auto nan =
-            Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN());
-    auto neg_inf =
-            Field::create_field<TYPE_DOUBLE>(-std::numeric_limits<double>::infinity());
-    auto pos_inf =
-            Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::infinity());
+    auto nan = Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN());
+    auto neg_inf = Field::create_field<TYPE_DOUBLE>(-std::numeric_limits<double>::infinity());
+    auto pos_inf = Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::infinity());
     auto min = Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::lowest());
     auto max = Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::max());
 
@@ -1292,20 +1284,17 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(
                     zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LT>(
-                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz),
-                    tz != zonemap_min_v);
+                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz), tz != zonemap_min_v);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LE>(
                     zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GT>(
-                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz),
-                    tz != zonemap_max_v);
+                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz), tz != zonemap_max_v);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GE>(
                     zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
         }
         // test values out of zonemap range
         {
-            auto v = Field::create_field<TYPE_TIMESTAMPTZ>(
-                    type_limit<TimestampTzValue>::min());
+            auto v = Field::create_field<TYPE_TIMESTAMPTZ>(type_limit<TimestampTzValue>::min());
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(zone_map_info, v,
                                                                                    false);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(zone_map_info, v,
@@ -1325,8 +1314,7 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
         }
         // test values out of zonemap range
         {
-            auto v = Field::create_field<TYPE_TIMESTAMPTZ>(
-                    type_limit<TimestampTzValue>::max());
+            auto v = Field::create_field<TYPE_TIMESTAMPTZ>(type_limit<TimestampTzValue>::max());
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(zone_map_info, v,
                                                                                    false);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(zone_map_info, v,
@@ -1368,13 +1356,11 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::NE>(
                     zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LT>(
-                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz),
-                    tz != zonemap_min_v);
+                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz), tz != zonemap_min_v);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::LE>(
                     zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GT>(
-                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz),
-                    tz != zonemap_max_v);
+                    zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz), tz != zonemap_max_v);
             single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::GE>(
                     zone_map_info, Field::create_field<TYPE_TIMESTAMPTZ>(tz), true);
         }
@@ -1382,8 +1368,8 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
 }
 
 template <PrimitiveType T, PredicateType PT>
-void single_column_predicate_test_func(const segment_v2::BloomFilter* bf,
-                                       Field&& check_value, bool expect_match) {
+void single_column_predicate_test_func(const segment_v2::BloomFilter* bf, Field&& check_value,
+                                       bool expect_match) {
     int col_idx = 0;
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<T, PT>(col_idx, "", check_value));
@@ -1448,8 +1434,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
-    std::unique_ptr<FieldSchema> parquet_field_col1 =
-            std::make_unique<FieldSchema>();
+    std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
     parquet_field_col1->name = "col1";
     parquet_field_col1->data_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
@@ -1511,9 +1496,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     }
     {
         // get stat failed
-        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) {
-            return false;
-        };
+        get_stat_func = [&](ParquetPredicate::ColumnStat* stat, const int cid) { return false; };
         stat.get_stat_func = &get_stat_func;
         EXPECT_TRUE(single_column_block_pred.evaluate_and(&stat));
     }
@@ -1525,8 +1508,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
-    std::unique_ptr<FieldSchema> parquet_field_col1 =
-            std::make_unique<FieldSchema>();
+    std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
     parquet_field_col1->name = "col1";
     parquet_field_col1->data_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
@@ -1594,8 +1576,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<TYPE_INT, PredicateType::GE>(col_idx, "", value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
-    std::unique_ptr<FieldSchema> parquet_field_col1 =
-            std::make_unique<FieldSchema>();
+    std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
     parquet_field_col1->name = "col1";
     parquet_field_col1->data_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
@@ -1663,8 +1644,7 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
     std::shared_ptr<ColumnPredicate> pred(
             new ComparisonPredicateBase<TYPE_INT, PredicateType::LE>(col_idx, "", value));
     SingleColumnBlockPredicate single_column_block_pred(pred);
-    std::unique_ptr<FieldSchema> parquet_field_col1 =
-            std::make_unique<FieldSchema>();
+    std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
     parquet_field_col1->name = "col1";
     parquet_field_col1->data_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
@@ -1735,11 +1715,10 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::EQ>(col_idx, "", value));
         SingleColumnBlockPredicate single_column_block_pred(pred);
-        std::unique_ptr<FieldSchema> parquet_field_col1 =
-                std::make_unique<FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_FLOAT, true);
+        parquet_field_col1->data_type =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_FLOAT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
 
@@ -1829,11 +1808,10 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::NE>(col_idx, "", value));
         SingleColumnBlockPredicate single_column_block_pred(pred);
-        std::unique_ptr<FieldSchema> parquet_field_col1 =
-                std::make_unique<FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_FLOAT, true);
+        parquet_field_col1->data_type =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_FLOAT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
 
@@ -1898,11 +1876,10 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::GE>(col_idx, "", value));
         SingleColumnBlockPredicate single_column_block_pred(pred);
-        std::unique_ptr<FieldSchema> parquet_field_col1 =
-                std::make_unique<FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_INT, true);
+        parquet_field_col1->data_type =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
 
@@ -1967,11 +1944,10 @@ TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {
         std::shared_ptr<ColumnPredicate> pred(
                 new ComparisonPredicateBase<TYPE_FLOAT, PredicateType::LE>(col_idx, "", value));
         SingleColumnBlockPredicate single_column_block_pred(pred);
-        std::unique_ptr<FieldSchema> parquet_field_col1 =
-                std::make_unique<FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_FLOAT, true);
+        parquet_field_col1->data_type =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_FLOAT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::FLOAT;
 
@@ -2043,12 +2019,10 @@ TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE) {
                     new InListPredicateBase<TYPE_INT, PredicateType::IN_LIST, 1>(
                             col_idx, "", hybrid_set, false));
             SingleColumnBlockPredicate single_column_block_pred(pred);
-            std::unique_ptr<FieldSchema> parquet_field_col1 =
-                    std::make_unique<FieldSchema>();
+            std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
             parquet_field_col1->name = "col1";
             parquet_field_col1->data_type =
-                    DataTypeFactory::instance().create_data_type(
-                            PrimitiveType::TYPE_INT, true);
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
             parquet_field_col1->field_id = -1;
             parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
@@ -2089,12 +2063,10 @@ TEST_F(BlockColumnPredicateTest, PARQUET_IN_PREDICATE) {
                     new InListPredicateBase<TYPE_INT, PredicateType::IN_LIST, 1>(
                             col_idx, "", hybrid_set, false));
             SingleColumnBlockPredicate single_column_block_pred(pred);
-            std::unique_ptr<FieldSchema> parquet_field_col1 =
-                    std::make_unique<FieldSchema>();
+            std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
             parquet_field_col1->name = "col1";
             parquet_field_col1->data_type =
-                    DataTypeFactory::instance().create_data_type(
-                            PrimitiveType::TYPE_INT, true);
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
             parquet_field_col1->field_id = -1;
             parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
@@ -2432,11 +2404,10 @@ TEST_F(BlockColumnPredicateTest, NULL_PREDICATE) {
         std::shared_ptr<ColumnPredicate> pred(
                 new NullPredicate(col_idx, "", true, PrimitiveType::TYPE_INT));
         SingleColumnBlockPredicate single_column_block_pred(pred);
-        std::unique_ptr<FieldSchema> parquet_field_col1 =
-                std::make_unique<FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_INT, true);
+        parquet_field_col1->data_type =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
@@ -2470,11 +2441,10 @@ TEST_F(BlockColumnPredicateTest, NULL_PREDICATE) {
         std::shared_ptr<ColumnPredicate> pred(
                 new NullPredicate(col_idx, "", false, PrimitiveType::TYPE_INT));
         SingleColumnBlockPredicate single_column_block_pred(pred);
-        std::unique_ptr<FieldSchema> parquet_field_col1 =
-                std::make_unique<FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_INT, true);
+        parquet_field_col1->data_type =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
@@ -2532,11 +2502,10 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
         false_predicate = std::make_unique<SingleColumnBlockPredicate>(pred2);
 
-        std::unique_ptr<FieldSchema> parquet_field_col1 =
-                std::make_unique<FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_INT, true);
+        parquet_field_col1->data_type =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
@@ -2577,11 +2546,10 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::EQ>(col_idx, "", value));
         true_predicate2 = std::make_unique<SingleColumnBlockPredicate>(pred2);
 
-        std::unique_ptr<FieldSchema> parquet_field_col1 =
-                std::make_unique<FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_INT, true);
+        parquet_field_col1->data_type =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
@@ -2622,11 +2590,10 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
         false_predicate = std::make_unique<SingleColumnBlockPredicate>(pred2);
 
-        std::unique_ptr<FieldSchema> parquet_field_col1 =
-                std::make_unique<FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_INT, true);
+        parquet_field_col1->data_type =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
@@ -2667,11 +2634,10 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
         false_predicate = std::make_unique<SingleColumnBlockPredicate>(pred2);
 
-        std::unique_ptr<FieldSchema> parquet_field_col1 =
-                std::make_unique<FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_INT, true);
+        parquet_field_col1->data_type =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 
@@ -2707,11 +2673,10 @@ TEST_F(BlockColumnPredicateTest, COMBINED_PREDICATE) {
                 new ComparisonPredicateBase<TYPE_INT, PredicateType::NE>(col_idx, "", value));
         false_predicate = std::make_unique<SingleColumnBlockPredicate>(pred2);
 
-        std::unique_ptr<FieldSchema> parquet_field_col1 =
-                std::make_unique<FieldSchema>();
+        std::unique_ptr<FieldSchema> parquet_field_col1 = std::make_unique<FieldSchema>();
         parquet_field_col1->name = "col1";
-        parquet_field_col1->data_type = DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_INT, true);
+        parquet_field_col1->data_type =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
         parquet_field_col1->field_id = -1;
         parquet_field_col1->parquet_schema.type = tparquet::Type::type::INT32;
 

@@ -132,17 +132,15 @@ Status FromRecordBatchToBlockConverter::convert(Block* block) {
     return Status::OK();
 }
 
-Status convert_to_arrow_batch(const Block& block,
-                              const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
-                              std::shared_ptr<arrow::RecordBatch>* result,
+Status convert_to_arrow_batch(const Block& block, const std::shared_ptr<arrow::Schema>& schema,
+                              arrow::MemoryPool* pool, std::shared_ptr<arrow::RecordBatch>* result,
                               const cctz::time_zone& timezone_obj) {
     FromBlockToRecordBatchConverter converter(block, schema, pool, timezone_obj);
     return converter.convert(result);
 }
 
-Status convert_to_arrow_batch(const Block& block,
-                              const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
-                              std::shared_ptr<arrow::RecordBatch>* result,
+Status convert_to_arrow_batch(const Block& block, const std::shared_ptr<arrow::Schema>& schema,
+                              arrow::MemoryPool* pool, std::shared_ptr<arrow::RecordBatch>* result,
                               const cctz::time_zone& timezone_obj, size_t start_row,
                               size_t end_row) {
     FromBlockToRecordBatchConverter converter(block, schema, pool, timezone_obj, start_row,

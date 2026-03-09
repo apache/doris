@@ -34,7 +34,6 @@ namespace doris {
 class ObjectPool;
 class RuntimeState;
 
-
 class IColumn;
 class IPartitionWriterBase;
 class VIcebergSortWriter;
@@ -43,8 +42,7 @@ struct ColumnWithTypeAndName;
 class VIcebergTableWriter final : public AsyncResultWriter {
 public:
     VIcebergTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                        std::shared_ptr<Dependency> dep,
-                        std::shared_ptr<Dependency> fin_dep);
+                        std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
 
     ~VIcebergTableWriter() = default;
 
@@ -111,8 +109,8 @@ private:
     std::string _build_static_partition_path();
 
     std::shared_ptr<IPartitionWriterBase> _create_partition_writer(
-            Block* transformed_block, int position,
-            const std::string* file_name = nullptr, int file_name_index = 0);
+            Block* transformed_block, int position, const std::string* file_name = nullptr,
+            int file_name_index = 0);
 
     IcebergPartitionData _get_partition_data(Block* block, int position);
 

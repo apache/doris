@@ -43,8 +43,8 @@ class RuntimeFilterProducerHelperSetTest : public RuntimeFilterTest {
                 TPlanNodeBuilder(0, TPlanNodeType::HASH_JOIN_NODE).build(), _tbl));
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(_pipeline->set_sink(_sink));
 
-        _task.reset(new PipelineTask(_pipeline, 0, _runtime_states[0].get(), nullptr,
-                                               &_profile, {}, 0));
+        _task.reset(new PipelineTask(_pipeline, 0, _runtime_states[0].get(), nullptr, &_profile, {},
+                                     0));
     }
 
     OperatorPtr _op;
@@ -58,8 +58,8 @@ TEST_F(RuntimeFilterProducerHelperSetTest, basic) {
     auto helper = RuntimeFilterProducerHelperSet();
 
     VExprContextSPtr ctx;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(VExpr::create_expr_tree(
-            TRuntimeFilterDescBuilder::get_default_expr(), ctx));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            VExpr::create_expr_tree(TRuntimeFilterDescBuilder::get_default_expr(), ctx));
     ctx->_last_result_column_id = 0;
 
     VExprContextSPtrs build_expr_ctxs = {ctx};

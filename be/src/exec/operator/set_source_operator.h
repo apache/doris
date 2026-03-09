@@ -94,8 +94,7 @@ public:
 private:
     friend class SetSourceLocalState<is_intersect>;
 
-    void _create_mutable_cols(SetSourceLocalState<is_intersect>& local_state,
-                              Block* output_block);
+    void _create_mutable_cols(SetSourceLocalState<is_intersect>& local_state, Block* output_block);
 
     template <typename HashTableContext>
     Status _get_data_in_hashtable(SetSourceLocalState<is_intersect>& local_state,

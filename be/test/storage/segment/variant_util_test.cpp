@@ -34,8 +34,7 @@
 
 namespace doris::variant_util {
 
-static ColumnString::MutablePtr _make_json_column(
-        const std::vector<std::string_view>& rows) {
+static ColumnString::MutablePtr _make_json_column(const std::vector<std::string_view>& rows) {
     auto col = ColumnString::create();
     for (const auto& s : rows) {
         col->insert_data(s.data(), s.size());
@@ -238,8 +237,7 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeBinaryToSubcolumns) {
             parse_and_materialize_variant_columns(block, std::vector<uint32_t> {0}, {parse_cfg});
     EXPECT_TRUE(st.ok()) << st.to_string();
 
-    const auto& out =
-            assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
+    const auto& out = assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
     EXPECT_TRUE(out.is_doc_mode());
 
     const auto* sub_a = out.get_subcolumn(PathInData("a"));

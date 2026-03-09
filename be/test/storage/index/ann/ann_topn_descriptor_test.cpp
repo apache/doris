@@ -45,8 +45,7 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeConstructor) {
     std::shared_ptr<VExprContext> distanc_calcu_fn_call_ctx;
     auto distance_function_call_thrift = read_from_json<TExpr>(_distance_function_call_thrift);
     ASSERT_TRUE(distance_function_call_thrift.nodes.empty() != true);
-    auto st1 = VExpr::create_expr_tree(distance_function_call_thrift,
-                                                   distanc_calcu_fn_call_ctx);
+    auto st1 = VExpr::create_expr_tree(distance_function_call_thrift, distanc_calcu_fn_call_ctx);
     ASSERT_TRUE(st1.ok()) << fmt::format(
             "st: {}, expr {}", st1.to_string(),
             apache::thrift::ThriftDebugString(distance_function_call_thrift));
@@ -54,8 +53,7 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeConstructor) {
     ASSERT_TRUE(distanc_calcu_fn_call_ctx->root() != nullptr);
 
     std::shared_ptr<VExprContext> virtual_slot_expr_ctx;
-    ASSERT_TRUE(VExpr::create_expr_tree(_virtual_slot_ref_expr, virtual_slot_expr_ctx)
-                        .ok());
+    ASSERT_TRUE(VExpr::create_expr_tree(_virtual_slot_ref_expr, virtual_slot_expr_ctx).ok());
 
     ASSERT_TRUE(virtual_slot_expr_ctx != nullptr) << "create expr tree failed";
     ASSERT_TRUE(virtual_slot_expr_ctx->root() != nullptr);
@@ -77,8 +75,7 @@ TEST_F(VectorSearchTest, AnnTopNRuntimePrepare) {
     int limit = 10;
     std::shared_ptr<VExprContext> distanc_calcu_fn_call_ctx;
     auto distance_function_call_thrift = read_from_json<TExpr>(_distance_function_call_thrift);
-    Status st = VExpr::create_expr_tree(distance_function_call_thrift,
-                                                    distanc_calcu_fn_call_ctx);
+    Status st = VExpr::create_expr_tree(distance_function_call_thrift, distanc_calcu_fn_call_ctx);
 
     std::shared_ptr<VExprContext> virtual_slot_expr_ctx;
     st = VExpr::create_expr_tree(_virtual_slot_ref_expr, virtual_slot_expr_ctx);
@@ -102,8 +99,7 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
     int limit = 10;
     std::shared_ptr<VExprContext> distanc_calcu_fn_call_ctx;
     auto distance_function_call_thrift = read_from_json<TExpr>(_distance_function_call_thrift);
-    Status st = VExpr::create_expr_tree(distance_function_call_thrift,
-                                                    distanc_calcu_fn_call_ctx);
+    Status st = VExpr::create_expr_tree(distance_function_call_thrift, distanc_calcu_fn_call_ctx);
 
     std::shared_ptr<VExprContext> virtual_slot_expr_ctx;
     st = VExpr::create_expr_tree(_virtual_slot_ref_expr, virtual_slot_expr_ctx);

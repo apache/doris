@@ -67,8 +67,8 @@ Status BloomFilterIndexReader::new_iterator(std::unique_ptr<BloomFilterIndexIter
 Status BloomFilterIndexIterator::read_bloom_filter(rowid_t ordinal,
                                                    std::unique_ptr<BloomFilter>* bf) {
     size_t num_to_read = 1;
-    auto data_type = DataTypeFactory::instance().create_data_type(
-            _reader->type_info()->type(), 1, 0);
+    auto data_type =
+            DataTypeFactory::instance().create_data_type(_reader->type_info()->type(), 1, 0);
     auto column = data_type->create_column();
 
     RETURN_IF_ERROR(_bloom_filter_iter.seek_to_ordinal(ordinal));

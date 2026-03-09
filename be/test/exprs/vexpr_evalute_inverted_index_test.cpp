@@ -146,8 +146,7 @@ TEST(TExprInvertedIndexTest, test_expr_evaluate_inverted_index) {
     EXPECT_TRUE(doris::VExpr::create_expr(cast_ipv4_node, cast_ipv4_expr).ok());
 
     doris::VExprSPtr string_literal_expr;
-    EXPECT_TRUE(
-            doris::VExpr::create_expr(string_literal_node, string_literal_expr).ok());
+    EXPECT_TRUE(doris::VExpr::create_expr(string_literal_node, string_literal_expr).ok());
 
     cast_ipv4_expr->add_child(string_literal_expr);
 

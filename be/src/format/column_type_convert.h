@@ -213,8 +213,7 @@ public:
 
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
-            null_map =
-                    &static_cast<ColumnNullable*>(dst_col.get())->get_null_map_data();
+            null_map = &static_cast<ColumnNullable*>(dst_col.get())->get_null_map_data();
         }
 
         size_t rows = from_col->size();
@@ -271,8 +270,7 @@ public:
 
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
-            null_map = &reinterpret_cast<ColumnNullable*>(dst_col.get())
-                                ->get_null_map_data();
+            null_map = &reinterpret_cast<ColumnNullable*>(dst_col.get())->get_null_map_data();
         }
 
         size_t rows = from_col->size();
@@ -610,8 +608,7 @@ public:
 
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
-            null_map = &reinterpret_cast<ColumnNullable*>(dst_col.get())
-                                ->get_null_map_data();
+            null_map = &reinterpret_cast<ColumnNullable*>(dst_col.get())->get_null_map_data();
         }
 
         size_t rows = from_col->size();
@@ -701,8 +698,7 @@ public:
 
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
-            null_map = &reinterpret_cast<ColumnNullable*>(dst_col.get())
-                                ->get_null_map_data();
+            null_map = &reinterpret_cast<ColumnNullable*>(dst_col.get())->get_null_map_data();
         }
 
         size_t rows = from_col->size();
@@ -794,8 +790,7 @@ public:
 
         NullMap* null_map = nullptr;
         if (dst_col->is_nullable()) {
-            null_map = &reinterpret_cast<ColumnNullable*>(dst_col.get())
-                                ->get_null_map_data();
+            null_map = &reinterpret_cast<ColumnNullable*>(dst_col.get())->get_null_map_data();
         }
 
         SrcNativeType scale_factor;

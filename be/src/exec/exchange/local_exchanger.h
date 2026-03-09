@@ -75,8 +75,7 @@ public:
     class BlockWrapper {
     public:
         ENABLE_FACTORY_CREATOR(BlockWrapper);
-        BlockWrapper(Block&& data_block, LocalExchangeSharedState* shared_state,
-                     int channel_id)
+        BlockWrapper(Block&& data_block, LocalExchangeSharedState* shared_state, int channel_id)
                 : _data_block(std::move(data_block)),
                   _shared_state(shared_state),
                   _allocated_bytes(_data_block.allocated_bytes()) {
@@ -139,10 +138,10 @@ public:
               _num_sources(num_sources),
               _free_block_limit(free_block_limit) {}
     virtual ~ExchangerBase() = default;
-    virtual Status get_block(RuntimeState* state, Block* block, bool* eos,
-                             Profile&& profile, SourceInfo&& source_info) = 0;
-    virtual Status sink(RuntimeState* state, Block* in_block, bool eos,
-                        Profile&& profile, SinkInfo& sink_info) = 0;
+    virtual Status get_block(RuntimeState* state, Block* block, bool* eos, Profile&& profile,
+                             SourceInfo&& source_info) = 0;
+    virtual Status sink(RuntimeState* state, Block* in_block, bool eos, Profile&& profile,
+                        SinkInfo& sink_info) = 0;
     virtual ExchangeType get_type() const = 0;
     // Called if a local exchanger source operator are closed. Free the unused data block in data_queue.
     virtual void close(SourceInfo&& source_info) = 0;
@@ -287,12 +286,11 @@ public:
     ExchangeType get_type() const override { return ExchangeType::HASH_SHUFFLE; }
 
 protected:
-    Status _split_rows(RuntimeState* state, const std::vector<uint32_t>& channel_ids,
-                       Block* block, int channel_id,
-                       LocalExchangeSinkLocalState* local_state,
+    Status _split_rows(RuntimeState* state, const std::vector<uint32_t>& channel_ids, Block* block,
+                       int channel_id, LocalExchangeSinkLocalState* local_state,
                        std::map<int, int>* shuffle_idx_to_instance_idx);
-    Status _split_rows(RuntimeState* state, const std::vector<uint32_t>& channel_ids,
-                       Block* block, int channel_id);
+    Status _split_rows(RuntimeState* state, const std::vector<uint32_t>& channel_ids, Block* block,
+                       int channel_id);
     std::vector<std::vector<uint32_t>> _partition_rows_histogram;
 };
 
@@ -375,8 +373,8 @@ public:
 private:
     Status _passthrough_sink(RuntimeState* state, Block* in_block, SinkInfo& sink_info);
     Status _shuffle_sink(RuntimeState* state, Block* in_block, SinkInfo& sink_info);
-    Status _split_rows(RuntimeState* state, const std::vector<uint32_t>& channel_ids,
-                       Block* block, SinkInfo& sink_info);
+    Status _split_rows(RuntimeState* state, const std::vector<uint32_t>& channel_ids, Block* block,
+                       SinkInfo& sink_info);
 
     std::atomic_bool _is_pass_through = false;
     std::atomic_int32_t _total_block = 0;

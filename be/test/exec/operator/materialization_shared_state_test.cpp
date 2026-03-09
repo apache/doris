@@ -84,8 +84,8 @@ TEST_F(MaterializationSharedStateTest, TestCreateMultiGetResult) {
 
 TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
     // 1. Setup origin block with nullable rowid column
-    auto nullable_rowid_col = ColumnNullable::create(_string_type->create_column(),
-                                                                 ColumnUInt8::create());
+    auto nullable_rowid_col =
+            ColumnNullable::create(_string_type->create_column(), ColumnUInt8::create());
     nullable_rowid_col->insert_data((char*)&nullable_rowid_col, 4);
     nullable_rowid_col->insert_data(nullptr, 4);
     nullable_rowid_col->insert_data((char*)&nullable_rowid_col, 4);
@@ -96,9 +96,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
     value_col->insert(Field::create_field<PrimitiveType::TYPE_INT>(200));
 
     // Add test data to origin block
-    _shared_state->origin_block = Block(
-            {{std::move(nullable_rowid_col), make_nullable(_string_type), "rowid"},
-             {std::move(value_col), _int_type, "value"}});
+    _shared_state->origin_block =
+            Block({{std::move(nullable_rowid_col), make_nullable(_string_type), "rowid"},
+                   {std::move(value_col), _int_type, "value"}});
 
     // Set rowid column location
     _shared_state->rowid_locs = {0};
@@ -175,14 +175,14 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
 
 TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
     // 1. Setup origin block with multiple nullable rowid columns
-    auto nullable_rowid_col1 = ColumnNullable::create(
-            _string_type->create_column(), ColumnUInt8::create());
+    auto nullable_rowid_col1 =
+            ColumnNullable::create(_string_type->create_column(), ColumnUInt8::create());
     nullable_rowid_col1->insert_data((char*)&nullable_rowid_col1, 4);
     nullable_rowid_col1->insert_data(nullptr, 4);
     nullable_rowid_col1->insert_data((char*)&nullable_rowid_col1, 4);
 
-    auto nullable_rowid_col2 = ColumnNullable::create(
-            _string_type->create_column(), ColumnUInt8::create());
+    auto nullable_rowid_col2 =
+            ColumnNullable::create(_string_type->create_column(), ColumnUInt8::create());
     nullable_rowid_col2->insert_data((char*)&nullable_rowid_col2, 4);
     nullable_rowid_col2->insert_data((char*)&nullable_rowid_col2, 4);
     nullable_rowid_col2->insert_data(nullptr, 4);
@@ -198,11 +198,11 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
     value_col2->insert(Field::create_field<PrimitiveType::TYPE_INT>(202));
 
     // Add test data to origin block with multiple columns
-    _shared_state->origin_block = Block(
-            {{std::move(nullable_rowid_col1), make_nullable(_string_type), "rowid1"},
-             {std::move(nullable_rowid_col2), make_nullable(_string_type), "rowid2"},
-             {std::move(value_col1), _int_type, "value1"},
-             {std::move(value_col2), _int_type, "value2"}});
+    _shared_state->origin_block =
+            Block({{std::move(nullable_rowid_col1), make_nullable(_string_type), "rowid1"},
+                   {std::move(nullable_rowid_col2), make_nullable(_string_type), "rowid2"},
+                   {std::move(value_col1), _int_type, "value1"},
+                   {std::move(value_col2), _int_type, "value2"}});
 
     // Set multiple rowid column locations
     _shared_state->rowid_locs = {0, 1};

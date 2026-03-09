@@ -72,8 +72,7 @@ void covert_block_to_pb(
     EXPECT_TRUE(uncompressed_bytes >= compressed_bytes);
     EXPECT_EQ(compressed_bytes, pblock->column_values().size());
 
-    const ColumnWithTypeAndName& type_and_name =
-            block.get_columns_with_type_and_name()[0];
+    const ColumnWithTypeAndName& type_and_name = block.get_columns_with_type_and_name()[0];
     EXPECT_EQ(type_and_name.name, pblock->column_metas()[0].name());
 }
 

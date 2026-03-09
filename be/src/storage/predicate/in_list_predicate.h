@@ -69,14 +69,12 @@ public:
     using T = typename PrimitiveTypeTraits<Type>::CppType;
     using HybridSetType = std::conditional_t<
             N >= 1 && N <= FIXED_CONTAINER_MAX_SIZE,
-            std::conditional_t<
-                    is_string_type(Type), StringSet<FixedContainer<std::string, N>>,
-                    HybridSet<Type, FixedContainer<T, N>,
-                              PredicateColumnType<PredicateEvaluateType<Type>>>>,
-            std::conditional_t<
-                    is_string_type(Type), StringSet<DynamicContainer<std::string>>,
-                    HybridSet<Type, DynamicContainer<T>,
-                              PredicateColumnType<PredicateEvaluateType<Type>>>>>;
+            std::conditional_t<is_string_type(Type), StringSet<FixedContainer<std::string, N>>,
+                               HybridSet<Type, FixedContainer<T, N>,
+                                         PredicateColumnType<PredicateEvaluateType<Type>>>>,
+            std::conditional_t<is_string_type(Type), StringSet<DynamicContainer<std::string>>,
+                               HybridSet<Type, DynamicContainer<T>,
+                                         PredicateColumnType<PredicateEvaluateType<Type>>>>>;
     InListPredicateBase(uint32_t column_id, std::string col_name,
                         const std::shared_ptr<HybridSetBase>& hybrid_set, bool is_opposite,
                         size_t char_length = 0)
@@ -151,9 +149,8 @@ public:
         }
         return true;
     }
-    Status evaluate(const IndexFieldNameAndTypePair& name_with_type,
-                    IndexIterator* iterator, uint32_t num_rows,
-                    roaring::Roaring* result) const override {
+    Status evaluate(const IndexFieldNameAndTypePair& name_with_type, IndexIterator* iterator,
+                    uint32_t num_rows, roaring::Roaring* result) const override {
         if (iterator == nullptr) {
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                     "Inverted index evaluate skipped, no inverted index reader can not support "
@@ -213,11 +210,9 @@ public:
     void _evaluate_bit(const IColumn& column, const uint16_t* sel, uint16_t size,
                        bool* flags) const {
         if (column.is_nullable()) {
-            const auto* nullable_col =
-                    check_and_get_column<ColumnNullable>(column);
+            const auto* nullable_col = check_and_get_column<ColumnNullable>(column);
             const auto& null_bitmap =
-                    assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
-                            .get_data();
+                    assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column()).get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
@@ -466,16 +461,13 @@ public:
     }
 
 private:
-    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel,
-                             uint16_t size) const override {
+    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override {
         int16_t new_size = 0;
 
         if (column.is_nullable()) {
-            const auto* nullable_col =
-                    check_and_get_column<ColumnNullable>(column);
+            const auto* nullable_col = check_and_get_column<ColumnNullable>(column);
             const auto& null_map =
-                    assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
-                            .get_data();
+                    assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column()).get_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
@@ -502,15 +494,13 @@ private:
     }
 
     template <bool is_nullable, bool is_opposite>
-    uint16_t _base_evaluate(const IColumn* column,
-                            const PaddedPODArray<UInt8>* null_map,
+    uint16_t _base_evaluate(const IColumn* column, const PaddedPODArray<UInt8>* null_map,
                             uint16_t* sel, uint16_t size) const {
         uint16_t new_size = 0;
 
         if (column->is_column_dictionary()) {
             if constexpr (is_string_type(Type)) {
-                const auto* nested_col_ptr =
-                        check_and_get_column<ColumnDictI32>(column);
+                const auto* nested_col_ptr = check_and_get_column<ColumnDictI32>(column);
                 const auto& data_array = nested_col_ptr->get_data();
                 auto segid = column->get_rowset_segment_id();
                 DCHECK((segid.first.hi | segid.first.mi | segid.first.lo) != 0);
@@ -552,8 +542,7 @@ private:
             }
         } else {
             auto& pred_col =
-                    check_and_get_column<
-                            PredicateColumnType<PredicateEvaluateType<Type>>>(column)
+                    check_and_get_column<PredicateColumnType<PredicateEvaluateType<Type>>>(column)
                             ->get_data();
             auto pred_col_data = pred_col.data();
 
@@ -571,13 +560,11 @@ private:
     }
 
     template <bool is_nullable, bool is_opposite, bool is_and>
-    void _base_evaluate_bit(const IColumn* column,
-                            const PaddedPODArray<UInt8>* null_map,
+    void _base_evaluate_bit(const IColumn* column, const PaddedPODArray<UInt8>* null_map,
                             const uint16_t* sel, uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
             if constexpr (is_string_type(Type)) {
-                const auto* nested_col_ptr =
-                        check_and_get_column<ColumnDictI32>(column);
+                const auto* nested_col_ptr = check_and_get_column<ColumnDictI32>(column);
                 const auto& data_array = nested_col_ptr->get_data();
                 auto& value_in_dict_flags =
                         _segment_id_to_value_in_dict_flags[column->get_rowset_segment_id()];
@@ -615,8 +602,8 @@ private:
                 __builtin_unreachable();
             }
         } else {
-            auto* nested_col_ptr = check_and_get_column<
-                    PredicateColumnType<PredicateEvaluateType<Type>>>(column);
+            auto* nested_col_ptr =
+                    check_and_get_column<PredicateColumnType<PredicateEvaluateType<Type>>>(column);
             if (nested_col_ptr == nullptr) {
                 throw Exception(ErrorCode::INTERNAL_ERROR,
                                 "InListPredicateBase: _base_evaluate_bit get invalid column type");

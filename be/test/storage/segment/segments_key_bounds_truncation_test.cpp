@@ -169,8 +169,8 @@ public:
         EXPECT_TRUE(s.ok());
     }
 
-    std::vector<Block> generate_blocks(
-            TabletSchemaSPtr tablet_schema, const std::vector<std::vector<std::string>>& data) {
+    std::vector<Block> generate_blocks(TabletSchemaSPtr tablet_schema,
+                                       const std::vector<std::vector<std::string>>& data) {
         std::vector<Block> ret;
         int const_value = 999;
         for (const auto& segment_rows : data) {

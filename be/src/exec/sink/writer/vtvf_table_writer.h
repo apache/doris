@@ -46,8 +46,7 @@ class Block;
 class VTVFTableWriter final : public AsyncResultWriter {
 public:
     VTVFTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                    std::shared_ptr<Dependency> dep,
-                    std::shared_ptr<Dependency> fin_dep);
+                    std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
 
     ~VTVFTableWriter() override = default;
 

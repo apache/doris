@@ -394,15 +394,11 @@ public:
     }
     QueryCache* get_query_cache() { return _query_cache; }
 
-    RuntimeFilterTimerQueue* runtime_filter_timer_queue() {
-        return _runtime_filter_timer_queue;
-    }
+    RuntimeFilterTimerQueue* runtime_filter_timer_queue() { return _runtime_filter_timer_queue; }
 
     DictionaryFactory* dict_factory() { return _dict_factory; }
 
-    PipelineTracerContext* pipeline_tracer_context() {
-        return _pipeline_tracer_ctx.get();
-    }
+    PipelineTracerContext* pipeline_tracer_context() { return _pipeline_tracer_ctx.get(); }
 
     segment_v2::TmpFileDirs* get_tmp_file_dirs() { return _tmp_file_dirs.get(); }
     io::FDCache* file_cache_open_fd_cache() const { return _file_cache_open_fd_cache.get(); }

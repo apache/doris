@@ -79,7 +79,6 @@ class Thread;
 class ThreadPoolToken;
 class TupleDescriptor;
 
-
 // The counter of add_batch rpc of a single node
 struct AddBatchCounter {
     // total execution time of a add_batch rpc
@@ -433,8 +432,8 @@ protected:
     std::unique_ptr<MutableBlock> _cur_mutable_block;
     std::shared_ptr<PTabletWriterAddBlockRequest> _cur_add_block_request;
 
-    using AddBlockReq = std::pair<std::unique_ptr<MutableBlock>,
-                                  std::shared_ptr<PTabletWriterAddBlockRequest>>;
+    using AddBlockReq =
+            std::pair<std::unique_ptr<MutableBlock>, std::shared_ptr<PTabletWriterAddBlockRequest>>;
     std::queue<AddBlockReq> _pending_blocks;
     // send block to slave BE rely on this. dont reconstruct it.
     std::shared_ptr<WriteBlockCallback<PTabletWriterAddBlockResult>> _send_block_callback = nullptr;
@@ -624,8 +623,7 @@ namespace doris {
 class VTabletWriter final : public AsyncResultWriter {
 public:
     VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                  std::shared_ptr<Dependency> dep,
-                  std::shared_ptr<Dependency> fin_dep);
+                  std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
 
     Status write(RuntimeState* state, Block& block) override;
 

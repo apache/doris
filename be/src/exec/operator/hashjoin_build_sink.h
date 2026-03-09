@@ -51,15 +51,12 @@ public:
 
 protected:
     Status _hash_table_init(RuntimeState* state, const ColumnRawPtrs& raw_ptrs);
-    void _set_build_side_has_external_nullmap(Block& block,
-                                              const std::vector<int>& res_col_ids);
+    void _set_build_side_has_external_nullmap(Block& block, const std::vector<int>& res_col_ids);
     Status _do_evaluate(Block& block, VExprContextSPtrs& exprs,
                         RuntimeProfile::Counter& expr_call_timer, std::vector<int>& res_col_ids);
     std::vector<uint16_t> _convert_block_to_null(Block& block);
-    Status _extract_join_column(Block& block,
-                                ColumnUInt8::MutablePtr& null_map,
-                                ColumnRawPtrs& raw_ptrs,
-                                const std::vector<int>& res_col_ids);
+    Status _extract_join_column(Block& block, ColumnUInt8::MutablePtr& null_map,
+                                ColumnRawPtrs& raw_ptrs, const std::vector<int>& res_col_ids);
     friend class HashJoinBuildSinkOperatorX;
     friend class PartitionedHashJoinSinkLocalState;
     template <class HashTableContext>
@@ -202,8 +199,7 @@ struct ProcessHashTableBuild {
               _state(state) {}
 
     template <int JoinOpType, bool short_circuit_for_null, bool with_other_conjuncts>
-    Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map,
-               bool* has_null_key) {
+    Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key) {
         if (null_map) {
             // first row is mocked and is null
             if (simd::contain_one(null_map->data() + 1, _rows - 1)) {

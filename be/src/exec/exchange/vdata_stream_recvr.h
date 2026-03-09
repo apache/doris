@@ -199,9 +199,7 @@ public:
 
     void close();
 
-    void set_dependency(std::shared_ptr<Dependency> dependency) {
-        _source_dependency = dependency;
-    }
+    void set_dependency(std::shared_ptr<Dependency> dependency) { _source_dependency = dependency; }
 
 protected:
     void add_blocks_memory_usage(int64_t size);

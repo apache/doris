@@ -45,8 +45,7 @@ private:
     std::vector<uint32_t> _column_ids;
 
     // Helper method to calculate sparse column statistics
-    void _calculate_sparse_column_stats(const IColumn& column,
-                                        ColumnMetaPB* column_meta,
+    void _calculate_sparse_column_stats(const IColumn& column, ColumnMetaPB* column_meta,
                                         size_t max_sparse_column_statistics_size, size_t row_pos,
                                         size_t num_rows);
 

@@ -67,26 +67,23 @@ private:
     DecimalType _get_decimalv3_min_or_max(const DataTypePtr& type);
 
     Status _validate_column(RuntimeState* state, Block* block, const DataTypePtr& type,
-                            ColumnPtr column, size_t slot_index,
-                            fmt::memory_buffer& error_prefix, const size_t row_count,
-                            IColumn::Permutation* rows = nullptr) {
+                            ColumnPtr column, size_t slot_index, fmt::memory_buffer& error_prefix,
+                            const size_t row_count, IColumn::Permutation* rows = nullptr) {
         RETURN_IF_CATCH_EXCEPTION({
             return _internal_validate_column(state, block, type, column, slot_index, error_prefix,
                                              row_count, rows);
         });
     }
 
-    Status _internal_validate_column(RuntimeState* state, Block* block,
-                                     const DataTypePtr& type, ColumnPtr column,
-                                     size_t slot_index, fmt::memory_buffer& error_prefix,
-                                     const size_t row_count,
+    Status _internal_validate_column(RuntimeState* state, Block* block, const DataTypePtr& type,
+                                     ColumnPtr column, size_t slot_index,
+                                     fmt::memory_buffer& error_prefix, const size_t row_count,
                                      IColumn::Permutation* rows = nullptr);
 
     // make input data valid for OLAP table
     // return number of invalid/filtered rows.
     // invalid row number is set in Bitmap
-    Status _validate_data(RuntimeState* state, Block* block, const size_t rows,
-                          int& filtered_rows);
+    Status _validate_data(RuntimeState* state, Block* block, const size_t rows, int& filtered_rows);
 
     // some output column of output expr may have different nullable property with dest slot desc
     // so here need to do the convert operation

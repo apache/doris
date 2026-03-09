@@ -28,7 +28,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class ResultBlockBufferBase;
 
-
 struct ResultFileOptions {
     // [[deprecated]]
     bool is_local_file;

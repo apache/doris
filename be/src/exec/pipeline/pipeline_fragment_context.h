@@ -45,7 +45,6 @@ class RuntimeFilterMergeControllerEntity;
 class TDataSink;
 class TPipelineFragmentParams;
 
-
 class Dependency;
 
 class PipelineFragmentContext : public TaskExecutionContext {

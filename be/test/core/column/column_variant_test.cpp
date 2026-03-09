@@ -409,8 +409,8 @@ auto convert_to_jsonb_field(auto serde, auto& column) {
     auto str_ref = tmp_col->get_data_at(0);
     Slice data((char*)(str_ref.data), str_ref.size);
 
-    auto jsonb_type = doris::DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_JSONB, false);
+    auto jsonb_type =
+            doris::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_JSONB, false);
     auto jsonb_serde = jsonb_type->get_serde();
     auto jsonb_column = jsonb_type->create_column();
 
@@ -426,8 +426,8 @@ auto convert_string_to_jsonb_field(auto& column) {
     auto str_ref = column.get_data_at(0);
     Slice data((char*)(str_ref.data), str_ref.size);
 
-    auto jsonb_type = doris::DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_JSONB, false);
+    auto jsonb_type =
+            doris::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_JSONB, false);
     auto jsonb_serde = jsonb_type->get_serde();
     auto jsonb_column = jsonb_type->create_column();
     DataTypeSerDe::FormatOptions format_options;
@@ -443,10 +443,9 @@ auto convert_string_to_jsonb_field(auto& column) {
 doris::Field get_jsonb_field(std::string_view type) {
     static std::unordered_map<std::string_view, doris::Field> field_map;
     if (field_map.empty()) {
-        DataTypePtr data_type_int = doris::DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_INT, false);
-        DataTypePtr data_type_array_int =
-                std::make_shared<doris::DataTypeArray>(data_type_int);
+        DataTypePtr data_type_int =
+                doris::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, false);
+        DataTypePtr data_type_array_int = std::make_shared<doris::DataTypeArray>(data_type_int);
         auto array_column_int = data_type_array_int->create_column();
         array_column_int->insert(VariantUtil::get_field("array_int"));
         auto array_serde_int = data_type_array_int->get_serde();
@@ -455,8 +454,7 @@ doris::Field get_jsonb_field(std::string_view type) {
 
         DataTypePtr data_type_str = doris::DataTypeFactory::instance().create_data_type(
                 PrimitiveType::TYPE_STRING, false);
-        DataTypePtr data_type_array_str =
-                std::make_shared<doris::DataTypeArray>(data_type_str);
+        DataTypePtr data_type_array_str = std::make_shared<doris::DataTypeArray>(data_type_str);
         auto array_column_str = data_type_array_str->create_column();
         array_column_str->insert(VariantUtil::get_field("array_str"));
         auto array_serde_str = data_type_array_str->get_serde();
@@ -560,12 +558,12 @@ TEST_F(ColumnVariantTest, advanced_finalize) {
     {
         // Test fill_path_column_from_sparse_data
         auto map = std::make_unique<NullMap>(15, 0);
-        ColumnVariant::fill_path_column_from_sparse_data(
-                *variant->get_subcolumn({}) /*root*/, map.get(), StringRef {"array"},
-                variant->get_sparse_column(), 0, 5);
-        ColumnVariant::fill_path_column_from_sparse_data(
-                *variant->get_subcolumn({}) /*root*/, map.get(), StringRef {"array"},
-                variant->get_sparse_column(), 5, 15);
+        ColumnVariant::fill_path_column_from_sparse_data(*variant->get_subcolumn({}) /*root*/,
+                                                         map.get(), StringRef {"array"},
+                                                         variant->get_sparse_column(), 0, 5);
+        ColumnVariant::fill_path_column_from_sparse_data(*variant->get_subcolumn({}) /*root*/,
+                                                         map.get(), StringRef {"array"},
+                                                         variant->get_sparse_column(), 5, 15);
     }
 }
 
@@ -2116,9 +2114,8 @@ TEST_F(ColumnVariantTest, find_path_lower_bound_in_sparse_data) {
         for (size_t i = 0; i != src_sparse_data_offsets.size(); ++i) {
             size_t start = src_sparse_data_offsets[ssize_t(i) - 1];
             size_t end = src_sparse_data_offsets[ssize_t(i)];
-            size_t lower_bound_index =
-                    ColumnVariant::find_path_lower_bound_in_sparse_data(
-                            prefix_ref, src_sparse_data_paths, start, end);
+            size_t lower_bound_index = ColumnVariant::find_path_lower_bound_in_sparse_data(
+                    prefix_ref, src_sparse_data_paths, start, end);
             for (; lower_bound_index != end; ++lower_bound_index) {
                 auto path_ref = src_sparse_data_paths.get_data_at(lower_bound_index);
                 std::string_view path(path_ref.data, path_ref.size);
@@ -2152,16 +2149,16 @@ TEST_F(ColumnVariantTest, fill_path_column_from_sparse_data) {
     for (size_t i = 0; i != offsets.size(); ++i) {
         auto start = offsets[i - 1];
         auto end = offsets[i];
-        ColumnVariant::fill_path_column_from_sparse_data(
-                *obj->get_subcolumn({}) /*root*/, nullptr, StringRef {"array"},
-                cloned_sparse->get_ptr(), start, end);
+        ColumnVariant::fill_path_column_from_sparse_data(*obj->get_subcolumn({}) /*root*/, nullptr,
+                                                         StringRef {"array"},
+                                                         cloned_sparse->get_ptr(), start, end);
     }
 
     EXPECT_NE(cloned_sparse->size(), sparse_col->size());
 
-    ColumnVariant::fill_path_column_from_sparse_data(
-            *obj->get_subcolumn({}) /*root*/, nullptr, StringRef {"array"}, sparse_col->get_ptr(),
-            0, sparse_col->size());
+    ColumnVariant::fill_path_column_from_sparse_data(*obj->get_subcolumn({}) /*root*/, nullptr,
+                                                     StringRef {"array"}, sparse_col->get_ptr(), 0,
+                                                     sparse_col->size());
     EXPECT_ANY_THROW(obj->check_consistency());
 }
 
@@ -2248,8 +2245,7 @@ TEST_F(ColumnVariantTest, array_field_operations) {
                     array_type
                             ->create_column(); // Nullable(Array(Nullable(Array(Nullable(TINYINT)))))
             Field array_field = Field::create_field<TYPE_ARRAY>(Array());
-            array_field.get<TYPE_ARRAY>().emplace_back(
-                    Field::create_field<TYPE_TINYINT>(1));
+            array_field.get<TYPE_ARRAY>().emplace_back(Field::create_field<TYPE_TINYINT>(1));
             Field array_field_o = Field::create_field<TYPE_ARRAY>(Array());
             array_field_o.get<TYPE_ARRAY>().emplace_back(array_field);
             column->insert(array_field_o);
@@ -2373,18 +2369,12 @@ TEST_F(ColumnVariantTest, assert_exception_happen) {
     {
         // 1. create an empty variant column
         ColumnVariant::Subcolumns dynamic_subcolumns;
-        dynamic_subcolumns.create_root(
-                ColumnVariant::Subcolumn(0, true, true /*root*/));
-        dynamic_subcolumns.add(PathInData("v.f"),
-                               ColumnVariant::Subcolumn {0, true});
-        dynamic_subcolumns.add(PathInData("v.e"),
-                               ColumnVariant::Subcolumn {0, true});
-        dynamic_subcolumns.add(PathInData("v.b"),
-                               ColumnVariant::Subcolumn {0, true});
-        dynamic_subcolumns.add(PathInData("v.b.d"),
-                               ColumnVariant::Subcolumn {0, true});
-        dynamic_subcolumns.add(PathInData("v.c.d"),
-                               ColumnVariant::Subcolumn {0, true});
+        dynamic_subcolumns.create_root(ColumnVariant::Subcolumn(0, true, true /*root*/));
+        dynamic_subcolumns.add(PathInData("v.f"), ColumnVariant::Subcolumn {0, true});
+        dynamic_subcolumns.add(PathInData("v.e"), ColumnVariant::Subcolumn {0, true});
+        dynamic_subcolumns.add(PathInData("v.b"), ColumnVariant::Subcolumn {0, true});
+        dynamic_subcolumns.add(PathInData("v.b.d"), ColumnVariant::Subcolumn {0, true});
+        dynamic_subcolumns.add(PathInData("v.c.d"), ColumnVariant::Subcolumn {0, true});
         std::cout << "dynamic_subcolumns size: " << dynamic_subcolumns.size() << std::endl;
         EXPECT_ANY_THROW(ColumnVariant::create(2, std::move(dynamic_subcolumns)));
     }
@@ -2469,18 +2459,13 @@ TEST_F(ColumnVariantTest, try_insert_default_from_nested) {
     column2->insert(array23);
 
     dynamic_subcolumns.create_root(ColumnVariant::Subcolumn(0, true, true /*root*/));
-    dynamic_subcolumns.add(PathInData("v.f"),
-                           ColumnVariant::Subcolumn {0, true});
-    dynamic_subcolumns.add(
-            PathInData("v.a"),
-            ColumnVariant::Subcolumn {std::move(column2), array_type2, false, false});
-    dynamic_subcolumns.add(PathInData("v.b"),
-                           ColumnVariant::Subcolumn {0, true});
-    dynamic_subcolumns.add(
-            PathInData("v.b.a"),
-            ColumnVariant::Subcolumn {std::move(column), array_type, false, false});
-    dynamic_subcolumns.add(PathInData("v.c.d"),
-                           ColumnVariant::Subcolumn {0, true});
+    dynamic_subcolumns.add(PathInData("v.f"), ColumnVariant::Subcolumn {0, true});
+    dynamic_subcolumns.add(PathInData("v.a"), ColumnVariant::Subcolumn {std::move(column2),
+                                                                        array_type2, false, false});
+    dynamic_subcolumns.add(PathInData("v.b"), ColumnVariant::Subcolumn {0, true});
+    dynamic_subcolumns.add(PathInData("v.b.a"),
+                           ColumnVariant::Subcolumn {std::move(column), array_type, false, false});
+    dynamic_subcolumns.add(PathInData("v.c.d"), ColumnVariant::Subcolumn {0, true});
     std::cout << "dynamic_subcolumns size: " << dynamic_subcolumns.size() << std::endl;
     auto obj = ColumnVariant::create(5, std::move(dynamic_subcolumns));
 
@@ -2514,11 +2499,10 @@ TEST_F(ColumnVariantTest, unnest) {
 
     // 2. subcolumn path
     dynamic_subcolumns.create_root(ColumnVariant::Subcolumn(2, true, true /*root*/));
-    dynamic_subcolumns.add(PathInData("v.f"),
-                           ColumnVariant::Subcolumn {2, true});
+    dynamic_subcolumns.add(PathInData("v.f"), ColumnVariant::Subcolumn {2, true});
     dynamic_subcolumns.add(PathInData("v.a"),
-                           ColumnVariant::Subcolumn {
-                                   std::move(nested_col), ColumnVariant::NESTED_TYPE, true, false});
+                           ColumnVariant::Subcolumn {std::move(nested_col),
+                                                     ColumnVariant::NESTED_TYPE, true, false});
     std::cout << "dynamic_subcolumns size: " << dynamic_subcolumns.size() << std::endl;
     auto obj = ColumnVariant::create(2, std::move(dynamic_subcolumns));
     obj->set_num_rows(2);
@@ -2798,8 +2782,7 @@ TEST_F(ColumnVariantTest, get_field_info_all_types) {
         JsonbField field(value.value(), value.size());
 
         FieldInfo info;
-        variant_util::get_field_info(Field::create_field<TYPE_JSONB>(std::move(field)),
-                                     &info);
+        variant_util::get_field_info(Field::create_field<TYPE_JSONB>(std::move(field)), &info);
         EXPECT_EQ(info.scalar_type_id, PrimitiveType::TYPE_JSONB);
     }
 

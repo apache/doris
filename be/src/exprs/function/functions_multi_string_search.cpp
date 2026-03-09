@@ -291,8 +291,7 @@ struct FunctionMultiMatchAnyImpl {
         size_t prev_needles_offset = 0;
 
         const auto& nested_column =
-                check_and_get_column<ColumnNullable>(needles_data)
-                        ->get_nested_column();
+                check_and_get_column<ColumnNullable>(needles_data)->get_nested_column();
         const auto* needles_data_string = check_and_get_column<ColumnString>(nested_column);
 
         if (!needles_data_string) {

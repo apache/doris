@@ -24,7 +24,6 @@
 
 namespace doris {
 
-
 class VariantUtil {
 public:
     using VariantStringCreator = std::function<void(ColumnString*, size_t)>;
@@ -48,10 +47,10 @@ public:
             field_map["array_str"] = arr_str_field;
 
             // add other int value
-            field_map["int_16"] = doris::Field::create_field<TYPE_SMALLINT>(
-                    std::numeric_limits<Int16>::max());
-            field_map["int_32"] = doris::Field::create_field<TYPE_INT>(
-                    std::numeric_limits<Int32>::max());
+            field_map["int_16"] =
+                    doris::Field::create_field<TYPE_SMALLINT>(std::numeric_limits<Int16>::max());
+            field_map["int_32"] =
+                    doris::Field::create_field<TYPE_INT>(std::numeric_limits<Int32>::max());
             field_map["int_64"] = doris::Field::create_field<TYPE_BIGINT>(
                     Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1));
         }
@@ -60,8 +59,7 @@ public:
 
     static doris::Field construct_variant_map(
             const std::vector<std::pair<std::string, doris::Field>>& key_and_values) {
-        doris::Field res =
-                doris::Field::create_field<TYPE_VARIANT>(VariantMap());
+        doris::Field res = doris::Field::create_field<TYPE_VARIANT>(VariantMap());
         auto& object = res.get<TYPE_VARIANT>();
         for (const auto& [k, v] : key_and_values) {
             PathInData path(k);
@@ -78,20 +76,17 @@ public:
 
         // 2. subcolumn path
         data.emplace_back("v.a", doris::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.b",
-                          doris::Field::create_field<TYPE_STRING>(String("20", 2)));
+        data.emplace_back("v.b", doris::Field::create_field<TYPE_STRING>(String("20", 2)));
         data.emplace_back("v.c", doris::Field::create_field<TYPE_INT>(20));
         data.emplace_back("v.f", doris::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.e",
-                          doris::Field::create_field<TYPE_STRING>(String("50", 2)));
+        data.emplace_back("v.e", doris::Field::create_field<TYPE_STRING>(String("50", 2)));
         for (int i = 0; i < 5; ++i) {
             auto field = construct_variant_map(data);
             variant->try_insert(field);
         }
 
         // 3. sparse column path
-        data.emplace_back("v.d.d",
-                          doris::Field::create_field<TYPE_STRING>(String("50", 2)));
+        data.emplace_back("v.d.d", doris::Field::create_field<TYPE_STRING>(String("50", 2)));
         data.emplace_back("v.c.d", doris::Field::create_field<TYPE_INT>(30));
         data.emplace_back("v.b.d", doris::Field::create_field<TYPE_INT>(30));
         for (int i = 0; i < 5; ++i) {
@@ -104,18 +99,12 @@ public:
     static auto construct_dst_varint_column() {
         // 1. create an empty variant column
         ColumnVariant::Subcolumns dynamic_subcolumns;
-        dynamic_subcolumns.create_root(
-                ColumnVariant::Subcolumn(0, true, true /*root*/));
-        dynamic_subcolumns.add(PathInData("v.f"),
-                               ColumnVariant::Subcolumn {0, true});
-        dynamic_subcolumns.add(PathInData("v.e"),
-                               ColumnVariant::Subcolumn {0, true});
-        dynamic_subcolumns.add(PathInData("v.b"),
-                               ColumnVariant::Subcolumn {0, true});
-        dynamic_subcolumns.add(PathInData("v.b.d"),
-                               ColumnVariant::Subcolumn {0, true});
-        dynamic_subcolumns.add(PathInData("v.c.d"),
-                               ColumnVariant::Subcolumn {0, true});
+        dynamic_subcolumns.create_root(ColumnVariant::Subcolumn(0, true, true /*root*/));
+        dynamic_subcolumns.add(PathInData("v.f"), ColumnVariant::Subcolumn {0, true});
+        dynamic_subcolumns.add(PathInData("v.e"), ColumnVariant::Subcolumn {0, true});
+        dynamic_subcolumns.add(PathInData("v.b"), ColumnVariant::Subcolumn {0, true});
+        dynamic_subcolumns.add(PathInData("v.b.d"), ColumnVariant::Subcolumn {0, true});
+        dynamic_subcolumns.add(PathInData("v.c.d"), ColumnVariant::Subcolumn {0, true});
         return ColumnVariant::create(5, std::move(dynamic_subcolumns));
     }
 
@@ -170,12 +159,10 @@ public:
 
         // 2. subcolumn path
         data.emplace_back("v.a", doris::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.b",
-                          doris::Field::create_field<TYPE_STRING>(String("20", 2)));
+        data.emplace_back("v.b", doris::Field::create_field<TYPE_STRING>(String("20", 2)));
         data.emplace_back("v.c", doris::Field::create_field<TYPE_INT>(20));
         data.emplace_back("v.f", doris::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.e",
-                          doris::Field::create_field<TYPE_STRING>(String("50", 2)));
+        data.emplace_back("v.e", doris::Field::create_field<TYPE_STRING>(String("50", 2)));
         for (int i = 0; i < 5; ++i) {
             auto field = construct_variant_map(data);
             variant->try_insert(field);
@@ -189,8 +176,7 @@ public:
 
     static doris::Field create_nested_array_field(
             std::vector<std::map<std::string, doris::Field>> data) {
-        doris::Field array_field =
-                doris::Field::create_field<TYPE_ARRAY>(Array());
+        doris::Field array_field = doris::Field::create_field<TYPE_ARRAY>(Array());
         auto variant_field = doris::Field::create_field<TYPE_VARIANT>(VariantMap());
         for (const auto& entry : data) {
             auto& variant_map = variant_field.get<TYPE_VARIANT>();
@@ -216,14 +202,11 @@ public:
 
         // 2. subcolumn path
         data.emplace_back("v.a", doris::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.b",
-                          doris::Field::create_field<TYPE_STRING>(String("20", 2)));
+        data.emplace_back("v.b", doris::Field::create_field<TYPE_STRING>(String("20", 2)));
         data.emplace_back("v.c", doris::Field::create_field<TYPE_INT>(20));
         data.emplace_back("v.f", doris::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.e",
-                          doris::Field::create_field<TYPE_STRING>(String("50", 2)));
-        data.emplace_back("v.s",
-                          doris::Field::create_field<TYPE_STRING>(String("str", 3)));
+        data.emplace_back("v.e", doris::Field::create_field<TYPE_STRING>(String("50", 2)));
+        data.emplace_back("v.s", doris::Field::create_field<TYPE_STRING>(String("str", 3)));
         data.emplace_back("v.x", get_field("int_16"));
         data.emplace_back("v.y", get_field("int_32"));
         data.emplace_back("v.z", get_field("int_64"));

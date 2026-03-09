@@ -388,8 +388,7 @@ TEST_F(IndexBuilderTest, DropAnnIndexTest) {
     // Write data to the rowset
     {
         DataTypePtr inner_float = std::make_shared<DataTypeFloat32>();
-        DataTypePtr array_type =
-                std::make_shared<DataTypeArray>(inner_float);
+        DataTypePtr array_type = std::make_shared<DataTypeArray>(inner_float);
 
         // create a MutableColumnPtr
         MutableColumnPtr col = array_type->create_column();
@@ -699,8 +698,7 @@ TEST_F(IndexBuilderTest, BuildAnnIndexAfterWritingDataTest) {
     // 5. Write data to the rowset with float arrays
     {
         DataTypePtr inner_float = std::make_shared<DataTypeFloat32>();
-        DataTypePtr array_type =
-                std::make_shared<DataTypeArray>(inner_float);
+        DataTypePtr array_type = std::make_shared<DataTypeArray>(inner_float);
 
         // create a MutableColumnPtr
         MutableColumnPtr col = array_type->create_column();
@@ -710,12 +708,9 @@ TEST_F(IndexBuilderTest, BuildAnnIndexAfterWritingDataTest) {
             Array arr;
             // Create 4-dimensional float vectors
             arr.push_back(Field::create_field<TYPE_FLOAT>(static_cast<float>(i % 10)));
-            arr.push_back(
-                    Field::create_field<TYPE_FLOAT>(static_cast<float>((i + 1) % 10)));
-            arr.push_back(
-                    Field::create_field<TYPE_FLOAT>(static_cast<float>((i + 2) % 10)));
-            arr.push_back(
-                    Field::create_field<TYPE_FLOAT>(static_cast<float>((i + 3) % 10)));
+            arr.push_back(Field::create_field<TYPE_FLOAT>(static_cast<float>((i + 1) % 10)));
+            arr.push_back(Field::create_field<TYPE_FLOAT>(static_cast<float>((i + 2) % 10)));
+            arr.push_back(Field::create_field<TYPE_FLOAT>(static_cast<float>((i + 3) % 10)));
             col->insert(Field::create_field<TYPE_ARRAY>(arr));
         }
 

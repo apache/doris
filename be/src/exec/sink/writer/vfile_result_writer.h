@@ -57,12 +57,10 @@ public:
                       const VExprContextSPtrs& _output_vexpr_ctxs,
                       std::shared_ptr<ResultBlockBufferBase> sinker, Block* output_block,
                       bool output_object_data, const RowDescriptor& output_row_descriptor,
-                      std::shared_ptr<Dependency> dep,
-                      std::shared_ptr<Dependency> fin_dep);
+                      std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
 
     VFileResultWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                      std::shared_ptr<Dependency> dep,
-                      std::shared_ptr<Dependency> fin_dep);
+                      std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
 
     Status write(RuntimeState* state, Block& block) override;
 

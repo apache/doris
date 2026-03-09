@@ -387,8 +387,8 @@ Status FunctionLikeBase::constant_regex_fn_scalar(const LikeSearchState* state,
                                                   unsigned char* result) {
     if (state->hs_database) { // use hyperscan
         auto ret = hs_scan(state->hs_database.get(), val.data, (int)val.size, 0,
-                           state->hs_scratch.get(),
-                           doris::LikeSearchState::hs_match_handler, (void*)result);
+                           state->hs_scratch.get(), doris::LikeSearchState::hs_match_handler,
+                           (void*)result);
         if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
             return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
         }
@@ -424,8 +424,7 @@ Status FunctionLikeBase::constant_regex_fn(const LikeSearchState* state, const C
         for (size_t i = 0; i < sz; i++) {
             const auto& str_ref = val.get_data_at(i);
             auto ret = hs_scan(state->hs_database.get(), str_ref.data, (int)str_ref.size, 0,
-                               state->hs_scratch.get(),
-                               doris::LikeSearchState::hs_match_handler,
+                               state->hs_scratch.get(), doris::LikeSearchState::hs_match_handler,
                                (void*)(result.data() + i));
             if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
                 return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
@@ -458,9 +457,9 @@ Status FunctionLikeBase::regexp_fn(const LikeSearchState* state, const ColumnStr
         auto sz = val.size();
         for (size_t i = 0; i < sz; i++) {
             const auto& str_ref = val.get_data_at(i);
-            auto ret = hs_scan(database, str_ref.data, (int)str_ref.size, 0, scratch,
-                               doris::LikeSearchState::hs_match_handler,
-                               (void*)(result.data() + i));
+            auto ret =
+                    hs_scan(database, str_ref.data, (int)str_ref.size, 0, scratch,
+                            doris::LikeSearchState::hs_match_handler, (void*)(result.data() + i));
             if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
                 return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
             }

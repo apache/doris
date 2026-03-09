@@ -231,5 +231,4 @@ TEST_F(OrcReaderConvertDictTest, ConvertDictColumnToStringColumnMixed) {
     ASSERT_EQ(string_column->get_data_at(7).to_string(), "");
 }
 
-
 } // namespace doris

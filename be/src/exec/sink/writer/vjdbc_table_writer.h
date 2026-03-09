@@ -36,8 +36,7 @@ public:
     static JdbcConnectorParam create_connect_param(const TDataSink&);
 
     VJdbcTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                     std::shared_ptr<Dependency> dep,
-                     std::shared_ptr<Dependency> fin_dep);
+                     std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
 
     // connect to jdbc server
     Status open(RuntimeState* state, RuntimeProfile* operator_profile) override {

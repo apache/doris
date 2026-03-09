@@ -114,8 +114,7 @@ bool DataQueue::remaining_has_data() {
 
 //the _flag_queue_idx indicate which queue has data, and in check can_read
 //will be set idx in remaining_has_data function
-Status DataQueue::get_block_from_queue(std::unique_ptr<Block>* output_block,
-                                       int* child_idx) {
+Status DataQueue::get_block_from_queue(std::unique_ptr<Block>* output_block, int* child_idx) {
     if (_is_canceled[_flag_queue_idx]) {
         return Status::InternalError("Current queue of idx {} have beed canceled: ",
                                      _flag_queue_idx);

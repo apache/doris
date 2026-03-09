@@ -25,7 +25,6 @@
 namespace doris {
 class RuntimeState;
 
-
 class SortSourceOperatorX;
 class SortLocalState final : public PipelineXLocalState<SortSharedState> {
 public:

@@ -135,11 +135,11 @@ private:
         const auto size = column->size();
         if constexpr (std::is_same_v<T, std::string>) {
             if (column->is_column_string64()) {
-                _update_batch_string(assert_cast<const ColumnString64&>(*column),
-                                     nullptr, start, size);
+                _update_batch_string(assert_cast<const ColumnString64&>(*column), nullptr, start,
+                                     size);
             } else {
-                _update_batch_string(assert_cast<const ColumnString&>(*column), nullptr,
-                                     start, size);
+                _update_batch_string(assert_cast<const ColumnString&>(*column), nullptr, start,
+                                     size);
             }
         } else {
             const T* data = (T*)column->get_raw_data().data;
@@ -154,16 +154,15 @@ private:
         }
     }
 
-    void _update_batch(const ColumnPtr& column, const NullMap& nullmap,
-                       size_t start) {
+    void _update_batch(const ColumnPtr& column, const NullMap& nullmap, size_t start) {
         const auto size = column->size();
         if constexpr (std::is_same_v<T, std::string>) {
             if (column->is_column_string64()) {
-                _update_batch_string(assert_cast<const ColumnString64&>(*column),
-                                     nullmap.data(), start, size);
+                _update_batch_string(assert_cast<const ColumnString64&>(*column), nullmap.data(),
+                                     start, size);
             } else {
-                _update_batch_string(assert_cast<const ColumnString&>(*column),
-                                     nullmap.data(), start, size);
+                _update_batch_string(assert_cast<const ColumnString&>(*column), nullmap.data(),
+                                     start, size);
             }
         } else {
             const T* data = (T*)column->get_raw_data().data;

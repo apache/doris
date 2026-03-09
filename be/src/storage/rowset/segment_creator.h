@@ -137,8 +137,8 @@ public:
     Status create_writer(std::unique_ptr<SegmentFlusher::Writer>& writer, uint32_t segment_id);
 
 private:
-    Status _add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
-                     const Block* block, size_t row_offset, size_t row_num);
+    Status _add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer, const Block* block,
+                     size_t row_offset, size_t row_num);
     Status _add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
                      const Block* block, size_t row_offset, size_t row_num);
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,

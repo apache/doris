@@ -530,8 +530,7 @@ public:
 
     Status _peek_one_offset(ordinal_t* offset);
 
-    Status _calculate_offsets(ssize_t start,
-                              ColumnArray::ColumnOffsets& column_offsets);
+    Status _calculate_offsets(ssize_t start, ColumnArray::ColumnOffsets& column_offsets);
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override {

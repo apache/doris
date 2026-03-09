@@ -34,8 +34,8 @@ class ComparisonPredicateBase final : public ColumnPredicate {
 public:
     ENABLE_FACTORY_CREATOR(ComparisonPredicateBase);
     using T = typename PrimitiveTypeTraits<Type>::CppType;
-    ComparisonPredicateBase(uint32_t column_id, std::string col_name,
-                            const Field& value, bool opposite = false)
+    ComparisonPredicateBase(uint32_t column_id, std::string col_name, const Field& value,
+                            bool opposite = false)
             : ColumnPredicate(column_id, col_name, Type, opposite),
               _value(value.template get<Type>()) {}
     ComparisonPredicateBase(const ComparisonPredicateBase<Type, PT>& other, uint32_t col_id)
@@ -60,9 +60,8 @@ public:
 
     PredicateType type() const override { return PT; }
 
-    Status evaluate(const IndexFieldNameAndTypePair& name_with_type,
-                    IndexIterator* iterator, uint32_t num_rows,
-                    roaring::Roaring* bitmap) const override {
+    Status evaluate(const IndexFieldNameAndTypePair& name_with_type, IndexIterator* iterator,
+                    uint32_t num_rows, roaring::Roaring* bitmap) const override {
         if (iterator == nullptr) {
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                     "Inverted index evaluate skipped, no inverted index reader can not support "
@@ -404,18 +403,16 @@ public:
         });
 
         if (column.is_nullable()) {
-            const auto* nullable_column_ptr =
-                    check_and_get_column<ColumnNullable>(column);
+            const auto* nullable_column_ptr = check_and_get_column<ColumnNullable>(column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map = assert_cast<const ColumnUInt8&>(
-                                           nullable_column_ptr->get_null_map_column())
-                                           .get_data();
+            const auto& null_map =
+                    assert_cast<const ColumnUInt8&>(nullable_column_ptr->get_null_map_column())
+                            .get_data();
 
             if (nested_column.is_column_dictionary()) {
                 if constexpr (is_string_type(Type)) {
                     const auto* dict_column_ptr =
-                            check_and_get_column<ColumnDictI32>(
-                                    nested_column);
+                            check_and_get_column<ColumnDictI32>(nested_column);
 
                     auto dict_code = _find_code_from_dictionary_column(*dict_column_ptr);
                     do {
@@ -435,20 +432,18 @@ public:
                     __builtin_unreachable();
                 }
             } else {
-                auto* data_array =
-                        check_and_get_column<
-                                const PredicateColumnType<PredicateEvaluateType<Type>>>(
-                                nested_column)
-                                ->get_data()
-                                .data();
+                auto* data_array = check_and_get_column<
+                                           const PredicateColumnType<PredicateEvaluateType<Type>>>(
+                                           nested_column)
+                                           ->get_data()
+                                           .data();
 
                 _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array, _value);
             }
         } else {
             if (column.is_column_dictionary()) {
                 if constexpr (is_string_type(Type)) {
-                    const auto* dict_column_ptr =
-                            check_and_get_column<ColumnDictI32>(column);
+                    const auto* dict_column_ptr = check_and_get_column<ColumnDictI32>(column);
                     auto dict_code = _find_code_from_dictionary_column(*dict_column_ptr);
                     do {
                         if constexpr (PT == PredicateType::EQ) {
@@ -467,8 +462,7 @@ public:
                 }
             } else {
                 auto* data_array =
-                        check_and_get_column<
-                                PredicateColumnType<PredicateEvaluateType<Type>>>(
+                        check_and_get_column<PredicateColumnType<PredicateEvaluateType<Type>>>(
                                 column)
                                 ->get_data()
                                 .data();
@@ -492,28 +486,24 @@ public:
         }
     }
 
-    void evaluate_vec(const IColumn& column, uint16_t size,
-                      bool* flags) const override {
+    void evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const override {
         _evaluate_vec_internal<false>(column, size, flags);
     }
 
-    void evaluate_and_vec(const IColumn& column, uint16_t size,
-                          bool* flags) const override {
+    void evaluate_and_vec(const IColumn& column, uint16_t size, bool* flags) const override {
         _evaluate_vec_internal<true>(column, size, flags);
     }
 
     double get_ignore_threshold() const override { return get_comparison_ignore_thredhold(); }
 
 private:
-    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel,
-                             uint16_t size) const override {
+    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override {
         if (column.is_nullable()) {
-            const auto* nullable_column_ptr =
-                    check_and_get_column<ColumnNullable>(column);
+            const auto* nullable_column_ptr = check_and_get_column<ColumnNullable>(column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map = assert_cast<const ColumnUInt8&>(
-                                           nullable_column_ptr->get_null_map_column())
-                                           .get_data();
+            const auto& null_map =
+                    assert_cast<const ColumnUInt8&>(nullable_column_ptr->get_null_map_column())
+                            .get_data();
 
             return _base_evaluate<true>(&nested_column, null_map.data(), sel, size);
         } else {
@@ -564,12 +554,11 @@ private:
     void _evaluate_bit(const IColumn& column, const uint16_t* sel, uint16_t size,
                        bool* flags) const {
         if (column.is_nullable()) {
-            const auto* nullable_column_ptr =
-                    check_and_get_column<ColumnNullable>(column);
+            const auto* nullable_column_ptr = check_and_get_column<ColumnNullable>(column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map = assert_cast<const ColumnUInt8&>(
-                                           nullable_column_ptr->get_null_map_column())
-                                           .get_data();
+            const auto& null_map =
+                    assert_cast<const ColumnUInt8&>(nullable_column_ptr->get_null_map_column())
+                            .get_data();
 
             _base_evaluate_bit<true, is_and>(&nested_column, null_map.data(), sel, size, flags);
         } else {
@@ -624,12 +613,11 @@ private:
     }
 
     template <bool is_nullable, bool is_and>
-    void _base_evaluate_bit(const IColumn* column, const uint8_t* null_map,
-                            const uint16_t* sel, uint16_t size, bool* flags) const {
+    void _base_evaluate_bit(const IColumn* column, const uint8_t* null_map, const uint16_t* sel,
+                            uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
             if constexpr (is_string_type(Type)) {
-                const auto* dict_column_ptr =
-                        check_and_get_column<ColumnDictI32>(column);
+                const auto* dict_column_ptr = check_and_get_column<ColumnDictI32>(column);
                 const auto* data_array = dict_column_ptr->get_data().data();
                 auto dict_code = _find_code_from_dictionary_column(*dict_column_ptr);
                 _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, data_array,
@@ -640,8 +628,7 @@ private:
             }
         } else {
             auto* data_array =
-                    check_and_get_column<
-                            PredicateColumnType<PredicateEvaluateType<Type>>>(column)
+                    check_and_get_column<PredicateColumnType<PredicateEvaluateType<Type>>>(column)
                             ->get_data()
                             .data();
 
@@ -650,12 +637,11 @@ private:
     }
 
     template <bool is_nullable>
-    uint16_t _base_evaluate(const IColumn* column, const uint8_t* null_map,
-                            uint16_t* sel, uint16_t size) const {
+    uint16_t _base_evaluate(const IColumn* column, const uint8_t* null_map, uint16_t* sel,
+                            uint16_t size) const {
         if (column->is_column_dictionary()) {
             if constexpr (is_string_type(Type)) {
-                const auto* dict_column_ptr =
-                        check_and_get_column<ColumnDictI32>(column);
+                const auto* dict_column_ptr = check_and_get_column<ColumnDictI32>(column);
                 const auto& pred_col = dict_column_ptr->get_data();
                 const auto* pred_col_data = pred_col.data();
                 auto dict_code = _find_code_from_dictionary_column(*dict_column_ptr);
@@ -680,8 +666,7 @@ private:
             }
         } else {
             auto& pred_col =
-                    check_and_get_column<
-                            PredicateColumnType<PredicateEvaluateType<Type>>>(column)
+                    check_and_get_column<PredicateColumnType<PredicateEvaluateType<Type>>>(column)
                             ->get_data();
             auto pred_col_data = pred_col.data();
             uint16_t new_size = 0;

@@ -73,8 +73,7 @@ public:
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>("flush is not implemented");
     }
 
-    Status flush_memtable(Block* block, int32_t segment_id,
-                          int64_t* flush_size) override;
+    Status flush_memtable(Block* block, int32_t segment_id, int64_t* flush_size) override;
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.

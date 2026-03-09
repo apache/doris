@@ -85,8 +85,8 @@ void SegcompactionWorker::init_mem_tracker(const RowsetWriterContext& rowset_wri
 Status SegcompactionWorker::_get_segcompaction_reader(
         SegCompactionCandidatesSharedPtr segments, TabletSharedPtr tablet,
         std::shared_ptr<Schema> schema, OlapReaderStatistics* stat,
-        RowSourcesBuffer& row_sources_buf, bool is_key,
-        std::vector<uint32_t>& return_columns, std::vector<uint32_t>& key_group_cluster_key_idxes,
+        RowSourcesBuffer& row_sources_buf, bool is_key, std::vector<uint32_t>& return_columns,
+        std::vector<uint32_t>& key_group_cluster_key_idxes,
         std::unique_ptr<VerticalBlockReader>* reader) {
     const auto& ctx = _writer->_context;
     bool record_rowids = need_convert_delete_bitmap() && is_key;
@@ -284,7 +284,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     Merger::vertical_split_columns(*ctx.tablet_schema, &column_groups,
                                    &key_group_cluster_key_idxes);
     RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
-                                                 ReaderType::READER_SEGMENT_COMPACTION);
+                                     ReaderType::READER_SEGMENT_COMPACTION);
 
     KeyBoundsPB key_bounds;
     Merger::Statistics key_merger_stats;

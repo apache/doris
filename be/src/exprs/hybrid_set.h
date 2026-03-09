@@ -222,8 +222,7 @@ public:
     // use in vectorize execute engine
     virtual void insert(void* data, size_t) = 0;
 
-    virtual void insert_range_from(const ColumnPtr& column, size_t start,
-                                   size_t end) = 0;
+    virtual void insert_range_from(const ColumnPtr& column, size_t start, size_t end) = 0;
 
     virtual void insert_fixed_len(const ColumnPtr& column, size_t start) = 0;
 
@@ -312,8 +311,7 @@ public:
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& col = nullable->get_nested_column();
             const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
+                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
 
             const ElementType* data = (ElementType*)col.get_raw_data().data;
             for (size_t i = start; i < end; i++) {
@@ -352,8 +350,7 @@ public:
     }
 
     void find_batch_nullable(const doris::IColumn& column, size_t rows,
-                             const doris::NullMap& null_map,
-                             doris::ColumnUInt8::Container& results,
+                             const doris::NullMap& null_map, doris::ColumnUInt8::Container& results,
                              const uint8_t* __restrict filter = nullptr) override {
         _find_batch<true, false>(column, rows, &null_map, results, filter);
     }
@@ -366,10 +363,8 @@ public:
     }
 
     template <bool is_nullable, bool is_negative>
-    void _find_batch(const doris::IColumn& column, size_t rows,
-                     const doris::NullMap* null_map,
-                     doris::ColumnUInt8::Container& results,
-                     const uint8_t* __restrict filter) {
+    void _find_batch(const doris::IColumn& column, size_t rows, const doris::NullMap* null_map,
+                     doris::ColumnUInt8::Container& results, const uint8_t* __restrict filter) {
         auto& col = assert_cast<const ColumnType&>(column);
         const auto* __restrict data = (ElementType*)col.get_data().data();
         const uint8_t* __restrict null_map_data;
@@ -508,12 +503,11 @@ public:
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
+                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
             if (nullable->get_nested_column().is_column_string64()) {
-                _insert_fixed_len_string(assert_cast<const ColumnString64&>(
-                                                 nullable->get_nested_column()),
-                                         nullmap.data(), start, end);
+                _insert_fixed_len_string(
+                        assert_cast<const ColumnString64&>(nullable->get_nested_column()),
+                        nullmap.data(), start, end);
             } else {
                 _insert_fixed_len_string(
                         assert_cast<const ColumnString&>(nullable->get_nested_column()),
@@ -521,11 +515,11 @@ public:
             }
         } else {
             if (column->is_column_string64()) {
-                _insert_fixed_len_string(assert_cast<const ColumnString64&>(*column),
-                                         nullptr, start, end);
+                _insert_fixed_len_string(assert_cast<const ColumnString64&>(*column), nullptr,
+                                         start, end);
             } else {
-                _insert_fixed_len_string(assert_cast<const ColumnString&>(*column),
-                                         nullptr, start, end);
+                _insert_fixed_len_string(assert_cast<const ColumnString&>(*column), nullptr, start,
+                                         end);
             }
         }
     }
@@ -556,8 +550,7 @@ public:
     }
 
     void find_batch_nullable(const doris::IColumn& column, size_t rows,
-                             const doris::NullMap& null_map,
-                             doris::ColumnUInt8::Container& results,
+                             const doris::NullMap& null_map, doris::ColumnUInt8::Container& results,
                              const uint8_t* __restrict filter = nullptr) override {
         _find_batch<true, false>(column, rows, &null_map, results, filter);
     }
@@ -570,10 +563,8 @@ public:
     }
 
     template <bool is_nullable, bool is_negative>
-    void _find_batch(const doris::IColumn& column, size_t rows,
-                     const doris::NullMap* null_map,
-                     doris::ColumnUInt8::Container& results,
-                     const uint8_t* __restrict filter) {
+    void _find_batch(const doris::IColumn& column, size_t rows, const doris::NullMap* null_map,
+                     doris::ColumnUInt8::Container& results, const uint8_t* __restrict filter) {
         const auto& col = assert_cast<const doris::ColumnString&>(column);
         const uint8_t* __restrict null_map_data;
         if constexpr (is_nullable) {
@@ -716,12 +707,11 @@ public:
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& nullmap =
-                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
+                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
             if (nullable->get_nested_column().is_column_string64()) {
-                _insert_fixed_len_string(assert_cast<const ColumnString64&>(
-                                                 nullable->get_nested_column()),
-                                         nullmap.data(), start, end);
+                _insert_fixed_len_string(
+                        assert_cast<const ColumnString64&>(nullable->get_nested_column()),
+                        nullmap.data(), start, end);
             } else {
                 _insert_fixed_len_string(
                         assert_cast<const ColumnString&>(nullable->get_nested_column()),
@@ -729,11 +719,11 @@ public:
             }
         } else {
             if (column->is_column_string64()) {
-                _insert_fixed_len_string(assert_cast<const ColumnString64&>(*column),
-                                         nullptr, start, end);
+                _insert_fixed_len_string(assert_cast<const ColumnString64&>(*column), nullptr,
+                                         start, end);
             } else {
-                _insert_fixed_len_string(assert_cast<const ColumnString&>(*column),
-                                         nullptr, start, end);
+                _insert_fixed_len_string(assert_cast<const ColumnString&>(*column), nullptr, start,
+                                         end);
             }
         }
     }
@@ -763,8 +753,7 @@ public:
     }
 
     void find_batch_nullable(const doris::IColumn& column, size_t rows,
-                             const doris::NullMap& null_map,
-                             doris::ColumnUInt8::Container& results,
+                             const doris::NullMap& null_map, doris::ColumnUInt8::Container& results,
                              const uint8_t* __restrict filter) override {
         _find_batch<true, false>(column, rows, &null_map, results, filter);
     }
@@ -777,10 +766,8 @@ public:
     }
 
     template <bool is_nullable, bool is_negative>
-    void _find_batch(const doris::IColumn& column, size_t rows,
-                     const doris::NullMap* null_map,
-                     doris::ColumnUInt8::Container& results,
-                     const uint8_t* __restrict filter) {
+    void _find_batch(const doris::IColumn& column, size_t rows, const doris::NullMap* null_map,
+                     doris::ColumnUInt8::Container& results, const uint8_t* __restrict filter) {
         const auto& col = assert_cast<const doris::ColumnString&>(column);
         const auto& offset = col.get_offsets();
         const uint8_t* __restrict data = col.get_chars().data();
