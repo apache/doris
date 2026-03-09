@@ -190,7 +190,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             return tTableDescriptor;
         } else {
             throw new IllegalArgumentException(
-                    "Currently only supports hms/dlf/rest/filesystem/jdbc catalog, do not support :"
+                    "Currently only supports hms/dlf/rest/filesystem/jdbc catalog, do not support: "
                     + getPaimonCatalogType());
         }
     }

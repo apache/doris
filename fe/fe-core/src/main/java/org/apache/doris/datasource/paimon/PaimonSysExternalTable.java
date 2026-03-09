@@ -207,7 +207,7 @@ public class PaimonSysExternalTable extends ExternalTable {
             return tTableDescriptor;
         } else {
             throw new IllegalArgumentException(
-                    "Currently only supports hms/dlf/rest/filesystem/jdbc catalog, do not support :" + catalogType);
+                    "Currently only supports hms/dlf/rest/filesystem/jdbc catalog, do not support: " + catalogType);
         }
     }
 

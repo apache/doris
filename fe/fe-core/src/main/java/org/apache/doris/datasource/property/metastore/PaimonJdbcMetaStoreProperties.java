@@ -39,12 +39,14 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class PaimonJdbcMetaStoreProperties extends AbstractPaimonProperties {
     private static final Logger LOG = LogManager.getLogger(PaimonJdbcMetaStoreProperties.class);
     private static final String JDBC_PREFIX = "jdbc.";
     private static final Map<URL, ClassLoader> DRIVER_CLASS_LOADER_CACHE = new ConcurrentHashMap<>();
+    private static final Set<String> REGISTERED_DRIVER_KEYS = ConcurrentHashMap.newKeySet();
 
     @ConnectorProperty(
             names = {"uri", "paimon.jdbc.uri"},
@@ -161,33 +163,41 @@ public class PaimonJdbcMetaStoreProperties extends AbstractPaimonProperties {
      */
     private void registerJdbcDriver(String driverUrl, String driverClassName) {
         try {
-            String fullDriverUrl = JdbcResource.getFullDriverUrl(driverUrl);
-            URL url = new URL(fullDriverUrl);
-
-            ClassLoader classLoader = DRIVER_CLASS_LOADER_CACHE.computeIfAbsent(url, u -> {
-                ClassLoader parent = getClass().getClassLoader();
-                return URLClassLoader.newInstance(new URL[] {u}, parent);
-            });
-
             if (StringUtils.isBlank(driverClassName)) {
                 throw new IllegalArgumentException(
                         "jdbc.driver_class or paimon.jdbc.driver_class is required when jdbc.driver_url "
                                 + "or paimon.jdbc.driver_url is specified");
             }
 
-            Class<?> loadedDriverClass = Class.forName(driverClassName, true, classLoader);
-            java.sql.Driver driver = (java.sql.Driver) loadedDriverClass.getDeclaredConstructor().newInstance();
-            java.sql.DriverManager.registerDriver(new DriverShim(driver));
-            LOG.info("Successfully registered JDBC driver for Paimon catalog: {} from {}",
-                    driverClassName, fullDriverUrl);
+            String fullDriverUrl = JdbcResource.getFullDriverUrl(driverUrl);
+            URL url = new URL(fullDriverUrl);
+            String driverKey = fullDriverUrl + "#" + driverClassName;
+            if (!REGISTERED_DRIVER_KEYS.add(driverKey)) {
+                LOG.info("JDBC driver already registered for Paimon catalog: {} from {}",
+                        driverClassName, fullDriverUrl);
+                return;
+            }
+            try {
+                ClassLoader classLoader = DRIVER_CLASS_LOADER_CACHE.computeIfAbsent(url, u -> {
+                    ClassLoader parent = getClass().getClassLoader();
+                    return URLClassLoader.newInstance(new URL[] {u}, parent);
+                });
+                Class<?> loadedDriverClass = Class.forName(driverClassName, true, classLoader);
+                java.sql.Driver driver = (java.sql.Driver) loadedDriverClass.getDeclaredConstructor().newInstance();
+                java.sql.DriverManager.registerDriver(new DriverShim(driver));
+                LOG.info("Successfully registered JDBC driver for Paimon catalog: {} from {}",
+                        driverClassName, fullDriverUrl);
+            } catch (ClassNotFoundException e) {
+                REGISTERED_DRIVER_KEYS.remove(driverKey);
+                throw new IllegalArgumentException("Failed to load JDBC driver class: " + driverClassName, e);
+            } catch (Exception e) {
+                REGISTERED_DRIVER_KEYS.remove(driverKey);
+                throw new RuntimeException("Failed to register JDBC driver: " + driverClassName, e);
+            }
         } catch (MalformedURLException e) {
             throw new IllegalArgumentException("Invalid driver URL: " + driverUrl, e);
-        } catch (ClassNotFoundException e) {
-            throw new IllegalArgumentException("Failed to load JDBC driver class: " + driverClassName, e);
         } catch (IllegalArgumentException e) {
             throw e;
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to register JDBC driver: " + driverClassName, e);
         }
     }
 
