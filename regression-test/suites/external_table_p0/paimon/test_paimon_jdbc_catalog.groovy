@@ -61,6 +61,7 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
     String jdbcDriversDir = getFeConfig("jdbc_drivers_dir")
     String localDriverDir = "${context.config.dataPath}/jdbc_driver"
     String localDriverPath = "${localDriverDir}/${driverName}"
+    String sparkDriverPath = "/tmp/${driverName}"
     String sparkSeedCatalogName = "${catalogName}_seed"
 
     assertTrue(jdbcDriversDir != null && !jdbcDriversDir.isEmpty(), "jdbc_drivers_dir must be configured")
@@ -96,10 +97,15 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
         logger.info("spark-iceberg container not found, skip this test")
         return
     }
+    executeCommand("docker cp ${localDriverPath} ${sparkContainerName}:${sparkDriverPath}", true)
 
     def sparkPaimonJdbc = { String sqlText ->
         String escapedSql = sqlText.replaceAll('"', '\\\\"')
         String command = """docker exec ${sparkContainerName} spark-sql --master spark://${sparkContainerName}:7077 \
+--jars ${sparkDriverPath} \
+--driver-class-path ${sparkDriverPath} \
+--conf spark.driver.extraClassPath=${sparkDriverPath} \
+--conf spark.executor.extraClassPath=${sparkDriverPath} \
 --conf spark.sql.extensions=org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions \
 --conf spark.sql.catalog.${sparkSeedCatalogName}=org.apache.paimon.spark.SparkCatalog \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.warehouse=s3://${warehouseBucket}/paimon_jdbc_catalog/ \
