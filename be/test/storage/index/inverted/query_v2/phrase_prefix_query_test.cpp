@@ -19,6 +19,7 @@
 
 #include <CLucene.h>
 #include <gtest/gtest.h>
+#include <sys/resource.h>
 
 #include <memory>
 #include <roaring/roaring.hh>
@@ -199,7 +200,13 @@ TEST_F(PhrasePrefixQueryV2Test, empty_terms_throws) {
     std::vector<TermInfo> empty_terms;
 
     // Constructor asserts !terms.empty(), which aborts in debug builds.
-    EXPECT_DEATH({ PhrasePrefixQuery q(ctx, field, empty_terms); }, "");
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+    EXPECT_DEATH(({
+                     struct rlimit core_limit {};
+                     setrlimit(RLIMIT_CORE, &core_limit);
+                     PhrasePrefixQuery q(ctx, field, empty_terms);
+                 }),
+                 "");
 }
 
 // --- PhrasePrefixWeight scorer: phrase + prefix match ---
