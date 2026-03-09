@@ -85,13 +85,13 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             return Status::InternalError("read wal {} fail, pos {}, columns size {}", _wal_path,
                                          pos, src_block.columns());
         }
-        vectorized::ColumnPtr column_ptr = src_block.get_by_position(pos).column;
+        ColumnPtr column_ptr = src_block.get_by_position(pos).column;
         if (!column_ptr && slot_desc->is_nullable()) {
             column_ptr = make_nullable(column_ptr);
         }
-        dst_block.insert(index, vectorized::ColumnWithTypeAndName(
-                                        std::move(column_ptr), output_block_columns[index].type,
-                                        output_block_columns[index].name));
+        dst_block.insert(index, ColumnWithTypeAndName(std::move(column_ptr),
+                                                      output_block_columns[index].type,
+                                                      output_block_columns[index].name));
         index++;
     }
     block->swap(dst_block);

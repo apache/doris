@@ -83,22 +83,22 @@ static void CustomCounters(benchmark::State& state) {
 
 static void BM_FastUnionOptimized(benchmark::State& state) {
     for (auto _ : state) {
-        auto result = Roaring64Map::fastunion(doris::vectorized::test_map_ptrs.size(),
-                                              doris::vectorized::test_map_ptrs.data());
+        auto result =
+                Roaring64Map::fastunion(doris::test_map_ptrs.size(), doris::test_map_ptrs.data());
         benchmark::DoNotOptimize(result);
     }
-    doris::vectorized::CustomCounters(state);
-    state.SetComplexityN(doris::vectorized::num_bitmaps);
+    doris::CustomCounters(state);
+    state.SetComplexityN(doris::num_bitmaps);
 }
 
 static void BM_FastUnionLegacy(benchmark::State& state) {
     for (auto _ : state) {
-        auto result = doris::vectorized::legacy_fastunion(doris::vectorized::test_map_ptrs.size(),
-                                                          doris::vectorized::test_map_ptrs.data());
+        auto result =
+                doris::legacy_fastunion(doris::test_map_ptrs.size(), doris::test_map_ptrs.data());
         benchmark::DoNotOptimize(result);
     }
-    doris::vectorized::CustomCounters(state);
-    state.SetComplexityN(doris::vectorized::num_bitmaps);
+    doris::CustomCounters(state);
+    state.SetComplexityN(doris::num_bitmaps);
 }
 
 BENCHMARK(BM_FastUnionOptimized)
