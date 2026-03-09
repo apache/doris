@@ -22,7 +22,9 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -32,6 +34,9 @@ import java.util.concurrent.atomic.AtomicReference;
 public class FileCacheAdmissionManagerTest {
 
     private FileCacheAdmissionManager manager;
+
+    @Rule
+    public TemporaryFolder tempFolder = new TemporaryFolder();
 
     @Before
     public void setUp() {
@@ -75,10 +80,10 @@ public class FileCacheAdmissionManagerTest {
 
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
-        File jsonFile = new File("rules-test.json");
+        File jsonFile = tempFolder.newFile("rules-test-common.json");
         objectMapper.writeValue(jsonFile, rules);
 
-        manager.loadRules("rules-test.json");
+        manager.loadRules(jsonFile.getAbsolutePath());
 
         AtomicReference<String> reason1 = new AtomicReference<>();
         boolean result1 = manager.isAdmittedAtTableLevel("user", "catalog_1", "database", "table", reason1);
@@ -117,10 +122,10 @@ public class FileCacheAdmissionManagerTest {
 
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
-        File jsonFile = new File("rules-test.json");
+        File jsonFile = tempFolder.newFile("rules-test-enabled.json");
         objectMapper.writeValue(jsonFile, rules);
 
-        manager.loadRules("rules-test.json");
+        manager.loadRules(jsonFile.getAbsolutePath());
 
         AtomicReference<String> reason1 = new AtomicReference<>();
         boolean result1 = manager.isAdmittedAtTableLevel("user", "catalog_1", "database", "table", reason1);
@@ -159,10 +164,10 @@ public class FileCacheAdmissionManagerTest {
 
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
-        File jsonFile = new File("rules-test.json");
+        File jsonFile = tempFolder.newFile("rules-test-user.json");
         objectMapper.writeValue(jsonFile, rules);
 
-        manager.loadRules("rules-test.json");
+        manager.loadRules(jsonFile.getAbsolutePath());
 
         AtomicReference<String> reason1 = new AtomicReference<>();
         boolean result1 = manager.isAdmittedAtTableLevel("user_1", "catalog_4", "database", "table", reason1);
@@ -205,10 +210,10 @@ public class FileCacheAdmissionManagerTest {
 
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
-        File jsonFile = new File("rules-test.json");
+        File jsonFile = tempFolder.newFile("rules-test-priority.json");
         objectMapper.writeValue(jsonFile, rules);
 
-        manager.loadRules("rules-test.json");
+        manager.loadRules(jsonFile.getAbsolutePath());
 
         AtomicReference<String> reason1 = new AtomicReference<>();
         boolean result1 = manager.isAdmittedAtTableLevel("user_3", "catalog", "database", "table", reason1);
@@ -222,7 +227,7 @@ public class FileCacheAdmissionManagerTest {
 
         objectMapper.writeValue(jsonFile, rules);
 
-        manager.loadRules("rules-test.json");
+        manager.loadRules(jsonFile.getAbsolutePath());
 
         AtomicReference<String> reason2 = new AtomicReference<>();
         boolean result2 = manager.isAdmittedAtTableLevel("user_3", "catalog", "database", "table", reason2);
@@ -236,7 +241,7 @@ public class FileCacheAdmissionManagerTest {
 
         objectMapper.writeValue(jsonFile, rules);
 
-        manager.loadRules("rules-test.json");
+        manager.loadRules(jsonFile.getAbsolutePath());
 
         AtomicReference<String> reason3 = new AtomicReference<>();
         boolean result3 = manager.isAdmittedAtTableLevel("user_3", "catalog", "database", "table", reason3);
@@ -250,7 +255,7 @@ public class FileCacheAdmissionManagerTest {
 
         objectMapper.writeValue(jsonFile, rules);
 
-        manager.loadRules("rules-test.json");
+        manager.loadRules(jsonFile.getAbsolutePath());
 
         AtomicReference<String> reason4 = new AtomicReference<>();
         boolean result4 = manager.isAdmittedAtTableLevel("user_3", "catalog", "database", "table", reason4);
@@ -275,10 +280,10 @@ public class FileCacheAdmissionManagerTest {
 
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
-        File jsonFile = new File("rules-test.json");
+        File jsonFile = tempFolder.newFile("rules-test-type-priority.json");
         objectMapper.writeValue(jsonFile, rules);
 
-        manager.loadRules("rules-test.json");
+        manager.loadRules(jsonFile.getAbsolutePath());
 
         AtomicReference<String> reason1 = new AtomicReference<>();
         boolean result1 = manager.isAdmittedAtTableLevel("user_4", "catalog", "database", "table", reason1);
@@ -296,7 +301,7 @@ public class FileCacheAdmissionManagerTest {
 
         objectMapper.writeValue(jsonFile, rules);
 
-        manager.loadRules("rules-test.json");
+        manager.loadRules(jsonFile.getAbsolutePath());
 
         AtomicReference<String> reason2 = new AtomicReference<>();
         boolean result2 = manager.isAdmittedAtTableLevel("user_4", "catalog", "database", "table", reason2);
@@ -314,7 +319,7 @@ public class FileCacheAdmissionManagerTest {
 
         objectMapper.writeValue(jsonFile, rules);
 
-        manager.loadRules("rules-test.json");
+        manager.loadRules(jsonFile.getAbsolutePath());
 
         AtomicReference<String> reason3 = new AtomicReference<>();
         boolean result3 = manager.isAdmittedAtTableLevel("user_4", "catalog", "database", "table", reason3);
@@ -332,7 +337,7 @@ public class FileCacheAdmissionManagerTest {
 
         objectMapper.writeValue(jsonFile, rules);
 
-        manager.loadRules("rules-test.json");
+        manager.loadRules(jsonFile.getAbsolutePath());
 
         AtomicReference<String> reason4 = new AtomicReference<>();
         boolean result4 = manager.isAdmittedAtTableLevel("user_4", "catalog", "database", "table", reason4);
@@ -384,10 +389,10 @@ public class FileCacheAdmissionManagerTest {
 
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.enable(SerializationFeature.INDENT_OUTPUT);
-        File jsonFile = new File("rules-test.json");
+        File jsonFile = tempFolder.newFile("rules-test-nested.json");
         objectMapper.writeValue(jsonFile, rules);
 
-        manager.loadRules("rules-test.json");
+        manager.loadRules(jsonFile.getAbsolutePath());
 
         AtomicReference<String> reason1 = new AtomicReference<>();
         boolean result1 = manager.isAdmittedAtTableLevel("user_5", "catalog", "database", "table", reason1);
@@ -428,9 +433,5 @@ public class FileCacheAdmissionManagerTest {
 
     @AfterClass
     public static void deleteJsonFile() throws Exception {
-        File file = new File("rules-test.json");
-        if (file.exists()) {
-            file.delete();
-        }
     }
 }

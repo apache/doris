@@ -215,12 +215,12 @@ public class FileCacheAdmissionManager {
     }
 
     public static class RuleCollection {
-        private Boolean excludeGlobal = false;
+        private boolean excludeGlobal = false;
         private final Set<String> excludeCatalogRules = new HashSet<>();
         private final Map<String, Set<String>> excludeDatabaseRules = new HashMap<>();
         private final Map<String, Set<String>> excludeTableRules = new HashMap<>();
 
-        private Boolean includeGlobal = false;
+        private boolean includeGlobal = false;
         private final Set<String> includeCatalogRules = new HashSet<>();
         private final Map<String, Set<String>> includeDatabaseRules = new HashMap<>();
         private final Map<String, Set<String>> includeTableRules = new HashMap<>();
@@ -462,8 +462,9 @@ public class FileCacheAdmissionManager {
         }
     }
 
-    // Thread-safe rule management supporting concurrent reads and writes.
-    public static class ConcurrentRuleManager {
+    // Rule management supporting concurrent reads and writes.
+    // Thread safety is provided by the ReentrantReadWriteLock in FileCacheAdmissionManager.
+    public static class RuleManager {
         // Characters in ASCII order: A-Z, then other symbols, then a-z
         private static final int PARTITION_COUNT = 58;
         private final List<Map<String, RuleCollection>> maps;
@@ -474,7 +475,7 @@ public class FileCacheAdmissionManager {
                 "invalid user_identity"
         ));
 
-        public ConcurrentRuleManager() {
+        public RuleManager() {
             maps = new ArrayList<>(PARTITION_COUNT);
             commonCollection = new RuleCollection();
 
@@ -501,7 +502,7 @@ public class FileCacheAdmissionManager {
                 }
 
                 char firstChar = rulePattern.getUserIdentity().charAt(0);
-                if (!Character.isAlphabetic(firstChar)) {
+                if (!((firstChar >= 'A' && firstChar <= 'Z') || (firstChar >= 'a' && firstChar <= 'z'))) {
                     continue;
                 }
 
@@ -520,7 +521,7 @@ public class FileCacheAdmissionManager {
             }
 
             char firstChar = userIdentity.charAt(0);
-            if (!Character.isAlphabetic(firstChar)) {
+            if (!((firstChar >= 'A' && firstChar <= 'Z') || (firstChar >= 'a' && firstChar <= 'z'))) {
                 reason.set(otherReasons.get(1));
                 logDefaultAdmission(userIdentity, catalog, database, table, reason.get());
                 return false;
@@ -539,8 +540,7 @@ public class FileCacheAdmissionManager {
         private void logDefaultAdmission(String userIdentity, String catalog, String database, String table,
                                          String reason) {
             if (LOG.isDebugEnabled()) {
-                boolean admitted = false;
-                String decision = admitted ? "admitted" : "denied";
+                String decision = "denied";
 
                 String logMessage = String.format(
                         "File cache request %s by default rule, "
@@ -552,7 +552,7 @@ public class FileCacheAdmissionManager {
         }
     }
 
-    private ConcurrentRuleManager ruleManager;
+    private RuleManager ruleManager;
 
     private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
     private final ReentrantReadWriteLock.ReadLock readLock = rwLock.readLock();
@@ -563,7 +563,7 @@ public class FileCacheAdmissionManager {
     private ConfigWatcher watcher;
 
     public FileCacheAdmissionManager() {
-        this.ruleManager = new ConcurrentRuleManager();
+        this.ruleManager = new RuleManager();
     }
 
     public static FileCacheAdmissionManager getInstance() {
@@ -577,10 +577,11 @@ public class FileCacheAdmissionManager {
     public boolean isAdmittedAtTableLevel(String userIdentity, String catalog, String database, String table,
                                           AtomicReference<String> reason) {
         readLock.lock();
-        boolean admissionResult = ruleManager.isAdmittedAtTableLevel(userIdentity, catalog, database, table, reason);
-        readLock.unlock();
-
-        return admissionResult;
+        try {
+            return ruleManager.isAdmittedAtTableLevel(userIdentity, catalog, database, table, reason);
+        } finally {
+            readLock.unlock();
+        }
     }
 
     public void loadRules(String filePath) {
@@ -593,12 +594,15 @@ public class FileCacheAdmissionManager {
             List<AdmissionRule> loadedRules = RuleLoader.loadRulesFromFile(filePath);
             LOG.info("{} rules loaded successfully from file: {}", loadedRules.size(), filePath);
 
-            ConcurrentRuleManager newRuleManager = new ConcurrentRuleManager();
+            RuleManager newRuleManager = new RuleManager();
             newRuleManager.initialize(loadedRules);
 
             writeLock.lock();
-            ruleManager = newRuleManager;
-            writeLock.unlock();
+            try {
+                ruleManager = newRuleManager;
+            } finally {
+                writeLock.unlock();
+            }
         } catch (Exception e) {
             LOG.error("Failed to load file cache admission rules from file: {}", filePath, e);
         }
@@ -633,6 +637,12 @@ public class FileCacheAdmissionManager {
                 }
             });
 
+            if (jsonFiles == null) {
+                LOG.error("Failed to list JSON files in directory: {}",
+                        Config.file_cache_admission_control_json_dir);
+                return;
+            }
+
             LOG.info("Found {} JSON files in admission rule directory: {}",
                     jsonFiles.length, Config.file_cache_admission_control_json_dir);
 
@@ -650,21 +660,37 @@ public class FileCacheAdmissionManager {
                 allRules.addAll(loadedRules);
             }
 
-            ConcurrentRuleManager newRuleManager = new ConcurrentRuleManager();
+            RuleManager newRuleManager = new RuleManager();
             newRuleManager.initialize(allRules);
 
             writeLock.lock();
-            ruleManager = newRuleManager;
-            writeLock.unlock();
+            try {
+                ruleManager = newRuleManager;
+            } finally {
+                writeLock.unlock();
+            }
         } catch (Exception e) {
             LOG.error("Failed to load file cache admission rules from directory: {}",
                     Config.file_cache_admission_control_json_dir, e);
         }
     }
 
-    // Reloads all JSON rules and replaces the ConcurrentRuleManager
+    // Reloads all JSON rules and replaces the RuleManager
     // when any .json file is created, modified, or deleted.
     public void loadOnStartup() {
+        if (Config.file_cache_admission_control_json_dir == null
+                || Config.file_cache_admission_control_json_dir.isEmpty()) {
+            LOG.warn("File cache admission JSON directory is not configured, skip loading.");
+            return;
+        }
+
+        File ruleDir = new File(Config.file_cache_admission_control_json_dir);
+        if (!ruleDir.exists() || !ruleDir.isDirectory()) {
+            LOG.warn("File cache admission JSON directory does not exist or is not a directory: {}, skip loading.",
+                    Config.file_cache_admission_control_json_dir);
+            return;
+        }
+
         LOG.info("Loading file cache admission rules...");
         loadRules();
 

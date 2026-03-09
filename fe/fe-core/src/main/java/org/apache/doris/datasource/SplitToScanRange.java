@@ -31,5 +31,5 @@ public interface SplitToScanRange {
             Map<String, String> locationProperties,
             Split split,
             List<String> pathPartitionKeys,
-            Boolean fileCacheAdmission) throws UserException;
+            boolean fileCacheAdmission) throws UserException;
 }

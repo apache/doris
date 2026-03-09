@@ -53,7 +53,7 @@ public class SplitAssignment {
     private final SplitToScanRange splitToScanRange;
     private final Map<String, String> locationProperties;
     private final List<String> pathPartitionKeys;
-    private final Boolean fileCacheAdmission;
+    private final boolean fileCacheAdmission;
     private final Object assignLock = new Object();
     private Split sampleSplit = null;
     private final AtomicBoolean isStopped = new AtomicBoolean(false);
@@ -68,7 +68,7 @@ public class SplitAssignment {
             SplitToScanRange splitToScanRange,
             Map<String, String> locationProperties,
             List<String> pathPartitionKeys,
-            Boolean fileCacheAdmission) {
+            boolean fileCacheAdmission) {
         this.backendPolicy = backendPolicy;
         this.splitGenerator = splitGenerator;
         this.splitToScanRange = splitToScanRange;

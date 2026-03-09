@@ -324,7 +324,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         int numBackends = backendPolicy.numBackends();
         List<String> pathPartitionKeys = getPathPartitionKeys();
 
-        Boolean admissionResult = true;
+        boolean admissionResult = true;
         if (ConnectContext.get().getSessionVariable().isEnableFileCache()
                 && Config.enable_file_cache_admission_control) {
             admissionResult = fileCacheAdmissionCheck();
@@ -415,7 +415,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             Map<String, String> locationProperties,
             Split split,
             List<String> pathPartitionKeys,
-            Boolean admissionResult) throws UserException {
+            boolean admissionResult) throws UserException {
         FileSplit fileSplit = (FileSplit) split;
         TScanRangeLocations curLocations = newLocations();
         // If fileSplit has partition values, use the values collected from hive partitions.
