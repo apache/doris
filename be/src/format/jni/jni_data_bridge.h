@@ -34,16 +34,11 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-namespace vectorized {
 class Block;
 template <PrimitiveType T>
 class ColumnDecimal;
 template <PrimitiveType T>
 class ColumnVector;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 /**
  * JniDataBridge is a stateless utility class that handles data exchange
@@ -241,4 +236,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

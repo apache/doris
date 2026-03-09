@@ -27,19 +27,15 @@
 
 #include "common/factory_creator.h"
 #include "common/status.h"
-#include "format/jni_reader.h"
+#include "format/jni/jni_reader.h"
 
 namespace doris {
 class RuntimeProfile;
 class RuntimeState;
 class SlotDescriptor;
 class TupleDescriptor;
-namespace vectorized {
 class Block;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 /**
@@ -102,4 +98,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

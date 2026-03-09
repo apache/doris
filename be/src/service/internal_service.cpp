@@ -72,7 +72,7 @@
 #include "format/arrow/arrow_row_batch.h"
 #include "format/csv/csv_reader.h"
 #include "format/generic_reader.h"
-#include "format/jni_reader.h"
+#include "format/jni/jni_reader.h"
 #include "format/json/new_json_reader.h"
 #include "format/native/native_reader.h"
 #include "format/orc/vorc_reader.h"

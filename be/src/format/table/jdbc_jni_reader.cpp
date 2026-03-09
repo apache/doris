@@ -29,7 +29,7 @@
 #include "runtime/descriptors.h"
 #include "util/jdbc_utils.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 JdbcJniReader::JdbcJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
@@ -219,4 +219,4 @@ Status JdbcJniReader::_cast_string_to_special_type(const SlotDescriptor* slot_de
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

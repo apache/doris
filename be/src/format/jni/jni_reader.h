@@ -98,7 +98,7 @@ public:
     /**
      * Read next batch from Java scanner and fill the block.
      */
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    virtual Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
     /**
      * Get table schema from Java scanner (used by Avro schema discovery).
