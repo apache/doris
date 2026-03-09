@@ -1450,4 +1450,3 @@ public abstract class ExternalCatalog
         }
     }
 }
-
