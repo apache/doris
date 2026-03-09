@@ -376,18 +376,26 @@ if [[ -d "${DORIS_HOME}/plugins/java_extensions" ]]; then
     done
 fi
 
-
-hadoop_user_name_env=`grep HADOOP_USER_NAME $DORIS_HOME/conf/fe.conf`
+hadoop_user_token_env=$(grep HADOOP_USER_TOKEN $DORIS_HOME/conf/fe.conf || true)
 if [ ! -z $hadoop_user_name_env ]; then
    eval 'export "$hadoop_user_name_env"'
 fi
-hadoop_user_token_env=`grep HADOOP_USER_TOKEN $DORIS_HOME/conf/fe.conf`
+bee_source_env=$(grep BEE_SOURCE $DORIS_HOME/conf/fe.conf || true)
 if [ ! -z $hadoop_user_token_env ]; then
    eval 'export "$hadoop_user_token_env"'
 fi
-bee_user_env=`grep BEE_USER $DORIS_HOME/conf/fe.conf`
+bee_user_env=$(grep BEE_USER $DORIS_HOME/conf/fe.conf || true)
 if [ ! -z $bee_user_env ]; then
    eval 'export "$bee_user_env"'
+fi
+
+iam_url_env=$(grep IAM_URL $DORIS_HOME/conf/fe.conf || true)
+if [ ! -z $iam_url_env ]; then
+   eval 'export "$iam_url_env"'
+fi
+iam_token_env=$(grep IAM_TOKEN $DORIS_HOME/conf/fe.conf || true)
+if [ ! -z $iam_token_env ]; then
+   eval 'export "$iam_token_env"'
 fi
 
 # make sure the doris-fe.jar is at first order, so that some classed

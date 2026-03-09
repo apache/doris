@@ -27,6 +27,7 @@ public class BDPAuthContext {
     private String source = null;
     private String hadoopUserName = null;
     private String userToken = null;
+    private volatile boolean erpChanged = false;
 
     public BDPAuthContext() {
     }
@@ -40,6 +41,14 @@ public class BDPAuthContext {
         this.source = source;
         this.hadoopUserName = hadoopUserName;
         this.userToken = userToken;
+    }
+
+    public void setErpChanged(boolean erpChanged) {
+        this.erpChanged = erpChanged;
+    }
+
+    public boolean isErpChanged() {
+        return erpChanged;
     }
 
     public void setErp(String erp) {
