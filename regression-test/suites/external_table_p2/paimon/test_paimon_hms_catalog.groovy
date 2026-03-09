@@ -182,6 +182,7 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
     """
     testQuery(paimon_hms_catalog_properties + hdfs_warehouse_properties + hdfs_storage_properties, "hdfs", "hdfs_db")
     testQuery(paimon_hms_type_prop + hdfs_warehouse_properties + hms_kerberos_new_prop + hdfs_kerberos_properties, "hdfs_kerberos", "hdfs_db")
+    testQuery(paimon_hms_type_prop + hms_kerberos_new_prop + oss_warehouse_properties + oss_storage_properties, "oss_hms_kerberos", "ali_db")
     testQuery(paimon_hms_catalog_properties + oss_warehouse_properties + oss_storage_properties, "oss", "ali_db")
     testQuery(paimon_hms_catalog_properties + obs_warehouse_properties + obs_storage_properties, "obs", "hw_db")
     testQuery(paimon_hms_catalog_properties + cos_warehouse_properties + cos_storage_properties, "cos", "tx_db")
