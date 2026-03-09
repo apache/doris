@@ -25,7 +25,7 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((cd1.cd_demo_sk = web_returns.wr_refunded_cdemo_sk)) otherCondition=(OR[AND[(cd1.cd_marital_status = 'D'),(cd1.cd_education_status = 'Primary'),(web_sales.ws_sales_price >= 100.00),(web_sales.ws_sales_price <= 150.00)],AND[(cd1.cd_marital_status = 'S'),(cd1.cd_education_status = 'College'),(web_sales.ws_sales_price <= 100.00)],AND[(cd1.cd_marital_status = 'U'),(cd1.cd_education_status = 'Advanced Degree'),(web_sales.ws_sales_price >= 150.00)]]) build RFs:RF3 cd_demo_sk->[wr_refunded_cdemo_sk]
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF1 ws_item_sk->[wr_item_sk];RF2 ws_order_number->[wr_order_number]
+--------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF1 ws_item_sk->[wr_item_sk];RF2 ws_order_number->[wr_order_number]
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF1 RF2 RF3 RF9
 ----------------------------------------PhysicalProject

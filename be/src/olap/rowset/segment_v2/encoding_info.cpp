@@ -108,7 +108,7 @@ struct TypeEncodingTraits<type, BIT_SHUFFLE, CppType,
 };
 
 template <>
-struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_BOOL, RLE, bool> {
+struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_BOOL, RLE, uint8_t> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         return RlePageBuilder<FieldType::OLAP_FIELD_TYPE_BOOL>::create(builder, opts);
     }

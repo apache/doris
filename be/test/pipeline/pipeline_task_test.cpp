@@ -717,9 +717,11 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY) {
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         bool done = false;
         EXPECT_TRUE(task->execute(&done).ok());
-        EXPECT_TRUE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
-        EXPECT_TRUE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
-        EXPECT_TRUE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
+        // Not check low memory mode here, because we temporary not use this feature, the
+        // system buffer should be checked globally.
+        // EXPECT_TRUE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
+        // EXPECT_TRUE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
+        // EXPECT_TRUE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
         EXPECT_FALSE(task->_eos);
         EXPECT_FALSE(done);
         EXPECT_FALSE(task->_wake_up_early);
@@ -734,9 +736,9 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY) {
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         bool done = false;
         EXPECT_TRUE(task->execute(&done).ok());
-        EXPECT_TRUE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
-        EXPECT_TRUE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
-        EXPECT_TRUE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
+        // EXPECT_TRUE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
+        // EXPECT_TRUE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
+        // EXPECT_TRUE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
         EXPECT_TRUE(task->_eos);
         EXPECT_TRUE(done);
         EXPECT_FALSE(task->_wake_up_early);
@@ -747,6 +749,9 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY) {
     }
 }
 
+// Test for reserve memory fail for non-spillable task. It will not affect anything, the query
+// will continue to run. And will disable reserve memory, so that the query will failed when allocated
+// memory > limit.
 TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
     {
         _query_options = TQueryOptionsBuilder()
@@ -754,6 +759,7 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
                                  .set_enable_local_shuffle(true)
                                  .set_runtime_filter_max_in_num(15)
                                  .set_enable_reserve_memory(true)
+                                 .set_enable_spill(false)
                                  .build();
         auto fe_address = TNetworkAddress();
         fe_address.hostname = LOCALHOST;
@@ -850,7 +856,7 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
                 vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
     }
     {
-        // Reserve failed and paused.
+        // Reserve failed and but not enable spill disk, so that the query will continue to run.
         read_dep->set_ready();
         EXPECT_FALSE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
         EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
@@ -863,9 +869,187 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
         EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
         EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
         EXPECT_FALSE(task->_eos);
+        // Not enable spill disk, so that task will not be paused.
+        EXPECT_FALSE(task->_spilling);
+        EXPECT_FALSE(done);
+        EXPECT_FALSE(task->_wake_up_early);
+        EXPECT_TRUE(source_finish_dep->ready());
+        EXPECT_FALSE(_query_ctx->resource_ctx()->task_controller()->is_enable_reserve_memory());
+        EXPECT_TRUE(source_finish_dep->_blocked_task.empty());
+        EXPECT_FALSE(
+                ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused);
+    }
+    {
+        // Reserve failed .
+        task->_operators.front()->cast<DummyOperator>()._disable_reserve_mem = true;
+        task->_spilling = false;
+        task->_operators.front()->cast<DummyOperator>()._eos = true;
+        ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused = false;
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        bool done = false;
+        EXPECT_TRUE(task->execute(&done).ok());
+        EXPECT_FALSE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
+        EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
+        EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
+        EXPECT_TRUE(task->_eos);
+        EXPECT_FALSE(task->_spilling);
+        EXPECT_TRUE(done);
+        EXPECT_FALSE(task->_wake_up_early);
+        EXPECT_TRUE(source_finish_dep->ready());
+        EXPECT_TRUE(source_finish_dep->_blocked_task.empty());
+        EXPECT_FALSE(_query_ctx->resource_ctx()->task_controller()->is_enable_reserve_memory());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        EXPECT_FALSE(
+                ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused);
+    }
+    {
+        // Reserve failed and paused.
+        ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused = false;
+        task->_sink->cast<DummySinkOperatorX>()._disable_reserve_mem = true;
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        bool done = false;
+        EXPECT_TRUE(task->execute(&done).ok());
+        EXPECT_FALSE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
+        EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
+        EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
+        EXPECT_TRUE(task->_eos);
+        EXPECT_FALSE(task->_spilling);
+        EXPECT_TRUE(done);
+        EXPECT_FALSE(task->_wake_up_early);
+        EXPECT_TRUE(source_finish_dep->ready());
+        EXPECT_FALSE(_query_ctx->resource_ctx()->task_controller()->is_enable_reserve_memory());
+        EXPECT_TRUE(source_finish_dep->_blocked_task.empty());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        EXPECT_FALSE(
+                ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused);
+    }
+    delete ExecEnv::GetInstance()->_workload_group_manager;
+}
+
+// Test reserve memory fail for spillable pipeline task
+TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL_SPILLABLE) {
+    {
+        _query_options = TQueryOptionsBuilder()
+                                 .set_enable_local_exchange(true)
+                                 .set_enable_local_shuffle(true)
+                                 .set_runtime_filter_max_in_num(15)
+                                 .set_enable_reserve_memory(true)
+                                 .set_enable_spill(true)
+                                 .build();
+        auto fe_address = TNetworkAddress();
+        fe_address.hostname = LOCALHOST;
+        fe_address.port = DUMMY_PORT;
+        _query_ctx =
+                QueryContext::create(_query_id, ExecEnv::GetInstance(), _query_options, fe_address,
+                                     true, fe_address, QuerySource::INTERNAL_FRONTEND);
+        _task_scheduler = std::make_unique<MockTaskScheduler>();
+        _query_ctx->_task_scheduler = _task_scheduler.get();
+        _build_fragment_context();
+
+        TWorkloadGroupInfo twg_info;
+        twg_info.__set_id(0);
+        twg_info.__set_name("_dummpy_workload_group");
+        twg_info.__set_version(0);
+
+        WorkloadGroupInfo workload_group_info = WorkloadGroupInfo::parse_topic_info(twg_info);
+
+        ((MockRuntimeState*)_runtime_state.get())->_workload_group =
+                std::make_shared<WorkloadGroup>(workload_group_info);
+        ((MockThreadMemTrackerMgr*)thread_context()->thread_mem_tracker_mgr.get())
+                ->_test_low_memory = true;
+
+        ExecEnv::GetInstance()->_workload_group_manager = new MockWorkloadGroupMgr();
+        EXPECT_TRUE(_runtime_state->enable_spill());
+    }
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    Dependency* read_dep;
+    Dependency* write_dep;
+    Dependency* source_finish_dep;
+    {
+        OperatorPtr source_op;
+        // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
+        source_op.reset(new DummyOperator());
+        EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+        int op_id = 1;
+        int node_id = 2;
+        int dest_id = 3;
+        DataSinkOperatorPtr sink_op;
+        sink_op.reset(new DummySinkOperatorX(op_id, node_id, dest_id));
+        sink_op->_spillable = true;
+        EXPECT_TRUE(pip->set_sink(sink_op).ok());
+    }
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    _runtime_state->resize_op_id_to_local_state(-1);
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+    {
+        std::vector<TScanRangeParams> scan_range;
+        int sender_id = 0;
+        TDataSink tsink;
+        EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        EXPECT_GT(task->_execution_dependencies.size(), 1);
+        read_dep = _runtime_state->get_local_state_result(task->_operators.front()->operator_id())
+                           .value()
+                           ->dependencies()
+                           .front();
+        write_dep = _runtime_state->get_sink_local_state()->dependencies().front();
+    }
+    {
+        _query_ctx->get_execution_dependency()->set_ready();
+        // Task is blocked by read dependency.
+        read_dep->block();
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        bool done = false;
+        EXPECT_TRUE(task->execute(&done).ok());
+        EXPECT_FALSE(task->_eos);
+        EXPECT_FALSE(done);
+        EXPECT_FALSE(task->_wake_up_early);
+        EXPECT_FALSE(task->_read_dependencies.empty());
+        EXPECT_FALSE(task->_write_dependencies.empty());
+        EXPECT_FALSE(task->_finish_dependencies.empty());
+        EXPECT_TRUE(task->_opened);
+        EXPECT_FALSE(read_dep->ready());
+        EXPECT_TRUE(write_dep->ready());
+        EXPECT_FALSE(read_dep->_blocked_task.empty());
+        source_finish_dep =
+                _runtime_state->get_local_state_result(task->_operators.front()->operator_id())
+                        .value()
+                        ->finishdependency();
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::BLOCKED);
+    }
+    {
+        task->_operators.front()->cast<DummyOperator>()._revocable_mem_size =
+                vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
+        task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size =
+                vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
+    }
+    {
+        // Reserve failed and enable spill disk, so that the query be paused.
+        read_dep->set_ready();
+        EXPECT_FALSE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
+        EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
+        EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        EXPECT_FALSE(task->_spilling);
+        bool done = false;
+        EXPECT_TRUE(task->execute(&done).ok());
+        EXPECT_FALSE(_query_ctx->resource_ctx()->task_controller()->low_memory_mode());
+        EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
+        EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
+        EXPECT_FALSE(task->_eos);
+        // Not enable spill disk, so that task will not be paused.
         EXPECT_TRUE(task->_spilling);
         EXPECT_FALSE(done);
         EXPECT_FALSE(task->_wake_up_early);
+        EXPECT_TRUE(_query_ctx->resource_ctx()->task_controller()->is_enable_reserve_memory());
         EXPECT_TRUE(source_finish_dep->ready());
         EXPECT_TRUE(source_finish_dep->_blocked_task.empty());
         EXPECT_TRUE(
@@ -888,14 +1072,15 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
         EXPECT_FALSE(done);
         EXPECT_FALSE(task->_wake_up_early);
         EXPECT_TRUE(source_finish_dep->ready());
+        EXPECT_TRUE(_query_ctx->resource_ctx()->task_controller()->is_enable_reserve_memory());
         EXPECT_TRUE(source_finish_dep->_blocked_task.empty());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         EXPECT_TRUE(
                 ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused);
     }
     {
-        // Reserve failed and paused.
         ((MockWorkloadGroupMgr*)ExecEnv::GetInstance()->_workload_group_manager)->_paused = false;
+        // Disable reserve memory, so that the get_reserve_mem_size == 0, so that reserve will always success
         task->_sink->cast<DummySinkOperatorX>()._disable_reserve_mem = true;
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         bool done = false;
@@ -907,6 +1092,7 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
         EXPECT_FALSE(task->_spilling);
         EXPECT_TRUE(done);
         EXPECT_FALSE(task->_wake_up_early);
+        EXPECT_TRUE(_query_ctx->resource_ctx()->task_controller()->is_enable_reserve_memory());
         EXPECT_TRUE(source_finish_dep->ready());
         EXPECT_TRUE(source_finish_dep->_blocked_task.empty());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);

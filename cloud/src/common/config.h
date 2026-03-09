@@ -87,7 +87,7 @@ CONF_mInt64(packed_file_correction_delay_seconds,
             "259200"); // seconds to wait before correcting packed files
 CONF_Int32(recycle_concurrency, "16");
 CONF_mInt32(recycle_job_lease_expired_ms, "60000");
-CONF_mInt64(compacted_rowset_retention_seconds, "1800");   // 0.5h
+CONF_mInt64(compacted_rowset_retention_seconds, "10800");  // 3h
 CONF_mInt64(dropped_index_retention_seconds, "10800");     // 3h
 CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 // Which instance should be recycled. If empty, recycle all instances.
@@ -96,6 +96,9 @@ CONF_Strings(recycle_whitelist, ""); // Comma seprated list
 CONF_Strings(recycle_blacklist, ""); // Comma seprated list
 // IO worker thread pool concurrency: object list, delete
 CONF_mInt32(instance_recycler_worker_pool_size, "32");
+// Max number of delete tasks per batch when recycling objects.
+// Each task deletes up to 1000 files. Controls memory usage during large-scale deletion.
+CONF_Int32(recycler_max_tasks_per_batch, "1000");
 // The worker pool size for http api `statistics_recycle` worker pool
 CONF_mInt32(instance_recycler_statistics_recycle_worker_pool_size, "5");
 CONF_Bool(enable_checker, "false");
@@ -270,6 +273,10 @@ CONF_mBool(enable_load_txn_status_check, "true");
 
 CONF_mBool(enable_tablet_job_check, "true");
 
+CONF_mBool(enable_recycle_delete_rowset_key_check, "true");
+CONF_mBool(enable_mark_delete_rowset_before_recycle, "true");
+CONF_mBool(enable_abort_txn_and_job_for_delete_rowset_before_recycle, "true");
+
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
 // this is a list in semicolon-delimited format, in CIDR notation,
@@ -313,6 +320,10 @@ CONF_Int32(parallel_txn_lazy_commit_num_threads, "0"); // hardware concurrency i
 CONF_mInt64(txn_lazy_max_rowsets_per_batch, "1000");
 CONF_mBool(txn_lazy_commit_shuffle_partitions, "true");
 CONF_Int64(txn_lazy_commit_shuffle_seed, "0"); // 0 means generate a random seed
+// WARNING: All meta-servers MUST be upgraded before changing this to true.
+// When enabled, defer deleting pending delete bitmaps until lazy commit completes.
+// This reduces contention during transaction commit by extending delete bitmap locks.
+CONF_mBool(txn_lazy_commit_defer_deleting_pending_delete_bitmaps, "false");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 CONF_Int32(max_restore_job_rowsets_per_batch, "1000");

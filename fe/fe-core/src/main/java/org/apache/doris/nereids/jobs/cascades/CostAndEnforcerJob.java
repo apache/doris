@@ -174,9 +174,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                     // Meaning that optimize recursively by derive job.
                     prevChildIndex = curChildIndex;
                     pushJob(clone());
-                    double newCostUpperBound = context.getCostUpperBound() - curTotalCost.getValue();
-                    JobContext jobContext = new JobContext(context.getCascadesContext(),
-                            requestChildProperty, newCostUpperBound);
+                    JobContext jobContext = new JobContext(context.getCascadesContext(), requestChildProperty);
                     pushJob(new OptimizeGroupJob(childGroup, jobContext));
                     return;
                 }
@@ -215,13 +213,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             // This mean that we successfully optimize all child groups.
             // if break when running the loop above, the condition must be false.
             if (curChildIndex == groupExpression.arity()) {
-                if (!calculateEnforce(requestChildrenProperties, outputChildrenProperties)) {
-                    clear();
-                    continue; // if error exists, return
-                }
-                if (curTotalCost.getValue() < context.getCostUpperBound()) {
-                    context.setCostUpperBound(curTotalCost.getValue());
-                }
+                calculateEnforce(requestChildrenProperties, outputChildrenProperties);
             }
             clear();
         }

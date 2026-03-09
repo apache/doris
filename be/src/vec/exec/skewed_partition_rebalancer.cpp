@@ -21,7 +21,6 @@
 #include "vec/exec/skewed_partition_rebalancer.h"
 
 #include <cmath>
-#include <list>
 
 namespace doris::vectorized {
 #include "common/compile_check_avoid_begin.h"
@@ -56,7 +55,7 @@ SkewedPartitionRebalancer::SkewedPartitionRebalancer(
     }
 }
 
-int SkewedPartitionRebalancer::get_task_id(int partition_id, int64_t index) {
+int SkewedPartitionRebalancer::get_task_id(uint32_t partition_id, int64_t index) {
     const std::vector<TaskBucket>& task_ids = _partition_assignments[partition_id];
     return task_ids[index % task_ids.size()].task_id;
 }
@@ -78,11 +77,11 @@ void SkewedPartitionRebalancer::rebalance() {
 
 void SkewedPartitionRebalancer::_calculate_partition_data_size(long data_processed) {
     long total_partition_row_count = 0;
-    for (int partition = 0; partition < _partition_count; partition++) {
+    for (uint32_t partition = 0; partition < _partition_count; partition++) {
         total_partition_row_count += _partition_row_count[partition];
     }
 
-    for (int partition = 0; partition < _partition_count; partition++) {
+    for (uint32_t partition = 0; partition < _partition_count; partition++) {
         _partition_data_size[partition] = std::max(
                 (_partition_row_count[partition] * data_processed) / total_partition_row_count,
                 _partition_data_size[partition]);
@@ -239,11 +238,10 @@ void SkewedPartitionRebalancer::_rebalance_partitions(long data_processed) {
     std::vector<IndexedPriorityQueue<int, IndexedPriorityQueuePriorityOrdering::HIGH_TO_LOW>>
             task_bucket_max_partitions;
     for (int i = 0; i < _task_count * _task_bucket_count; ++i) {
-        task_bucket_max_partitions.push_back(
-                IndexedPriorityQueue<int, IndexedPriorityQueuePriorityOrdering::HIGH_TO_LOW>());
+        task_bucket_max_partitions.emplace_back();
     }
 
-    for (int partition = 0; partition < _partition_count; partition++) {
+    for (uint32_t partition = 0; partition < _partition_count; partition++) {
         auto& task_assignments = _partition_assignments[partition];
         for (const auto& task_bucket : task_assignments) {
             auto& queue = task_bucket_max_partitions[task_bucket.id];

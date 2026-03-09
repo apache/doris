@@ -87,7 +87,6 @@
 #include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -411,7 +410,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
             if (int32_t uid = col->get_unique_id(); !_variant_sparse_column_cache.contains(uid)) {
                 DCHECK(uid >= 0);
                 _variant_sparse_column_cache.emplace(uid,
-                                                     std::make_unique<PathToSparseColumnCache>());
+                                                     std::make_unique<PathToBinaryColumnCache>());
             }
         }
     }
@@ -2386,8 +2385,8 @@ Status SegmentIterator::_convert_to_expected_type(const std::vector<ColumnId>& c
             vectorized::ColumnPtr expected;
             vectorized::ColumnPtr original =
                     _current_return_columns[i]->assume_mutable()->get_ptr();
-            RETURN_IF_ERROR(vectorized::schema_util::cast_column({original, file_column_type, ""},
-                                                                 expected_type, &expected));
+            RETURN_IF_ERROR(vectorized::variant_util::cast_column({original, file_column_type, ""},
+                                                                  expected_type, &expected));
             _current_return_columns[i] = expected->assume_mutable();
             _converted_column_ids[i] = true;
             VLOG_DEBUG << fmt::format(

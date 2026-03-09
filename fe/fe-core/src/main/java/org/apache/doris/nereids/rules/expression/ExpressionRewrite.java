@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -384,10 +385,33 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                     changed |= result.changed;
                     newSlotsList.add(result.result);
                 }
-                if (!changed) {
-                    return setOperation;
+                if (setOperation instanceof LogicalUnion) {
+                    LogicalUnion logicalUnion = (LogicalUnion) setOperation;
+                    List<List<NamedExpression>> constantExprsList = logicalUnion.getConstantExprsList();
+                    ImmutableList.Builder<List<NamedExpression>> newConstantListBuilder = ImmutableList.builder();
+                    for (List<NamedExpression> oneRowProject : constantExprsList) {
+                        Builder<NamedExpression> rewrittenExprs = ImmutableList
+                                .builderWithExpectedSize(oneRowProject.size());
+                        for (NamedExpression project : oneRowProject) {
+                            NamedExpression newProject = (NamedExpression) rewriter.rewrite(project, context);
+                            if (!changed && !project.deepEquals(newProject)) {
+                                changed = true;
+                            }
+                            rewrittenExprs.add(newProject);
+                        }
+                        newConstantListBuilder.add(rewrittenExprs.build());
+                    }
+                    if (!changed) {
+                        return setOperation;
+                    }
+                    return logicalUnion.withChildrenAndConstExprsList(setOperation.children(), newSlotsList,
+                            newConstantListBuilder.build());
+                } else {
+                    if (!changed) {
+                        return setOperation;
+                    }
+                    return setOperation.withChildrenAndTheirOutputs(setOperation.children(), newSlotsList);
                 }
-                return setOperation.withChildrenAndTheirOutputs(setOperation.children(), newSlotsList);
             })
             .toRule(RuleType.REWRITE_SET_OPERATION_EXPRESSION);
         }

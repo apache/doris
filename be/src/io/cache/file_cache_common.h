@@ -233,6 +233,8 @@ public:
 
     void move_to_end(Iterator queue_it, std::lock_guard<std::mutex>& cache_lock);
 
+    void resize(Iterator queue_it, size_t new_size, std::lock_guard<std::mutex>& cache_lock);
+
     std::string to_string(std::lock_guard<std::mutex>& cache_lock) const;
 
     bool contains(const UInt128Wrapper& hash, size_t offset,

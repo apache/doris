@@ -18,6 +18,7 @@
 suite("test_all_prdefine_type_to_sparse", "p0"){ 
 
     sql """ set describe_extend_variant_column = true """
+    sql """ set default_variant_enable_doc_mode = false """
 
     def tableName = "test_all_prdefine_type_to_sparse"
     sql "set enable_decimal256 = true"
@@ -129,7 +130,7 @@ suite("test_all_prdefine_type_to_sparse", "p0"){
         log.info("before_result: ${before_result}")
         qt_sql_compaction_before """ desc ${tableName} """
 
-        trigger_and_wait_compaction(tableName, "full")
+        trigger_and_wait_compaction(tableName, "full", 1800)
 
         def after_result = sql """ select var from ${tableName} order by id """
         log.info("after_result: ${after_result}")

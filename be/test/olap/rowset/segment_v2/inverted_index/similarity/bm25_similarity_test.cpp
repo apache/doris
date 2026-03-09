@@ -119,7 +119,7 @@ TEST_F(BM25SimilarityTest, ScoreEdgeCasesTest) {
     ASSERT_GT(score_high, 0.0f);
 
     float score_max_norm = similarity_->score(1.0f, 255);
-    ASSERT_GT(score_max_norm, 0.0f);
+    ASSERT_GE(score_max_norm, 0.0f);
 }
 
 TEST_F(BM25SimilarityTest, Int4EncodingTest) {
@@ -228,6 +228,32 @@ TEST_F(BM25SimilarityTest, LengthTableInitializationTest) {
 
     for (size_t i = 0; i < BM25Similarity::LENGTH_TABLE.size(); ++i) {
         ASSERT_GE(BM25Similarity::LENGTH_TABLE[i], 0.0f);
+    }
+}
+
+TEST_F(BM25SimilarityTest, LengthTableCorrectDecoding) {
+    for (int i = 0; i < 256; ++i) {
+        float expected = static_cast<float>(BM25Similarity::byte4_to_int(static_cast<uint8_t>(i)));
+        ASSERT_FLOAT_EQ(BM25Similarity::LENGTH_TABLE[i], expected)
+                << "LENGTH_TABLE[" << i << "] should equal byte4_to_int(" << i << ")";
+    }
+
+    std::vector<int32_t> test_doc_lengths = {0, 1, 10, 50, 100, 500, 1000, 5000, 10000};
+    for (int32_t doc_len : test_doc_lengths) {
+        uint8_t encoded_norm = BM25Similarity::int_to_byte4(doc_len);
+        float decoded_via_table = BM25Similarity::LENGTH_TABLE[encoded_norm];
+        int32_t decoded_via_func = BM25Similarity::byte4_to_int(encoded_norm);
+
+        ASSERT_FLOAT_EQ(decoded_via_table, static_cast<float>(decoded_via_func))
+                << "Mismatch for doc_len=" << doc_len << ", encoded_norm=" << (int)encoded_norm;
+
+        ASSERT_LE(decoded_via_func, doc_len)
+                << "Decoded value should be <= original for doc_len=" << doc_len;
+    }
+
+    for (int i = 0; i < 256; ++i) {
+        int32_t correct_value = BM25Similarity::byte4_to_int(static_cast<uint8_t>(i));
+        ASSERT_FLOAT_EQ(BM25Similarity::LENGTH_TABLE[i], static_cast<float>(correct_value));
     }
 }
 

@@ -46,7 +46,7 @@ under the License.
     &nbsp;
     <a href="https://github.com/apache/doris/discussions"><img src="https://img.shields.io/badge/- Discussion -red?style=social&logo=discourse" height=25></a>
     &nbsp;
-    <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w" height=25></a>
+    <a href="https://doris.apache.org/slack" height=25></a>
     &nbsp;
     <a href="https://medium.com/@ApacheDoris"><img src="https://img.shields.io/badge/-Medium-red?style=social&logo=medium" height=25></a>
 
@@ -295,7 +295,7 @@ Doris پشتیبانی برای Spark/Flink برای خواندن داده‌ه�
 
 * وب‌سایت رسمی Apache Doris - [سایت](https://doris.apache.org)
 * فهرست پستی توسعه‌دهندگان - <dev@doris.apache.org>. به <dev-subscribe@doris.apache.org> ایمیل بزنید، پاسخ را دنبال کنید تا در فهرست پستی مشترک شوید.
-* کانال Slack - [به Slack بپیوندید](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
+* کانال Slack - [به Slack بپیوندید](https://doris.apache.org/slack)
 * Twitter - [دنبال کنید @doris_apache](https://twitter.com/doris_apache)
 
 

@@ -110,16 +110,17 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                                    std::unique_ptr<ParquetColumnReader>& reader,
                                    size_t max_buf_size,
                                    std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
-                                   bool in_collection, const std::set<uint64_t>& column_ids,
+                                   RuntimeState* state, bool in_collection,
+                                   const std::set<uint64_t>& column_ids,
                                    const std::set<uint64_t>& filter_column_ids) {
     size_t total_rows = row_group.num_rows;
     if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
         std::unique_ptr<ParquetColumnReader> element_reader;
         RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
-                               element_reader, max_buf_size, col_offsets, true, column_ids,
+                               element_reader, max_buf_size, col_offsets, state, true, column_ids,
                                filter_column_ids));
-        //        element_reader->set_nested_column();
         auto array_reader = ArrayColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
+        element_reader->set_column_in_nested();
         RETURN_IF_ERROR(array_reader->init(std::move(element_reader), field));
         array_reader->_filter_column_ids = filter_column_ids;
         reader.reset(array_reader.release());
@@ -131,9 +132,8 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
             column_ids.find(field->children[0].get_column_id()) != column_ids.end()) {
             // Create key reader
             RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
-                                   key_reader, max_buf_size, col_offsets, true, column_ids,
+                                   key_reader, max_buf_size, col_offsets, state, true, column_ids,
                                    filter_column_ids));
-            //            key_reader->set_nested_column();
         } else {
             auto skip_reader = std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz,
                                                                    io_ctx, &field->children[0]);
@@ -144,9 +144,8 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
             column_ids.find(field->children[1].get_column_id()) != column_ids.end()) {
             // Create value reader
             RETURN_IF_ERROR(create(file, &field->children[1], row_group, row_ranges, ctz, io_ctx,
-                                   value_reader, max_buf_size, col_offsets, true, column_ids,
+                                   value_reader, max_buf_size, col_offsets, state, true, column_ids,
                                    filter_column_ids));
-            //            value_reader->set_nested_column();
         } else {
             auto skip_reader = std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz,
                                                                    io_ctx, &field->children[0]);
@@ -154,6 +153,8 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
         }
 
         auto map_reader = MapColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
+        key_reader->set_column_in_nested();
+        value_reader->set_column_in_nested();
         RETURN_IF_ERROR(map_reader->init(std::move(key_reader), std::move(value_reader), field));
         map_reader->_filter_column_ids = filter_column_ids;
         reader.reset(map_reader.release());
@@ -166,9 +167,8 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
             std::unique_ptr<ParquetColumnReader> child_reader;
             if (column_ids.empty() || column_ids.find(child.get_column_id()) != column_ids.end()) {
                 RETURN_IF_ERROR(create(file, &child, row_group, row_ranges, ctz, io_ctx,
-                                       child_reader, max_buf_size, col_offsets, in_collection,
-                                       column_ids, filter_column_ids));
-                //                child_reader->set_nested_column();
+                                       child_reader, max_buf_size, col_offsets, state,
+                                       in_collection, column_ids, filter_column_ids));
                 child_readers[child.name] = std::move(child_reader);
                 // Record the first non-SkippingReader
                 if (non_skip_reader_idx == -1) {
@@ -180,14 +180,15 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                 skip_reader->_filter_column_ids = filter_column_ids;
                 child_readers[child.name] = std::move(skip_reader);
             }
+            child_readers[child.name]->set_column_in_nested();
         }
         // If all children are SkipReadingReader, force the first child to call create
         if (non_skip_reader_idx == -1) {
             std::unique_ptr<ParquetColumnReader> child_reader;
             RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
-                                   child_reader, max_buf_size, col_offsets, in_collection,
+                                   child_reader, max_buf_size, col_offsets, state, in_collection,
                                    column_ids, filter_column_ids));
-            //            child_reader->set_nested_column();
+            child_reader->set_column_in_nested();
             child_readers[field->children[0].name] = std::move(child_reader);
         }
         auto struct_reader = StructColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
@@ -201,21 +202,19 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                                                                       : nullptr;
 
         const tparquet::ColumnChunk& chunk = row_group.columns[physical_index];
-
-        //                ScalarColumnReader::create_unique(row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
         if (in_collection) {
             if (offset_index == nullptr) {
                 auto scalar_reader = ScalarColumnReader<true, false>::create_unique(
                         row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
 
-                RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size));
+                RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size, state));
                 scalar_reader->_filter_column_ids = filter_column_ids;
                 reader.reset(scalar_reader.release());
             } else {
                 auto scalar_reader = ScalarColumnReader<true, true>::create_unique(
                         row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
 
-                RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size));
+                RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size, state));
                 scalar_reader->_filter_column_ids = filter_column_ids;
                 reader.reset(scalar_reader.release());
             }
@@ -224,14 +223,14 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                 auto scalar_reader = ScalarColumnReader<false, false>::create_unique(
                         row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
 
-                RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size));
+                RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size, state));
                 scalar_reader->_filter_column_ids = filter_column_ids;
                 reader.reset(scalar_reader.release());
             } else {
                 auto scalar_reader = ScalarColumnReader<false, true>::create_unique(
                         row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
 
-                RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size));
+                RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size, state));
                 scalar_reader->_filter_column_ids = filter_column_ids;
                 reader.reset(scalar_reader.release());
             }
@@ -249,7 +248,8 @@ void ParquetColumnReader::_generate_read_ranges(RowRange page_row_range,
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
 Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::init(io::FileReaderSPtr file,
                                                              FieldSchema* field,
-                                                             size_t max_buf_size) {
+                                                             size_t max_buf_size,
+                                                             RuntimeState* state) {
     _field_schema = field;
     auto& chunk_meta = _chunk_meta.meta_data;
     int64_t chunk_start = has_dict_page(chunk_meta) ? chunk_meta.dictionary_page_offset
@@ -265,8 +265,11 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::init(io::FileReaderSPtr 
     }
     _stream_reader = std::make_unique<io::BufferedFileStreamReader>(file, chunk_start, chunk_len,
                                                                     prefetch_buffer_size);
+    ParquetPageReadContext ctx(
+            (state == nullptr) ? true : state->query_options().enable_parquet_file_page_cache);
+
     _chunk_reader = std::make_unique<ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>>(
-            _stream_reader.get(), &_chunk_meta, field, _offset_index, _total_rows, _io_ctx);
+            _stream_reader.get(), &_chunk_meta, field, _offset_index, _total_rows, _io_ctx, ctx);
     RETURN_IF_ERROR(_chunk_reader->init());
     return Status::OK();
 }
@@ -354,9 +357,6 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
                     return Status::InternalError("Failed to decode definition level.");
                 }
 
-                for (int i = 0; i < loop_read; i++) {
-                    _def_levels.emplace_back(def_level);
-                }
                 bool is_null = def_level < _field_schema->definition_level;
                 if (!(prev_is_null ^ is_null)) {
                     null_map.emplace_back(0);
@@ -371,14 +371,11 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
                 prev_is_null = is_null;
                 has_read += loop_read;
             }
-        } else {
-            _def_levels.resize(_def_levels.size() + num_values, 0);
         }
     } else {
         if (_chunk_reader->max_def_level() > 0) {
             return Status::Corruption("Not nullable column has null values in parquet file");
         }
-        _def_levels.resize(_def_levels.size() + num_values, 0);
         data_column = doris_column->assume_mutable();
     }
     if (null_map.size() == 0) {
@@ -560,7 +557,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
     _rep_levels.clear();
     *read_rows = 0;
 
-    if constexpr (IN_COLLECTION) {
+    if (_in_nested) {
         RETURN_IF_ERROR(_read_nested_column(resolved_column, resolved_type, filter_map, batch_size,
                                             read_rows, eof, is_dict_filter));
         return _converter->convert(resolved_column, _field_schema->data_type, type, doris_column,
@@ -574,7 +571,6 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
     } else {
         right_row = _chunk_reader->page_end_row();
     }
-    auto before_filter_map_index = _filter_map_index;
 
     do {
         // generate the row ranges that should be read
@@ -640,18 +636,6 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_column_data(
             RETURN_IF_ERROR(_chunk_reader->next_page());
         }
     }
-
-    if (filter_map.has_filter()) {
-        size_t new_rep_sz = 0;
-        for (size_t idx = before_filter_map_index; idx < _filter_map_index; idx++) {
-            if (filter_map.filter_map_data()[idx]) {
-                _def_levels[new_rep_sz] = _def_levels[idx - before_filter_map_index];
-                new_rep_sz++;
-            }
-        }
-        _def_levels.resize(new_rep_sz);
-    }
-    _rep_levels.resize(_def_levels.size(), 0);
 
     return _converter->convert(resolved_column, _field_schema->data_type, type, doris_column,
                                is_dict_filter);
@@ -932,10 +916,14 @@ Status StructColumnReader::read_column_data(
             size_t field_rows = 0;
             bool field_eof = false;
 
-            // Use root_node to get the correct child node for the reference column
-            // reference_file_column_name is the file column name, use get_children_node_by_file_column_name
-            auto ref_child_node =
-                    root_node->get_children_node_by_file_column_name(reference_file_column_name);
+            // Use ConstNode for the reference column instead of looking up from root_node.
+            // The reference column is only used to get RL/DL information for determining the number
+            // of elements in the struct. It may be a column that has been dropped from the table
+            // schema (e.g., 'removed' field), but still exists in older parquet files.
+            // Since we don't need schema mapping for this column (we just need its RL/DL levels),
+            // using ConstNode is safe and avoids the issue where the reference column doesn't exist
+            // in root_node (because it was dropped from table schema).
+            auto ref_child_node = TableSchemaChangeHelper::ConstNode::get_instance();
             not_missing_orig_column_size = temp_column->size();
 
             RETURN_IF_ERROR((*reference_reader)

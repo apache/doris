@@ -34,7 +34,6 @@
 #include "pipeline/exec/file_scan_operator.h"
 #include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
-#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
@@ -253,7 +252,8 @@ private:
     void _init_runtime_filter_partition_prune_block();
     Status _process_runtime_filters_partition_prune(bool& is_partition_pruned);
     Status _process_conjuncts();
-    Status _process_late_arrival_conjuncts();
+    Status _process_late_arrival_conjuncts(bool* changed,
+                                           VExprContextSPtrs& new_push_down_conjuncts);
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
     Status _generate_truncate_columns(bool need_to_get_parsed_schema);
     Status _set_fill_or_truncate_columns(bool need_to_get_parsed_schema);

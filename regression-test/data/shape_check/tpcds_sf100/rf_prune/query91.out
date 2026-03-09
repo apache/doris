@@ -17,19 +17,19 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF3 RF4
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF2 c_current_addr_sk->[ca_address_sk]
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_demographics.cd_demo_sk = customer.c_current_cdemo_sk)) otherCondition=() build RFs:RF2 c_current_cdemo_sk->[cd_demo_sk]
 --------------------------------PhysicalProject
-----------------------------------filter((customer_address.ca_gmt_offset = -6.00))
-------------------------------------PhysicalOlapScan[customer_address] apply RFs: RF2
+----------------------------------filter(OR[AND[(customer_demographics.cd_marital_status = 'M'),(customer_demographics.cd_education_status = 'Unknown')],AND[(customer_demographics.cd_marital_status = 'W'),(customer_demographics.cd_education_status = 'Advanced Degree')]] and cd_education_status IN ('Advanced Degree', 'Unknown') and cd_marital_status IN ('M', 'W'))
+------------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF2
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((household_demographics.hd_demo_sk = customer.c_current_hdemo_sk)) otherCondition=() build RFs:RF1 hd_demo_sk->[c_current_hdemo_sk]
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_demographics.cd_demo_sk = customer.c_current_cdemo_sk)) otherCondition=() build RFs:RF0 cd_demo_sk->[c_current_cdemo_sk]
+--------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[customer] apply RFs: RF0 RF1
 ----------------------------------------PhysicalProject
-------------------------------------------filter(OR[AND[(customer_demographics.cd_marital_status = 'M'),(customer_demographics.cd_education_status = 'Unknown')],AND[(customer_demographics.cd_marital_status = 'W'),(customer_demographics.cd_education_status = 'Advanced Degree')]] and cd_education_status IN ('Advanced Degree', 'Unknown') and cd_marital_status IN ('M', 'W'))
---------------------------------------------PhysicalOlapScan[customer_demographics]
+------------------------------------------filter((customer_address.ca_gmt_offset = -6.00))
+--------------------------------------------PhysicalOlapScan[customer_address]
 ------------------------------------PhysicalProject
 --------------------------------------filter((hd_buy_potential like '1001-5000%'))
 ----------------------------------------PhysicalOlapScan[household_demographics]

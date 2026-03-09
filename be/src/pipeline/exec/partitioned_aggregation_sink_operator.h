@@ -49,6 +49,8 @@ public:
 
     Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
 
+    Status _execute_spill_process(RuntimeState* state, size_t size_to_revoke);
+
     Status setup_in_memory_agg_op(RuntimeState* state);
 
     template <bool spilled>

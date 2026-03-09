@@ -117,6 +117,30 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
     }
 
     @Override
+    public boolean equalsForRecursiveCte(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        StructType other = (StructType) o;
+        if (fields.size() != other.fields.size()) {
+            return false;
+        }
+        for (int i = 0; i < fields.size(); ++i) {
+            if ((fields.get(i).isNullable() != other.fields.get(i).isNullable())
+                    || !fields.get(i).getDataType().equalsForRecursiveCte(other.fields.get(i).getDataType())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), fields);
     }

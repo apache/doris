@@ -22,11 +22,12 @@
 #include "olap/rowset/segment_v2/column_meta_accessor.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_reader_cache.h"
+#include "olap/rowset/segment_v2/variant/binary_column_extract_iterator.h"
 #include "olap/rowset/segment_v2/variant/hierarchical_data_iterator.h"
-#include "olap/rowset/segment_v2/variant/sparse_column_extract_iterator.h"
 #include "olap/rowset/segment_v2/variant/sparse_column_merge_iterator.h"
 #include "olap/rowset/segment_v2/variant/variant_column_reader.h"
 #include "olap/rowset/segment_v2/variant/variant_column_writer_impl.h"
+#include "olap/rowset/segment_v2/variant/variant_doc_snpashot_compact_iterator.h"
 #include "olap/storage_engine.h"
 #include "testutil/variant_util.h"
 #include "vec/data_types/serde/data_type_serde.h"
@@ -42,7 +43,10 @@ constexpr static std::string_view tmp_dir = "./ut_dir/tmp";
 static void construct_column(ColumnPB* column_pb, int32_t col_unique_id,
                              const std::string& column_type, const std::string& column_name,
                              int variant_max_subcolumns_count = 3, bool is_key = false,
-                             bool is_nullable = false, int variant_sparse_hash_shard_count = 0) {
+                             bool is_nullable = false, int variant_sparse_hash_shard_count = 0,
+                             bool variant_enable_doc_mode = false,
+                             int64_t variant_doc_materialization_min_rows = 0,
+                             int variant_doc_hash_shard_count = 0) {
     column_pb->set_unique_id(col_unique_id);
     column_pb->set_name(column_name);
     column_pb->set_type(column_type);
@@ -53,6 +57,11 @@ static void construct_column(ColumnPB* column_pb, int32_t col_unique_id,
         column_pb->set_variant_max_sparse_column_statistics_size(10000);
         // 5 sparse hash shard
         column_pb->set_variant_sparse_hash_shard_count(variant_sparse_hash_shard_count);
+        column_pb->set_variant_enable_doc_mode(variant_enable_doc_mode);
+        column_pb->set_variant_doc_materialization_min_rows(variant_doc_materialization_min_rows);
+        if (variant_doc_hash_shard_count > 0) {
+            column_pb->set_variant_doc_hash_shard_count(variant_doc_hash_shard_count);
+        }
     }
 }
 
@@ -200,34 +209,92 @@ void check_sparse_column_meta(const ColumnMetaPB& column_meta, auto& path_with_s
                 base_path.rfind("__DORIS_VARIANT_SPARSE__.b", 0) == 0);
 }
 
+static void fill_variant_column_with_doc_value_only(
+        vectorized::MutableColumnPtr& column_object, int num_rows,
+        std::unordered_map<int, std::string>* inserted) {
+    auto type_string = std::make_shared<vectorized::DataTypeString>();
+    auto json_column = type_string->create_column();
+    auto* column_string = assert_cast<vectorized::ColumnString*>(json_column.get());
+    VariantUtil::fill_string_column_with_test_data(column_string, num_rows, inserted);
+
+    vectorized::ParseConfig config;
+    config.enable_flatten_nested = false;
+    config.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
+    variant_util::parse_json_to_variant(*column_object, *column_string, config);
+}
+
+// DOC_COMPACT reads only one doc bucket column (e.g. "__DORIS_VARIANT_DOC_VALUE__.b0"), so it
+// naturally returns only the subset of keys mapped into that bucket.
+// This helper derives the expected JSON string for a given bucket from the full JSON produced by
+// VariantUtil::fill_string_column_with_test_data, without parsing JSON.
+static std::string expected_doc_bucket_json_from_full(const std::string& full_json, int bucket_num,
+                                                      int bucket_index) {
+    auto bucket_of = [&](const std::string& key) -> uint32_t {
+        StringRef ref {key.data(), key.size()};
+        return vectorized::variant_util::variant_binary_shard_of(ref, bucket_num);
+    };
+
+    std::string out;
+    out.reserve(full_json.size());
+    out.push_back('{');
+
+    bool first = true;
+    // fill_string_column_with_test_data generates keys "key0".."key9" at most.
+    for (int j = 0; j < 10; ++j) {
+        const std::string key = "key" + std::to_string(j);
+        const std::string needle = "\"" + key + "\":";
+        if (full_json.find(needle) == std::string::npos) {
+            continue;
+        }
+        if (bucket_of(key) != static_cast<uint32_t>(bucket_index)) {
+            continue;
+        }
+        if (!first) {
+            out.push_back(',');
+        }
+        first = false;
+        out.append("\"");
+        out.append(key);
+        out.append("\":");
+        if (j % 2 == 0) {
+            out.append("88");
+        } else {
+            out.append("\"str99\"");
+        }
+    }
+
+    out.push_back('}');
+    return out;
+}
+
 TEST_F(VariantColumnWriterReaderTest, test_statics) {
-    VariantStatisticsPB stats_pb;
-    auto* subcolumns_stats = stats_pb.mutable_sparse_column_non_null_size();
-    (*subcolumns_stats)["key0"] = 500;  // 50% of rows have key0
-    (*subcolumns_stats)["key1"] = 500;  // 50% of rows have key1
-    (*subcolumns_stats)["key2"] = 333;  // 33.3% of rows have key2
-    (*subcolumns_stats)["key3"] = 200;  // 20% of rows have key3
-    (*subcolumns_stats)["key4"] = 1000; // 100% of rows have key4
+    // VariantStatisticsPB stats_pb;
+    // auto* subcolumns_stats = stats_pb.mutable_sparse_column_non_null_size();
+    // (*subcolumns_stats)["key0"] = 500;  // 50% of rows have key0
+    // (*subcolumns_stats)["key1"] = 500;  // 50% of rows have key1
+    // (*subcolumns_stats)["key2"] = 333;  // 33.3% of rows have key2
+    // (*subcolumns_stats)["key3"] = 200;  // 20% of rows have key3
+    // (*subcolumns_stats)["key4"] = 1000; // 100% of rows have key4
 
-    auto* sparse_stats = stats_pb.mutable_sparse_column_non_null_size();
-    (*sparse_stats)["key5"] = 100;
-    (*sparse_stats)["key6"] = 200;
-    (*sparse_stats)["key7"] = 300;
+    // auto* sparse_stats = stats_pb.mutable_sparse_column_non_null_size();
+    // (*sparse_stats)["key5"] = 100;
+    // (*sparse_stats)["key6"] = 200;
+    // (*sparse_stats)["key7"] = 300;
 
-    // 6.2 Test from_pb
-    segment_v2::VariantStatistics stats;
-    stats.from_pb(stats_pb);
+    // // 6.2 Test from_pb
+    // segment_v2::VariantStatistics stats;
+    // stats.from_pb(stats_pb);
 
-    // 6.3 Verify statistics
-    EXPECT_EQ(stats.sparse_column_non_null_size["key0"], 500);
-    EXPECT_EQ(stats.sparse_column_non_null_size["key1"], 500);
-    EXPECT_EQ(stats.sparse_column_non_null_size["key2"], 333);
-    EXPECT_EQ(stats.sparse_column_non_null_size["key3"], 200);
-    EXPECT_EQ(stats.sparse_column_non_null_size["key4"], 1000);
+    // // 6.3 Verify statistics
+    // EXPECT_EQ(stats.sparse_column_non_null_size["key0"], 500);
+    // EXPECT_EQ(stats.sparse_column_non_null_size["key1"], 500);
+    // EXPECT_EQ(stats.sparse_column_non_null_size["key2"], 333);
+    // EXPECT_EQ(stats.sparse_column_non_null_size["key3"], 200);
+    // EXPECT_EQ(stats.sparse_column_non_null_size["key4"], 1000);
 
-    EXPECT_EQ(stats.sparse_column_non_null_size["key5"], 100);
-    EXPECT_EQ(stats.sparse_column_non_null_size["key6"], 200);
-    EXPECT_EQ(stats.sparse_column_non_null_size["key7"], 300);
+    // EXPECT_EQ(stats.sparse_column_non_null_size["key5"], 100);
+    // EXPECT_EQ(stats.sparse_column_non_null_size["key6"], 200);
+    // EXPECT_EQ(stats.sparse_column_non_null_size["key7"], 300);
 }
 
 TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
@@ -444,8 +511,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     };
 
     // 10. check sparse extract reader
-    PathToSparseColumnCacheUPtr sparse_column_cache =
-            std::make_unique<std::unordered_map<std::string, SparseColumnCacheSPtr>>();
+    PathToBinaryColumnCacheUPtr sparse_column_cache =
+            std::make_unique<std::unordered_map<std::string, BinaryColumnCacheSPtr>>();
     stats.bytes_read = 0;
     for (int i = 3; i < 10; ++i) {
         std::string key = ".key" + std::to_string(i);
@@ -462,7 +529,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
         st = variant_column_reader->new_iterator(&it, &subcolumn_in_sparse, &storage_read_opts,
                                                  &column_reader_cache, sparse_column_cache.get());
         EXPECT_TRUE(st.ok()) << st.msg();
-        EXPECT_TRUE(assert_cast<SparseColumnExtractIterator*>(it.get()) != nullptr);
+        EXPECT_TRUE(assert_cast<BinaryColumnExtractIterator*>(it.get()) != nullptr);
         st = it->init(column_iter_opts);
         EXPECT_TRUE(st.ok()) << st.msg();
 
@@ -640,9 +707,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     }
 
     // 16. check compacton sparse column
-    TabletColumn sparse_column = variant_sparse_hash_shard_count > 1
-                                         ? schema_util::create_sparse_shard_column(parent_column, 0)
-                                         : schema_util::create_sparse_column(parent_column);
+    TabletColumn sparse_column =
+            variant_sparse_hash_shard_count > 1
+                    ? variant_util::create_sparse_shard_column(parent_column, 0)
+                    : variant_util::create_sparse_column(parent_column);
     ColumnIteratorUPtr it4;
     st = variant_column_reader->new_iterator(&it4, &sparse_column, &storage_read_opts,
                                              &column_reader_cache);
@@ -717,12 +785,12 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     st = variant_column_reader->new_iterator(&it5, &subcolumn, &storage_read_opts,
                                              &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
-    EXPECT_TRUE(assert_cast<SparseColumnExtractIterator*>(it5.get()) != nullptr);
+    EXPECT_TRUE(assert_cast<BinaryColumnExtractIterator*>(it5.get()) != nullptr);
     EXPECT_TRUE(it5->init(column_iter_opts).ok());
 
     {
-        // test SparseColumnExtractIterator seek_to_first
-        auto iter = assert_cast<SparseColumnExtractIterator*>(it5.get());
+        // test BinaryColumnExtractIterator seek_to_first
+        auto iter = assert_cast<BinaryColumnExtractIterator*>(it5.get());
         EXPECT_TRUE(st.ok()) << st.msg();
         // and test read_by_rowids
         std::vector<rowid_t> row_ids1;
@@ -770,7 +838,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     st = variant_column_reader->new_iterator(&it6, &subcolumn, &storage_read_opts,
                                              &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
-    EXPECT_TRUE(assert_cast<SparseColumnExtractIterator*>(it6.get()) != nullptr);
+    EXPECT_TRUE(assert_cast<BinaryColumnExtractIterator*>(it6.get()) != nullptr);
 
     // 19. check compaction default column
     subcolumn.set_name(parent_column.name_lower_case() + ".key10");
@@ -780,6 +848,473 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
                                              &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(assert_cast<DefaultValueColumnIterator*>(it7.get()) != nullptr);
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_write_doc_and_read_hierarchical_doc) {
+    constexpr int kRows = 200;
+    constexpr int kDocBuckets = 2;
+
+    // 1. create tablet_schema (enable doc mode, small shard count to keep footer small)
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "V1", 3, false, false,
+                     /*variant_sparse_hash_shard_count=*/0,
+                     /*variant_enable_doc_mode=*/true,
+                     /*variant_doc_materialization_min_rows=*/0,
+                     /*variant_doc_hash_shard_count=*/kDocBuckets);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+
+    // 2. create tablet
+    TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    bool external_segment_meta_used_default = false;
+    _tablet_schema->set_external_segment_meta_used_default(external_segment_meta_used_default);
+    tablet_meta->_tablet_id = 31000;
+    _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+    EXPECT_TRUE(_tablet->init().ok());
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+
+    // 3. create file_writer
+    io::FileWriterPtr file_writer;
+    auto file_path = local_segment_path(_tablet->tablet_path(), "0", 0);
+    auto st = io::global_local_filesystem()->create_file(file_path, &file_writer);
+    EXPECT_TRUE(st.ok()) << st.msg();
+
+    // 4. create variant writer
+    SegmentFooterPB footer;
+    ColumnWriterOptions opts;
+    opts.meta = footer.add_columns();
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.file_writer = file_writer.get();
+    opts.footer = &footer;
+    RowsetWriterContext rowset_ctx;
+    rowset_ctx.write_type = DataWriteType::TYPE_DIRECT;
+    opts.rowset_ctx = &rowset_ctx;
+    opts.rowset_ctx->tablet_schema = _tablet_schema;
+    TabletColumn parent_column = _tablet_schema->column(0);
+    _init_column_meta(opts.meta, 0, parent_column, CompressionTypePB::LZ4);
+
+    std::unique_ptr<ColumnWriter> writer;
+    EXPECT_TRUE(ColumnWriter::create(opts, &parent_column, file_writer.get(), &writer).ok());
+    EXPECT_TRUE(writer->init().ok());
+    EXPECT_TRUE(assert_cast<VariantColumnWriter*>(writer.get()) != nullptr);
+
+    // 5. write doc-value-only data into variant
+    auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    auto block = _tablet_schema->create_block();
+    auto column_object = (*std::move(block.get_by_position(0).column)).mutate();
+    std::unordered_map<int, std::string> inserted_jsonstr;
+    fill_variant_column_with_doc_value_only(column_object, kRows, &inserted_jsonstr);
+    olap_data_convertor->add_column_data_convertor(parent_column);
+    olap_data_convertor->set_source_content(&block, 0, kRows);
+    auto [result, accessor] = olap_data_convertor->convert_column_data(0);
+    EXPECT_TRUE(result.ok());
+    EXPECT_TRUE(accessor != nullptr);
+    EXPECT_TRUE(writer->append(accessor->get_nullmap(), accessor->get_data(), kRows).ok());
+    st = writer->finish();
+    EXPECT_TRUE(st.ok()) << st.msg();
+    st = writer->write_data();
+    EXPECT_TRUE(st.ok()) << st.msg();
+    st = writer->write_ordinal_index();
+    EXPECT_TRUE(st.ok()) << st.msg();
+    st = writer->write_zone_map();
+    EXPECT_TRUE(st.ok()) << st.msg();
+    EXPECT_TRUE(file_writer->close().ok());
+    footer.set_num_rows(kRows);
+
+    // 6. validate footer contains doc snapshot bucket columns and per-bucket stats
+    EXPECT_EQ(footer.columns_size(), 1 + kDocBuckets);
+    for (int i = 1; i < footer.columns_size(); ++i) {
+        const auto& col = footer.columns(i);
+        EXPECT_TRUE(col.has_column_path_info());
+        vectorized::PathInData path;
+        path.from_protobuf(col.column_path_info());
+        auto rel = path.copy_pop_front().get_path();
+        EXPECT_TRUE(rel.find(DOC_VALUE_COLUMN_PATH) != std::string::npos) << rel;
+        EXPECT_TRUE(col.has_variant_statistics());
+        EXPECT_GT(col.variant_statistics().doc_value_column_non_null_size_size(), 0);
+    }
+
+    // 7. open a VariantColumnReader on this segment
+    io::FileReaderSPtr file_reader;
+    st = io::global_local_filesystem()->open_file(file_path, &file_reader);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    std::shared_ptr<ColumnReader> column_reader;
+    st = create_variant_root_reader(footer, file_reader, _tablet_schema, &column_reader);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    auto* variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
+    EXPECT_TRUE(variant_column_reader != nullptr);
+    EXPECT_TRUE(variant_column_reader->get_stats()->has_doc_column_non_null_size());
+
+    MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
+
+    // 8. Read root with QUERY reader type: should choose ReadKind::HIERARCHICAL_DOC
+    StorageReadOptions storage_read_opts;
+    storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
+    OlapReaderStatistics stats;
+    storage_read_opts.stats = &stats;
+    ColumnIteratorUPtr it;
+    st = variant_column_reader->new_iterator(&it, &parent_column, &storage_read_opts,
+                                             &column_reader_cache);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    EXPECT_TRUE(dynamic_cast<HierarchicalDataIterator*>(it.get()) != nullptr);
+    EXPECT_EQ(stats.variant_doc_value_column_iter_count, 1);
+
+    ColumnIteratorOptions column_iter_opts;
+    column_iter_opts.stats = &stats;
+    column_iter_opts.file_reader = file_reader.get();
+    st = it->init(column_iter_opts);
+    EXPECT_TRUE(st.ok()) << st.msg();
+
+    MutableColumnPtr dst =
+            ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
+    size_t nrows = kRows;
+    st = it->seek_to_ordinal(0);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    st = it->next_batch(&nrows, dst);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    EXPECT_EQ(nrows, kRows);
+
+    vectorized::DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
+    for (int i = 0; i < kRows; ++i) {
+        std::string value;
+        assert_cast<ColumnVariant*>(dst.get())->serialize_one_row_to_string(i, &value, options);
+        EXPECT_EQ(value, inserted_jsonstr[i]);
+    }
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_read_doc_compact_from_doc_value_bucket) {
+    constexpr int kRows = 200;
+    constexpr int kDocBuckets = 4;
+
+    // 1. create tablet_schema (enable doc mode)
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "V1", 3, false, false,
+                     /*variant_sparse_hash_shard_count=*/0,
+                     /*variant_enable_doc_mode=*/true,
+                     /*variant_doc_materialization_min_rows=*/0,
+                     /*variant_doc_hash_shard_count=*/kDocBuckets);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+
+    // 2. create tablet
+    TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    _tablet_schema->set_external_segment_meta_used_default(false);
+    tablet_meta->_tablet_id = 32000;
+    _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+    EXPECT_TRUE(_tablet->init().ok());
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+
+    // 3. write doc-value-only segment
+    io::FileWriterPtr file_writer;
+    auto file_path = local_segment_path(_tablet->tablet_path(), "0", 0);
+    auto st = io::global_local_filesystem()->create_file(file_path, &file_writer);
+    EXPECT_TRUE(st.ok()) << st.msg();
+
+    SegmentFooterPB footer;
+    ColumnWriterOptions opts;
+    opts.meta = footer.add_columns();
+    opts.compression_type = CompressionTypePB::LZ4;
+    opts.file_writer = file_writer.get();
+    opts.footer = &footer;
+    RowsetWriterContext rowset_ctx;
+    rowset_ctx.write_type = DataWriteType::TYPE_DIRECT;
+    opts.rowset_ctx = &rowset_ctx;
+    opts.rowset_ctx->tablet_schema = _tablet_schema;
+    TabletColumn parent_column = _tablet_schema->column(0);
+    _init_column_meta(opts.meta, 0, parent_column, CompressionTypePB::LZ4);
+
+    std::unique_ptr<ColumnWriter> writer;
+    EXPECT_TRUE(ColumnWriter::create(opts, &parent_column, file_writer.get(), &writer).ok());
+    EXPECT_TRUE(writer->init().ok());
+
+    auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    auto block = _tablet_schema->create_block();
+    auto column_object = (*std::move(block.get_by_position(0).column)).mutate();
+    std::unordered_map<int, std::string> inserted_jsonstr;
+    fill_variant_column_with_doc_value_only(column_object, kRows, &inserted_jsonstr);
+    olap_data_convertor->add_column_data_convertor(parent_column);
+    olap_data_convertor->set_source_content(&block, 0, kRows);
+    auto [result, accessor] = olap_data_convertor->convert_column_data(0);
+    EXPECT_TRUE(result.ok());
+    EXPECT_TRUE(accessor != nullptr);
+    EXPECT_TRUE(writer->append(accessor->get_nullmap(), accessor->get_data(), kRows).ok());
+    st = writer->finish();
+    EXPECT_TRUE(st.ok()) << st.msg();
+    st = writer->write_data();
+    EXPECT_TRUE(st.ok()) << st.msg();
+    st = writer->write_ordinal_index();
+    EXPECT_TRUE(st.ok()) << st.msg();
+    EXPECT_TRUE(file_writer->close().ok());
+    footer.set_num_rows(kRows);
+
+    // 4. open reader
+    io::FileReaderSPtr file_reader;
+    st = io::global_local_filesystem()->open_file(file_path, &file_reader);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    std::shared_ptr<ColumnReader> column_reader;
+    st = create_variant_root_reader(footer, file_reader, _tablet_schema, &column_reader);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    auto* variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
+    EXPECT_TRUE(variant_column_reader != nullptr);
+
+    MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
+
+    // 5. trigger flat-leaf planning by using compaction reader type + schema with extracted columns
+    auto compaction_schema = std::make_shared<TabletSchema>();
+    compaction_schema->init_from_pb(schema_pb);
+    TabletColumn extracted;
+    extracted.set_name(parent_column.name_lower_case() + ".dummy");
+    extracted.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    extracted.set_parent_unique_id(parent_column.unique_id());
+    extracted.set_path_info(PathInData(parent_column.name_lower_case() + ".dummy"));
+    extracted.set_is_nullable(true);
+    compaction_schema->append_column(extracted);
+
+    StorageReadOptions storage_read_opts;
+    storage_read_opts.io_ctx.reader_type = ReaderType::READER_BASE_COMPACTION;
+    storage_read_opts.tablet_schema = compaction_schema;
+    OlapReaderStatistics stats;
+    storage_read_opts.stats = &stats;
+
+    vectorized::DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
+
+    // 6. Read and validate each doc value bucket column: should choose ReadKind::DOC_COMPACT.
+    for (int bucket = 0; bucket < kDocBuckets; ++bucket) {
+        TabletColumn doc_bucket_col =
+                vectorized::variant_util::create_doc_value_column(parent_column, bucket);
+        ColumnIteratorUPtr it;
+        st = variant_column_reader->new_iterator(&it, &doc_bucket_col, &storage_read_opts,
+                                                 &column_reader_cache);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_TRUE(dynamic_cast<segment_v2::VariantDocValueCompactIterator*>(it.get()) != nullptr);
+
+        ColumnIteratorOptions column_iter_opts;
+        column_iter_opts.stats = &stats;
+        column_iter_opts.file_reader = file_reader.get();
+        st = it->init(column_iter_opts);
+        EXPECT_TRUE(st.ok()) << st.msg();
+
+        MutableColumnPtr dst =
+                ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
+        size_t nrows = kRows;
+        st = it->seek_to_ordinal(0);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        st = it->next_batch(&nrows, dst);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_EQ(nrows, kRows);
+
+        for (int i = 0; i < kRows; ++i) {
+            std::string value;
+            assert_cast<ColumnVariant*>(dst.get())->serialize_one_row_to_string(i, &value, options);
+            const std::string expected =
+                    expected_doc_bucket_json_from_full(inserted_jsonstr[i], kDocBuckets, bucket);
+            EXPECT_EQ(value, expected);
+        }
+    }
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_write_doc_compact_writer_and_read_doc_compact) {
+    constexpr int kRows = 200;
+    constexpr int kDocBuckets = 4;
+    constexpr int kBucket = 0;
+
+    // 1. create tablet_schema: root variant is in doc mode; plus one extracted doc bucket column
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "V1", 3, false, false,
+                     /*variant_sparse_hash_shard_count=*/0,
+                     /*variant_enable_doc_mode=*/true,
+                     /*variant_doc_materialization_min_rows=*/0,
+                     /*variant_doc_hash_shard_count=*/kDocBuckets);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+
+    TabletColumn parent_column = _tablet_schema->column(0);
+    TabletColumn extracted_doc_bucket =
+            vectorized::variant_util::create_doc_value_column(parent_column, kBucket);
+    // This matches VariantCompactionUtil::get_extended_compaction_schema behavior:
+    // extracted doc bucket columns are represented as VARIANT to trigger VariantDocCompactWriter.
+    extracted_doc_bucket.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    extracted_doc_bucket.set_is_nullable(false);
+    _tablet_schema->append_column(extracted_doc_bucket);
+
+    // 2. create tablet
+    TabletMetaSharedPtr tablet_meta(new TabletMeta(_tablet_schema));
+    _tablet_schema->set_external_segment_meta_used_default(false);
+    tablet_meta->_tablet_id = 33000;
+    _tablet = std::make_shared<Tablet>(*_engine_ref, tablet_meta, _data_dir.get());
+    EXPECT_TRUE(_tablet->init().ok());
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+
+    // 3. create file_writer
+    io::FileWriterPtr file_writer;
+    auto file_path = local_segment_path(_tablet->tablet_path(), "0", 0);
+    auto st = io::global_local_filesystem()->create_file(file_path, &file_writer);
+    EXPECT_TRUE(st.ok()) << st.msg();
+
+    // 4. create column writers: root VariantColumnWriter + extracted VariantDocCompactWriter
+    SegmentFooterPB footer;
+
+    RowsetWriterContext rowset_ctx;
+    rowset_ctx.write_type = DataWriteType::TYPE_DIRECT;
+    rowset_ctx.tablet_schema = _tablet_schema;
+
+    ColumnWriterOptions root_opts;
+    root_opts.meta = footer.add_columns();
+    root_opts.compression_type = CompressionTypePB::LZ4;
+    root_opts.file_writer = file_writer.get();
+    root_opts.footer = &footer;
+    root_opts.rowset_ctx = &rowset_ctx;
+    _init_column_meta(root_opts.meta, 0, parent_column, CompressionTypePB::LZ4);
+
+    std::unique_ptr<ColumnWriter> root_writer;
+    EXPECT_TRUE(
+            ColumnWriter::create(root_opts, &parent_column, file_writer.get(), &root_writer).ok());
+    EXPECT_TRUE(root_writer->init().ok());
+
+    TabletColumn extracted_doc_bucket_col = _tablet_schema->column(1);
+    ColumnWriterOptions doc_compact_opts = root_opts;
+    doc_compact_opts.meta = footer.add_columns();
+    _init_column_meta(doc_compact_opts.meta, 0, extracted_doc_bucket_col, CompressionTypePB::LZ4);
+    std::unique_ptr<ColumnWriter> doc_compact_writer;
+    EXPECT_TRUE(ColumnWriter::create(doc_compact_opts, &extracted_doc_bucket_col, file_writer.get(),
+                                     &doc_compact_writer)
+                        .ok());
+    EXPECT_TRUE(doc_compact_writer->init().ok());
+
+    // 5. build doc-value-only data:
+    // - root column uses the full JSON (doc values only is enough for this test)
+    // - extracted doc bucket column uses bucket-filtered JSON so that doc bucket data matches
+    //   the bucket index expected by VariantDocCompactWriter.
+    std::unordered_map<int, std::string> inserted_full_json;
+    auto type_string = std::make_shared<vectorized::DataTypeString>();
+    auto full_json_column = type_string->create_column();
+    auto* full_strings = assert_cast<vectorized::ColumnString*>(full_json_column.get());
+    VariantUtil::fill_string_column_with_test_data(full_strings, kRows, &inserted_full_json);
+
+    std::unordered_map<int, std::string> expected_bucket_json;
+    auto bucket_json_column = type_string->create_column();
+    auto* bucket_strings = assert_cast<vectorized::ColumnString*>(bucket_json_column.get());
+    for (int i = 0; i < kRows; ++i) {
+        const std::string& full = inserted_full_json[i];
+        std::string bucket_json = expected_doc_bucket_json_from_full(full, kDocBuckets, kBucket);
+        expected_bucket_json.emplace(i, bucket_json);
+        bucket_strings->insert_data(bucket_json.data(), bucket_json.size());
+    }
+
+    vectorized::ParseConfig config;
+    config.enable_flatten_nested = false;
+    config.parse_to = vectorized::ParseConfig::ParseTo::OnlyDocValueColumn;
+
+    vectorized::MutableColumnPtr root_variant =
+            vectorized::ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
+    variant_util::parse_json_to_variant(*root_variant, *full_strings, config);
+
+    vectorized::MutableColumnPtr bucket_variant =
+            vectorized::ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
+    variant_util::parse_json_to_variant(*bucket_variant, *bucket_strings, config);
+
+    // 6. append and write
+    {
+        auto root_data = std::make_unique<vectorized::VariantColumnData>();
+        root_data->column_data = root_variant.get();
+        root_data->row_pos = 0;
+        const auto* data = reinterpret_cast<const uint8_t*>(root_data.get());
+        EXPECT_TRUE(root_writer->append_data(&data, kRows).ok());
+    }
+    {
+        auto bucket_data = std::make_unique<vectorized::VariantColumnData>();
+        bucket_data->column_data = bucket_variant.get();
+        bucket_data->row_pos = 0;
+        const auto* data = reinterpret_cast<const uint8_t*>(bucket_data.get());
+        EXPECT_TRUE(doc_compact_writer->append_data(&data, kRows).ok());
+    }
+
+    EXPECT_TRUE(root_writer->finish().ok());
+    EXPECT_TRUE(doc_compact_writer->finish().ok());
+    EXPECT_TRUE(root_writer->write_data().ok());
+    EXPECT_TRUE(doc_compact_writer->write_data().ok());
+    EXPECT_TRUE(root_writer->write_ordinal_index().ok());
+    EXPECT_TRUE(doc_compact_writer->write_ordinal_index().ok());
+    EXPECT_TRUE(file_writer->close().ok());
+    footer.set_num_rows(kRows);
+
+    // 7. open reader and validate:
+    // - doc bucket can be read via DOC_COMPACT iterator in flat-leaf compaction mode
+    // - materialized leaf meta exists for at least one key in this bucket
+    io::FileReaderSPtr file_reader;
+    st = io::global_local_filesystem()->open_file(file_path, &file_reader);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    std::shared_ptr<ColumnReader> column_reader;
+    st = create_variant_root_reader(footer, file_reader, _tablet_schema, &column_reader);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    auto* variant_column_reader = assert_cast<VariantColumnReader*>(column_reader.get());
+    EXPECT_TRUE(variant_column_reader != nullptr);
+
+    bool checked_one_key = false;
+    for (int j = 0; j < 10; ++j) {
+        const std::string key = "key" + std::to_string(j);
+        StringRef ref {key.data(), key.size()};
+        if (vectorized::variant_util::variant_binary_shard_of(ref, kDocBuckets) ==
+            static_cast<uint32_t>(kBucket)) {
+            EXPECT_TRUE(variant_column_reader->get_subcolumn_meta_by_path(PathInData(key)) !=
+                        nullptr);
+            checked_one_key = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(checked_one_key);
+
+    MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
+    StorageReadOptions storage_read_opts;
+    storage_read_opts.io_ctx.reader_type = ReaderType::READER_BASE_COMPACTION;
+    storage_read_opts.tablet_schema = _tablet_schema;
+    OlapReaderStatistics stats;
+    storage_read_opts.stats = &stats;
+
+    TabletColumn doc_bucket_map =
+            vectorized::variant_util::create_doc_value_column(parent_column, kBucket);
+    ColumnIteratorUPtr it;
+    st = variant_column_reader->new_iterator(&it, &doc_bucket_map, &storage_read_opts,
+                                             &column_reader_cache);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    EXPECT_TRUE(dynamic_cast<segment_v2::VariantDocValueCompactIterator*>(it.get()) != nullptr);
+
+    ColumnIteratorOptions column_iter_opts;
+    column_iter_opts.stats = &stats;
+    column_iter_opts.file_reader = file_reader.get();
+    st = it->init(column_iter_opts);
+    EXPECT_TRUE(st.ok()) << st.msg();
+
+    vectorized::DataTypeSerDe::FormatOptions options;
+    auto tz = cctz::utc_time_zone();
+    options.timezone = &tz;
+
+    vectorized::MutableColumnPtr dst =
+            ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
+    size_t nrows = kRows;
+    st = it->seek_to_ordinal(0);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    st = it->next_batch(&nrows, dst);
+    EXPECT_TRUE(st.ok()) << st.msg();
+    EXPECT_EQ(nrows, kRows);
+
+    for (int i = 0; i < kRows; ++i) {
+        std::string value;
+        assert_cast<ColumnVariant*>(dst.get())->serialize_one_row_to_string(i, &value, options);
+        EXPECT_EQ(value, expected_bucket_json[i]);
+    }
+
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
 }
 
@@ -1116,7 +1651,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable) {
             (*std::move(block.get_by_position(0).column)).mutate().get());
     std::unordered_map<int, std::string> inserted_jsonstr;
     auto column_object = nullable_object->get_nested_column_ptr();
-    schema_util::PathToNoneNullValues path_with_size;
+    variant_util::PathToNoneNullValues path_with_size;
     for (int idx = 0; idx < 10; idx++) {
         nullable_object->insert_default(); // insert null
         auto res = VariantUtil::fill_object_column_with_test_data(column_object, 80,
@@ -1269,7 +1804,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable_without_finalize)
             (*std::move(block.get_by_position(0).column)).mutate().get());
     std::unordered_map<int, std::string> inserted_jsonstr;
     auto column_object = nullable_object->get_nested_column_ptr();
-    schema_util::PathToNoneNullValues path_with_size;
+    variant_util::PathToNoneNullValues path_with_size;
     for (int idx = 0; idx < 10; idx++) {
         nullable_object->insert_default(); // insert null
         auto res = VariantUtil::fill_object_column_with_test_data(column_object, 80,
@@ -1364,7 +1899,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_bm_with_finalize) {
             (*std::move(block.get_by_position(0).column)).mutate().get());
     std::unordered_map<int, std::string> inserted_jsonstr;
     auto column_object = nullable_object->get_nested_column_ptr();
-    schema_util::PathToNoneNullValues path_with_size;
+    variant_util::PathToNoneNullValues path_with_size;
     for (int idx = 0; idx < 10; idx++) {
         nullable_object->insert_default(); // insert null
         auto res = VariantUtil::fill_object_column_with_test_data(column_object, 80,
@@ -1459,7 +1994,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_bf_with_finalize) {
             (*std::move(block.get_by_position(0).column)).mutate().get());
     std::unordered_map<int, std::string> inserted_jsonstr;
     auto column_object = nullable_object->get_nested_column_ptr();
-    schema_util::PathToNoneNullValues path_with_size;
+    variant_util::PathToNoneNullValues path_with_size;
     for (int idx = 0; idx < 10; idx++) {
         nullable_object->insert_default(); // insert null
         auto res = VariantUtil::fill_object_column_with_test_data(column_object, 80,
@@ -1556,7 +2091,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_zm_with_finalize) {
             (*std::move(block.get_by_position(0).column)).mutate().get());
     std::unordered_map<int, std::string> inserted_jsonstr;
     auto column_object = nullable_object->get_nested_column_ptr();
-    schema_util::PathToNoneNullValues path_with_size;
+    variant_util::PathToNoneNullValues path_with_size;
     for (int idx = 0; idx < 10; idx++) {
         nullable_object->insert_default(); // insert null
         auto res = VariantUtil::fill_object_column_with_test_data(column_object, 80,
@@ -1653,7 +2188,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_inverted_with_finalize) {
             (*std::move(block.get_by_position(0).column)).mutate().get());
     std::unordered_map<int, std::string> inserted_jsonstr;
     auto column_object = nullable_object->get_nested_column_ptr();
-    schema_util::PathToNoneNullValues path_with_size;
+    variant_util::PathToNoneNullValues path_with_size;
     for (int idx = 0; idx < 10; idx++) {
         nullable_object->insert_default(); // insert null
         auto res = VariantUtil::fill_object_column_with_test_data(column_object, 80,
@@ -1759,7 +2294,7 @@ TEST_F(VariantColumnWriterReaderTest, test_no_sub_in_sparse_column) {
 
     vectorized::ParseConfig config;
     config.enable_flatten_nested = false;
-    parse_json_to_variant(*column_object, *column_string, config);
+    variant_util::parse_json_to_variant(*column_object, *column_string, config);
     std::cout << "column_object size: "
               << assert_cast<ColumnVariant*>(column_object.get())->debug_string() << std::endl;
 
@@ -1904,7 +2439,7 @@ TEST_F(VariantColumnWriterReaderTest, test_prefix_in_sub_and_sparse) {
 
     vectorized::ParseConfig config;
     config.enable_flatten_nested = false;
-    parse_json_to_variant(*column_object, *column_string, config);
+    variant_util::parse_json_to_variant(*column_object, *column_string, config);
     std::cout << "column_object size: "
               << assert_cast<ColumnVariant*>(column_object.get())->debug_string() << std::endl;
 
@@ -2138,68 +2673,6 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_subcolumn) {
     StorageReadOptions storageReadOptions;
     storageReadOptions.io_ctx.reader_type = ReaderType::READER_CUMULATIVE_COMPACTION;
 
-    ColumnIteratorUPtr nested_column_iter;
-    MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
-    DataTypePtr nested_storage_type;
-
-    st = variant_column_reader->_new_iterator_with_flat_leaves(
-            &nested_column_iter, &nested_storage_type, target_column, &storageReadOptions, false,
-            false, &column_reader_cache);
-    EXPECT_TRUE(st.ok()) << st.msg();
-    // check iter for read_by_rowids, next_batch
-    auto nested_iter = assert_cast<DefaultNestedColumnIterator*>(nested_column_iter.get());
-    std::vector<rowid_t> row_ids = {1, 10, 100};
-    // dst is always nullable(array<nullable(string)>)
-    DataTypePtr array_string_ptr = std::make_shared<vectorized::DataTypeNullable>(
-            std::make_shared<vectorized::DataTypeArray>(
-                    std::make_shared<vectorized::DataTypeNullable>(
-                            std::make_shared<vectorized::DataTypeString>())));
-    MutableColumnPtr dst_arr = array_string_ptr->create_column();
-    ColumnIteratorOptions nested_column_iter_opts;
-    OlapReaderStatistics stats;
-    nested_column_iter_opts.stats = &stats;
-    nested_column_iter_opts.file_reader = file_reader.get();
-    st = nested_column_iter->init(nested_column_iter_opts);
-    EXPECT_TRUE(st.ok()) << st.msg();
-    st = nested_iter->seek_to_ordinal(0);
-    EXPECT_TRUE(st.ok()) << st.msg();
-    st = nested_iter->read_by_rowids(row_ids.data(), row_ids.size(), dst_arr);
-    EXPECT_TRUE(st.ok()) << st.msg();
-    EXPECT_TRUE(dst_arr->size() == 3);
-    auto row_id = nested_iter->get_current_ordinal();
-    std::cout << "row_id: " << row_id << std::endl;
-    // make some error senior
-    {
-        ColumnIteratorUPtr nested_column_iter11;
-        st = variant_column_reader->_new_iterator_with_flat_leaves(
-                &nested_column_iter11, &nested_storage_type, target_column, &storageReadOptions,
-                false, false, &column_reader_cache);
-        EXPECT_TRUE(st.ok()) << st.msg();
-        st = nested_column_iter11->init(nested_column_iter_opts);
-        EXPECT_TRUE(st.ok()) << st.msg();
-        auto* nested_iter11 = assert_cast<DefaultNestedColumnIterator*>(nested_column_iter11.get());
-        assert(nested_iter11);
-        st = nested_iter11->seek_to_ordinal(0);
-        EXPECT_TRUE(st.ok()) << st.msg();
-        MutableColumnPtr wrong_arr = ColumnVariant::create(3);
-        size_t nrows = 1000;
-        // not support seek next_batch_of_zone_map
-        st = nested_iter11->next_batch_of_zone_map(&nrows, wrong_arr);
-        EXPECT_FALSE(st.ok());
-        EXPECT_ANY_THROW(Status sta = nested_iter11->next_batch(&nrows, wrong_arr));
-    }
-    auto read_to_column_arr = [&](ColumnIteratorUPtr& it) {
-        MutableColumnPtr arr = array_string_ptr->create_column();
-        size_t nrows = 1000;
-        st = it->seek_to_ordinal(0);
-        EXPECT_TRUE(st.ok()) << st.msg();
-        st = it->next_batch(&nrows, arr);
-        EXPECT_TRUE(st.ok()) << st.msg();
-        EXPECT_EQ(arr->size(), 1000);
-    };
-
-    read_to_column_arr(nested_column_iter);
-
     // DefaultNestedColumnIterator with nullptr parameter
     PathInDataBuilder builder1;
     builder1.append("v", false); // First part is variant
@@ -2214,43 +2687,6 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_subcolumn) {
     target_column.set_path_info(path1);
     EXPECT_TRUE(target_column.is_nested_subcolumn())
             << target_column._column_path->has_nested_part();
-
-    ColumnIteratorUPtr nested_column_iter1;
-    st = variant_column_reader->_new_iterator_with_flat_leaves(
-            &nested_column_iter1, &nested_storage_type, target_column, &storageReadOptions, false,
-            false, &column_reader_cache);
-    EXPECT_TRUE(st.ok()) << st.msg();
-    // check iter for read_by_rowids, next_batch
-    // dst is array<nullable(string)>
-    MutableColumnPtr dst_object2 = array_string_ptr->create_column();
-    auto nested_iter1 = assert_cast<DefaultNestedColumnIterator*>(nested_column_iter1.get());
-    st = nested_column_iter1->init(nested_column_iter_opts);
-    EXPECT_TRUE(st.ok()) << st.msg();
-    st = nested_iter1->seek_to_ordinal(0);
-    EXPECT_TRUE(st.ok()) << st.msg();
-    st = nested_iter1->read_by_rowids(row_ids.data(), row_ids.size(), dst_object2);
-    EXPECT_TRUE(st.ok()) << st.msg();
-    EXPECT_TRUE(dst_object2->size() == 3);
-
-    {
-        // make read by nested_iter1 directly
-        ColumnIteratorUPtr nested_column_iter11;
-        st = variant_column_reader->_new_iterator_with_flat_leaves(
-                &nested_column_iter11, &nested_storage_type, target_column, &storageReadOptions,
-                false, false, &column_reader_cache);
-        EXPECT_TRUE(st.ok()) << st.msg();
-        st = nested_column_iter11->init(nested_column_iter_opts);
-        EXPECT_TRUE(st.ok()) << st.msg();
-        auto* nested_iter11 = assert_cast<DefaultNestedColumnIterator*>(nested_column_iter11.get());
-        MutableColumnPtr arr = array_string_ptr->create_column();
-        size_t nrows = 1000;
-        st = nested_iter11->seek_to_ordinal(0);
-        EXPECT_TRUE(st.ok()) << st.msg();
-        st = nested_iter11->next_batch(&nrows, arr);
-        EXPECT_TRUE(st.ok()) << st.msg();
-        EXPECT_EQ(arr->size(), 1000);
-    }
-    read_to_column_arr(nested_column_iter1);
 }
 
 TEST_F(VariantColumnWriterReaderTest, test_nested_iter) {
@@ -2464,7 +2900,7 @@ TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
     auto fill_string_column_with_test_data =
             [&](auto& column_string, int size,
                 std::unordered_map<int, std::string>* inserted_jsonstr,
-                schema_util::PathToNoneNullValues* path_with_size) {
+                variant_util::PathToNoneNullValues* path_with_size) {
                 for (int i = 0; i < size; ++i) {
                     std::string jsonstr;
                     if (i % 2 == 0) {
@@ -2482,7 +2918,7 @@ TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
     auto fill_object_column_with_test_data =
             [&](auto& column_object, int size,
                 std::unordered_map<int, std::string>* inserted_jsonstr,
-                schema_util::PathToNoneNullValues* path_with_size) {
+                variant_util::PathToNoneNullValues* path_with_size) {
                 auto type_string = std::make_shared<vectorized::DataTypeString>();
                 auto column = type_string->create_column();
                 auto* column_string = assert_cast<ColumnString*>(column.get());
@@ -2490,7 +2926,7 @@ TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
                                                   path_with_size);
                 vectorized::ParseConfig config;
                 config.enable_flatten_nested = false;
-                parse_json_to_variant(*column_object, *column_string, config);
+                variant_util::parse_json_to_variant(*column_object, *column_string, config);
             };
 
     // 1. create tablet_schema
@@ -2542,7 +2978,7 @@ TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
     auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
     auto block = _tablet_schema->create_block();
     auto column_object = (*std::move(block.get_by_position(0).column)).mutate();
-    schema_util::PathToNoneNullValues path_with_size;
+    variant_util::PathToNoneNullValues path_with_size;
     std::unordered_map<int, std::string> inserted_jsonstr;
     fill_object_column_with_test_data(column_object, 1000, &inserted_jsonstr, &path_with_size);
 

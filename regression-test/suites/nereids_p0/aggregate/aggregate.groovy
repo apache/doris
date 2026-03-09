@@ -319,7 +319,7 @@ suite("aggregate") {
               SELECT k1, k2 FROM tempbaseall
               GROUP BY k1;
             """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = k2 not in aggregate's output"
+        exception "PROJECT expression 'k2' must appear in the GROUP BY clause or be used in an aggregate function"
     }
 
     test {

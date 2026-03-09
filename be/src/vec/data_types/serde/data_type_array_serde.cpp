@@ -505,7 +505,7 @@ const uint8_t* DataTypeArraySerDe::deserialize_binary_to_field(const uint8_t* da
     data += sizeof(size_t);
     field = Field::create_field<TYPE_ARRAY>(Array(nested_size));
     info.num_dimensions++;
-    auto& array = field.get<Array>();
+    auto& array = field.get<TYPE_ARRAY>();
     PrimitiveType nested_type = PrimitiveType::TYPE_NULL;
     for (size_t i = 0; i < nested_size; ++i) {
         Field nested_field;

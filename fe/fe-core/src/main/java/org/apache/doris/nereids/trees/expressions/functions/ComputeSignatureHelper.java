@@ -32,6 +32,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
@@ -456,14 +457,16 @@ public class ComputeSignatureHelper {
 
         boolean hasDateTimeV2Type = false;
         boolean hasTimeV2Type = false;
+        boolean hasTimestampTzType = false;
         boolean hasDecimalV3Type = false;
         for (DataType argumentsType : signature.argumentsTypes) {
             hasDateTimeV2Type |= TypeCoercionUtils.hasDateTimeV2Type(argumentsType);
             hasTimeV2Type |= TypeCoercionUtils.hasTimeV2Type(argumentsType);
             hasDecimalV3Type |= TypeCoercionUtils.hasDecimalV3Type(argumentsType);
+            hasTimestampTzType |= TypeCoercionUtils.hasTimestampTzType(argumentsType);
         }
 
-        if (hasDateTimeV2Type || hasTimeV2Type) {
+        if (hasDateTimeV2Type || hasTimeV2Type || hasTimestampTzType) {
             signature = defaultTimePrecisionPromotion(signature, arguments);
         }
         if (hasDecimalV3Type) {
@@ -503,11 +506,14 @@ public class ComputeSignatureHelper {
                             arguments.get(i).getDataType()))
                     .addAll(extractArgumentTypeBySignature(TimeV2Type.class, targetType,
                             arguments.get(i).getDataType()))
+                    .addAll(extractArgumentTypeBySignature(TimeStampTzType.class, targetType,
+                            arguments.get(i).getDataType()))
                     .build();
             // there's DateTimeV2 and TimeV2 at same time, so we need get exact target type when we promote any slot.
             List<DataType> nestedTargetTypes = ImmutableList.<DataType>builder()
                     .addAll(extractSignatureTypes(DateTimeV2Type.class, targetType, arguments.get(i).getDataType()))
                     .addAll(extractSignatureTypes(TimeV2Type.class, targetType, arguments.get(i).getDataType()))
+                    .addAll(extractSignatureTypes(TimeStampTzType.class, targetType, arguments.get(i).getDataType()))
                     .build();
             if (nestedInputTypes.isEmpty()) {
                 // if no DateTimeV2Type or TimeV2Type in the argument[i], no precision promotion
@@ -551,6 +557,7 @@ public class ComputeSignatureHelper {
         List<DataType> newArgTypes = newArgTypesBuilder.build();
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
         if (signature.returnType instanceof DateTimeV2Type || signature.returnType instanceof TimeV2Type
+                || signature.returnType instanceof TimeStampTzType
                 || signature.returnType instanceof ComplexDataType) {
             signature = signature.withReturnType(
                     TypeCoercionUtils.replaceTimesWithTargetPrecision(signature.returnType, finalTypeScale));

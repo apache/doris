@@ -384,6 +384,26 @@ public class TimeV2Literal extends Literal {
                 (int) getMicroSecond() * 1000);
     }
 
+    public Expression plusMicroSeconds(long microSeconds) {
+        return fromJavaDateType(toJavaDateType().plusNanos(Math.multiplyExact(microSeconds, 1000L)));
+    }
+
+    public Expression plusMilliSeconds(long milliSeconds) {
+        return plusMicroSeconds(Math.multiplyExact(milliSeconds, 1000L));
+    }
+
+    public Expression plusHours(long hours) {
+        return fromJavaDateType(toJavaDateType().plusHours(hours));
+    }
+
+    public Expression plusMinutes(long minutes) {
+        return fromJavaDateType(toJavaDateType().plusMinutes(minutes));
+    }
+
+    public Expression plusSeconds(long seconds) {
+        return fromJavaDateType(toJavaDateType().plusSeconds(seconds));
+    }
+
     @Override
     public Object getValue() {
         if (negative) {
@@ -395,5 +415,9 @@ public class TimeV2Literal extends Literal {
     @Override
     public String computeToSql() {
         return "'" + getStringValue() + "'";
+    }
+
+    public boolean isNegative() {
+        return negative;
     }
 }

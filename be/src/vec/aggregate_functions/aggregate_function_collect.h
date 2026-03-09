@@ -49,7 +49,7 @@ namespace doris::vectorized {
 template <PrimitiveType T, bool HasLimit>
 struct AggregateFunctionCollectSetData {
     static constexpr PrimitiveType PType = T;
-    using ElementType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using ElementType = typename PrimitiveTypeTraits<T>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using SelfType = AggregateFunctionCollectSetData;
     using Set = phmap::flat_hash_set<ElementType>;
@@ -184,7 +184,7 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
 template <PrimitiveType T, bool HasLimit>
 struct AggregateFunctionCollectListData {
     static constexpr PrimitiveType PType = T;
-    using ElementType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using ElementType = typename PrimitiveTypeTraits<T>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using SelfType = AggregateFunctionCollectListData<T, HasLimit>;
     PaddedPODArray<ElementType> data;

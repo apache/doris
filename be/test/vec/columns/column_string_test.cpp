@@ -295,7 +295,8 @@ TEST_F(ColumnStringTest, field_test) {
             for (size_t i = 0; i != src_size; ++i) {
                 Field f;
                 assert_col->get(i, f);
-                ASSERT_EQ(f.get<StringRef>(), source_column->get_data_at(i));
+                ASSERT_EQ(StringRef(f.get<TYPE_STRING>().data(), f.get<TYPE_STRING>().size()),
+                          source_column->get_data_at(i));
             }
         }
         {
@@ -310,7 +311,7 @@ TEST_F(ColumnStringTest, field_test) {
                 JsonbField jsonbf;
                 Field f = Field::create_field<TYPE_JSONB>((std::move(jsonbf)));
                 assert_col->get(i, f);
-                const auto& real_field = vectorized::get<const JsonbField&>(f);
+                const auto& real_field = f.get<TYPE_JSONB>();
                 ASSERT_EQ(StringRef(real_field.get_value(), real_field.get_size()),
                           source_column->get_data_at(i));
             }

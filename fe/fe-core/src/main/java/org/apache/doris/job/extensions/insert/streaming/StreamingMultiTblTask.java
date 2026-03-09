@@ -69,6 +69,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private long scannedRows = 0L;
     private long scannedBytes = 0L;
     private long timeoutMs;
+    private long runningBackendId;
 
     public StreamingMultiTblTask(Long jobId,
             long taskId,
@@ -107,12 +108,14 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             log.info("task has been canceled, task id is {}", getTaskId());
             return;
         }
-        log.info("start to run streaming multi task, offset is {}", runningOffset.toString());
         sendWriteRequest();
     }
 
     private void sendWriteRequest() throws JobException {
-        Backend backend = StreamingJobUtils.selectBackend(jobId);
+        Backend backend = StreamingJobUtils.selectBackend();
+        log.info("start to run streaming multi task {} in backend {}/{}, offset is {}",
+                taskId, backend.getId(), backend.getHost(), runningOffset.toString());
+        this.runningBackendId = backend.getId();
         WriteRecordRequest params = buildRequestParams();
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/writeRecords")
@@ -125,9 +128,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             result = future.get();
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
-                log.error("Failed to get split from backend, {}", result.getStatus().getErrorMsgs(0));
+                log.error("Failed to send write records request, {}", result.getStatus().getErrorMsgs(0));
                 throw new JobException(
-                        "Failed to get split from backend," + result.getStatus().getErrorMsgs(0) + ", response: "
+                        "Failed to send write records request," + result.getStatus().getErrorMsgs(0) + ", response: "
                                 + result.getResponse());
             }
             String response = result.getResponse();
@@ -142,7 +145,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
                     return;
                 }
             } catch (JsonProcessingException e) {
-                log.error("Failed to parse write records response: {}", response, e);
+                log.warn("Failed to parse write records response: {}", response);
                 throw new JobException("Failed to parse write records response: " + response);
             }
             throw new JobException("Failed to send write records request , error message: " + response);
@@ -257,7 +260,55 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     }
 
     public boolean isTimeout() {
-        return (System.currentTimeMillis() - createTimeMs) > timeoutMs;
+        if (startTimeMs == null) {
+            // It's still pending, waiting for scheduling.
+            return false;
+        }
+        return (System.currentTimeMillis() - startTimeMs) > timeoutMs;
+    }
+
+    /**
+     * When a task encounters a write error, it will time out.
+     * The job needs to obtain the reason for the timeout,
+     * such as a data quality error, and needs to expose it to the user.
+     */
+    public String getTimeoutReason() {
+        try {
+            if (runningBackendId <= 0) {
+                log.info("No running backend for task {}", runningBackendId);
+                return "";
+            }
+            Backend backend = Env.getCurrentSystemInfo().getBackend(runningBackendId);
+            InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
+                    .setApi("/api/getFailReason/" + getTaskId())
+                    .build();
+            TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
+            InternalService.PRequestCdcClientResult result = null;
+            Future<PRequestCdcClientResult> future =
+                    BackendServiceProxy.getInstance().requestCdcClient(address, request);
+            result = future.get();
+            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+            if (code != TStatusCode.OK) {
+                log.warn("Failed to get task timeout reason, {}", result.getStatus().getErrorMsgs(0));
+                return "";
+            }
+            String response = result.getResponse();
+            try {
+                ResponseBody<String> responseObj = objectMapper.readValue(
+                        response,
+                        new TypeReference<ResponseBody<String>>() {
+                        }
+                );
+                if (responseObj.getCode() == RestApiStatusCode.OK.code) {
+                    return responseObj.getData();
+                }
+            } catch (JsonProcessingException e) {
+                log.warn("Failed to get task timeout reason, response: {}", response);
+            }
+        } catch (ExecutionException | InterruptedException ex) {
+            log.error("Send get task fail reason request failed: ", ex);
+        }
+        return "";
     }
 
     @Override

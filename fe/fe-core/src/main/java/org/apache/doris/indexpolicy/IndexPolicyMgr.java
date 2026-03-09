@@ -327,7 +327,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                 validator = new PinyinTokenizerValidator();
                 break;
             default:
-                Set<String> userFacingTypes = IndexPolicy.BUILTIN_TOKEN_FILTERS.stream()
+                Set<String> userFacingTypes = IndexPolicy.BUILTIN_TOKENIZERS.stream()
                         .filter(t -> !t.equals("empty"))
                         .collect(Collectors.toSet());
                 throw new DdlException("Unsupported tokenizer type: " + type

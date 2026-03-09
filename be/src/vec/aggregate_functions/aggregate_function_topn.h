@@ -56,7 +56,7 @@ namespace doris::vectorized {
 template <PrimitiveType T>
 struct AggregateFunctionTopNData {
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
-    using DataType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using DataType = typename PrimitiveTypeTraits<T>::CppType;
     void set_paramenters(int input_top_num, int space_expand_rate = 50) {
         top_num = input_top_num;
         capacity = (uint64_t)top_num * space_expand_rate;
@@ -123,16 +123,14 @@ struct AggregateFunctionTopNData {
         }
     }
 
-    std::vector<std::pair<uint64_t, typename PrimitiveTypeTraits<T>::ColumnItemType>>
-    get_remain_vector() const {
-        std::vector<std::pair<uint64_t, typename PrimitiveTypeTraits<T>::ColumnItemType>>
-                counter_vector;
+    std::vector<std::pair<uint64_t, typename PrimitiveTypeTraits<T>::CppType>> get_remain_vector()
+            const {
+        std::vector<std::pair<uint64_t, typename PrimitiveTypeTraits<T>::CppType>> counter_vector;
         for (auto it : counter_map) {
             counter_vector.emplace_back(it.second, it.first);
         }
         std::sort(counter_vector.begin(), counter_vector.end(),
-                  std::greater<
-                          std::pair<uint64_t, typename PrimitiveTypeTraits<T>::ColumnItemType>>());
+                  std::greater<std::pair<uint64_t, typename PrimitiveTypeTraits<T>::CppType>>());
         return counter_vector;
     }
 
@@ -253,7 +251,7 @@ struct AggregateFunctionTopNImplArray {
             place.add(assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
                               .get_data_at(row_num));
         } else {
-            typename PrimitiveTypeTraits<T>::ColumnItemType val =
+            typename PrimitiveTypeTraits<T>::CppType val =
                     assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0])
                             .get_data()[row_num];
             place.add(val);
@@ -287,7 +285,7 @@ struct AggregateFunctionTopNImplWeight {
                               .get_data_at(row_num),
                       weight);
         } else {
-            typename PrimitiveTypeTraits<T>::ColumnItemType val =
+            typename PrimitiveTypeTraits<T>::CppType val =
                     assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
                                 TypeCheckOnRelease::DISABLE>(*columns[0])
                             .get_data()[row_num];

@@ -15,19 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hudi_catalog", "p2,external,hudi,external_remote,external_remote_hudi") {
-    String enabled = context.config.otherConfigs.get("enableExternalHudiTest")
+suite("test_hudi_catalog", "p2,external,hudi") {
+    String enabled = context.config.otherConfigs.get("enableHudiTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable hudi test")
         return
     }
 
     String catalog_name = "test_hudi_catalog"
-    String props = context.config.otherConfigs.get("hudiEmrCatalog")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String hudiHmsPort = context.config.otherConfigs.get("hudiHmsPort")
+    String hudiMinioPort = context.config.otherConfigs.get("hudiMinioPort")
+    String hudiMinioAccessKey = context.config.otherConfigs.get("hudiMinioAccessKey")
+    String hudiMinioSecretKey = context.config.otherConfigs.get("hudiMinioSecretKey")
+    
     sql """drop catalog if exists ${catalog_name};"""
     sql """
         create catalog if not exists ${catalog_name} properties (
-            ${props}
+            'type'='hms',
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hudiHmsPort}',
+            's3.endpoint' = 'http://${externalEnvIp}:${hudiMinioPort}',
+            's3.access_key' = '${hudiMinioAccessKey}',
+            's3.secret_key' = '${hudiMinioSecretKey}',
+            's3.region' = 'us-east-1',
+            'use_path_style' = 'true'
         );
     """
 
@@ -36,15 +47,16 @@ suite("test_hudi_catalog", "p2,external,hudi,external_remote,external_remote_hud
     sql """ set enable_fallback_to_original_planner=false """
     def tables = sql """ show tables; """
     assertTrue(tables.size() > 0)
+    order_qt_test_select_table """
+        select id, name, part1 from bigint_partition_tb order by id;
+    """
     try {
         sql """ set force_jni_scanner = true;    """
-        qt_test_only_partition_columns """
-            select signup_date from user_activity_log_mor_partition order by signup_date limit 1;
+        order_qt_test_select_table """
+            select id, name, part1 from bigint_partition_tb order by id;
         """
-    } catch (Exception e) {
-        logger.error("Error occurred while executing query", e)
     } finally {
         sql """ set force_jni_scanner = false;    """
     }
-    sql """drop catalog if exists ${catalog_name};"""
 }
+

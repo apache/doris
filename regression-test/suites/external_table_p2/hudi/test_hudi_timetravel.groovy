@@ -15,25 +15,47 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hudi_timetravel", "p2,external,hudi,external_remote,external_remote_hudi") {
-    String enabled = context.config.otherConfigs.get("enableExternalHudiTest")
+suite("test_hudi_timetravel", "p2,external,hudi") {
+    String enabled = context.config.otherConfigs.get("enableHudiTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable hudi test")
         return
     }
 
     String catalog_name = "test_hudi_timetravel"
-    String props = context.config.otherConfigs.get("hudiEmrCatalog")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String hudiHmsPort = context.config.otherConfigs.get("hudiHmsPort")
+    String hudiMinioPort = context.config.otherConfigs.get("hudiMinioPort")
+    String hudiMinioAccessKey = context.config.otherConfigs.get("hudiMinioAccessKey")
+    String hudiMinioSecretKey = context.config.otherConfigs.get("hudiMinioSecretKey")
+    
     sql """drop catalog if exists ${catalog_name};"""
     sql """
         create catalog if not exists ${catalog_name} properties (
-            ${props}
+            'type'='hms',
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hudiHmsPort}',
+            's3.endpoint' = 'http://${externalEnvIp}:${hudiMinioPort}',
+            's3.access_key' = '${hudiMinioAccessKey}',
+            's3.secret_key' = '${hudiMinioSecretKey}',
+            's3.region' = 'us-east-1',
+            'use_path_style' = 'true'
         );
     """
 
     sql """ switch ${catalog_name};"""
     sql """ use regression_hudi;""" 
     sql """ set enable_fallback_to_original_planner=false """
+
+    // Function to get commit timestamps dynamically from hudi_meta table function
+    def getCommitTimestamps = { table_name ->
+        def result = sql """ 
+            SELECT timestamp 
+            FROM hudi_meta("table"="${catalog_name}.regression_hudi.${table_name}", "query_type" = "timeline")
+            WHERE action = 'commit' OR action = 'deltacommit'
+            ORDER BY timestamp
+        """
+        return result.collect { it[0] }
+    }
 
     def test_hudi_timetravel_querys = { table_name, timestamps ->
         timestamps.eachWithIndex { timestamp, index ->
@@ -42,61 +64,11 @@ suite("test_hudi_timetravel", "p2,external,hudi,external_remote,external_remote_
         }
     }
 
-    // spark-sql "select distinct _hoodie_commit_time from user_activity_log_cow_non_partition order by _hoodie_commit_time;"
-    def timestamps_cow_non_partition = [
-        "20241114151946599",
-        "20241114151952471",
-        "20241114151956317",
-        "20241114151958164",
-        "20241114152000425",
-        "20241114152004116",
-        "20241114152005954",
-        "20241114152007945",
-        "20241114152009764",
-        "20241114152011901",
-    ]
-
-    // spark-sql "select distinct _hoodie_commit_time from user_activity_log_cow_partition order by _hoodie_commit_time;"
-    def timestamps_cow_partition = [
-        "20241114152034850",
-        "20241114152042944",
-        "20241114152052682",
-        "20241114152101650",
-        "20241114152110650",
-        "20241114152120030",
-        "20241114152128871",
-        "20241114152137714",
-        "20241114152147114",
-        "20241114152156417",
-    ]
-
-    // spark-sql "select distinct _hoodie_commit_time from user_activity_log_mor_non_partition order by _hoodie_commit_time;"
-    def timestamps_mor_non_partition = [
-        "20241114152014186",
-        "20241114152015753",
-        "20241114152017539",
-        "20241114152019371",
-        "20241114152020915",
-        "20241114152022911",
-        "20241114152024706",
-        "20241114152026873",
-        "20241114152028770",
-        "20241114152030746",
-    ]
-
-    // spark-sql "select distinct _hoodie_commit_time from user_activity_log_mor_partition order by _hoodie_commit_time;"
-    def timestamps_mor_partition = [
-        "20241114152207700",
-        "20241114152214609",
-        "20241114152223933",
-        "20241114152232579",
-        "20241114152241610",
-        "20241114152252244",
-        "20241114152302763",
-        "20241114152313010",
-        "20241114152323587",
-        "20241114152334111",
-    ]
+    // Get commit timestamps dynamically for each table
+    def timestamps_cow_non_partition = getCommitTimestamps("user_activity_log_cow_non_partition")
+    def timestamps_cow_partition = getCommitTimestamps("user_activity_log_cow_partition")
+    def timestamps_mor_non_partition = getCommitTimestamps("user_activity_log_mor_non_partition")
+    def timestamps_mor_partition = getCommitTimestamps("user_activity_log_mor_partition")
 
     sql """set force_jni_scanner=true;"""
     test_hudi_timetravel_querys("user_activity_log_cow_non_partition", timestamps_cow_non_partition)

@@ -119,6 +119,11 @@ public class MockJniScanner extends JniScanner {
         }
 
         @Override
+        public LocalDateTime getTimeStampTz() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public LocalDate getDate() {
             return LocalDate.now();
         }

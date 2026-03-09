@@ -31,6 +31,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -1498,5 +1499,11 @@ public class NereidsParserTest extends ParserTestBase {
                 + "WHEN MATCHED THEN DELETE "
                 + "WHEN NOT MATCHED THEN INSERT VALUES (c1, c2, c3)";
         Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(invalidSql4));
+    }
+
+    @Test
+    public void testUnnest() {
+        String sql = "SELECT t.* FROM LATERAL unnest([1,2], ['hi','hello']) WITH ORDINALITY AS t(c1,c2);";
+        parsePlan(sql).matches(logicalGenerate().when(plan -> plan.getGenerators().get(0) instanceof Unnest));
     }
 }

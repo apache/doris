@@ -55,8 +55,10 @@ SPEC_ARCHIVES=(
 while [[ $# -gt 0 ]]; do
     GIVEN_LIB=$1
     SPEC_LIB=
+    lc_given_lib=$(echo "${GIVEN_LIB}" | tr '[:upper:]' '[:lower:]')
     for TP_ARCH in "${TP_ARCHIVES[@]}"; do
-        if [[ "${GIVEN_LIB,,}" = "${TP_ARCH,,}" ]]; then
+        lc_tp_arch=$(echo "${TP_ARCH}" | tr '[:upper:]' '[:lower:]')
+        if [[ "${lc_given_lib}" = "${lc_tp_arch}" ]]; then
             SPEC_LIB=${TP_ARCH}
             break
         fi

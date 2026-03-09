@@ -43,6 +43,9 @@ public:
     }
 
 private:
+    void _collect_column_data_sizes_from_rowsets(const std::vector<RowsetSharedPtr>& rowsets,
+                                                 int64_t table_id, int64_t index_id,
+                                                 int64_t partition_id, int64_t tablet_id);
     Status _get_all_column_data_sizes();
     Status _fill_block_impl(vectorized::Block* block);
 

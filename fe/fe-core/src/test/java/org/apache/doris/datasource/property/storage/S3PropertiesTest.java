@@ -275,7 +275,7 @@ public class S3PropertiesTest {
         provider = s3Props.getAwsCredentialsProvider();
         Assertions.assertNotNull(provider);
         Assertions.assertTrue(provider instanceof AwsCredentialsProviderChain);
-        Assertions.assertEquals("software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider,software.amazon.awssdk.auth.credentials.SystemPropertyCredentialsProvider,software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider,software.amazon.awssdk.auth.credentials.ContainerCredentialsProvider,software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider,software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider", s3Props.getHadoopStorageConfig().get("fs.s3a.aws.credentials.provider"));
+        Assertions.assertEquals("software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider,software.amazon.awssdk.auth.credentials.SystemPropertyCredentialsProvider,software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider,software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider", s3Props.getHadoopStorageConfig().get("fs.s3a.aws.credentials.provider"));
 
     }
 

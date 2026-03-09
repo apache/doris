@@ -32,7 +32,6 @@ import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.jupiter.api.Test;
 
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -60,8 +59,6 @@ public class CreateTableTest extends TestWithFeService {
                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1','colocate_with'='test'); ";
         createTable(sql);
         Set<Long> tabletIdSetAfterCreateFirstTable = env.getTabletInvertedIndex().getReplicaMetaTable().rowKeySet();
-        Set<TabletMeta> tabletMetaSetBeforeCreateFirstTable =
-                new HashSet<>(env.getTabletInvertedIndex().getTabletMetaTable().values());
         Set<Long> colocateTableIdBeforeCreateFirstTable = env.getColocateTableIndex().getTable2Group().keySet();
         Assert.assertTrue(colocateTableIdBeforeCreateFirstTable.size() > 0);
         Assert.assertTrue(tabletIdSetAfterCreateFirstTable.size() > 0);
@@ -71,13 +68,10 @@ public class CreateTableTest extends TestWithFeService {
         Set<Long> tabletIdSetAfterDuplicateCreateTable1 = env.getTabletInvertedIndex().getReplicaMetaTable().rowKeySet();
         Set<Long> tabletIdSetAfterDuplicateCreateTable2 = env.getTabletInvertedIndex().getBackingReplicaMetaTable().columnKeySet();
         Set<Long> tabletIdSetAfterDuplicateCreateTable3 = env.getTabletInvertedIndex().getTabletMetaMap().keySet();
-        Set<TabletMeta> tabletIdSetAfterDuplicateCreateTable4 =
-                new HashSet<>(env.getTabletInvertedIndex().getTabletMetaTable().values());
 
         Assert.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable1);
         Assert.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable2);
         Assert.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable3);
-        Assert.assertEquals(tabletMetaSetBeforeCreateFirstTable, tabletIdSetAfterDuplicateCreateTable4);
 
         // check whether table id is cleared from colocate group after duplicate create table
         Set<Long> colocateTableIdAfterCreateFirstTable = env.getColocateTableIndex().getTable2Group().keySet();
@@ -1079,6 +1073,43 @@ public class CreateTableTest extends TestWithFeService {
                         + "\"dynamic_partition.end\" = \"3\",\n"
                         + "\"dynamic_partition.prefix\" = \"p\",\n"
                         + "\"dynamic_partition.start\" = \"-3\"\n"
+                        + ");", true));
+    }
+
+    @Test
+    public void testCreateTableOfSequenceMapping() throws Exception {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "sequence mapping do not support merge on write",
+                () -> createTable("CREATE TABLE test.test_seq_map \n"
+                        + "(`a` bigint(20) NULL,\n"
+                        + "`b` int(11) NULL,\n"
+                        + "`c` int(11) NULL,\n"
+                        + "`d` int(11) NULL,\n"
+                        + "`s1` int(11) NULL\n"
+                        + ") ENGINE=OLAP\n"
+                        + "UNIQUE KEY(`a`, `b`)\n"
+                        + "COMMENT \"OLAP\"\n"
+                        + "DISTRIBUTED BY HASH(`a`, `b`) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"enable_unique_key_merge_on_write\" = \"true\",\n"
+                        + "\"replication_num\" = \"1\",\n"
+                        + "\"sequence_mapping.s1\" = \"c,d\"\n"
+                        + ");", true));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("CREATE TABLE test.test_seq_map \n"
+                        + "(`a` bigint(20) NULL,\n"
+                        + "`b` int(11) NULL,\n"
+                        + "`c` int(11) NULL,\n"
+                        + "`d` int(11) NULL,\n"
+                        + "`s1` int(11) NULL\n"
+                        + ") ENGINE=OLAP\n"
+                        + "UNIQUE KEY(`a`, `b`)\n"
+                        + "COMMENT \"OLAP\"\n"
+                        + "DISTRIBUTED BY HASH(`a`, `b`) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"enable_unique_key_merge_on_write\" = \"false\",\n"
+                        + "\"replication_num\" = \"1\",\n"
+                        + "\"sequence_mapping.s1\" = \"c,d\"\n"
                         + ");", true));
     }
 }

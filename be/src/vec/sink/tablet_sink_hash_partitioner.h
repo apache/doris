@@ -30,11 +30,10 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 class TabletSinkHashPartitioner final : public PartitionerBase {
 public:
-    using HashValType = int64_t;
-    TabletSinkHashPartitioner(size_t partition_count, int64_t txn_id,
-                              const TOlapTableSchemaParam& tablet_sink_schema,
-                              const TOlapTablePartitionParam& tablet_sink_partition,
-                              const TOlapTableLocationParam& tablet_sink_location,
+    TabletSinkHashPartitioner(uint32_t partition_count, int64_t txn_id,
+                              TOlapTableSchemaParam tablet_sink_schema,
+                              TOlapTablePartitionParam tablet_sink_partition,
+                              TOlapTableLocationParam tablet_sink_location,
                               const TTupleId& tablet_sink_tuple_id,
                               pipeline::ExchangeSinkLocalState* local_state);
 
@@ -46,10 +45,15 @@ public:
 
     Status open(RuntimeState* state) override;
 
-    Status do_partitioning(RuntimeState* state, Block* block, bool eos,
-                           bool* already_sent) const override;
+    Status do_partitioning(RuntimeState* state, Block* block) const override;
+    // block to create new partition by RPC. return batched data to create.
+    Status try_cut_in_line(Block& prior_block) const;
+    void finish_cut_in_line() const { _row_distribution._deal_batched = false; }
+    void mark_last_block() const { _row_distribution._deal_batched = true; }
 
-    ChannelField get_channel_ids() const override;
+    const std::vector<HashValType>& get_channel_ids() const override { return _hash_vals; }
+    const std::vector<bool>& get_skipped() const { return _skipped; }
+
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
 
     Status close(RuntimeState* state) override;
@@ -58,9 +62,6 @@ private:
     static Status empty_callback_function(void* sender, TCreatePartitionResult* result) {
         return Status::OK();
     }
-
-    Status _send_new_partition_batch(RuntimeState* state, vectorized::Block* input_block,
-                                     bool eos) const;
 
     const int64_t _txn_id = -1;
     const TOlapTableSchemaParam _tablet_sink_schema;
@@ -79,6 +80,7 @@ private:
     mutable RowDescriptor* _tablet_sink_row_desc = nullptr;
     mutable std::vector<vectorized::RowPartTabletIds> _row_part_tablet_ids;
     mutable std::vector<HashValType> _hash_vals;
+    mutable std::vector<bool> _skipped;
 };
 #include "common/compile_check_end.h"
 

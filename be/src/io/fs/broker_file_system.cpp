@@ -139,7 +139,7 @@ Status BrokerFileSystem::open_file_internal(const Path& file, FileReaderSPtr* re
                                error_msg(response->opStatus.message));
     }
     *reader = std::make_shared<BrokerFileReader>(_broker_addr, file, fsize, response->fd,
-                                                 _connection);
+                                                 _connection, opts.mtime);
     return Status::OK();
 }
 

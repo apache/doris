@@ -36,8 +36,8 @@ class SharedPredicate final : public ColumnPredicate {
     ENABLE_FACTORY_CREATOR(SharedPredicate);
 
 public:
-    SharedPredicate(uint32_t column_id)
-            : ColumnPredicate(column_id, PrimitiveType::INVALID_TYPE),
+    SharedPredicate(uint32_t column_id, std::string col_name)
+            : ColumnPredicate(column_id, col_name, PrimitiveType::INVALID_TYPE),
               _mtx(std::make_shared<std::shared_mutex>()) {}
     SharedPredicate(const ColumnPredicate& other) = delete;
     SharedPredicate(const SharedPredicate& other, uint32_t column_id)
@@ -163,6 +163,27 @@ public:
             DCHECK(false) << "should not reach here";
         }
         return _nested->get_search_str();
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
+        if (!_nested) {
+            // at the begining _nested will be null, so return true.
+            return true;
+        }
+        return _nested->evaluate_and(statistic);
+    }
+
+    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+                      RowRanges* row_ranges) const override {
+        std::shared_lock<std::shared_mutex> lock(*_mtx);
+
+        if (!_nested) {
+            // at the begining _nested will be null, so return true.
+            row_ranges->add(statistic->row_group_range);
+            return true;
+        }
+        return _nested->evaluate_and(statistic, row_ranges);
     }
 
 private:

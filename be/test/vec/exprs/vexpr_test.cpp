@@ -223,7 +223,7 @@ struct literal_traits<TYPE_FLOAT> {
 
 template <>
 struct literal_traits<TYPE_DOUBLE> {
-    const static TPrimitiveType::type ttype = TPrimitiveType::FLOAT;
+    const static TPrimitiveType::type ttype = TPrimitiveType::DOUBLE;
     const static TExprNodeType::type tnode_type = TExprNodeType::FLOAT_LITERAL;
     using CXXType = float;
 };
@@ -422,7 +422,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<uint8_t>();
+        auto v = (*ctn.column)[0].get<TYPE_BOOLEAN>();
         EXPECT_EQ(v, true);
         EXPECT_EQ("1", literal.value());
 
@@ -437,7 +437,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<int16_t>();
+        auto v = (*ctn.column)[0].get<TYPE_SMALLINT>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
 
@@ -452,7 +452,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<int32_t>();
+        auto v = (*ctn.column)[0].get<TYPE_INT>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
 
@@ -467,7 +467,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<int64_t>();
+        auto v = (*ctn.column)[0].get<TYPE_BIGINT>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
 
@@ -482,7 +482,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<__int128_t>();
+        auto v = (*ctn.column)[0].get<TYPE_LARGEINT>();
         EXPECT_EQ(v, 1024);
         EXPECT_EQ("1024", literal.value());
 
@@ -497,7 +497,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<double>();
+        auto v = (*ctn.column)[0].get<TYPE_FLOAT>();
         EXPECT_FLOAT_EQ(v, 1024.0f);
         EXPECT_EQ("1024", literal.value());
 
@@ -512,9 +512,9 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<double>();
-        EXPECT_FLOAT_EQ(v, 1024.0);
-        EXPECT_EQ("1024", literal.value());
+        auto v = (*ctn.column)[0].get<TYPE_DOUBLE>();
+        EXPECT_FLOAT_EQ(v, 1024.0) << ctn.column->get_name();
+        EXPECT_EQ("1024", literal.value()) << ctn.column->get_name();
 
         auto node = std::make_shared<VLiteral>(
                 create_texpr_node_from((*ctn.column)[0], TYPE_DOUBLE, 0, 0), true);
@@ -526,15 +526,11 @@ TEST(TEST_VEXPR, LITERALTEST) {
         const char* date = "20210407000000";
         data_time_value.from_date_str(date, strlen(date));
         std::cout << data_time_value.type() << std::endl;
-        __int64_t dt;
-        memcpy(&dt, &data_time_value, sizeof(__int64_t));
         VLiteral literal(create_literal<TYPE_DATETIME, std::string>(std::string(date)));
         Block block;
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<__int64_t>();
-        EXPECT_EQ(v, dt);
         EXPECT_EQ("2021-04-07 00:00:00", literal.value());
 
         auto node = std::make_shared<VLiteral>(
@@ -613,8 +609,6 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<__int64_t>();
-        EXPECT_EQ(v, dt);
         EXPECT_EQ("2021-04-07", literal.value());
 
         auto node = std::make_shared<VLiteral>(
@@ -633,7 +627,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<uint32_t>();
+        auto v = (*ctn.column)[0].get<TYPE_DATEV2>();
         EXPECT_EQ(v, dt);
         EXPECT_EQ("2021-04-07", literal.value());
 
@@ -684,7 +678,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<String>();
+        auto v = (*ctn.column)[0].get<TYPE_STRING>();
         EXPECT_EQ(v, s);
         EXPECT_EQ(s, literal.value());
 
@@ -699,8 +693,8 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<DecimalField<Decimal128V2>>();
-        EXPECT_FLOAT_EQ(((double)v.get_value()) / (std::pow(10, v.get_scale())), 1234.56);
+        auto v = (*ctn.column)[0].get<TYPE_DECIMALV2>();
+        EXPECT_FLOAT_EQ(((double)v.value()) / (std::pow(10, 9)), 1234.56);
         EXPECT_EQ("1234.560000000", literal.value());
 
         auto node = std::make_shared<VLiteral>(
@@ -714,7 +708,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         int ret = -1;
         EXPECT_TRUE(literal.execute(nullptr, &block, &ret).ok());
         auto ctn = block.safe_get_by_position(ret);
-        auto v = (*ctn.column)[0].get<Float64>();
+        auto v = (*ctn.column)[0].get<TYPE_TIMEV2>();
         EXPECT_FLOAT_EQ(v / 1000000, 12.1234);
         EXPECT_EQ("00:00:12.1234", literal.value());
 

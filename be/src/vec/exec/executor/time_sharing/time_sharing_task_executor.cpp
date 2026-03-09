@@ -562,10 +562,6 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
             std::lock_guard<std::mutex> guard(_mutex);
             _running_splits.insert(split);
         }
-        Defer defer {[&]() {
-            std::lock_guard<std::mutex> guard(_mutex);
-            _running_splits.erase(split);
-        }};
 
         Result<SharedListenableFuture<Void>> blocked_future_result = split->process();
 
@@ -577,10 +573,6 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
             auto blocked_future = blocked_future_result.value();
 
             if (split->is_finished()) {
-                {
-                    std::ostringstream _oss;
-                    _oss << std::this_thread::get_id();
-                }
                 _split_finished(split, split->finished_status());
             } else {
                 if (split->is_auto_reschedule()) {
@@ -625,6 +617,17 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
         // In the worst case, the destructor might even try to do something
         // with this SplitThreadPool, and produce a deadlock.
         // task.runnable.reset();
+
+        // IMPORTANT: We must explicitly release 'split' BEFORE acquiring _lock to avoid
+        // self-deadlock. The destructor chain (PrioritizedSplitRunner -> ScannerSplitRunner
+        // -> _scan_func lambda -> captured ScannerContext) may call remove_task() which
+        // tries to acquire _lock. Since _lock is not a recursive mutex, this would deadlock.
+        {
+            std::lock_guard<std::mutex> guard(_mutex);
+            _running_splits.erase(split);
+        }
+        split.reset();
+
         l.lock();
         thread_pool_task_execution_time_ns_total->increment(
                 task_execution_time_watch.elapsed_time());

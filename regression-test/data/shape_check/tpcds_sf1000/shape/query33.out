@@ -9,7 +9,10 @@ PhysicalResultSink
 ------------hashAgg[LOCAL]
 --------------PhysicalUnion
 ----------------PhysicalProject
-------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((item.i_manufact_id = item.i_manufact_id)) otherCondition=() build RFs:RF3 i_manufact_id->[i_manufact_id]
+------------------hashJoin[RIGHT_SEMI_JOIN shuffleBucket] hashCondition=((item.i_manufact_id = item.i_manufact_id)) otherCondition=() build RFs:RF3 i_manufact_id->[i_manufact_id]
+--------------------PhysicalProject
+----------------------filter((item.i_category = 'Books'))
+------------------------PhysicalOlapScan[item] apply RFs: RF3
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
@@ -28,12 +31,12 @@ PhysicalResultSink
 ------------------------------------filter((customer_address.ca_gmt_offset = -5.00))
 --------------------------------------PhysicalOlapScan[customer_address]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[item] apply RFs: RF3
+--------------------------------PhysicalOlapScan[item]
+----------------PhysicalProject
+------------------hashJoin[RIGHT_SEMI_JOIN shuffleBucket] hashCondition=((item.i_manufact_id = item.i_manufact_id)) otherCondition=() build RFs:RF7 i_manufact_id->[i_manufact_id]
 --------------------PhysicalProject
 ----------------------filter((item.i_category = 'Books'))
-------------------------PhysicalOlapScan[item]
-----------------PhysicalProject
-------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((item.i_manufact_id = item.i_manufact_id)) otherCondition=() build RFs:RF7 i_manufact_id->[i_manufact_id]
+------------------------PhysicalOlapScan[item] apply RFs: RF7
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
@@ -52,12 +55,12 @@ PhysicalResultSink
 ------------------------------------filter((customer_address.ca_gmt_offset = -5.00))
 --------------------------------------PhysicalOlapScan[customer_address]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[item] apply RFs: RF7
+--------------------------------PhysicalOlapScan[item]
+----------------PhysicalProject
+------------------hashJoin[RIGHT_SEMI_JOIN shuffleBucket] hashCondition=((item.i_manufact_id = item.i_manufact_id)) otherCondition=() build RFs:RF11 i_manufact_id->[i_manufact_id]
 --------------------PhysicalProject
 ----------------------filter((item.i_category = 'Books'))
-------------------------PhysicalOlapScan[item]
-----------------PhysicalProject
-------------------hashJoin[LEFT_SEMI_JOIN broadcast] hashCondition=((item.i_manufact_id = item.i_manufact_id)) otherCondition=() build RFs:RF11 i_manufact_id->[i_manufact_id]
+------------------------PhysicalOlapScan[item] apply RFs: RF11
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------hashAgg[LOCAL]
@@ -76,8 +79,5 @@ PhysicalResultSink
 ------------------------------------filter((customer_address.ca_gmt_offset = -5.00))
 --------------------------------------PhysicalOlapScan[customer_address]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[item] apply RFs: RF11
---------------------PhysicalProject
-----------------------filter((item.i_category = 'Books'))
-------------------------PhysicalOlapScan[item]
+--------------------------------PhysicalOlapScan[item]
 

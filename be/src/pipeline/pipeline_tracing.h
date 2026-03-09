@@ -23,6 +23,7 @@
 #include <parallel_hashmap/phmap.h>
 
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 
 #include "common/atomic_shared_ptr.h"
@@ -84,7 +85,16 @@ private:
     void _dump_timeslice();
     void _update(std::function<void(QueryTracesMap&)>&& handler);
 
-    std::filesystem::path _log_dir = fmt::format("{}/pipe_tracing", getenv("LOG_DIR"));
+    std::filesystem::path _log_dir = []() {
+        const char* env_log_dir = std::getenv("LOG_DIR");
+        if (env_log_dir != nullptr && env_log_dir[0] != '\0') {
+            return std::filesystem::path(fmt::format("{}/pipe_tracing", env_log_dir));
+        }
+        if (!config::sys_log_dir.empty()) {
+            return std::filesystem::path(fmt::format("{}/pipe_tracing", config::sys_log_dir));
+        }
+        return std::filesystem::path("pipe_tracing");
+    }();
 
     atomic_shared_ptr<QueryTracesMap> _data;
     std::mutex _tg_lock; //TODO: use an lockfree DS

@@ -18,7 +18,7 @@
 
 #include "util/string_util.h"
 #include "vec/columns/column_variant.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {
@@ -45,10 +45,10 @@ public:
                                                      size_t row) const {
         std::map<std::string, std::string> result;
         Field field = column[row];
-        const auto& variant_map = field.get<const VariantMap&>();
+        const auto& variant_map = field.get<TYPE_VARIANT>();
         for (const auto& [key, value] : variant_map) {
             if (key.empty() && value.base_scalar_type_id == PrimitiveType::TYPE_JSONB &&
-                value.num_dimensions == 0 && value.field.get<const JsonbField&>().get_size() == 0) {
+                value.num_dimensions == 0 && value.field.get<TYPE_JSONB>().get_size() == 0) {
                 // ignore empty jsonb root, it's tricky here
                 continue;
             }

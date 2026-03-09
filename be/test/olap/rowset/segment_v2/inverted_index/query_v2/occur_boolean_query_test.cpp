@@ -704,4 +704,84 @@ TEST_F(OccurBooleanQueryTest, OnlyMustNotClausesEmpty) {
     EXPECT_EQ(scorer->doc(), TERMINATED);
 }
 
+TEST_F(OccurBooleanQueryTest, MinimumShouldMatchExceedsShouldClausesReturnsEmpty) {
+    {
+        auto must_docs1 = generate_range_docs(0, 100);
+        auto must_docs2 = generate_range_docs(50, 150);
+        std::vector<std::pair<Occur, QueryPtr>> clauses;
+        clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(must_docs1));
+        clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(must_docs2));
+
+        OccurBooleanQuery query(std::move(clauses), 2);
+        auto weight = query.weight(false);
+        auto scorer = weight->scorer(_ctx);
+
+        EXPECT_EQ(scorer->doc(), TERMINATED);
+    }
+
+    {
+        auto must_docs = generate_range_docs(0, 100);
+        auto should_docs = generate_range_docs(0, 100);
+        std::vector<std::pair<Occur, QueryPtr>> clauses;
+        clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(must_docs));
+        clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should_docs));
+
+        OccurBooleanQuery query(std::move(clauses), 2);
+        auto weight = query.weight(false);
+        auto scorer = weight->scorer(_ctx);
+
+        EXPECT_EQ(scorer->doc(), TERMINATED);
+    }
+
+    {
+        auto should_docs1 = generate_range_docs(0, 100);
+        auto should_docs2 = generate_range_docs(50, 150);
+        auto expected = set_intersection(should_docs1, should_docs2);
+
+        std::vector<std::pair<Occur, QueryPtr>> clauses;
+        clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should_docs1));
+        clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should_docs2));
+
+        OccurBooleanQuery query(std::move(clauses), 2);
+        auto weight = query.weight(false);
+        auto scorer = weight->scorer(_ctx);
+        auto result = collect_docs(scorer);
+
+        EXPECT_EQ(result.size(), expected.size());
+        EXPECT_EQ(to_set(result), to_set(expected));
+    }
+
+    {
+        auto must_docs = generate_range_docs(0, 100);
+        auto must_not_docs = generate_range_docs(50, 150);
+
+        std::vector<std::pair<Occur, QueryPtr>> clauses;
+        clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(must_docs));
+        clauses.emplace_back(Occur::MUST_NOT, std::make_shared<MockQuery>(must_not_docs));
+
+        OccurBooleanQuery query(std::move(clauses), 2);
+        auto weight = query.weight(false);
+        auto scorer = weight->scorer(_ctx);
+
+        EXPECT_EQ(scorer->doc(), TERMINATED);
+    }
+}
+
+TEST_F(OccurBooleanQueryTest, MinimumShouldMatchZeroWithNoShouldClausesReturnsIgnored) {
+    auto must_docs1 = generate_range_docs(0, 100);
+    auto must_docs2 = generate_range_docs(50, 150);
+    auto expected = set_intersection(must_docs1, must_docs2);
+
+    std::vector<std::pair<Occur, QueryPtr>> clauses;
+    clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(must_docs1));
+    clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(must_docs2));
+
+    OccurBooleanQuery query(std::move(clauses), 0);
+    auto weight = query.weight(false);
+    auto scorer = weight->scorer(_ctx);
+    auto result = collect_docs(scorer);
+
+    EXPECT_EQ(result, expected);
+}
+
 } // namespace doris::segment_v2::inverted_index::query_v2

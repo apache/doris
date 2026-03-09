@@ -327,6 +327,10 @@ public class TypeCoercionUtils {
         return hasSpecifiedType(dataType, TimeV2Type.class);
     }
 
+    public static boolean hasTimestampTzType(DataType dataType) {
+        return hasSpecifiedType(dataType, TimeStampTzType.class);
+    }
+
     private static boolean hasSpecifiedType(DataType dataType, Class<? extends DataType> specifiedType) {
         if (dataType instanceof ArrayType) {
             return hasSpecifiedType(((ArrayType) dataType).getItemType(), specifiedType);
@@ -363,10 +367,16 @@ public class TypeCoercionUtils {
         return replaceSpecifiedType(dataType, DateTimeV2Type.class, DateTimeV2Type.MAX);
     }
 
+    /**
+     * replace times with target precision.
+     */
     public static DataType replaceTimesWithTargetPrecision(DataType dataType, int targetScale) {
         return replaceSpecifiedType(
-                replaceSpecifiedType(dataType, DateTimeV2Type.class, DateTimeV2Type.of(targetScale)), TimeV2Type.class,
-                TimeV2Type.of(targetScale));
+                replaceSpecifiedType(
+                    replaceSpecifiedType(dataType, DateTimeV2Type.class,
+                        DateTimeV2Type.of(targetScale)),
+                        TimeV2Type.class, TimeV2Type.of(targetScale)),
+                    TimeStampTzType.class, TimeStampTzType.of(targetScale));
     }
 
     /**

@@ -99,7 +99,7 @@ public:
 
     bool get_is_typed() const { return is_typed; }
 
-    bool need_record_stats() const { return !empty() && !is_typed && !has_nested; }
+    bool need_record_stats() const;
 
     bool operator<(const PathInData& rhs) const {
         return std::lexicographical_compare(

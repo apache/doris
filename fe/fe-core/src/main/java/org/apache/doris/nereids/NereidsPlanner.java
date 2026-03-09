@@ -70,6 +70,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
@@ -761,7 +762,10 @@ public class NereidsPlanner extends Planner {
             GroupExpression groupExpression = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
                     () -> new AnalysisException("lowestCostPlans with physicalProperties("
                             + physicalProperties + ") doesn't exist in root group")).second;
-            if (rootGroup.getEnforcers().containsKey(groupExpression)) {
+            if ((groupExpression.getPlan() instanceof PhysicalDistribute
+                    && rootGroup.getEnforcerSpecs().containsKey(
+                            ((PhysicalDistribute<?>) groupExpression.getPlan()).getDistributionSpec()))
+                    || rootGroup.getEnforcers().containsKey(groupExpression)) {
                 rootGroup.addChosenEnforcerId(groupExpression.getId().asInt());
                 rootGroup.addChosenEnforcerProperties(physicalProperties);
             } else {

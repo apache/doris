@@ -49,7 +49,7 @@ Status VArrayLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc
         Field item;
         auto child_literal = std::dynamic_pointer_cast<const VLiteral>(child);
         child_literal->get_column_ptr()->get(0, item);
-        array.get<Array>().push_back(item);
+        array.get<TYPE_ARRAY>().push_back(item);
     }
     _column_ptr = _data_type->create_column_const(1, array);
     return Status::OK();

@@ -232,7 +232,7 @@ void serialize_and_deserialize_mysql_test() {
                 for (int i = 0; i < row_num; ++i) {
                     VecDateTimeValue value;
                     value.from_date_int64(20210501);
-                    date_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
+                    date_data.push_back(value);
                 }
                 vectorized::DataTypePtr date_type(std::make_shared<vectorized::DataTypeDate>());
                 vectorized::ColumnWithTypeAndName test_date(column_vector_date->get_ptr(),
@@ -248,7 +248,7 @@ void serialize_and_deserialize_mysql_test() {
                 for (int i = 0; i < row_num; ++i) {
                     VecDateTimeValue value;
                     value.from_date_int64(20210501080910);
-                    datetime_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
+                    datetime_data.push_back(value);
                 }
                 vectorized::DataTypePtr datetime_type(
                         std::make_shared<vectorized::DataTypeDateTime>());

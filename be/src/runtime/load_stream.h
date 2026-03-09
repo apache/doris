@@ -54,6 +54,9 @@ public:
     Status add_segment(const PStreamHeader& header, butil::IOBuf* data);
     void add_num_segments(int64_t num_segments) { _num_segments += num_segments; }
     void disable_num_segments_check() { _check_num_segments = false; }
+    // Wait for all pending flush tasks to complete and shut down the flush token.
+    // Safe to call multiple times.
+    void wait_for_flush_tasks();
     void pre_close();
     Status close();
     int64_t id() const { return _id; }
@@ -70,6 +73,7 @@ private:
     std::atomic<uint32_t> _next_segid;
     int64_t _num_segments = 0;
     bool _check_num_segments = true;
+    bool _flush_tasks_done = false;
     bthread::Mutex _lock;
     AtomicStatus _status;
     PUniqueId _load_id;
@@ -88,6 +92,7 @@ public:
     IndexStream(const PUniqueId& load_id, int64_t id, int64_t txn_id,
                 std::shared_ptr<OlapTableSchemaParam> schema, LoadStreamMgr* load_stream_mgr,
                 RuntimeProfile* profile);
+    ~IndexStream();
 
     Status append_data(const PStreamHeader& header, butil::IOBuf* data);
 

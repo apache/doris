@@ -80,7 +80,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
@@ -1493,7 +1493,7 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
             return Status::OK();
         } else if (column_mapping->ref_column_idx >= 0) {
             // index changed
-            if (vectorized::schema_util::has_schema_index_diff(
+            if (vectorized::variant_util::has_schema_index_diff(
                         new_tablet_schema, base_tablet_schema, cast_set<int32_t>(i),
                         column_mapping->ref_column_idx)) {
                 *sc_directly = true;

@@ -142,7 +142,7 @@ suite("test_inverted_index_v3", "p0"){
     }
 
     sql """
-      CREATE TABLE `t1` (
+      CREATE TABLE `t1_tmp` (
         `id` int NOT NULL,
         `v` variant<MATCH_NAME_GLOB 'key':text,properties("variant_max_subcolumns_count" = "3")> ,
         INDEX idx_v (`v`) USING INVERTED PROPERTIES("dict_compression" = "true", "lower_case" = "true", "parser" = "unicode", "support_phrase" = "true", "field_pattern" = "key")
@@ -156,7 +156,7 @@ suite("test_inverted_index_v3", "p0"){
     """
 
     sql """
-      CREATE TABLE `t2` (
+      CREATE TABLE `t2_tmp` (
         `id` int NOT NULL,
         `v` variant,
         INDEX idx_v (`v`) USING INVERTED PROPERTIES("dict_compression" = "true", "lower_case" = "true", "parser" = "unicode", "support_phrase" = "true")

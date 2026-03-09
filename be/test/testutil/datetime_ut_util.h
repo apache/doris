@@ -17,13 +17,21 @@
 
 #pragma once
 
+#include "vec/runtime/timestamptz_value.h"
 #include "vec/runtime/vdatetime_value.h"
 namespace doris {
 inline auto make_datetime(int year, int month, int day, int hour, int minute, int second,
                           int microsecond) {
     DateV2Value<DateTimeV2ValueType> dt;
     dt.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
-    return dt.to_date_int_val();
+    return dt;
+}
+
+inline auto make_timestamptz(int year, int month, int day, int hour, int minute, int second,
+                             int microsecond) {
+    DateV2Value<DateTimeV2ValueType> dt;
+    dt.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
+    return TimestampTzValue(dt.to_date_int_val());
 }
 
 } // namespace doris

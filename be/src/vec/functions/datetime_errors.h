@@ -24,30 +24,38 @@
 #include "common/status.h"
 #include "util/binary_cast.hpp"
 #include "vec/core/types.h"
+#include "vec/runtime/timestamptz_value.h"
 
 namespace doris::vectorized {
 // Convert a native datelike value to printable string using DateValueType::to_string
 // Note: DateValueType must support to_string(char*) -> char*
 //       NativeT is the corresponding FieldType of the DataType
-template <typename DateValueType, typename NativeT>
-inline std::string datelike_to_string(NativeT native) {
+template <typename DateValueType>
+inline std::string datelike_to_string(DateValueType value) {
     char buf[40];
-    auto value = binary_cast<NativeT, DateValueType>(native);
     char* end = value.to_string(buf);
     // minus 1 to skip trailing '\0'
     return std::string(buf, end - 1);
 }
 
+// Specialization for TimestampTzValue: output UTC time for error messages
+template <>
+inline std::string datelike_to_string<TimestampTzValue>(TimestampTzValue native) {
+    // Use UTC timezone for error messages
+    return native.to_string(cctz::utc_time_zone());
+}
+
 // Throw for operations with one datelike argument
-template <typename DateValueType, typename NativeT>
-[[noreturn]] inline void throw_out_of_bound_one_date(const char* op, NativeT arg0) {
+template <typename DateValueType>
+[[noreturn]] inline void throw_out_of_bound_one_date(const char* op, DateValueType arg0) {
     throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} of {} out of range", op,
                     datelike_to_string<DateValueType>(arg0));
 }
 
 // Throw for operations with a datelike and an integer (e.g. period)
-template <typename DateValueType, typename NativeT>
-[[noreturn]] inline void throw_out_of_bound_date_int(const char* op, NativeT arg0, Int32 delta) {
+template <typename DateValueType>
+[[noreturn]] inline void throw_out_of_bound_date_int(const char* op, DateValueType arg0,
+                                                     Int32 delta) {
     throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} of {}, {} out of range", op,
                     datelike_to_string<DateValueType>(arg0), delta);
 }
@@ -63,8 +71,9 @@ template <typename DateValueType, typename NativeT>
 }
 
 // for convert_tz
-template <typename DateValueType, typename NativeT>
-[[noreturn]] inline void throw_out_of_bound_convert_tz(NativeT arg0, std::string_view from_name,
+template <typename DateValueType>
+[[noreturn]] inline void throw_out_of_bound_convert_tz(DateValueType arg0,
+                                                       std::string_view from_name,
                                                        std::string_view to_name) {
     throw Exception(ErrorCode::OUT_OF_BOUND, "Cannot convert {} from {} to {}",
                     datelike_to_string<DateValueType>(arg0), from_name, to_name);
@@ -72,9 +81,9 @@ template <typename DateValueType, typename NativeT>
 
 // Throw for operations with a datelike, an integer and an origin datelike
 // (e.g. time_round(datetime, period, origin))
-template <typename DateValueType, typename NativeT>
-[[noreturn]] inline void throw_out_of_bound_int_date(const char* op, NativeT arg0, Int32 delta,
-                                                     NativeT origin) {
+template <typename DateValueType>
+[[noreturn]] inline void throw_out_of_bound_int_date(const char* op, DateValueType arg0,
+                                                     Int32 delta, DateValueType origin) {
     throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} of {}, {}, {} out of range", op,
                     datelike_to_string<DateValueType>(arg0), delta,
                     datelike_to_string<DateValueType>(origin));
@@ -82,8 +91,9 @@ template <typename DateValueType, typename NativeT>
 
 // Throw for operations with two datelike arguments
 // (e.g. time_round(datetime, origin))
-template <typename DateValueType, typename NativeT>
-[[noreturn]] inline void throw_out_of_bound_date_date(const char* op, NativeT arg0, NativeT arg1) {
+template <typename DateValueType>
+[[noreturn]] inline void throw_out_of_bound_date_date(const char* op, DateValueType arg0,
+                                                      DateValueType arg1) {
     throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} of {}, {} out of range", op,
                     datelike_to_string<DateValueType>(arg0),
                     datelike_to_string<DateValueType>(arg1));

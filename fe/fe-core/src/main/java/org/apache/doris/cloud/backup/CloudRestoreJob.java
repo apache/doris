@@ -403,7 +403,8 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.rowStorePageSize(),
                                     localTbl.variantEnableFlattenNested(), clusterKeyUids,
                                     localTbl.storagePageSize(), localTbl.getTDEAlgorithmPB(),
-                                    localTbl.storageDictPageSize(), false));
+                                    localTbl.storageDictPageSize(), false,
+                                    localTbl.getColumnSeqMapping()));
                         // In cloud mode all storage medium will be saved to HDD.
                         TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                                 restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);

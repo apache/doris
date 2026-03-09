@@ -21,6 +21,8 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
@@ -29,6 +31,7 @@ import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.table.source.DataSplit;
+import org.apache.paimon.table.source.RawFile;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -37,6 +40,7 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnitRunner;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -92,11 +96,26 @@ public class PaimonScanNodeTest {
             }
         }).when(spyPaimonScanNode).getPaimonSplitFromAPI();
 
+        long maxInitialSplitSize = 32L * 1024L * 1024L;
+        long maxSplitSize = 64L * 1024L * 1024L;
+        // Ensure fileSplitter is initialized on the spy as doInitialize() is not called in this unit test
+        FileSplitter fileSplitter = new FileSplitter(maxInitialSplitSize, maxSplitSize,
+                0);
+        try {
+            java.lang.reflect.Field field = FileQueryScanNode.class.getDeclaredField("fileSplitter");
+            field.setAccessible(true);
+            field.set(spyPaimonScanNode, fileSplitter);
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            throw new RuntimeException("Failed to inject FileSplitter into PaimonScanNode test", e);
+        }
+
         // Note: The original PaimonSource is sufficient for this test
         // No need to mock catalog properties since doInitialize() is not called in this test
         // Mock SessionVariable behavior
         Mockito.when(sv.isForceJniScanner()).thenReturn(false);
         Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");
+        Mockito.when(sv.getMaxInitialSplitSize()).thenReturn(maxInitialSplitSize);
+        Mockito.when(sv.getMaxSplitSize()).thenReturn(maxSplitSize);
 
         // native
         mockNativeReader(spyPaimonScanNode);
@@ -362,6 +381,29 @@ public class PaimonScanNodeTest {
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("at least one valid parameter group must be specified"));
         }
+    }
+
+    @Test
+    public void testDetermineTargetFileSplitSizeHonorsMaxFileSplitNum() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        sv.setMaxFileSplitNum(100);
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), false, sv);
+
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getFileFormatFromTableProperties()).thenReturn("parquet");
+        node.setSource(source);
+
+        RawFile rawFile = Mockito.mock(RawFile.class);
+        Mockito.when(rawFile.path()).thenReturn("file.parquet");
+        Mockito.when(rawFile.fileSize()).thenReturn(10_000L * 1024L * 1024L);
+
+        DataSplit dataSplit = Mockito.mock(DataSplit.class);
+        Mockito.when(dataSplit.convertToRawFiles()).thenReturn(Optional.of(Collections.singletonList(rawFile)));
+
+        Method method = PaimonScanNode.class.getDeclaredMethod("determineTargetFileSplitSize", List.class, boolean.class);
+        method.setAccessible(true);
+        long target = (long) method.invoke(node, Collections.singletonList(dataSplit), false);
+        Assert.assertEquals(100L * 1024L * 1024L, target);
     }
 
     private void mockJniReader(PaimonScanNode spyNode) {

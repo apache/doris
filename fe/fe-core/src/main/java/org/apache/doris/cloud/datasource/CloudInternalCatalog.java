@@ -42,6 +42,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
+import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.CopyJobPB;
@@ -55,6 +56,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.util.ColumnsUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.proto.OlapCommon;
 import org.apache.doris.proto.OlapFile;
@@ -188,7 +190,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.rowStorePageSize(),
                         tbl.variantEnableFlattenNested(), clusterKeyUids,
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
-                        tbl.storageDictPageSize(), true);
+                        tbl.storageDictPageSize(), true,
+                        tbl.getColumnSeqMapping());
                 requestBuilder.addTabletMetas(builder);
             }
             requestBuilder.setDbId(dbId);
@@ -222,7 +225,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
             boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
             long storagePageSize, EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
-            boolean createInitialRowset) throws DdlException {
+            boolean createInitialRowset, Map<String, List<String>> columnSeqMapping) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -382,6 +385,18 @@ public class CloudInternalCatalog extends InternalCatalog {
         if (!CollectionUtils.isEmpty(clusterKeyUids)) {
             schemaBuilder.addAllClusterKeyUids(clusterKeyUids);
         }
+        OlapFile.ColumnGroupsPB.Builder columnGroupsBuilder = OlapFile.ColumnGroupsPB.newBuilder();
+        if (columnSeqMapping != null && !columnSeqMapping.isEmpty()) {
+            ColumnsUtil columnsUtil = new ColumnsUtil(schemaColumns);
+            for (Map.Entry<String, List<String>> entry : columnSeqMapping.entrySet()) {
+                int sequenceColumnId = columnsUtil.getColumnUniqueId(entry.getKey());
+                List<Integer> columnId = columnsUtil.getColumnUniqueId(entry.getValue());
+                OlapFile.ColumnGroupPB.Builder cgBuilder = columnGroupsBuilder.addCgBuilder();
+                cgBuilder.setSequenceColumn(sequenceColumnId);
+                cgBuilder.addAllColumnsInGroup(columnId);
+            }
+        }
+        schemaBuilder.setSeqMap(columnGroupsBuilder.build());
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
         builder.setSchema(schema);
@@ -835,7 +850,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 indexIds.add(index.getId());
                 if (tableId == -1) {
-                    tableId = ((CloudReplica) index.getTablets().get(0).getReplicas().get(0)).getTableId();
+                    tableId = ((CloudTablet) index.getTablets().get(0)).getCloudReplica().getTableId();
                 }
             }
             partitionIds.add(partition.getId());
@@ -1121,7 +1136,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                     Tablet tablet = materializedIndex.getTablet(tabletIds.get(i));
                     Replica replica;
                     if (info.getReplicaIds().isEmpty()) {
-                        replica = tablet.getReplicas().get(0);
+                        replica = ((CloudTablet) tablet).getCloudReplica();
                     } else {
                         replica = tablet.getReplicaById(info.getReplicaIds().get(i));
                     }

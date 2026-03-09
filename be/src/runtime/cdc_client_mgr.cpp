@@ -18,12 +18,14 @@
 #include "runtime/cdc_client_mgr.h"
 
 #include <brpc/closure_guard.h>
+#include <fcntl.h>
 #include <fmt/core.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <google/protobuf/stubs/callback.h>
 #include <signal.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 #include <cstdio>
 #ifndef __APPLE__
@@ -129,24 +131,25 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
         if (kill(exist_pid, 0) == 0) {
             // Process exists, verify it's actually our CDC client by health check
             std::string check_response;
-            auto check_st = check_cdc_client_health(1, 0, check_response);
+            auto check_st = check_cdc_client_health(3, 1, check_response);
             if (check_st.ok()) {
                 // Process exists and responding, CDC client is running
                 return Status::OK();
             } else {
                 // Process exists but CDC client not responding
                 // Either it's a different process (PID reused) or CDC client is unhealthy
-                // Reset PID and return error
-                _child_pid.store(0);
                 st = Status::InternalError(fmt::format("CDC client {} unresponsive", exist_pid));
                 st.to_protobuf(result->mutable_status());
                 return st;
             }
         } else {
+            LOG(INFO) << "CDC client is dead, pid=" << exist_pid;
             // Process is dead, reset PID and continue to start
             _child_pid.store(0);
         }
 #endif
+    } else {
+        LOG(INFO) << "CDC client has never been started";
     }
 
     const char* doris_home = getenv("DORIS_HOME");
@@ -199,6 +202,17 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
 #ifndef __APPLE__
         prctl(PR_SET_PDEATHSIG, SIGKILL);
 #endif
+        // Redirect stdout and stderr to log out file
+        std::string cdc_out_file = std::string(log_dir) + "/cdc-client.out";
+        int out_fd = open(cdc_out_file.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+        if (out_fd < 0) {
+            perror("open cdc-client.out file failed");
+            exit(1);
+        }
+        dup2(out_fd, STDOUT_FILENO);
+        dup2(out_fd, STDERR_FILENO);
+        close(out_fd);
+
         // java -jar -Dlog.path=xx cdc-client.jar --server.port=9096 --backend.http.port=8040
         execlp(java_bin.c_str(), "java", java_opts.c_str(), "-jar", cdc_jar_path.c_str(),
                cdc_jar_port.c_str(), backend_http_port.c_str(), (char*)NULL);

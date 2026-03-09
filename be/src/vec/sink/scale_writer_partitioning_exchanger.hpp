@@ -17,9 +17,7 @@
 
 #pragma once
 
-#include <algorithm>
-#include <functional>
-#include <iostream>
+#include <memory>
 #include <vector>
 
 #include "vec/core/block.h"
@@ -30,7 +28,6 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 class ScaleWriterPartitioner final : public PartitionerBase {
 public:
-    using HashValType = uint32_t;
     ScaleWriterPartitioner(int channel_size, int partition_count, int task_count,
                            int task_bucket_count,
                            long min_partition_data_processed_rebalance_threshold,
@@ -67,8 +64,7 @@ public:
 
     Status close(RuntimeState* state) override { return _crc_partitioner->close(state); }
 
-    Status do_partitioning(RuntimeState* state, Block* block, bool eos,
-                           bool* already_sent) const override {
+    Status do_partitioning(RuntimeState* state, Block* block) const override {
         _hash_vals.resize(block->rows());
         for (int partition_id = 0; partition_id < _partition_row_counts.size(); partition_id++) {
             _partition_row_counts[partition_id] = 0;
@@ -78,9 +74,9 @@ public:
         _partition_rebalancer.rebalance();
 
         RETURN_IF_ERROR(_crc_partitioner->do_partitioning(state, block));
-        const auto* crc_values = _crc_partitioner->get_channel_ids().get<uint32_t>();
+        const auto& channel_ids = _crc_partitioner->get_channel_ids();
         for (size_t position = 0; position < block->rows(); position++) {
-            int partition_id = crc_values[position];
+            auto partition_id = channel_ids[position];
             _partition_row_counts[partition_id] += 1;
 
             // Get writer id for this partition by looking at the scaling state
@@ -101,20 +97,18 @@ public:
         return Status::OK();
     }
 
-    ChannelField get_channel_ids() const override {
-        return {_hash_vals.data(), sizeof(HashValType)};
-    }
+    const std::vector<HashValType>& get_channel_ids() const override { return _hash_vals; }
 
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override {
-        partitioner.reset(new ScaleWriterPartitioner(
+        partitioner = std::make_unique<ScaleWriterPartitioner>(
                 _channel_size, (int)_partition_count, _task_count, _task_bucket_count,
                 _min_partition_data_processed_rebalance_threshold,
-                _min_data_processed_rebalance_threshold));
+                _min_data_processed_rebalance_threshold);
         return Status::OK();
     }
 
 private:
-    int _get_next_writer_id(int partition_id) const {
+    int _get_next_writer_id(HashValType partition_id) const {
         return _partition_rebalancer.get_task_id(partition_id,
                                                  _partition_writer_indexes[partition_id]++);
     }

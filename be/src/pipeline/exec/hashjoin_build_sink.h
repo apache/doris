@@ -192,11 +192,8 @@ struct ProcessHashTableBuild {
                bool* has_null_key) {
         if (null_map) {
             // first row is mocked and is null
-            // TODO: Need to test the for loop. break may better
-            for (uint32_t i = 1; i < _rows; i++) {
-                if ((*null_map)[i]) {
-                    *has_null_key = true;
-                }
+            if (simd::contain_one(null_map->data() + 1, _rows - 1)) {
+                *has_null_key = true;
             }
             if (short_circuit_for_null && *has_null_key) {
                 return Status::OK();
@@ -208,7 +205,7 @@ struct ProcessHashTableBuild {
                 _rows, _batch_size, *has_null_key, hash_table_ctx.direct_mapping_range());
 
         // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
-        if (_build_raw_ptrs.size() == 1 && null_map) {
+        if (_build_raw_ptrs.size() == 1 && null_map && *has_null_key) {
             _build_raw_ptrs[0]->assume_mutable()->replace_column_null_data(null_map->data());
         }
 

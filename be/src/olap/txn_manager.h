@@ -302,8 +302,10 @@ private:
     public:
         TabletVersionCache(size_t capacity)
                 : LRUCachePolicy(CachePolicy::CacheType::TABLET_VERSION_CACHE, capacity,
-                                 LRUCacheType::NUMBER, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
-                                 DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
+                                 LRUCacheType::NUMBER, /*sweeptime*/ -1,
+                                 /*num_shards*/ 32,
+                                 /*element_count_capacity*/ 0, /*enable_prune*/ false,
+                                 /*is_lru_k*/ false) {}
     };
 
 private:

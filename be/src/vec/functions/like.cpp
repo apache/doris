@@ -720,11 +720,45 @@ Status FunctionLike::like_fn(const LikeSearchState* state, const ColumnString& v
 
 Status FunctionLike::like_fn_scalar(const LikeSearchState* state, const StringRef& val,
                                     const StringRef& pattern, unsigned char* result) {
-    std::string re_pattern;
-    convert_like_pattern(state, std::string(pattern.data, pattern.size), &re_pattern);
+    // Try to use fast path to avoid regex compilation
+    std::string search_string;
+    LikeFastPath fast_path = extract_like_fast_path(pattern.data, pattern.size, search_string);
 
-    return regexp_fn_scalar(state, StringRef(val.data, val.size),
-                            {re_pattern.c_str(), re_pattern.size()}, result);
+    switch (fast_path) {
+    case LikeFastPath::ALLPASS:
+        *result = 1;
+        return Status::OK();
+    case LikeFastPath::EQUALS:
+        *result = (val.size == search_string.size() &&
+                   (search_string.empty() ||
+                    memcmp(val.data, search_string.data(), search_string.size()) == 0));
+        return Status::OK();
+    case LikeFastPath::STARTS_WITH:
+        *result = (val.size >= search_string.size() &&
+                   memcmp(val.data, search_string.data(), search_string.size()) == 0);
+        return Status::OK();
+    case LikeFastPath::ENDS_WITH:
+        *result = (val.size >= search_string.size() &&
+                   memcmp(val.data + val.size - search_string.size(), search_string.data(),
+                          search_string.size()) == 0);
+        return Status::OK();
+    case LikeFastPath::SUBSTRING:
+        if (search_string.empty()) {
+            *result = 1;
+        } else {
+            // Use memmem for substring search
+            *result = (memmem(val.data, val.size, search_string.data(), search_string.size()) !=
+                       nullptr);
+        }
+        return Status::OK();
+    case LikeFastPath::REGEX:
+    default:
+        // Fall back to regex matching
+        std::string re_pattern;
+        convert_like_pattern(state, std::string(pattern.data, pattern.size), &re_pattern);
+        return regexp_fn_scalar(state, StringRef(val.data, val.size),
+                                {re_pattern.c_str(), re_pattern.size()}, result);
+    }
 }
 
 void FunctionLike::convert_like_pattern(const LikeSearchState* state, const std::string& pattern,

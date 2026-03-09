@@ -26,7 +26,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -112,7 +111,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Getter
     @Setter
     @SerializedName("fr")
-    protected FailureReason failureReason;
+    protected volatile FailureReason failureReason;
     @Getter
     @Setter
     protected long latestAutoResumeTimestamp;
@@ -210,6 +209,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             init();
             checkRequiredSourceProperties();
             List<String> createTbls = createTableIfNotExists();
+            if (sourceProperties.get(DataSourceConfigKeys.INCLUDE_TABLES) == null) {
+                // cdc need the final includeTables
+                String includeTables = String.join(",", createTbls);
+                sourceProperties.put(DataSourceConfigKeys.INCLUDE_TABLES, includeTables);
+            }
             this.offsetProvider = new JdbcSourceOffsetProvider(getJobId(), dataSourceType, sourceProperties);
             JdbcSourceOffsetProvider rdsOffsetProvider = (JdbcSourceOffsetProvider) this.offsetProvider;
             rdsOffsetProvider.splitChunks(createTbls);
@@ -232,9 +236,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 "password is required property");
         Preconditions.checkArgument(sourceProperties.get(DataSourceConfigKeys.DATABASE) != null,
                 "database is required property");
-        Preconditions.checkArgument(sourceProperties.get(DataSourceConfigKeys.INCLUDE_TABLES) != null
-                        || sourceProperties.get(DataSourceConfigKeys.EXCLUDE_TABLES) != null,
-                "Either include_tables or exclude_tables must be specified");
         if (!sourceProperties.containsKey(DataSourceConfigKeys.OFFSET)) {
             sourceProperties.put(DataSourceConfigKeys.OFFSET, DataSourceConfigKeys.OFFSET_LATEST);
         }
@@ -504,7 +505,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return tasks;
     }
 
-    protected void fetchMeta() {
+    protected void fetchMeta() throws JobException {
         try {
             if (tvfType != null) {
                 if (originTvfProps == null) {
@@ -516,8 +517,17 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
         } catch (Exception ex) {
             log.warn("fetch remote meta failed, job id: {}", getJobId(), ex);
-            failureReason = new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
-                    "Failed to fetch meta, " + ex.getMessage());
+            if (this.getFailureReason() == null
+                    || !InternalErrorCode.MANUAL_PAUSE_ERR.equals(this.getFailureReason().getCode())) {
+                // When a job is manually paused, it does not need to be set again,
+                // otherwise, it may be woken up by auto resume.
+                this.setFailureReason(
+                        new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                                "Failed to fetch meta, " + ex.getMessage()));
+                // If fetching meta fails, the job is paused
+                // and auto resume will automatically wake it up.
+                this.updateJobStatus(JobStatus.PAUSED);
+            }
         }
     }
 
@@ -572,6 +582,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     public void onStreamTaskSuccess(AbstractStreamingTask task) {
         try {
+            resetFailureInfo(null);
             succeedTaskCount.incrementAndGet();
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
             AbstractStreamingTask nextTask = createStreamingTask();
@@ -729,7 +740,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(getJobName()));
         trow.addToColumnValue(new TCell().setStringVal(getCreateUser().getQualifiedUser()));
         trow.addToColumnValue(new TCell().setStringVal(getJobConfig().getExecuteType().name()));
-        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        trow.addToColumnValue(new TCell().setStringVal(""));
         trow.addToColumnValue(new TCell().setStringVal(getJobStatus().name()));
         trow.addToColumnValue(new TCell().setStringVal(getShowSQL()));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));
@@ -738,30 +749,30 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getCanceledTaskCount().get())));
         trow.addToColumnValue(new TCell().setStringVal(getComment()));
         trow.addToColumnValue(new TCell().setStringVal(properties != null && !properties.isEmpty()
-                ? GsonUtils.GSON.toJson(properties) : FeConstants.null_string));
+                ? GsonUtils.GSON.toJson(properties) : ""));
 
         if (offsetProvider != null && StringUtils.isNotEmpty(offsetProvider.getShowCurrentOffset())) {
             trow.addToColumnValue(new TCell().setStringVal(offsetProvider.getShowCurrentOffset()));
         } else {
-            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+            trow.addToColumnValue(new TCell().setStringVal(""));
         }
 
         if (offsetProvider != null && StringUtils.isNotEmpty(offsetProvider.getShowMaxOffset())) {
             trow.addToColumnValue(new TCell().setStringVal(offsetProvider.getShowMaxOffset()));
         } else {
-            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+            trow.addToColumnValue(new TCell().setStringVal(""));
         }
         if (tvfType != null) {
             trow.addToColumnValue(new TCell().setStringVal(
-                    jobStatistic == null ? FeConstants.null_string : jobStatistic.toJson()));
+                    jobStatistic == null ? "" : jobStatistic.toJson()));
         } else {
             trow.addToColumnValue(new TCell().setStringVal(
-                    nonTxnJobStatistic == null ? FeConstants.null_string : nonTxnJobStatistic.toJson()));
+                    nonTxnJobStatistic == null ? "" : nonTxnJobStatistic.toJson()));
         }
         trow.addToColumnValue(new TCell().setStringVal(failureReason == null
-                ? FeConstants.null_string : failureReason.getMsg()));
+                ? "" : failureReason.getMsg()));
         trow.addToColumnValue(new TCell().setStringVal(jobRuntimeMsg == null
-                ? FeConstants.null_string : jobRuntimeMsg));
+                ? "" : jobRuntimeMsg));
         return trow;
     }
 
@@ -1064,7 +1075,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      * The current streamingTask times out; create a new streamingTask.
      * Only applies to StreamingMultiTask.
      */
-    public void processTimeoutTasks() {
+    public void processTimeoutTasks() throws JobException {
         if (!(runningStreamTask instanceof StreamingMultiTblTask)) {
             return;
         }
@@ -1073,16 +1084,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             StreamingMultiTblTask runningMultiTask = (StreamingMultiTblTask) this.runningStreamTask;
             if (TaskStatus.RUNNING.equals(runningMultiTask.getStatus())
                     && runningMultiTask.isTimeout()) {
-                runningMultiTask.cancel(false);
-                runningMultiTask.setErrMsg("task cancelled cause timeout");
-
-                // renew streaming multi task
-                this.runningStreamTask = createStreamingMultiTblTask();
-                Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(runningStreamTask);
-                this.runningStreamTask.setStatus(TaskStatus.PENDING);
-                log.info("create new streaming multi tasks due to timeout, for job {}, task {} ",
-                        getJobId(), runningStreamTask.getTaskId());
-                recordTasks(runningStreamTask);
+                String timeoutReason = runningMultiTask.getTimeoutReason();
+                if (StringUtils.isEmpty(timeoutReason)) {
+                    timeoutReason = "task failed cause timeout";
+                }
+                runningMultiTask.onFail(timeoutReason);
+                // renew streaming task by auto resume
             }
         } finally {
             writeUnlock();
@@ -1096,20 +1103,22 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
         writeLock();
         try {
-            if (offsetRequest.getScannedRows() == 0 && offsetRequest.getScannedBytes() == 0) {
-                JdbcSourceOffsetProvider op = (JdbcSourceOffsetProvider) offsetProvider;
-                op.setHasMoreData(false);
-            }
-            updateNoTxnJobStatisticAndOffset(offsetRequest);
             if (this.runningStreamTask != null
                     && this.runningStreamTask instanceof StreamingMultiTblTask) {
                 if (this.runningStreamTask.getTaskId() != offsetRequest.getTaskId()) {
                     throw new JobException("Task id mismatch when commit offset. expected: "
                             + this.runningStreamTask.getTaskId() + ", actual: " + offsetRequest.getTaskId());
                 }
+                updateNoTxnJobStatisticAndOffset(offsetRequest);
+                if (offsetRequest.getScannedRows() == 0 && offsetRequest.getScannedBytes() == 0) {
+                    JdbcSourceOffsetProvider op = (JdbcSourceOffsetProvider) offsetProvider;
+                    op.setHasMoreData(false);
+                }
+
                 persistOffsetProviderIfNeed();
                 ((StreamingMultiTblTask) this.runningStreamTask).successCallback(offsetRequest);
             }
+
         } finally {
             writeUnlock();
         }
@@ -1124,7 +1133,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     public void replayOffsetProviderIfNeed() throws JobException {
-        if (this.offsetProviderPersist != null && offsetProvider != null) {
+        if (offsetProvider != null) {
             offsetProvider.replayIfNeed(this);
         }
     }
@@ -1134,6 +1143,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      * 2. Clean chunk info in meta table (jdbc)
      */
     public void cleanup() throws JobException {
+        log.info("cleanup streaming job {}", getJobId());
         // s3 tvf clean offset
         if (tvfType != null && Config.isCloudMode()) {
             Cloud.DeleteStreamingJobResponse resp = null;

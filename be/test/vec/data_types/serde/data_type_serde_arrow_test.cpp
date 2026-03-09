@@ -23,6 +23,7 @@
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
+#include <arrow/type_fwd.h>
 #include <arrow/util/decimal.h>
 #include <arrow/visit_type_inline.h>
 #include <arrow/visitor.h>
@@ -42,6 +43,7 @@
 #include <vector>
 
 #include "olap/hll.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.cpp"
 #include "util/arrow/block_convertor.h"
 #include "util/arrow/row_batch.h"
@@ -77,8 +79,8 @@
 
 namespace doris::vectorized {
 
-void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int row_num,
-                                          bool is_nullable) {
+std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int row_num,
+                                         bool is_nullable) {
     auto block = std::make_shared<Block>();
     for (int i = 0; i < cols.size(); i++) {
         std::string col_name = std::to_string(i);
@@ -260,7 +262,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             for (int i = 0; i < row_num; ++i) {
                 VecDateTimeValue value;
                 value.from_date_int64(20210501);
-                date_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
+                date_data.push_back(value);
             }
             vectorized::DataTypePtr date_type(std::make_shared<vectorized::DataTypeDate>());
             vectorized::ColumnWithTypeAndName test_date(column_vector_date->get_ptr(), date_type,
@@ -274,7 +276,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             for (int i = 0; i < row_num; ++i) {
                 VecDateTimeValue value;
                 value.from_date_int64(20210501080910);
-                datetime_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
+                datetime_data.push_back(value);
             }
             vectorized::DataTypePtr datetime_type(std::make_shared<vectorized::DataTypeDateTime>());
             vectorized::ColumnWithTypeAndName test_datetime(column_vector_datetime->get_ptr(),
@@ -292,8 +294,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             char to[64] = {};
             std::cout << "value: " << value.to_string(to) << std::endl;
             for (int i = 0; i < row_num; ++i) {
-                column_vector_datetimev2->insert(
-                        Field::create_field<TYPE_DATETIMEV2>(value.to_date_int_val()));
+                column_vector_datetimev2->insert(Field::create_field<TYPE_DATETIMEV2>(value));
             }
             vectorized::DataTypePtr datetimev2_type(
                     std::make_shared<vectorized::DataTypeDateTimeV2>(3));
@@ -398,11 +399,36 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             LOG(FATAL) << "error column type";
         }
     }
+    return block;
+}
+
+void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int row_num,
+                                          bool is_nullable) {
+    std::shared_ptr<Block> block = create_test_block(cols, row_num, is_nullable);
     std::shared_ptr<arrow::RecordBatch> record_batch =
             CommonDataTypeSerdeTest::serialize_arrow(block);
     auto assert_block = std::make_shared<Block>(block->clone_empty());
     CommonDataTypeSerdeTest::deserialize_arrow(assert_block, record_batch);
     CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
+}
+
+void block_converter_test(std::vector<PrimitiveType> cols, int row_num, bool is_nullable) {
+    std::shared_ptr<Block> source_block = create_test_block(cols, row_num, is_nullable);
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    std::shared_ptr<arrow::Schema> schema;
+    Status status = Status::OK();
+    status = get_arrow_schema_from_block(*source_block, &schema, TimezoneUtils::default_time_zone);
+    ASSERT_TRUE(status.ok() && schema);
+    cctz::time_zone default_timezone; //default UTC
+    status = convert_to_arrow_batch(*source_block, schema, arrow::default_memory_pool(),
+                                    &record_batch, default_timezone);
+    ASSERT_TRUE(status.ok() && record_batch);
+    auto target_block = std::make_shared<Block>(source_block->clone_empty());
+    DataTypes source_data_types = source_block->get_data_types();
+    status = convert_from_arrow_batch(record_batch, source_data_types, &*target_block,
+                                      default_timezone);
+    ASSERT_TRUE(status.ok() && target_block);
+    CommonDataTypeSerdeTest::compare_two_blocks(source_block, target_block);
 }
 
 TEST(DataTypeSerDeArrowTest, DataTypeScalaSerDeTest) {
@@ -484,6 +510,16 @@ TEST(DataTypeSerDeArrowTest, BigStringSerDeTest) {
     auto assert_block = std::make_shared<Block>(block->clone_empty());
     CommonDataTypeSerdeTest::deserialize_arrow(assert_block, record_batch);
     CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
+}
+
+TEST(DataTypeSerDeArrowTest, BlockConverterTest) {
+    std::vector<PrimitiveType> cols = {
+            TYPE_INT,        TYPE_INT,       TYPE_STRING, TYPE_DECIMAL128I, TYPE_BOOLEAN,
+            TYPE_DECIMAL32,  TYPE_DECIMAL64, TYPE_IPV4,   TYPE_IPV6,        TYPE_DATETIME,
+            TYPE_DATETIMEV2, TYPE_DATE,      TYPE_DATEV2,
+    };
+    block_converter_test(cols, 7, true);
+    block_converter_test(cols, 7, false);
 }
 
 } // namespace doris::vectorized

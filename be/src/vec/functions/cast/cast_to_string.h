@@ -398,6 +398,13 @@ inline void CastToString::push_decimal(const Decimal128V2& from, UInt32 scale, B
     bw.write(str.data(), str.size());
 }
 
+template <>
+inline void CastToString::push_decimal(const DecimalV2Value& from, UInt32 scale,
+                                       BufferWritable& bw) {
+    std::string str = from.to_string(scale);
+    bw.write(str.data(), str.size());
+}
+
 // DATEV1 DATETIMEV1
 inline std::string CastToString::from_date_or_datetime(const VecDateTimeValue& from) {
     char buf[64];

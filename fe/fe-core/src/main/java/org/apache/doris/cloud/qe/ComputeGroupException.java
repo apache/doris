@@ -91,6 +91,10 @@ public class ComputeGroupException extends UserException {
         this.failedType = failedType;
     }
 
+    public FailedTypeEnum getFailedType() {
+        return failedType;
+    }
+
     public String toString() {
         return msg +  ", ComputeGroupException: " + failedType + ", you can" + helpMsg();
     }

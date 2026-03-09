@@ -33,6 +33,7 @@ namespace doris::vectorized {
 void GetArrowResultBatchCtx::on_failure(const Status& status) {
     DCHECK(!status.ok()) << "status is ok, errmsg=" << status;
     status.to_protobuf(_result->mutable_status());
+    _done->Run();
 }
 
 void GetArrowResultBatchCtx::on_close(int64_t packet_seq, int64_t /* returned_rows */) {
@@ -40,6 +41,7 @@ void GetArrowResultBatchCtx::on_close(int64_t packet_seq, int64_t /* returned_ro
     status.to_protobuf(_result->mutable_status());
     _result->set_packet_seq(packet_seq);
     _result->set_eos(true);
+    _done->Run();
 }
 
 Status GetArrowResultBatchCtx::on_data(const std::shared_ptr<vectorized::Block>& block,
@@ -72,6 +74,8 @@ Status GetArrowResultBatchCtx::on_data(const std::shared_ptr<vectorized::Block>&
         _result->clear_block();
     }
     st.to_protobuf(_result->mutable_status());
+
+    _done->Run();
     return Status::OK();
 }
 

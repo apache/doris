@@ -43,7 +43,6 @@
 #include "util/defer_op.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
-#include "vec/columns/column_nothing.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/olap_scanner.h" // IWYU pragma: keep
 #include "vec/exec/scan/scan_node.h"

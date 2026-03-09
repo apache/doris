@@ -39,6 +39,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_system.h"
@@ -411,6 +412,169 @@ TEST_F(BetaRowsetTest, GetIndexFileNames) {
         ASSERT_EQ(file_names[0], "540085_0.idx");
         ASSERT_EQ(file_names[1], "540085_1.idx");
     }
+}
+
+TEST_F(BetaRowsetTest, GetSegmentNumRowsFromMeta) {
+    // Test getting segment rows from rowset meta (new version data)
+    // This test verifies that when segment_rows is present in rowset meta,
+    // it uses the cached data directly without loading segments
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema);
+
+    auto rowset_meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(rowset_meta, 1, 1);
+    rowset_meta->set_num_segments(3);
+
+    // Set segment rows in rowset meta (simulating new version data)
+    std::vector<uint32_t> expected_segment_rows = {100, 200, 300};
+    rowset_meta->set_num_segment_rows(expected_segment_rows);
+
+    auto rowset = std::make_shared<BetaRowset>(tablet_schema, rowset_meta, "");
+
+    // Use sync point to verify code path
+    auto sp = SyncPoint::get_instance();
+    bool used_meta_path = false;
+    bool used_footer_path = false;
+
+    sp->set_call_back("BetaRowset::get_segment_num_rows:use_segment_rows_from_meta",
+                      [&](auto&& args) { used_meta_path = true; });
+
+    sp->set_call_back("BetaRowset::get_segment_num_rows:load_from_segment_footer",
+                      [&](auto&& args) { used_footer_path = true; });
+
+    sp->enable_processing();
+
+    std::vector<uint32_t> segment_rows;
+    Status st = rowset->get_segment_num_rows(&segment_rows, false, &_stats);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(segment_rows.size(), 3);
+    ASSERT_EQ(segment_rows[0], 100);
+    ASSERT_EQ(segment_rows[1], 200);
+    ASSERT_EQ(segment_rows[2], 300);
+
+    // Verify that we used the meta path and not the footer path
+    ASSERT_TRUE(used_meta_path);
+    ASSERT_FALSE(used_footer_path);
+
+    // Test calling get_segment_num_rows twice to verify cache works
+    used_meta_path = false;
+    used_footer_path = false;
+    std::vector<uint32_t> segment_rows_2;
+    st = rowset->get_segment_num_rows(&segment_rows_2, false, &_stats);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(segment_rows_2.size(), 3);
+    ASSERT_EQ(segment_rows_2[0], 100);
+    ASSERT_EQ(segment_rows_2[1], 200);
+    ASSERT_EQ(segment_rows_2[2], 300);
+
+    EXPECT_FALSE(used_meta_path);
+    EXPECT_FALSE(used_footer_path);
+
+    sp->clear_all_call_backs();
+    sp->disable_processing();
+    sp->clear_trace();
+}
+
+TEST_F(BetaRowsetTest, GetSegmentNumRowsEmptyMeta) {
+    // Test when rowset meta has no segment rows (old version data)
+    // In this case, it should try to load segments from segment footer
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema);
+
+    auto rowset_meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(rowset_meta, 1, 1);
+    rowset_meta->set_num_segments(2);
+    // segment_rows is empty (simulating old version data)
+
+    auto rowset = std::make_shared<BetaRowset>(tablet_schema, rowset_meta, "");
+
+    // Use sync point to verify code path
+    auto sp = SyncPoint::get_instance();
+    bool used_meta_path = false;
+    bool used_footer_path = false;
+
+    sp->set_call_back("BetaRowset::get_segment_num_rows:use_segment_rows_from_meta",
+                      [&](auto&& args) { used_meta_path = true; });
+
+    sp->set_call_back("BetaRowset::get_segment_num_rows:load_from_segment_footer",
+                      [&](auto&& args) { used_footer_path = true; });
+
+    sp->enable_processing();
+
+    std::vector<uint32_t> segment_rows;
+    Status st = rowset->get_segment_num_rows(&segment_rows, false, &_stats);
+
+    // Since we don't have actual segment files, it will fail to load segments
+    // But the important thing is to verify it tried to load from footer
+    ASSERT_TRUE(used_footer_path);
+    ASSERT_FALSE(used_meta_path);
+
+    sp->clear_all_call_backs();
+    sp->disable_processing();
+    sp->clear_trace();
+}
+
+TEST_F(BetaRowsetTest, GetSegmentNumRowsCorruptedMeta) {
+    // Test when segment_rows size doesn't match segment count
+    // This simulates a corrupted rowset meta
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema);
+
+    auto rowset_meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(rowset_meta, 1, 1);
+    rowset_meta->set_num_segments(3);
+
+    // Set segment rows with wrong size (should be 3 but only has 2)
+    std::vector<uint32_t> wrong_segment_rows = {100, 200};
+    rowset_meta->set_num_segment_rows(wrong_segment_rows);
+
+    auto rowset = std::make_shared<BetaRowset>(tablet_schema, rowset_meta, "");
+
+    // Use sync point to verify code path
+    auto sp = SyncPoint::get_instance();
+    bool used_meta_path = false;
+    bool used_footer_path = false;
+
+    sp->set_call_back("BetaRowset::get_segment_num_rows:use_segment_rows_from_meta",
+                      [&](auto&& args) { used_meta_path = true; });
+
+    sp->set_call_back("BetaRowset::get_segment_num_rows:load_from_segment_footer",
+                      [&](auto&& args) { used_footer_path = true; });
+
+    sp->enable_processing();
+
+    std::vector<uint32_t> segment_rows;
+    Status st = rowset->get_segment_num_rows(&segment_rows, false, &_stats);
+
+    // When segment_rows size doesn't match, it should fall back to loading from footer
+    ASSERT_FALSE(used_meta_path);
+    ASSERT_TRUE(used_footer_path);
+
+    sp->clear_all_call_backs();
+    sp->disable_processing();
+    sp->clear_trace();
+}
+
+TEST_F(BetaRowsetTest, GetNumSegmentRowsAPI) {
+    // Test the simple get_num_segment_rows API (without loading)
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema);
+
+    auto rowset_meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(rowset_meta, 1, 1);
+    rowset_meta->set_num_segments(3);
+
+    std::vector<uint32_t> expected_segment_rows = {100, 200, 300};
+    rowset_meta->set_num_segment_rows(expected_segment_rows);
+
+    auto rowset = std::make_shared<BetaRowset>(tablet_schema, rowset_meta, "");
+
+    std::vector<uint32_t> segment_rows;
+    rowset->get_num_segment_rows(&segment_rows);
+    ASSERT_EQ(segment_rows.size(), 3);
+    ASSERT_EQ(segment_rows[0], 100);
+    ASSERT_EQ(segment_rows[1], 200);
+    ASSERT_EQ(segment_rows[2], 300);
 }
 
 } // namespace doris

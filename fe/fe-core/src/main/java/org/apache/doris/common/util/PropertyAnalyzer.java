@@ -62,8 +62,10 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -140,6 +142,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_FUNCTION_COLUMN = "function_column";
     public static final String PROPERTIES_SEQUENCE_TYPE = "sequence_type";
     public static final String PROPERTIES_SEQUENCE_COL = "sequence_col";
+
+    public static final String PROPERTIES_SEQUENCE_MAPPING = "sequence_mapping";
 
     public static final String PROPERTIES_SWAP_TABLE = "swap";
 
@@ -264,6 +268,14 @@ public class PropertyAnalyzer {
             "variant_max_sparse_column_statistics_size";
     // number of buckets when using bucketized sparse serialization
     public static final String PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT = "variant_sparse_hash_shard_count";
+
+    public static final String PROPERTIES_VARIANT_ENABLE_DOC_MODE = "variant_enable_doc_mode";
+
+    public static final String PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS =
+            "variant_doc_materialization_min_rows";
+
+    // number of buckets when using doc snapshot serialization
+    public static final String PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT = "variant_doc_hash_shard_count";
 
     public enum RewriteType {
         PUT,      // always put property
@@ -1647,6 +1659,140 @@ public class PropertyAnalyzer {
         return dataSortInfo;
     }
 
+    public static boolean hasSeqMapping(Map<String, String> properties) {
+        String propertyNamePrefix = PROPERTIES_SEQUENCE_MAPPING + ".";
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            String propertyName = entry.getKey();
+            if (propertyName.startsWith(propertyNamePrefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // property: "sequence_mapping.s1" = "C，D",
+    // return: Map<String, List<String>> sequence_column <----> columns_in_group
+    public static Map<String, List<String>> analyzeSeqMapping(
+            Map<String, String> properties,
+            List<Column> columns,
+            KeysType keysType) throws AnalysisException {
+
+        if (properties == null || properties.size() == 0) {
+            return null;
+        }
+
+        List<String> columnNames = new ArrayList<>();
+        List<String> keyColumnNames = new ArrayList<>();
+        columns.forEach(x -> columnNames.add(x.getName().toLowerCase()));
+        columns.stream().filter(Column::isKey).forEach(x -> keyColumnNames.add(x.getName().toLowerCase()));
+
+        String propertyNamePrefix = PROPERTIES_SEQUENCE_MAPPING + ".";
+        Map<String, List<String>> resultMapping = new HashMap<>();
+        List<String> propsSeqMap = new ArrayList<>();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            String propertyName = entry.getKey();
+            if (propertyName.startsWith(propertyNamePrefix)) {
+
+                if (keysType != KeysType.UNIQUE_KEYS) {
+                    throw new AnalysisException(
+                            "column sequence mapping only be supported in unique table");
+                }
+
+                if (properties.containsKey(PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_SEQUENCE_TYPE)) {
+                    throw new AnalysisException(
+                            "column group sequence and sequence column can't apply to both");
+                }
+
+                String[] columnGroupSequence = propertyName.split("\\.");
+                ArrayList<String> columnInGroup = new ArrayList<>(
+                        Arrays.asList(entry.getValue().replace(" ", "").split(",")));
+                if (columnGroupSequence.length != 2) {
+                    throw new AnalysisException("sequence column of column group should be specified");
+                }
+
+                String sequenceColumn = columnGroupSequence[1];
+
+                // Validate column
+                for (Column seqCol : columns) {
+                    if (sequenceColumn.equalsIgnoreCase(seqCol.getName())) {
+                        Type type = seqCol.getType();
+                        if (!validateSeqType(type)) {
+                            throw new AnalysisException("Unsupported data type in sequence column");
+                        }
+
+                    }
+                }
+
+                if (!columnNames.contains(sequenceColumn.toLowerCase())) {
+                    throw new AnalysisException(
+                            "sequence column [" + sequenceColumn + "] in column_group does not exist in schema");
+                }
+                if (keyColumnNames.contains(sequenceColumn.toLowerCase())) {
+                    throw new AnalysisException(
+                            "sequence column [" + sequenceColumn + "] in column_group can't be key column");
+                }
+
+                // allow empty
+                if (columnInGroup.size() == 1 && columnInGroup.get(0).isEmpty()) {
+                    columnInGroup.clear();
+                }
+
+                for (String column : columnInGroup) {
+                    if (!columnNames.contains(column.toLowerCase())) {
+                        throw new AnalysisException("value column [" + column + "] in column_group ["
+                                + sequenceColumn + "] does not exist in schema");
+                    }
+                    if (keyColumnNames.contains(column.toLowerCase())) {
+                        throw new AnalysisException("value column [" + column + "] in column_group ["
+                                + sequenceColumn + "] can't be key column");
+                    }
+                }
+
+                resultMapping.put(sequenceColumn, columnInGroup);
+                propsSeqMap.add(propertyName);
+            }
+        }
+
+        // clear prop about seq map
+        for (String prop : propsSeqMap) {
+            properties.remove(prop);
+        }
+
+        if (resultMapping.isEmpty()) {
+            return null;
+        }
+
+        int totalColumnsNum = 0;
+        Set<String> result = new HashSet<>();
+        for (Map.Entry<String, List<String>> entry : resultMapping.entrySet()) {
+            String seqColumn = entry.getKey();
+            List<String> columnsInMapping = entry.getValue();
+            totalColumnsNum = totalColumnsNum + 1 + columnsInMapping.size();
+            result.add(seqColumn);
+            result.addAll(columnsInMapping);
+        }
+        if (result.size() != totalColumnsNum) {
+            throw new AnalysisException("The columns are overlapping");
+        }
+
+        int valueCount = 0;
+        for (Column col : columns) {
+            if (!col.isKey()) {
+                valueCount++;
+            }
+        }
+
+        if (totalColumnsNum != valueCount) {
+            throw new AnalysisException("The columns are not equal between the schema and prop");
+        }
+
+        return resultMapping;
+    }
+
+    public static boolean validateSeqType(Type type) {
+        return type.isDateType() || type.isFixedPointType();
+    }
+
     public static boolean analyzeUniqueKeyMergeOnWrite(Map<String, String> properties) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return false;
@@ -1954,6 +2100,82 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
         }
         return bucketNum;
+    }
+
+    public static boolean analyzeEnableVariantDocMode(Map<String, String> properties, boolean defaultValue)
+                                                                                throws AnalysisException {
+        boolean enableVariantDocMode = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_DOC_MODE)) {
+            String enableVariantDocModeStr = properties.get(PROPERTIES_VARIANT_ENABLE_DOC_MODE);
+            try {
+                enableVariantDocMode = Boolean.parseBoolean(enableVariantDocModeStr);
+            } catch (Exception e) {
+                throw new AnalysisException("variant_enable_doc_mode must be `true` or `false`");
+            }
+            properties.remove(PROPERTIES_VARIANT_ENABLE_DOC_MODE);
+        }
+        return enableVariantDocMode;
+    }
+
+    public static long analyzeVariantDocMaterializationMinRows(Map<String, String> properties,
+                                                               long defaultValue)
+                                                                                throws AnalysisException {
+        long minRows = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS)) {
+            String minRowsStr = properties.get(PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS);
+            try {
+                minRows = Long.parseLong(minRowsStr);
+                if (minRows < 0 || minRows > 1_000_000_000) {
+                    throw new AnalysisException(
+                            "variant_doc_materialization_min_rows must between 0 and 1000000000 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException(
+                        "variant_doc_materialization_min_rows format error:" + e.getMessage());
+            }
+            properties.remove(PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS);
+        }
+        return minRows;
+    }
+
+    public static int analyzeVariantDocHashShardCount(Map<String, String> properties, int defaultValue)
+            throws AnalysisException {
+        int shardCount = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT)) {
+            String shardCountStr = properties.get(PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
+            try {
+                shardCount = Integer.parseInt(shardCountStr);
+                if (shardCount < 0 || shardCount > 1024) {
+                    throw new AnalysisException("variant_doc_hash_shard_count must between 0 and 1024 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException(
+                        "variant_doc_hash_shard_count format error:" + e.getMessage());
+            }
+            properties.remove(PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
+        }
+        return shardCount;
+    }
+
+    public static void validateVariantProperties(Map<String, String> properties) throws AnalysisException {
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_DOC_MODE)) {
+            if (properties.containsKey(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT)) {
+                throw new AnalysisException("variant_max_subcolumns_count and variant_enable_doc_mode "
+                        + "cannot be set together");
+            }
+            if (properties.containsKey(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE)) {
+                throw new AnalysisException("variant_enable_typed_paths_to_sparse and variant_enable_doc_mode "
+                        + "cannot be set together");
+            }
+            if (properties.containsKey(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE)) {
+                throw new AnalysisException("variant_max_sparse_column_statistics_size and variant_enable_doc_mode "
+                        + "cannot be set together");
+            }
+            if (properties.containsKey(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT)) {
+                throw new AnalysisException("variant_sparse_hash_shard_count and variant_enable_doc_mode "
+                        + "cannot be set together");
+            }
+        }
     }
 
     public static TEncryptionAlgorithm analyzeTDEAlgorithm(Map<String, String> properties) throws AnalysisException {

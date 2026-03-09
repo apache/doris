@@ -21,7 +21,7 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF2 wp_web_page_sk->[ws_web_page_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF0 ws_item_sk->[wr_item_sk];RF1 ws_order_number->[wr_order_number]
+------------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF0 ws_item_sk->[wr_item_sk];RF1 ws_order_number->[wr_order_number]
 --------------------------------------------PhysicalProject
 ----------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF0 RF1 RF3 RF4 RF7 RF9
 --------------------------------------------PhysicalProject

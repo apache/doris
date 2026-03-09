@@ -313,7 +313,7 @@ private:
 template <PrimitiveType PT>
 class DecimalTruncatePartitionColumnTransform : public PartitionColumnTransform {
 public:
-    using T = typename PrimitiveTypeTraits<PT>::ColumnItemType;
+    using T = typename PrimitiveTypeTraits<PT>::CppType;
     DecimalTruncatePartitionColumnTransform(const DataTypePtr source_type, int width)
             : _source_type(source_type), _width(width) {}
 
@@ -495,7 +495,7 @@ private:
 template <PrimitiveType PT>
 class DecimalBucketPartitionColumnTransform : public PartitionColumnTransform {
 public:
-    using T = typename PrimitiveTypeTraits<PT>::ColumnItemType;
+    using T = typename PrimitiveTypeTraits<PT>::CppType;
     DecimalBucketPartitionColumnTransform(const DataTypePtr source_type, int bucket_num)
             : _bucket_num(bucket_num),
               _target_type(DataTypeFactory::instance().create_data_type(TYPE_INT, false)) {}

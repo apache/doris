@@ -63,6 +63,7 @@ public class MvTableIdIsLongTest extends SqlTestBase {
                 return true;
             }
         };
+        connectContext.getState().setIsQuery(true);
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
         createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"

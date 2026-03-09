@@ -41,8 +41,8 @@
 
 namespace doris::cloud {
 
-MetaChecker::MetaChecker(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(std::move(txn_kv)) {
-    snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv_);
+MetaChecker::MetaChecker(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(txn_kv) {
+    snapshot_manager_ = std::make_shared<SnapshotManager>(std::move(txn_kv));
 }
 
 bool MetaChecker::scan_and_handle_kv(

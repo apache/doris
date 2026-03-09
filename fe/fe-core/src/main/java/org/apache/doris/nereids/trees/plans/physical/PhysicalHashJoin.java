@@ -131,13 +131,11 @@ public class PhysicalHashJoin<
         //  mark join with non-empty hash join conjuncts allow shuffle join by hash join conjuncts
         Preconditions.checkState(!(isMarkJoin() && hashJoinConjuncts.isEmpty()),
                 "shouldn't call mark join's getHashConjunctsExprIds method for standalone mark join");
-        int size = hashJoinConjuncts.size();
-
-        List<ExprId> exprIds1 = new ArrayList<>(size);
-        List<ExprId> exprIds2 = new ArrayList<>(size);
 
         Set<ExprId> leftExprIds = left().getOutputExprIdSet();
         Set<ExprId> rightExprIds = right().getOutputExprIdSet();
+        List<ExprId> exprIds1 = new ArrayList<>(leftExprIds.size());
+        List<ExprId> exprIds2 = new ArrayList<>(rightExprIds.size());
 
         for (Expression expr : hashJoinConjuncts) {
             for (ExprId exprId : expr.getInputSlotExprIds()) {

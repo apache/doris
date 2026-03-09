@@ -57,7 +57,6 @@ private:
     vectorized::MutableBlock _mutable_block;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
-    vectorized::Arena _arena;
 
     RuntimeProfile::Counter* _merge_block_timer = nullptr;
     RuntimeProfile::Counter* _build_timer = nullptr;
@@ -85,8 +84,11 @@ public:
                                       : tnode.except_node.result_expr_lists.size()),
               _is_colocate(is_intersect ? tnode.intersect_node.is_colocate
                                         : tnode.except_node.is_colocate),
-              _partition_exprs(is_intersect ? tnode.intersect_node.result_expr_lists[child_id]
-                                            : tnode.except_node.result_expr_lists[child_id]),
+              _partition_exprs(tnode.__isset.distribute_expr_lists
+                                       ? tnode.distribute_expr_lists[child_id]
+                                       : (is_intersect
+                                                  ? tnode.intersect_node.result_expr_lists[child_id]
+                                                  : tnode.except_node.result_expr_lists[child_id])),
               _runtime_filter_descs(tnode.runtime_filters) {
         DCHECK_EQ(child_id, _cur_child_id);
         DCHECK_GT(_child_quantity, 1);

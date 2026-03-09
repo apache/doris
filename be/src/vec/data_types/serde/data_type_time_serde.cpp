@@ -129,7 +129,7 @@ Status DataTypeTimeV2SerDe::from_string_strict_mode(StringRef& str, IColumn& col
 }
 
 template <typename IntDataType>
-Status DataTypeTimeV2SerDe::from_int_batch(const IntDataType::ColumnType& int_col,
+Status DataTypeTimeV2SerDe::from_int_batch(const typename IntDataType::ColumnType& int_col,
                                            ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col.get_nested_column());
     auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
@@ -151,8 +151,8 @@ Status DataTypeTimeV2SerDe::from_int_batch(const IntDataType::ColumnType& int_co
 }
 
 template <typename IntDataType>
-Status DataTypeTimeV2SerDe::from_int_strict_mode_batch(const IntDataType::ColumnType& int_col,
-                                                       IColumn& target_col) const {
+Status DataTypeTimeV2SerDe::from_int_strict_mode_batch(
+        const typename IntDataType::ColumnType& int_col, IColumn& target_col) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col);
     col_data.resize(int_col.size());
 
@@ -171,7 +171,7 @@ Status DataTypeTimeV2SerDe::from_int_strict_mode_batch(const IntDataType::Column
 }
 
 template <typename FloatDataType>
-Status DataTypeTimeV2SerDe::from_float_batch(const FloatDataType::ColumnType& float_col,
+Status DataTypeTimeV2SerDe::from_float_batch(const typename FloatDataType::ColumnType& float_col,
                                              ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col.get_nested_column());
     auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
@@ -194,8 +194,8 @@ Status DataTypeTimeV2SerDe::from_float_batch(const FloatDataType::ColumnType& fl
 }
 
 template <typename FloatDataType>
-Status DataTypeTimeV2SerDe::from_float_strict_mode_batch(const FloatDataType::ColumnType& float_col,
-                                                         IColumn& target_col) const {
+Status DataTypeTimeV2SerDe::from_float_strict_mode_batch(
+        const typename FloatDataType::ColumnType& float_col, IColumn& target_col) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col);
     col_data.resize(float_col.size());
 
@@ -215,8 +215,8 @@ Status DataTypeTimeV2SerDe::from_float_strict_mode_batch(const FloatDataType::Co
 }
 
 template <typename DecimalDataType>
-Status DataTypeTimeV2SerDe::from_decimal_batch(const DecimalDataType::ColumnType& decimal_col,
-                                               ColumnNullable& target_col) const {
+Status DataTypeTimeV2SerDe::from_decimal_batch(
+        const typename DecimalDataType::ColumnType& decimal_col, ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col.get_nested_column());
     auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
     col_data.resize(decimal_col.size());
@@ -240,7 +240,7 @@ Status DataTypeTimeV2SerDe::from_decimal_batch(const DecimalDataType::ColumnType
 
 template <typename DecimalDataType>
 Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch(
-        const DecimalDataType::ColumnType& decimal_col, IColumn& target_col) const {
+        const typename DecimalDataType::ColumnType& decimal_col, IColumn& target_col) const {
     auto& col_data = assert_cast<ColumnTimeV2&>(target_col);
     col_data.resize(decimal_col.size());
 

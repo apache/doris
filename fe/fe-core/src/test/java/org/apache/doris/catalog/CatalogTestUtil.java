@@ -188,17 +188,17 @@ public class CatalogTestUtil {
             replica3 = new CloudReplica(testReplicaId3, testBackendId3, Replica.ReplicaState.NORMAL, version,
                     0, dbId, tableId, partitionId, indexId, 2);
         } else {
-            replica1 = new Replica(testReplicaId1, testBackendId1, version, 0, 0L, 0L, 0L,
+            replica1 = new LocalReplica(testReplicaId1, testBackendId1, version, 0, 0L, 0L, 0L,
                     Replica.ReplicaState.NORMAL, -1, 0);
-            replica2 = new Replica(testReplicaId2, testBackendId2, version, 0, 0L, 0L, 0L,
+            replica2 = new LocalReplica(testReplicaId2, testBackendId2, version, 0, 0L, 0L, 0L,
                     Replica.ReplicaState.NORMAL, -1, 0);
-            replica3 = new Replica(testReplicaId3, testBackendId3, version, 0, 0L, 0L, 0L,
+            replica3 = new LocalReplica(testReplicaId3, testBackendId3, version, 0, 0L, 0L, 0L,
                     Replica.ReplicaState.NORMAL, -1, 0);
         }
 
 
         // tablet
-        Tablet tablet = new Tablet(tabletId);
+        Tablet tablet = new LocalTablet(tabletId);
 
         // index
         MaterializedIndex index = new MaterializedIndex(indexId, IndexState.NORMAL);
@@ -263,12 +263,12 @@ public class CatalogTestUtil {
             replica = new CloudReplica(testReplicaId4, testBackendId1, Replica.ReplicaState.NORMAL, testStartVersion,
                     0, db.getId(), testTableId2, testPartitionId2, testIndexId2, 0);
         } else {
-            replica = new Replica(testReplicaId4, testBackendId1, testStartVersion, 0, 0L, 0L, 0L,
+            replica = new LocalReplica(testReplicaId4, testBackendId1, testStartVersion, 0, 0L, 0L, 0L,
                     Replica.ReplicaState.NORMAL, -1, 0);
         }
 
         // tablet
-        Tablet tablet = new Tablet(testTabletId2);
+        Tablet tablet = new LocalTablet(testTabletId2);
 
         // index
         MaterializedIndex index = new MaterializedIndex(testIndexId2, IndexState.NORMAL);

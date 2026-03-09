@@ -22,6 +22,11 @@ suite('test_warmup_rebalance_in_cloud', 'multi_cluster, docker') {
     if (!isCloudMode()) {
         return;
     }
+
+    // Randomly enable or disable packed_file to test both scenarios
+    def enablePackedFile = new Random().nextBoolean()
+    logger.info("Running test with enable_packed_file=${enablePackedFile}")
+
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
@@ -30,6 +35,9 @@ suite('test_warmup_rebalance_in_cloud', 'multi_cluster, docker') {
         'cloud_balance_tablet_percent_per_run=0.5',
         'sys_log_verbose_modules=org',
         'cloud_pre_heating_time_limit_sec=600'
+    ]
+    options.beConfigs += [
+        "enable_packed_file=${enablePackedFile}",
     ]
     options.setFeNum(2)
     options.setBeNum(3)

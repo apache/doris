@@ -15,29 +15,54 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hudi_partition_prune", "p2,external,hudi,external_remote,external_remote_hudi") {
-    String enabled = context.config.otherConfigs.get("enableExternalHudiTest")
+suite("test_hudi_partition_prune", "p2,external,hudi") {
+    String enabled = context.config.otherConfigs.get("enableHudiTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable hudi test")
         return
     }
 
     String catalog_name = "test_hudi_partition_prune"
-    String props = context.config.otherConfigs.get("hudiEmrCatalog")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    String hudiHmsPort = context.config.otherConfigs.get("hudiHmsPort")
+    String hudiMinioPort = context.config.otherConfigs.get("hudiMinioPort")
+    String hudiMinioAccessKey = context.config.otherConfigs.get("hudiMinioAccessKey")
+    String hudiMinioSecretKey = context.config.otherConfigs.get("hudiMinioSecretKey")
+    
     sql """drop catalog if exists ${catalog_name};"""
     
     for (String  use_hive_sync_partition : ['true','false']) {
 
         sql """
             create catalog if not exists ${catalog_name} properties (
-                ${props}
-                ,"use_hive_sync_partition"="${use_hive_sync_partition}"
+                'type'='hms',
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hudiHmsPort}',
+                's3.endpoint' = 'http://${externalEnvIp}:${hudiMinioPort}',
+                's3.access_key' = '${hudiMinioAccessKey}',
+                's3.secret_key' = '${hudiMinioSecretKey}',
+                's3.region' = 'us-east-1',
+                'use_path_style' = 'true',
+                'use_hive_sync_partition' = '${use_hive_sync_partition}'
             );
         """
 
         sql """ switch ${catalog_name};"""
         sql """ use regression_hudi;""" 
         sql """ set enable_fallback_to_original_planner=false """
+        
+        // Function to get commit timestamps dynamically from hudi_meta table function
+        def getCommitTimestamps = { table_name ->
+            def result = sql """ 
+                SELECT timestamp 
+                FROM hudi_meta("table"="${catalog_name}.regression_hudi.${table_name}", "query_type" = "timeline")
+                WHERE action = 'commit' OR action = 'deltacommit'
+                ORDER BY timestamp
+            """
+            return result.collect { it[0] }
+        }
+        
+        // Get commit timestamps for two_partition_tb (used in time travel queries)
+        def timestamps_two_partition = getCommitTimestamps("two_partition_tb")
 
 
 
@@ -236,52 +261,60 @@ suite("test_hudi_partition_prune", "p2,external,hudi,external_remote,external_re
         }
 
 
-        //time travel 
-        def time_travel_two_partition_1_3 = "select id,name,part1,part2 from two_partition_tb  FOR TIME AS OF '20241202171226401' order by id;"
-        def time_travel_two_partition_2_2 = "select id,name,part1,part2 from two_partition_tb  FOR TIME AS OF '20241202171226401' where part1='US' order by id;"
-        def time_travel_two_partition_3_1 = "select id,name,part1,part2 from two_partition_tb  FOR TIME AS OF '20241202171226401' where part2=2 order by id;"
-        def time_travel_two_partition_4_0 = "select id,name,part1,part2 from two_partition_tb  FOR TIME AS OF '20241202171226401' where part2=10 order by id;"
+        //time travel - use dynamic commit timestamps
+        // Note: two_partition_tb has 10 INSERT statements, creating 10 commits
+        // Final partitions: (US,1), (US,2), (EU,1), (EU,2) = 4 partitions total
+        if (timestamps_two_partition.size() >= 10) {
+            // Use the last commit timestamp (all 10 records, 4 partitions)
+            def last_commit = timestamps_two_partition[9]
+            def time_travel_two_partition_1_4 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${last_commit}' order by id;"
+            def time_travel_two_partition_2_2 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${last_commit}' where part1='US' order by id;"
+            def time_travel_two_partition_3_2 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${last_commit}' where part2=2 order by id;"
+            def time_travel_two_partition_4_0 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${last_commit}' where part2=10 order by id;"
 
-        qt_time_travel_two_partition_1_3 time_travel_two_partition_1_3
-        explain {
-            sql("${time_travel_two_partition_1_3}")
-            contains "partition=3/3"
-        }
+            qt_time_travel_two_partition_1_4 time_travel_two_partition_1_4
+            explain {
+                sql("${time_travel_two_partition_1_4}")
+                contains "partition=4/4"
+            }
 
+            qt_time_travel_two_partition_2_2 time_travel_two_partition_2_2
+            explain {
+                sql("${time_travel_two_partition_2_2}")
+                contains "partition=2/4"
+            }
 
-        qt_time_travel_two_partition_2_2 time_travel_two_partition_2_2
-        explain {
-            sql("${time_travel_two_partition_2_2}")
-            contains "partition=2/3"
-        }
+            qt_time_travel_two_partition_3_2 time_travel_two_partition_3_2
+            explain {
+                sql("${time_travel_two_partition_3_2}")
+                contains "partition=2/4"
+            }
 
-        qt_time_travel_two_partition_3_1 time_travel_two_partition_3_1
-        explain {
-            sql("${time_travel_two_partition_3_1}")
-            contains "partition=1/3"
-        }
+            qt_time_travel_two_partition_4_0 time_travel_two_partition_4_0
+            explain {
+                sql("${time_travel_two_partition_4_0}")
+                contains "partition=0/4"
+            }
 
-        qt_time_travel_two_partition_4_0 time_travel_two_partition_4_0
-        explain {
-            sql("${time_travel_two_partition_4_0}")
-            contains "partition=0/3"
-        }
+            // Use the first commit (after first INSERT: 1 record in partition US,1)
+            def first_commit = timestamps_two_partition[0]
+            def time_travel_two_partition_5_1 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${first_commit}' order by id;"
+            qt_time_travel_two_partition_5_1 time_travel_two_partition_5_1
+            explain {
+                sql("${time_travel_two_partition_5_1}")
+                // First commit should have 1 record in partition (US, part2=1)
+                contains "partition=1/1"
+            }
 
-
-
-
-        def time_travel_two_partition_5_0 = "select id,name,part1,part2 from two_partition_tb  FOR TIME AS OF '20231126012025218' order by id;"
-        qt_time_travel_two_partition_5_0 time_travel_two_partition_5_0
-        explain {
-            sql("${time_travel_two_partition_5_0}")
-            contains "partition=0/0"
-        }
-
-        def time_travel_two_partition_6_1 = "select id,name,part1,part2 from two_partition_tb  FOR TIME AS OF '20241202171214902' order by id;"
-        qt_time_travel_two_partition_6_1 time_travel_two_partition_6_1
-        explain {
-            sql("${time_travel_two_partition_6_1}")
-            contains "partition=1/1"
+            // Use a middle commit (after 3 inserts: 3 records in partition US,1)
+            def middle_commit = timestamps_two_partition[2]
+            def time_travel_two_partition_6_1 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${middle_commit}' order by id;"
+            qt_time_travel_two_partition_6_1 time_travel_two_partition_6_1
+            explain {
+                sql("${time_travel_two_partition_6_1}")
+                // After 3 inserts, should have 1 partition (US, part2=1) with 3 records
+                contains "partition=1/1"
+            }
         }
 
         // all types as partition

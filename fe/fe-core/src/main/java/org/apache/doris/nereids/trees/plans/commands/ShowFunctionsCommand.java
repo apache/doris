@@ -67,7 +67,6 @@ public class ShowFunctionsCommand extends ShowCommand {
                 .build();
 
     private String dbName;
-    private boolean isBuiltin;
     private boolean isVerbose;
     private String likeCondition;
     private SetType type = SetType.DEFAULT;
@@ -75,10 +74,9 @@ public class ShowFunctionsCommand extends ShowCommand {
     /**
      * constructor
      */
-    public ShowFunctionsCommand(String dbName, boolean isBuiltin, boolean isVerbose, String likeCondition) {
+    public ShowFunctionsCommand(String dbName, boolean isVerbose, String likeCondition) {
         super(PlanType.SHOW_FUNCTIONS_COMMAND);
         this.dbName = dbName;
-        this.isBuiltin = isBuiltin;
         this.isVerbose = isVerbose;
         this.likeCondition = likeCondition;
     }
@@ -182,17 +180,16 @@ public class ShowFunctionsCommand extends ShowCommand {
 
         FunctionRegistry functionRegistry = ctx.getEnv().getFunctionRegistry();
         Map<String, Map<String, List<FunctionBuilder>>> udfFunctions = functionRegistry.getName2UdfBuilders();
-        if (!FunctionUtil.isGlobalFunction(type)) {
+        if (FunctionUtil.isGlobalFunction(type)) {
+            // handle show global functions
+            functions = new ArrayList<>(udfFunctions
+                .getOrDefault(functionRegistry.getGlobalFunctionDbName(), new HashMap<>()).keySet());
+        } else {
             Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), this.getClass().getSimpleName());
             DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(dbName);
             if (db instanceof Database) {
-                Map<String, List<FunctionBuilder>> builtinFunctions = functionRegistry.getName2BuiltinBuilders();
-                functions = isBuiltin ? new ArrayList<>(builtinFunctions.keySet()) :
-                        new ArrayList<>(udfFunctions.getOrDefault(dbName, new HashMap<>()).keySet());
+                functions = new ArrayList<>(udfFunctions.getOrDefault(dbName, new HashMap<>()).keySet());
             }
-        } else {
-            functions = new ArrayList<>(udfFunctions
-                .getOrDefault(functionRegistry.getGlobalFunctionDbName(), new HashMap<>()).keySet());
         }
         return functions;
     }
@@ -223,10 +220,12 @@ public class ShowFunctionsCommand extends ShowCommand {
             this.dbName = reAcquireDbName(ctx, dbName);
         }
 
-        if (!FunctionUtil.isGlobalFunction(type) && !Env.getCurrentEnv().getAccessManager()
-                .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName, PrivPredicate.SHOW)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                    ConnectContext.get().getQualifiedUser(), dbName);
+        if (!FunctionUtil.isGlobalFunction(type)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, PrivPredicate.SELECT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
+                        PrivPredicate.SELECT.getPrivs().toString(), dbName);
+            }
         }
 
         List<List<String>> resultRowSet = getResultRowSet(ctx);

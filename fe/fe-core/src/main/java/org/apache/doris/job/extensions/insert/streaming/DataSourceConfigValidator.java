@@ -34,8 +34,10 @@ public class DataSourceConfigValidator {
             DataSourceConfigKeys.DRIVER_URL,
             DataSourceConfigKeys.DRIVER_CLASS,
             DataSourceConfigKeys.DATABASE,
+            DataSourceConfigKeys.SCHEMA,
             DataSourceConfigKeys.INCLUDE_TABLES,
-            DataSourceConfigKeys.EXCLUDE_TABLES
+            DataSourceConfigKeys.EXCLUDE_TABLES,
+            DataSourceConfigKeys.SPLIT_SIZE
     );
 
     public static void validateSource(Map<String, String> input) throws IllegalArgumentException {

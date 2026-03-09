@@ -21,7 +21,7 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "udf/udf.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
 

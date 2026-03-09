@@ -42,7 +42,7 @@ template <PrimitiveType T>
 class DataTypeDecimalSerDe : public DataTypeSerDe {
     static_assert(is_decimal(T));
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
-    using FieldType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using FieldType = typename PrimitiveTypeTraits<T>::CppType;
 
 public:
     static constexpr PrimitiveType get_primitive_type() { return T; }

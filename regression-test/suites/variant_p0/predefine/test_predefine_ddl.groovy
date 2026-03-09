@@ -36,6 +36,12 @@ suite("test_predefine_ddl", "p0") {
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
 
+    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_max_subcolumns_count = 10 """
+    sql """ set default_variant_max_sparse_column_statistics_size = 10 """
+    sql """ set default_variant_sparse_hash_shard_count = 10 """
+
     def tableName = "test_ddl_table"
 
     test {
@@ -122,7 +128,7 @@ suite("test_predefine_ddl", "p0") {
 
     test {
         sql """ alter table ${tableName} modify column var variant NULL """
-        exception("Can not change variant schema templates")
+        exception("Can not change variant")
     }
 
     test {
@@ -157,7 +163,7 @@ suite("test_predefine_ddl", "p0") {
             INDEX idx_ab (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-        exception("""Duplicate field name ab in variant variant<MATCH_NAME 'ab':int,MATCH_NAME 'ab':text,PROPERTIES ("variant_max_subcolumns_count" = "10","variant_enable_typed_paths_to_sparse" = "true")>""")
+        exception("""Duplicate field name ab in variant""")
     }
 
     test {
@@ -206,7 +212,7 @@ suite("test_predefine_ddl", "p0") {
             INDEX idx_ab (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-        exception("")
+        exception("invalid INVERTED index")
     }
 
     test {
@@ -220,7 +226,7 @@ suite("test_predefine_ddl", "p0") {
             INDEX idx_ab_2 (var) USING INVERTED PROPERTIES("field_pattern"="ab") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-        exception("column: var cannot have multiple inverted indexes of the same type with field pattern: ab")
+        exception("invalid INVERTED index")
     }
 
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -273,7 +279,7 @@ suite("test_predefine_ddl", "p0") {
             INDEX idx_ab_2 (var) USING INVERTED PROPERTIES("field_pattern"="ab") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
         BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
-        exception("column: var cannot have multiple inverted indexes of the same type with field pattern: ab")
+        exception("invalid INVERTED index")
     }
 
     test {

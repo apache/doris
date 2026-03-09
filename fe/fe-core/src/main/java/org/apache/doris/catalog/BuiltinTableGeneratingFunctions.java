@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSpl
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeVariantArray;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -78,7 +79,8 @@ public class BuiltinTableGeneratingFunctions implements FunctionHelper {
             tableGenerating(ExplodeJsonArrayJsonOuter.class, "explode_json_array_json_outer"),
             tableGenerating(ExplodeVariantArray.class, "explode_variant_array"),
             tableGenerating(PosExplode.class, "posexplode"),
-            tableGenerating(PosExplodeOuter.class, "posexplode_outer")
+            tableGenerating(PosExplodeOuter.class, "posexplode_outer"),
+            tableGenerating(Unnest.class, "unnest")
     );
 
     public static final ImmutableSet<String> RETURN_MULTI_COLUMNS_FUNCTIONS = new ImmutableSortedSet.Builder<String>(

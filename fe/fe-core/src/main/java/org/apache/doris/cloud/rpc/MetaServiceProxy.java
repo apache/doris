@@ -178,10 +178,12 @@ public class MetaServiceProxy {
             long maxRetries = Config.meta_service_rpc_retry_cnt;
             for (long tried = 1; tried <= maxRetries; tried++) {
                 MetaServiceClient client = null;
+                boolean requestFailed = false;
                 try {
                     client = proxy.getProxy();
                     return function.apply(client);
                 } catch (StatusRuntimeException sre) {
+                    requestFailed = true;
                     LOG.warn("failed to request meta service code {}, msg {}, trycnt {}", sre.getStatus().getCode(),
                             sre.getMessage(), tried);
                     boolean shouldRetry = false;
@@ -200,12 +202,13 @@ public class MetaServiceProxy {
                         throw new RpcException("", sre.getMessage(), sre);
                     }
                 } catch (Exception e) {
+                    requestFailed = true;
                     LOG.warn("failed to request meta servive trycnt {}", tried, e);
                     if (tried >= maxRetries) {
                         throw new RpcException("", e.getMessage(), e);
                     }
                 } finally {
-                    if (proxy.needReconn() && client != null) {
+                    if (requestFailed && proxy.needReconn() && client != null) {
                         client.shutdown(true);
                     }
                 }
@@ -227,7 +230,35 @@ public class MetaServiceProxy {
 
     public Future<Cloud.GetVersionResponse> getVisibleVersionAsync(Cloud.GetVersionRequest request)
             throws RpcException {
-        return w.executeRequest((client) -> client.getVisibleVersionAsync(request));
+        MetaServiceClient client = null;
+        try {
+            client = getProxy();
+            Future<Cloud.GetVersionResponse> future = client.getVisibleVersionAsync(request);
+            if (future instanceof com.google.common.util.concurrent.ListenableFuture) {
+                com.google.common.util.concurrent.ListenableFuture<Cloud.GetVersionResponse> listenableFuture =
+                        (com.google.common.util.concurrent.ListenableFuture<Cloud.GetVersionResponse>) future;
+                MetaServiceClient finalClient = client;
+                com.google.common.util.concurrent.Futures.addCallback(listenableFuture,
+                        new com.google.common.util.concurrent.FutureCallback<Cloud.GetVersionResponse>() {
+                            @Override
+                            public void onSuccess(Cloud.GetVersionResponse result) {
+                            }
+
+                            @Override
+                            public void onFailure(Throwable t) {
+                                if (finalClient != null) {
+                                    finalClient.shutdown(true);
+                                }
+                            }
+                        }, com.google.common.util.concurrent.MoreExecutors.directExecutor());
+            }
+            return future;
+        } catch (Exception e) {
+            if (client != null) {
+                client.shutdown(true);
+            }
+            throw new RpcException("", e.getMessage(), e);
+        }
     }
 
     public Cloud.GetVersionResponse getVersion(Cloud.GetVersionRequest request) throws RpcException {
@@ -432,6 +463,11 @@ public class MetaServiceProxy {
     public Cloud.AbortTxnWithCoordinatorResponse
             abortTxnWithCoordinator(Cloud.AbortTxnWithCoordinatorRequest request) throws RpcException {
         return w.executeRequest((client) -> client.abortTxnWithCoordinator(request));
+    }
+
+    public Cloud.GetPrepareTxnByCoordinatorResponse
+            getPrepareTxnByCoordinator(Cloud.GetPrepareTxnByCoordinatorRequest request) throws RpcException {
+        return w.executeRequest((client) -> client.getPrepareTxnByCoordinator(request));
     }
 
     public Cloud.CreateInstanceResponse createInstance(Cloud.CreateInstanceRequest request) throws RpcException {

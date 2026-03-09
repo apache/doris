@@ -290,6 +290,21 @@
 -- !sql_ignore_offset_false_mixed --
 [{\n        "token": "liu"\n    }, {\n        "token": "lad"\n    }, {\n        "token": "a"\n    }, {\n        "token": "de"\n    }]
 
+-- !sql_bug1_mixed_tokenizer --
+[{\n        "token": "ALFliudehua"\n    }]
+
+-- !sql_bug1_mixed_filter --
+[{\n        "token": "ALFliudehua"\n    }]
+
+-- !sql_bug2_pure_english --
+[{\n        "token": "Lanky Kong"\n    }]
+
+-- !sql_bug2_pure_numbers --
+[{\n        "token": "12345"\n    }]
+
+-- !sql_bug2_chinese --
+[{\n        "token": "liudehua"\n    }]
+
 -- !sql_table_ignore_offset_1 --
 1	刘德华
 

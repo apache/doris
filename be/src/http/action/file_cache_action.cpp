@@ -61,19 +61,20 @@ constexpr static std::string_view VALUE = "value";
 constexpr static std::string_view RELOAD = "reload";
 
 Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metrics) {
-    req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.data());
-    std::string operation = req->param(OP.data());
+    const std::string header_json(HEADER_JSON);
+    req->add_output_header(HttpHeaders::CONTENT_TYPE, header_json.c_str());
+    std::string operation = req->param(std::string(OP));
     Status st = Status::OK();
     if (operation == RELEASE) {
         size_t released = 0;
-        const std::string& base_path = req->param(BASE_PATH.data());
+        const std::string& base_path = req->param(std::string(BASE_PATH));
         if (!base_path.empty()) {
             released = io::FileCacheFactory::instance()->try_release(base_path);
         } else {
             released = io::FileCacheFactory::instance()->try_release();
         }
         EasyJson json;
-        json[RELEASED_ELEMENTS.data()] = released;
+        json[std::string(RELEASED_ELEMENTS)] = released;
         *json_metrics = json.ToString();
     } else if (operation == CLEAR) {
         DBUG_EXECUTE_IF("FileCacheAction._handle_header.ignore_clear", {
@@ -81,8 +82,8 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
             st = Status::OK();
             return st;
         });
-        const std::string& sync = req->param(SYNC.data());
-        const std::string& segment_path = req->param(VALUE.data());
+        const std::string& sync = req->param(std::string(SYNC));
+        const std::string& segment_path = req->param(std::string(VALUE));
         if (segment_path.empty()) {
             io::FileCacheFactory::instance()->clear_file_caches(to_lower(sync) == "true");
         } else {
@@ -91,7 +92,7 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
             cache->remove_if_cached(hash);
         }
     } else if (operation == RESET) {
-        std::string capacity = req->param(CAPACITY.data());
+        std::string capacity = req->param(std::string(CAPACITY));
         int64_t new_capacity = 0;
         bool parse = true;
         try {
@@ -105,24 +106,24 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
                     "the interval (0, INT64_MAX]",
                     capacity);
         } else {
-            const std::string& path = req->param(PATH.data());
+            const std::string& path = req->param(std::string(PATH));
             auto ret = io::FileCacheFactory::instance()->reset_capacity(path, new_capacity);
             LOG(INFO) << ret;
         }
     } else if (operation == HASH) {
-        const std::string& segment_path = req->param(VALUE.data());
+        const std::string& segment_path = req->param(std::string(VALUE));
         if (segment_path.empty()) {
-            st = Status::InvalidArgument("missing parameter: {} is required", VALUE.data());
+            st = Status::InvalidArgument("missing parameter: {} is required", VALUE);
         } else {
             io::UInt128Wrapper ret = io::BlockFileCache::hash(segment_path);
             EasyJson json;
-            json[HASH.data()] = ret.to_string();
+            json[std::string(HASH)] = ret.to_string();
             *json_metrics = json.ToString();
         }
     } else if (operation == LIST_CACHE) {
-        const std::string& segment_path = req->param(VALUE.data());
+        const std::string& segment_path = req->param(std::string(VALUE));
         if (segment_path.empty()) {
-            st = Status::InvalidArgument("missing parameter: {} is required", VALUE.data());
+            st = Status::InvalidArgument("missing parameter: {} is required", VALUE);
         } else {
             io::UInt128Wrapper cache_hash = io::BlockFileCache::hash(segment_path);
             std::vector<std::string> cache_files =
@@ -145,9 +146,9 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
                               [&json](auto& x) { json.PushBack(std::move(x)); });
         *json_metrics = json.ToString();
     } else if (operation == CHECK_CONSISTENCY) {
-        const std::string& cache_base_path = req->param(BASE_PATH.data());
+        const std::string& cache_base_path = req->param(std::string(BASE_PATH));
         if (cache_base_path.empty()) {
-            st = Status::InvalidArgument("missing parameter: {} is required", BASE_PATH.data());
+            st = Status::InvalidArgument("missing parameter: {} is required", BASE_PATH);
         } else {
             auto* block_file_cache = io::FileCacheFactory::instance()->get_by_path(cache_base_path);
             if (block_file_cache == nullptr) {

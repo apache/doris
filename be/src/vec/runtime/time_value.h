@@ -28,6 +28,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "util/date_func.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -150,6 +151,21 @@ public:
     }
 
     static bool valid(double time) { return time <= MAX_TIME && time >= -MAX_TIME; }
+
+    static bool to_format_string_conservative(const char* format, size_t len, char* to,
+                                              size_t max_valid_length, TimeType time) {
+        // If time is negative, we here only add a '-' to the begining of res
+        // This behavior is consistent with MySQL
+        if (time < 0) {
+            memcpy(to, "-", 1);
+            ++to;
+            time = -time;
+        }
+
+        return DatetimeValueUtil::to_format_string_without_check<true>(
+                format, len, to, max_valid_length, 0, 0, 0, TimeValue::hour(time),
+                TimeValue::minute(time), TimeValue::second(time), TimeValue::microsecond(time));
+    }
 };
 } // namespace doris
 #include "common/compile_check_end.h"

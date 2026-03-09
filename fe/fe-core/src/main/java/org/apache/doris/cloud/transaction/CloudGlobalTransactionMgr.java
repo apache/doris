@@ -32,8 +32,6 @@ import org.apache.doris.cloud.proto.Cloud.AbortSubTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.AbortSubTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.AbortTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.AbortTxnResponse;
-import org.apache.doris.cloud.proto.Cloud.AbortTxnWithCoordinatorRequest;
-import org.apache.doris.cloud.proto.Cloud.AbortTxnWithCoordinatorResponse;
 import org.apache.doris.cloud.proto.Cloud.BeginSubTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.BeginSubTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.BeginTxnRequest;
@@ -48,6 +46,8 @@ import org.apache.doris.cloud.proto.Cloud.GetCurrentMaxTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.GetCurrentMaxTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.GetDeleteBitmapUpdateLockRequest;
 import org.apache.doris.cloud.proto.Cloud.GetDeleteBitmapUpdateLockResponse;
+import org.apache.doris.cloud.proto.Cloud.GetPrepareTxnByCoordinatorRequest;
+import org.apache.doris.cloud.proto.Cloud.GetPrepareTxnByCoordinatorResponse;
 import org.apache.doris.cloud.proto.Cloud.GetTxnIdRequest;
 import org.apache.doris.cloud.proto.Cloud.GetTxnIdResponse;
 import org.apache.doris.cloud.proto.Cloud.GetTxnRequest;
@@ -206,10 +206,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     private Map<Long, AtomicInteger> waitToCommitTxnCountMap = new ConcurrentHashMap<>();
     private Map<Long, CommitCostTimeStatistic> commitCostTimeStatisticMap = new ConcurrentHashMap<>();
 
-    // dbId -> tableId -> txnId
-    private Map<Long, Map<Long, Long>> lastTxnIdMap = Maps.newConcurrentMap();
-    // dbId -> txnId -> signature
-    private Map<Long, Map<Long, Long>> txnLastSignatureMap = Maps.newConcurrentMap();
+    // tableId -> txnId
+    private Map<Long, Long> lastTxnIdMap = Maps.newConcurrentMap();
+    // txnId -> signature
+    private Map<Long, Long> txnLastSignatureMap = Maps.newConcurrentMap();
 
     private final AutoPartitionCacheManager autoPartitionCacheManager = new AutoPartitionCacheManager();
 
@@ -597,6 +597,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new TransactionCommitFailedException(
                     "disable_load_job is set to true, all load jobs are not allowed");
         }
+        Env.getCurrentEnv().debugBlockAllOnGlobalLock("FE.BLOCK_IMPORT_LOCK");
 
         if (!mowTableList.isEmpty()) {
             List<Long> mowTableIds = mowTableList.stream().map(Table::getId).collect(Collectors.toList());
@@ -1347,7 +1348,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 AgentTaskQueue.addTask(task);
                 batchTask.addTask(task);
                 LOG.info("send calculate delete bitmap task to be {}, txn_id {}, signature {}, partitionInfos={}",
-                        entry.getKey(), transactionId, signature, entry.getValue());
+                        entry.getKey(), transactionId, signature,
+                        StringUtils.abbreviate(entry.getValue().toString(), 200));
             }
             AgentTaskExecutor.submit(batchTask);
 
@@ -2131,46 +2133,67 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         // do nothing in cloud mode
     }
 
-    @Override
-    public void abortTxnWhenCoordinateBeRestart(long coordinateBeId, String coordinateHost, long beStartTime) {
-        AbortTxnWithCoordinatorRequest.Builder builder = AbortTxnWithCoordinatorRequest.newBuilder()
+    private List<Pair<Long, Long>> getPrepareTransactionIdByCoordinateBe(long coordinateBeId,
+            String coordinateHost, long beStartTime) {
+        List<Pair<Long, Long>> txnInfos = new ArrayList<>();
+        GetPrepareTxnByCoordinatorRequest.Builder builder = GetPrepareTxnByCoordinatorRequest.newBuilder()
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         builder.setIp(coordinateHost);
         builder.setId(coordinateBeId);
-        builder.setStartTime(beStartTime);
-        final AbortTxnWithCoordinatorRequest request = builder.build();
-        AbortTxnWithCoordinatorResponse response = null;
+        if (beStartTime > 0) {
+            builder.setStartTime(beStartTime);
+        }
+        builder.setCloudUniqueId(Config.cloud_unique_id);
+
+        final GetPrepareTxnByCoordinatorRequest request = builder.build();
+        GetPrepareTxnByCoordinatorResponse response = null;
         try {
-            response = MetaServiceProxy
-                .getInstance().abortTxnWithCoordinator(request);
-            LOG.info("AbortTxnWithCoordinatorResponse: {}", response);
-            if (DebugPointUtil.isEnable("FE.abortTxnWhenCoordinateBeRestart.slow")) {
-                LOG.info("debug point FE.abortTxnWhenCoordinateBeRestart.slow enabled, sleep 15s");
-                try {
-                    Thread.sleep(15 * 1000);
-                } catch (InterruptedException ie) {
-                    LOG.info("error ", ie);
+            response = MetaServiceProxy.getInstance().getPrepareTxnByCoordinator(request);
+            if (response.getStatus().getCode() == MetaServiceCode.OK) {
+                for (TxnInfoPB txnInfo : response.getTxnInfosList()) {
+                    txnInfos.add(Pair.of(txnInfo.getDbId(), txnInfo.getTxnId()));
                 }
+            } else {
+                LOG.warn("Get prepare txn by coordinator BE {} failed, code={}, msg={}",
+                        coordinateHost, response.getStatus().getCode(), response.getStatus().getMsg());
             }
         } catch (RpcException e) {
-            LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
+            LOG.warn("Get prepare txn by coordinator BE {} failed, msg={}", coordinateHost, e.getMessage());
+        }
+        return txnInfos;
+    }
+
+    private void abortTransactionsByCoordinateBe(
+                List<Pair<Long, Long>> transactions, String coordinateHost, String reason) {
+        for (Pair<Long, Long> txnInfo : transactions) {
+            try {
+                abortTransaction(txnInfo.first, txnInfo.second, reason);
+            } catch (UserException e) {
+                LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
+            }
+        }
+    }
+
+    @Override
+    public void abortTxnWhenCoordinateBeRestart(long coordinateBeId, String coordinateHost, long beStartTime) {
+        List<Pair<Long, Long>> transactionIdByCoordinateBe
+                = getPrepareTransactionIdByCoordinateBe(coordinateBeId, coordinateHost, beStartTime);
+        abortTransactionsByCoordinateBe(transactionIdByCoordinateBe, coordinateHost, "coordinate BE restart");
+        if (DebugPointUtil.isEnable("FE.abortTxnWhenCoordinateBeRestart.slow")) {
+            LOG.info("debug point FE.abortTxnWhenCoordinateBeRestart.slow enabled, sleep 15s");
+            try {
+                Thread.sleep(15 * 1000);
+            } catch (InterruptedException ie) {
+                LOG.info("error ", ie);
+            }
         }
     }
 
     @Override
     public void abortTxnWhenCoordinateBeDown(long coordinateBeId, String coordinateHost, int limit) {
-        AbortTxnWithCoordinatorRequest.Builder builder = AbortTxnWithCoordinatorRequest.newBuilder();
-        builder.setIp(coordinateHost);
-        builder.setId(coordinateBeId);
-        final AbortTxnWithCoordinatorRequest request = builder.build();
-        AbortTxnWithCoordinatorResponse response = null;
-        try {
-            response = MetaServiceProxy
-                .getInstance().abortTxnWithCoordinator(request);
-            LOG.info("AbortTxnWithCoordinatorResponse: {}", response);
-        } catch (RpcException e) {
-            LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
-        }
+        List<Pair<Long, Long>> transactionIdByCoordinateBe
+                = getPrepareTransactionIdByCoordinateBe(coordinateBeId, coordinateHost, 0);
+        abortTransactionsByCoordinateBe(transactionIdByCoordinateBe, coordinateHost, "coordinate BE is down");
     }
 
     @Override
@@ -2588,55 +2611,30 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    public long getTableLastTxnId(long dbId, long tableId) {
-        Map<Long, Long> tabletIdToTxnId = lastTxnIdMap.get(dbId);
-        if (tabletIdToTxnId == null) {
-            return -1;
-        }
-        return tabletIdToTxnId.getOrDefault(tableId, -1L);
+    private long getTableLastTxnId(long dbId, long tableId) {
+        return lastTxnIdMap.getOrDefault(tableId, -1L);
     }
 
-    public void setTableLastTxnId(long dbId, long tableId, long txnId) {
-        lastTxnIdMap.compute(dbId, (k, v) -> {
-            if (v == null) {
-                v = Maps.newConcurrentMap();
-            }
-            LOG.debug("setTableLastTxnId dbId: {}, tableId: {}, txnId: {}", dbId, tableId, txnId);
-            v.put(tableId, txnId);
-            return v;
-        });
+    private void setTableLastTxnId(long dbId, long tableId, long txnId) {
+        lastTxnIdMap.put(tableId, txnId);
+        LOG.debug("setTableLastTxnId dbId: {}, tableId: {}, txnId: {}", dbId, tableId, txnId);
     }
 
-    public void clearTableLastTxnId(long dbId, long tableId) {
-        lastTxnIdMap.computeIfPresent(dbId, (k, v) -> {
-            v.remove(tableId);
-            return v.isEmpty() ? null : v;
-        });
+    public void afterDropTable(long dbId, long tableId) {
+        lastTxnIdMap.remove(tableId);
+        waitToCommitTxnCountMap.remove(tableId);
     }
 
-    public long getTxnLastSignature(long dbId, long txnId) {
-        Map<Long, Long> txnIdToLastSignature = txnLastSignatureMap.get(dbId);
-        if (txnIdToLastSignature == null) {
-            return -1;
-        }
-        return txnIdToLastSignature.getOrDefault(txnId, -1L);
+    private long getTxnLastSignature(long dbId, long txnId) {
+        return txnLastSignatureMap.getOrDefault(txnId, -1L);
     }
 
-    public void setTxnLastSignature(long dbId, long txnId, long signature) {
-        txnLastSignatureMap.compute(dbId, (k, v) -> {
-            if (v == null) {
-                v = Maps.newConcurrentMap();
-            }
-            LOG.debug("setTxnLastSignature dbId: {}, txnId: {}, signature: {}", dbId, txnId, signature);
-            v.put(txnId, signature);
-            return v;
-        });
+    private void setTxnLastSignature(long dbId, long txnId, long signature) {
+        txnLastSignatureMap.put(txnId, signature);
+        LOG.debug("setTxnLastSignature dbId: {}, txnId: {}, signature: {}", dbId, txnId, signature);
     }
 
-    public void clearTxnLastSignature(long dbId, long txnId) {
-        txnLastSignatureMap.computeIfPresent(dbId, (k, v) -> {
-            v.remove(txnId);
-            return v.isEmpty() ? null : v;
-        });
+    private void clearTxnLastSignature(long dbId, long txnId) {
+        txnLastSignatureMap.remove(txnId);
     }
 }

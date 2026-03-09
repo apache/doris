@@ -1666,7 +1666,21 @@ public class EditLog {
     }
 
     public long logAddPartition(PartitionPersistInfo info) {
+        if (DebugPointUtil.isEnable("FE.logAddPartition.slow")) {
+            DebugPointUtil.DebugPoint debugPoint = DebugPointUtil.getDebugPoint("FE.logAddPartition.slow");
+            String pName = debugPoint.param("pName", "");
+            if (info.getPartition().getName().equals(pName)) {
+                int sleepMs = debugPoint.param("sleep", 1000);
+                LOG.info("logAddPartition debug point hit, pName {}, sleep {} s", pName, sleepMs);
+                try {
+                    Thread.sleep(sleepMs);
+                } catch (InterruptedException e) {
+                    LOG.warn("sleep interrupted", e);
+                }
+            }
+        }
         long logId = logEdit(OperationType.OP_ADD_PARTITION, info);
+        LOG.info("log add partition, logId:{}, info: {}", logId, info.toJson());
         AddPartitionRecord record = new AddPartitionRecord(logId, info);
         Env.getCurrentEnv().getBinlogManager().addAddPartitionRecord(record);
         return logId;
@@ -1674,6 +1688,7 @@ public class EditLog {
 
     public long logDropPartition(DropPartitionInfo info) {
         long logId = logEdit(OperationType.OP_DROP_PARTITION, info);
+        LOG.info("log drop partition, logId:{}, info: {}", logId, info.toJson());
         Env.getCurrentEnv().getBinlogManager().addDropPartitionRecord(info, logId);
         return logId;
     }
@@ -1684,6 +1699,7 @@ public class EditLog {
 
     public void logRecoverPartition(RecoverInfo info) {
         long logId = logEdit(OperationType.OP_RECOVER_PARTITION, info);
+        LOG.info("log recover partition, logId:{}, info: {}", logId, info.toJson());
         Env.getCurrentEnv().getBinlogManager().addRecoverTableRecord(info, logId);
     }
 
@@ -1702,6 +1718,7 @@ public class EditLog {
 
     public void logDropTable(DropInfo info) {
         long logId = logEdit(OperationType.OP_DROP_TABLE, info);
+        LOG.info("log drop table, logId : {}, infos: {}", logId, info);
         if (Strings.isNullOrEmpty(info.getCtl()) || info.getCtl().equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             DropTableRecord record = new DropTableRecord(logId, info);
             Env.getCurrentEnv().getBinlogManager().addDropTableRecord(record);
@@ -1714,11 +1731,13 @@ public class EditLog {
 
     public void logRecoverTable(RecoverInfo info) {
         long logId = logEdit(OperationType.OP_RECOVER_TABLE, info);
+        LOG.info("log recover table, logId : {}, infos: {}", logId, info);
         Env.getCurrentEnv().getBinlogManager().addRecoverTableRecord(info, logId);
     }
 
     public void logDropRollup(DropInfo info) {
         long logId = logEdit(OperationType.OP_DROP_ROLLUP, info);
+        LOG.info("log drop rollup, logId : {}, infos: {}", logId, info);
         Env.getCurrentEnv().getBinlogManager().addDropRollup(info, logId);
     }
 
@@ -1835,7 +1854,8 @@ public class EditLog {
     }
 
     public void logDatabaseRename(DatabaseInfo databaseInfo) {
-        logEdit(OperationType.OP_RENAME_DB, databaseInfo);
+        long logId = logEdit(OperationType.OP_RENAME_DB, databaseInfo);
+        LOG.info("log database rename, logId : {}, infos: {}", logId, databaseInfo);
     }
 
     public void logTableRename(TableInfo tableInfo) {

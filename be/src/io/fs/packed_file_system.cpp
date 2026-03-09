@@ -20,6 +20,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/packed_file_reader.h"
 #include "io/fs/packed_file_writer.h"
 
@@ -69,20 +70,37 @@ Status PackedFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader
         // File is in packed file, open packed file and wrap with PackedFileReader
         const auto& index = it->second;
         FileReaderSPtr inner_reader;
-        // Create a new FileReaderOptions with the correct file size
-        FileReaderOptions local_opts = opts ? *opts : FileReaderOptions();
-        // DCHECK(opts->file_size == -1 || opts->file_size == index.size)
-        //         << "file size is not correct, expected: " << index.size
-        //         << ", actual: " << opts->file_size;
-        // local_opts.file_size = index.size + index.offset;
-        local_opts.file_size = -1;
-        LOG(INFO) << "open packed file: " << index.packed_file_path << ", file: " << file.native()
-                  << ", offset: " << index.offset << ", size: " << index.size;
-        RETURN_IF_ERROR(
-                _inner_fs->open_file(Path(index.packed_file_path), &inner_reader, &local_opts));
 
-        *reader = std::make_shared<PackedFileReader>(std::move(inner_reader), file, index.offset,
-                                                     index.size);
+        // Create options for opening the packed file
+        // Disable cache at this layer - we'll add cache wrapper around PackedFileReader instead
+        // This ensures cache key is based on segment path, not packed file path
+        FileReaderOptions inner_opts = opts ? *opts : FileReaderOptions();
+        inner_opts.file_size = index.packed_file_size;
+        inner_opts.cache_type = FileCachePolicy::NO_CACHE;
+
+        VLOG_DEBUG << "open packed file: " << index.packed_file_path << ", file: " << file.native()
+                   << ", offset: " << index.offset << ", size: " << index.size
+                   << ", packed_file_size: " << index.packed_file_size;
+        RETURN_IF_ERROR(
+                _inner_fs->open_file(Path(index.packed_file_path), &inner_reader, &inner_opts));
+
+        // Create PackedFileReader with segment path
+        // PackedFileReader.path() returns segment path, not packed file path
+        auto packed_reader = std::make_shared<PackedFileReader>(std::move(inner_reader), file,
+                                                                index.offset, index.size);
+
+        // If cache is requested, wrap PackedFileReader with CachedRemoteFileReader
+        // This ensures:
+        // 1. Cache key = hash(segment_path.filename()) - matches cleanup key
+        // 2. Cache size = segment size - correct boundary
+        // 3. Each segment has independent cache entry - no interference during cleanup
+        if (opts && opts->cache_type != FileCachePolicy::NO_CACHE) {
+            FileReaderOptions cache_opts = *opts;
+            cache_opts.file_size = index.size; // Use segment size for cache
+            *reader = DORIS_TRY(create_cached_file_reader(packed_reader, cache_opts));
+        } else {
+            *reader = packed_reader;
+        }
     } else {
         RETURN_IF_ERROR(_inner_fs->open_file(file, reader, opts));
     }
@@ -90,7 +108,7 @@ Status PackedFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader
 }
 
 Status PackedFileSystem::exists_impl(const Path& path, bool* res) const {
-    LOG(INFO) << "packed file system exist, rowset id " << _append_info.rowset_id;
+    VLOG_DEBUG << "packed file system exist, rowset id " << _append_info.rowset_id;
     if (!_index_map_initialized) {
         return Status::InternalError("PackedFileSystem index map is not initialized");
     }

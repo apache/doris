@@ -266,6 +266,10 @@ public class RestBaseController extends BaseController {
 
             HttpHeaders headers = new HttpHeaders();
             for (String headerName : Collections.list(request.getHeaderNames())) {
+                // remove Content-Length because RestTemplate will recalculate Content-Length for request body
+                if ("Content-Length".equalsIgnoreCase(headerName)) {
+                    continue;
+                }
                 headers.add(headerName, request.getHeader(headerName));
             }
 

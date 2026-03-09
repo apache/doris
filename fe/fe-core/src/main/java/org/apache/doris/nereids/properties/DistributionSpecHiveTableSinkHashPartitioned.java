@@ -20,6 +20,7 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * use for shuffle data by partition keys before sink.
@@ -43,5 +44,22 @@ public class DistributionSpecHiveTableSinkHashPartitioned extends DistributionSp
     @Override
     public boolean satisfy(DistributionSpec other) {
         return other instanceof DistributionSpecHiveTableSinkHashPartitioned;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        DistributionSpecHiveTableSinkHashPartitioned that = (DistributionSpecHiveTableSinkHashPartitioned) o;
+        return Objects.equals(outputColExprIds, that.outputColExprIds);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), outputColExprIds);
     }
 }

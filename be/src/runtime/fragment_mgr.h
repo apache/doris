@@ -126,8 +126,10 @@ public:
     void remove_pipeline_context(std::pair<TUniqueId, int> key);
     void remove_query_context(const TUniqueId& key);
 
+    // `is_prepare_success` is used by invoker to ensure callback can be handle correctly (eg. stream_load_executor)
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
-                              const FinishCallback& cb, const TPipelineFragmentParamsList& parent);
+                              const FinishCallback& cb, const TPipelineFragmentParamsList& parent,
+                              std::shared_ptr<bool> is_prepare_success = nullptr);
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
@@ -184,6 +186,17 @@ public:
 
     std::shared_ptr<QueryContext> get_query_ctx(const TUniqueId& query_id);
 
+    Status transmit_rec_cte_block(const TUniqueId& query_id, const TUniqueId& instance_id,
+                                  int node_id,
+                                  const google::protobuf::RepeatedPtrField<PBlock>& pblocks,
+                                  bool eos);
+
+    Status rerun_fragment(const TUniqueId& query_id, int fragment,
+                          PRerunFragmentParams_Opcode stage);
+
+    Status reset_global_rf(const TUniqueId& query_id,
+                           const google::protobuf::RepeatedField<int32_t>& filter_ids);
+
 private:
     struct BrpcItem {
         TNetworkAddress network_address;
@@ -194,6 +207,19 @@ private:
                                     const TPipelineFragmentParamsList& parent,
                                     QuerySource query_type,
                                     std::shared_ptr<QueryContext>& query_ctx);
+
+    void _collect_timeout_queries_and_brpc_items(
+            std::vector<TUniqueId>& queries_timeout,
+            std::unordered_map<std::shared_ptr<PBackendService_Stub>, BrpcItem>&
+                    brpc_stub_with_queries,
+            timespec now);
+
+    void _collect_invalid_queries(
+            std::vector<TUniqueId>& queries_lost_coordinator,
+            std::vector<TUniqueId>& queries_pipeline_task_leak,
+            const std::map<int64_t, std::unordered_set<TUniqueId>>& running_queries_on_all_fes,
+            const std::map<TNetworkAddress, FrontendInfo>& running_fes,
+            timespec check_invalid_query_last_timestamp);
 
     void _check_brpc_available(const std::shared_ptr<PBackendService_Stub>& brpc_stub,
                                const BrpcItem& brpc_item);
@@ -209,6 +235,9 @@ private:
 
     // query id -> QueryContext
     ConcurrentContextMap<TUniqueId, std::weak_ptr<QueryContext>, QueryContext> _query_ctx_map;
+    // keep query ctx do not delete immediately to make rf coordinator merge filter work well after query eos
+    ConcurrentContextMap<TUniqueId, std::shared_ptr<QueryContext>, QueryContext>
+            _query_ctx_map_delay_delete;
 
     CountDownLatch _stop_background_threads_latch;
     std::shared_ptr<Thread> _cancel_thread;

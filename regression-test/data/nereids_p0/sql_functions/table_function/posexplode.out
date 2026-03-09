@@ -331,3 +331,140 @@
 2	tom	["t1_c"]	["t2_d", "t2_e"]	{"pos":1, "col1":null, "col2":"t2_e"}	{"pos":0, "col1":"t1_c", "col2":"t2_d"}
 2	tom	["t1_c"]	["t2_d", "t2_e"]	{"pos":1, "col1":null, "col2":"t2_e"}	{"pos":1, "col1":null, "col2":"t2_e"}
 
+-- !mixed_nullable_all --
+1	["t_not_null1_a", "t_not_null1_b"]	["t_not_null2_a", "t_not_null2_b"]	["t_null1_a", "t_null1_b"]	["t_null2_a", "t_null2_b"]
+2	["t_not_null1_c"]	["t_not_null2_c", "t_not_null2_d"]	["t_null1_c"]	["t_null2_c", "t_null2_d"]
+3	["t_not_null1_d", "t_not_null1_e"]	["t_not_null2_e"]	["t_null1_d", "t_null1_e"]	["t_null2_e"]
+4	["t_not_null1_f"]	["t_not_null2_f"]	\N	["t_null2_f"]
+5	["t_not_null1_g"]	["t_not_null2_g"]	["t_null1_f"]	\N
+6	["t_not_null1_h"]	["t_not_null2_h"]	\N	\N
+
+-- !mixed_nullable_not_null0 --
+1	{"pos":0, "col1":"t_not_null1_a"}
+1	{"pos":1, "col1":"t_not_null1_b"}
+2	{"pos":0, "col1":"t_not_null1_c"}
+3	{"pos":0, "col1":"t_not_null1_d"}
+3	{"pos":1, "col1":"t_not_null1_e"}
+4	{"pos":0, "col1":"t_not_null1_f"}
+5	{"pos":0, "col1":"t_not_null1_g"}
+6	{"pos":0, "col1":"t_not_null1_h"}
+
+-- !mixed_nullable_not_null1 --
+1	0	t_not_null1_a
+1	1	t_not_null1_b
+2	0	t_not_null1_c
+3	0	t_not_null1_d
+3	1	t_not_null1_e
+4	0	t_not_null1_f
+5	0	t_not_null1_g
+6	0	t_not_null1_h
+
+-- !mixed_nullable_not_null2 --
+1	{"pos":0, "col1":"t_not_null1_a", "col2":"t_not_null2_a"}
+1	{"pos":1, "col1":"t_not_null1_b", "col2":"t_not_null2_b"}
+2	{"pos":0, "col1":"t_not_null1_c", "col2":"t_not_null2_c"}
+2	{"pos":1, "col1":null, "col2":"t_not_null2_d"}
+3	{"pos":0, "col1":"t_not_null1_d", "col2":"t_not_null2_e"}
+3	{"pos":1, "col1":"t_not_null1_e", "col2":null}
+4	{"pos":0, "col1":"t_not_null1_f", "col2":"t_not_null2_f"}
+5	{"pos":0, "col1":"t_not_null1_g", "col2":"t_not_null2_g"}
+6	{"pos":0, "col1":"t_not_null1_h", "col2":"t_not_null2_h"}
+
+-- !mixed_nullable_not_null3 --
+1	0	t_not_null1_a	t_not_null2_a
+1	1	t_not_null1_b	t_not_null2_b
+2	0	t_not_null1_c	t_not_null2_c
+2	1	\N	t_not_null2_d
+3	0	t_not_null1_d	t_not_null2_e
+3	1	t_not_null1_e	\N
+4	0	t_not_null1_f	t_not_null2_f
+5	0	t_not_null1_g	t_not_null2_g
+6	0	t_not_null1_h	t_not_null2_h
+
+-- !mixed_nullable_not_null_outer0 --
+1	{"pos":0, "col1":"t_not_null1_a"}
+1	{"pos":1, "col1":"t_not_null1_b"}
+2	{"pos":0, "col1":"t_not_null1_c"}
+3	{"pos":0, "col1":"t_not_null1_d"}
+3	{"pos":1, "col1":"t_not_null1_e"}
+4	{"pos":0, "col1":"t_not_null1_f"}
+5	{"pos":0, "col1":"t_not_null1_g"}
+6	{"pos":0, "col1":"t_not_null1_h"}
+
+-- !mixed_nullable_not_null_outer1 --
+1	0	t_not_null1_a
+1	1	t_not_null1_b
+2	0	t_not_null1_c
+3	0	t_not_null1_d
+3	1	t_not_null1_e
+4	0	t_not_null1_f
+5	0	t_not_null1_g
+6	0	t_not_null1_h
+
+-- !mixed_nullable_not_null_outer2 --
+1	{"pos":0, "col1":"t_not_null1_a", "col2":"t_not_null2_a"}
+1	{"pos":1, "col1":"t_not_null1_b", "col2":"t_not_null2_b"}
+2	{"pos":0, "col1":"t_not_null1_c", "col2":"t_not_null2_c"}
+2	{"pos":1, "col1":null, "col2":"t_not_null2_d"}
+3	{"pos":0, "col1":"t_not_null1_d", "col2":"t_not_null2_e"}
+3	{"pos":1, "col1":"t_not_null1_e", "col2":null}
+4	{"pos":0, "col1":"t_not_null1_f", "col2":"t_not_null2_f"}
+5	{"pos":0, "col1":"t_not_null1_g", "col2":"t_not_null2_g"}
+6	{"pos":0, "col1":"t_not_null1_h", "col2":"t_not_null2_h"}
+
+-- !mixed_nullable_not_null_outer3 --
+1	0	t_not_null1_a	t_not_null2_a
+1	1	t_not_null1_b	t_not_null2_b
+2	0	t_not_null1_c	t_not_null2_c
+2	1	\N	t_not_null2_d
+3	0	t_not_null1_d	t_not_null2_e
+3	1	t_not_null1_e	\N
+4	0	t_not_null1_f	t_not_null2_f
+5	0	t_not_null1_g	t_not_null2_g
+6	0	t_not_null1_h	t_not_null2_h
+
+-- !mixed_nullable2 --
+1	{"pos":0, "col1":"t_not_null1_a", "col2":"t_null1_a"}
+1	{"pos":1, "col1":"t_not_null1_b", "col2":"t_null1_b"}
+2	{"pos":0, "col1":"t_not_null1_c", "col2":"t_null1_c"}
+3	{"pos":0, "col1":"t_not_null1_d", "col2":"t_null1_d"}
+3	{"pos":1, "col1":"t_not_null1_e", "col2":"t_null1_e"}
+4	{"pos":0, "col1":"t_not_null1_f", "col2":null}
+5	{"pos":0, "col1":"t_not_null1_g", "col2":"t_null1_f"}
+6	{"pos":0, "col1":"t_not_null1_h", "col2":null}
+
+-- !mixed_nullable3 --
+1	0	t_not_null1_a	t_null1_a
+1	1	t_not_null1_b	t_null1_b
+2	0	t_not_null1_c	t_null1_c
+3	0	t_not_null1_d	t_null1_d
+3	1	t_not_null1_e	t_null1_e
+4	0	t_not_null1_f	\N
+5	0	t_not_null1_g	t_null1_f
+6	0	t_not_null1_h	\N
+
+-- !mixed_nullable_outer2 --
+1	{"pos":0, "col1":"t_not_null1_a", "col2":"t_null1_a"}
+1	{"pos":1, "col1":"t_not_null1_b", "col2":"t_null1_b"}
+2	{"pos":0, "col1":"t_not_null1_c", "col2":"t_null1_c"}
+3	{"pos":0, "col1":"t_not_null1_d", "col2":"t_null1_d"}
+3	{"pos":1, "col1":"t_not_null1_e", "col2":"t_null1_e"}
+4	{"pos":0, "col1":"t_not_null1_f", "col2":null}
+5	{"pos":0, "col1":"t_not_null1_g", "col2":"t_null1_f"}
+6	{"pos":0, "col1":"t_not_null1_h", "col2":null}
+
+-- !mixed_nullable_outer3 --
+1	0	t_not_null1_a	t_null1_a
+1	1	t_not_null1_b	t_null1_b
+2	0	t_not_null1_c	t_null1_c
+3	0	t_not_null1_d	t_null1_d
+3	1	t_not_null1_e	t_null1_e
+4	0	t_not_null1_f	\N
+5	0	t_not_null1_g	t_null1_f
+6	0	t_not_null1_h	\N
+
+-- !fix_return_type --
+1	[1, 2, 3]	[10.50, 20.00]	{"pos":0, "col1":1, "col2":10.50}
+1	[1, 2, 3]	[10.50, 20.00]	{"pos":1, "col1":2, "col2":20.00}
+1	[1, 2, 3]	[10.50, 20.00]	{"pos":2, "col1":3, "col2":null}
+

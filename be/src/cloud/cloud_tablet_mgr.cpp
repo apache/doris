@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "olap/lru_cache.h"
 #include "runtime/memory/cache_policy.h"
+#include "util/debug_points.h"
 #include "util/stack_util.h"
 
 namespace doris {
@@ -148,7 +149,9 @@ CloudTabletMgr::CloudTabletMgr(CloudStorageEngine& engine)
           _tablet_map(std::make_unique<TabletMap>()),
           _cache(std::make_unique<LRUCachePolicy>(
                   CachePolicy::CacheType::CLOUD_TABLET_CACHE, config::tablet_cache_capacity,
-                  LRUCacheType::NUMBER, 0, config::tablet_cache_shards, false /*enable_prune*/)) {}
+                  LRUCacheType::NUMBER, /*sweep time*/ 0, config::tablet_cache_shards,
+                  /*element_count_capacity*/ 0, /*enable_prune*/ false,
+                  /*is_lru_k*/ false)) {}
 
 CloudTabletMgr::~CloudTabletMgr() = default;
 
@@ -163,6 +166,7 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
                                                                 SyncRowsetStats* sync_stats,
                                                                 bool force_use_only_cached,
                                                                 bool cache_on_miss) {
+    DBUG_EXECUTE_IF("CloudTabletMgr::get_tablet.block", DBUG_BLOCK);
     // LRU value type. `Value`'s lifetime MUST NOT be longer than `CloudTabletMgr`
     class Value : public LRUCacheValueBase {
     public:

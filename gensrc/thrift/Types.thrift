@@ -332,7 +332,9 @@ enum TFunctionBinaryType {
 
   JAVA_UDF = 5,
 
-  AGG_STATE = 6
+  AGG_STATE = 6,
+
+  PYTHON_UDF = 7
 }
 
 // Represents a fully qualified function name.
@@ -408,6 +410,8 @@ struct TFunction {
   15: optional bool is_static_load = false
   16: optional i64 expiration_time //minutes
   17: optional TDictFunction dict_function
+  18: optional string runtime_version
+  19: optional string function_code
 }
 
 enum TJdbcOperation {
@@ -770,6 +774,11 @@ struct TUserIdentity {
     1: optional string username
     2: optional string host
     3: optional bool is_domain
+}
+
+struct TColumnGroup {
+    1: required i32 sequence_column = -1
+    2: required list<i32> columns_in_group
 }
 
 const i32 TSNAPSHOT_REQ_VERSION1 = 3; // corresponding to alpha rowset

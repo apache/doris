@@ -795,6 +795,21 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
+
+
+            uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/fixed_len_byte_array.parquet"
+            order_qt_test_107 """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "enable_mapping_varbinary"="true",
+                        "format" = "parquet") limit 10; """
+
+            order_qt_test_107_desc """ desc function HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "enable_mapping_varbinary"="true",
+                        "format" = "parquet"); """
+
         } finally {
         }
     }

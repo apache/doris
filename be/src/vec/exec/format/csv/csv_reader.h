@@ -173,7 +173,8 @@ class CsvReader : public GenericReader {
 public:
     CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
               const TFileScanRangeParams& params, const TFileRangeDesc& range,
-              const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx);
+              const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx,
+              std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
     ~CsvReader() override = default;
 
     Status init_reader(bool is_load);
@@ -278,6 +279,7 @@ private:
     bool _empty_field_as_null = false;
 
     io::IOContext* _io_ctx = nullptr;
+    std::shared_ptr<io::IOContext> _io_ctx_holder;
     // save source text which have been splitted.
     std::vector<Slice> _split_values;
     std::vector<int> _use_nullable_string_opt;

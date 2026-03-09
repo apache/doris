@@ -48,7 +48,7 @@
 #include "util/runtime_profile.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
@@ -264,7 +264,7 @@ private:
                 RETURN_IF_ERROR(copy_column_data_by_selector(_current_return_columns[cid].get(),
                                                              tmp, sel_rowid_idx, select_size,
                                                              _opts.block_row_max));
-                RETURN_IF_ERROR(vectorized::schema_util::cast_column(
+                RETURN_IF_ERROR(vectorized::variant_util::cast_column(
                         {tmp->get_ptr(), storage_type, ""}, block->get_by_position(block_cid).type,
                         &block->get_by_position(block_cid).column));
             } else {
@@ -516,7 +516,7 @@ private:
     IndexQueryContextPtr _index_query_context;
 
     // key is column uid, value is the sparse column cache
-    std::unordered_map<int32_t, PathToSparseColumnCacheUPtr> _variant_sparse_column_cache;
+    std::unordered_map<int32_t, PathToBinaryColumnCacheUPtr> _variant_sparse_column_cache;
 
     bool _find_condition_cache = false;
     std::shared_ptr<std::vector<bool>> _condition_cache;

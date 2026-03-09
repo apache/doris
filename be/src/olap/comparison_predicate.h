@@ -34,9 +34,11 @@ template <PrimitiveType Type, PredicateType PT>
 class ComparisonPredicateBase final : public ColumnPredicate {
 public:
     ENABLE_FACTORY_CREATOR(ComparisonPredicateBase);
-    using T = typename PrimitiveTypeTraits<Type>::CppType;
-    ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
-            : ColumnPredicate(column_id, Type, opposite), _value(value) {}
+    using T = std::conditional_t<is_string_type(Type), StringRef,
+                                 typename PrimitiveTypeTraits<Type>::CppType>;
+    ComparisonPredicateBase(uint32_t column_id, std::string col_name, const T& value,
+                            bool opposite = false)
+            : ColumnPredicate(column_id, col_name, Type, opposite), _value(value) {}
     ComparisonPredicateBase(const ComparisonPredicateBase<Type, PT>& other, uint32_t col_id)
             : ColumnPredicate(other, col_id), _value(other._value) {}
     ComparisonPredicateBase(const ComparisonPredicateBase<Type, PT>& other) = delete;
@@ -168,16 +170,14 @@ public:
     bool camp_field(const vectorized::Field& min_field, const vectorized::Field& max_field) const {
         T min_value;
         T max_value;
-        if constexpr (is_int_or_bool(Type) || is_float_or_double(Type)) {
-            min_value =
-                    (typename PrimitiveTypeTraits<Type>::CppType)min_field
-                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
-            max_value =
-                    (typename PrimitiveTypeTraits<Type>::CppType)max_field
-                            .template get<typename PrimitiveTypeTraits<Type>::NearestFieldType>();
+        if constexpr (is_string_type(Type)) {
+            auto& tmp_min = min_field.template get<Type>();
+            auto& tmp_max = max_field.template get<Type>();
+            min_value = StringRef(tmp_min.data(), tmp_min.size());
+            max_value = StringRef(tmp_max.data(), tmp_max.size());
         } else {
-            min_value = min_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
-            max_value = max_field.template get<typename PrimitiveTypeTraits<Type>::CppType>();
+            min_value = min_field.template get<Type>();
+            max_value = max_field.template get<Type>();
         }
 
         if constexpr (PT == PredicateType::EQ) {
@@ -198,10 +198,13 @@ public:
         if ((*statistic->get_stat_func)(statistic, column_id())) {
             vectorized::Field min_field;
             vectorized::Field max_field;
-            if (!vectorized::ParquetPredicate::parse_min_max_value(
-                         statistic->col_schema, statistic->encoded_min_value,
-                         statistic->encoded_max_value, *statistic->ctz, &min_field, &max_field)
-                         .ok()) [[unlikely]] {
+            if (statistic->is_all_null) {
+                result = false;
+            } else if (!vectorized::ParquetPredicate::parse_min_max_value(
+                                statistic->col_schema, statistic->encoded_min_value,
+                                statistic->encoded_max_value, *statistic->ctz, &min_field,
+                                &max_field)
+                                .ok()) [[unlikely]] {
                 result = true;
             } else {
                 result = camp_field(min_field, max_field);
@@ -224,6 +227,7 @@ public:
                       RowRanges* row_ranges) const override {
         vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
         if (!(statistic->get_stat_func)(&stat, column_id())) {
+            row_ranges->add(statistic->row_group_range);
             return true;
         }
 

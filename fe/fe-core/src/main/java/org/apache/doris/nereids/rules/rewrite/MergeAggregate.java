@@ -100,6 +100,7 @@ public class MergeAggregate implements RewriteRuleFactory {
         Map<ExprId, Expression> innerAggExprIdToAggFunc = getInnerAggExprIdToAggFuncMap(innerAgg);
         // rewrite agg function. e.g. max(max)
         List<NamedExpression> replacedAggFunc = replacedOutputExpressions.stream()
+                .filter(e -> e.containsType(AggregateFunction.class))
                 .map(e -> rewriteAggregateFunction(e, innerAggExprIdToAggFunc))
                 .collect(Collectors.toList());
         // replace groupByKeys directly refer to the slot below the project

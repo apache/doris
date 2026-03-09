@@ -22,6 +22,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.InsertTableContext;
+import org.apache.doris.nereids.DorisParser.JobFromToClauseContext;
 import org.apache.doris.nereids.DorisParser.SupportedDmlStatementContext;
 import org.apache.doris.nereids.trees.plans.commands.info.SetVarOp;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -157,8 +158,16 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     // create job select tvf
     @Override
     public LogicalPlan visitCreateScheduledJob(DorisParser.CreateScheduledJobContext ctx) {
-        SupportedDmlStatementContext supportedDmlStatementContext = ctx.supportedDmlStatement();
-        visitInsertTable((InsertTableContext) supportedDmlStatementContext);
+        if (ctx.supportedDmlStatement() != null) {
+            SupportedDmlStatementContext supportedDmlStatementContext = ctx.supportedDmlStatement();
+            visitInsertTable((InsertTableContext) supportedDmlStatementContext);
+        } else if (ctx.jobFromToClause() != null) {
+            JobFromToClauseContext jobFromToClauseContext = ctx.jobFromToClause();
+            encryptProperty(visitPropertyItemList(jobFromToClauseContext.sourceProperties),
+                    jobFromToClauseContext.sourceProperties.start.getStartIndex(),
+                    jobFromToClauseContext.sourceProperties.stop.getStopIndex());
+
+        }
         return super.visitCreateScheduledJob(ctx);
     }
 
@@ -168,6 +177,12 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         SupportedDmlStatementContext supportedDmlStatementContext = ctx.supportedDmlStatement();
         if (ctx.supportedDmlStatement() != null) {
             visitInsertTable((InsertTableContext) supportedDmlStatementContext);
+        } else if (ctx.jobFromToClause() != null) {
+            JobFromToClauseContext jobFromToClauseContext = ctx.jobFromToClause();
+            encryptProperty(visitPropertyItemList(jobFromToClauseContext.sourceProperties),
+                    jobFromToClauseContext.sourceProperties.start.getStartIndex(),
+                    jobFromToClauseContext.sourceProperties.stop.getStopIndex());
+
         }
         return super.visitAlterJob(ctx);
     }

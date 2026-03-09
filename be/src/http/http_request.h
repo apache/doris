@@ -19,10 +19,12 @@
 
 #include <glog/logging.h>
 
+#include <future>
 #include <map>
 #include <memory>
 #include <string>
 
+#include "common/config.h"
 #include "http/http_method.h"
 #include "util/string_util.h"
 
@@ -31,6 +33,8 @@ struct evhttp_request;
 namespace doris {
 
 class HttpHandler;
+
+enum SendReplyType { REPLY_SYNC = 0, REPLY_ASYNC = 1 };
 
 class HttpRequest {
 public:
@@ -81,7 +85,13 @@ public:
 
     const char* remote_host() const;
 
+    void mark_send_reply(SendReplyType type = REPLY_ASYNC) { _send_reply_type = type; }
+
+    void finish_send_reply();
+    void wait_finish_send_reply();
+
 private:
+    SendReplyType _send_reply_type = REPLY_SYNC;
     HttpMethod _method;
     std::string _uri;
     std::string _raw_path;
@@ -95,6 +105,10 @@ private:
 
     std::shared_ptr<void> _handler_ctx;
     std::string _request_body;
+
+    // ensure send_reply finished
+    std::promise<bool> _http_reply_promise;
+    std::future<bool> _http_reply_future = _http_reply_promise.get_future();
 };
 
 } // namespace doris

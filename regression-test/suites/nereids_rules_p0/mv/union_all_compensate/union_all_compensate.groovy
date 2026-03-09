@@ -23,6 +23,7 @@ suite("union_all_compensate") {
         sql "set runtime_filter_mode=OFF";
         sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
         sql "set enable_sql_cache=true"
+        sql "set enable_strong_consistency_read=true"
         sql "ADMIN SET ALL FRONTENDS CONFIG ('cache_last_version_interval_second' = '0')"
         sql "ADMIN SET ALL FRONTENDS CONFIG ('sql_cache_manage_num' = '10000')"
         sql "ADMIN SET ALL FRONTENDS CONFIG ('expire_sql_cache_in_fe_second' = '300')"
@@ -125,6 +126,9 @@ suite("union_all_compensate") {
         sql """analyze table test_table1 with sync"""
         sql """analyze table test_table2 with sync"""
 
+        sql """alter table test_table1 modify column num set stats ('row_count'='20');"""
+        sql """alter table test_table2 modify column num set stats ('row_count'='16');"""
+
         // Aggregate, scalar aggregate, should not compensate union all
         sql """ DROP MATERIALIZED VIEW IF EXISTS test_agg_mv"""
         sql """
@@ -172,6 +176,7 @@ suite("union_all_compensate") {
 
         order_qt_query1_0_after_no_sql_cache "${query1_0}"
         sql "set enable_sql_cache=true"
+        sql "set enable_strong_consistency_read=true"
         order_qt_query1_0_after_use_sql_cache "${query1_0}"
 
         // Data modify
@@ -192,10 +197,8 @@ suite("union_all_compensate") {
         mv_rewrite_fail(query1_0, "test_agg_mv")
         order_qt_query1_1_after_no_sql_cache "${query1_0}"
         sql "set enable_sql_cache=true"
+        sql "set enable_strong_consistency_read=true"
         order_qt_query1_1_after_use_sql_cache "${query1_0}"
-
-        sql """alter table test_table1 modify column num set stats ('row_count'='20');"""
-        sql """alter table test_table2 modify column num set stats ('row_count'='16');"""
 
 
         // Aggregate, if query group by expression doesn't use the partition column, but the invalid partition is in the
@@ -221,6 +224,7 @@ suite("union_all_compensate") {
                 is_partition_statistics_ready(db, ["test_table1", "test_table2", "test_agg_mv"]))
         order_qt_query2_0_after_no_sql_cache "${query2_0}"
         sql "set enable_sql_cache=true"
+        sql "set enable_strong_consistency_read=true"
         order_qt_query2_0_after_use_sql_cache "${query2_0}"
 
 
@@ -246,6 +250,7 @@ suite("union_all_compensate") {
         mv_rewrite_fail(query3_0, "test_agg_mv")
         order_qt_query3_0_after_no_sql_cache "${query3_0}"
         sql "set enable_sql_cache=true"
+        sql "set enable_strong_consistency_read=true"
         order_qt_query3_0_after_use_sql_cache "${query3_0}"
 
 
@@ -273,6 +278,7 @@ suite("union_all_compensate") {
                 is_partition_statistics_ready(db, ["test_table1", "test_table2", "test_agg_mv"]))
         order_qt_query4_0_after_no_sql_cache "${query4_0}"
         sql "set enable_sql_cache=true"
+        sql "set enable_strong_consistency_read=true"
         order_qt_query4_0_after_use_sql_cache "${query4_0}"
 
 
@@ -300,6 +306,7 @@ suite("union_all_compensate") {
                 is_partition_statistics_ready(db, ["test_table1", "test_table2", "test_agg_mv"]))
         order_qt_query5_0_after_no_sql_cache "${query5_0}"
         sql "set enable_sql_cache=true"
+        sql "set enable_strong_consistency_read=true"
         order_qt_query5_0_after_use_sql_cache "${query5_0}"
         sql """ DROP MATERIALIZED VIEW IF EXISTS test_agg_mv"""
 
@@ -359,6 +366,7 @@ suite("union_all_compensate") {
                 is_partition_statistics_ready(db, ["test_table1", "test_table2", "test_join_mv"]))
         order_qt_query6_0_after_no_sql_cache "${query6_0}"
         sql "set enable_sql_cache=true"
+        sql "set enable_strong_consistency_read=true"
         order_qt_query6_0_after_use_sql_cache "${query6_0}"
 
 
@@ -385,6 +393,7 @@ suite("union_all_compensate") {
                 is_partition_statistics_ready(db, ["test_table1", "test_table2", "test_join_mv"]))
         order_qt_query7_0_after_no_sql_cache "${query7_0}"
         sql "set enable_sql_cache=true"
+        sql "set enable_strong_consistency_read=true"
         order_qt_query7_0_after_use_sql_cache "${query7_0}"
         sql """ DROP MATERIALIZED VIEW IF EXISTS test_join_mv"""
 

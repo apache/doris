@@ -101,6 +101,15 @@ public class AdjustAggregateNullableForEmptySet implements RewriteRuleFactory {
         }
 
         @Override
+        public Expression visit(Expression expression, Boolean alwaysNullable) {
+            if (expression.containsType(NullableAggregateFunction.class)) {
+                return super.visit(expression, alwaysNullable);
+            } else {
+                return expression;
+            }
+        }
+
+        @Override
         public Expression visitWindow(WindowExpression windowExpression, Boolean alwaysNullable) {
             ImmutableList.Builder<Expression> newFunctionChildrenBuilder
                     = ImmutableList.builderWithExpectedSize(windowExpression.getFunction().children().size());

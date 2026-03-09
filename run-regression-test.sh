@@ -172,30 +172,82 @@ fi
 if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
     echo "===== Build Regression Test Framework ====="
 
-    # echo "Build generated code"
-    cd "${DORIS_HOME}/gensrc/thrift"
-    make
+    # Configure Maven for better network resilience
+    export MAVEN_OPTS="${MAVEN_OPTS:-} -Dmaven.wagon.http.retryHandler.count=3 -Dmaven.wagon.httpconnectionManager.ttlSeconds=25 -Dmaven.wagon.http.retryHandler.class=standard"
+
+    # Function to execute Maven command with retry logic
+    execute_maven_with_retry() {
+        local cmd="$1"
+        local max_attempts=3
+        local attempt=1
+        
+        while [[ ${attempt} -le ${max_attempts} ]]; do
+            echo "Attempt ${attempt}/${max_attempts}: ${cmd}"
+            if eval "${cmd}"; then
+                echo "Command succeeded on attempt ${attempt}"
+                return 0
+            else
+                echo "Command failed on attempt ${attempt}"
+                if [[ ${attempt} -lt ${max_attempts} ]]; then
+                    sleep $((attempt * 5))  # Linear backoff
+                fi
+                ((attempt++))
+            fi
+        done
+        
+        echo "Command failed after ${max_attempts} attempts"
+        return 1
+    }
+
+    # Build generated code
+    cd "${DORIS_HOME}/gensrc/thrift" || { echo "Failed to change directory"; exit 1; }
+    if ! make; then
+        echo "Make command failed in ${DORIS_HOME}/gensrc/thrift"
+        exit 1
+    fi
 
     cp -rf "${DORIS_HOME}/gensrc/build/gen_java/org/apache/doris/thrift" "${FRAMEWORK_APACHE_DIR}/doris/"
 
-    cd "${DORIS_HOME}/regression-test/framework"
-    "${MVN_CMD}" package
-    cd "${DORIS_HOME}"
+    # Navigate to framework directory and build with retry
+    cd "${DORIS_HOME}/regression-test/framework" || { echo "Failed to change directory"; exit 1; }
+    
+    # First try to download dependencies only
+    echo "Downloading dependencies..."
+    dep_output_file="$(mktemp -t doris-dependencies-XXXXXX.txt)" || { echo "Failed to create temporary file for dependency output"; exit 1; }
+    execute_maven_with_retry "${MVN_CMD} dependency:resolve -B -DskipTests=true -Dmdep.prependGroupId=true -DoutputFile=${dep_output_file}" || {
+        echo "Failed to download dependencies"
+        exit 1
+    }
+    
+    # Then package with retry
+    echo "Building package..."
+    execute_maven_with_retry "${MVN_CMD} clean package -B -DskipTests=true -Dmaven.javadoc.skip=true" || {
+        echo "Failed to build package"
+        exit 1
+    }
+    
+    cd "${DORIS_HOME}" || { echo "Failed to return to DORIS_HOME"; exit 1; }
 
     mkdir -p "${OUTPUT_DIR}"/{lib,log}
     cp -r "${REGRESSION_TEST_BUILD_DIR}"/regression-test-*.jar "${OUTPUT_DIR}/lib"
 
     echo "===== BUILD JAVA_UDF_SRC TO GENERATE JAR ====="
     mkdir -p "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars
-    cd "${DORIS_HOME}"/regression-test/java-udf-src
-    "${MVN_CMD}" package
+    cd "${DORIS_HOME}"/regression-test/java-udf-src || { echo "Failed to change directory to java-udf-src"; exit 1; }
+    
+    # Build UDF with retry
+    execute_maven_with_retry "${MVN_CMD} clean package -B -DskipTests=true -Dmaven.javadoc.skip=true" || {
+        echo "Failed to build UDF package"
+        exit 1
+    }
+    
     cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars/
     # be and fe dir is compiled output
     mkdir -p "${DORIS_HOME}"/output/fe/custom_lib/
     mkdir -p "${DORIS_HOME}"/output/be/custom_lib/
     cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/output/fe/custom_lib/
     cp target/java-udf-case-jar-with-dependencies.jar "${DORIS_HOME}"/output/be/custom_lib/
-    cd "${DORIS_HOME}"
+    cd "${DORIS_HOME}" || { echo "Failed to return to DORIS_HOME"; exit 1; }
 fi
 
 # check java home

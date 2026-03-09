@@ -366,6 +366,7 @@ public class LocationPath {
     }
 
     public static String getTempWritePath(String loc, String prefix) {
+        // If prefix is relative, it is resolved under loc; if absolute, it is used as the base path.
         Path tempRoot = new Path(loc, prefix);
         Path tempPath = new Path(tempRoot, UUID.randomUUID().toString().replace("-", ""));
         return tempPath.toString();

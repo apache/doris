@@ -1901,12 +1901,10 @@ Status VTabletWriter::close(Status exec_status) {
             }
 
             writer_stats.num_node_channels += index_channel->num_node_channels();
-            if (add_batch_exec_time > writer_stats.max_add_batch_exec_time_ns) {
-                writer_stats.max_add_batch_exec_time_ns = add_batch_exec_time;
-            }
-            if (wait_exec_time > writer_stats.max_wait_exec_time_ns) {
-                writer_stats.max_wait_exec_time_ns = wait_exec_time;
-            }
+            writer_stats.max_add_batch_exec_time_ns =
+                    std::max(add_batch_exec_time, writer_stats.max_add_batch_exec_time_ns);
+            writer_stats.max_wait_exec_time_ns =
+                    std::max(wait_exec_time, writer_stats.max_wait_exec_time_ns);
         } // end for index channels
 
         if (status.ok()) {
@@ -1953,6 +1951,11 @@ Status VTabletWriter::close(Status exec_status) {
                     _state->num_rows_filtered_in_strict_mode_partial_update());
             _state->update_num_rows_load_unselected(
                     _tablet_finder->num_immutable_partition_filtered_rows());
+
+            if (_state->enable_profile() && _state->profile_level() >= 2) {
+                // Output detailed profiling info for auto-partition requests
+                _row_distribution.output_profile_info(_operator_profile);
+            }
 
             // print log of add batch time of all node, for tracing load performance easily
             std::stringstream ss;
@@ -2053,7 +2056,6 @@ Status VTabletWriter::write(RuntimeState* state, doris::vectorized::Block& input
     SCOPED_RAW_TIMER(&_send_data_ns);
 
     std::shared_ptr<vectorized::Block> block;
-    int64_t filtered_rows = 0;
     _number_input_rows += rows;
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.
@@ -2064,7 +2066,7 @@ Status VTabletWriter::write(RuntimeState* state, doris::vectorized::Block& input
 
     _row_distribution_watch.start();
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
-            input_block, block, filtered_rows, _row_part_tablet_ids, _number_input_rows));
+            input_block, block, _row_part_tablet_ids, _number_input_rows));
 
     ChannelDistributionPayloadVec channel_to_payload;
 

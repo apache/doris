@@ -263,6 +263,10 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
         type = orc::createPrimitiveType(orc::BINARY);
         break;
     }
+    case TYPE_TIMESTAMPTZ: {
+        type = orc::createPrimitiveType(orc::TIMESTAMP_INSTANT);
+        break;
+    }
     case TYPE_STRUCT: {
         type = orc::createStructType();
         const auto* type_struct =

@@ -34,7 +34,7 @@ Result<FileReaderSPtr> HttpFileReader::create(const std::string& url,
     ofi.path = Path(url);
     ofi.extend_info = props;
 
-    auto reader = std::make_shared<HttpFileReader>(ofi, url);
+    auto reader = std::make_shared<HttpFileReader>(ofi, url, opts.mtime);
 
     // Open the file to detect Range support and validate configuration
     RETURN_IF_ERROR_RESULT(reader->open(opts));
@@ -42,11 +42,12 @@ Result<FileReaderSPtr> HttpFileReader::create(const std::string& url,
     return reader;
 }
 
-HttpFileReader::HttpFileReader(const OpenFileInfo& fileInfo, std::string url)
+HttpFileReader::HttpFileReader(const OpenFileInfo& fileInfo, std::string url, int64_t mtime)
         : _extend_kv(fileInfo.extend_info),
           _path(fileInfo.path),
           _url(std::move(url)),
-          _client(std::make_unique<HttpClient>()) {
+          _client(std::make_unique<HttpClient>()),
+          _mtime(mtime) {
     auto etag_iter = _extend_kv.find("etag");
     if (etag_iter != _extend_kv.end()) {
         _etag = etag_iter->second;
@@ -165,6 +166,22 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         return Status::OK();
     }
 
+    // For non-Range mode, prioritize full file cache
+    if (!_range_supported && _full_file_cached) {
+        if (offset >= _full_file_cache.size()) {
+            *bytes_read = 0;
+            return Status::OK();
+        }
+
+        size_t available = _full_file_cache.size() - offset;
+        size_t copy_len = std::min(available, to_read);
+        std::memcpy(result.data, _full_file_cache.data() + offset, copy_len);
+        *bytes_read = copy_len;
+
+        VLOG(2) << "Full file cache hit: copied " << copy_len << " bytes from offset " << offset;
+        return Status::OK();
+    }
+
     // Try to serve from buffer cache
     if (offset >= _buffer_start && offset < _buffer_end) {
         size_t buffer_idx = offset - _buffer_start;
@@ -273,25 +290,24 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
                 http_status, buf.size(), _url);
     }
 
-    // Handle non-Range mode: when _range_supported is false, we download full file
-    if (!_range_supported && offset > 0) {
-        // We're in non-Range mode and need data from middle of file
-        // The full file should have been downloaded
-        if (offset >= buf.size()) {
+    // Handle non-Range mode: cache the full file on first download
+    if (!_range_supported && !_full_file_cached) {
+        // Cache the complete file content for subsequent reads
+        _full_file_cache = std::move(buf);
+        _full_file_cached = true;
+
+        VLOG(2) << "Cached full file: " << _full_file_cache.size() << " bytes";
+
+        // Serve the requested portion from cache
+        if (offset >= _full_file_cache.size()) {
             *bytes_read = buffer_offset;
             return Status::OK();
         }
 
-        size_t slice_len = std::min<size_t>(remaining, buf.size() - offset);
-        std::memcpy(result.data + buffer_offset, buf.data() + offset, slice_len);
-        buffer_offset += slice_len;
-
-        size_t cached = std::min(slice_len, (size_t)READ_BUFFER_SIZE);
-        std::memcpy(_read_buffer.get(), buf.data() + offset, cached);
-        _buffer_start = offset;
-        _buffer_end = offset + cached;
-
-        *bytes_read = buffer_offset;
+        size_t available = _full_file_cache.size() - offset;
+        size_t copy_len = std::min(available, remaining);
+        std::memcpy(result.data + buffer_offset, _full_file_cache.data() + offset, copy_len);
+        *bytes_read = buffer_offset + copy_len;
         return Status::OK();
     }
 
@@ -330,6 +346,11 @@ Status HttpFileReader::close() {
     _read_buffer.reset();
     _buffer_start = 0;
     _buffer_end = 0;
+
+    // Release full file cache
+    _full_file_cache.clear();
+    _full_file_cache.shrink_to_fit();
+    _full_file_cached = false;
 
     // Release HttpClient resources
     _client.reset();

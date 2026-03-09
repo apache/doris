@@ -327,7 +327,8 @@ TEST_F(CollectionStatisticsTest, CollectWithEmptyRowsetSplits) {
 
     std::vector<RowSetSplits> empty_splits;
 
-    auto status = stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, expr_contexts);
+    auto status = stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, expr_contexts,
+                                  nullptr);
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 
@@ -337,8 +338,8 @@ TEST_F(CollectionStatisticsTest, CollectWithEmptyExpressions) {
 
     std::vector<RowSetSplits> empty_splits;
 
-    auto status =
-            stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, empty_contexts);
+    auto status = stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, empty_contexts,
+                                  nullptr);
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 
@@ -353,7 +354,8 @@ TEST_F(CollectionStatisticsTest, CollectWithNonMatchExpression) {
 
     std::vector<RowSetSplits> empty_splits;
 
-    auto status = stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, contexts);
+    auto status =
+            stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, contexts, nullptr);
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 
@@ -380,7 +382,8 @@ TEST_F(CollectionStatisticsTest, CollectWithMultipleMatchExpressions) {
 
     std::vector<RowSetSplits> empty_splits;
 
-    auto status = stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, contexts);
+    auto status =
+            stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, contexts, nullptr);
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 
@@ -407,7 +410,8 @@ TEST_F(CollectionStatisticsTest, CollectWithNestedExpressions) {
 
     std::vector<RowSetSplits> empty_splits;
 
-    auto status = stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, contexts);
+    auto status =
+            stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, contexts, nullptr);
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 
@@ -417,7 +421,8 @@ TEST_F(CollectionStatisticsTest, CollectWithMockRowsetSplits) {
 
     auto splits = create_mock_rowset_splits(2);
 
-    auto status = stats_->collect(runtime_state_.get(), splits, tablet_schema, expr_contexts);
+    auto status =
+            stats_->collect(runtime_state_.get(), splits, tablet_schema, expr_contexts, nullptr);
 
     EXPECT_TRUE(status.ok());
 }
@@ -428,7 +433,8 @@ TEST_F(CollectionStatisticsTest, CollectWithEmptySegments) {
 
     auto splits = create_mock_rowset_splits(0);
 
-    auto status = stats_->collect(runtime_state_.get(), splits, tablet_schema, expr_contexts);
+    auto status =
+            stats_->collect(runtime_state_.get(), splits, tablet_schema, expr_contexts, nullptr);
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 
@@ -450,7 +456,8 @@ TEST_F(CollectionStatisticsTest, CollectWithMultipleRowsetSplits) {
         splits.push_back(split);
     }
 
-    auto status = stats_->collect(runtime_state_.get(), splits, tablet_schema, expr_contexts);
+    auto status =
+            stats_->collect(runtime_state_.get(), splits, tablet_schema, expr_contexts, nullptr);
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 
@@ -581,7 +588,8 @@ TEST_F(CollectionStatisticsTest, CollectWithCastWrappedSlotRef) {
     contexts.push_back(std::make_shared<vectorized::VExprContext>(match_expr));
 
     std::vector<RowSetSplits> empty_splits;
-    auto status = stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, contexts);
+    auto status =
+            stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, contexts, nullptr);
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 
@@ -605,7 +613,8 @@ TEST_F(CollectionStatisticsTest, CollectWithDoubleCastWrappedSlotRef) {
     contexts.push_back(std::make_shared<vectorized::VExprContext>(match_expr));
 
     std::vector<RowSetSplits> empty_splits;
-    auto status = stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, contexts);
+    auto status =
+            stats_->collect(runtime_state_.get(), empty_splits, tablet_schema, contexts, nullptr);
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 

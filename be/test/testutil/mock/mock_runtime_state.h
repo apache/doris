@@ -72,6 +72,8 @@ public:
     bool enable_local_exchange() const override { return true; }
     WorkloadGroupPtr workload_group() override { return _workload_group; }
 
+    bool enable_use_hybrid_sort() const override { return false; }
+
     // default batch size
     int batsh_size = 4096;
     bool _enable_shared_exchange_sink_buffer = true;

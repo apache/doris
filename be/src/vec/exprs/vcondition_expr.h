@@ -20,8 +20,8 @@
 
 #include "common/status.h"
 #include "runtime/runtime_state.h"
-#include "udf/udf.h"
 #include "vec/core/column_numbers.h"
+#include "vec/exprs/function_context.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"

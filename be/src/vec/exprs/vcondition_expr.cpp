@@ -19,10 +19,10 @@
 
 #include <glog/logging.h>
 
-#include "udf/udf.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/exprs/function_context.h"
 
 namespace doris::vectorized {
 
@@ -213,7 +213,7 @@ Status VectorizedIfExpr::execute_for_null_then_else(Block& block,
                                                        arg_cond.column));
             }
         } else if (cond_const_col) {
-            if (cond_const_col->get_value<UInt8>()) { // if(true, null, else)
+            if (cond_const_col->get_value<TYPE_BOOLEAN>()) { // if(true, null, else)
                 block.get_by_position(result).column =
                         block.get_by_position(result).type->create_column()->clone_resized(
                                 input_rows_count);
@@ -251,7 +251,7 @@ Status VectorizedIfExpr::execute_for_null_then_else(Block& block,
                                                        std::move(negated_null_map)));
             }
         } else if (cond_const_col) {
-            if (cond_const_col->get_value<UInt8>()) { // if(true, then, NULL)
+            if (cond_const_col->get_value<TYPE_BOOLEAN>()) { // if(true, then, NULL)
                 block.get_by_position(result).column = make_nullable_column_if_not(arg_then.column);
             } else { // if(false, then, NULL)
                 block.get_by_position(result).column =
@@ -424,7 +424,7 @@ Status VectorizedIfExpr::_execute_impl_internal(Block& block, const ColumnNumber
 
     if (cond_const_col) {
         block.get_by_position(result).column =
-                cond_const_col->get_value<UInt8>() ? arg_then.column : arg_else.column;
+                cond_const_col->get_value<TYPE_BOOLEAN>() ? arg_then.column : arg_else.column;
         return Status::OK();
     }
 
@@ -559,9 +559,33 @@ void insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_col
     // true: null_map_data[row]==0 && filled_idx[row]==0
     // if true, could filled current row data into result column
     for (size_t row = 0; row < input_rows_count; ++row) {
-        result_raw_data[row] +=
-                column_raw_data[row] *
-                typename ColumnType::value_type(!(null_map_data[row] | filled_flag[row]));
+        if constexpr (std::is_same_v<ColumnType, ColumnDateV2>) {
+            result_raw_data[row] = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(
+                    result_raw_data[row].to_date_int_val() +
+                    column_raw_data[row].to_date_int_val() *
+                            uint32_t(!(null_map_data[row] | filled_flag[row])));
+        } else if constexpr (std::is_same_v<ColumnType, ColumnDateTimeV2>) {
+            result_raw_data[row] = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(
+                    result_raw_data[row].to_date_int_val() +
+                    column_raw_data[row].to_date_int_val() *
+                            uint64_t(!(null_map_data[row] | filled_flag[row])));
+        } else if constexpr (std::is_same_v<ColumnType, ColumnTimeStampTz>) {
+            result_raw_data[row] = binary_cast<uint64_t, TimestampTzValue>(
+                    result_raw_data[row].to_date_int_val() +
+                    column_raw_data[row].to_date_int_val() *
+                            uint64_t(!(null_map_data[row] | filled_flag[row])));
+        } else if constexpr (std::is_same_v<ColumnType, ColumnDate> ||
+                             std::is_same_v<ColumnType, ColumnDateTime>) {
+            result_raw_data[row] = binary_cast<int64_t, VecDateTimeValue>(
+                    binary_cast<VecDateTimeValue, int64_t>(result_raw_data[row]) +
+                    binary_cast<VecDateTimeValue, int64_t>(column_raw_data[row]) *
+                            int64_t(!(null_map_data[row] | filled_flag[row])));
+        } else {
+            result_raw_data[row] +=
+                    column_raw_data[row] *
+                    typename ColumnType::value_type(!(null_map_data[row] | filled_flag[row]));
+        }
+
         filled_flag[row] += (!(null_map_data[row] | filled_flag[row]));
     }
 }

@@ -74,7 +74,9 @@ public class MetadataViewer {
 
             for (String partName : partitions) {
                 Partition partition = olapTable.getPartition(partName);
-                long visibleVersion = partition.getVisibleVersion();
+                // for local mode, getCachedVisibleVersion return visibleVersion.
+                // for cloud mode, the replica version is not updated.
+                long visibleVersion = partition.getCachedVisibleVersion();
                 short replicationNum = olapTable.getPartitionInfo()
                         .getReplicaAllocation(partition.getId()).getTotalReplicaNum();
 
@@ -179,7 +181,9 @@ public class MetadataViewer {
 
             for (String partName : partitions) {
                 Partition partition = olapTable.getPartition(partName);
-                long visibleVersion = partition.getVisibleVersion();
+                // for local mode, getCachedVisibleVersion return visibleVersion.
+                // for cloud mode, the replica version is not updated.
+                long visibleVersion = partition.getCachedVisibleVersion();
                 short replicationNum = olapTable.getPartitionInfo()
                         .getReplicaAllocation(partition.getId()).getTotalReplicaNum();
 

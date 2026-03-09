@@ -77,6 +77,7 @@ suite("test_routine_load_adaptive_param","nonConcurrent") {
             logger.info("---test adaptively increase---")
             RoutineLoadTestUtils.sendTestDataToKafka(producer, kafkaCsvTpoics)
             RoutineLoadTestUtils.checkTaskTimeout(runSql, job, "3600")
+            RoutineLoadTestUtils.checkTxnTimeoutMatchesTaskTimeout(runSql, job, "3600000")
             RoutineLoadTestUtils.waitForTaskFinish(runSql, job, tableName, 2)
 
             // test restore adaptively

@@ -46,7 +46,7 @@ under the License.
     &nbsp;
     <a href="https://github.com/apache/doris/discussions"><img src="https://img.shields.io/badge/- Discussion -red?style=social&logo=discourse" height=25></a>
     &nbsp;
-    <a href="https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w" height=25></a>
+    <a href="https://doris.apache.org/slack" height=25></a>
     &nbsp;
     <a href="https://medium.com/@ApacheDoris"><img src="https://img.shields.io/badge/-Medium-red?style=social&logo=medium" height=25></a>
 
@@ -295,7 +295,7 @@ Doris предоставляет поддержку для Spark/Flink для ч
 
 * Официальный веб-сайт Apache Doris - [Сайт](https://doris.apache.org)
 * Список рассылки разработчиков - <dev@doris.apache.org>. Отправьте письмо на <dev-subscribe@doris.apache.org>, следуйте ответу, чтобы подписаться на список рассылки.
-* Канал Slack - [Присоединиться к Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-35mzao67o-BrpU70FNKPyB6UlgpXf8_w)
+* Канал Slack - [Присоединиться к Slack](https://doris.apache.org/slack)
 * Twitter - [Подписаться на @doris_apache](https://twitter.com/doris_apache)
 
 

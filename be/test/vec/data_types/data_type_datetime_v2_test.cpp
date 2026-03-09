@@ -124,10 +124,19 @@ TEST_F(DataTypeDateTimeV2Test, simple_func_test) {
 }
 
 TEST_F(DataTypeDateTimeV2Test, get_default) {
-    EXPECT_EQ(dt_datetime_v2_0.get_default(), Field::create_field<TYPE_DATETIMEV2>(0UL));
-    EXPECT_EQ(dt_datetime_v2_5.get_default(), Field::create_field<TYPE_DATETIMEV2>(0UL));
-    EXPECT_EQ(dt_datetime_v2_6.get_default(), Field::create_field<TYPE_DATETIMEV2>(0UL));
-    EXPECT_EQ(dt_date_v2.get_default(), Field::create_field<TYPE_DATEV2>(0UL));
+    auto v = 0UL;
+    EXPECT_EQ(dt_datetime_v2_0.get_default(),
+              Field::create_field<TYPE_DATETIMEV2>(
+                      *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)&v));
+    EXPECT_EQ(dt_datetime_v2_5.get_default(),
+              Field::create_field<TYPE_DATETIMEV2>(
+                      *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)&v));
+    EXPECT_EQ(dt_datetime_v2_6.get_default(),
+              Field::create_field<TYPE_DATETIMEV2>(
+                      *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)&v));
+    EXPECT_EQ(dt_date_v2.get_default(),
+              Field::create_field<TYPE_DATEV2>(
+                      *(typename PrimitiveTypeTraits<TYPE_DATEV2>::CppType*)&v));
     EXPECT_EQ(dt_time_v2_6.get_default(), Field::create_field<TYPE_TIMEV2>(0.0));
 }
 
@@ -255,9 +264,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "0000-01-01";
         auto field = dt_date_v2.get_field(expr_node);
-        auto int_value = field.get<UInt32>();
-        DateV2Value<DateV2ValueType> date_value =
-                binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(int_value);
+        auto date_value = field.get<TYPE_DATEV2>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -269,8 +276,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
         // should be OK
         expr_node.date_literal.value = "0000-01-01 00:00:00.000000";
         field = dt_date_v2.get_field(expr_node);
-        int_value = field.get<UInt32>();
-        date_value = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATEV2>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -281,8 +287,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "9999-12-31 00:00:00.000000";
         field = dt_date_v2.get_field(expr_node);
-        int_value = field.get<UInt32>();
-        date_value = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATEV2>();
         EXPECT_EQ(date_value.year(), 9999);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -293,16 +298,14 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "2021-01-01";
         field = dt_date_v2.get_field(expr_node);
-        int_value = field.get<UInt32>();
-        date_value = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATEV2>();
         EXPECT_EQ(date_value.year(), 2021);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
 
         expr_node.date_literal.value = "9999-12-31";
         field = dt_date_v2.get_field(expr_node);
-        int_value = field.get<UInt32>();
-        date_value = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATEV2>();
         EXPECT_EQ(date_value.year(), 9999);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -310,8 +313,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
         // it's OK to have time part for date
         expr_node.date_literal.value = "0000-01-01 23:59:59";
         field = dt_date_v2.get_field(expr_node);
-        int_value = field.get<UInt32>();
-        date_value = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATEV2>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -322,8 +324,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "9999-12-31 23:59:59";
         field = dt_date_v2.get_field(expr_node);
-        int_value = field.get<UInt32>();
-        date_value = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATEV2>();
         EXPECT_EQ(date_value.year(), 9999);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -337,9 +338,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "0000-01-01 00:00:00";
         auto field = dt_datetime_v2_0.get_field(expr_node);
-        auto int_value = field.get<UInt64>();
-        DateV2Value<DateTimeV2ValueType> date_value =
-                binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        auto date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -350,8 +349,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "2021-12-31 12:23:34";
         field = dt_datetime_v2_0.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 2021);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -362,8 +360,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "9999-12-31 23:59:59";
         field = dt_datetime_v2_0.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 9999);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -380,9 +377,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "0000-01-01 00:00:00.00000";
         auto field = dt_datetime_v2_5.get_field(expr_node);
-        auto int_value = field.get<UInt64>();
-        DateV2Value<DateTimeV2ValueType> date_value =
-                binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        auto date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -394,8 +389,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
         // microsecond is rounded
         expr_node.date_literal.value = "0000-01-01 00:00:00.000001";
         field = dt_datetime_v2_5.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -406,8 +400,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "0000-01-01 00:00:00.000005";
         field = dt_datetime_v2_5.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -418,8 +411,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "0000-01-01 00:00:00.000010";
         field = dt_datetime_v2_5.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -430,8 +422,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "0000-01-01 00:00:00.1";
         field = dt_datetime_v2_5.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -442,8 +433,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "2021-12-31 12:23:34.12345";
         field = dt_datetime_v2_5.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 2021);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -455,8 +445,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
         // microsecond is rounded
         expr_node.date_literal.value = "2021-12-31 12:23:34.123454";
         field = dt_datetime_v2_5.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 2021);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -467,8 +456,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "2021-12-31 12:23:34.123456";
         field = dt_datetime_v2_5.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 2021);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -479,8 +467,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "9999-12-31 23:59:59.999994";
         field = dt_datetime_v2_5.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 9999);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -491,8 +478,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "9999-12-31 23:59:59.999985";
         field = dt_datetime_v2_5.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 9999);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -503,8 +489,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "9999-12-31 23:59:59.99999";
         field = dt_datetime_v2_5.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 9999);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -521,9 +506,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "0000-01-01 00:00:00.1";
         auto field = dt_datetime_v2_6.get_field(expr_node);
-        auto int_value = field.get<UInt64>();
-        DateV2Value<DateTimeV2ValueType> date_value =
-                binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        auto date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -534,8 +517,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "0000-01-01 00:00:00.000000";
         field = dt_datetime_v2_6.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -546,8 +528,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "0000-01-01 00:00:00.000001";
         field = dt_datetime_v2_6.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -558,8 +539,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "0000-01-01 00:00:00.100000";
         field = dt_datetime_v2_6.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -570,8 +550,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "0000-01-01 00:00:00.100001";
         field = dt_datetime_v2_6.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 0);
         EXPECT_EQ(date_value.month(), 1);
         EXPECT_EQ(date_value.day(), 1);
@@ -582,8 +561,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "2021-12-31 12:23:34.99999";
         field = dt_datetime_v2_6.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 2021);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -598,8 +576,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
         // EXPECT_EQ(date_value.microsecond(), 999999);
         expr_node.date_literal.value = "2021-12-31 12:23:34.999999";
         field = dt_datetime_v2_5.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 2021);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -610,8 +587,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "9999-12-31 23:59:59.999999";
         field = dt_datetime_v2_6.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 9999);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -622,8 +598,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "2021-12-31 12:23:34.9999994";
         field = dt_datetime_v2_5.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 2021);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -634,8 +609,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "2021-12-31 12:23:34.9999985";
         field = dt_datetime_v2_6.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 2021);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -646,8 +620,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "2021-12-31 12:23:34.9999999";
         field = dt_datetime_v2_6.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 2021);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -658,8 +631,7 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
 
         expr_node.date_literal.value = "9999-12-31 23:59:58.9999999";
         field = dt_datetime_v2_6.get_field(expr_node);
-        int_value = field.get<UInt64>();
-        date_value = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_value);
+        date_value = field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(date_value.year(), 9999);
         EXPECT_EQ(date_value.month(), 12);
         EXPECT_EQ(date_value.day(), 31);
@@ -682,7 +654,12 @@ TEST_F(DataTypeDateTimeV2Test, ser_deser) {
 
         size_t count = 0;
         col_with_type->clear();
-        col_with_type->insert_many_vals(1, count);
+        {
+            uint64_t tmp = 1;
+            col_with_type->insert_many_vals(
+                    binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(tmp), count);
+        }
+
         auto expected_data_size = sizeof(typename ColumnType::value_type) * count;
         // binary: const flag| row num | real saved num| data
         auto content_uncompressed_size =
@@ -705,7 +682,11 @@ TEST_F(DataTypeDateTimeV2Test, ser_deser) {
 
         count = 1;
         col_with_type->clear();
-        col_with_type->insert_many_vals(1, count);
+        {
+            uint64_t tmp = 1;
+            col_with_type->insert_many_vals(
+                    binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(tmp), count);
+        }
         expected_data_size = sizeof(typename ColumnType::value_type) * count;
         content_uncompressed_size = dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
 
@@ -729,7 +710,11 @@ TEST_F(DataTypeDateTimeV2Test, ser_deser) {
 
         count = SERIALIZED_MEM_SIZE_LIMIT + 1;
         col_with_type->clear();
-        col_with_type->insert_many_vals(1, count);
+        {
+            uint64_t tmp = 1;
+            col_with_type->insert_many_vals(
+                    binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(tmp), count);
+        }
         content_uncompressed_size = dt.get_uncompressed_serialized_bytes(*tmp_col, be_exec_version);
         expected_data_size = sizeof(typename ColumnType::value_type) * count;
 
@@ -774,8 +759,6 @@ TEST_F(DataTypeDateTimeV2Test, ser_deser) {
             }
         }
     };
-    test_func(dt_date_v2, *column_date_v2, USE_CONST_SERDE);
-
     test_func(dt_datetime_v2_0, *column_datetime_v2_0, USE_CONST_SERDE);
     test_func(dt_datetime_v2_5, *column_datetime_v2_5, USE_CONST_SERDE);
     test_func(dt_datetime_v2_6, *column_datetime_v2_6, USE_CONST_SERDE);
@@ -895,7 +878,9 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
 
 TEST_F(DataTypeDateTimeV2Test, GetFieldWithDataTypeTest) {
     auto column_datetime_v2 = dt_datetime_v2_0.create_column();
-    Field field_datetime_v2 = Field::create_field<TYPE_DATETIMEV2>(0);
+    UInt64 v = 0;
+    Field field_datetime_v2 = Field::create_field<TYPE_DATETIMEV2>(
+            *(typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::CppType*)&v);
     column_datetime_v2->insert(field_datetime_v2);
     EXPECT_EQ(dt_datetime_v2_0.get_field_with_data_type(*column_datetime_v2, 0).field,
               field_datetime_v2);
