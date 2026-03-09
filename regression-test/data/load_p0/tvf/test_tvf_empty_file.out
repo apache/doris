@@ -15,3 +15,9 @@ c1	text	Yes	false	\N	NONE
 c2	text	Yes	false	\N	NONE
 c3	text	Yes	false	\N	NONE
 
+-- !select3 --
+1,Refrain
+
+-- !desc3 --
+id,name	text	Yes	false	\N	NONE
+
