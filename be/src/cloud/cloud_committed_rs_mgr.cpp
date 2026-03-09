@@ -21,7 +21,7 @@
 
 #include "cloud/config.h"
 #include "common/logging.h"
-#include "olap/rowset/rowset_meta.h"
+#include "storage/rowset/rowset_meta.h"
 #include "util/thread.h"
 
 namespace doris {

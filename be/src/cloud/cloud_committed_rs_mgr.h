@@ -22,7 +22,7 @@
 #include <shared_mutex>
 
 #include "common/status.h"
-#include "olap/rowset/rowset_fwd.h"
+#include "storage/rowset/rowset_fwd.h"
 #include "util/countdown_latch.h"
 
 namespace doris {
