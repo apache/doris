@@ -16,32 +16,41 @@
 // under the License.
 
 #pragma once
+#include "format/generic_reader.h"
+#include "load/group_commit/wal/wal_file_reader.h"
+#include "runtime/descriptors.h"
 
-#include <gen_cpp/internal_service.pb.h>
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+struct ScannerCounter;
+class WalReader : public GenericReader {
+    ENABLE_FACTORY_CREATOR(WalReader);
 
-#include "common/status.h"
-#include "io/fs/file_reader_writer_fwd.h"
-
-namespace doris {
-
-class WalReader {
 public:
-    explicit WalReader(const std::string& file_name);
-    ~WalReader();
+    WalReader(RuntimeState* state);
+    ~WalReader() override = default;
+    Status init_reader(const TupleDescriptor* tuple_descriptor);
+    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
+                       std::unordered_set<std::string>* missing_cols) override;
 
-    Status init();
-    Status finalize();
-
-    Status read_block(PBlock& block);
-    Status read_header(uint32_t& version, std::string& col_ids);
+    Status close() override {
+        if (_wal_reader) {
+            return _wal_reader->finalize();
+        }
+        return Status::OK();
+    }
 
 private:
-    Status _deserialize(PBlock& block, const std::string& buf, size_t block_len, size_t bytes_read);
-    Status _check_checksum(const char* binary, size_t size, uint32_t checksum);
-
-    std::string _file_name;
-    size_t _offset;
-    io::FileReaderSPtr file_reader;
+    RuntimeState* _state = nullptr;
+    int64_t _wal_id;
+    std::string _wal_path;
+    std::shared_ptr<doris::WalFileReader> _wal_reader = nullptr;
+    const TupleDescriptor* _tuple_descriptor = nullptr;
+    // column_id, column_pos
+    std::map<int64_t, int64_t> _column_pos_map;
+    int64_t _column_id_count;
+    uint32_t _version = 0;
 };
-
-} // namespace doris
+#include "common/compile_check_end.h"
+} // namespace doris::vectorized
