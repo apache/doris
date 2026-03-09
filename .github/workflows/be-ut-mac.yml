@@ -96,5 +96,5 @@ jobs:
           tar -xvf doris-thirdparty-prebuilt-darwin-arm64.tar.xz
           popd
 
-          export JAVA_HOME="${JAVA_HOME_17_ARM64%\/}"
+          export JAVA_HOME="${JAVA_HOME_17_arm64%\/}"
           ./run-be-ut.sh --run -j "$(nproc)" --clean
