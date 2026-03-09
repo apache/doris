@@ -739,8 +739,8 @@ TEST(HashTableMethodTest, testStringHashMapIterator) {
     // Collect all (key_string, mapped) pairs via iterator
     std::vector<std::pair<std::string, AggregateDataPtr>> entries;
     for (auto it = ht.begin(); it != ht.end(); ++it) {
-        auto key = it->get_key();
-        entries.emplace_back(std::string(key.data, key.size), it->get_second());
+        auto key = it.get_first();
+        entries.emplace_back(std::string(key.data, key.size), it.get_second());
     }
     ASSERT_EQ(entries.size(), 5);
 
@@ -764,9 +764,9 @@ TEST(HashTableMethodTest, testStringHashMapIterator) {
     auto it2 = it;
     EXPECT_TRUE(it == it2);
 
-    auto key1 = it->get_key();
-    auto key2 = it2->get_key();
-    EXPECT_EQ(StringRef(key1.data, key1.size), StringRef(key2.data, key2.size));
+    auto key1 = it.get_first();
+    auto key2 = it2.get_first();
+    EXPECT_EQ(key1, key2);
 
     ++it;
     EXPECT_TRUE(it != it2);

@@ -333,10 +333,7 @@ Status PartitionedAggSinkLocalState::_spill_hash_table(RuntimeState* state,
 
     context.init_iterator();
 
-    Base::_shared_state->in_mem_shared_state->aggregate_data_container->init_once();
-
-    const auto total_rows =
-            Base::_shared_state->in_mem_shared_state->aggregate_data_container->total_count();
+    const auto total_rows = hash_table.size();
 
     const size_t size_to_revoke_ = std::max<size_t>(size_to_revoke, 1);
 
@@ -352,13 +349,11 @@ Status PartitionedAggSinkLocalState::_spill_hash_table(RuntimeState* state,
 
     std::vector<TmpSpillInfo<typename HashTableType::key_type>> spill_infos(
             Base::_shared_state->partition_count);
-    auto& iter = Base::_shared_state->in_mem_shared_state->aggregate_data_container->iterator;
-    while (iter != Base::_shared_state->in_mem_shared_state->aggregate_data_container->end() &&
-           !state->is_cancelled()) {
-        const auto& key = iter.template get_key<typename HashTableType::key_type>();
+    while (context.begin != context.end && !state->is_cancelled()) {
+        const auto& key = context.begin.get_first();
         auto partition_index = Base::_shared_state->get_partition_index(hash_table.hash(key));
         spill_infos[partition_index].keys_.emplace_back(key);
-        spill_infos[partition_index].values_.emplace_back(iter.get_aggregate_data());
+        spill_infos[partition_index].values_.emplace_back(context.begin.get_second());
 
         if (++row_count == spill_batch_rows) {
             row_count = 0;
@@ -374,7 +369,7 @@ Status PartitionedAggSinkLocalState::_spill_hash_table(RuntimeState* state,
             }
         }
 
-        ++iter;
+        ++context.begin;
     }
     auto hash_null_key_data = hash_table.has_null_key_data();
     for (int i = 0; i < Base::_shared_state->partition_count && !state->is_cancelled(); ++i) {

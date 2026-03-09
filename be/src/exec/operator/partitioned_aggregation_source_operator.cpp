@@ -179,7 +179,6 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, Block* bloc
 
     // not spilled in sink or current partition still has data
     auto* runtime_state = local_state._runtime_state.get();
-    local_state._shared_state->in_mem_shared_state->aggregate_data_container->init_once();
     status = _agg_source_operator->get_block(runtime_state, block, eos);
     if (!local_state._shared_state->is_spilled) {
         auto* source_local_state =

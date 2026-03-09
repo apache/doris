@@ -75,7 +75,6 @@ Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     _hash_table_input_counter =
             ADD_COUNTER(Base::custom_profile(), "HashTableInputCount", TUnit::UNIT);
 
-    _memory_usage_container = ADD_COUNTER(custom_profile(), "MemoryUsageContainer", TUnit::BYTES);
     _memory_usage_arena = ADD_COUNTER(custom_profile(), "MemoryUsageArena", TUnit::BYTES);
 
     return Status::OK();
@@ -113,25 +112,6 @@ Status AggSinkLocalState::open(RuntimeState* state) {
         }
     } else {
         RETURN_IF_ERROR(_init_hash_method(Base::_shared_state->probe_expr_ctxs));
-
-        std::visit(Overload {[&](std::monostate& arg) {
-                                 throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                                        "uninited hash table");
-                             },
-                             [&](auto& agg_method) {
-                                 using HashTableType = std::decay_t<decltype(agg_method)>;
-                                 using KeyType = typename HashTableType::Key;
-
-                                 /// some aggregate functions (like AVG for decimal) have align issues.
-                                 Base::_shared_state->aggregate_data_container =
-                                         std::make_unique<AggregateDataContainer>(
-                                                 sizeof(KeyType),
-                                                 ((p._total_size_of_aggregate_states +
-                                                   p._align_aggregate_states - 1) /
-                                                  p._align_aggregate_states) *
-                                                         p._align_aggregate_states);
-                             }},
-                   _agg_data->method_variant);
         if (p._is_merge) {
             _executor = std::make_unique<Executor<false, true>>();
         } else {
@@ -208,10 +188,6 @@ size_t AggSinkLocalState::_memory_usage() const {
     size_t usage = 0;
     usage += Base::_shared_state->agg_arena_pool.size();
 
-    if (Base::_shared_state->aggregate_data_container) {
-        usage += Base::_shared_state->aggregate_data_container->memory_usage();
-    }
-
     std::visit(Overload {[&](std::monostate& arg) -> void {
                              throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                                     "uninited hash table");
@@ -239,19 +215,14 @@ void AggSinkLocalState::_update_memusage_with_serialized_key() {
                       [&](auto& agg_method) -> void {
                           auto& data = *agg_method.hash_table;
                           int64_t memory_usage_arena = Base::_shared_state->agg_arena_pool.size();
-                          int64_t memory_usage_container =
-                                  _shared_state->aggregate_data_container->memory_usage();
                           int64_t hash_table_memory_usage = data.get_buffer_size_in_bytes();
 
                           COUNTER_SET(_memory_usage_arena, memory_usage_arena);
-                          COUNTER_SET(_memory_usage_container, memory_usage_container);
                           COUNTER_SET(_hash_table_memory_usage, hash_table_memory_usage);
-                          COUNTER_SET(_serialize_key_arena_memory_usage,
-                                      memory_usage_arena + memory_usage_container);
+                          COUNTER_SET(_serialize_key_arena_memory_usage, memory_usage_arena);
 
-                          COUNTER_SET(_memory_used_counter, memory_usage_arena +
-                                                                    memory_usage_container +
-                                                                    hash_table_memory_usage);
+                          COUNTER_SET(_memory_used_counter,
+                                      memory_usage_arena + hash_table_memory_usage);
                       }},
             _agg_data->method_variant);
 }
@@ -538,9 +509,11 @@ void AggSinkLocalState::_emplace_into_hash_table(AggregateDataPtr* places,
                              auto creator = [this](const auto& ctor, auto& key, auto& origin) {
                                  HashMethodType::try_presis_key_and_origin(
                                          key, origin, Base::_shared_state->agg_arena_pool);
-                                 auto mapped =
-                                         Base::_shared_state->aggregate_data_container->append_data(
-                                                 origin);
+                                 auto* mapped = Base::_shared_state->agg_arena_pool.aligned_alloc(
+                                         Base::_parent->template cast<AggSinkOperatorX>()
+                                                 ._total_size_of_aggregate_states,
+                                         Base::_parent->template cast<AggSinkOperatorX>()
+                                                 ._align_aggregate_states);
                                  auto st = _create_agg_status(mapped);
                                  if (!st) {
                                      throw Exception(st.code(), st.to_string());
@@ -614,9 +587,11 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(AggregateDataPtr* places,
                                       HashMethodType::try_presis_key_and_origin(
                                               key, origin, Base::_shared_state->agg_arena_pool);
                                       _shared_state->refresh_top_limit(i, key_columns);
-                                      auto mapped =
-                                              _shared_state->aggregate_data_container->append_data(
-                                                      origin);
+                                      auto mapped = _shared_state->agg_arena_pool.aligned_alloc(
+                                              Base::_parent->template cast<AggSinkOperatorX>()
+                                                      ._total_size_of_aggregate_states,
+                                              Base::_parent->template cast<AggSinkOperatorX>()
+                                                      ._align_aggregate_states);
                                       auto st = _create_agg_status(mapped);
                                       if (!st) {
                                           throw Exception(st.code(), st.to_string());

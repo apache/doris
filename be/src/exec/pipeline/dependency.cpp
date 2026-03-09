@@ -302,11 +302,6 @@ Status AggSharedState::reset_hash_table() {
                                       hash_table.template get_null_key_data<AggregateDataPtr>());
                           }
 
-                          aggregate_data_container.reset(new AggregateDataContainer(
-                                  sizeof(typename HashTableType::key_type),
-                                  ((total_size_of_aggregate_states + align_aggregate_states - 1) /
-                                   align_aggregate_states) *
-                                          align_aggregate_states));
                           agg_method.hash_table.reset(new HashTableType());
                           return Status::OK();
                       }},

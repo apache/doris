@@ -79,7 +79,6 @@ protected:
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::Counter* _merge_timer = nullptr;
     RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
-    RuntimeProfile::Counter* _memory_usage_container = nullptr;
     RuntimeProfile::Counter* _memory_usage_arena = nullptr;
 
     using vectorized_get_result =
