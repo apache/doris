@@ -43,6 +43,36 @@ else()
     endif ()
 endif ()
 
+# On macOS, CMake's FindOpenMP auto-detection often fails because:
+# - Apple Clang doesn't support -fopenmp natively
+# - Even Homebrew LLVM's clang may fail try_compile if libomp isn't in the default search path
+# Provide explicit hints so find_package(OpenMP) succeeds.
+if (CMAKE_SYSTEM_NAME MATCHES "Darwin")
+    # Try to find libomp from the compiler's own lib directory (Homebrew LLVM bundles it)
+    get_filename_component(_COMPILER_DIR "${CMAKE_C_COMPILER}" DIRECTORY)
+    get_filename_component(_COMPILER_PREFIX "${_COMPILER_DIR}" DIRECTORY)
+    if (EXISTS "${_COMPILER_PREFIX}/lib/libomp.dylib")
+        set(_OMP_LIB "${_COMPILER_PREFIX}/lib/libomp.dylib")
+        set(_OMP_FLAG "-fopenmp")
+    else()
+        # Fallback: try Homebrew's standalone libomp formula
+        execute_process(COMMAND brew --prefix libomp
+            OUTPUT_VARIABLE _LIBOMP_PREFIX OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+        if (_LIBOMP_PREFIX AND EXISTS "${_LIBOMP_PREFIX}/lib/libomp.dylib")
+            set(_OMP_LIB "${_LIBOMP_PREFIX}/lib/libomp.dylib")
+            set(_OMP_FLAG "-Xclang -fopenmp")
+            include_directories("${_LIBOMP_PREFIX}/include")
+        endif()
+    endif()
+    if (DEFINED _OMP_LIB)
+        set(OpenMP_C_FLAGS "${_OMP_FLAG}" CACHE STRING "C compiler flags for OpenMP" FORCE)
+        set(OpenMP_CXX_FLAGS "${_OMP_FLAG}" CACHE STRING "CXX compiler flags for OpenMP" FORCE)
+        set(OpenMP_C_LIB_NAMES "omp" CACHE STRING "C OpenMP lib names" FORCE)
+        set(OpenMP_CXX_LIB_NAMES "omp" CACHE STRING "CXX OpenMP lib names" FORCE)
+        set(OpenMP_omp_LIBRARY "${_OMP_LIB}" CACHE FILEPATH "Path to libomp" FORCE)
+    endif()
+endif()
+
 # EXCLUDE_FROM_ALL so that binary in openblas is not installed.
 add_subdirectory(${PROJECT_SOURCE_DIR}/../contrib/openblas ${PROJECT_BINARY_DIR}/openblas EXCLUDE_FROM_ALL)
 

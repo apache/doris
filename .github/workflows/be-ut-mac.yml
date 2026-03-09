@@ -98,6 +98,4 @@ jobs:
 
           export JAVA_HOME="${JAVA_HOME_17_arm64%\/}"
           export DORIS_CLANG_HOME="$(brew --prefix llvm@18)"
-          export LIBRARY_PATH="$(brew --prefix llvm@18)/lib:${LIBRARY_PATH:-}"
-          export CPATH="$(brew --prefix llvm@18)/include:${CPATH:-}"
           ./run-be-ut.sh --run -j "$(nproc)" --clean
