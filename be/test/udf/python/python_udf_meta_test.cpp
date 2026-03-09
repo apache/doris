@@ -24,8 +24,8 @@
 #include <string>
 
 #include "common/status.h"
-#include "runtime/define_primitive_type.h"
-#include "vec/data_types/data_type_factory.hpp"
+#include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/define_primitive_type.h"
 
 namespace doris {
 

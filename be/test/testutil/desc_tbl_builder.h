@@ -25,7 +25,6 @@
 
 #include "common/object_pool.h"
 #include "runtime/descriptors.h"
-#include "runtime/types.h"
 
 namespace doris {
 

@@ -27,8 +27,8 @@
 
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
-#include "olap/rowset/rowset_fwd.h"
-#include "olap/rowset/rowset_meta.h"
+#include "storage/rowset/rowset_fwd.h"
+#include "storage/rowset/rowset_meta.h"
 #include "util/s3_util.h"
 
 namespace doris {

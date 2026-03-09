@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "mock_literal_expr.h"
+#include "testutil/mock/mock_literal_expr.h"
 
 #include <gtest/gtest.h>
 
+#include "core/block/materialize_block.h"
+#include "core/data_type/data_type_number.h"
 #include "testutil/column_helper.h"
-#include "vec/core/materialize_block.h"
-#include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
 

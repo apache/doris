@@ -26,13 +26,12 @@
 #include <utility>
 #include <vector>
 
-#include "pipeline/exec/operator.h"
-#include "pipeline/exec/spill_utils.h"
-#include "pipeline/pipeline.h"
+#include "exec/operator/operator.h"
+#include "exec/operator/spill_utils.h"
+#include "exec/pipeline/pipeline.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
-#include "runtime/types.h"
 #include "util/uid_util.h"
 
 namespace doris {

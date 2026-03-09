@@ -22,8 +22,8 @@
 #define JSONB_JSONBUTIL_H
 
 #include "common/status.h"
-#include "jsonb_document.h"
-#include "jsonb_stream.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_stream.h"
 
 namespace doris {
 

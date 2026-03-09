@@ -19,9 +19,11 @@ package org.apache.doris.planner;
 
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
@@ -427,7 +429,8 @@ public class OlapTableSink extends DataSink {
             if (whereClause != null) {
                 Expr expr = syncMvWhereClauses.getOrDefault(pair.getKey(), null);
                 if (expr == null) {
-                    throw new AnalysisException(String.format("%s is not analyzed", whereClause.toSqlWithoutTbl()));
+                    throw new AnalysisException(String.format("%s is not analyzed",
+                            whereClause.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE)));
                 }
                 indexSchema.setWhereClause(expr.treeToThrift());
             }

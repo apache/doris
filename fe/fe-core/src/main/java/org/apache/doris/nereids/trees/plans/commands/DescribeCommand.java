@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -342,8 +344,8 @@ public class DescribeCommand extends ShowCommand {
                             String defineExprStr = "";
                             Expr defineExpr = column.getDefineExpr();
                             if (defineExpr != null) {
-                                column.getDefineExpr().disableTableName();
-                                defineExprStr = defineExpr.toSqlWithoutTbl();
+                                defineExprStr = defineExpr.accept(
+                                        ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
                             }
 
                             List<String> row = Arrays.asList(
@@ -367,7 +369,8 @@ public class DescribeCommand extends ShowCommand {
                                 row.set(1, indexMeta.getKeysType().name());
                                 Expr where = indexMeta.getWhereClause();
                                 row.set(getMetaData().getColumns().size() - 1,
-                                        where == null ? "" : where.toSqlWithoutTbl());
+                                        where == null ? "" : where.accept(
+                                                ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
                             }
 
                             rows.add(row);

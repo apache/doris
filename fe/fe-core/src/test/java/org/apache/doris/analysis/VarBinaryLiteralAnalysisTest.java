@@ -37,7 +37,7 @@ public class VarBinaryLiteralAnalysisTest {
     @Test
     public void testToSqlFormat() throws Exception {
         VarBinaryLiteral lit = new VarBinaryLiteral(bytes("hello"));
-        Assertions.assertEquals("X'68656C6C6F'", lit.toSql());
+        Assertions.assertEquals("X'68656C6C6F'", lit.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test

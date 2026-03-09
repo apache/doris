@@ -28,6 +28,8 @@ under the License.
     </parent>
     <artifactId>fe-core</artifactId>
     <packaging>jar</packaging>
+    <name>Doris FE Core</name>
+    <description>Doris Frontend</description>
     <properties>
         <doris.home>${basedir}/../../</doris.home>
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
@@ -85,6 +87,16 @@ under the License.
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-thrift</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-type</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -820,11 +832,7 @@ under the License.
                 <configuration>
                     <visitor>true</visitor>
                     <sourceDirectory>src/main/antlr4</sourceDirectory>
-                    <!-->import DorisParser in PLParser.g4 will prompt warning options { tokenVocab = DorisLexer; }
-                    ignored, this is expected behavior, antlr/antlr4#2209, hope to ignore this warning alone,
-                    but it seems that can only delete this treatWarningsAsErrors.
-                    Other warnings should not be ignored.<-->
-                    <!--<treatWarningsAsErrors>true</treatWarningsAsErrors>-->
+                    <treatWarningsAsErrors>true</treatWarningsAsErrors>
                     <libDirectory>src/main/antlr4/org/apache/doris/nereids</libDirectory>
                 </configuration>
             </plugin>

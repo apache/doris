@@ -18,13 +18,13 @@
 #pragma once
 
 #include "common/status.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/data_type/primitive_type.h"
+#include "core/string_ref.h"
 #include "exprs/block_bloom_filter.hpp"
 #include "exprs/filter_base.h"
 #include "exprs/hybrid_set.h"
-#include "runtime/primitive_type.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/common/string_ref.h"
 
 namespace doris {
 

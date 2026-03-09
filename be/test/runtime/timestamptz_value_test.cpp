@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/runtime/timestamptz_value.h"
+#include "core/value/timestamptz_value.h"
 
 #include <cctz/civil_time.h>
 #include <cctz/time_zone.h>
@@ -23,9 +23,9 @@
 
 #include <string>
 
+#include "exprs/function/cast/cast_base.h"
 #include "testutil/datetime_ut_util.h"
 #include "util/timezone_utils.h"
-#include "vec/functions/cast/cast_base.h"
 
 namespace doris::vectorized {
 

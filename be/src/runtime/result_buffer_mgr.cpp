@@ -30,14 +30,14 @@
 #include <utility>
 
 #include "arrow/type_fwd.h"
+#include "common/metrics/doris_metrics.h"
+#include "common/metrics/metrics.h"
 #include "common/status.h"
+#include "exec/sink/writer/varrow_flight_result_writer.h"
+#include "exec/sink/writer/vmysql_result_writer.h"
 #include "runtime/result_block_buffer.h"
-#include "util/doris_metrics.h"
-#include "util/metrics.h"
 #include "util/thread.h"
 #include "util/uid_util.h"
-#include "vec/sink/varrow_flight_result_writer.h"
-#include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
 

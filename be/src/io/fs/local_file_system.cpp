@@ -39,8 +39,8 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_reader.h"
 #include "io/fs/local_file_writer.h"
-#include "olap/data_dir.h"
 #include "runtime/thread_context.h"
+#include "storage/data_dir.h"
 #include "util/async_io.h" // IWYU pragma: keep
 #include "util/debug_points.h"
 #include "util/defer_op.h"

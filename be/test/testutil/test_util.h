@@ -20,9 +20,9 @@
 #include <cstdlib>
 #include <string>
 
+#include "core/data_type_serde/data_type_serde.h"
 #include "gflags/gflags.h"
 #include "gtest/gtest.h"
-#include "vec/data_types/serde/data_type_serde.h"
 
 DECLARE_bool(gen_out);
 DECLARE_bool(gen_regression_case);

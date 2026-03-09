@@ -20,8 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.gson.annotations.SerializedName;
@@ -45,6 +43,10 @@ public class BetweenPredicate extends Predicate {
         isNotBetween = other.isNotBetween;
     }
 
+    public boolean isNotBetween() {
+        return isNotBetween;
+    }
+
     @Override
     public Expr clone() {
         return new BetweenPredicate(this);
@@ -57,19 +59,8 @@ public class BetweenPredicate extends Predicate {
     }
 
     @Override
-    public String toSqlImpl() {
-        String notStr = (isNotBetween) ? "NOT " : "";
-        return children.get(0).toSql() + " " + notStr + "BETWEEN "
-                + children.get(1).toSql() + " AND " + children.get(2).toSql();
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        String notStr = (isNotBetween) ? "NOT " : "";
-        return children.get(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + notStr + "BETWEEN "
-                + children.get(1).toSql(disableTableName, needExternalSql, tableType, table) + " AND " + children.get(2)
-                .toSql(disableTableName, needExternalSql, tableType, table);
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitBetweenPredicate(this, context);
     }
 
     @Override

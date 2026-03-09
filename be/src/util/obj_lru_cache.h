@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include "olap/lru_cache.h"
 #include "runtime/memory/lru_cache_policy.h"
+#include "util/lru_cache.h"
 
 namespace doris {
 
