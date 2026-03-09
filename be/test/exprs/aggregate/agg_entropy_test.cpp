@@ -102,14 +102,25 @@ TEST_F(AggregateFunctionEntropyTest, test_nullable_entropy) {
 // ------------------------------------------------------------
 // 5. Empty input test
 // ------------------------------------------------------------
-TEST_F(AggregateFunctionEntropyTest, test_empty) {
+TEST_F(AggregateFunctionEntropyTest, test_empty_1) {
     create_agg("entropy", false, {std::make_shared<DataTypeInt32>()},
                std::make_shared<DataTypeFloat64>());
 
     Block block = ColumnHelper::create_block<DataTypeInt32>({});
 
-    // entropy of empty set = 0
+    // entropy of non-nullable empty set is 0
     execute(block, ColumnHelper::create_column_with_name<DataTypeFloat64>({0.0}));
+}
+
+TEST_F(AggregateFunctionEntropyTest, test_empty_2) {
+    create_agg("entropy", true,
+               {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>())},
+               std::make_shared<DataTypeFloat64>());
+
+    Block block = ColumnHelper::create_nullable_block<DataTypeInt32>({}, {});
+
+    // entropy of nullable empty set is null
+    execute(block, ColumnHelper::create_nullable_column_with_name<DataTypeFloat64>({0.0}, {1}));
 }
 
 } // namespace doris

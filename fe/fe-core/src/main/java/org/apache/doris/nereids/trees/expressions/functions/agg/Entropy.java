@@ -44,11 +44,11 @@ public class Entropy extends NullableAggregateFunction implements ExplicitlyCast
     }
 
     public Entropy(boolean distinct, boolean alwaysNullable, Expression arg0, Expression... varArgs) {
-        this(distinct, alwaysNullable, false, ExpressionUtils.mergeArguments(arg0, varArgs));
+        this(distinct, alwaysNullable, ExpressionUtils.mergeArguments(arg0, varArgs));
     }
 
-    private Entropy(boolean distinct, boolean alwaysNullable, boolean isSkew, List<Expression> expressions) {
-        super("entropy", distinct, alwaysNullable, isSkew, expressions);
+    private Entropy(boolean distinct, boolean alwaysNullable, List<Expression> expressions) {
+        super("entropy", distinct, alwaysNullable, expressions);
     }
 
     private Entropy(NullableAggregateFunctionParams functionParams) {
