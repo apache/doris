@@ -44,16 +44,14 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-namespace vectorized {
 class Block;
 template <PrimitiveType T>
 class ColumnDecimal;
 template <PrimitiveType T>
 class ColumnVector;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 /**
  * Connector to java jni scanner, which should extend org.apache.doris.common.jni.JniScanner
@@ -481,4 +479,4 @@ private:
     }
 };
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

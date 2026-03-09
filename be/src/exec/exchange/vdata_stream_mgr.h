@@ -43,11 +43,8 @@ namespace doris {
 class RuntimeState;
 class RowDescriptor;
 class PTransmitDataParams;
-namespace pipeline {
 class ExchangeLocalState;
-}
 
-namespace vectorized {
 class VDataStreamRecvr;
 
 class VDataStreamMgr {
@@ -96,7 +93,6 @@ private:
 
     uint32_t get_hash_value(const TUniqueId& fragment_instance_id, PlanNodeId node_id);
 };
-} // namespace vectorized
 } // namespace doris
 
 #include "common/compile_check_end.h"

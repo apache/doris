@@ -19,7 +19,7 @@
 
 #include <fmt/format.h>
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 GroupCommitOperatorX::GroupCommitOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                            int operator_id, const DescriptorTbl& descs,
@@ -29,7 +29,7 @@ GroupCommitOperatorX::GroupCommitOperatorX(ObjectPool* pool, const TPlanNode& tn
     _output_tuple_id = tnode.file_scan_node.tuple_id;
 }
 
-Status GroupCommitOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
+Status GroupCommitOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     bool find_node = false;
@@ -48,10 +48,10 @@ Status GroupCommitLocalState::init(RuntimeState* state, LocalStateInfo& info) {
             p._table_id, state->fragment_instance_id(), load_block_queue, _get_block_dependency);
     if (st.ok()) {
         DCHECK(load_block_queue != nullptr);
-        _runtime_filter_timer = std::make_shared<pipeline::RuntimeFilterTimer>(
+        _runtime_filter_timer = std::make_shared<RuntimeFilterTimer>(
                 MonotonicMillis(), load_block_queue->get_group_commit_interval_ms(),
                 _get_block_dependency, true);
-        std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> timers;
+        std::vector<std::shared_ptr<RuntimeFilterTimer>> timers;
         timers.push_back(_runtime_filter_timer);
         ExecEnv::GetInstance()->runtime_filter_timer_queue()->push_filter_timer(std::move(timers));
     }
@@ -67,4 +67,4 @@ Status GroupCommitLocalState::_process_conjuncts(RuntimeState* state) {
     return Status::OK();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

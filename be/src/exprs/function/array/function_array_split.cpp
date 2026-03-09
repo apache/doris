@@ -44,7 +44,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 template <bool reverse>
 class FunctionArraySplit : public IFunction {
@@ -154,4 +154,4 @@ void register_function_array_splits(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArraySplit<true>>();
     factory.register_function<FunctionArraySplit<false>>();
 }
-} // namespace doris::vectorized
+} // namespace doris

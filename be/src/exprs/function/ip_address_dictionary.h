@@ -29,7 +29,7 @@
 #include "core/types.h"
 #include "exprs/function/dictionary.h"
 
-namespace doris::vectorized {
+namespace doris {
 class IPAddressDictionary : public IDictionary {
 public:
     IPAddressDictionary(std::string name, std::vector<DictionaryAttribute> attributes)
@@ -95,4 +95,4 @@ inline DictionaryPtr create_ip_trie_dict_from_column(const std::string& name,
     DictionaryPtr dict = IPAddressDictionary::create_ip_trie_dict(name, key_column, values_data);
     return dict;
 }
-} // namespace doris::vectorized
+} // namespace doris

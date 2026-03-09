@@ -47,7 +47,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 inline StringCaseUnorderedMap<EncryptionMode> aes_mode_map {
         {"AES_128_ECB", EncryptionMode::AES_128_ECB},
@@ -502,4 +502,4 @@ void register_function_encryption(SimpleFunctionFactory& factory) {
             AESDecryptName>>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

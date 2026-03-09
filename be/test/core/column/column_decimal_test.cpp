@@ -32,7 +32,7 @@
 #include "core/extended_types.h"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 static DataTypePtr dt_decimal128v2 =
         DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_DECIMAL, 27, 9);
 
@@ -636,7 +636,7 @@ TEST_F(ColumnDecimalTest, sort_column) {
 }
 
 TEST_F(ColumnDecimalTest, ScalaTypeDecimalTesterase) {
-    auto datetype_decimal = vectorized::create_decimal(10, 2, false);
+    auto datetype_decimal = create_decimal(10, 2, false);
     auto column = datetype_decimal->create_column();
     auto column_res = datetype_decimal->create_column();
 
@@ -653,7 +653,7 @@ TEST_F(ColumnDecimalTest, ScalaTypeDecimalTesterase) {
 }
 
 TEST_F(ColumnDecimalTest, ScalaTypeDecimalTest2erase) {
-    auto datetype_decimal = vectorized::create_decimal(10, 2, false);
+    auto datetype_decimal = create_decimal(10, 2, false);
     auto column = datetype_decimal->create_column();
     auto column_res = datetype_decimal->create_column();
 
@@ -673,4 +673,4 @@ TEST_F(ColumnDecimalTest, ScalaTypeDecimalTest2erase) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

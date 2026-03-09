@@ -2316,7 +2316,7 @@ public:
     }
 
     //for function bitmap_to_array
-    void to_array(vectorized::PaddedPODArray<int64_t>& data) const {
+    void to_array(PaddedPODArray<int64_t>& data) const {
         switch (_type) {
         case EMPTY:
             break;

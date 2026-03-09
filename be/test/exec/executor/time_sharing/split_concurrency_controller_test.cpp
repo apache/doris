@@ -21,7 +21,7 @@
 
 #include <chrono>
 
-namespace doris::vectorized {
+namespace doris {
 
 using namespace std::chrono_literals;
 
@@ -66,4 +66,4 @@ TEST_F(SplitConcurrencyControllerTest, test_rapid_adjust_for_quick_splits) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

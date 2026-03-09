@@ -17,7 +17,7 @@
 
 #include "format/parquet/delta_bit_pack_decoder.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 Status DeltaLengthByteArrayDecoder::_decode_lengths() {
     RETURN_IF_ERROR(_len_decoder.set_bit_reader(_bit_reader));
@@ -132,4 +132,4 @@ Status DeltaByteArrayDecoder::_get_internal(Slice* buffer, int max_values, int* 
     return Status::OK();
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -381,7 +381,7 @@ public:
         }
     }
 
-    void read(vectorized::BufferReadable& buf) {
+    void read(BufferReadable& buf) {
         buf.read_binary(sample_count);
         buf.read_binary(total_values);
 
@@ -405,7 +405,7 @@ public:
         sorted = false;
     }
 
-    void write(vectorized::BufferWritable& buf) const {
+    void write(BufferWritable& buf) const {
         buf.write_binary(sample_count);
         buf.write_binary(total_values);
 
@@ -420,7 +420,7 @@ public:
 
 private:
     /// We allocate a little memory on the stack - to avoid allocations when there are many objects with a small number of elements.
-    using Array = vectorized::PODArrayWithStackMemory<double, 64>;
+    using Array = PODArrayWithStackMemory<double, 64>;
     using pcg32_fast = mcg_base<uint32_t, uint64_t, xsh_rs_mixin>;
 
     size_t sample_count;

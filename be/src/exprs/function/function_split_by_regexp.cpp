@@ -29,7 +29,7 @@
 #include "exprs/function/function_string.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 struct Match {
@@ -373,4 +373,4 @@ void register_function_split_by_regexp(SimpleFunctionFactory& factory) {
     factory.register_function<SplitByRegexp<ThreeArgumentImpl>>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

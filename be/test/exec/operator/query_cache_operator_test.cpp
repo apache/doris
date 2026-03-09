@@ -28,20 +28,15 @@
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
-namespace doris::pipeline {
-
-using namespace vectorized;
+namespace doris {
 
 class QueryCacheMockChildOperator : public OperatorXBase {
 public:
-    Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
-                                    bool* eos) override {
+    Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos) override {
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override {
-        return Status::OK();
-    }
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override { return Status::OK(); }
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
         return Status::OK();
     }
@@ -133,7 +128,7 @@ TEST_F(QueryCacheOperatorTest, test_no_hit_cache1) {
     source = std::make_unique<CacheSourceOperatorX>();
     EXPECT_TRUE(source->set_child(child_op));
     child_op->_mock_row_desc.reset(
-            new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>()}, &pool});
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
     TQueryCacheParam cache_param;
     cache_param.node_id = 0;
     cache_param.output_slot_mapping[0] = 0;
@@ -173,7 +168,7 @@ TEST_F(QueryCacheOperatorTest, test_no_hit_cache2) {
     source = std::make_unique<CacheSourceOperatorX>();
     EXPECT_TRUE(source->set_child(child_op));
     child_op->_mock_row_desc.reset(
-            new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>()}, &pool});
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
     TQueryCacheParam cache_param;
     cache_param.node_id = 0;
     cache_param.output_slot_mapping[0] = 0;
@@ -213,7 +208,7 @@ TEST_F(QueryCacheOperatorTest, test_hit_cache) {
     source = std::make_unique<CacheSourceOperatorX>();
     EXPECT_TRUE(source->set_child(child_op));
     child_op->_mock_row_desc.reset(
-            new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>()}, &pool});
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
     TQueryCacheParam cache_param;
     cache_param.node_id = 0;
     cache_param.output_slot_mapping[0] = 0;
@@ -270,4 +265,4 @@ TEST_F(QueryCacheOperatorTest, test_hit_cache) {
     query_cache_uptr.release();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

@@ -51,7 +51,7 @@ double get_bloom_filter_ignore_thredhold() {
 }
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class VExprContext;
 
@@ -192,4 +192,4 @@ Status VRuntimeFilterWrapper::execute_filter(VExprContext* context, const Block*
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

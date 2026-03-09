@@ -20,7 +20,7 @@
 #include "common/object_pool.h"
 #include "exec/scan/jdbc_scanner.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 std::string JDBCScanLocalState::name_suffix() const {
     return fmt::format("(nereids_id={}. table_name={})" + operator_name_suffix,
@@ -29,11 +29,11 @@ std::string JDBCScanLocalState::name_suffix() const {
                        std::to_string(_parent->node_id()));
 }
 
-Status JDBCScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {
+Status JDBCScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     auto& p = _parent->cast<JDBCScanOperatorX>();
-    std::unique_ptr<vectorized::JdbcScanner> scanner = vectorized::JdbcScanner::create_unique(
-            state(), this, p._limit, p._tuple_id, p._query_string, p._table_type, p._is_tvf,
-            _scanner_profile.get());
+    std::unique_ptr<JdbcScanner> scanner =
+            JdbcScanner::create_unique(state(), this, p._limit, p._tuple_id, p._query_string,
+                                       p._table_type, p._is_tvf, _scanner_profile.get());
     RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
     scanners->push_back(std::move(scanner));
     return Status::OK();
@@ -50,4 +50,4 @@ JDBCScanOperatorX::JDBCScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
     _is_tvf = tnode.jdbc_scan_node.__isset.is_tvf ? tnode.jdbc_scan_node.is_tvf : false;
 }
 
-} // namespace doris::pipeline
+} // namespace doris

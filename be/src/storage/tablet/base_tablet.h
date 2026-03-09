@@ -210,27 +210,24 @@ public:
                                            int64_t txn_id, const RowsetIdUnorderedSet& rowset_ids,
                                            std::vector<RowsetSharedPtr>* rowsets = nullptr);
 
-    static const signed char* get_delete_sign_column_data(const vectorized::Block& block,
+    static const signed char* get_delete_sign_column_data(const Block& block,
                                                           size_t rows_at_least = 0);
 
     static Status generate_default_value_block(const TabletSchema& schema,
                                                const std::vector<uint32_t>& cids,
                                                const std::vector<std::string>& default_values,
-                                               const vectorized::Block& ref_block,
-                                               vectorized::Block& default_value_block);
+                                               const Block& ref_block, Block& default_value_block);
 
     static Status generate_new_block_for_partial_update(
             TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
             const FixedReadPlan& read_plan_ori, const FixedReadPlan& read_plan_update,
-            const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-            vectorized::Block* output_block);
+            const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset, Block* output_block);
 
     static Status generate_new_block_for_flexible_partial_update(
             TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
             std::set<uint32_t>& rids_be_overwritten, const FixedReadPlan& read_plan_ori,
             const FixedReadPlan& read_plan_update,
-            const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-            vectorized::Block* output_block);
+            const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset, Block* output_block);
 
     // We use the TabletSchema from the caller because the TabletSchema in the rowset'meta
     // may be outdated due to schema change. Also note that the the cids should indicate the indexes
@@ -238,13 +235,11 @@ public:
     static Status fetch_value_through_row_column(RowsetSharedPtr input_rowset,
                                                  const TabletSchema& tablet_schema, uint32_t segid,
                                                  const std::vector<uint32_t>& rowids,
-                                                 const std::vector<uint32_t>& cids,
-                                                 vectorized::Block& block);
+                                                 const std::vector<uint32_t>& cids, Block& block);
 
     static Status fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segid,
                                         const std::vector<uint32_t>& rowids,
-                                        const TabletColumn& tablet_column,
-                                        vectorized::MutableColumnPtr& dst);
+                                        const TabletColumn& tablet_column, MutableColumnPtr& dst);
 
     virtual Result<std::unique_ptr<RowsetWriter>> create_transient_rowset_writer(
             const Rowset& rowset, std::shared_ptr<PartialUpdateInfo> partial_update_info,
@@ -361,7 +356,7 @@ protected:
                                        const RowsetIdUnorderedSet& pre,
                                        RowsetIdUnorderedSet* to_add, RowsetIdUnorderedSet* to_del);
 
-    Status sort_block(vectorized::Block& in_block, vectorized::Block& output_block);
+    Status sort_block(Block& in_block, Block& output_block);
 
     Result<CaptureRowsetResult> _remote_capture_rowsets(const Version& version_range) const;
 

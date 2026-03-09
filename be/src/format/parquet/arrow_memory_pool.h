@@ -22,7 +22,7 @@
 #include "core/allocator.h"
 #include "core/allocator_fwd.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 constexpr int64_t kDefaultBufferAlignment = 64;
 static constexpr int64_t kDebugXorSuffix = -0x181fe80e0b464188LL;
@@ -197,4 +197,4 @@ protected:
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

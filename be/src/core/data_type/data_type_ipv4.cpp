@@ -27,7 +27,7 @@
 #include "exprs/function/cast/cast_to_string.h"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 #include "common/compile_check_begin.h"
 
@@ -45,4 +45,4 @@ Field DataTypeIPv4::get_field(const TExprNode& node) const {
 
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

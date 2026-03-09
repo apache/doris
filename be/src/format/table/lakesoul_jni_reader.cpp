@@ -32,12 +32,10 @@ namespace doris {
 class RuntimeProfile;
 class RuntimeState;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 LakeSoulJniReader::LakeSoulJniReader(const TLakeSoulFileDesc& lakesoul_params,
                                      const std::vector<SlotDescriptor*>& file_slot_descs,
                                      RuntimeState* state, RuntimeProfile* profile)
@@ -65,4 +63,4 @@ Status LakeSoulJniReader::init_reader() {
     return _jni_connector->open(_state, _profile);
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

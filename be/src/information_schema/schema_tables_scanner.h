@@ -27,9 +27,7 @@
 namespace doris {
 class RuntimeState;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 class SchemaTablesScanner : public SchemaScanner {
     ENABLE_FACTORY_CREATOR(SchemaTablesScanner);
@@ -39,11 +37,11 @@ public:
     ~SchemaTablesScanner() override;
 
     Status start(RuntimeState* state) override;
-    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
+    Status get_next_block_internal(Block* block, bool* eos) override;
 
 private:
     Status _get_new_table();
-    Status _fill_block_impl(vectorized::Block* block);
+    Status _fill_block_impl(Block* block);
 
     int _db_index;
     TGetDbsResult _db_result;

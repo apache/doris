@@ -30,12 +30,10 @@
 
 class SipHash;
 namespace doris {
-namespace vectorized {
 class Arena;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 std::string ColumnStruct::get_name() const {
     std::stringstream res;
@@ -479,4 +477,4 @@ void ColumnStruct::replace_float_special_values() {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

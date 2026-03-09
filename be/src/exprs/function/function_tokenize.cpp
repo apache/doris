@@ -37,7 +37,7 @@
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 using namespace doris::segment_v2::inverted_index;
 
@@ -142,7 +142,7 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
     const auto& [right_column, right_const] =
             unpack_if_const(block.get_by_position(arguments[1]).column);
 
-    auto dest_column_type = std::make_shared<vectorized::DataTypeString>();
+    auto dest_column_type = std::make_shared<DataTypeString>();
     auto dest_column_ptr = dest_column_type->create_column();
 
     if (const auto* col_left = check_and_get_column<ColumnString>(src_column.get())) {
@@ -209,4 +209,4 @@ void register_function_tokenize(SimpleFunctionFactory& factory) {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

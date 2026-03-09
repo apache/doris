@@ -41,7 +41,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionArrayPushfront : public IFunction {
 public:
@@ -124,4 +124,4 @@ void register_function_array_pushfront(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayPushfront>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

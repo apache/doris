@@ -26,7 +26,7 @@
 #include "exec/sort/sort_block.h"
 #include "util/simd/bits.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 std::string IColumn::dump_structure() const {
     std::stringstream res;
@@ -241,4 +241,4 @@ void IColumn::check_const_only_in_top_level() const {
     const_cast<IColumn*>(this)->for_each_subcolumn(throw_if_const);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

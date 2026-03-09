@@ -55,37 +55,37 @@ struct type_limit<DecimalV2Value> {
 };
 
 template <>
-struct type_limit<vectorized::Decimal32> {
-    static vectorized::Decimal32 max() { return 999999999; }
-    static vectorized::Decimal32 min() { return -max(); }
+struct type_limit<Decimal32> {
+    static Decimal32 max() { return 999999999; }
+    static Decimal32 min() { return -max(); }
 };
 
 template <>
-struct type_limit<vectorized::Decimal64> {
-    static vectorized::Decimal64 max() { return int64_t(999999999999999999ll); }
-    static vectorized::Decimal64 min() { return -max(); }
+struct type_limit<Decimal64> {
+    static Decimal64 max() { return int64_t(999999999999999999ll); }
+    static Decimal64 min() { return -max(); }
 };
 
 template <>
-struct type_limit<vectorized::Decimal128V3> {
-    static vectorized::Decimal128V3 max() {
+struct type_limit<Decimal128V3> {
+    static Decimal128V3 max() {
         return (static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
                 static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll);
     }
-    static vectorized::Decimal128V3 min() { return -max(); }
+    static Decimal128V3 min() { return -max(); }
 };
 
 template <>
-struct type_limit<vectorized::Decimal128V2> {
-    static vectorized::Decimal128V2 max() { return DecimalV2Value::get_max_decimal().value(); }
-    static vectorized::Decimal128V2 min() { return -max(); }
+struct type_limit<Decimal128V2> {
+    static Decimal128V2 max() { return DecimalV2Value::get_max_decimal().value(); }
+    static Decimal128V2 min() { return -max(); }
 };
 static wide::Int256 MAX_DECIMAL256_INT({18446744073709551615ul, 8607968719199866879ul,
                                         532749306367912313ul, 1593091911132452277ul});
 template <>
-struct type_limit<vectorized::Decimal256> {
-    static vectorized::Decimal256 max() { return vectorized::Decimal256(MAX_DECIMAL256_INT); }
-    static vectorized::Decimal256 min() { return vectorized::Decimal256(-MAX_DECIMAL256_INT); }
+struct type_limit<Decimal256> {
+    static Decimal256 max() { return Decimal256(MAX_DECIMAL256_INT); }
+    static Decimal256 min() { return Decimal256(-MAX_DECIMAL256_INT); }
 };
 
 template <>

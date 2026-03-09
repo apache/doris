@@ -22,7 +22,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Status VIcebergSortWriter::open(RuntimeState* state, RuntimeProfile* profile,
@@ -40,9 +40,8 @@ Status VIcebergSortWriter::open(RuntimeState* state, RuntimeProfile* profile,
 
     // Create FullSorter for in-memory sorting with spill support enabled.
     // Parameters: limit=-1 (no limit), offset=0 (no offset)
-    _sorter = vectorized::FullSorter::create_unique(_vsort_exec_exprs, -1, 0, &_pool,
-                                                    _sort_info.is_asc_order, _sort_info.nulls_first,
-                                                    *row_desc, state, _profile);
+    _sorter = FullSorter::create_unique(_vsort_exec_exprs, -1, 0, &_pool, _sort_info.is_asc_order,
+                                        _sort_info.nulls_first, *row_desc, state, _profile);
     _sorter->init_profile(_profile);
     // Enable spill support so the sorter can be used with the spill framework
     _sorter->set_enable_spill();
@@ -53,7 +52,7 @@ Status VIcebergSortWriter::open(RuntimeState* state, RuntimeProfile* profile,
     return Status::OK();
 }
 
-Status VIcebergSortWriter::write(vectorized::Block& block) {
+Status VIcebergSortWriter::write(Block& block) {
     // Append incoming block data to the sorter's internal buffer
     RETURN_IF_ERROR(_sorter->append_block(&block));
     _update_spill_block_batch_row_count(block);
@@ -149,7 +148,7 @@ Status VIcebergSortWriter::close(const Status& status) {
     return close_status;
 }
 
-void VIcebergSortWriter::_update_spill_block_batch_row_count(const vectorized::Block& block) {
+void VIcebergSortWriter::_update_spill_block_batch_row_count(const Block& block) {
     auto rows = block.rows();
     // Calculate average row size from the first non-empty block to determine
     // the optimal batch size for spill operations
@@ -327,9 +326,9 @@ int VIcebergSortWriter::_calc_max_merge_streams() const {
 
 Status VIcebergSortWriter::_create_merger(bool is_final_merge, size_t batch_size, int num_streams) {
     // Create a multi-way merge sorter that reads from multiple sorted spill streams
-    std::vector<vectorized::BlockSupplier> child_block_suppliers;
-    _merger = std::make_unique<vectorized::VSortedRunMerger>(_sorter->get_sort_description(),
-                                                             batch_size, -1, 0, _profile);
+    std::vector<BlockSupplier> child_block_suppliers;
+    _merger = std::make_unique<VSortedRunMerger>(_sorter->get_sort_description(), batch_size, -1, 0,
+                                                 _profile);
     _current_merging_streams.clear();
 
     // For final merge: merge all remaining streams
@@ -341,7 +340,7 @@ Status VIcebergSortWriter::_create_merger(bool is_final_merge, size_t batch_size
         stream->set_read_counters(_profile);
         _current_merging_streams.emplace_back(stream);
         // Create a block supplier lambda that reads the next block from the spill stream
-        child_block_suppliers.emplace_back([stream](vectorized::Block* block, bool* eos) {
+        child_block_suppliers.emplace_back([stream](Block* block, bool* eos) {
             return stream->read_next_block_sync(block, eos);
         });
         _sorted_streams.pop_front();
@@ -371,4 +370,4 @@ void VIcebergSortWriter::_cleanup_spill_streams() {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

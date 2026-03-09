@@ -23,7 +23,6 @@
 #include "exec/scan/task_executor/tools/simulator/split_specification.h"
 
 namespace doris {
-namespace vectorized {
 
 class SplitGenerator {
 public:
@@ -124,5 +123,4 @@ private:
     int64_t _quanta_nanos;
 };
 
-} // namespace vectorized
 } // namespace doris

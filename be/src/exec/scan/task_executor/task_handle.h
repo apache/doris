@@ -21,7 +21,6 @@
 #include "exec/scan/task_executor/task_id.h"
 
 namespace doris {
-namespace vectorized {
 
 class TaskHandle {
 public:
@@ -31,5 +30,4 @@ public:
     virtual TaskId task_id() const = 0;
 };
 
-} // namespace vectorized
 } // namespace doris

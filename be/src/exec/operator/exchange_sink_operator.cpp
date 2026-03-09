@@ -44,7 +44,7 @@
 #include "runtime/runtime_profile.h"
 #include "util/uid_util.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 bool ExchangeSinkLocalState::transfer_large_data_by_brpc() const {
     return _parent->cast<ExchangeSinkOperatorX>()._transfer_large_data_by_brpc;
@@ -127,11 +127,10 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         _partition_count = channels.size();
         if (_state->query_options().__isset.enable_new_shuffle_hash_method &&
             _state->query_options().enable_new_shuffle_hash_method) {
-            _partitioner = std::make_unique<vectorized::Crc32CHashPartitioner>(channels.size());
+            _partitioner = std::make_unique<Crc32CHashPartitioner>(channels.size());
         } else {
-            _partitioner = std::make_unique<
-                    vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>>(
-                    channels.size());
+            _partitioner =
+                    std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(channels.size());
         }
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
@@ -139,9 +138,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                 "Partitioner", fmt::format("Crc32CHashPartitioner({})", _partition_count));
     } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         _partition_count = channels.size();
-        _partitioner =
-                std::make_unique<vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>>(
-                        channels.size());
+        _partitioner = std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(channels.size());
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         custom_profile()->add_info_string(
@@ -151,7 +148,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         _partition_count = channels.size();
         custom_profile()->add_info_string(
                 "Partitioner", fmt::format("TabletSinkHashPartitioner({})", _partition_count));
-        _partitioner = std::make_unique<vectorized::TabletSinkHashPartitioner>(
+        _partitioner = std::make_unique<TabletSinkHashPartitioner>(
                 cast_set<uint32_t>(_partition_count), p._tablet_sink_txn_id, p._tablet_sink_schema,
                 p._tablet_sink_partition, p._tablet_sink_location, p._tablet_sink_tuple_id, this);
         RETURN_IF_ERROR(_partitioner->init({}));
@@ -159,7 +156,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     } else if (_part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED) {
         _partition_count =
                 channels.size() * config::table_sink_partition_write_max_partition_nums_per_writer;
-        _partitioner = std::make_unique<vectorized::ScaleWriterPartitioner>(
+        _partitioner = std::make_unique<ScaleWriterPartitioner>(
                 channels.size(), _partition_count, channels.size(), 1,
                 config::table_sink_partition_write_min_partition_data_processed_rebalance_threshold /
                                         state->task_num() ==
@@ -189,8 +186,8 @@ void ExchangeSinkLocalState::_create_channels() {
     for (int i = 0; i < p._dests.size(); ++i) {
         const auto& fragment_instance_id = p._dests[i].fragment_instance_id;
         if (!fragment_id_to_channel_index.contains(fragment_instance_id.lo)) {
-            channels.push_back(std::make_shared<vectorized::Channel>(
-                    this, p._dests[i].brpc_server, fragment_instance_id, p._dest_node_id));
+            channels.push_back(std::make_shared<Channel>(this, p._dests[i].brpc_server,
+                                                         fragment_instance_id, p._dest_node_id));
             fragment_id_to_channel_index.emplace(fragment_instance_id.lo, channels.size() - 1);
 
             if (fragment_instance_id.hi != -1 && fragment_instance_id.lo != -1) {
@@ -240,7 +237,7 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
 
     if ((_part_type == TPartitionType::UNPARTITIONED) && !_only_local_exchange) {
         _broadcast_pb_mem_limiter =
-                vectorized::BroadcastPBlockHolderMemLimiter::create_shared(_queue_dependency);
+                BroadcastPBlockHolderMemLimiter::create_shared(_queue_dependency);
     } else if (_last_local_channel_idx > -1) {
         for (auto& channel : channels) {
             if (channel->is_local()) {
@@ -331,8 +328,7 @@ Status ExchangeSinkOperatorX::init(const TDataSink& tsink) {
         return Status::InternalError("TPartitionType::RANGE_PARTITIONED should not be used");
     }
     if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(*_t_tablet_sink_exprs,
-                                                             _tablet_sink_expr_ctxs));
+        RETURN_IF_ERROR(VExpr::create_expr_trees(*_t_tablet_sink_exprs, _tablet_sink_expr_ctxs));
     }
     return Status::OK();
 }
@@ -343,15 +339,13 @@ Status ExchangeSinkOperatorX::prepare(RuntimeState* state) {
     _compression_type = state->fragement_transmission_compression_type();
     if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
         if (_output_tuple_id == -1) {
-            RETURN_IF_ERROR(
-                    vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state, _child->row_desc()));
+            RETURN_IF_ERROR(VExpr::prepare(_tablet_sink_expr_ctxs, state, _child->row_desc()));
         } else {
             auto* output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
             auto* output_row_desc = _pool->add(new RowDescriptor(output_tuple_desc));
-            RETURN_IF_ERROR(
-                    vectorized::VExpr::prepare(_tablet_sink_expr_ctxs, state, *output_row_desc));
+            RETURN_IF_ERROR(VExpr::prepare(_tablet_sink_expr_ctxs, state, *output_row_desc));
         }
-        RETURN_IF_ERROR(vectorized::VExpr::open(_tablet_sink_expr_ctxs, state));
+        RETURN_IF_ERROR(VExpr::open(_tablet_sink_expr_ctxs, state));
     }
 
     _init_sink_buffer();
@@ -374,7 +368,7 @@ Status ExchangeSinkOperatorX::_handle_eof_channel(RuntimeState* state, ChannelPt
     return channel->close(state);
 }
 
-Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block, bool eos) {
+Status ExchangeSinkOperatorX::sink(RuntimeState* state, Block* block, bool eos) {
     auto& local_state = get_local_state(state);
     COUNTER_UPDATE(local_state.rows_input_counter(),
                    (int64_t)block->rows()); // for auto-partition, may decease when do_partitioning
@@ -447,7 +441,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 idx++;
             }
         } else {
-            auto block_holder = vectorized::BroadcastPBlockHolder::create_shared();
+            auto block_holder = BroadcastPBlockHolder::create_shared();
             {
                 bool serialized = false;
                 RETURN_IF_ERROR(local_state._serializer.next_serialized_block(
@@ -566,7 +560,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
     return final_st;
 }
 
-void ExchangeSinkLocalState::register_channels(pipeline::ExchangeSinkBuffer* buffer) {
+void ExchangeSinkLocalState::register_channels(ExchangeSinkBuffer* buffer) {
     for (auto& channel : channels) {
         channel->set_exchange_buffer(buffer);
     }
@@ -645,4 +639,4 @@ std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::get_sink_buffer(
     }
     return _create_buffer(state, {sender_ins_id});
 }
-} // namespace doris::pipeline
+} // namespace doris

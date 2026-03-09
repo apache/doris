@@ -25,7 +25,6 @@
 namespace doris {
 class RuntimeState;
 
-namespace pipeline {
 #include "common/compile_check_begin.h"
 template <bool is_intersect>
 class SetSourceOperatorX;
@@ -44,14 +43,14 @@ private:
     void _add_result_columns();
     friend class SetSourceOperatorX<is_intersect>;
     friend class OperatorX<SetSourceLocalState<is_intersect>>;
-    std::vector<vectorized::MutableColumnPtr> _mutable_cols;
+    std::vector<MutableColumnPtr> _mutable_cols;
     //record build column type
-    vectorized::DataTypes _left_table_data_types;
+    DataTypes _left_table_data_types;
 
     RuntimeProfile::Counter* _get_data_timer = nullptr;
     RuntimeProfile::Counter* _filter_timer = nullptr;
     RuntimeProfile::Counter* _get_data_from_hashtable_rows = nullptr;
-    vectorized::IColumn::Selector _result_indexs;
+    IColumn::Selector _result_indexs;
 };
 
 template <bool is_intersect>
@@ -86,7 +85,7 @@ public:
                             : DataDistribution(ExchangeType::HASH_SHUFFLE);
     }
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
     Status set_child(OperatorPtr child) override {
         Base::_child = child;
         return Status::OK();
@@ -95,16 +94,14 @@ public:
 private:
     friend class SetSourceLocalState<is_intersect>;
 
-    void _create_mutable_cols(SetSourceLocalState<is_intersect>& local_state,
-                              vectorized::Block* output_block);
+    void _create_mutable_cols(SetSourceLocalState<is_intersect>& local_state, Block* output_block);
 
     template <typename HashTableContext>
     Status _get_data_in_hashtable(SetSourceLocalState<is_intersect>& local_state,
-                                  HashTableContext& hash_table_ctx, vectorized::Block* output_block,
+                                  HashTableContext& hash_table_ctx, Block* output_block,
                                   const int batch_size, bool* eos);
     const size_t _child_quantity;
     const bool _is_colocate;
 };
 #include "common/compile_check_end.h"
-} // namespace pipeline
 } // namespace doris

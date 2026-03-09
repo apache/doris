@@ -20,7 +20,7 @@
 #include "core/types.h"
 #include "exprs/function/cast/cast_base.h"
 
-namespace doris::vectorized::CastWrapper {
+namespace doris::CastWrapper {
 #include "common/compile_check_begin.h"
 // check struct value type and get to_type value
 // TODO: need handle another type to cast struct
@@ -87,4 +87,4 @@ WrapperType create_struct_wrapper(FunctionContext* context, const DataTypePtr& f
     };
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized::CastWrapper
+} // namespace doris::CastWrapper

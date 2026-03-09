@@ -24,7 +24,7 @@
 #include "exec/common/hash_table/ph_hash_map.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename HashMethodType>
 void test_insert(HashMethodType& method, Columns column) {
@@ -127,4 +127,4 @@ TEST(HashTableMethodTest, testMethodStringNoCache) {
               {0, 1, -1, 3, -1, 4});
 }
 
-} // namespace doris::vectorized
+} // namespace doris

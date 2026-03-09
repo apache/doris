@@ -22,7 +22,7 @@
 
 #include "core/typeid_cast.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class IDataType;
 
@@ -38,4 +38,4 @@ bool cast_type_to_either(const PrimitiveType& type, F&& f) {
     return ((type == Ts ? f(type) : false) || ...);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

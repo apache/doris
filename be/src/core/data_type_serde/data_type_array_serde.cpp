@@ -32,7 +32,7 @@
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 
-namespace doris::vectorized {
+namespace doris {
 class Arena;
 #include "common/compile_check_begin.h"
 
@@ -357,7 +357,7 @@ Status DataTypeArraySerDe::write_column_to_mysql_binary(const IColumn& column,
 Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                const NullMap* null_map,
                                                orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                               int64_t end, vectorized::Arena& arena,
+                                               int64_t end, Arena& arena,
                                                const FormatOptions& options) const {
     auto* cur_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
     cur_batch->offsets[0] = 0;
@@ -582,4 +582,4 @@ bool DataTypeArraySerDe::write_column_to_hive_text(const IColumn& column, Buffer
     return true;
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -23,7 +23,6 @@
 #include "util/slice.h"
 
 namespace doris {
-namespace vectorized {
 
 class MockFileReader : public io::FileReader {
 public:
@@ -168,5 +167,4 @@ TEST_F(OrcMergeRangeFileReaderTest, multiple_reads_from_cache) {
     EXPECT_EQ(reader.statistics().merged_bytes, 1024);
 }
 
-} // namespace vectorized
 } // namespace doris

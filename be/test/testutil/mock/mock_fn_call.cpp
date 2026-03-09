@@ -22,7 +22,7 @@
 #include "core/data_type/data_type_number.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(MockFnCallTest, test) {
     auto fn = MockFnCall::create("test");
@@ -34,4 +34,4 @@ TEST(MockFnCallTest, test) {
     EXPECT_EQ(column_wrapper->column_ptr->get_int(0), 1);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

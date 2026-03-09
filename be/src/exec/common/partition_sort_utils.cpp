@@ -20,15 +20,14 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-Status PartitionBlocks::append_block_by_selector(const vectorized::Block* input_block, bool eos) {
+Status PartitionBlocks::append_block_by_selector(const Block* input_block, bool eos) {
     auto selector_rows = _selector.size();
 
     if (selector_rows) {
         if (_blocks.empty() || reach_limit()) {
             _init_rows = _partition_sort_info->_runtime_state->batch_size();
-            _blocks.push_back(vectorized::Block::create_unique(
-                    vectorized::VectorizedUtils::create_empty_block(
-                            _partition_sort_info->_row_desc)));
+            _blocks.push_back(Block::create_unique(
+                    VectorizedUtils::create_empty_block(_partition_sort_info->_row_desc)));
         }
         auto columns = input_block->get_columns();
         auto mutable_columns = _blocks.back()->mutate_columns();
@@ -54,8 +53,8 @@ Status PartitionBlocks::append_block_by_selector(const vectorized::Block* input_
 
 void PartitionBlocks::create_or_reset_sorter_state() {
     if (_partition_topn_sorter == nullptr) {
-        _previous_row = std::make_unique<vectorized::SortCursorCmp>();
-        _partition_topn_sorter = vectorized::PartitionSorter::create_unique(
+        _previous_row = std::make_unique<SortCursorCmp>();
+        _partition_topn_sorter = PartitionSorter::create_unique(
                 *_partition_sort_info->_vsort_exec_exprs, _partition_sort_info->_limit,
                 _partition_sort_info->_offset, _partition_sort_info->_pool,
                 _partition_sort_info->_is_asc_order, _partition_sort_info->_nulls_first,
@@ -79,8 +78,8 @@ Status PartitionBlocks::do_partition_topn_sort() {
     bool current_eos = false;
     while (!current_eos) {
         // output_block maybe need better way
-        auto output_block = vectorized::Block::create_unique(
-                vectorized::VectorizedUtils::create_empty_block(_partition_sort_info->_row_desc));
+        auto output_block = Block::create_unique(
+                VectorizedUtils::create_empty_block(_partition_sort_info->_row_desc));
         RETURN_IF_ERROR(_partition_topn_sorter->get_next(_partition_sort_info->_runtime_state,
                                                          output_block.get(), &current_eos));
         auto rows = output_block->rows();

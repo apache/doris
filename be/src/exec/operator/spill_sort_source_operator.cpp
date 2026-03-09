@@ -30,7 +30,7 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_profile.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 SpillSortLocalState::SpillSortLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent) {}
@@ -93,8 +93,8 @@ Status SpillSortLocalState::_execute_merge_sort_spill_streams(RuntimeState* stat
                                       print_id(query_id), _parent->node_id(), state->task_id());
         }
     }};
-    vectorized::Block merge_sorted_block;
-    vectorized::SpillStreamSPtr tmp_stream;
+    Block merge_sorted_block;
+    SpillStreamSPtr tmp_stream;
     while (!state->is_cancelled()) {
         int max_stream_count = _calc_spill_blocks_to_merge(state);
         VLOG_DEBUG << fmt::format(
@@ -183,9 +183,9 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
     return SpillRecoverRunnable(state, operator_profile(), exception_catch_func).run();
 }
 
-Status SpillSortLocalState::_create_intermediate_merger(
-        int num_blocks, const vectorized::SortDescription& sort_description) {
-    std::vector<vectorized::BlockSupplier> child_block_suppliers;
+Status SpillSortLocalState::_create_intermediate_merger(int num_blocks,
+                                                        const SortDescription& sort_description) {
+    std::vector<BlockSupplier> child_block_suppliers;
     int64_t limit = -1;
     int64_t offset = 0;
     if (num_blocks >= _shared_state->sorted_streams.size()) {
@@ -194,15 +194,15 @@ Status SpillSortLocalState::_create_intermediate_merger(
         offset = Base::_shared_state->offset;
     }
 
-    _merger = std::make_unique<vectorized::VSortedRunMerger>(
-            sort_description, _runtime_state->batch_size(), limit, offset, custom_profile());
+    _merger = std::make_unique<VSortedRunMerger>(sort_description, _runtime_state->batch_size(),
+                                                 limit, offset, custom_profile());
 
     _current_merging_streams.clear();
     for (int i = 0; i < num_blocks && !_shared_state->sorted_streams.empty(); ++i) {
         auto stream = _shared_state->sorted_streams.front();
         stream->set_read_counters(operator_profile());
         _current_merging_streams.emplace_back(stream);
-        child_block_suppliers.emplace_back([stream](vectorized::Block* block, bool* eos) {
+        child_block_suppliers.emplace_back([stream](Block* block, bool* eos) {
             return stream->read_next_block_sync(block, eos);
         });
 
@@ -264,8 +264,7 @@ Status SpillSortSourceOperatorX::close(RuntimeState* state) {
     return _sort_source_operator->close(state);
 }
 
-Status SpillSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
-                                           bool* eos) {
+Status SpillSortSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     local_state.copy_shared_spill_profile();
     Status status;
@@ -299,4 +298,4 @@ Status SpillSortSourceOperatorX::get_block(RuntimeState* state, vectorized::Bloc
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

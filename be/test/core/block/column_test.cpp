@@ -25,7 +25,7 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class ColumnTest : public ::testing::Test {
 protected:
@@ -233,4 +233,4 @@ TEST_F(ColumnTest, ShrinkColumnMap) {
     EXPECT_EQ(v[1].get<TYPE_ARRAY>(), Array());
 }
 
-} // namespace doris::vectorized
+} // namespace doris

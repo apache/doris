@@ -24,7 +24,7 @@
 #include "exprs/function/function_date_or_datetime_to_something.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 using FunctionYearV2 = FunctionDateOrDateTimeToSomething<DataTypeInt16, ToYearImpl<TYPE_DATEV2>>;
 using FunctionYearOfWeek =
@@ -104,4 +104,4 @@ void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_alias("to_date", "to_datev2");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

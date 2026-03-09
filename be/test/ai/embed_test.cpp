@@ -29,7 +29,7 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class MockHttpClient : public HttpClient {
 public:
@@ -727,4 +727,4 @@ TEST(EMBED_TEST, minimax_adapter_embedding_request) {
     ASSERT_STREQ(doc["texts"][0].GetString(), "embed with minimax");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

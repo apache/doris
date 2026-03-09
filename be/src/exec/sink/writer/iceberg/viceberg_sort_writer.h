@@ -34,16 +34,14 @@
 // in this header, causing heavy transitive includes for all files that include
 // viceberg_sort_writer.h. Moving implementations to .cpp allows us to forward-declare
 // these types and only include their headers in the .cpp file.
-namespace doris::vectorized {
+namespace doris {
 class SpillStream;
 using SpillStreamSPtr = std::shared_ptr<SpillStream>;
-} // namespace doris::vectorized
+} // namespace doris
 
 namespace doris {
 class RuntimeState;
 class RuntimeProfile;
-
-namespace vectorized {
 
 /**
  * VIcebergSortWriter is a decorator around VIcebergPartitionWriter that adds sort-order support.
@@ -88,7 +86,7 @@ public:
                 const RowDescriptor* row_desc) override;
 
     // Append data block to the sorter; triggers flush when target file size is reached
-    Status write(vectorized::Block& block) override;
+    Status write(Block& block) override;
 
     // Sort remaining data, perform multi-way merge if spill occurred, and close the writer.
     // Error handling: Tracks internal errors from intermediate operations and propagates
@@ -115,7 +113,7 @@ public:
 private:
     // Calculate average row size from the first non-empty block to determine
     // the optimal batch row count for spill operations
-    void _update_spill_block_batch_row_count(const vectorized::Block& block);
+    void _update_spill_block_batch_row_count(const Block& block);
 
     // Sort in-memory data and flush to a Parquet/ORC file, then open a new writer
     Status _flush_to_file();
@@ -169,12 +167,12 @@ private:
     CreateWriterLambda _create_writer_lambda;
 
     // Sorter and merger for handling in-memory sorting and multi-way merge
-    std::unique_ptr<vectorized::FullSorter> _sorter;
-    std::unique_ptr<vectorized::VSortedRunMerger> _merger;
+    std::unique_ptr<FullSorter> _sorter;
+    std::unique_ptr<VSortedRunMerger> _merger;
     // Queue of spill streams waiting to be merged (FIFO order)
-    std::deque<vectorized::SpillStreamSPtr> _sorted_streams;
+    std::deque<SpillStreamSPtr> _sorted_streams;
     // Streams currently being consumed by the merger
-    std::vector<vectorized::SpillStreamSPtr> _current_merging_streams;
+    std::vector<SpillStreamSPtr> _current_merging_streams;
 
     // Target file size in bytes; files are split when this threshold is exceeded
     // Default: config::iceberg_sink_max_file_size (1GB)
@@ -188,5 +186,4 @@ private:
     RuntimeProfile::Counter* _do_spill_count_counter = nullptr;
 };
 
-} // namespace vectorized
 } // namespace doris

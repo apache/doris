@@ -32,7 +32,6 @@
 #include "exec/scan/task_executor/time_sharing/time_sharing_task_handle.h"
 
 namespace doris {
-namespace vectorized {
 
 class PhaseController {
 public:
@@ -922,5 +921,4 @@ TEST_F(TimeSharingTaskExecutorTest,
     executor.stop();
 }
 
-} // namespace vectorized
 } // namespace doris

@@ -30,7 +30,7 @@
 #include "exprs/function/complex_dict_hash_map.h"
 #include "exprs/function/dictionary.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // ComplexHashMapDictionary is a dictionary used to store multiple keys and multiple values
 // Currently, it is in a relatively simple state. In the future, it will reuse the hashmap of hashjoin
@@ -101,4 +101,4 @@ inline DictionaryPtr create_complex_hash_map_dict_from_column(
                                                                        values_data);
     return dict;
 }
-} // namespace doris::vectorized
+} // namespace doris

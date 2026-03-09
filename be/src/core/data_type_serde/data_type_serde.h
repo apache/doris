@@ -84,7 +84,6 @@ class JsonbWriterT;
 using JsonbWriter = JsonbWriterT<JsonbOutStream>;
 
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class IColumn;
 class Arena;
 class IDataType;
@@ -300,7 +299,7 @@ public:
     virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                            const FormatOptions& options) const;
 
-    virtual std::string to_olap_string(const vectorized::Field& field) const;
+    virtual std::string to_olap_string(const Field& field) const;
 
     // All types can override this function
     // When this function is called, column should be of the corresponding type
@@ -476,7 +475,7 @@ public:
     virtual Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                        const NullMap* null_map,
                                        orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                       int64_t end, vectorized::Arena& arena,
+                                       int64_t end, Arena& arena,
                                        const FormatOptions& options) const = 0;
     // ORC deserializer
 
@@ -555,5 +554,4 @@ DataTypeSerDeSPtrs create_data_type_serdes(
         const std::vector<std::shared_ptr<const IDataType>>& types);
 DataTypeSerDeSPtrs create_data_type_serdes(const std::vector<SlotDescriptor*>& slots);
 #include "common/compile_check_end.h"
-} // namespace vectorized
 } // namespace doris
