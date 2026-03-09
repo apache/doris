@@ -1190,6 +1190,8 @@ DECLARE_String(python_venv_root_path);
 DECLARE_String(python_venv_interpreter_paths);
 // max python processes in global shared pool, each version can have up to this many processes
 DECLARE_mInt32(max_python_process_num);
+// Memory limit in bytes for all Python UDF processes; warning is logged when exceeded
+DECLARE_mInt64(python_udf_processes_memory_limit_bytes);
 
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
@@ -1413,6 +1415,13 @@ DECLARE_mBool(variant_throw_exeception_on_invalid_json);
 // Enable vertical compact subcolumns of variant column
 DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
 DECLARE_mBool(enable_variant_doc_sparse_write_subcolumns);
+// Maximum depth of nested arrays to track with NestedGroup
+// Reserved for future use when NestedGroup expansion moves to storage layer
+DECLARE_mInt32(variant_nested_group_max_depth);
+// When true, discard scalar data that conflicts with NestedGroup array<object>
+// data at the same path. This simplifies compaction by always prioritizing
+// nested structure over scalar. When false, report an error on conflict.
+DECLARE_mBool(variant_nested_group_discard_scalar_on_conflict);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // USED FOR DEBUGING

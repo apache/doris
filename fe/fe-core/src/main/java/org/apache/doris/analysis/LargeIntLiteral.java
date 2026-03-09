@@ -18,8 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
@@ -39,8 +37,6 @@ public class LargeIntLiteral extends NumericLiteralExpr {
     public static final BigInteger LARGE_INT_MIN = new BigInteger("-170141183460469231731687303715884105728");
     // 2^127 - 1
     public static final BigInteger LARGE_INT_MAX = new BigInteger("170141183460469231731687303715884105727");
-    // 2^127
-    public static final BigInteger LARGE_INT_MAX_ABS = new BigInteger("170141183460469231731687303715884105728");
 
     @SerializedName("v")
     private BigInteger value;
@@ -173,14 +169,8 @@ public class LargeIntLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String toSqlImpl() {
-        return getStringValue();
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return getStringValue();
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitLargeIntLiteral(this, context);
     }
 
     @Override

@@ -307,13 +307,14 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             // shuffle all column
             // TODO: for wide table, may be we should add a upper limit of shuffle columns
 
+            // TODO: open comment when support `enable_local_shuffle_planner` and change to REQUIRE
             // intersect/except always need hash distribution, we use REQUIRE to auto select
             // bucket shuffle or execution shuffle
             addRequestPropertyToChildren(setOperation.getRegularChildrenOutputs().stream()
                     .map(childOutputs -> childOutputs.stream()
                             .map(SlotReference::getExprId)
                             .collect(ImmutableList.toImmutableList()))
-                    .map(l -> PhysicalProperties.createHash(l, ShuffleType.REQUIRE))
+                    .map(l -> PhysicalProperties.createHash(l, ShuffleType.EXECUTION_BUCKETED))
                     .collect(Collectors.toList()));
         }
         return null;

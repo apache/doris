@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
+import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 
 import com.google.common.base.Preconditions;
@@ -31,7 +33,10 @@ import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 
+import java.lang.reflect.Field;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -287,6 +292,38 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         hadoopStorageConfig.set("fs.s3a.connection.request.timeout", getRequestTimeoutS());
         hadoopStorageConfig.set("fs.s3a.connection.timeout", getConnectionTimeoutS());
         hadoopStorageConfig.set("fs.s3a.path.style.access", getUsePathStyle());
+    }
+
+    /**
+     * Searches for a region value from the given properties map by scanning all known
+     * S3-compatible subclass region field annotations.
+     * <p>
+     * This method iterates through all known subclasses of {@link AbstractS3CompatibleProperties},
+     * finds fields annotated with {@code @ConnectorProperty(isRegionField = true)},
+     * and checks if any of the annotation's {@code names} exist in the provided properties map.
+     *
+     * @param props the property map to search for region values
+     * @return the region value if found, or {@code null} if no region property is present
+     */
+    public static String getRegionFromProperties(Map<String, String> props) {
+        List<Class<? extends AbstractS3CompatibleProperties>> subClasses = Arrays.asList(
+                S3Properties.class, OSSProperties.class, COSProperties.class,
+                OBSProperties.class, MinioProperties.class);
+        for (Class<?> clazz : subClasses) {
+            List<Field> fields = ConnectorPropertiesUtils.getConnectorProperties(clazz);
+            for (Field field : fields) {
+                ConnectorProperty annotation = field.getAnnotation(ConnectorProperty.class);
+                if (annotation != null && annotation.isRegionField()) {
+                    for (String name : annotation.names()) {
+                        String value = props.get(name);
+                        if (StringUtils.isNotBlank(value)) {
+                            return value;
+                        }
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     @Override

@@ -22,21 +22,18 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
-import org.apache.doris.info.PartitionNamesInfo;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.load.NereidsLoadUtils;
@@ -44,8 +41,6 @@ import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.task.LoadTaskInfo;
-import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
@@ -55,8 +50,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
 import java.util.List;
@@ -91,7 +84,6 @@ import java.util.TreeSet;
  * It old way of transform will be removed gradually. It
  */
 public class DataDescription {
-    private static final Logger LOG = LogManager.getLogger(DataDescription.class);
     // function isn't built-in function, hll_hash is not built-in function in hadoop load.
     private static final List<String> HADOOP_SUPPORT_FUNCTION_NAMES = Arrays.asList(
             "strftime",
@@ -160,18 +152,6 @@ public class DataDescription {
     // This map is used to collect information of file format properties.
     // The map should be only used in `constructor` and `analyzeWithoutCheckPriv` method.
     private Map<String, String> analysisMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-
-    public DataDescription(String tableName,
-                           PartitionNamesInfo partitionNamesInfo,
-                           List<String> filePaths,
-                           List<String> columns,
-                           Separator columnSeparator,
-                           String fileFormat,
-                           boolean isNegative,
-                           List<Expr> columnMappingList) {
-        this(tableName, partitionNamesInfo, filePaths, columns, columnSeparator, fileFormat, null,
-                isNegative, columnMappingList, null, null, LoadTask.MergeType.APPEND, null, null, null);
-    }
 
     public DataDescription(String tableName,
                            PartitionNamesInfo partitionNamesInfo,
@@ -326,349 +306,9 @@ public class DataDescription {
         columnsNameToLowerCase(columnsFromPath);
     }
 
-    // data from table external_hive_table
-    public DataDescription(String tableName,
-                           PartitionNamesInfo partitionNamesInfo,
-                           String srcTableName,
-                           boolean isNegative,
-                           List<Expr> columnMappingList,
-                           Expr whereExpr,
-                           LoadTask.MergeType mergeType,
-                           Expr deleteCondition,
-                           Map<String, String> properties) {
-        this.tableName = tableName;
-        this.partitionNamesInfo = partitionNamesInfo;
-        this.filePaths = null;
-        this.fileFieldNames = null;
-        this.columnsFromPath = null;
-        this.isNegative = isNegative;
-        this.columnMappingList = columnMappingList;
-        this.precedingFilterExpr = null; // external hive table does not support file filter expr
-        this.whereExpr = whereExpr;
-        this.srcTableName = srcTableName;
-        this.mergeType = mergeType;
-        this.deleteCondition = deleteCondition;
-        this.properties = properties;
-        if (properties != null) {
-            this.analysisMap.putAll(properties);
-        }
-        // the default value of `read_json_by_line` must be true.
-        // So that for broker load, this is always true,
-        // and for stream load, it will set on demand.
-        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, DEFAULT_READ_JSON_BY_LINE);
-    }
-
-    // data desc for mysql client
-    public DataDescription(TableNameInfo tableName,
-                           PartitionNamesInfo partitionNamesInfo,
-                           String file,
-                           boolean clientLocal,
-                           List<String> columns,
-                           Separator columnSeparator,
-                           Separator lineDelimiter,
-                           int skipLines,
-                           List<Expr> columnMappingList,
-                           Map<String, String> properties) {
-        this.tableName = tableName.getTbl();
-        this.dbName = tableName.getDb();
-        this.partitionNamesInfo = partitionNamesInfo;
-        this.filePaths = Lists.newArrayList(file);
-        this.clientLocal = clientLocal;
-        this.fileFieldNames = columns;
-        this.columnsFromPath = null;
-        this.isNegative = false;
-        this.columnMappingList = columnMappingList;
-        this.precedingFilterExpr = null;
-        this.whereExpr = null;
-        this.srcTableName = null;
-        this.mergeType = null;
-        this.deleteCondition = null;
-        this.properties = properties;
-        if (properties != null) {
-            this.analysisMap.putAll(properties);
-        }
-        // the default value of `read_json_by_line` must be true.
-        // So that for broker load, this is always true,
-        // and for stream load, it will set on demand.
-        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, DEFAULT_READ_JSON_BY_LINE);
-        if (columnSeparator != null) {
-            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, columnSeparator.getOriSeparator());
-        }
-        if (lineDelimiter != null) {
-            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_LINE_DELIMITER, lineDelimiter.getOriSeparator());
-        }
-        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_SKIP_LINES, String.valueOf(skipLines));
-        this.isMysqlLoad = true;
-        columnsNameToLowerCase(fileFieldNames);
-    }
-
-    // For stream load using external file scan node.
-    public DataDescription(String tableName, LoadTaskInfo taskInfo) {
-        this.tableName = tableName;
-        this.partitionNamesInfo = taskInfo.getPartitionNamesInfo();
-
-        if (!Strings.isNullOrEmpty(taskInfo.getPath())) {
-            this.filePaths = Lists.newArrayList(taskInfo.getPath());
-        } else {
-            // Add a dummy path to just make analyze() happy.
-            this.filePaths = Lists.newArrayList("dummy");
-        }
-
-        this.fileFieldNames = taskInfo.getColumnExprDescs().getFileColNames();
-        this.columnsFromPath = null;
-        this.isNegative = taskInfo.getNegative();
-        this.columnMappingList = taskInfo.getColumnExprDescs().getColumnMappingList();
-        this.precedingFilterExpr = taskInfo.getPrecedingFilter();
-        this.whereExpr = taskInfo.getWhereExpr();
-        this.srcTableName = null;
-        this.mergeType = taskInfo.getMergeType();
-        this.deleteCondition = taskInfo.getDeleteCondition();
-        this.sequenceCol = taskInfo.getSequenceCol();
-
-        this.properties = Maps.newHashMap();
-        if (properties != null) {
-            this.analysisMap.putAll(properties);
-        }
-        putAnalysisMapIfNonNull(FileFormatProperties.PROP_FORMAT, getFileFormat(taskInfo));
-        if (taskInfo.getCompressType() != null) {
-            putAnalysisMapIfNonNull(FileFormatProperties.PROP_COMPRESS_TYPE, taskInfo.getCompressType().toString());
-        }
-        if (taskInfo.getColumnSeparator() != null) {
-            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR,
-                    taskInfo.getColumnSeparator().getOriSeparator());
-        }
-        if (taskInfo.getLineDelimiter() != null) {
-            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_LINE_DELIMITER,
-                    taskInfo.getLineDelimiter().getOriSeparator());
-        }
-        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_ENCLOSE, new String(new byte[]{taskInfo.getEnclose()}));
-        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_ESCAPE, new String(new byte[]{taskInfo.getEscape()}));
-        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_TRIM_DOUBLE_QUOTES,
-                String.valueOf(taskInfo.getTrimDoubleQuotes()));
-        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_SKIP_LINES,
-                String.valueOf(taskInfo.getSkipLines()));
-
-        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY,
-                String.valueOf(taskInfo.isStripOuterArray()));
-        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_JSON_PATHS, taskInfo.getJsonPaths());
-        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_JSON_ROOT, taskInfo.getJsonRoot());
-        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_FUZZY_PARSE, String.valueOf(taskInfo.isFuzzyParse()));
-        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE,
-                String.valueOf(taskInfo.isReadJsonByLine()));
-        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_NUM_AS_STRING, String.valueOf(taskInfo.isNumAsString()));
-
-        this.uniquekeyUpdateMode = taskInfo.getUniqueKeyUpdateMode();
-        columnsNameToLowerCase(fileFieldNames);
-    }
-
     private void putAnalysisMapIfNonNull(String key, String value) {
         if (value != null) {
             this.analysisMap.put(key, value);
-        }
-    }
-
-    private String getFileFormat(LoadTaskInfo taskInfo) {
-        // get file format
-        if (!Strings.isNullOrEmpty(taskInfo.getHeaderType())) {
-            // for "csv_with_name" and "csv_with_name_and_type"
-            return taskInfo.getHeaderType();
-        } else {
-            TFileFormatType type = taskInfo.getFormatType();
-            if (Util.isCsvFormat(type)) {
-                // ignore the "compress type" in format, such as FORMAT_CSV_GZ
-                // the compress type is saved in "compressType"
-                return "csv";
-            } else {
-                switch (type) {
-                    case FORMAT_ORC:
-                        return "orc";
-                    case FORMAT_PARQUET:
-                        return "parquet";
-                    case FORMAT_JSON:
-                        return "json";
-                    case FORMAT_TEXT:
-                        return "hive_text";
-                    case FORMAT_WAL:
-                        return "wal";
-                    case FORMAT_ARROW:
-                        return "arrow";
-                    default:
-                        return "unknown";
-                }
-            }
-        }
-    }
-
-    public static void validateMappingFunction(String functionName, List<String> args,
-                                               Map<String, String> columnNameMap,
-                                               Column mappingColumn, boolean isHadoopLoad) throws AnalysisException {
-        if (functionName.equalsIgnoreCase("alignment_timestamp")) {
-            validateAlignmentTimestamp(args, columnNameMap);
-        } else if (functionName.equalsIgnoreCase("strftime")) {
-            validateStrftime(args, columnNameMap);
-        } else if (functionName.equalsIgnoreCase("time_format")) {
-            validateTimeFormat(args, columnNameMap);
-        } else if (functionName.equalsIgnoreCase("default_value")) {
-            validateDefaultValue(args, mappingColumn);
-        } else if (functionName.equalsIgnoreCase("md5sum")) {
-            validateMd5sum(args, columnNameMap);
-        } else if (functionName.equalsIgnoreCase("replace_value")) {
-            validateReplaceValue(args, mappingColumn);
-        } else if (functionName.equalsIgnoreCase(FunctionSet.HLL_HASH)) {
-            validateHllHash(args, columnNameMap);
-        } else if (functionName.equalsIgnoreCase("now")) {
-            validateNowFunction(mappingColumn);
-        } else if (functionName.equalsIgnoreCase("substitute")) {
-            validateSubstituteFunction(args, columnNameMap);
-        } else {
-            if (isHadoopLoad) {
-                throw new AnalysisException("Unknown function: " + functionName);
-            }
-        }
-    }
-
-    // eg: k2 = substitute(k1)
-    // this is used for creating derivative column from existing column
-    private static void validateSubstituteFunction(List<String> args, Map<String, String> columnNameMap)
-            throws AnalysisException {
-        if (args.size() != 1) {
-            throw new AnalysisException("Should has only one argument: " + args);
-        }
-
-        String argColumn = args.get(0);
-        if (!columnNameMap.containsKey(argColumn)) {
-            throw new AnalysisException("Column is not in sources, column: " + argColumn);
-        }
-
-        args.set(0, columnNameMap.get(argColumn));
-    }
-
-    private static void validateAlignmentTimestamp(List<String> args, Map<String, String> columnNameMap)
-            throws AnalysisException {
-        if (args.size() != 2) {
-            throw new AnalysisException("Function alignment_timestamp args size is not 2");
-        }
-
-        String precision = args.get(0).toLowerCase();
-        String regex = "^year|month|day|hour$";
-        if (!precision.matches(regex)) {
-            throw new AnalysisException("Alignment precision error. regex: " + regex + ", arg: " + precision);
-        }
-
-        String argColumn = args.get(1);
-        if (!columnNameMap.containsKey(argColumn)) {
-            throw new AnalysisException("Column is not in sources, column: " + argColumn);
-        }
-
-        args.set(1, columnNameMap.get(argColumn));
-    }
-
-    private static void validateStrftime(List<String> args, Map<String, String> columnNameMap) throws
-            AnalysisException {
-        if (args.size() != 2) {
-            throw new AnalysisException("Function strftime needs 2 args");
-        }
-
-        String format = args.get(0);
-        String regex = "^(%[YMmdHhiSs][ -:]?){0,5}%[YMmdHhiSs]$";
-        if (!format.matches(regex)) {
-            throw new AnalysisException("Date format error. regex: " + regex + ", arg: " + format);
-        }
-
-        String argColumn = args.get(1);
-        if (!columnNameMap.containsKey(argColumn)) {
-            throw new AnalysisException("Column is not in sources, column: " + argColumn);
-        }
-
-        args.set(1, columnNameMap.get(argColumn));
-    }
-
-    private static void validateTimeFormat(List<String> args, Map<String, String> columnNameMap) throws
-            AnalysisException {
-        if (args.size() != 3) {
-            throw new AnalysisException("Function time_format needs 3 args");
-        }
-
-        String outputFormat = args.get(0);
-        String inputFormat = args.get(1);
-        String regex = "^(%[YMmdHhiSs][ -:]?){0,5}%[YMmdHhiSs]$";
-        if (!outputFormat.matches(regex)) {
-            throw new AnalysisException("Date format error. regex: " + regex + ", arg: " + outputFormat);
-        }
-        if (!inputFormat.matches(regex)) {
-            throw new AnalysisException("Date format error. regex: " + regex + ", arg: " + inputFormat);
-        }
-
-        String argColumn = args.get(2);
-        if (!columnNameMap.containsKey(argColumn)) {
-            throw new AnalysisException("Column is not in sources, column: " + argColumn);
-        }
-
-        args.set(2, columnNameMap.get(argColumn));
-    }
-
-    private static void validateDefaultValue(List<String> args, Column column) throws AnalysisException {
-        if (args.size() != 1) {
-            throw new AnalysisException("Function default_value needs 1 arg");
-        }
-
-        if (!column.isAllowNull() && args.get(0) == null) {
-            throw new AnalysisException("Column is not null, column: " + column.getName());
-        }
-
-        if (args.get(0) != null) {
-            ColumnDef.validateDefaultValue(column.getOriginType(), args.get(0), column.getDefaultValueExprDef());
-        }
-    }
-
-    private static void validateMd5sum(List<String> args, Map<String, String> columnNameMap) throws AnalysisException {
-        for (int i = 0; i < args.size(); ++i) {
-            String argColumn = args.get(i);
-            if (!columnNameMap.containsKey(argColumn)) {
-                throw new AnalysisException("Column is not in sources, column: " + argColumn);
-            }
-
-            args.set(i, columnNameMap.get(argColumn));
-        }
-    }
-
-    private static void validateReplaceValue(List<String> args, Column column) throws AnalysisException {
-        String replaceValue = null;
-        if (args.size() == 1) {
-            replaceValue = column.getDefaultValue();
-            if (replaceValue == null) {
-                throw new AnalysisException("Column " + column.getName() + " has no default value");
-            }
-
-            args.add(replaceValue);
-        } else if (args.size() == 2) {
-            replaceValue = args.get(1);
-        } else {
-            throw new AnalysisException("Function replace_value need 1 or 2 args");
-        }
-
-        if (!column.isAllowNull() && replaceValue == null) {
-            throw new AnalysisException("Column is not null, column: " + column.getName());
-        }
-
-        if (replaceValue != null) {
-            ColumnDef.validateDefaultValue(column.getOriginType(), replaceValue, column.getDefaultValueExprDef());
-        }
-    }
-
-    private static void validateHllHash(List<String> args, Map<String, String> columnNameMap) throws AnalysisException {
-        for (int i = 0; i < args.size(); ++i) {
-            String argColumn = args.get(i);
-            if (argColumn == null || !columnNameMap.containsKey(argColumn)) {
-                throw new AnalysisException("Column is not in sources, column: " + argColumn);
-            }
-            args.set(i, columnNameMap.get(argColumn));
-        }
-    }
-
-    private static void validateNowFunction(Column mappingColumn) throws AnalysisException {
-        if (!mappingColumn.getOriginType().isDateType()) {
-            throw new AnalysisException("Now() function is only support for DATE/DATETIME column");
         }
     }
 
@@ -869,7 +509,7 @@ public class DataDescription {
         for (Expr columnExpr : columnMappingList) {
             if (!(columnExpr instanceof BinaryPredicate)) {
                 throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
-                        + "Expr: " + columnExpr.toSql());
+                        + "Expr: " + columnExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
             BinaryPredicate predicate = (BinaryPredicate) columnExpr;
             if (predicate.getOp() != Operator.EQ) {
@@ -882,7 +522,8 @@ public class DataDescription {
                 child0 = predicate.getChild(0);
             } else if (!(child0 instanceof SlotRef)) {
                 throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
-                        + "The mapping column error. column: " + child0.toSql());
+                        + "The mapping column error. column: "
+                        + child0.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
             String column = ((SlotRef) child0).getColumnName();
             if (!columnMappingNames.add(column)) {
@@ -893,7 +534,7 @@ public class DataDescription {
             if (isHadoopLoad && !(child1 instanceof FunctionCallExpr)) {
                 throw new AnalysisException(
                         "Hadoop load only supports the designated function. " + "The error mapping function is:"
-                                + child1.toSql());
+                                + child1.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
             // Must clone the expr, because in routine load, the expr will be analyzed for each task.
             Expr cloned = child1.clone();
@@ -950,7 +591,8 @@ public class DataDescription {
             } else {
                 if (isHadoopLoad) {
                     // hadoop function only support slot, string and null parameters
-                    throw new AnalysisException("Mapping function args error, arg: " + paramExpr.toSql());
+                    throw new AnalysisException("Mapping function args error, arg: "
+                            + paramExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
                 }
             }
         }
@@ -1144,28 +786,17 @@ public class DataDescription {
             Joiner.on(", ").appendTo(sb, Lists.transform(columnMappingList, new Function<Expr, Object>() {
                 @Override
                 public Object apply(Expr expr) {
-                    return expr.toSql();
+                    return expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
                 }
             })).append(")");
         }
         if (whereExpr != null) {
-            sb.append(" WHERE ").append(whereExpr.toSql());
+            sb.append(" WHERE ").append(whereExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
         }
         if (deleteCondition != null && mergeType == LoadTask.MergeType.MERGE) {
-            sb.append(" DELETE ON ").append(deleteCondition.toSql());
+            sb.append(" DELETE ON ").append(deleteCondition.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
         }
         return sb.toString();
-    }
-
-    public void checkKeyTypeForLoad(OlapTable table) throws AnalysisException {
-        if (getMergeType() != LoadTask.MergeType.APPEND) {
-            if (table.getKeysType() != KeysType.UNIQUE_KEYS) {
-                throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
-            } else if (!table.hasDeleteSign()) {
-                throw new AnalysisException(
-                        "load by MERGE or DELETE need to upgrade table to support batch delete.");
-            }
-        }
     }
 
     @Override

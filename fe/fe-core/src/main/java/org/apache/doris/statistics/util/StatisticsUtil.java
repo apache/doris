@@ -1340,6 +1340,6 @@ public class StatisticsUtil {
         double balanceFactor = maxHotValueCntIncludeNull == 0
                 ? Double.MAX_VALUE : rowsPerInstance / maxHotValueCntIncludeNull;
         // The larger this factor is, the more balanced the data.
-        return balanceFactor > 2.0 && ndv > instanceNum * 3 && ndv > AggregateUtils.LOW_NDV_THRESHOLD;
+        return balanceFactor > 2.0 && ndv > instanceNum * AggregateUtils.NDV_INSTANCE_BALANCE_MULTIPLIER;
     }
 }

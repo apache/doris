@@ -155,11 +155,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public synchronized void resetToUninitialized(boolean invalidCache) {
-        super.resetToUninitialized(invalidCache);
-    }
-
-    @Override
     public void onClose() {
         super.onClose();
         if (null != fileSystemExecutor) {
@@ -176,8 +171,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public List<String> listTableNames(SessionContext ctx, String dbName) {
-        makeSureInitialized();
+    protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
         return metadataOps.listTableNames(ClusterNamespace.getNameFromFullName(dbName));
     }
 

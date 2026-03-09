@@ -17,10 +17,13 @@
 
 package org.apache.doris.cloud.catalog;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.rpc.VersionHelper;
@@ -41,7 +44,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
@@ -144,7 +150,7 @@ public class CloudPartition extends Partition {
         return getVisibleVersionFromMs(false);
     }
 
-    public long getVisibleVersionFromMs(boolean waitForPendingTxns) {
+    private long getVisibleVersionFromMs(boolean waitForPendingTxns) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("getVisibleVersionFromMs use CloudPartition {}, waitForPendingTxns: {}",
                     super.getName(), waitForPendingTxns);
@@ -255,6 +261,27 @@ public class CloudPartition extends Partition {
         return versions;
     }
 
+    private static List<OlapTable> getTables(List<CloudPartition> partitions) {
+        Map<Long, OlapTable> tableMap = new HashMap<>();
+        for (CloudPartition partition : partitions) {
+            if (tableMap.containsKey(partition.getTableId())) {
+                continue;
+            }
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(partition.getDbId());
+            if (db == null) {
+                continue;
+            }
+            Table table = db.getTableNullable(partition.getTableId());
+            if (table == null) {
+                continue;
+            }
+            tableMap.put(partition.getTableId(), (OlapTable) table);
+        }
+        List<OlapTable> tables = tableMap.values().stream().collect(Collectors.toCollection(ArrayList::new));
+        Collections.sort(tables, Comparator.comparingLong(o -> o.getId()));
+        return tables;
+    }
+
     // Get visible version from the specified partitions;
     //
     // Return the visible version in order of the specified partition ids, -1 means version NOT FOUND.
@@ -272,15 +299,24 @@ public class CloudPartition extends Partition {
         // partitionId -> cachedVersion
         List<Pair<Long, Long>> allVersions = new ArrayList<>(partitions.size());
         List<CloudPartition> expiredPartitions = new ArrayList<>(partitions.size());
-        for (CloudPartition partition : partitions) {
-            long ver = partition.getCachedVisibleVersion();
-            if (partition.isCachedVersionExpired()) {
-                expiredPartitions.add(partition);
-                ver = 0L; // 0 means to be get from meta-service
-            }
-            allVersions.add(Pair.of(partition.getId(), ver));
+        List<OlapTable> tables = getTables(partitions);
+        for (OlapTable table : tables) {
+            table.versionReadLock();
         }
-
+        try {
+            for (CloudPartition partition : partitions) {
+                long ver = partition.getCachedVisibleVersion();
+                if (partition.isCachedVersionExpired()) {
+                    expiredPartitions.add(partition);
+                    ver = 0L; // 0 means to be get from meta-service
+                }
+                allVersions.add(Pair.of(partition.getId(), ver));
+            }
+        } finally {
+            for (int i = tables.size() - 1; i >= 0; i--) {
+                tables.get(i).versionReadUnlock();
+            }
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("cloudPartitionVersionCacheTtlMs={}, numPartitions={}, numFilteredPartitions={}",
                     cloudPartitionVersionCacheTtlMs, partitions.size(), partitions.size() - expiredPartitions.size());

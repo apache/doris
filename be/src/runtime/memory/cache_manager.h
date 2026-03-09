@@ -22,7 +22,7 @@
 
 #include "runtime/exec_env.h"
 #include "runtime/memory/cache_policy.h"
-#include "util/runtime_profile.h"
+#include "runtime/runtime_profile.h"
 #include "util/time.h"
 
 namespace doris {

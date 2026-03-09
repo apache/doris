@@ -45,10 +45,10 @@
 #include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "olap/memtable_flush_executor.h"
-#include "olap/storage_engine.h"
+#include "load/memtable/memtable_flush_executor.h"
 #include "runtime/exec_env.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "storage/storage_engine.h"
 #include "util/cpu_info.h"
 #include "util/string_util.h"
 
@@ -1129,6 +1129,9 @@ DEFINE_String(python_venv_interpreter_paths, "");
 // max python processes in global shared pool, each version can have up to this many processes
 // 0 means use CPU core count as default, otherwise use the specified value
 DEFINE_mInt32(max_python_process_num, "0");
+// Memory limit in bytes for all Python UDF processes; warning is logged when exceeded
+// default is 10GB
+DEFINE_mInt64(python_udf_processes_memory_limit_bytes, "10737418240");
 
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
@@ -1149,6 +1152,11 @@ DEFINE_mInt32(variant_max_json_key_length, "255");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 DEFINE_mBool(enable_vertical_compact_variant_subcolumns, "true");
 DEFINE_mBool(enable_variant_doc_sparse_write_subcolumns, "true");
+// Maximum depth of nested arrays to track with NestedGroup
+// Reserved for future use when NestedGroup expansion moves to storage layer
+// Deeper arrays will be stored as JSONB
+DEFINE_mInt32(variant_nested_group_max_depth, "3");
+DEFINE_mBool(variant_nested_group_discard_scalar_on_conflict, "false");
 
 DEFINE_Validator(variant_max_json_key_length,
                  [](const int config) -> bool { return config > 0 && config <= 65535; });

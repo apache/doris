@@ -42,12 +42,13 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "exec/scan/vector_search_user_params.h"
 #include "io/fs/s3_file_system.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/task_execution_context.h"
 #include "runtime/workload_group/workload_group.h"
 #include "util/debug_util.h"
-#include "util/runtime_profile.h"
-#include "vec/runtime/vector_search_user_params.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 class RuntimeFilter;
@@ -181,6 +182,10 @@ public:
     // if possible, use timezone_obj() rather than timezone()
     const std::string& timezone() const { return _timezone; }
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
+    void set_timezone(const std::string& timezone) {
+        _timezone = timezone;
+        TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
+    }
     const std::string& lc_time_names() const { return _lc_time_names; }
     const std::string& user() const { return _user; }
     const TUniqueId& query_id() const { return _query_id; }

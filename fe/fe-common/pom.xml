@@ -28,6 +28,8 @@ under the License.
     </parent>
     <artifactId>fe-common</artifactId>
     <packaging>jar</packaging>
+    <name>Doris FE Common Utils</name>
+    <description>Common Utils for Doris Frontend modules</description>
     <profiles>
         <profile>
             <id>thirdparty</id>
@@ -49,11 +51,6 @@ under the License.
         <dependency>
             <groupId>commons-io</groupId>
             <artifactId>commons-io</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/org.apache.thrift/libthrift -->
-        <dependency>
-            <groupId>org.apache.thrift</groupId>
-            <artifactId>libthrift</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
@@ -108,11 +105,56 @@ under the License.
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-iostreams</artifactId>
         </dependency>
+        <!-- antl4 The version of antlr-runtime in trino parser is need to be consistent with doris,
+    when upgrade doris antlr-runtime version, should take care of trino-parser.-->
+        <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr4-runtime</artifactId>
+            <version>${antlr4.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.aliyun.odps</groupId>
+            <artifactId>odps-sdk-core</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>arrow-vector</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.ini4j</groupId>
+                    <artifactId>ini4j</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.bouncycastle</groupId>
+                    <artifactId>bcprov-jdk18on</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
     </dependencies>
     <build>
         <finalName>doris-fe-common</finalName>
         <directory>${project.basedir}/target/</directory>
         <plugins>
+            <!--antlr-->
+            <plugin>
+                <groupId>org.antlr</groupId>
+                <artifactId>antlr4-maven-plugin</artifactId>
+                <version>${antlr4.version}</version>
+                <executions>
+                    <execution>
+                        <id>antlr</id>
+                        <goals>
+                            <goal>antlr4</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <visitor>true</visitor>
+                    <sourceDirectory>src/main/antlr4</sourceDirectory>
+                    <treatWarningsAsErrors>true</treatWarningsAsErrors>
+                    <libDirectory>src/main/antlr4/org/apache/doris/parser</libDirectory>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-source-plugin</artifactId>

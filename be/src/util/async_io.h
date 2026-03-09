@@ -20,9 +20,9 @@
 #include <bthread/bthread.h>
 
 #include "io/fs/file_system.h"
-#include "olap/olap_define.h"
+#include "storage/olap_define.h"
 #include "util/cpu_info.h"
-#include "work_thread_pool.hpp"
+#include "util/work_thread_pool.hpp"
 
 namespace doris {
 

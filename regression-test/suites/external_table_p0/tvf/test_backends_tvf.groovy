@@ -16,7 +16,7 @@
 // under the License.
 
 // This suit test the `backends` tvf
-suite("test_backends_tvf","p0,external,tvf,external_docker") {
+suite("test_backends_tvf", "p0,external") {
     List<List<Object>> table =  sql """ select * from backends(); """
     assertTrue(table.size() > 0)
     assertEquals(29, table[0].size())

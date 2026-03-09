@@ -65,6 +65,26 @@ under the License.
     <build>
         <plugins>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.6.2</version>
+                <executions>
+                    <execution>
+                        <id>enforce-maven-version</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireMavenVersion>
+                                    <version>[3.9.0,)</version>
+                                </requireMavenVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>flatten-maven-plugin</artifactId>
                 <version>1.2.5</version>
@@ -212,19 +232,27 @@ under the License.
                 <artifactId>os-maven-plugin</artifactId>
                 <version>1.7.0</version>
             </extension>
+            <extension>
+                <groupId>org.apache.maven.extensions</groupId>
+                <artifactId>maven-build-cache-extension</artifactId>
+                <version>1.2.2</version>
+            </extension>
         </extensions>
     </build>
     <modules>
         <module>fe-common</module>
+        <module>fe-catalog</module>
         <module>fe-core</module>
         <module>hive-udf</module>
         <module>be-java-extensions</module>
         <module>fe-extension-loader</module>
         <module>fe-extension-spi</module>
         <module>fe-authentication</module>
+        <module>fe-thrift</module>
+        <module>fe-type</module>
     </modules>
     <properties>
-        <doris.hive.catalog.shade.version>3.1.0</doris.hive.catalog.shade.version>
+        <doris.hive.catalog.shade.version>3.1.1</doris.hive.catalog.shade.version>
         <!-- iceberg 1.9.1 depends avro on 1.12 -->
         <avro.version>1.12.1</avro.version>
         <parquet.version>1.16.0</parquet.version>
@@ -324,14 +352,13 @@ under the License.
         <hudi-spark.version>hudi-spark3.4.x</hudi-spark.version>
         <hive.version>3.1.3</hive.version>
         <hive.common.version>2.3.9</hive.common.version>
-        <nimbusds.version>9.35</nimbusds.version>
         <mapreduce.client.version>2.10.1</mapreduce.client.version>
         <calcite.version>1.33.0</calcite.version>
         <avatica.version>1.22.0</avatica.version>
         <!-- ATTN: avro version must be consistent with Iceberg version -->
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
-        <iceberg.version>1.9.1</iceberg.version>
+        <iceberg.version>1.10.1</iceberg.version>
         <!-- 0.56.1 has bug that "SplitMode" in query response may not be set-->
         <maxcompute.version>0.53.2-public</maxcompute.version>
         <!-- Arrow 19.0.1 will MacOS compile error and decimal type error when convert to Parquet
@@ -384,7 +411,7 @@ under the License.
         <quartz.version>2.3.2</quartz.version>
         <aircompressor.version>0.27</aircompressor.version>
         <!-- paimon -->
-        <paimon.version>1.1.1</paimon.version>
+        <paimon.version>1.3.1</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
         <!-- arrow flight sql -->
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
@@ -1716,11 +1743,6 @@ under the License.
                 </exclusions>
             </dependency>
             <dependency>
-                <groupId>com.nimbusds</groupId>
-                <artifactId>nimbus-jose-jwt</artifactId>
-                <version>${nimbusds.version}</version>
-            </dependency>
-            <dependency>
                 <groupId>jakarta.annotation</groupId>
                 <artifactId>jakarta.annotation-api</artifactId>
                 <version>${jakarta.annotation-api.version}</version>
@@ -1734,11 +1756,6 @@ under the License.
                 <groupId>io.airlift</groupId>
                 <artifactId>concurrent</artifactId>
                 <version>${airlift.concurrent.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.bouncycastle</groupId>
-                <artifactId>bcprov-jdk15on</artifactId>
-                <scope>test</scope>
             </dependency>
             <dependency>
                 <groupId>com.azure</groupId>

@@ -112,7 +112,7 @@ protected:
 };
 
 // ============================================================================
-// PythonServerManager::instance() - 单例测试
+// PythonServerManager::instance() - singleton test
 // ============================================================================
 
 TEST_F(PythonServerTest, SingletonReturnsSameInstance) {
@@ -124,7 +124,7 @@ TEST_F(PythonServerTest, SingletonReturnsSameInstance) {
 }
 
 // ============================================================================
-// PythonServerManager::get_process() - 获取进程测试
+// PythonServerManager::get_process() - process retrieval test
 // ============================================================================
 
 TEST_F(PythonServerTest, GetProcessFromEmptyPoolReturnsError) {
@@ -142,7 +142,7 @@ TEST_F(PythonServerTest, GetProcessFromEmptyPoolReturnsError) {
 }
 
 // ============================================================================
-// PythonServerManager::fork() - 进程创建测试
+// PythonServerManager::fork() - process creation test
 // ============================================================================
 
 TEST_F(PythonServerTest, ForkWithNonExistentPythonReturnsError) {
@@ -178,7 +178,7 @@ TEST_F(PythonServerTest, ForkWithMissingFlightServerReturnsError) {
     ProcessPtr process;
     Status status = mgr.fork(version, &process);
 
-    // 验证：flight server 脚本不存在，fork 应失败
+    // Verify: when the flight server script does not exist, fork should fail
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(process, nullptr);
 }
@@ -186,7 +186,7 @@ TEST_F(PythonServerTest, ForkWithMissingFlightServerReturnsError) {
 TEST_F(PythonServerTest, ForkWithProcessThatExitsImmediatelyReturnsError) {
     PythonServerManager mgr;
 
-    // 设置 DORIS_HOME
+    // Set DORIS_HOME
     setenv("DORIS_HOME", test_dir_.c_str(), 1);
 
     // Create flight server directory structure
@@ -223,7 +223,7 @@ TEST_F(PythonServerTest, ForkWithProcessThatExitsImmediatelyReturnsError) {
 }
 
 // ============================================================================
-// PythonServerManager::ensure_pool_initialized() - 池初始化测试
+// PythonServerManager::ensure_pool_initialized() - pool initialization test
 // ============================================================================
 
 TEST_F(PythonServerTest, EnsurePoolInitializedWithInvalidVersionFails) {
@@ -241,7 +241,7 @@ TEST_F(PythonServerTest, EnsurePoolInitializedWithInvalidVersionFails) {
 }
 
 // ============================================================================
-// PythonServerManager::shutdown() - 关闭测试
+// PythonServerManager::shutdown() - shutdown test
 // ============================================================================
 
 TEST_F(PythonServerTest, ShutdownEmptyManagerDoesNotCrash) {
@@ -275,7 +275,7 @@ TEST_F(PythonServerTest, ShutdownAfterFailedInitializationDoesNotCrash) {
 }
 
 // ============================================================================
-// PythonServerManager::get_client() - 获取客户端测试
+// PythonServerManager::get_client() - client retrieval test
 // ============================================================================
 
 TEST_F(PythonServerTest, GetClientWithInvalidVersionFails) {
@@ -298,7 +298,7 @@ TEST_F(PythonServerTest, GetClientWithInvalidVersionFails) {
 }
 
 // ============================================================================
-// 配置测试
+// configuration test
 // ============================================================================
 
 TEST_F(PythonServerTest, MaxPythonProcessNumConfigIsAccessible) {
@@ -308,7 +308,7 @@ TEST_F(PythonServerTest, MaxPythonProcessNumConfigIsAccessible) {
 }
 
 // ============================================================================
-// 析构函数测试
+// destructor test
 // ============================================================================
 
 TEST_F(PythonServerTest, DestructorCleansUpResources) {
@@ -326,7 +326,7 @@ TEST_F(PythonServerTest, DestructorCleansUpResources) {
 }
 
 // ============================================================================
-// 使用假 Python 脚本测试成功路径
+// success-path test using a fake Python script
 // ============================================================================
 
 TEST_F(PythonServerTest, ForkSuccessWithFakePython) {
@@ -508,17 +508,85 @@ TEST_F(PythonServerTest, MultipleVersionPools) {
     PythonVersion version39("3.9.16", test_dir_, python39_path);
     PythonVersion version310("3.10.0", test_dir_, python310_path);
 
-    // 初始化两个版本的池
+    // Initialize pools for two versions
     EXPECT_TRUE(mgr.ensure_pool_initialized(version39).ok());
     EXPECT_TRUE(mgr.ensure_pool_initialized(version310).ok());
 
-    // 从两个池获取进程
+    // Retrieve processes from both pools
     ProcessPtr p39, p310;
     EXPECT_TRUE(mgr.get_process(version39, &p39).ok());
     EXPECT_TRUE(mgr.get_process(version310, &p310).ok());
 
-    // 验证是不同的进程
+    // Verify they are different processes
     EXPECT_NE(p39->get_child_pid(), p310->get_child_pid());
+
+    mgr.shutdown();
+}
+
+// ============================================================================
+// PythonServerManager::_check_and_recreate_processes() - health-check recreation test
+// ============================================================================
+
+TEST_F(PythonServerTest, CheckAndRecreateProcessesRecreatesDeadProcess) {
+    setup_doris_home();
+    std::string python_path = create_fake_python_with_socket_creation("3.9.16");
+
+    PythonServerManager mgr;
+    PythonVersion version("3.9.16", test_dir_, python_path);
+
+    ProcessPtr alive_process;
+    ASSERT_TRUE(mgr.fork(version, &alive_process).ok());
+    ASSERT_NE(alive_process, nullptr);
+    ASSERT_TRUE(alive_process->is_alive());
+
+    ProcessPtr dead_process;
+    ASSERT_TRUE(mgr.fork(version, &dead_process).ok());
+    ASSERT_NE(dead_process, nullptr);
+    pid_t dead_pid_before = dead_process->get_child_pid();
+    dead_process->shutdown();
+    ASSERT_FALSE(dead_process->is_alive());
+
+    mgr.process_pools_for_test()[version] = {alive_process, dead_process, nullptr};
+
+    mgr.check_and_recreate_processes_for_test();
+
+    ASSERT_EQ(mgr.process_pools_for_test()[version].size(), 3);
+    EXPECT_EQ(mgr.process_pools_for_test()[version][0], alive_process);
+    EXPECT_EQ(mgr.process_pools_for_test()[version][2], nullptr);
+
+    ProcessPtr recreated = mgr.process_pools_for_test()[version][1];
+    ASSERT_NE(recreated, nullptr);
+    EXPECT_TRUE(recreated->is_alive());
+    EXPECT_NE(recreated->get_child_pid(), dead_pid_before);
+
+    mgr.shutdown();
+}
+
+TEST_F(PythonServerTest, CheckAndRecreateProcessesErasesDeadProcessWhenRecreateFails) {
+    setup_doris_home();
+    std::string python_path = create_fake_python_with_socket_creation("3.9.16");
+
+    PythonServerManager mgr;
+    PythonVersion live_version("3.9.16", test_dir_, python_path);
+
+    ProcessPtr dead_process_1;
+    ASSERT_TRUE(mgr.fork(live_version, &dead_process_1).ok());
+    ASSERT_NE(dead_process_1, nullptr);
+    dead_process_1->shutdown();
+    ASSERT_FALSE(dead_process_1->is_alive());
+
+    ProcessPtr dead_process_2;
+    ASSERT_TRUE(mgr.fork(live_version, &dead_process_2).ok());
+    ASSERT_NE(dead_process_2, nullptr);
+    dead_process_2->shutdown();
+    ASSERT_FALSE(dead_process_2->is_alive());
+
+    PythonVersion invalid_version("3.9.16", test_dir_, test_dir_ + "/bin/nonexistent_python");
+    mgr.process_pools_for_test()[invalid_version] = {dead_process_1, dead_process_2};
+
+    mgr.check_and_recreate_processes_for_test();
+
+    EXPECT_TRUE(mgr.process_pools_for_test()[invalid_version].empty());
 
     mgr.shutdown();
 }

@@ -32,10 +32,11 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "olap/olap_common.h"
-#include "pipeline/dependency.h"
-#include "pipeline/exec/rec_cte_scan_operator.h"
-#include "pipeline/pipeline_fragment_context.h"
+#include "exec/operator/rec_cte_scan_operator.h"
+#include "exec/pipeline/dependency.h"
+#include "exec/pipeline/pipeline_fragment_context.h"
+#include "exec/runtime_filter/runtime_filter_definitions.h"
+#include "exec/spill/spill_stream_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/heap_profiler.h"
@@ -44,10 +45,9 @@
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/query_task_controller.h"
-#include "runtime_filter/runtime_filter_definitions.h"
+#include "storage/olap_common.h"
 #include "util/mem_info.h"
 #include "util/uid_util.h"
-#include "vec/spill/spill_stream_manager.h"
 
 namespace doris {
 

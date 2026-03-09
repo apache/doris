@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "be_mock_util.h"
+#include "common/be_mock_util.h"
 
 #include <chrono>
 #include <random>

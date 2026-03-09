@@ -26,7 +26,10 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
+import org.apache.doris.authentication.AuthenticationIntegrationMgr;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
@@ -39,6 +42,7 @@ import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
@@ -112,7 +116,6 @@ import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.job.base.AbstractJob;
@@ -375,6 +378,7 @@ public class Env {
     private RoutineLoadManager routineLoadManager;
     private GroupCommitManager groupCommitManager;
     private SqlBlockRuleMgr sqlBlockRuleMgr;
+    private AuthenticationIntegrationMgr authenticationIntegrationMgr;
     private ExportMgr exportMgr;
     private Alter alter;
     private ConsistencyChecker consistencyChecker;
@@ -704,6 +708,7 @@ public class Env {
         this.routineLoadManager = EnvFactory.getInstance().createRoutineLoadManager();
         this.groupCommitManager = new GroupCommitManager();
         this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
+        this.authenticationIntegrationMgr = new AuthenticationIntegrationMgr();
         this.exportMgr = new ExportMgr();
         this.alter = new Alter();
         this.consistencyChecker = new ConsistencyChecker();
@@ -2488,6 +2493,17 @@ public class Env {
         return checksum;
     }
 
+    public long loadAuthenticationIntegrations(DataInputStream in, long checksum) throws IOException {
+        // TODO(authentication-integration): Re-enable image persistence
+        // when authentication integration is fully integrated.
+        // Consume persisted bytes to keep image stream alignment,
+        // but do not restore into in-memory state for now.
+        AuthenticationIntegrationMgr.read(in);
+        authenticationIntegrationMgr = new AuthenticationIntegrationMgr();
+        LOG.info("skip replay authentication integrations from image temporarily");
+        return checksum;
+    }
+
     /**
      * Load policy through file.
      **/
@@ -2797,6 +2813,14 @@ public class Env {
 
     public long saveSqlBlockRule(CountingDataOutputStream out, long checksum) throws IOException {
         Env.getCurrentEnv().getSqlBlockRuleMgr().write(out);
+        return checksum;
+    }
+
+    public long saveAuthenticationIntegrations(CountingDataOutputStream out, long checksum) throws IOException {
+        // TODO(authentication-integration): Re-enable image persistence
+        // when authentication integration is fully integrated.
+        // Persist an empty manager temporarily.
+        new AuthenticationIntegrationMgr().write(out);
         return checksum;
     }
 
@@ -5152,6 +5176,10 @@ public class Env {
         return sqlBlockRuleMgr;
     }
 
+    public AuthenticationIntegrationMgr getAuthenticationIntegrationMgr() {
+        return authenticationIntegrationMgr;
+    }
+
     public RoutineLoadTaskScheduler getRoutineLoadTaskScheduler() {
         return routineLoadTaskScheduler;
     }
@@ -5814,7 +5842,7 @@ public class Env {
                 List<SlotRef> slots = new ArrayList<>();
                 expr.collect(SlotRef.class, slots);
                 for (SlotRef slot : slots) {
-                    String name = slot.toSqlWithoutTbl();
+                    String name = slot.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
                     if (slot.getColumn() != null) {
                         name = slot.getColumn().getName();
                     }
@@ -6773,6 +6801,13 @@ public class Env {
         if (Config.isNotCloudMode()) {
             version = olapTable.getNextVersion();
             olapTable.updateVisibleVersionAndTime(version, versionTime);
+        } else {
+            // Invalidate sorted partition cache for this table to avoid stale cache after partition replacement.
+            // In non-cloud mode, the version update above would also trigger cache invalidation on next query,
+            // but in cloud mode, getVisibleVersion() fetches version from meta service via RPC,
+            // so the local version update may not be reflected. Explicit invalidation is needed.
+            Env.getCurrentEnv().getSortedPartitionsCacheManager()
+                    .invalidateTable(db.getCatalog().getName(), db.getFullName(), olapTable.getName());
         }
         // Here, we only wait for the EventProcessor to finish processing the event,
         // but regardless of the success or failure of the result,
@@ -6815,6 +6850,13 @@ public class Env {
             if (Config.isNotCloudMode()) {
                 olapTable.updateVisibleVersionAndTime(replaceTempPartitionLog.getVersion(),
                         replaceTempPartitionLog.getVersionTime());
+            } else {
+                // Invalidate sorted partition cache for this table to avoid stale cache after partition replacement.
+                // In non-cloud mode, the version update above would also trigger cache invalidation on next query,
+                // but in cloud mode, getVisibleVersion() fetches version from meta service via RPC,
+                // so the local version update may not be reflected. Explicit invalidation is needed.
+                Env.getCurrentEnv().getSortedPartitionsCacheManager()
+                        .invalidateTable(db.getCatalog().getName(), db.getFullName(), olapTable.getName());
             }
         } catch (DdlException e) {
             throw new MetaNotFoundException(e);
@@ -7087,6 +7129,22 @@ public class Env {
 
     public static boolean isTableNamesCaseSensitive() {
         return GlobalVariable.lowerCaseTableNames == 0;
+    }
+
+    public static int getLowerCaseTableNames(String catalogName) {
+        if (catalogName == null) {
+            return GlobalVariable.lowerCaseTableNames;
+        }
+        CatalogIf<?> catalog = getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        return catalog != null ? catalog.getLowerCaseTableNames() : GlobalVariable.lowerCaseTableNames;
+    }
+
+    public static int getLowerCaseDatabaseNames(String catalogName) {
+        if (catalogName == null) {
+            return 0;  // InternalCatalog default: case-sensitive
+        }
+        CatalogIf<?> catalog = getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        return catalog != null ? catalog.getLowerCaseDatabaseNames() : 0;
     }
 
     private static void getTableMeta(OlapTable olapTable, TGetMetaDBMeta dbMeta) {

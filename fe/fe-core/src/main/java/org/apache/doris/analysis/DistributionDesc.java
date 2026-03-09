@@ -47,10 +47,6 @@ public class DistributionDesc {
         return numBucket;
     }
 
-    public int setBuckets(int numBucket) {
-        return this.numBucket = numBucket;
-    }
-
     public boolean isAutoBucket() {
         return autoBucket;
     }
@@ -69,10 +65,6 @@ public class DistributionDesc {
 
     public List<String> getDistributionColumnNames() {
         throw new NotImplementedException("getDistributionColumnNames not implemented");
-    }
-
-    public boolean inDistributionColumns(String columnName) {
-        return getDistributionColumnNames() != null && getDistributionColumnNames().contains(columnName);
     }
 
     public DistributionDescriptor toDistributionDescriptor() {

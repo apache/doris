@@ -53,6 +53,7 @@ import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
@@ -241,7 +242,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
-        return new TVFScanNode(id, desc, false, sv);
+        return new TVFScanNode(id, desc, false, sv,
+                ScanContext.builder().clusterName(sv.resolveCloudClusterName()).build());
     }
 
     @Override
@@ -402,7 +404,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     /*variantSparseHashShardCount*/ 0,
                     /*variantEnableDocMode*/ false,
                     /*variantDocMaterializationMinRows*/ 0,
-                    /*variantDocShardCount*/ 0);
+                    /*variantDocShardCount*/ 0,
+                    /*enableNestedGroup*/ false);
             parsedNodes = 1;
         } else {
             type = ScalarType.createType(PrimitiveType.fromThrift(tPrimitiveType),
@@ -555,4 +558,3 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
     }
 }
-

@@ -15,8 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/routine_load/routine_load_task_executor.h"
+#include "load/routine_load/routine_load_task_executor.h"
 
+#include <gen_cpp/BackendService_types.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
@@ -27,13 +30,10 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "gen_cpp/BackendService_types.h"
-#include "gen_cpp/FrontendService_types.h"
-#include "gen_cpp/HeartbeatService_types.h"
 #include "gtest/gtest_pred_impl.h"
+#include "load/stream_load/new_load_stream_mgr.h"
+#include "load/stream_load/stream_load_executor.h"
 #include "runtime/exec_env.h"
-#include "runtime/stream_load/new_load_stream_mgr.h"
-#include "runtime/stream_load/stream_load_executor.h"
 
 namespace doris {
 

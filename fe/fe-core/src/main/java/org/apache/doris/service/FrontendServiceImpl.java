@@ -41,6 +41,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
@@ -81,7 +82,6 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSource;
 import org.apache.doris.encryption.EncryptionKey;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
@@ -181,6 +181,7 @@ import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
 import org.apache.doris.thrift.TFrontendReportAliveSessionRequest;
 import org.apache.doris.thrift.TFrontendReportAliveSessionResult;
+import org.apache.doris.thrift.TFrontendSyncCloudVersionRequest;
 import org.apache.doris.thrift.TGetBackendMetaRequest;
 import org.apache.doris.thrift.TGetBackendMetaResult;
 import org.apache.doris.thrift.TGetBinlogLagResult;
@@ -3061,6 +3062,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setMsg("not ready");
         }
         return result;
+    }
+
+    @Override
+    public TStatus syncCloudVersion(TFrontendSyncCloudVersionRequest request)
+            throws TException {
+        TStatus status = new TStatus(TStatusCode.OK);
+        if (Env.getCurrentEnv().isMaster()) {
+            return status;
+        }
+        ((CloudEnv) (Env.getCurrentEnv())).getCloudFEVersionSynchronizer().syncVersionAsync(request);
+        return status;
     }
 
     @Override

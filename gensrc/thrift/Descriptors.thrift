@@ -99,6 +99,7 @@ struct TColumn {
     26: optional bool variant_enable_doc_mode
   27: optional i64 variant_doc_materialization_min_rows
   28: optional i32 variant_doc_hash_shard_count
+  29: optional bool variant_enable_nested_group
 }
 
 struct TSlotDescriptor {
@@ -444,13 +445,14 @@ struct TMCTable {
   1: optional string region // deprecated
   2: optional string project
   3: optional string table
-  4: optional string access_key
-  5: optional string secret_key
+  4: optional string access_key // deprecated
+  5: optional string secret_key // deprecated
   6: optional string public_access // deprecated
   7: optional string odps_url   // deprecated
   8: optional string tunnel_url // deprecated 
   9: optional string endpoint
   10: optional string quota
+  11: optional map<string, string> properties // contains authentication properties
 }
 
 struct TTrinoConnectorTable {

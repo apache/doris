@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_insert_into_local_tvf", "tvf,external,external_docker") {
+suite("test_insert_into_local_tvf", "p0,external") {
 
     List<List<Object>> backends = sql """ show backends """
     assertTrue(backends.size() > 0)

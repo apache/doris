@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.thrift.TBoolLiteral;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -149,39 +147,23 @@ public class VariableExpr extends Expr {
     }
 
     @Override
-    public String toSqlImpl() {
-        StringBuilder sb = new StringBuilder();
-        if (setType == SetType.USER) {
-            sb.append("@");
-        } else {
-            sb.append("@@");
-            if (setType == SetType.GLOBAL) {
-                sb.append("GLOBAL.");
-            }
-        }
-        sb.append(name);
-        return sb.toString();
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        StringBuilder sb = new StringBuilder();
-        if (setType == SetType.USER) {
-            sb.append("@");
-        } else {
-            sb.append("@@");
-            if (setType == SetType.GLOBAL) {
-                sb.append("GLOBAL.");
-            }
-        }
-        sb.append(name);
-        return sb.toString();
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitVariableExpr(this, context);
     }
 
     @Override
     public String toString() {
-        return toSql();
+        StringBuilder sb = new StringBuilder();
+        if (getSetType() == SetType.USER) {
+            sb.append("@");
+        } else {
+            sb.append("@@");
+            if (getSetType() == SetType.GLOBAL) {
+                sb.append("GLOBAL.");
+            }
+        }
+        sb.append(getName());
+        return sb.toString();
     }
 
     @Override

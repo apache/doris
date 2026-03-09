@@ -29,13 +29,13 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "olap/olap_define.h"
-#include "pipeline/pipeline_tracing.h"
+#include "exec/pipeline/pipeline_tracing.h"
+#include "exec/spill/spill_stream_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/workload_group/workload_group.h"
-#include "vec/spill/spill_stream_manager.h"
+#include "storage/olap_define.h"
 
 namespace doris {
 

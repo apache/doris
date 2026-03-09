@@ -22,11 +22,9 @@ import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ColumnNullableType;
-import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.LockTable;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.ResourceDesc;
@@ -52,6 +50,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.info.BranchOptions;
+import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.catalog.info.TagOptions;
 import org.apache.doris.cloud.stage.StageUtil;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -60,7 +62,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.dictionary.LayoutType;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.info.TableValuedFunctionRefInfo;
@@ -635,6 +636,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminSetPartitionVersionCom
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterAuthenticationIntegrationCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
@@ -676,6 +678,7 @@ import org.apache.doris.nereids.trees.plans.commands.CleanQueryStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.Constraint;
 import org.apache.doris.nereids.trees.plans.commands.CopyIntoCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateAuthenticationIntegrationCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDictionaryCommand;
@@ -707,6 +710,7 @@ import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropAnalyzeJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropAuthenticationIntegrationCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCachedStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
@@ -915,7 +919,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterSystemOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterViewInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.BuildIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ColocateGroupName;
@@ -1001,7 +1004,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.ShowCreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.SortFieldInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
-import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.WarmUpItem;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTVFCommand;
@@ -1423,11 +1425,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             tableName.addAll(nameParts);
         } else if (null != ctx.tableId) {
             // process group commit insert table command send by be
-            TableNameInfo name = Env.getCurrentEnv().getCurrentCatalog()
+            List<String> name = Env.getCurrentEnv().getCurrentCatalog()
                     .getTableNameByTableId(Long.valueOf(ctx.tableId.getText()));
-            tableName.add(name.getDb());
-            tableName.add(name.getTbl());
-            ConnectContext.get().setDatabase(name.getDb());
+            tableName.add(name.get(1));
+            tableName.add(name.get(2));
+            ConnectContext.get().setDatabase(name.get(1));
         } else {
             throw new ParseException("tableName and tableId cannot both be null");
         }
@@ -2120,6 +2122,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             propertiesMap.put(key, value);
         }
         return propertiesMap.build();
+    }
+
+    @Override
+    public Set<String> visitPropertyKeyClause(DorisParser.PropertyKeyClauseContext ctx) {
+        if (ctx == null || ctx.keys == null) {
+            return ImmutableSet.of();
+        }
+        ImmutableSet.Builder<String> propertyKeys = ImmutableSet.builder();
+        for (PropertyKeyContext propertyKey : ctx.keys) {
+            propertyKeys.add(parsePropertyKey(propertyKey));
+        }
+        return propertyKeys.build();
     }
 
     @Override
@@ -5043,6 +5057,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return item.getText();
     }
 
+    private boolean containsPropertyKeyIgnoreCase(Iterable<String> propertyKeys, String expectedKey) {
+        for (String key : propertyKeys) {
+            if (key.equalsIgnoreCase(expectedKey)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private ExplainLevel parseExplainPlanType(PlanTypeContext planTypeContext) {
         if (planTypeContext == null || planTypeContext.ALL() != null) {
             return ExplainLevel.ALL_PLAN;
@@ -5156,6 +5179,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         int variantDocHashShardCount = ConnectContext.get() == null ? 128 :
                 ConnectContext.get().getSessionVariable().getDefaultVariantDocHashShardCount();
 
+        boolean enableNestedGroup = ConnectContext.get() == null ? true :
+                ConnectContext.get().getSessionVariable().getDefaultVariantEnableNestedGroup();
+
         try {
             // validate properties: variant_enable_doc_mode cannot be set together with other properties
             PropertyAnalyzer.validateVariantProperties(properties);
@@ -5174,8 +5200,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     .analyzeVariantDocMaterializationMinRows(properties, variantDocMaterializationMinRows);
             variantDocHashShardCount = PropertyAnalyzer
                     .analyzeVariantDocHashShardCount(properties, variantDocHashShardCount);
+            enableNestedGroup = PropertyAnalyzer
+                    .analyzeEnableNestedGroup(properties, enableNestedGroup);
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new NotSupportedException(e.getMessage());
+        }
+
+        if (enableNestedGroup) {
+            throw new NotSupportedException(
+                    "variant_enable_nested_group is not supported now");
         }
 
         // When doc mode is enabled, disable subcolumn extraction and sparse column features
@@ -5215,12 +5248,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_DOC_MODE
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS
-                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_NESTED_GROUP);
         }
 
         return new VariantType(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                     variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
-                    enableVariantDocMode, variantDocMaterializationMinRows, variantDocHashShardCount);
+                    enableVariantDocMode, variantDocMaterializationMinRows, variantDocHashShardCount,
+                    enableNestedGroup);
     }
 
     private static boolean isSupportedVariantDocModeType(DataType type) {
@@ -7051,6 +7086,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitCreateAuthenticationIntegration(
+            DorisParser.CreateAuthenticationIntegrationContext ctx) {
+        boolean ifNotExists = ctx.IF() != null;
+        String integrationName = stripQuotes(ctx.integrationName.getText());
+        Map<String, String> properties = Maps.newHashMap(visitPropertyClause(ctx.properties));
+        if (!containsPropertyKeyIgnoreCase(properties.keySet(), "type")) {
+            throw new ParseException("Property 'type' is required in CREATE AUTHENTICATION INTEGRATION", ctx);
+        }
+        String comment = ctx.commentSpec() == null ? null : stripQuotes(ctx.commentSpec().STRING_LITERAL().getText());
+        return new CreateAuthenticationIntegrationCommand(integrationName, ifNotExists, properties, comment);
+    }
+
+    @Override
     public LogicalPlan visitShowStages(ShowStagesContext ctx) {
         return new ShowStagesCommand();
     }
@@ -7084,6 +7132,38 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String catalogName = stripQuotes(ctx.name.getText());
         Map<String, String> properties = visitPropertyItemList(ctx.propertyItemList());
         return new AlterCatalogPropertiesCommand(catalogName, properties);
+    }
+
+    @Override
+    public LogicalPlan visitAlterAuthenticationIntegrationProperties(
+            DorisParser.AlterAuthenticationIntegrationPropertiesContext ctx) {
+        String integrationName = stripQuotes(ctx.integrationName.getText());
+        Map<String, String> properties = Maps.newHashMap(visitPropertyClause(ctx.properties));
+        if (containsPropertyKeyIgnoreCase(properties.keySet(), "type")) {
+            throw new ParseException(
+                    "ALTER AUTHENTICATION INTEGRATION does not allow modifying property 'type'", ctx);
+        }
+        return AlterAuthenticationIntegrationCommand.forSetProperties(integrationName, properties);
+    }
+
+    @Override
+    public LogicalPlan visitAlterAuthenticationIntegrationUnsetProperties(
+            DorisParser.AlterAuthenticationIntegrationUnsetPropertiesContext ctx) {
+        String integrationName = stripQuotes(ctx.integrationName.getText());
+        Set<String> unsetProperties = visitPropertyKeyClause(ctx.properties);
+        if (containsPropertyKeyIgnoreCase(unsetProperties, "type")) {
+            throw new ParseException(
+                    "ALTER AUTHENTICATION INTEGRATION does not allow modifying property 'type'", ctx);
+        }
+        return AlterAuthenticationIntegrationCommand.forUnsetProperties(integrationName, unsetProperties);
+    }
+
+    @Override
+    public LogicalPlan visitAlterAuthenticationIntegrationComment(
+            DorisParser.AlterAuthenticationIntegrationCommentContext ctx) {
+        String integrationName = stripQuotes(ctx.integrationName.getText());
+        String comment = stripQuotes(ctx.comment.getText());
+        return AlterAuthenticationIntegrationCommand.forSetComment(integrationName, comment);
     }
 
     @Override
@@ -7202,6 +7282,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String catalogName = stripQuotes(ctx.name.getText());
         boolean ifExists = ctx.EXISTS() != null;
         return new DropCatalogCommand(catalogName, ifExists);
+    }
+
+    @Override
+    public LogicalPlan visitDropAuthenticationIntegration(
+            DorisParser.DropAuthenticationIntegrationContext ctx) {
+        String integrationName = stripQuotes(ctx.name.getText());
+        boolean ifExists = ctx.EXISTS() != null;
+        return new DropAuthenticationIntegrationCommand(ifExists, integrationName);
     }
 
     @Override
@@ -7953,12 +8041,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(lockTableCtx.name));
             String alias = lockTableCtx.alias != null ? lockTableCtx.alias.getText() : null;
 
-            LockTable.LockType lockType;
+            LockTableInfo.LockType lockType;
             if (lockTableCtx.READ() != null) {
-                lockType = lockTableCtx.LOCAL() != null ? LockTable.LockType.READ_LOCAL : LockTable.LockType.READ;
+                lockType = lockTableCtx.LOCAL() != null
+                        ? LockTableInfo.LockType.READ_LOCAL : LockTableInfo.LockType.READ;
             } else if (lockTableCtx.WRITE() != null) {
-                lockType = lockTableCtx.LOW_PRIORITY() != null ? LockTable.LockType.LOW_PRIORITY_WRITE
-                        : LockTable.LockType.WRITE;
+                lockType = lockTableCtx.LOW_PRIORITY() != null
+                        ? LockTableInfo.LockType.LOW_PRIORITY_WRITE : LockTableInfo.LockType.WRITE;
             } else {
                 throw new IllegalArgumentException("Invalid lock type in LOCK TABLES command.");
             }

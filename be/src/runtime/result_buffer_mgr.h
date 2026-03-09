@@ -30,9 +30,9 @@
 #include <vector>
 
 #include "common/status.h"
+#include "exec/sink/writer/varrow_flight_result_writer.h"
 #include "util/countdown_latch.h"
 #include "util/hash_util.hpp"
-#include "vec/sink/varrow_flight_result_writer.h"
 
 namespace arrow {
 class RecordBatch;

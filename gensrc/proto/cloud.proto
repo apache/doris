@@ -1012,12 +1012,13 @@ message SubTxnInfo {
 message TableStatsPB {
     optional int64 table_id = 1;
     optional int64 updated_row_count = 2;
+    optional int64 table_version = 3;
 }
 
 message CommitTxnResponse {
     optional MetaServiceResponseStatus status = 1;
     optional TxnInfoPB txn_info = 2;
-    // <tablet_id, partition_id> --> version
+    // <table_id, partition_id> --> version
     repeated int64 table_ids = 3;
     repeated int64 partition_ids = 4;
     repeated int64 versions = 5;
@@ -1111,6 +1112,17 @@ message GetCurrentMaxTxnRequest {
 message GetCurrentMaxTxnResponse {
     optional MetaServiceResponseStatus status = 1;
     optional int64 current_max_txn_id = 2;
+}
+
+message CreateMetaSyncPointRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional string request_ip = 2;
+}
+
+message CreateMetaSyncPointResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional int64 committed_version = 2;
+    optional string versionstamp = 3;
 }
 
 message AbortTxnWithCoordinatorRequest {
@@ -1380,6 +1392,7 @@ message IndexRequest {
 
 message IndexResponse {
     optional MetaServiceResponseStatus status = 1;
+    optional int64 table_version = 2;
 }
 
 message PartitionRequest {
@@ -1396,6 +1409,7 @@ message PartitionRequest {
 
 message PartitionResponse {
     optional MetaServiceResponseStatus status = 1;
+    optional int64 table_version = 2;
 }
 
 message RestoreJobRequest {
@@ -1842,6 +1856,7 @@ enum MetaServiceCode {
 message DeleteBitmapStoragePB {
     optional bool store_in_fdb = 1;
     optional DeleteBitmapPB delete_bitmap = 2;
+    optional PackedSliceLocationPB packed_slice_location = 3;
 }
 
 message UpdateDeleteBitmapRequest {
@@ -2234,6 +2249,7 @@ service MetaService {
     rpc abort_txn(AbortTxnRequest) returns (AbortTxnResponse);
     rpc get_txn(GetTxnRequest) returns (GetTxnResponse);
     rpc get_current_max_txn_id(GetCurrentMaxTxnRequest) returns (GetCurrentMaxTxnResponse);
+    rpc create_meta_sync_point(CreateMetaSyncPointRequest) returns (CreateMetaSyncPointResponse);
     rpc check_txn_conflict(CheckTxnConflictRequest) returns (CheckTxnConflictResponse);
     rpc clean_txn_label(CleanTxnLabelRequest) returns (CleanTxnLabelResponse);
     rpc get_txn_id(GetTxnIdRequest) returns (GetTxnIdResponse);

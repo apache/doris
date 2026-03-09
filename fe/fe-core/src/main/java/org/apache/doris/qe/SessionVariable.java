@@ -21,6 +21,7 @@ import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.VariableAnnotation;
@@ -29,6 +30,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
@@ -807,6 +809,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String COMPUTE_GROUP = "compute_group";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
+    public static final String CLOUD_FORCE_SYNC_VERSION = "cloud_force_sync_version";
     public static final String CLOUD_PARTITION_VERSION_CACHE_TTL_MS =
             "cloud_partition_version_cache_ttl_ms";
     public static final String CLOUD_TABLE_VERSION_CACHE_TTL_MS =
@@ -860,7 +863,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
     public static final String AGG_SHUFFLE_USE_PARENT_KEY = "agg_shuffle_use_parent_key";
-    public static final String DECOMPOSE_REPEAT_THRESHOLD = "decompose_repeat_threshold";
     public static final String DECOMPOSE_REPEAT_SHUFFLE_INDEX_IN_MAX_GROUP
             = "decompose_repeat_shuffle_index_in_max_group";
 
@@ -956,6 +958,8 @@ public class SessionVariable implements Serializable, Writable {
             "default_variant_doc_materialization_min_rows";
 
     public static final String DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT = "default_variant_doc_hash_shard_count";
+
+    public static final String DEFAULT_VARIANT_ENABLE_NESTED_GROUP = "default_variant_enable_nested_group";
 
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
@@ -2270,6 +2274,38 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DPHYPER_LIMIT)
     public int dphyperLimit = 1000;
 
+    @VariableMgr.VarAttr(name = "eager_aggregation_mode", needForward = true,
+            description = {"0: 根据统计信息决定是使用eager aggregation，"
+                    + "1: 强制使用 eager aggregation，"
+                    + "-1: 禁止使用 eager aggregation",
+                    "0: Determine eager aggregation by statistics, "
+                            + "1: force eager aggregation, "
+                            + "-1: Prohibit eager aggregation "}
+    )
+    private int eagerAggregationMode = 0;
+
+    public static int getEagerAggregationMode() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().eagerAggregationMode;
+        } else {
+            return VariableMgr.getDefaultSessionVariable().eagerAggregationMode;
+        }
+    }
+
+    public void setEagerAggregationMode(int mode) {
+        this.eagerAggregationMode = mode;
+    }
+
+    @VariableMgr.VarAttr(name = "eager_aggregation_on_join", needForward = true)
+    public boolean eagerAggregationOnJoin = false;
+
+    public static boolean isEagerAggregationOnJoin() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().eagerAggregationOnJoin;
+        } else {
+            return VariableMgr.getDefaultSessionVariable().eagerAggregationOnJoin;
+        }
+    }
 
     @VariableMgr.VarAttr(
             name = ENABLE_PAGE_CACHE,
@@ -2808,12 +2844,25 @@ public class SessionVariable implements Serializable, Writable {
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
     public static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
+
+    public static final String ENABLE_MC_LIMIT_SPLIT_OPTIMIZATION = "enable_mc_limit_split_optimization";
     @VariableMgr.VarAttr(
             name = ENABLE_EXTERNAL_TABLE_BATCH_MODE,
             fuzzy = true,
             description = {"使能外表的 batch mode 功能", "Enable the batch mode function of the external table."},
             needForward = true)
     public boolean enableExternalTableBatchMode = true;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_MC_LIMIT_SPLIT_OPTIMIZATION,
+            fuzzy = true,
+            description = {"开启 MaxCompute 表 LIMIT 查询的 split 优化。当查询仅包含分区等值条件且带有 LIMIT 时，"
+                    + "使用 row_offset 策略减少 split 数量以加速查询。",
+                    "Enable split optimization for LIMIT queries on MaxCompute tables. "
+                    + "When the query contains only partition equality predicates with LIMIT, "
+                    + "use row_offset strategy to reduce split count for faster query execution."},
+            needForward = true)
+    public boolean enableMcLimitSplitOptimization = false;
 
     @VariableMgr.VarAttr(name = SKEW_REWRITE_AGG_BUCKET_NUM, needForward = true,
             description = {"bucketNum 参数控制 count(distinct) 倾斜优化的数据分布。决定不同值在 worker 间的分配方式，"
@@ -3061,9 +3110,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_EMPTY_PARTITION_PRUNE)
     public boolean disableEmptyPartitionPrune = false;
     @VariableMgr.VarAttr(name = CLOUD_PARTITION_VERSION_CACHE_TTL_MS)
-    public long cloudPartitionVersionCacheTtlMs = 0;
+    public long cloudPartitionVersionCacheTtlMs = Long.MAX_VALUE;
     @VariableMgr.VarAttr(name = CLOUD_TABLE_VERSION_CACHE_TTL_MS)
-    public long cloudTableVersionCacheTtlMs = 0;
+    public long cloudTableVersionCacheTtlMs = Long.MAX_VALUE;
+    @VariableMgr.VarAttr(name = CLOUD_FORCE_SYNC_VERSION)
+    public boolean cloudForceSyncVersion = false;
     // CLOUD_VARIABLES_END
 
     // fetch remote schema rpc timeout
@@ -3450,6 +3501,13 @@ public class SessionVariable implements Serializable, Writable {
     public int defaultVariantDocHashShardCount = 64;
 
     @VariableMgr.VarAttr(
+            name = DEFAULT_VARIANT_ENABLE_NESTED_GROUP,
+            needForward = true,
+            fuzzy = true
+    )
+    public boolean defaultVariantEnableNestedGroup = false;
+
+    @VariableMgr.VarAttr(
             name = "use_v3_storage_format",
             fuzzy = true,
             description = {
@@ -3458,8 +3516,6 @@ public class SessionVariable implements Serializable, Writable {
     )
     public boolean useV3StorageFormat = false;
 
-    @VariableMgr.VarAttr(name = DECOMPOSE_REPEAT_THRESHOLD)
-    public int decomposeRepeatThreshold = 3;
     @VariableMgr.VarAttr(name = DECOMPOSE_REPEAT_SHUFFLE_INDEX_IN_MAX_GROUP)
     public int decomposeRepeatShuffleIndexInMaxGroup = -1;
 
@@ -4196,7 +4252,7 @@ public class SessionVariable implements Serializable, Writable {
         this.debugSkipFoldConstant = debugSkipFoldConstant;
     }
 
-    public int getParallelExecInstanceNum() {
+    public int getParallelExecInstanceNum(String clusterName) {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null && connectContext.getEnv() != null && connectContext.getEnv().getAuth() != null) {
             int userParallelExecInstanceNum = connectContext.getEnv().getAuth()
@@ -4205,12 +4261,41 @@ public class SessionVariable implements Serializable, Writable {
                 return userParallelExecInstanceNum;
             }
         }
+        String resolvedClusterName = clusterName;
+        if (Config.isCloudMode() && Strings.isNullOrEmpty(resolvedClusterName)) {
+            resolvedClusterName = resolveCloudClusterName(connectContext);
+        }
         if (parallelPipelineTaskNum == 0) {
-            int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
+            int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize(resolvedClusterName);
             int autoInstance = (size + 1) / 2;
             return Math.min(autoInstance, maxInstanceNum);
         } else {
             return parallelPipelineTaskNum;
+        }
+    }
+
+    public String resolveCloudClusterName() {
+        return resolveCloudClusterName(ConnectContext.get());
+    }
+
+    public String resolveCloudClusterName(ConnectContext connectContext) {
+        if (!Config.isCloudMode()) {
+            return "";
+        }
+        if (!Strings.isNullOrEmpty(cloudCluster)) {
+            return cloudCluster;
+        }
+        if (connectContext == null) {
+            return "";
+        }
+        try {
+            String clusterName = connectContext.getCloudCluster(false);
+            return clusterName == null ? "" : clusterName;
+        } catch (ComputeGroupException e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("failed to resolve cloud cluster for parallel instance num", e);
+            }
+            return "";
         }
     }
 
@@ -5150,7 +5235,8 @@ public class SessionVariable implements Serializable, Writable {
         }
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnableLocalShuffle(enableLocalShuffle);
-        tResult.setParallelInstance(getParallelExecInstanceNum());
+        String clusterName = resolveCloudClusterName();
+        tResult.setParallelInstance(getParallelExecInstanceNum(clusterName));
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
@@ -6177,6 +6263,10 @@ public class SessionVariable implements Serializable, Writable {
         return defaultVariantDocHashShardCount;
     }
 
+    public boolean getDefaultVariantEnableNestedGroup() {
+        return defaultVariantEnableNestedGroup;
+    }
+
     public void readAffectQueryResultVariables(BiConsumer<String, Object> variablesReader) {
         for (Field affectQueryResultField : affectQueryResultFields) {
             String name = affectQueryResultField.getName();
@@ -6208,6 +6298,13 @@ public class SessionVariable implements Serializable, Writable {
             return ConnectContext.get().getSessionVariable().feDebug;
         } else {
             return false;
+        }
+    }
+
+    public static void throwAnalysisExceptionWhenFeDebug(String msg) {
+        LOG.warn(msg);
+        if (isFeDebug()) {
+            throw new AnalysisException(msg);
         }
     }
 

@@ -21,11 +21,11 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionLikeOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionOp;
@@ -89,10 +89,22 @@ public class InsertOverwriteUtil {
                 if (!olapTable.writeLockIfExist()) {
                     return;
                 }
+                // Filter out partitions that were deleted between the snapshot time and now.
+                // The write lock is held here, so this check and the subsequent replace are atomic.
+                // The temp partition list is kept as-is so all written data remains visible.
+                List<String> validPartitionNames = new ArrayList<>();
+                for (int i = 0; i < partitionNames.size(); i++) {
+                    if (((OlapTable) olapTable).checkPartitionNameExist(partitionNames.get(i), false)) {
+                        validPartitionNames.add(partitionNames.get(i));
+                    } else {
+                        LOG.warn("partition [{}] has been deleted before replace, skipping", partitionNames.get(i));
+                    }
+                }
                 Map<String, String> properties = Maps.newHashMap();
                 properties.put(PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, "false");
+                properties.put(PropertyAnalyzer.PROPERTIES_STRICT_RANGE, "false");
                 ReplacePartitionOp replacePartitionOp = new ReplacePartitionOp(
-                        new PartitionNamesInfo(false, partitionNames),
+                        new PartitionNamesInfo(false, validPartitionNames),
                         new PartitionNamesInfo(true, tempPartitionNames), isForce, properties);
                 if (replacePartitionOp.getTempPartitionNames().isEmpty()) {
                     return;
