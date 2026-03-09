@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
@@ -611,13 +613,62 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 }
             }
         } else if (requiredDistributionSpec instanceof DistributionSpecAny) {
-            for (int i = 0; i < originChildrenProperties.size(); i++) {
-                PhysicalProperties physicalProperties = originChildrenProperties.get(i);
-                DistributionSpec distributionSpec = physicalProperties.getDistributionSpec();
-                if (distributionSpec instanceof DistributionSpecStorageAny
-                        || distributionSpec instanceof DistributionSpecStorageGather
-                        || distributionSpec instanceof DistributionSpecGather) {
-                    updateChildEnforceAndCost(i, PhysicalProperties.EXECUTION_ANY);
+            boolean canUseColocateSetOperation = ConnectContext.get() != null
+                    && !ConnectContext.get().getSessionVariable().isDisableColocatePlan()
+                    && !ConnectContext.get().getSessionVariable().isDisableColocateSetOperation();
+            if (canUseColocateSetOperation) {
+                ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
+
+                long firstTableId = -1;
+                long firstSelectedIndexId = -1;
+                Set<Long> firstTablePartitions = null;
+
+                for (PhysicalProperties physicalProperties : originChildrenProperties) {
+                    DistributionSpec distributionSpec = physicalProperties.getDistributionSpec();
+                    if (!(distributionSpec instanceof DistributionSpecHash)) {
+                        canUseColocateSetOperation = false;
+                        break;
+                    }
+                    DistributionSpecHash hashSpec = (DistributionSpecHash) distributionSpec;
+                    if (hashSpec.getShuffleType() != ShuffleType.NATURAL) {
+                        canUseColocateSetOperation = false;
+                        break;
+                    }
+                    final long currentTableId = hashSpec.getTableId();
+                    final Set<Long> currentTablePartitions = hashSpec.getPartitionIds();
+                    final long currentSelectedIndexId = hashSpec.getSelectedIndexId();
+
+                    if (firstTableId == -1 && firstTablePartitions == null) {
+                        firstTableId = currentTableId;
+                        firstTablePartitions = currentTablePartitions;
+                        firstSelectedIndexId = currentSelectedIndexId;
+                        continue;
+                    }
+
+                    boolean hitSameIndex = (firstTableId == currentTableId) && (firstSelectedIndexId != -1)
+                            && (firstSelectedIndexId == currentSelectedIndexId);
+                    boolean noNeedCheckColocateGroup = hitSameIndex && firstTablePartitions.size() <= 1
+                            && firstTablePartitions.equals(currentTablePartitions);
+                    if (!noNeedCheckColocateGroup && (!colocateIndex.isSameGroup(firstTableId, currentTableId)
+                            || colocateIndex.isGroupUnstable(colocateIndex.getGroup(firstTableId)))) {
+                        canUseColocateSetOperation = false;
+                        break;
+                    }
+                }
+            }
+
+            if (!canUseColocateSetOperation) {
+                for (int i = 0; i < originChildrenProperties.size(); i++) {
+                    PhysicalProperties physicalProperties = originChildrenProperties.get(i);
+                    DistributionSpec distributionSpec = physicalProperties.getDistributionSpec();
+                    if (distributionSpec instanceof DistributionSpecStorageAny
+                            || distributionSpec instanceof DistributionSpecStorageGather
+                            || distributionSpec instanceof DistributionSpecGather
+                            || (distributionSpec instanceof DistributionSpecHash
+                            && ((DistributionSpecHash) distributionSpec)
+                            .getShuffleType() == ShuffleType.NATURAL)) {
+                        updateChildEnforceAndCost(i, PhysicalProperties.EXECUTION_ANY);
+                    }
                 }
             }
         } else if (requiredDistributionSpec instanceof DistributionSpecHash) {
