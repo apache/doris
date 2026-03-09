@@ -98,4 +98,17 @@ jobs:
 
           export JAVA_HOME="${JAVA_HOME_17_arm64%\/}"
           export DORIS_CLANG_HOME="$(brew --prefix llvm@18)"
+
+          # Debug: verify compiler and OpenMP library availability
+          echo "DORIS_CLANG_HOME=${DORIS_CLANG_HOME}"
+          ls -la "${DORIS_CLANG_HOME}/bin/clang" || true
+          ls -la "${DORIS_CLANG_HOME}/lib/libomp"* || true
+          "${DORIS_CLANG_HOME}/bin/clang" --version || true
+
+          # Set CFLAGS/CXXFLAGS so cmake initializes CMAKE_C/CXX_FLAGS (cached globally)
+          # with the LLVM lib/include paths. This ensures FindOpenMP's try_compile can
+          # find libomp.dylib during linking (macOS -isysroot restricts default search paths).
+          export CFLAGS="-L${DORIS_CLANG_HOME}/lib -I${DORIS_CLANG_HOME}/include"
+          export CXXFLAGS="-L${DORIS_CLANG_HOME}/lib -I${DORIS_CLANG_HOME}/include"
+
           ./run-be-ut.sh --run -j "$(nproc)" --clean
