@@ -48,7 +48,7 @@ public class AccessControllerManagerTest {
     }
 
     @Test
-    public void testCheckCtlPrivSkipCatalogPrivCheckWithCustomAccessController(
+    public void testCheckCtlPrivSkipCatalogPrivCheckWithCustomAccessControllerForSelect(
             @Injectable CatalogAccessController defaultAccessController,
             @Mocked Env env,
             @Mocked CatalogMgr catalogMgr,
@@ -86,6 +86,47 @@ public class AccessControllerManagerTest {
         };
 
         Assert.assertTrue(accessControllerManager.checkCtlPriv(userIdentity, "custom_catalog", PrivPredicate.SELECT));
+    }
+
+    @Test
+    public void testCheckCtlPrivSkipCatalogPrivCheckWithCustomAccessControllerForShow(
+            @Injectable CatalogAccessController defaultAccessController,
+            @Mocked Env env,
+            @Mocked CatalogMgr catalogMgr,
+            @Mocked CatalogIf catalog) {
+        AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
+        UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
+        Config.skip_catalog_priv_check = true;
+
+        new Expectations() {
+            {
+                defaultAccessController.checkGlobalPriv((UserIdentity) any, (PrivPredicate) any);
+                minTimes = 0;
+                result = false;
+
+                Env.getCurrentEnv();
+                minTimes = 0;
+                result = env;
+
+                env.getCatalogMgr();
+                minTimes = 0;
+                result = catalogMgr;
+
+                catalogMgr.getCatalog("custom_catalog");
+                minTimes = 0;
+                result = catalog;
+
+                catalog.isInternalCatalog();
+                minTimes = 0;
+                result = false;
+
+                catalog.getProperties();
+                minTimes = 0;
+                result = ImmutableMap.of(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "mock.access.controller");
+            }
+        };
+
+        Assert.assertTrue(accessControllerManager.checkCtlPriv(userIdentity, "custom_catalog", PrivPredicate.SHOW));
     }
 
     @Test
@@ -131,6 +172,87 @@ public class AccessControllerManagerTest {
         };
 
         Assert.assertFalse(accessControllerManager.checkCtlPriv(userIdentity, "custom_catalog", PrivPredicate.SELECT));
+    }
+
+    @Test
+    public void testCheckCtlPrivCreateMustCheckDefaultAccessController(
+            @Injectable CatalogAccessController defaultAccessController,
+            @Mocked Env env,
+            @Mocked CatalogMgr catalogMgr) {
+        AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
+        UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
+        Config.skip_catalog_priv_check = true;
+
+        new Expectations() {
+            {
+                defaultAccessController.checkGlobalPriv((UserIdentity) any, (PrivPredicate) any);
+                minTimes = 0;
+                result = false;
+
+                defaultAccessController.checkCtlPriv(anyBoolean, (UserIdentity) any, anyString, (PrivPredicate) any);
+                minTimes = 0;
+                result = true;
+
+                Env.getCurrentEnv();
+                minTimes = 0;
+                result = env;
+
+                env.getCatalogMgr();
+                minTimes = 0;
+                result = catalogMgr;
+
+                catalogMgr.getCatalog("not_exist_catalog");
+                minTimes = 0;
+                result = null;
+            }
+        };
+
+        Assert.assertTrue(accessControllerManager.checkCtlPriv(userIdentity, "not_exist_catalog", PrivPredicate.CREATE));
+    }
+
+    @Test
+    public void testCheckCtlPrivLoadMustCheckDefaultAccessController(
+            @Injectable CatalogAccessController defaultAccessController,
+            @Mocked Env env,
+            @Mocked CatalogMgr catalogMgr,
+            @Mocked CatalogIf catalog) {
+        AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
+        UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
+        Config.skip_catalog_priv_check = true;
+
+        new Expectations() {
+            {
+                defaultAccessController.checkGlobalPriv((UserIdentity) any, (PrivPredicate) any);
+                minTimes = 0;
+                result = false;
+
+                defaultAccessController.checkCtlPriv(anyBoolean, (UserIdentity) any, anyString, (PrivPredicate) any);
+                minTimes = 0;
+                result = false;
+
+                Env.getCurrentEnv();
+                minTimes = 0;
+                result = env;
+
+                env.getCatalogMgr();
+                minTimes = 0;
+                result = catalogMgr;
+
+                catalogMgr.getCatalog("custom_catalog");
+                minTimes = 0;
+                result = catalog;
+
+                catalog.isInternalCatalog();
+                minTimes = 0;
+                result = false;
+
+                catalog.getProperties();
+                minTimes = 0;
+                result = ImmutableMap.of(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "mock.access.controller");
+            }
+        };
+
+        Assert.assertFalse(accessControllerManager.checkCtlPriv(userIdentity, "custom_catalog", PrivPredicate.LOAD));
     }
 
     @Test
