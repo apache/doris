@@ -338,8 +338,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
         // We ensure that the rowCount remains unchanged in order to make the cost of each plan comparable.
         if (groupExpression.getOwnerGroup().getStatistics() == null) {
-        // if (groupExpression.getOwnerGroup().getStatistics() == null
-        //         || groupExpression.getOwnerGroup().getStatistics().getRowCount() > newStats.getRowCount()) {
             boolean isReliable = true;
             for (Expression expression : groupExpression.getPlan().getExpressions()) {
                 if (newStats.isInputSlotsUnknown(expression.getInputSlots())) {
