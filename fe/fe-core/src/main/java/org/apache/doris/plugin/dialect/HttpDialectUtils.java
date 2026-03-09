@@ -17,6 +17,8 @@
 
 package org.apache.doris.plugin.dialect;
 
+import org.apache.doris.common.Config;
+
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import lombok.Data;
@@ -50,6 +52,8 @@ public class HttpDialectUtils {
             connection.setRequestProperty("Content-Type", "application/json");
             connection.setUseCaches(false);
             connection.setDoOutput(true);
+            connection.setConnectTimeout(Config.sql_converter_connect_timeout_ms);
+            connection.setReadTimeout(Config.sql_converter_read_timeout_ms);
 
             String requestStr = convertRequest.toJson();
             try (OutputStream outputStream = connection.getOutputStream()) {
