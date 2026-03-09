@@ -160,7 +160,7 @@ public class SearchDslParserTest {
     @Test
     public void testAndQuery() {
         String dsl = "title:hello AND content:world";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
 
         Assertions.assertNotNull(plan);
         Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
@@ -185,7 +185,7 @@ public class SearchDslParserTest {
     @Test
     public void testOrQuery() {
         String dsl = "title:hello OR title:hi";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
 
         Assertions.assertNotNull(plan);
         Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
@@ -195,7 +195,7 @@ public class SearchDslParserTest {
     @Test
     public void testNotQuery() {
         String dsl = "NOT title:spam";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
 
         Assertions.assertNotNull(plan);
         Assertions.assertEquals(QsClauseType.NOT, plan.getRoot().getType());
@@ -210,7 +210,7 @@ public class SearchDslParserTest {
     @Test
     public void testComplexQuery() {
         String dsl = "(title:\"machine learning\" OR content:AI) AND NOT category:spam";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
 
         Assertions.assertNotNull(plan);
         Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
@@ -864,9 +864,9 @@ public class SearchDslParserTest {
 
     @Test
     public void testStandardModeUnchanged() {
-        // Test: standard mode (default) should work as before
+        // Test: standard mode (explicit) should work as before
         String dsl = "field:a AND field:b OR field:c";
-        QsPlan plan = SearchDslParser.parseDsl(dsl, (String) null);
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
 
         Assertions.assertNotNull(plan);
         // Standard mode uses traditional boolean algebra: OR at top level
@@ -885,9 +885,9 @@ public class SearchDslParserTest {
 
     @Test
     public void testLuceneModeEmptyOptions() {
-        // Test: empty options string should use standard mode
+        // Test: explicit standard mode should work
         String dsl = "field:a AND field:b";
-        QsPlan plan = SearchDslParser.parseDsl(dsl, "");
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
 
         Assertions.assertNotNull(plan);
         Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
@@ -1097,7 +1097,7 @@ public class SearchDslParserTest {
     public void testUppercaseAndOperator() {
         // Test: uppercase AND should be treated as operator
         String dsl = "field:a AND field:b";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
 
         Assertions.assertNotNull(plan);
         Assertions.assertEquals(QsClauseType.AND, plan.getRoot().getType());
@@ -1119,7 +1119,7 @@ public class SearchDslParserTest {
     public void testUppercaseOrOperator() {
         // Test: uppercase OR should be treated as operator
         String dsl = "field:a OR field:b";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
 
         Assertions.assertNotNull(plan);
         Assertions.assertEquals(QsClauseType.OR, plan.getRoot().getType());
@@ -1141,7 +1141,7 @@ public class SearchDslParserTest {
     public void testUppercaseNotOperator() {
         // Test: uppercase NOT should be treated as operator
         String dsl = "NOT field:spam";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
 
         Assertions.assertNotNull(plan);
         Assertions.assertEquals(QsClauseType.NOT, plan.getRoot().getType());
@@ -1162,7 +1162,7 @@ public class SearchDslParserTest {
     public void testExclamationNotOperator() {
         // Test: ! should be treated as NOT operator
         String dsl = "!field:spam";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
 
         Assertions.assertNotNull(plan);
         // Current behavior: ! IS a NOT operator
@@ -1199,7 +1199,7 @@ public class SearchDslParserTest {
     public void testMultiFieldSimpleTerm() {
         // Test: "hello" + fields=["title","content"] → "(title:hello OR content:hello)"
         String dsl = "hello";
-        String options = "{\"fields\":[\"title\",\"content\"]}";
+        String options = "{\"mode\": \"standard\", \"fields\": [\"title\", \"content\"]}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1219,7 +1219,7 @@ public class SearchDslParserTest {
         // Test: "hello world" + fields=["title","content"] + default_operator="and" + type="cross_fields"
         // → "(title:hello OR content:hello) AND (title:world OR content:world)"
         String dsl = "hello world";
-        String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\",\"type\":\"cross_fields\"}";
+        String options = "{\"mode\": \"standard\", \"fields\": [\"title\", \"content\"], \"default_operator\": \"and\", \"type\": \"cross_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1238,7 +1238,7 @@ public class SearchDslParserTest {
         // Test: "hello world" + fields=["title","content"] + default_operator="or"
         // → "(title:hello OR content:hello) OR (title:world OR content:world)"
         String dsl = "hello world";
-        String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"or\"}";
+        String options = "{\"mode\": \"standard\", \"fields\": [\"title\", \"content\"], \"default_operator\": \"or\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1250,7 +1250,7 @@ public class SearchDslParserTest {
         // Test: "hello AND world" + fields=["title","content"] + cross_fields
         // → "(title:hello OR content:hello) AND (title:world OR content:world)"
         String dsl = "hello AND world";
-        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"cross_fields\"}";
+        String options = "{\"mode\": \"standard\", \"fields\": [\"title\", \"content\"], \"type\": \"cross_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1262,7 +1262,7 @@ public class SearchDslParserTest {
         // Test: "hello AND category:tech" + fields=["title","content"] + cross_fields
         // → "(title:hello OR content:hello) AND category:tech"
         String dsl = "hello AND category:tech";
-        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"cross_fields\"}";
+        String options = "{\"mode\": \"standard\", \"fields\": [\"title\", \"content\"], \"type\": \"cross_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1281,7 +1281,7 @@ public class SearchDslParserTest {
         // "title:music AND content:history" with fields=["title","content"]
         // → title:music AND content:history (NOT expanded to multi-field OR)
         String dsl = "title:music AND content:history";
-        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"cross_fields\"}";
+        String options = "{\"mode\": \"standard\", \"fields\": [\"title\", \"content\"], \"type\": \"cross_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1305,7 +1305,7 @@ public class SearchDslParserTest {
     public void testMultiFieldExplicitFieldInFieldsListBestFields() {
         // Same test as above but with best_fields type
         String dsl = "title:music AND content:history";
-        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"best_fields\"}";
+        String options = "{\"mode\": \"standard\", \"fields\": [\"title\", \"content\"], \"type\": \"best_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1335,7 +1335,7 @@ public class SearchDslParserTest {
         // → title:football AND (title:american OR content:american)
         // title:football should NOT be expanded; "american" (bare) should be expanded
         String dsl = "title:football AND american";
-        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"cross_fields\"}";
+        String options = "{\"mode\": \"standard\", \"fields\": [\"title\", \"content\"], \"type\": \"cross_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1384,7 +1384,7 @@ public class SearchDslParserTest {
     public void testMultiFieldWithWildcard() {
         // Test: "hello*" + fields=["title","content"]
         String dsl = "hello*";
-        String options = "{\"fields\":[\"title\",\"content\"]}";
+        String options = "{\"mode\": \"standard\", \"fields\": [\"title\", \"content\"]}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1401,7 +1401,7 @@ public class SearchDslParserTest {
     public void testMultiFieldWithExactFunction() {
         // Test: "EXACT(foo bar)" + fields=["title","content"]
         String dsl = "EXACT(foo bar)";
-        String options = "{\"fields\":[\"title\",\"content\"]}";
+        String options = "{\"mode\": \"standard\", \"fields\": [\"title\", \"content\"]}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1418,7 +1418,7 @@ public class SearchDslParserTest {
     public void testMultiFieldThreeFields() {
         // Test: "hello" + fields=["title","content","tags"]
         String dsl = "hello";
-        String options = "{\"fields\":[\"title\",\"content\",\"tags\"]}";
+        String options = "{\"mode\": \"standard\", \"fields\": [\"title\", \"content\", \"tags\"]}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1457,7 +1457,7 @@ public class SearchDslParserTest {
         // Test: "NOT hello" + fields=["title","content"] with cross_fields type
         // cross_fields: NOT (title:hello OR content:hello)
         String dsl = "NOT hello";
-        String options = "{\"fields\":[\"title\",\"content\"],\"type\":\"cross_fields\"}";
+        String options = "{\"mode\": \"standard\", \"fields\": [\"title\", \"content\"], \"type\": \"cross_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1604,7 +1604,7 @@ public class SearchDslParserTest {
         // "hello world" with fields ["title", "content"] and default_operator "and"
         // Expands to: (title:hello AND title:world) OR (content:hello AND content:world)
         String dsl = "hello world";
-        String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\"}";
+        String options = "{\"mode\": \"standard\", \"fields\": [\"title\", \"content\"], \"default_operator\": \"and\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1623,7 +1623,7 @@ public class SearchDslParserTest {
     public void testMultiFieldBestFieldsExplicit() {
         // Test: explicitly specify type=best_fields
         String dsl = "hello world";
-        String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\",\"type\":\"best_fields\"}";
+        String options = "{\"mode\": \"standard\", \"fields\": [\"title\", \"content\"], \"default_operator\": \"and\", \"type\": \"best_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1637,7 +1637,7 @@ public class SearchDslParserTest {
         // "hello world" with fields ["title", "content"] and default_operator "and"
         // Expands to: (title:hello OR content:hello) AND (title:world OR content:world)
         String dsl = "hello world";
-        String options = "{\"fields\":[\"title\",\"content\"],\"default_operator\":\"and\",\"type\":\"cross_fields\"}";
+        String options = "{\"mode\": \"standard\", \"fields\": [\"title\", \"content\"], \"default_operator\": \"and\", \"type\": \"cross_fields\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1859,7 +1859,7 @@ public class SearchDslParserTest {
         // Mixed: explicit field + bare query
         // "content:/[a-z]+/ AND hello" where hello uses default_field=title
         String dsl = "content:/[a-z]+/ AND hello";
-        String options = "{\"default_field\":\"title\"}";
+        String options = "{\"mode\": \"standard\", \"default_field\": \"title\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1958,7 +1958,7 @@ public class SearchDslParserTest {
     public void testBareAndOperatorWithDefaultField() {
         // "hello AND world" with default_field
         String dsl = "hello AND world";
-        String options = "{\"default_field\":\"title\"}";
+        String options = "{\"mode\": \"standard\", \"default_field\": \"title\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1975,7 +1975,7 @@ public class SearchDslParserTest {
     public void testBareOrOperatorWithDefaultField() {
         // "hello OR world" with default_field
         String dsl = "hello OR world";
-        String options = "{\"default_field\":\"title\"}";
+        String options = "{\"mode\": \"standard\", \"default_field\": \"title\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -1992,7 +1992,7 @@ public class SearchDslParserTest {
     public void testBareNotOperatorWithDefaultField() {
         // "NOT hello" with default_field
         String dsl = "NOT hello";
-        String options = "{\"default_field\":\"title\"}";
+        String options = "{\"mode\": \"standard\", \"default_field\": \"title\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -2020,7 +2020,7 @@ public class SearchDslParserTest {
     public void testParenthesizedBareQuery() {
         // "(hello OR world) AND foo" with default_field
         String dsl = "(hello OR world) AND foo";
-        String options = "{\"default_field\":\"title\"}";
+        String options = "{\"mode\": \"standard\", \"default_field\": \"title\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -2073,7 +2073,7 @@ public class SearchDslParserTest {
     public void testPhraseWithImplicitAndOperator() {
         // Test: '"hello world" foo' with default_operator=AND
         String dsl = "\"hello world\" foo";
-        String options = "{\"default_field\":\"title\",\"default_operator\":\"AND\"}";
+        String options = "{\"mode\": \"standard\", \"default_field\": \"title\", \"default_operator\": \"AND\"}";
 
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
@@ -2092,7 +2092,7 @@ public class SearchDslParserTest {
     public void testMultiplePhrases() {
         // Test: '"hello world" "foo bar"' with default_operator=OR
         String dsl = "\"hello world\" \"foo bar\"";
-        String options = "{\"default_field\":\"title\",\"default_operator\":\"OR\"}";
+        String options = "{\"mode\": \"standard\", \"default_field\": \"title\", \"default_operator\": \"OR\"}";
 
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
@@ -2184,7 +2184,7 @@ public class SearchDslParserTest {
         // title:(rock OR jazz) → OR(TERM(title,rock), TERM(title,jazz))
         // ES semantics: field prefix applies to all terms inside parentheses
         String dsl = "title:(rock OR jazz)";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
 
         Assertions.assertNotNull(plan);
         QsNode root = plan.getRoot();
@@ -2213,7 +2213,7 @@ public class SearchDslParserTest {
     public void testFieldGroupQueryWithAndOperator() {
         // title:(rock jazz) with default_operator:AND → AND(TERM(title,rock), TERM(title,jazz))
         String dsl = "title:(rock jazz)";
-        String options = "{\"default_operator\":\"and\"}";
+        String options = "{\"mode\": \"standard\", \"default_operator\": \"and\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -2234,7 +2234,7 @@ public class SearchDslParserTest {
     public void testFieldGroupQueryWithPhrase() {
         // title:("rock and roll" OR jazz) → OR(PHRASE(title,"rock and roll"), TERM(title,jazz))
         String dsl = "title:(\"rock and roll\" OR jazz)";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
 
         Assertions.assertNotNull(plan);
         QsNode root = plan.getRoot();
@@ -2259,7 +2259,7 @@ public class SearchDslParserTest {
     public void testFieldGroupQueryWithWildcardAndRegexp() {
         // title:(roc* OR /ja../) → OR(PREFIX(title,roc*), REGEXP(title,ja..))
         String dsl = "title:(roc* OR /ja../)";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
 
         Assertions.assertNotNull(plan);
         QsNode root = plan.getRoot();
@@ -2283,7 +2283,7 @@ public class SearchDslParserTest {
         // title:(rock OR jazz) AND music → combined query
         // In standard mode with default_field=content: explicit title terms + expanded music
         String dsl = "title:(rock OR jazz) AND music";
-        String options = "{\"default_field\":\"content\"}";
+        String options = "{\"mode\": \"standard\", \"default_field\": \"content\"}";
         QsPlan plan = SearchDslParser.parseDsl(dsl, options);
 
         Assertions.assertNotNull(plan);
@@ -2384,7 +2384,7 @@ public class SearchDslParserTest {
     public void testFieldGroupQuerySubcolumnPath() {
         // attrs.color:(red OR blue) - field group with dot-notation path
         String dsl = "attrs.color:(red OR blue)";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
 
         Assertions.assertNotNull(plan);
         QsNode root = plan.getRoot();
@@ -2402,7 +2402,7 @@ public class SearchDslParserTest {
         // title:(content:foo OR bar) → content:foo stays pinned to "content", bar gets "title"
         // Inner explicit field binding must NOT be overridden by outer group field
         String dsl = "title:(content:foo OR bar)";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
 
         Assertions.assertNotNull(plan);
         QsNode root = plan.getRoot();
@@ -2428,7 +2428,7 @@ public class SearchDslParserTest {
     public void testFieldGroupQueryNotOperatorInside() {
         // title:(rock OR NOT jazz) → OR(title:rock, NOT(title:jazz))
         String dsl = "title:(rock OR NOT jazz)";
-        QsPlan plan = SearchDslParser.parseDsl(dsl);
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
 
         Assertions.assertNotNull(plan);
         QsNode root = plan.getRoot();
