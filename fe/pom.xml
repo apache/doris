@@ -240,6 +240,7 @@ under the License.
         </extensions>
     </build>
     <modules>
+        <module>fe-foundation</module>
         <module>fe-common</module>
         <module>fe-catalog</module>
         <module>fe-extension-spi</module>
@@ -789,6 +790,11 @@ under the License.
                 <scope>test</scope>
             </dependency>
 
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>fe-foundation</artifactId>
+                <version>${project.version}</version>
+            </dependency>
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>fe-common</artifactId>

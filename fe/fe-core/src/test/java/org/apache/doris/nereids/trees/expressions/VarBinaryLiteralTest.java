@@ -22,7 +22,7 @@ import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.VarBinaryLiteral;
-import org.apache.doris.common.FormatOptions;
+import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TVarBinaryLiteral;

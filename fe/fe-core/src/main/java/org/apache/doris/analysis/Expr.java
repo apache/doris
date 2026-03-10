@@ -24,8 +24,8 @@ import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.TreeNode;
+import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Joiner;
