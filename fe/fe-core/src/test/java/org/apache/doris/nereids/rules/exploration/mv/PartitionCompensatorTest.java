@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
@@ -30,7 +31,9 @@ import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -41,9 +44,11 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
 import java.util.BitSet;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -378,49 +383,117 @@ public class PartitionCompensatorTest extends TestWithFeService {
     // across multiple related tables. The bug was caused by calling replaceAll() inside
     // the for-loop after forEach() had already replaced map values with a shared Set
     // reference, causing a self-modification on the second iteration.
+    // This test calls calcInvalidPartitions() directly with two related tables so that
+    // the exact code path containing the bug is exercised end-to-end.
+    @SuppressWarnings("unchecked")
     @Test
-    public void testMergePartitionMapsWithMultipleRelatedTablesNoConcurrentModification() {
-        BaseTableInfo tableInfo1 = newBaseTableInfo();
-        BaseTableInfo tableInfo2 = newBaseTableInfo();
-        BaseColInfo colInfo1 = new BaseColInfo("date_col", tableInfo1);
-        BaseColInfo colInfo2 = new BaseColInfo("date_col", tableInfo2);
+    public void testCalcInvalidPartitionsNoConcurrentModificationWithTwoRelatedTables()
+            throws Exception {
+        // Shared catalog/db for both related base tables
+        CatalogIf<?> baseCatalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(baseCatalog.getName()).thenReturn("cat");
+        Mockito.when(baseCatalog.getId()).thenReturn(1L);
+        DatabaseIf<?> baseDb = Mockito.mock(DatabaseIf.class);
+        Mockito.when(baseDb.getFullName()).thenReturn("db");
+        Mockito.when(baseDb.getId()).thenReturn(2L);
+        Mockito.when(baseDb.getCatalog()).thenReturn(baseCatalog);
 
-        Map<BaseTableInfo, Set<String>> mvPartitionNeedRemoveNameMap = new HashMap<>();
-        Map<BaseColInfo, Set<String>> baseTablePartitionNeedUnionNameMap = new HashMap<>();
+        MTMVRelatedTableIf relatedTable1 = mockRelatedTableIf(
+                "t1", 10L, ImmutableList.of("cat", "db", "t1"), baseDb);
+        MTMVRelatedTableIf relatedTable2 = mockRelatedTableIf(
+                "t2", 20L, ImmutableList.of("cat", "db", "t2"), baseDb);
 
-        // Simulate two related tables each contributing partition entries,
-        // which is the scenario that triggered ConcurrentModificationException
-        mvPartitionNeedRemoveNameMap.computeIfAbsent(tableInfo1, k -> new HashSet<>())
-                .addAll(ImmutableSet.of("p1", "p2"));
-        mvPartitionNeedRemoveNameMap.computeIfAbsent(tableInfo2, k -> new HashSet<>())
-                .addAll(ImmutableSet.of("p3"));
+        // Two MV valid partitions: mv_p1 maps to t1_p1, mv_p2 maps to t2_p2
+        Partition mvP1 = Mockito.mock(Partition.class);
+        Mockito.when(mvP1.getId()).thenReturn(101L);
+        Mockito.when(mvP1.getName()).thenReturn("mv_p1");
+        Partition mvP2 = Mockito.mock(Partition.class);
+        Mockito.when(mvP2.getId()).thenReturn(102L);
+        Mockito.when(mvP2.getName()).thenReturn("mv_p2");
 
-        baseTablePartitionNeedUnionNameMap.computeIfAbsent(colInfo1, k -> new HashSet<>())
-                .addAll(ImmutableSet.of("p1", "p2"));
-        baseTablePartitionNeedUnionNameMap.computeIfAbsent(colInfo2, k -> new HashSet<>())
-                .addAll(ImmutableSet.of("p3"));
+        Map<String, Set<String>> mappingForTable1 = new HashMap<>();
+        mappingForTable1.put("mv_p1", ImmutableSet.of("t1_p1"));
+        Map<String, Set<String>> mappingForTable2 = new HashMap<>();
+        mappingForTable2.put("mv_p2", ImmutableSet.of("t2_p2"));
+        Map<MTMVRelatedTableIf, Map<String, Set<String>>> partitionMappings = new HashMap<>();
+        partitionMappings.put(relatedTable1, mappingForTable1);
+        partitionMappings.put(relatedTable2, mappingForTable2);
 
-        // This is the fixed merge logic (moved outside the loop).
-        // Before the fix this would throw ConcurrentModificationException on the second iteration
-        // because replaceAll() replaced all values with the same Set reference, and forEach()
-        // on the next call would then try to add that set into itself.
-        Assertions.assertDoesNotThrow(() -> {
-            Set<String> needRemovePartitionSet = new HashSet<>();
-            mvPartitionNeedRemoveNameMap.values().forEach(needRemovePartitionSet::addAll);
-            mvPartitionNeedRemoveNameMap.replaceAll((k, v) -> needRemovePartitionSet);
+        BaseColInfo colInfo1 = new BaseColInfo("date_col", new BaseTableInfo(relatedTable1));
+        BaseColInfo colInfo2 = new BaseColInfo("date_col", new BaseTableInfo(relatedTable2));
 
-            Set<String> needUnionPartitionSet = new HashSet<>();
-            baseTablePartitionNeedUnionNameMap.values().forEach(needUnionPartitionSet::addAll);
-            baseTablePartitionNeedUnionNameMap.replaceAll((k, v) -> needUnionPartitionSet);
-        });
+        // Separate catalog/db for the MV itself
+        CatalogIf<?> mvCatalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(mvCatalog.getName()).thenReturn("internal");
+        Mockito.when(mvCatalog.getId()).thenReturn(1L);
+        DatabaseIf<?> mvDb = Mockito.mock(DatabaseIf.class);
+        Mockito.when(mvDb.getFullName()).thenReturn("mv_db");
+        Mockito.when(mvDb.getId()).thenReturn(3L);
+        Mockito.when(mvDb.getCatalog()).thenReturn(mvCatalog);
 
-        // All entries should be merged into a single unified set
-        Set<String> expectedRemove = ImmutableSet.of("p1", "p2", "p3");
-        Set<String> expectedUnion = ImmutableSet.of("p1", "p2", "p3");
-        mvPartitionNeedRemoveNameMap.values()
-                .forEach(v -> Assertions.assertEquals(expectedRemove, v));
-        baseTablePartitionNeedUnionNameMap.values()
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.getName()).thenReturn("mv1");
+        Mockito.when(mtmv.getId()).thenReturn(100L);
+        Mockito.when(mtmv.getDatabase()).thenReturn(mvDb);
+        PartitionInfo mvPartitionInfo = Mockito.mock(PartitionInfo.class);
+        Mockito.when(mtmv.getPartitionInfo()).thenReturn(mvPartitionInfo);
+        Mockito.when(mvPartitionInfo.getType()).thenReturn(PartitionType.RANGE);
+        MTMVPartitionInfo mvPctInfo = Mockito.mock(MTMVPartitionInfo.class);
+        Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(mvPctInfo);
+        Mockito.when(mvPctInfo.getPctTables()).thenReturn(ImmutableSet.of(relatedTable1, relatedTable2));
+        Mockito.when(mvPctInfo.getPctInfos()).thenReturn(ImmutableList.of(colInfo1, colInfo2));
+        // All MV partitions contain data
+        Mockito.when(mtmv.selectNonEmptyPartitionIds(ArgumentMatchers.any())).thenReturn(ImmutableList.of(1L));
+
+        AsyncMaterializationContext matCtx = Mockito.mock(AsyncMaterializationContext.class);
+        Mockito.when(matCtx.getMtmv()).thenReturn(mtmv);
+        Mockito.when(matCtx.calculatePartitionMappings()).thenReturn(partitionMappings);
+
+        // StatementContext: the MV's two valid partitions are available for rewrite
+        Map<BaseTableInfo, Collection<Partition>> canRewriteMap = new HashMap<>();
+        canRewriteMap.put(new BaseTableInfo(mtmv), ImmutableList.of(mvP1, mvP2));
+        StatementContext stmtCtx = Mockito.mock(StatementContext.class);
+        Mockito.when(stmtCtx.getMvCanRewritePartitionsMap()).thenReturn(canRewriteMap);
+
+        CascadesContext cascadesCtx = Mockito.mock(CascadesContext.class);
+        Mockito.when(cascadesCtx.getStatementContext()).thenReturn(stmtCtx);
+
+        // Rewritten plan has no MV scans, so mvNeedRemovePartitionNameSet stays empty
+        Plan rewrittenPlan = Mockito.mock(Plan.class);
+        Mockito.when(rewrittenPlan.collectToList(ArgumentMatchers.any())).thenReturn(Collections.emptyList());
+
+        // Each table contributes one covered and one uncovered partition:
+        //   t1 uses {t1_p1 (covered by mv_p1), t1_p2 (not covered)}
+        //   t2 uses {t2_p1 (not covered), t2_p2 (covered by mv_p2)}
+        Map<List<String>, Set<String>> queryUsedPartitions = new HashMap<>();
+        queryUsedPartitions.put(ImmutableList.of("cat", "db", "t1"),
+                ImmutableSet.of("t1_p1", "t1_p2"));
+        queryUsedPartitions.put(ImmutableList.of("cat", "db", "t2"),
+                ImmutableSet.of("t2_p1", "t2_p2"));
+
+        // Must not throw ConcurrentModificationException when two related tables each
+        // contribute entries that require the post-loop merge in calcInvalidPartitions()
+        Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> result =
+                Assertions.assertDoesNotThrow(() ->
+                        PartitionCompensator.calcInvalidPartitions(
+                                queryUsedPartitions, rewrittenPlan, matCtx, cascadesCtx));
+
+        // The uncovered partitions from both tables should be merged into one unified set
+        Assertions.assertNotNull(result);
+        Set<String> expectedUnion = ImmutableSet.of("t1_p2", "t2_p1");
+        result.value().values()
                 .forEach(v -> Assertions.assertEquals(expectedUnion, v));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static MTMVRelatedTableIf mockRelatedTableIf(
+            String tableName, long tableId, List<String> qualifiers, DatabaseIf<?> db) {
+        MTMVRelatedTableIf table = Mockito.mock(MTMVRelatedTableIf.class);
+        Mockito.when(table.getName()).thenReturn(tableName);
+        Mockito.when(table.getId()).thenReturn(tableId);
+        Mockito.when(table.getDatabase()).thenReturn(db);
+        Mockito.when(table.getFullQualifiers()).thenReturn(qualifiers);
+        return table;
     }
 
     private static BaseTableInfo newBaseTableInfo() {
