@@ -45,10 +45,10 @@
 #include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "olap/memtable_flush_executor.h"
-#include "olap/storage_engine.h"
+#include "load/memtable/memtable_flush_executor.h"
 #include "runtime/exec_env.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "storage/storage_engine.h"
 #include "util/cpu_info.h"
 #include "util/string_util.h"
 
@@ -1156,7 +1156,7 @@ DEFINE_mBool(enable_variant_doc_sparse_write_subcolumns, "true");
 // Reserved for future use when NestedGroup expansion moves to storage layer
 // Deeper arrays will be stored as JSONB
 DEFINE_mInt32(variant_nested_group_max_depth, "3");
-DEFINE_mBool(variant_nested_group_discard_scalar_on_conflict, "true");
+DEFINE_mBool(variant_nested_group_discard_scalar_on_conflict, "false");
 
 DEFINE_Validator(variant_max_json_key_length,
                  [](const int config) -> bool { return config > 0 && config <= 65535; });
@@ -1477,6 +1477,7 @@ DEFINE_mInt32(max_s3_client_retry, "10");
 DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
 DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
 DEFINE_mBool(enable_s3_object_check_after_upload, "true");
+DEFINE_mInt32(aws_client_request_timeout_ms, "30000");
 
 DEFINE_mBool(enable_s3_rate_limiter, "false");
 DEFINE_mInt64(s3_get_bucket_tokens, "1000000000000000000");

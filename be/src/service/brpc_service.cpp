@@ -31,10 +31,10 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
-#include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "service/internal_service.h"
+#include "storage/storage_engine.h"
 #include "util/mem_info.h"
 
 namespace brpc {

@@ -83,6 +83,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr;
@@ -111,8 +112,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.event.DropPartitionEvent;
-import org.apache.doris.info.PartitionNamesInfo;
-import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -137,6 +136,7 @@ import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Backend;
@@ -297,11 +297,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         return "Doris internal catalog";
     }
 
-    public TableNameInfo getTableNameByTableId(Long tableId) {
+    public List<String> getTableNameByTableId(long tableId) {
         for (Database db : fullNameToDb.values()) {
             Table table = db.getTableNullable(tableId);
             if (table != null) {
-                return new TableNameInfo(INTERNAL_CATALOG_NAME, db.getFullName(), table.getName());
+                return Lists.newArrayList(INTERNAL_CATALOG_NAME, db.getFullName(), table.getName());
             }
         }
         return null;
@@ -2933,14 +2933,14 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException(e.getMessage());
         }
         try {
-            int groupCommitIntervalMs = PropertyAnalyzer.analyzeGroupCommitIntervalMs(properties);
+            int groupCommitIntervalMs = PropertyAnalyzer.analyzeGroupCommitIntervalMs(properties, true);
             olapTable.setGroupCommitIntervalMs(groupCommitIntervalMs);
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
         }
 
         try {
-            int groupCommitDataBytes = PropertyAnalyzer.analyzeGroupCommitDataBytes(properties);
+            int groupCommitDataBytes = PropertyAnalyzer.analyzeGroupCommitDataBytes(properties, true);
             olapTable.setGroupCommitDataBytes(groupCommitDataBytes);
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
@@ -3008,9 +3008,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                         idGeneratorBuffer,
                         binlogConfigForTask,
                         partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified());
+                olapTable.addPartition(partition);
                 afterCreatePartitions(db.getId(), olapTable.getId(), olapTable.getPartitionIds(),
                         olapTable.getIndexIdList(), true /* isCreateTable */, true /* isBatchCommit */, olapTable);
-                olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
                 try {
@@ -3747,6 +3747,12 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
+    @Override
+    /** 0=case-sensitive, 1=stored lowercase, 2=case-insensitive comparison */
+    public int getLowerCaseTableNames() {
+        return GlobalVariable.lowerCaseTableNames;
+    }
+
     public void replayAlterExternalTableSchema(String dbName, String tableName, List<Column> newSchema)
             throws MetaNotFoundException {
         Database db = (Database) getDbOrMetaException(dbName);
@@ -3861,5 +3867,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             dbToDataSize.put(db.getFullName(), db.getUsedDataQuota());
         }
         return dbToDataSize;
+    }
+
+    @Override
+    public void onClose() {
+        Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(getId());
     }
 }

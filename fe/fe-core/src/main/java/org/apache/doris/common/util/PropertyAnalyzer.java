@@ -1857,11 +1857,11 @@ public class PropertyAnalyzer {
      * 1000
      *
      * @param properties
-     * @param defaultValue
      * @return
      * @throws AnalysisException
      */
-    public static int analyzeGroupCommitIntervalMs(Map<String, String> properties) throws AnalysisException {
+    public static int analyzeGroupCommitIntervalMs(Map<String, String> properties, boolean removeProperty)
+            throws AnalysisException {
         int groupCommitIntervalMs = PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE;
         if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_INTERVAL_MS)) {
             String groupIntervalCommitMsStr = properties.get(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
@@ -1870,24 +1870,35 @@ public class PropertyAnalyzer {
             } catch (Exception e) {
                 throw new AnalysisException("parse group_commit_interval_ms format error");
             }
+            if (groupCommitIntervalMs <= 0) {
+                throw new AnalysisException("group_commit_interval_ms must be greater than 0");
+            }
 
-            properties.remove(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+            if (removeProperty) {
+                properties.remove(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+            }
         }
 
         return groupCommitIntervalMs;
     }
 
-    public static int analyzeGroupCommitDataBytes(Map<String, String> properties) throws AnalysisException {
+    public static int analyzeGroupCommitDataBytes(Map<String, String> properties, boolean removeProperty)
+            throws AnalysisException {
         int groupCommitDataBytes = PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE;
         if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_DATA_BYTES)) {
             String groupIntervalCommitDataBytesStr = properties.get(PROPERTIES_GROUP_COMMIT_DATA_BYTES);
             try {
                 groupCommitDataBytes = Integer.parseInt(groupIntervalCommitDataBytesStr);
             } catch (Exception e) {
-                throw new AnalysisException("parse group_commit_interval_ms format error");
+                throw new AnalysisException("parse group_commit_data_bytes format error");
+            }
+            if (groupCommitDataBytes <= 0) {
+                throw new AnalysisException("group_commit_data_bytes must be greater than 0");
             }
 
-            properties.remove(PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+            if (removeProperty) {
+                properties.remove(PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+            }
         }
 
         return groupCommitDataBytes;

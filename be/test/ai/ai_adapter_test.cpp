@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/functions/ai/ai_adapter.h"
+#include "exprs/function/ai/ai_adapter.h"
 
 #include <curl/curl.h>
 #include <gen_cpp/PaloInternalService_types.h>
@@ -26,12 +26,12 @@
 #include <vector>
 
 #include "common/status.h"
-#include "vec/functions/ai/ai_classify.h"
-#include "vec/functions/ai/ai_extract.h"
-#include "vec/functions/ai/ai_sentiment.h"
-#include "vec/functions/ai/ai_summarize.h"
+#include "exprs/function/ai/ai_classify.h"
+#include "exprs/function/ai/ai_extract.h"
+#include "exprs/function/ai/ai_sentiment.h"
+#include "exprs/function/ai/ai_summarize.h"
 
-namespace doris::vectorized {
+namespace doris {
 class MockHttpClient : public HttpClient {
 public:
     curl_slist* get() { return this->_header_list; }
@@ -556,7 +556,7 @@ TEST(AI_ADAPTER_TEST, anthropic_adapter_parse_response) {
 TEST(AI_ADAPTER_TEST, unsupported_provider_type) {
     TAIResource config;
     config.provider_type = "not_exist";
-    auto adapter = doris::vectorized::AIAdapterFactory::create_adapter(config.provider_type);
+    auto adapter = doris::AIAdapterFactory::create_adapter(config.provider_type);
     ASSERT_EQ(adapter, nullptr);
 }
 
@@ -565,7 +565,7 @@ TEST(AI_ADAPTER_TEST, adapter_factory_all_types) {
                                       "MINIMAX",   "ZHIPU",  "QWEN",     "BAICHUAN",
                                       "ANTHROPIC", "GEMINI", "VOYAGEAI", "MOCK"};
     for (const auto& type : types) {
-        auto adapter = doris::vectorized::AIAdapterFactory::create_adapter(type);
+        auto adapter = doris::AIAdapterFactory::create_adapter(type);
         ASSERT_TRUE(adapter != nullptr) << "Adapter not found for type: " << type;
     }
 }
@@ -688,4 +688,4 @@ TEST(AI_ADAPTER_TEST, voyage_adapter_chat_test) {
                  "[NOT_IMPLEMENTED_ERROR]VoyageAI don't support text generation");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

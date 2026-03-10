@@ -17,15 +17,15 @@
 
 #include "runtime/result_buffer_mgr.h"
 
+#include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest.h>
 
-#include "gen_cpp/PaloInternalService_types.h"
+#include "core/block/block.h"
+#include "exec/sink/writer/varrow_flight_result_writer.h"
+#include "exec/sink/writer/vmysql_result_writer.h"
 #include "runtime/result_block_buffer.h"
 #include "util/cpu_info.h"
 #include "util/thread.h"
-#include "vec/core/block.h"
-#include "vec/sink/varrow_flight_result_writer.h"
-#include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
 
@@ -89,7 +89,7 @@ TEST_F(ResultBufferMgrTest, find_buffer) {
     EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1, &_state, false, nullptr)
                         .ok());
 
-    std::shared_ptr<vectorized::MySQLResultBlockBuffer> buffer;
+    std::shared_ptr<MySQLResultBlockBuffer> buffer;
     EXPECT_TRUE(buffer_mgr.find_buffer(query_id, buffer).ok());
     EXPECT_TRUE(buffer != nullptr);
 }

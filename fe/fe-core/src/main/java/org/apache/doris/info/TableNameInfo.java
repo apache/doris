@@ -149,9 +149,6 @@ public class TableNameInfo {
         this.tbl = tableName;
     }
 
-    public void analyze() throws AnalysisException {
-    }
-
     /**
      * analyze tableNameInfo
      * @param ctx ctx

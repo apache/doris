@@ -19,10 +19,12 @@ package org.apache.doris.datasource.maxcompute;
 
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MapType;
@@ -31,6 +33,10 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
+import org.apache.doris.catalog.info.DropBranchInfo;
+import org.apache.doris.catalog.info.DropTagInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -38,11 +44,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
@@ -451,7 +453,8 @@ public class MaxComputeMetadataOps implements ExternalMetadataOps {
                         "MaxCompute does not support partition transform '" + funcName
                                 + "'. Only identity partitions are supported.");
             } else {
-                throw new UserException("Invalid partition expression: " + expr.toSql());
+                throw new UserException("Invalid partition expression: "
+                        + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
         }
     }

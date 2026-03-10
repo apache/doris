@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Column;
@@ -327,7 +329,9 @@ public class ShowFunctionsCommand extends ShowCommand {
 
         if (function instanceof AliasFunction) {
             AliasFunction aliasFunction = (AliasFunction) function;
-            properties.put("ALIAS_OF", aliasFunction.getOriginFunction().toSqlWithoutTbl());
+            properties.put("ALIAS_OF",
+                    aliasFunction.getOriginFunction().accept(
+                            ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
             if (aliasFunction.getParameters() != null && !aliasFunction.getParameters().isEmpty()) {
                 properties.put("PARAMETERS", String.join(",", aliasFunction.getParameters()));
             }

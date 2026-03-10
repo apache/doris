@@ -23,13 +23,14 @@
 #if defined(__ELF__) && !defined(__FreeBSD__)
 
 #include <assert.h>
-#include <common/elf.h>
-#include <common/multi_version.h>
 
 #include <boost/noncopyable.hpp>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#include "common/elf.h"
+#include "common/multi_version.h"
 
 namespace doris {
 

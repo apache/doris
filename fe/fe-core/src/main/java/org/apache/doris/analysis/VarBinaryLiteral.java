@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
@@ -58,17 +56,11 @@ public class VarBinaryLiteral extends LiteralExpr {
 
 
     @Override
-    protected String toSqlImpl() {
-        return toHexLiteral();
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitVarBinaryLiteral(this, context);
     }
 
-    @Override
-    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return toHexLiteral();
-    }
-
-    private String toHexLiteral() {
+    String toHexLiteral() {
         String hex = BaseEncoding.base16().encode(value); // upper-case hex
         return "X'" + hex + "'";
     }

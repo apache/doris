@@ -20,8 +20,8 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;

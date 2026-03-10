@@ -152,8 +152,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             param.ttlSeconds = ttlSeconds;
             param.type = UpdatePartitionMetaParam.TabletMetaType.TTL_SECONDS;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)) {
-            long groupCommitIntervalMs = Long.parseLong(properties.get(PropertyAnalyzer
-                    .PROPERTIES_GROUP_COMMIT_INTERVAL_MS));
+            int groupCommitIntervalMs = PropertyAnalyzer.analyzeGroupCommitIntervalMs(properties, false);
             olapTable.readLock();
             try {
                 if (groupCommitIntervalMs == olapTable.getGroupCommitIntervalMs()) {
@@ -168,8 +167,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             param.groupCommitIntervalMs = groupCommitIntervalMs;
             param.type = UpdatePartitionMetaParam.TabletMetaType.GROUP_COMMIT_INTERVAL_MS;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)) {
-            long groupCommitDataBytes = Long.parseLong(properties.get(PropertyAnalyzer
-                    .PROPERTIES_GROUP_COMMIT_DATA_BYTES));
+            int groupCommitDataBytes = PropertyAnalyzer.analyzeGroupCommitDataBytes(properties, false);
             olapTable.readLock();
             try {
                 if (groupCommitDataBytes == olapTable.getGroupCommitDataBytes()) {

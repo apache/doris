@@ -18,6 +18,7 @@
 #pragma once
 
 #include <bthread/countdown_event.h>
+#include <gen_cpp/BackendService.h>
 
 #include <condition_variable>
 #include <deque>
@@ -29,7 +30,6 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
-#include "gen_cpp/BackendService.h"
 #include "util/threadpool.h"
 
 namespace doris {

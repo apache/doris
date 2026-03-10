@@ -20,8 +20,8 @@
 
 #include <stddef.h>
 
-#include "vec/common/string_ref.h"
-#include "vec/runtime/vdatetime_value.h"
+#include "core/string_ref.h"
+#include "core/value/vdatetime_value.h"
 
 namespace doris {
 // This class is unused.  It contains static (compile time) asserts.

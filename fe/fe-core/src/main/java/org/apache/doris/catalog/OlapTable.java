@@ -3206,12 +3206,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
     }
 
-    public boolean isDistributionColumn(String columnName) {
-        Set<String> distributeColumns = getDistributionColumnNames()
-                .stream().map(String::toLowerCase).collect(Collectors.toSet());
-        return distributeColumns.contains(columnName.toLowerCase());
-    }
-
     @Override
     public boolean isPartitionColumn(Column column) {
         String finalColumnName = column.tryGetBaseColumnName();

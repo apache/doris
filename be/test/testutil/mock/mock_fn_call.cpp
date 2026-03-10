@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "mock_fn_call.h"
+#include "testutil/mock/mock_fn_call.h"
 
 #include <gtest/gtest.h>
 
+#include "core/data_type/data_type_number.h"
 #include "testutil/column_helper.h"
-#include "vec/data_types/data_type_number.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(MockFnCallTest, test) {
     auto fn = MockFnCall::create("test");
@@ -34,4 +34,4 @@ TEST(MockFnCallTest, test) {
     EXPECT_EQ(column_wrapper->column_ptr->get_int(0), 1);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

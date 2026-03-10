@@ -17,16 +17,16 @@
 
 package org.apache.doris.datasource.operations;
 
-import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
+import org.apache.doris.catalog.info.DropBranchInfo;
+import org.apache.doris.catalog.info.DropTagInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 
 import org.apache.iceberg.view.View;
 

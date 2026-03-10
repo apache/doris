@@ -22,8 +22,10 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.thrift.TEqJoinCondition;
@@ -201,7 +203,8 @@ public class HashJoinNode extends JoinNodeBase {
         }
 
         for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
-            output.append(detailPrefix).append("equal join conjunct: ").append(eqJoinPredicate.toSql()).append("\n");
+            output.append(detailPrefix).append("equal join conjunct: ")
+                    .append(eqJoinPredicate.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
         }
         if (!otherJoinConjuncts.isEmpty()) {
             output.append(detailPrefix).append("other join predicates: ")

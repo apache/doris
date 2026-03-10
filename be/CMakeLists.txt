@@ -529,21 +529,19 @@ set(DORIS_LINK_LIBS
     ${WL_START_GROUP}
     Agent
     Common
+    Core
     Exec
     Exprs
+    Format
     IO
-    Olap
+    Storage
     Runtime
-    RuntimeFilter
     Service
     Udf
     Util
     DorisGen
-    Webserver
-    Geo
-    GeoType
-    Vec
-    Pipeline
+    Load
+    InformationSchema
     Cloud
     ${WL_END_GROUP}
     CommonCPP
@@ -625,77 +623,16 @@ if (BUILD_BENCHMARK)
 endif()
 
 set(PAIMON_FACTORY_REGISTRY_LIBS)
-set(PAIMON_ARROW_CORE_LIB)
-set(PAIMON_ARROW_FILESYSTEM_LIB)
-set(PAIMON_ARROW_DATASET_LIB)
-set(PAIMON_ARROW_ACERO_LIB)
 if (ENABLE_PAIMON_CPP)
-    set(_paimon_arrow_core_candidates
-        ${THIRDPARTY_DIR}/paimon-cpp/lib64/paimon_deps/libarrow.a
-        ${THIRDPARTY_DIR}/lib64/libarrow.a
-        ${THIRDPARTY_DIR}/lib/libarrow.a
-    )
-    foreach(_paimon_arrow_core_candidate IN LISTS _paimon_arrow_core_candidates)
-        if (EXISTS "${_paimon_arrow_core_candidate}")
-            add_library(paimon_arrow_core STATIC IMPORTED)
-            set_target_properties(paimon_arrow_core PROPERTIES
-                IMPORTED_LOCATION ${_paimon_arrow_core_candidate})
-            set(PAIMON_ARROW_CORE_LIB paimon_arrow_core)
-            break()
-        endif()
-    endforeach()
-    set(_paimon_arrow_filesystem_candidates
-        ${THIRDPARTY_DIR}/paimon-cpp/lib64/paimon_deps/libarrow_filesystem.a
-        ${THIRDPARTY_DIR}/lib64/libarrow_filesystem.a
-        ${THIRDPARTY_DIR}/lib/libarrow_filesystem.a
-    )
-    foreach(_paimon_arrow_filesystem_candidate IN LISTS _paimon_arrow_filesystem_candidates)
-        if (EXISTS "${_paimon_arrow_filesystem_candidate}")
-            add_library(paimon_arrow_filesystem STATIC IMPORTED)
-            set_target_properties(paimon_arrow_filesystem PROPERTIES
-                IMPORTED_LOCATION ${_paimon_arrow_filesystem_candidate})
-            set(PAIMON_ARROW_FILESYSTEM_LIB paimon_arrow_filesystem)
-            break()
-        endif()
-    endforeach()
-    set(_paimon_arrow_dataset_candidates
-        ${THIRDPARTY_DIR}/paimon-cpp/lib64/paimon_deps/libarrow_dataset.a
-        ${THIRDPARTY_DIR}/lib64/libarrow_dataset.a
-        ${THIRDPARTY_DIR}/lib/libarrow_dataset.a
-    )
-    foreach(_paimon_arrow_dataset_candidate IN LISTS _paimon_arrow_dataset_candidates)
-        if (EXISTS "${_paimon_arrow_dataset_candidate}")
-            add_library(paimon_arrow_dataset STATIC IMPORTED)
-            set_target_properties(paimon_arrow_dataset PROPERTIES
-                IMPORTED_LOCATION ${_paimon_arrow_dataset_candidate})
-            set(PAIMON_ARROW_DATASET_LIB paimon_arrow_dataset)
-            break()
-        endif()
-    endforeach()
-    set(_paimon_arrow_acero_candidates
-        ${THIRDPARTY_DIR}/paimon-cpp/lib64/paimon_deps/libarrow_acero.a
-        ${THIRDPARTY_DIR}/lib64/libarrow_acero.a
-        ${THIRDPARTY_DIR}/lib/libarrow_acero.a
-    )
-    foreach(_paimon_arrow_acero_candidate IN LISTS _paimon_arrow_acero_candidates)
-        if (EXISTS "${_paimon_arrow_acero_candidate}")
-            add_library(paimon_arrow_acero STATIC IMPORTED)
-            set_target_properties(paimon_arrow_acero PROPERTIES
-                IMPORTED_LOCATION ${_paimon_arrow_acero_candidate})
-            set(PAIMON_ARROW_ACERO_LIB paimon_arrow_acero)
-            break()
-        endif()
-    endforeach()
-    if (PAIMON_ARROW_DATASET_LIB)
-        # paimon_parquet_file_format depends on Arrow Dataset symbols.
-        # Force-link it only when arrow_dataset is available.
-        set(PAIMON_FACTORY_REGISTRY_LIBS
-            paimon_parquet_file_format
-        )
-        list(REMOVE_ITEM COMMON_THIRDPARTY ${PAIMON_FACTORY_REGISTRY_LIBS})
-    else()
-        message(STATUS "Paimon C++: libarrow_dataset.a not found, keep paimon_parquet_file_format as regular static lib")
-    endif()
+    # Plan B: Doris Arrow is now built with COMPUTE/DATASET/ACERO/FILESYSTEM,
+    # so arrow, arrow_dataset, arrow_acero are all in COMMON_THIRDPARTY via
+    # thirdparty.cmake.  paimon-cpp reuses the same Arrow (no paimon_deps).
+    # No dual-stack selection needed — single Arrow for everything.
+
+    # paimon_parquet_file_format depends on Arrow Dataset symbols.
+    # Force-link it with --whole-archive so its factory registration runs.
+    set(PAIMON_FACTORY_REGISTRY_LIBS paimon_parquet_file_format)
+    list(REMOVE_ITEM COMMON_THIRDPARTY ${PAIMON_FACTORY_REGISTRY_LIBS})
 endif()
 
 set(DORIS_DEPENDENCIES
@@ -721,18 +658,6 @@ if (ENABLE_PAIMON_CPP)
             -Wl,--whole-archive
             ${PAIMON_FACTORY_REGISTRY_LIBS}
             -Wl,--no-whole-archive)
-    endif()
-    if (PAIMON_ARROW_CORE_LIB)
-        set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${PAIMON_ARROW_CORE_LIB})
-    endif()
-    if (PAIMON_ARROW_FILESYSTEM_LIB)
-        set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${PAIMON_ARROW_FILESYSTEM_LIB})
-    endif()
-    if (PAIMON_ARROW_DATASET_LIB)
-        set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${PAIMON_ARROW_DATASET_LIB})
-    endif()
-    if (PAIMON_ARROW_ACERO_LIB)
-        set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${PAIMON_ARROW_ACERO_LIB})
     endif()
 
     # paimon-cpp internal dependencies (renamed with _paimon suffix)
@@ -953,22 +878,24 @@ endfunction(pch_reuse target)
 
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)
+add_subdirectory(${SRC_DIR}/core)
 add_subdirectory(${SRC_DIR}/exec)
 add_subdirectory(${SRC_DIR}/exprs)
+add_subdirectory(${SRC_DIR}/format)
 add_subdirectory(${SRC_DIR}/gen_cpp)
-add_subdirectory(${SRC_DIR}/geo)
-add_subdirectory(${SRC_DIR}/http)
 add_subdirectory(${SRC_DIR}/io)
-add_subdirectory(${SRC_DIR}/olap/rowset/segment_v2/ann_index)
-add_subdirectory(${SRC_DIR}/olap)
+add_subdirectory(${SRC_DIR}/storage/index/ann)
+add_subdirectory(${SRC_DIR}/storage)
 add_subdirectory(${SRC_DIR}/runtime)
-add_subdirectory(${SRC_DIR}/runtime_filter)
 add_subdirectory(${SRC_DIR}/service) # this include doris_be
 add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/cloud)
+add_subdirectory(${SRC_DIR}/load)
+add_subdirectory(${SRC_DIR}/information_schema)
 
 option(BUILD_META_TOOL "Build meta tool" OFF)
-if (BUILD_META_TOOL)
+option(BUILD_INDEX_TOOL "Build index tool" OFF)
+if (BUILD_META_TOOL OR BUILD_INDEX_TOOL)
     add_subdirectory(${SRC_DIR}/tools)
 endif()
 
@@ -983,14 +910,7 @@ if (BUILD_FILE_CACHE_MICROBENCH_TOOL)
         DESTINATION ${OUTPUT_DIR}/bin)
 endif()
 
-option(BUILD_INDEX_TOOL "Build index tool" OFF)
-if (BUILD_INDEX_TOOL)
-    add_subdirectory(${SRC_DIR}/index-tools)
-endif()
-
 add_subdirectory(${SRC_DIR}/util)
-add_subdirectory(${SRC_DIR}/vec)
-add_subdirectory(${SRC_DIR}/pipeline)
 
 # this include doris_be_test
 if (MAKE_TEST)

@@ -1,0 +1,49 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include "common/status.h"
+#include "core/block/block.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
+#include "runtime/runtime_state.h"
+
+namespace doris {
+class VExpr;
+class LambdaFunction {
+public:
+    virtual ~LambdaFunction() = default;
+
+    virtual std::string get_name() const = 0;
+
+    virtual doris::Status prepare(RuntimeState* state) {
+        batch_size = state->batch_size();
+        return Status::OK();
+    }
+
+    virtual doris::Status execute(VExprContext* context, const doris::Block* block,
+                                  Selector* selector, size_t count, ColumnPtr& result_column,
+                                  const DataTypePtr& result_type,
+                                  const VExprSPtrs& children) const = 0;
+
+    int batch_size;
+};
+
+using LambdaFunctionPtr = std::shared_ptr<LambdaFunction>;
+
+} // namespace doris

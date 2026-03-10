@@ -1,0 +1,145 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "exprs/function/function_java_udf.h"
+
+#include <bthread/bthread.h>
+
+#include <memory>
+#include <string>
+
+#include "common/exception.h"
+#include "core/block/block.h"
+#include "exec/connector/jni_connector.h"
+#include "jni.h"
+#include "runtime/exec_env.h"
+#include "runtime/user_function_cache.h"
+#include "util/jni-util.h"
+
+const char* EXECUTOR_CLASS = "org/apache/doris/udf/UdfExecutor";
+const char* EXECUTOR_CTOR_SIGNATURE = "([B)V";
+const char* EXECUTOR_EVALUATE_SIGNATURE = "(Ljava/util/Map;Ljava/util/Map;)J";
+const char* EXECUTOR_CLOSE_SIGNATURE = "()V";
+
+namespace doris {
+
+JavaFunctionCall::JavaFunctionCall(const TFunction& fn, const DataTypes& argument_types,
+                                   const DataTypePtr& return_type)
+        : fn_(fn), _argument_types(argument_types), _return_type(return_type) {}
+
+Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
+
+    if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
+        SCOPED_TIMER(context->get_udf_execute_timer());
+        std::shared_ptr<JniContext> jni_ctx = std::make_shared<JniContext>();
+        context->set_function_state(FunctionContext::THREAD_LOCAL, jni_ctx);
+
+        {
+            std::string local_location;
+            auto function_cache = UserFunctionCache::instance();
+            TJavaUdfExecutorCtorParams ctor_params;
+            ctor_params.__set_fn(fn_);
+            // get jar path if both file path location and checksum are null
+            if (!fn_.hdfs_location.empty() && !fn_.checksum.empty()) {
+                RETURN_IF_ERROR(function_cache->get_jarpath(fn_.id, fn_.hdfs_location, fn_.checksum,
+                                                            &local_location));
+                ctor_params.__set_location(local_location);
+            }
+
+            RETURN_IF_ERROR(Jni::Util::find_class(env, EXECUTOR_CLASS, &jni_ctx->executor_cl));
+
+            RETURN_IF_ERROR(jni_ctx->executor_cl.get_method(env, "<init>", EXECUTOR_CTOR_SIGNATURE,
+                                                            &jni_ctx->executor_ctor_id));
+            RETURN_IF_ERROR(jni_ctx->executor_cl.get_method(
+                    env, "evaluate", EXECUTOR_EVALUATE_SIGNATURE, &jni_ctx->executor_evaluate_id));
+            RETURN_IF_ERROR(jni_ctx->executor_cl.get_method(env, "close", EXECUTOR_CLOSE_SIGNATURE,
+                                                            &jni_ctx->executor_close_id));
+            Jni::LocalArray ctor_params_bytes;
+            RETURN_IF_ERROR(Jni::Util::SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
+            RETURN_IF_ERROR(jni_ctx->executor_cl.new_object(env, jni_ctx->executor_ctor_id)
+                                    .with_arg(ctor_params_bytes)
+                                    .call(&jni_ctx->executor));
+        }
+        jni_ctx->open_successes = true;
+    }
+    return Status::OK();
+}
+
+Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
+                                      const ColumnNumbers& arguments, uint32_t result,
+                                      size_t num_rows) const {
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
+    auto* jni_ctx = reinterpret_cast<JniContext*>(
+            context->get_function_state(FunctionContext::THREAD_LOCAL));
+    SCOPED_TIMER(context->get_udf_execute_timer());
+    std::unique_ptr<long[]> input_table;
+    RETURN_IF_ERROR(JniConnector::to_java_table(&block, num_rows, arguments, input_table));
+    auto input_table_schema = JniConnector::parse_table_schema(&block, arguments, true);
+    std::map<String, String> input_params = {
+            {"meta_address", std::to_string((long)input_table.get())},
+            {"required_fields", input_table_schema.first},
+            {"columns_types", input_table_schema.second}};
+    Jni::LocalObject input_map;
+
+    RETURN_IF_ERROR(Jni::Util::convert_to_java_map(env, input_params, &input_map));
+    auto output_table_schema = JniConnector::parse_table_schema(&block, {result}, true);
+    std::string output_nullable =
+            block.get_by_position(result).type->is_nullable() ? "true" : "false";
+    std::map<String, String> output_params = {{"is_nullable", output_nullable},
+                                              {"required_fields", output_table_schema.first},
+                                              {"columns_types", output_table_schema.second}};
+    Jni::LocalObject output_map;
+    RETURN_IF_ERROR(Jni::Util::convert_to_java_map(env, output_params, &output_map));
+    long output_address = 0;
+    RETURN_IF_ERROR(jni_ctx->executor.call_long_method(env, jni_ctx->executor_evaluate_id)
+                            .with_arg(input_map)
+                            .with_arg(output_map)
+                            .call(&output_address));
+
+    return JniConnector::fill_block(&block, {result}, output_address);
+}
+
+Status JavaFunctionCall::close(FunctionContext* context,
+                               FunctionContext::FunctionStateScope scope) {
+    auto close_func = [context]() {
+        auto* jni_ctx = reinterpret_cast<JniContext*>(
+                context->get_function_state(FunctionContext::THREAD_LOCAL));
+        // JNIContext own some resource and its release method depend on JavaFunctionCall
+        // has to release the resource before JavaFunctionCall is deconstructed.
+        if (jni_ctx) {
+            RETURN_IF_ERROR(jni_ctx->close());
+        }
+        return Status::OK();
+    };
+
+    if (bthread_self() == 0) {
+        return close_func();
+    } else {
+        DorisMetrics::instance()->udf_close_bthread_count->increment(1);
+        // Use the close_workers pthread pool to execute the close function
+        auto task = std::make_shared<std::packaged_task<Status()>>(std::move(close_func));
+        auto task_future = task->get_future();
+        RETURN_IF_ERROR(ExecEnv::GetInstance()->udf_close_workers_pool()->submit_func(
+                [task]() { (*task)(); }));
+        RETURN_IF_ERROR(task_future.get());
+        return Status::OK();
+    }
+}
+} // namespace doris

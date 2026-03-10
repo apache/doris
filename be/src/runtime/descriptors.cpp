@@ -32,18 +32,18 @@
 
 #include "common/exception.h"
 #include "common/object_pool.h"
+#include "core/column/column_nothing.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_struct.h"
+#include "core/types.h"
+#include "exec/common/util.hpp"
+#include "exprs/aggregate/aggregate_function.h"
+#include "exprs/function/function_helpers.h"
+#include "exprs/vexpr.h"
 #include "util/string_util.h"
-#include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/columns/column_nothing.h"
-#include "vec/core/types.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_map.h"
-#include "vec/data_types/data_type_struct.h"
-#include "vec/exprs/vexpr.h"
-#include "vec/functions/function_helpers.h"
-#include "vec/utils/util.hpp"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -51,8 +51,8 @@ const int RowDescriptor::INVALID_IDX = -1;
 
 SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
         : _id(tdesc.id),
-          _type(vectorized::DataTypeFactory::instance().create_data_type(
-                  tdesc.slotType, tdesc.nullIndicatorBit != -1)),
+          _type(DataTypeFactory::instance().create_data_type(tdesc.slotType,
+                                                             tdesc.nullIndicatorBit != -1)),
           _parent(tdesc.parent),
           _col_pos(tdesc.columnPos),
           _col_name(tdesc.colName),
@@ -90,8 +90,8 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
 
 SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
         : _id(pdesc.id()),
-          _type(vectorized::DataTypeFactory::instance().create_data_type(
-                  pdesc.slot_type(), pdesc.null_indicator_bit() != -1)),
+          _type(DataTypeFactory::instance().create_data_type(pdesc.slot_type(),
+                                                             pdesc.null_indicator_bit() != -1)),
           _parent(pdesc.parent()),
           _col_pos(pdesc.column_pos()),
           _col_name(pdesc.col_name()),
@@ -186,13 +186,13 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     }
 }
 
-vectorized::DataTypePtr SlotDescriptor::get_data_type_ptr() const {
-    return vectorized::get_data_type_with_default_argument(type());
+DataTypePtr SlotDescriptor::get_data_type_ptr() const {
+    return get_data_type_with_default_argument(type());
 }
 
-vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
+MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
     if (this->get_virtual_column_expr() != nullptr) {
-        return vectorized::ColumnNothing::create(0);
+        return ColumnNothing::create(0);
     }
 
     return type()->create_column();

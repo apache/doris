@@ -63,7 +63,7 @@ public class ListPartitionDesc extends PartitionDesc {
                 sb.append(", ");
             }
             idx++;
-            sb.append(e.toSql());
+            sb.append(e.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
         }
         sb.append(")\n(\n");
 

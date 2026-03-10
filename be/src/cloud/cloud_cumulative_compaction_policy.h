@@ -26,8 +26,8 @@
 
 #include "cloud/cloud_tablet.h"
 #include "common/config.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_meta.h"
+#include "storage/rowset/rowset.h"
+#include "storage/rowset/rowset_meta.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

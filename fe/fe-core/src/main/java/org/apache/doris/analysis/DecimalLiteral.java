@@ -19,8 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -239,7 +237,7 @@ public class DecimalLiteral extends NumericLiteralExpr {
                 return this.compareLiteral(decimalLiteral);
             } catch (AnalysisException e) {
                 throw new ClassCastException("Those two values cannot be compared: " + value
-                        + " and " + expr.toSqlImpl());
+                        + " and " + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
         }
     }
@@ -250,14 +248,8 @@ public class DecimalLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String toSqlImpl() {
-        return getStringValue();
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return getStringValue();
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitDecimalLiteral(this, context);
     }
 
     @Override

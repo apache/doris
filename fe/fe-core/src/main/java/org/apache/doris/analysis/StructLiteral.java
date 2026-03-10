@@ -18,8 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.StructType;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
@@ -61,18 +59,8 @@ public class StructLiteral extends LiteralExpr {
     }
 
     @Override
-    protected String toSqlImpl() {
-        List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.toSqlImpl()));
-        return "STRUCT(" + StringUtils.join(list, ", ") + ")";
-    }
-
-    @Override
-    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.toSqlImpl(disableTableName, needExternalSql, tableType, table)));
-        return "STRUCT(" + StringUtils.join(list, ", ") + ")";
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitStructLiteral(this, context);
     }
 
     private String getStringValue(Expr expr) {
