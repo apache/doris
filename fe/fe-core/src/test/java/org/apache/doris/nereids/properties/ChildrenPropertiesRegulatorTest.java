@@ -24,11 +24,14 @@ import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -177,6 +180,88 @@ public class ChildrenPropertiesRegulatorTest {
                     new ArrayList<>(originOutputChildrenProperties), null, mockedJobContext);
             PhysicalProperties result = regulator.adjustChildrenProperties().get(0).get(0);
             Assertions.assertInstanceOf(DistributionSpecExecutionAny.class, result.getDistributionSpec());
+        }
+    }
+
+    @Test
+    public void testPhysicalSetOperationRequiredDistributionSpecAnyWithStorageAny() {
+        testPhysicalSetOperationRequiredDistributionSpecAny(
+                PhysicalProperties.STORAGE_ANY, DistributionSpecExecutionAny.class);
+    }
+
+    @Test
+    public void testPhysicalSetOperationRequiredDistributionSpecAnyWithStorageGather() {
+        testPhysicalSetOperationRequiredDistributionSpecAny(
+                PhysicalProperties.STORAGE_GATHER, DistributionSpecExecutionAny.class);
+    }
+
+    @Test
+    public void testPhysicalSetOperationRequiredDistributionSpecAnyWithGather() {
+        testPhysicalSetOperationRequiredDistributionSpecAny(
+                PhysicalProperties.GATHER, DistributionSpecExecutionAny.class);
+    }
+
+    @Test
+    public void testPhysicalSetOperationRequiredDistributionSpecAnyWithNaturalHash() {
+        ExprId exprId = new ExprId(0);
+        DistributionSpecHash distributionSpecHash = new DistributionSpecHash(
+                Lists.newArrayList(exprId), DistributionSpecHash.ShuffleType.NATURAL);
+        PhysicalProperties naturalHashProperties = PhysicalProperties.createHash(distributionSpecHash);
+        testPhysicalSetOperationRequiredDistributionSpecAny(
+                naturalHashProperties, DistributionSpecExecutionAny.class);
+    }
+
+    @Test
+    public void testPhysicalSetOperationRequiredDistributionSpecAnyWithExecutionAny() {
+        testPhysicalSetOperationRequiredDistributionSpecAny(
+                PhysicalProperties.EXECUTION_ANY, DistributionSpecExecutionAny.class);
+    }
+
+    private void testPhysicalSetOperationRequiredDistributionSpecAny(
+            PhysicalProperties originChildProperty,
+            Class<? extends DistributionSpec> expectedDistributionClazz) {
+        try (MockedStatic<CostCalculator> mockedCostCalculator = Mockito.mockStatic(CostCalculator.class)) {
+            mockedCostCalculator.when(() -> CostCalculator.calculateCost(Mockito.any(), Mockito.any(),
+                    Mockito.anyList())).thenReturn(Cost.zero());
+            mockedCostCalculator.when(() -> CostCalculator.addChildCost(Mockito.any(), Mockito.any(), Mockito.any(),
+                    Mockito.any(), Mockito.anyInt())).thenReturn(Cost.zero());
+
+            Group mockedGroup = Mockito.mock(Group.class);
+            GroupPlan mockedGroupPlan = Mockito.mock(GroupPlan.class);
+            Mockito.when(mockedGroupPlan.getGroup()).thenReturn(mockedGroup);
+            Mockito.when(mockedGroupPlan.getAllChildrenTypes()).thenReturn(new BitSet());
+
+            List<GroupExpression> children;
+            Group childGroup = Mockito.mock(Group.class);
+            Mockito.when(childGroup.getLogicalProperties()).thenReturn(Mockito.mock(LogicalProperties.class));
+            GroupPlan childGroupPlan = new GroupPlan(childGroup);
+            Mockito.when(childGroup.getGroupPlan()).thenReturn(childGroupPlan);
+            GroupExpression child = Mockito.mock(GroupExpression.class);
+            Mockito.when(child.getOutputProperties(Mockito.any())).thenReturn(originChildProperty);
+            Mockito.when(child.getOwnerGroup()).thenReturn(childGroup);
+            Map<PhysicalProperties, Pair<Cost, List<PhysicalProperties>>> lct = Maps.newHashMap();
+            lct.put(originChildProperty, Pair.of(Cost.zero(), Lists.newArrayList()));
+            Mockito.when(child.getLowestCostTable()).thenReturn(lct);
+            Mockito.when(child.getPlan()).thenReturn(mockedGroupPlan);
+            children = Lists.newArrayList(child);
+
+            PhysicalUnion parentPlan = new PhysicalUnion(
+                    Qualifier.ALL,
+                    Lists.newArrayList(),
+                    Lists.newArrayList(),
+                    Lists.newArrayList(),
+                    Mockito.mock(LogicalProperties.class),
+                    Lists.newArrayList(mockedGroupPlan));
+            GroupExpression parent = new GroupExpression(parentPlan);
+            parentPlan = parentPlan.withGroupExpression(Optional.of(parent));
+            parent = Mockito.spy(parent);
+            Mockito.doReturn(parentPlan).when(parent).getPlan();
+
+            List<PhysicalProperties> requiredProperties = Lists.newArrayList(PhysicalProperties.ANY);
+            ChildrenPropertiesRegulator regulator = new ChildrenPropertiesRegulator(parent, children,
+                    Lists.newArrayList(originChildProperty), requiredProperties, mockedJobContext);
+            PhysicalProperties result = regulator.adjustChildrenProperties().get(0).get(0);
+            Assertions.assertInstanceOf(expectedDistributionClazz, result.getDistributionSpec());
         }
     }
 }
