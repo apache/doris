@@ -49,21 +49,23 @@ public class LogicalUsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE ext
     private final JoinType joinType;
     private final ImmutableList<Expression> usingSlots;
     private final DistributeHint hint;
+    private final Optional<Expression> matchCondition;
 
     public LogicalUsingJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
-            List<Expression> usingSlots, DistributeHint hint) {
-        this(joinType, leftChild, rightChild, usingSlots, Optional.empty(), Optional.empty(), hint);
+            List<Expression> usingSlots, Optional<Expression> matchCondition, DistributeHint hint) {
+        this(joinType, leftChild, rightChild, usingSlots, matchCondition, Optional.empty(), Optional.empty(), hint);
     }
 
     /**
      * Constructor.
      */
     public LogicalUsingJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
-            List<Expression> usingSlots, Optional<GroupExpression> groupExpression,
+            List<Expression> usingSlots, Optional<Expression> matchCondition, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, DistributeHint hint) {
         super(PlanType.LOGICAL_USING_JOIN, groupExpression, logicalProperties, leftChild, rightChild);
         this.joinType = joinType;
         this.usingSlots = ImmutableList.copyOf(usingSlots);
+        this.matchCondition = matchCondition;
         this.hint = hint;
     }
 
@@ -75,20 +77,20 @@ public class LogicalUsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE ext
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalUsingJoin<>(joinType, child(0), child(1),
-                usingSlots, groupExpression, Optional.of(getLogicalProperties()), hint);
+                usingSlots, matchCondition, groupExpression, Optional.of(getLogicalProperties()), hint);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalUsingJoin<>(joinType, children.get(0), children.get(1),
-                usingSlots, groupExpression, logicalProperties, hint);
+                usingSlots, matchCondition, groupExpression, logicalProperties, hint);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         return new LogicalUsingJoin<>(joinType, children.get(0), children.get(1),
-                usingSlots, groupExpression, Optional.of(getLogicalProperties()), hint);
+                usingSlots, matchCondition, groupExpression, Optional.of(getLogicalProperties()), hint);
     }
 
     @Override
@@ -117,6 +119,10 @@ public class LogicalUsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE ext
         return ExpressionUtils.EMPTY_CONDITION;
     }
 
+    public Optional<Expression> getMatchCondition() {
+        return matchCondition;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -128,12 +134,13 @@ public class LogicalUsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE ext
         LogicalUsingJoin<?, ?> usingJoin = (LogicalUsingJoin<?, ?>) o;
         return joinType == usingJoin.joinType
                 && Objects.equals(usingSlots, usingJoin.usingSlots)
+                && Objects.equals(matchCondition, usingJoin.matchCondition)
                 && Objects.equals(hint, usingJoin.hint);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(joinType, usingSlots, hint);
+        return Objects.hash(joinType, usingSlots, matchCondition, hint);
     }
 
     @Override
@@ -141,6 +148,7 @@ public class LogicalUsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE ext
         List<Object> args = Lists.newArrayList(
                 "type", joinType,
                 "usingSlots", usingSlots,
+                "matchCondition", matchCondition,
                 "stats", statistics);
         if (hint.distributeType != DistributeType.NONE) {
             args.add("hint");
@@ -155,6 +163,11 @@ public class LogicalUsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE ext
         sb.append(left().toDigest());
         sb.append(" ").append(joinType).append(" ");
         sb.append(right().toDigest());
+        if (matchCondition.isPresent()) {
+            sb.append("MATCH_CONDITION (");
+            sb.append(matchCondition.get().toDigest());
+            sb.append(")");
+        }
         sb.append(" USING (");
         sb.append(
                 usingSlots.stream().map(Expression::toDigest)
