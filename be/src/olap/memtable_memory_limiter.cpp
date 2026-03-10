@@ -286,8 +286,10 @@ void MemTableMemoryLimiter::refresh_mem_tracker() {
             << doris::ProcessProfile::instance()
                        ->memory_profile()
                        ->print_top_memory_tasks_profile();
-    constexpr int64_t dbg_mem_limit = 33 * 1024 * 1024 * 1024LL;
-    if (_mem_tracker->consumption() > dbg_mem_limit) {
+    constexpr int64_t dbg_mem_limit = 40 * 1024 * 1024 * 1024LL;
+    auto rss = PerfCounters::get_vm_rss(); // from /proc VmRSS VmHWM
+    // if (_mem_tracker->consumption() > dbg_mem_limit) {
+    if (rss >= dbg_mem_limit) {
         static bool dumped = false;
         if (dumped) {
             return;
