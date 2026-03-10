@@ -1418,6 +1418,7 @@ DEFINE_mBool(enable_be_proc_monitor, "false");
 DEFINE_mInt32(be_proc_monitor_interval_ms, "10000");
 
 DEFINE_Int32(workload_group_metrics_interval_ms, "5000");
+DEFINE_Int32(workload_policy_check_interval_ms, "500");
 
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
