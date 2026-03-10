@@ -261,7 +261,8 @@ public class JdbcJniScanner extends JniScanner {
             readTime += System.nanoTime() - startRead;
             readRows += curRows;
             return curRows;
-        } catch (SQLException e) {
+        } catch (Exception e) {
+            LOG.warn("JdbcJniScanner getNext failed: " + e.getMessage(), e);
             throw new IOException("JdbcJniScanner getNext failed: " + e.getMessage(), e);
         }
     }
@@ -273,7 +274,7 @@ public class JdbcJniScanner extends JniScanner {
             if (conn != null && resultSet != null) {
                 typeHandler.abortReadConnection(conn, resultSet);
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             LOG.warn("JdbcJniScanner abort connection error: " + e.getMessage(), e);
         }
         try {
@@ -286,7 +287,7 @@ public class JdbcJniScanner extends JniScanner {
             if (conn != null && !conn.isClosed()) {
                 conn.close();
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             LOG.warn("JdbcJniScanner close error: " + e.getMessage(), e);
         } finally {
             resultSet = null;

@@ -123,6 +123,7 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
                 }, LocalDateTime.class);
             case CHAR:
                 return createConverter(input -> trimSpaces(input.toString()), String.class);
+            case VARCHAR:
             case STRING:
                 return createConverter(input -> {
                     if (input instanceof java.sql.Time) {
@@ -171,11 +172,64 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
 
     /**
      * Recursively convert array elements for nested ARRAY types.
+     * Handles DATE/DATETIME/TIMESTAMPTZ element conversion, matching
+     * the old PostgreSQLJdbcExecutor.convertArray() behavior.
      */
-    private Object convertArray(List<?> input, ColumnType childType) {
+    private List<?> convertArray(List<?> input, ColumnType childType) {
         if (input == null) {
             return null;
         }
-        return input;
+        switch (childType.getType()) {
+            case DATE:
+            case DATEV2: {
+                List<LocalDate> result = new ArrayList<>(input.size());
+                for (Object element : input) {
+                    if (element == null) {
+                        result.add(null);
+                    } else if (element instanceof java.sql.Date) {
+                        result.add(((java.sql.Date) element).toLocalDate());
+                    } else if (element instanceof LocalDate) {
+                        result.add((LocalDate) element);
+                    } else {
+                        result.add(LocalDate.parse(element.toString()));
+                    }
+                }
+                return result;
+            }
+            case DATETIME:
+            case DATETIMEV2: {
+                List<LocalDateTime> result = new ArrayList<>(input.size());
+                for (Object element : input) {
+                    if (element == null) {
+                        result.add(null);
+                    } else if (element instanceof Timestamp) {
+                        result.add(((Timestamp) element).toLocalDateTime());
+                    } else if (element instanceof OffsetDateTime) {
+                        result.add(((OffsetDateTime) element).toLocalDateTime());
+                    } else if (element instanceof java.sql.Date) {
+                        result.add(((java.sql.Date) element).toLocalDate().atStartOfDay());
+                    } else if (element instanceof LocalDateTime) {
+                        result.add((LocalDateTime) element);
+                    } else {
+                        result.add(LocalDateTime.parse(element.toString()));
+                    }
+                }
+                return result;
+            }
+            case ARRAY: {
+                List<List<?>> result = new ArrayList<>(input.size());
+                for (Object element : input) {
+                    if (element == null) {
+                        result.add(null);
+                    } else {
+                        List<?> nestedList = convertArrayToList(element);
+                        result.add(convertArray(nestedList, childType.getChildTypes().get(0)));
+                    }
+                }
+                return result;
+            }
+            default:
+                return input;
+        }
     }
 }
