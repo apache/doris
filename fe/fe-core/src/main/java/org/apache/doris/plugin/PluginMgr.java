@@ -180,6 +180,8 @@ public class PluginMgr implements Writable {
         }
     }
 
+
+
     /**
      * Dynamic uninstall plugin.
      * If uninstall failed, the plugin should NOT be removed from plugin manager.

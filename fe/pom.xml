@@ -216,11 +216,11 @@ under the License.
     </build>
     <modules>
         <module>fe-common</module>
+        <module>fe-extension-spi</module>
+        <module>fe-extension-loader</module>
         <module>fe-core</module>
         <module>hive-udf</module>
         <module>be-java-extensions</module>
-        <module>fe-extension-loader</module>
-        <module>fe-extension-spi</module>
         <module>fe-authentication</module>
     </modules>
     <properties>
