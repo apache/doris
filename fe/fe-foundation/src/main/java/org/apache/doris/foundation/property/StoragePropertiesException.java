@@ -22,7 +22,7 @@
  * an error message, and another that also accepts a cause exception.
  */
 
-package org.apache.doris.datasource.property.storage.exception;
+package org.apache.doris.foundation.property;
 
 public class StoragePropertiesException extends RuntimeException {
 

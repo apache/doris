@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common;
+package org.apache.doris.foundation.type;
 
 public class ResultOr<T, E> {
     private final T value;

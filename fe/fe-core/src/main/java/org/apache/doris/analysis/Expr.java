@@ -30,9 +30,9 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.normalize.Normalizer;
@@ -1257,4 +1257,3 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable, ExprStat
         return slots;
     }
 }
-
