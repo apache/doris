@@ -45,10 +45,6 @@ under the License.
     </profiles>
     <dependencies>
         <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>fe-foundation</artifactId>
-        </dependency>
-        <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
         </dependency>
