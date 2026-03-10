@@ -511,7 +511,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         LOG.info("transfer rollup job {} state to {}", jobId, this.jobState);
     }
 
-    private boolean allBaseReplicasCaughtUp(OlapTable tbl) {
+    private boolean allBaseReplicasCaughtUp(OlapTable tbl) throws AlterCancelException {
         for (Map.Entry<Long, MaterializedIndex> entry : partitionIdToRollupIndex.entrySet()) {
             long partitionId = entry.getKey();
             Partition partition = tbl.getPartition(partitionId);
@@ -533,7 +533,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     Preconditions.checkNotNull(baseReplica,
                             "base replica does not exist on backend " + backendId + " for base tablet "
                                     + baseTabletId);
-                    if (!isReplicaVersionComplete(baseReplica, visibleVersion)) {
+                    if (!canWaitBaseReplicaCatchUp(tbl, partition, baseTablet, baseReplica, visibleVersion)) {
                         LOG.info("wait base replica {} on backend {} to catch up visible version {} before sending "
                                         + "rollup tasks, job: {}, partition: {}, rollup tablet: {}, base tablet: {}",
                                 baseReplica.getId(), backendId, visibleVersion, jobId, partitionId,

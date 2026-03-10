@@ -603,7 +603,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         LOG.info("transfer schema change job {} state to {}", jobId, this.jobState);
     }
 
-    private boolean allBaseReplicasCaughtUp(OlapTable tbl) {
+    private boolean allBaseReplicasCaughtUp(OlapTable tbl) throws AlterCancelException {
         for (long partitionId : partitionIndexMap.rowKeySet()) {
             Partition partition = tbl.getPartition(partitionId);
             Preconditions.checkNotNull(partition, partitionId);
@@ -629,7 +629,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                         Preconditions.checkNotNull(originReplica,
                                 "origin replica does not exist on backend " + backendId
                                         + " for origin tablet " + originTabletId);
-                        if (!isReplicaVersionComplete(originReplica, visibleVersion)) {
+                        if (!canWaitBaseReplicaCatchUp(tbl, partition, originTablet, originReplica, visibleVersion)) {
                             LOG.info("wait origin replica {} on backend {} to catch up visible version {} before "
                                             + "sending schema change tasks, job: {}, partition: {}, shadow tablet: {}, "
                                             + "origin tablet: {}",

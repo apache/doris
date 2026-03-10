@@ -22,8 +22,10 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
@@ -306,6 +308,24 @@ public abstract class AlterJobV2 implements Writable {
 
     protected boolean isReplicaVersionComplete(Replica replica, long visibleVersion) {
         return replica.getLastFailedVersion() < 0 && replica.checkVersionCatchUp(visibleVersion, false);
+    }
+
+    protected boolean canWaitBaseReplicaCatchUp(OlapTable tbl, Partition partition, Tablet baseTablet,
+            Replica baseReplica, long visibleVersion) throws AlterCancelException {
+        if (isReplicaVersionComplete(baseReplica, visibleVersion)) {
+            return true;
+        }
+
+        Tablet.TabletHealth tabletHealth = baseTablet.getHealth(Env.getCurrentSystemInfo(), visibleVersion,
+                tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
+                Env.getCurrentSystemInfo().getAllBackendIds(true));
+        if (tabletHealth.status == Tablet.TabletStatus.UNRECOVERABLE) {
+            throw new AlterCancelException(String.format(
+                    "base tablet %d is unrecoverable while waiting replica %d on backend %d to catch up version %d",
+                    baseTablet.getId(), baseReplica.getId(), baseReplica.getBackendIdWithoutException(),
+                    visibleVersion));
+        }
+        return false;
     }
 
     /**
