@@ -193,7 +193,7 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state, Bloc
                                         count_col.resize(num_rows + 1);
                                         *reinterpret_cast<UInt64*>(count_col.get_data().data() +
                                                                    num_rows * sizeof(UInt64)) =
-                                                reinterpret_cast<const UInt64&>(mapped);
+                                                std::bit_cast<UInt64>(mapped);
                                         *eos = true;
                                     }
                                 } else {
@@ -365,8 +365,8 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, Block
                                         auto mapped =
                                                 agg_method.hash_table->template get_null_key_data<
                                                         AggregateDataPtr>();
-                                        count_column.insert_value(static_cast<Int64>(
-                                                reinterpret_cast<const UInt64&>(mapped)));
+                                        count_column.insert_value(
+                                                static_cast<Int64>(std::bit_cast<UInt64>(mapped)));
                                         *eos = true;
                                     }
                                 } else {
