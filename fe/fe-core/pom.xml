@@ -791,7 +791,6 @@ under the License.
         <dependency>
             <groupId>it.unimi.dsi</groupId>
             <artifactId>fastutil-core</artifactId>
-            <version>8.5.18</version>
         </dependency>
     </dependencies>
     <repositories>
