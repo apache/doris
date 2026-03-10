@@ -197,13 +197,17 @@ public class AccessControllerManager {
         return checkCtlPriv(ctx.getCurrentUserIdentity(), ctl, wanted);
     }
 
+    private boolean canSkipCatalogPrivCheck(PrivPredicate wanted) {
+        return wanted == PrivPredicate.SHOW || wanted == PrivPredicate.SELECT;
+    }
+
+    private boolean shouldSkipCatalogPrivCheck(PrivPredicate wanted) {
+        return Config.skip_catalog_priv_check && canSkipCatalogPrivCheck(wanted);
+    }
+
     public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
         boolean hasGlobal = checkGlobalPriv(currentUser, wanted);
-        if (!Config.skip_catalog_priv_check) {
-            // for checking catalog priv, always use InternalAccessController.
-            // because catalog priv is only saved in InternalAccessController.
-            return defaultAccessController.checkCtlPriv(hasGlobal, currentUser, ctl, wanted);
-        } else {
+        if (shouldSkipCatalogPrivCheck(wanted)) {
             CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctl);
             if (catalog == null) {
                 return false;
@@ -218,10 +222,12 @@ public class AccessControllerManager {
             if (Strings.isNullOrEmpty(className)) {
                 // not set access controller, use internal access controller
                 return defaultAccessController.checkCtlPriv(hasGlobal, currentUser, ctl, wanted);
-            } else {
-                return true;
             }
+            return true;
         }
+        // for checking catalog priv, always use InternalAccessController.
+        // because catalog priv is only saved in InternalAccessController.
+        return defaultAccessController.checkCtlPriv(hasGlobal, currentUser, ctl, wanted);
     }
 
     // ==== Database ====
