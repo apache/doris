@@ -30,6 +30,9 @@ import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.StandardCharsets;
 import java.sql.Clob;
+import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -44,13 +47,87 @@ import java.time.LocalDateTime;
  * - CHAR trimming
  * - LARGEINT: BigDecimal → BigInteger
  * - STRING: Clob and byte[] handling
+ * - Supports both old (ojdbc6, < 12.2.0 JDBC 4.0) and new (>= 12.2.0 JDBC 4.1) drivers.
+ *   Old drivers don't support rs.getObject(int, Class), so we fall back to typed getters.
  */
 public class OracleTypeHandler extends DefaultTypeHandler {
     private static final Logger LOG = Logger.getLogger(OracleTypeHandler.class);
 
+    // Whether the JDBC driver supports JDBC 4.1 getObject(int, Class) method.
+    // Determined at runtime from the driver version. Oracle ojdbc6 (< 12.2.0) does not.
+    private boolean jdbc41Supported = true;
+
+    // Flag to track if we've detected the driver version yet
+    private volatile boolean versionDetected = false;
+
+    /**
+     * Detect Oracle JDBC driver version from the connection metadata.
+     * ojdbc6 (version < 12.2.0) does not support JDBC 4.1 getObject(int, Class).
+     */
+    private void detectDriverVersion(Connection conn) {
+        if (versionDetected) {
+            return;
+        }
+        try {
+            DatabaseMetaData meta = conn.getMetaData();
+            String driverVersion = meta.getDriverVersion();
+            if (driverVersion != null) {
+                jdbc41Supported = isVersionGreaterThanOrEqual(driverVersion, "12.2.0");
+                LOG.info("Oracle JDBC driver version: " + driverVersion
+                        + ", JDBC 4.1 supported: " + jdbc41Supported);
+            }
+        } catch (SQLException e) {
+            LOG.warn("Failed to detect Oracle driver version, assuming JDBC 4.1: " + e.getMessage());
+        }
+        versionDetected = true;
+    }
+
+    private static boolean isVersionGreaterThanOrEqual(String version, String target) {
+        try {
+            String[] vParts = version.split("[^0-9]+");
+            String[] tParts = target.split("[^0-9]+");
+            for (int i = 0; i < Math.max(vParts.length, tParts.length); i++) {
+                int v = i < vParts.length && !vParts[i].isEmpty() ? Integer.parseInt(vParts[i]) : 0;
+                int t = i < tParts.length && !tParts[i].isEmpty() ? Integer.parseInt(tParts[i]) : 0;
+                if (v > t) {
+                    return true;
+                }
+                if (v < t) {
+                    return false;
+                }
+            }
+            return true; // equal
+        } catch (NumberFormatException e) {
+            return true; // assume new version if parsing fails
+        }
+    }
+
+    @Override
+    public PreparedStatement initializeStatement(Connection conn, String sql,
+                                                 int fetchSize) throws SQLException {
+        // Detect driver version when creating the statement (first time we have access to connection)
+        detectDriverVersion(conn);
+        PreparedStatement stmt = conn.prepareStatement(sql,
+                ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+        stmt.setFetchSize(fetchSize);
+        return stmt;
+    }
+
     @Override
     public Object getColumnValue(ResultSet rs, int columnIndex, ColumnType type,
                                  ResultSetMetaData metadata) throws SQLException {
+        if (jdbc41Supported) {
+            return newGetColumnValue(rs, columnIndex, type);
+        } else {
+            return oldGetColumnValue(rs, columnIndex, type);
+        }
+    }
+
+    /**
+     * JDBC 4.1+ path: uses rs.getObject(int, Class) for typed retrieval.
+     */
+    private Object newGetColumnValue(ResultSet rs, int columnIndex, ColumnType type)
+            throws SQLException {
         switch (type.getType()) {
             case BOOLEAN:
                 return rs.getObject(columnIndex, Boolean.class);
@@ -94,6 +171,74 @@ public class OracleTypeHandler extends DefaultTypeHandler {
         }
     }
 
+    /**
+     * JDBC 4.0 fallback path for old Oracle drivers (ojdbc6, < 12.2.0).
+     * Uses typed getter methods (getByte, getShort, etc.) instead of getObject(int, Class).
+     */
+    private Object oldGetColumnValue(ResultSet rs, int columnIndex, ColumnType type)
+            throws SQLException {
+        switch (type.getType()) {
+            case TINYINT: {
+                byte val = rs.getByte(columnIndex);
+                return rs.wasNull() ? null : val;
+            }
+            case SMALLINT: {
+                short val = rs.getShort(columnIndex);
+                return rs.wasNull() ? null : val;
+            }
+            case INT: {
+                int val = rs.getInt(columnIndex);
+                return rs.wasNull() ? null : val;
+            }
+            case BIGINT: {
+                long val = rs.getLong(columnIndex);
+                return rs.wasNull() ? null : val;
+            }
+            case FLOAT: {
+                float val = rs.getFloat(columnIndex);
+                return rs.wasNull() ? null : val;
+            }
+            case DOUBLE: {
+                double val = rs.getDouble(columnIndex);
+                return rs.wasNull() ? null : val;
+            }
+            case LARGEINT:
+            case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128: {
+                BigDecimal val = rs.getBigDecimal(columnIndex);
+                return rs.wasNull() ? null : val;
+            }
+            case DATE:
+            case DATEV2: {
+                java.sql.Date val = rs.getDate(columnIndex);
+                return val == null ? null : val.toLocalDate();
+            }
+            case DATETIME:
+            case DATETIMEV2: {
+                Timestamp val = rs.getTimestamp(columnIndex);
+                return val == null ? null : val.toLocalDateTime();
+            }
+            case CHAR:
+            case VARCHAR:
+            case STRING: {
+                Object val = rs.getObject(columnIndex);
+                return rs.wasNull() ? null : val;
+            }
+            case VARBINARY: {
+                byte[] val = rs.getBytes(columnIndex);
+                return rs.wasNull() ? null : val;
+            }
+            case TIMESTAMPTZ: {
+                Timestamp val = rs.getTimestamp(columnIndex);
+                return val == null ? null : LocalDateTime.ofInstant(val.toInstant(), java.time.ZoneOffset.UTC);
+            }
+            default:
+                throw new IllegalArgumentException("Unsupported column type: " + type.getType());
+        }
+    }
+
     @Override
     public ColumnValueConverter getOutputConverter(ColumnType columnType, String replaceString) {
         switch (columnType.getType()) {
@@ -130,10 +275,8 @@ public class OracleTypeHandler extends DefaultTypeHandler {
         CharsetDecoder utf8Decoder = StandardCharsets.UTF_8.newDecoder();
         try {
             utf8Decoder.decode(ByteBuffer.wrap(bytes));
-            // Valid UTF-8, return as string
             return new String(bytes, StandardCharsets.UTF_8);
         } catch (CharacterCodingException e) {
-            // Not valid UTF-8, return as hex string
             return defaultByteArrayToHexString(bytes);
         }
     }
