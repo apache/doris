@@ -84,6 +84,7 @@ HIVE_SITE_CONF_fs_oss_impl=org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem
 HIVE_SITE_CONF_fs_oss_accessKeyId=${OSSAk}
 HIVE_SITE_CONF_fs_oss_accessKeySecret=${OSSSk}
 HIVE_SITE_CONF_fs_oss_endpoint=${OSSEndpoint}
+OSSBucket=${OSSBucket}
 HIVE_SITE_CONF_fs_AbstractFileSystem_gs_impl=com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS
 HIVE_SITE_CONF_fs_gs_project_id=${GCSProjectId}
 HIVE_SITE_CONF_google_cloud_auth_service_account_enable=true
