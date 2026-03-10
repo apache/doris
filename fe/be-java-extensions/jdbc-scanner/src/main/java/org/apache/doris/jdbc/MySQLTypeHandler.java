@@ -145,10 +145,13 @@ public class MySQLTypeHandler extends DefaultTypeHandler {
                 }, Short.class);
             case LARGEINT:
                 return createConverter(input -> {
-                    if (input instanceof String) {
+                    if (input instanceof BigInteger) {
+                        return input;
+                    } else if (input instanceof String) {
                         return new BigInteger((String) input);
                     } else if (input instanceof Number) {
-                        return BigInteger.valueOf(((Number) input).longValue());
+                        // Use toString() to avoid signed long overflow for BIGINT UNSIGNED
+                        return new BigDecimal(input.toString()).toBigInteger();
                     }
                     return input;
                 }, BigInteger.class);
