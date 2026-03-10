@@ -25,7 +25,6 @@
 #include "exprs/function/function.h"
 
 namespace doris {
-namespace vectorized {
 #include "common/compile_check_begin.h"
 /** Higher-order functions for arrays.
   * These functions optionally apply a map (transform) to array (or multiple arrays of identical size) by lambda function,
@@ -73,5 +72,4 @@ public:
 };
 
 #include "common/compile_check_end.h"
-} // namespace vectorized
 } // namespace doris

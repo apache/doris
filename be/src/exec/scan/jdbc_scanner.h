@@ -35,7 +35,6 @@ namespace doris {
 class RuntimeState;
 class TupleDescriptor;
 
-namespace vectorized {
 class Block;
 class VExprContext;
 
@@ -45,7 +44,7 @@ class JdbcScanner : public Scanner {
 public:
     friend class JdbcConnector;
 
-    JdbcScanner(RuntimeState* state, doris::pipeline::JDBCScanLocalState* parent, int64_t limit,
+    JdbcScanner(RuntimeState* state, doris::JDBCScanLocalState* parent, int64_t limit,
                 const TupleId& tuple_id, const std::string& query_string,
                 TOdbcTableType::type table_type, bool is_tvf, RuntimeProfile* profile);
     Status _open_impl(RuntimeState* state) override;
@@ -88,5 +87,4 @@ private:
     std::unique_ptr<JdbcConnector> _jdbc_connector;
     JdbcConnectorParam _jdbc_param;
 };
-} // namespace vectorized
 } // namespace doris

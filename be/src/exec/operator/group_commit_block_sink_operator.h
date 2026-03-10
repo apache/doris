@@ -22,12 +22,12 @@
 #include "storage/tablet_info.h"
 #include "util/bitmap.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class OlapTableBlockConvertor;
-} // namespace doris::vectorized
+} // namespace doris
 
-namespace doris::pipeline {
+namespace doris {
 
 class GroupCommitBlockSinkOperatorX;
 class GroupCommitBlockSinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
@@ -55,19 +55,19 @@ public:
 
 private:
     friend class GroupCommitBlockSinkOperatorX;
-    Status _add_block(RuntimeState* state, std::shared_ptr<vectorized::Block> block);
+    Status _add_block(RuntimeState* state, std::shared_ptr<Block> block);
     Status _add_blocks(RuntimeState* state, bool is_blocks_contain_all_load_data);
     size_t _calculate_estimated_wal_bytes(bool is_blocks_contain_all_load_data);
     void _remove_estimated_wal_bytes();
     Status _initialize_load_queue();
 
-    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+    VExprContextSPtrs _output_vexpr_ctxs;
 
-    std::unique_ptr<vectorized::OlapTableBlockConvertor> _block_convertor;
+    std::unique_ptr<OlapTableBlockConvertor> _block_convertor;
 
     std::shared_ptr<LoadBlockQueue> _load_block_queue = nullptr;
     // used to calculate if meet the max filter ratio
-    std::vector<std::shared_ptr<vectorized::Block>> _blocks;
+    std::vector<std::shared_ptr<Block>> _blocks;
     bool _is_block_appended = false;
     // used for find_partition
     std::unique_ptr<VOlapTablePartitionParam> _vpartition = nullptr;
@@ -103,14 +103,14 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* block, bool eos) override;
+    Status sink(RuntimeState* state, Block* block, bool eos) override;
 
 private:
     friend class GroupCommitBlockSinkLocalState;
 
     const RowDescriptor& _row_desc;
     const std::vector<TExpr>& _t_output_expr;
-    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+    VExprContextSPtrs _output_vexpr_ctxs;
 
     int _tuple_desc_id = -1;
     std::shared_ptr<OlapTableSchemaParam> _schema;
@@ -128,4 +128,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

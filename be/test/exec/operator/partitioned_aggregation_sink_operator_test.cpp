@@ -35,7 +35,7 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 class PartitionedAggregationSinkOperatorTest : public testing::Test {
 protected:
     void SetUp() override { _helper.SetUp(); }
@@ -112,11 +112,10 @@ TEST_F(PartitionedAggregationSinkOperatorTest, Sink) {
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
-            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4});
+    auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 2, 3, 4, 3, 4, 4});
 
-    block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt32>(
-            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4}));
+    block.insert(
+            ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3, 4, 2, 3, 4, 3, 4, 4}));
 
     ASSERT_GT(sink_operator->get_reserve_mem_size(_helper.runtime_state.get(), false), 0);
     st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
@@ -163,11 +162,10 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithEmptyEOS) {
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
-            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4});
+    auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 2, 3, 4, 3, 4, 4});
 
-    block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt32>(
-            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4}));
+    block.insert(
+            ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3, 4, 2, 3, 4, 3, 4, 4}));
 
     ASSERT_GT(sink_operator->get_reserve_mem_size(_helper.runtime_state.get(), false), 0);
     st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
@@ -216,11 +214,10 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpill) {
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
-            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4});
+    auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 2, 3, 4, 3, 4, 4});
 
-    block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt32>(
-            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4}));
+    block.insert(
+            ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3, 4, 2, 3, 4, 3, 4, 4}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
@@ -278,11 +275,10 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpillAndEmptyEOS) {
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
-            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4});
+    auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 2, 3, 4, 3, 4, 4});
 
-    block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt32>(
-            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4}));
+    block.insert(
+            ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3, 4, 2, 3, 4, 3, 4, 4}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
@@ -340,11 +336,10 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpillLargeData) {
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
-            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4});
+    auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 2, 3, 4, 3, 4, 4});
 
-    block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt32>(
-            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4}));
+    block.insert(
+            ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3, 4, 2, 3, 4, 3, 4, 4}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
@@ -367,10 +362,9 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpillLargeData) {
     const size_t count = 1048576;
     std::vector<int32_t> data(count);
     std::iota(data.begin(), data.end(), 0);
-    block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(data);
+    block = ColumnHelper::create_block<DataTypeInt32>(data);
 
-    block.insert(
-            vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt32>(data));
+    block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>(data));
     st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
@@ -414,11 +408,10 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpilError) {
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
-            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4});
+    auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 2, 3, 4, 3, 4, 4});
 
-    block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt32>(
-            {1, 2, 3, 4, 2, 3, 4, 3, 4, 4}));
+    block.insert(
+            ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3, 4, 2, 3, 4, 3, 4, 4}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
@@ -434,4 +427,4 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpilError) {
     ASSERT_FALSE(st.ok()) << "spilll status should be failed";
 }
 
-} // namespace doris::pipeline
+} // namespace doris

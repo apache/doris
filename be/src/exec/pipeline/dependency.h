@@ -48,12 +48,12 @@
 #include "util/brpc_closure.h"
 #include "util/stack_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 class AggFnEvaluator;
 class VSlotRef;
-} // namespace doris::vectorized
+} // namespace doris
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 class Dependency;
 class PipelineTask;
@@ -265,7 +265,7 @@ struct RuntimeFilterTimerQueue {
 
     ~RuntimeFilterTimerQueue() = default;
     RuntimeFilterTimerQueue() { _thread = std::thread(&RuntimeFilterTimerQueue::start, this); }
-    void push_filter_timer(std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>>&& filter) {
+    void push_filter_timer(std::vector<std::shared_ptr<RuntimeFilterTimer>>&& filter) {
         std::unique_lock<std::mutex> lc(_que_lock);
         _que.insert(_que.end(), filter.begin(), filter.end());
         cv.notify_all();
@@ -277,7 +277,7 @@ struct RuntimeFilterTimerQueue {
     std::mutex _que_lock;
     std::atomic_bool _stop = false;
     std::atomic_bool _shutdown = false;
-    std::list<std::shared_ptr<pipeline::RuntimeFilterTimer>> _que;
+    std::list<std::shared_ptr<RuntimeFilterTimer>> _que;
 };
 
 struct AggSharedState : public BasicSharedState {
@@ -294,27 +294,26 @@ public:
 
     Status reset_hash_table();
 
-    bool do_limit_filter(vectorized::Block* block, size_t num_rows,
-                         const std::vector<int>* key_locs = nullptr);
+    bool do_limit_filter(Block* block, size_t num_rows, const std::vector<int>* key_locs = nullptr);
     void build_limit_heap(size_t hash_table_size);
 
     // We should call this function only at 1st phase.
     // 1st phase: is_merge=true, only have one SlotRef.
     // 2nd phase: is_merge=false, maybe have multiple exprs.
-    static int get_slot_column_id(const vectorized::AggFnEvaluator* evaluator);
+    static int get_slot_column_id(const AggFnEvaluator* evaluator);
 
     AggregatedDataVariantsUPtr agg_data = nullptr;
     std::unique_ptr<AggregateDataContainer> aggregate_data_container;
-    std::vector<vectorized::AggFnEvaluator*> aggregate_evaluators;
+    std::vector<AggFnEvaluator*> aggregate_evaluators;
     // group by k1,k2
-    vectorized::VExprContextSPtrs probe_expr_ctxs;
+    VExprContextSPtrs probe_expr_ctxs;
     size_t input_num_rows = 0;
-    std::vector<vectorized::AggregateDataPtr> values;
+    std::vector<AggregateDataPtr> values;
     /// The total size of the row from the aggregate functions.
     size_t total_size_of_aggregate_states = 0;
     size_t align_aggregate_states = 1;
     /// The offset to the n-th aggregate function in a row of aggregate functions.
-    vectorized::Sizes offsets_of_aggregate_states;
+    Sizes offsets_of_aggregate_states;
     std::vector<size_t> make_nullable_keys;
 
     bool agg_data_created_without_key = false;
@@ -323,15 +322,15 @@ public:
 
     int64_t limit = -1;
     bool do_sort_limit = false;
-    vectorized::MutableColumns limit_columns;
+    MutableColumns limit_columns;
     int limit_columns_min = -1;
-    vectorized::PaddedPODArray<uint8_t> need_computes;
+    PaddedPODArray<uint8_t> need_computes;
     std::vector<uint8_t> cmp_res;
     std::vector<int> order_directions;
     std::vector<int> null_directions;
 
     struct HeapLimitCursor {
-        HeapLimitCursor(int row_id, vectorized::MutableColumns& limit_columns,
+        HeapLimitCursor(int row_id, MutableColumns& limit_columns,
                         std::vector<int>& order_directions, std::vector<int>& null_directions)
                 : _row_id(row_id),
                   _limit_columns(limit_columns),
@@ -372,7 +371,7 @@ public:
         }
 
         int _row_id;
-        vectorized::MutableColumns& _limit_columns;
+        MutableColumns& _limit_columns;
         std::vector<int>& _order_directions;
         std::vector<int>& _null_directions;
     };
@@ -380,33 +379,32 @@ public:
     std::priority_queue<HeapLimitCursor> limit_heap;
 
     // Refresh the top limit heap with a new row
-    void refresh_top_limit(size_t row_id, const vectorized::ColumnRawPtrs& key_columns);
+    void refresh_top_limit(size_t row_id, const ColumnRawPtrs& key_columns);
 
-    vectorized::Arena agg_arena_pool;
-    vectorized::Arena agg_profile_arena;
+    Arena agg_arena_pool;
+    Arena agg_profile_arena;
 
 private:
-    vectorized::MutableColumns _get_keys_hash_table();
+    MutableColumns _get_keys_hash_table();
 
     void _close_with_serialized_key() {
-        std::visit(
-                vectorized::Overload {[&](std::monostate& arg) -> void {
-                                          // Do nothing
-                                      },
-                                      [&](auto& agg_method) -> void {
-                                          auto& data = *agg_method.hash_table;
-                                          data.for_each_mapped([&](auto& mapped) {
-                                              if (mapped) {
-                                                  _destroy_agg_status(mapped);
-                                                  mapped = nullptr;
-                                              }
-                                          });
-                                          if (data.has_null_key_data()) {
-                                              _destroy_agg_status(data.template get_null_key_data<
-                                                                  vectorized::AggregateDataPtr>());
-                                          }
-                                      }},
-                agg_data->method_variant);
+        std::visit(Overload {[&](std::monostate& arg) -> void {
+                                 // Do nothing
+                             },
+                             [&](auto& agg_method) -> void {
+                                 auto& data = *agg_method.hash_table;
+                                 data.for_each_mapped([&](auto& mapped) {
+                                     if (mapped) {
+                                         _destroy_agg_status(mapped);
+                                         mapped = nullptr;
+                                     }
+                                 });
+                                 if (data.has_null_key_data()) {
+                                     _destroy_agg_status(
+                                             data.template get_null_key_data<AggregateDataPtr>());
+                                 }
+                             }},
+                   agg_data->method_variant);
     }
 
     void _close_without_key() {
@@ -418,7 +416,7 @@ private:
             agg_data_created_without_key = false;
         }
     }
-    void _destroy_agg_status(vectorized::AggregateDataPtr data);
+    void _destroy_agg_status(AggregateDataPtr data);
 };
 
 struct BasicSpillSharedState {
@@ -475,7 +473,7 @@ struct AggSpillPartition {
     void close();
 
     Status get_spill_stream(RuntimeState* state, int node_id, RuntimeProfile* profile,
-                            vectorized::SpillStreamSPtr& spilling_stream);
+                            SpillStreamSPtr& spilling_stream);
 
     Status flush_if_full() {
         DCHECK(spilling_stream_);
@@ -499,14 +497,14 @@ struct AggSpillPartition {
         return Status::OK();
     }
 
-    std::deque<vectorized::SpillStreamSPtr> spill_streams_;
-    vectorized::SpillStreamSPtr spilling_stream_;
+    std::deque<SpillStreamSPtr> spill_streams_;
+    SpillStreamSPtr spilling_stream_;
 };
 using AggSpillPartitionSPtr = std::shared_ptr<AggSpillPartition>;
 struct SortSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(SortSharedState)
 public:
-    std::shared_ptr<vectorized::Sorter> sorter;
+    std::shared_ptr<Sorter> sorter;
 };
 
 struct SpillSortSharedState : public BasicSharedState,
@@ -517,7 +515,7 @@ struct SpillSortSharedState : public BasicSharedState,
     SpillSortSharedState() = default;
     ~SpillSortSharedState() override = default;
 
-    void update_spill_block_batch_row_count(RuntimeState* state, const vectorized::Block* block) {
+    void update_spill_block_batch_row_count(RuntimeState* state, const Block* block) {
         auto rows = block->rows();
         if (rows > 0 && 0 == avg_row_bytes) {
             avg_row_bytes = std::max((std::size_t)1, block->bytes() / rows);
@@ -539,7 +537,7 @@ struct SpillSortSharedState : public BasicSharedState,
     std::atomic_bool is_closed = false;
     std::shared_ptr<BasicSharedState> in_mem_shared_state_sptr;
 
-    std::deque<vectorized::SpillStreamSPtr> sorted_streams;
+    std::deque<SpillStreamSPtr> sorted_streams;
     size_t avg_row_bytes = 0;
     size_t spill_block_batch_row_count;
 };
@@ -566,7 +564,7 @@ struct MultiCastSharedState : public BasicSharedState,
                               public BasicSpillSharedState,
                               public std::enable_shared_from_this<MultiCastSharedState> {
     MultiCastSharedState(ObjectPool* pool, int cast_sender_count, int node_id);
-    std::unique_ptr<pipeline::MultiCastDataStreamer> multi_cast_data_streamer;
+    std::unique_ptr<MultiCastDataStreamer> multi_cast_data_streamer;
 
     void update_spill_stream_profiles(RuntimeProfile* source_profile) override;
 };
@@ -576,11 +574,11 @@ struct AnalyticSharedState : public BasicSharedState {
 
 public:
     AnalyticSharedState() = default;
-    std::queue<vectorized::Block> blocks_buffer;
+    std::queue<Block> blocks_buffer;
     std::mutex buffer_mutex;
     bool sink_eos = false;
     std::mutex sink_eos_lock;
-    vectorized::Arena agg_arena_pool;
+    Arena agg_arena_pool;
 };
 
 struct JoinSharedState : public BasicSharedState {
@@ -606,11 +604,11 @@ struct HashJoinSharedState : public JoinSharedState {
             hash_table_variant_vector[i] = std::make_shared<JoinDataVariants>();
         }
     }
-    std::shared_ptr<vectorized::Arena> arena = std::make_shared<vectorized::Arena>();
+    std::shared_ptr<Arena> arena = std::make_shared<Arena>();
 
     const std::vector<TupleDescriptor*> build_side_child_desc;
     size_t build_exprs_size = 0;
-    std::shared_ptr<vectorized::Block> build_block;
+    std::shared_ptr<Block> build_block;
     std::shared_ptr<std::vector<uint32_t>> build_indexes_null;
 
     // Used by shared hash table
@@ -646,8 +644,8 @@ struct PartitionedHashJoinSharedState
 
     std::unique_ptr<RuntimeState> inner_runtime_state;
     std::shared_ptr<HashJoinSharedState> inner_shared_state;
-    std::vector<std::unique_ptr<vectorized::MutableBlock>> partitioned_build_blocks;
-    std::vector<vectorized::SpillStreamSPtr> spilled_streams;
+    std::vector<std::unique_ptr<MutableBlock>> partitioned_build_blocks;
+    std::vector<SpillStreamSPtr> spilled_streams;
     bool is_spilled = false;
 };
 
@@ -656,17 +654,17 @@ struct NestedLoopJoinSharedState : public JoinSharedState {
     // if true, probe child has no more rows to process
     bool probe_side_eos = false;
     // Visited flags for each row in build side.
-    vectorized::MutableColumns build_side_visited_flags;
+    MutableColumns build_side_visited_flags;
     // List of build blocks, constructed in prepare()
-    vectorized::Blocks build_blocks;
+    Blocks build_blocks;
 };
 
 struct PartitionSortNodeSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(PartitionSortNodeSharedState)
 public:
-    std::queue<vectorized::Block> blocks_buffer;
+    std::queue<Block> blocks_buffer;
     std::mutex buffer_mutex;
-    std::vector<std::unique_ptr<vectorized::PartitionSorter>> partition_sorts;
+    std::vector<std::unique_ptr<PartitionSorter>> partition_sorts;
     bool sink_eos = false;
     std::mutex sink_eos_lock;
     std::mutex prepared_finish_lock;
@@ -676,7 +674,7 @@ struct SetSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(SetSharedState)
 public:
     /// default init
-    vectorized::Block build_block; // build to source
+    Block build_block; // build to source
     //record element size in hashtable
     int64_t valid_element_in_hash_tbl = 0;
     //first: idx mapped to column types
@@ -692,24 +690,24 @@ public:
 
     // The SET operator's child might have different nullable attributes.
     // If a calculation involves both nullable and non-nullable columns, the final output should be a nullable column
-    Status update_build_not_ignore_null(const vectorized::VExprContextSPtrs& ctxs);
+    Status update_build_not_ignore_null(const VExprContextSPtrs& ctxs);
 
     size_t get_hash_table_size() const;
     /// init in both upstream side.
     //The i-th result expr list refers to the i-th child.
-    std::vector<vectorized::VExprContextSPtrs> child_exprs_lists;
+    std::vector<VExprContextSPtrs> child_exprs_lists;
 
     /// init in build side
     size_t child_quantity;
-    vectorized::VExprContextSPtrs build_child_exprs;
+    VExprContextSPtrs build_child_exprs;
     std::vector<Dependency*> probe_finished_children_dependency;
 
     /// init in probe side
-    std::vector<vectorized::VExprContextSPtrs> probe_child_exprs_lists;
+    std::vector<VExprContextSPtrs> probe_child_exprs_lists;
 
     std::atomic<bool> ready_for_read = false;
 
-    vectorized::Arena arena;
+    Arena arena;
 
     /// called in setup_local_state
     Status hash_table_init();
@@ -823,4 +821,4 @@ public:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

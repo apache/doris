@@ -29,7 +29,6 @@
 #include "glog/logging.h"
 
 namespace doris {
-namespace vectorized {
 
 struct Void {
     bool operator==(const Void&) const { return true; }
@@ -225,5 +224,4 @@ inline SharedListenableFuture<Void> null_future =
         SharedListenableFuture<Void>::create_ready(Void {});
 } // namespace listenable_future
 
-} // namespace vectorized
 } // namespace doris

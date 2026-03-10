@@ -30,7 +30,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
@@ -150,5 +150,5 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

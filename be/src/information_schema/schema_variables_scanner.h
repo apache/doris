@@ -28,9 +28,7 @@
 namespace doris {
 class RuntimeState;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 class SchemaVariablesScanner : public SchemaScanner {
     ENABLE_FACTORY_CREATOR(SchemaVariablesScanner);
@@ -40,7 +38,7 @@ public:
     ~SchemaVariablesScanner() override;
 
     Status start(RuntimeState* state) override;
-    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
+    Status get_next_block_internal(Block* block, bool* eos) override;
 
 private:
     struct VariableStruct {
@@ -48,7 +46,7 @@ private:
         const char* value = nullptr;
     };
 
-    Status _fill_block_impl(vectorized::Block* block);
+    Status _fill_block_impl(Block* block);
 
     static std::vector<SchemaScanner::ColumnDesc> _s_vars_columns;
 

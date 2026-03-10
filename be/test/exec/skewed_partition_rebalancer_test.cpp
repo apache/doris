@@ -24,7 +24,7 @@
 
 #include <list>
 
-namespace doris::vectorized {
+namespace doris {
 
 class SkewedPartitionRebalancerTest : public testing::Test {
 public:
@@ -334,4 +334,4 @@ TEST_F(SkewedPartitionRebalancerTest, test_consider_skewed_partition_only_within
                                          get_partition_assignments(rebalancer.get())));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

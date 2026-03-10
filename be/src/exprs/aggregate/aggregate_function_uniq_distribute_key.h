@@ -40,7 +40,7 @@
 
 template <typename T>
 struct HashCRC32;
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class Arena;
@@ -247,6 +247,6 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

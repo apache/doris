@@ -37,7 +37,7 @@
 #include "core/value/vdatetime_value.h"
 #include "testutil/test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 static std::string test_data_dir;
 
 static DataTypeDate dt_date;
@@ -506,4 +506,4 @@ TEST_F(DataTypeDateTimeV1Test, to_string) {
     test_func(dt_date, *column_date);
     test_func(dt_datetime, *column_datetime);
 }
-} // namespace doris::vectorized
+} // namespace doris

@@ -126,7 +126,7 @@
 #include "util/debug_util.h"
 #include "util/uid_util.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 PipelineFragmentContext::PipelineFragmentContext(
         TUniqueId query_id, const TPipelineFragmentParams& request,
@@ -1978,7 +1978,7 @@ size_t PipelineFragmentContext::get_revocable_size(bool* has_running_task) const
             }
 
             size_t revocable_size = task.first->get_revocable_size();
-            if (revocable_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+            if (revocable_size >= SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
                 res += revocable_size;
             }
         }
@@ -1991,7 +1991,7 @@ std::vector<PipelineTask*> PipelineFragmentContext::get_revocable_tasks() const 
     for (const auto& task_instances : _tasks) {
         for (const auto& task : task_instances) {
             size_t revocable_size_ = task.first->get_revocable_size();
-            if (revocable_size_ >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+            if (revocable_size_ >= SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
                 revocable_tasks.emplace_back(task.first.get());
             }
         }
@@ -2154,4 +2154,4 @@ void PipelineFragmentContext::_release_resource() {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

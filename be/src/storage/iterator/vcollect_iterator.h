@@ -47,8 +47,6 @@ namespace doris {
 class TabletSchema;
 class RuntimeProfile;
 
-namespace vectorized {
-
 class VCollectIterator {
 public:
     // Hold reader point to get reader params
@@ -358,5 +356,4 @@ private:
     bool _skip_same;
 };
 
-} // namespace vectorized
 } // namespace doris

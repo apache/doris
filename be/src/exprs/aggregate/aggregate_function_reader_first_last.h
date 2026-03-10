@@ -29,7 +29,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <typename ColVecType, bool arg_is_nullable>
@@ -441,5 +441,5 @@ CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_last_non_nul
                                           ReaderFunctionLastNonNullData);
 #undef CREATE_READER_FUNCTION_WITH_NAME_AND_DATA
 
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

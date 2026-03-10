@@ -23,7 +23,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 HeapSorter::HeapSorter(VSortExecExprs& vsort_exec_exprs, RuntimeState* state, int64_t limit,
@@ -137,4 +137,4 @@ void HeapSorter::_do_filter(MergeSortCursorImpl& block_cursor, size_t num_rows) 
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

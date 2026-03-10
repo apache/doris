@@ -29,7 +29,6 @@
 namespace doris {
 class TExprNode;
 
-namespace vectorized {
 class Block;
 class VExprContext;
 
@@ -76,6 +75,5 @@ protected:
 private:
     void init(const TExprNode& node);
 };
-} // namespace vectorized
 
 } // namespace doris

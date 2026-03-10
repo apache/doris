@@ -23,7 +23,7 @@
 #include "core/types.h"
 #include "core/uint128.h"
 
-namespace doris::vectorized {
+namespace doris {
 TEST(WideInteger, Conversions) {
     ASSERT_EQ(UInt64(UInt128(12345678901234567890ULL)), 12345678901234567890ULL);
     ASSERT_EQ(UInt64(UInt256(12345678901234567890ULL)), 12345678901234567890ULL);
@@ -194,4 +194,4 @@ TEST(WideInteger, Shift) {
 #endif
 }
 
-} // namespace doris::vectorized
+} // namespace doris

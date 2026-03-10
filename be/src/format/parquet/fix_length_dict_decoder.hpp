@@ -24,7 +24,7 @@
 #include "util/bit_util.h"
 #include "util/memcpy_inlined.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <tparquet::Type::type type>
@@ -229,4 +229,4 @@ protected:
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -26,7 +26,6 @@
 #include "exec/scan/task_executor/time_sharing/split_queue.h"
 
 namespace doris {
-namespace vectorized {
 
 struct SplitRunnerComparator {
     bool operator()(const std::shared_ptr<PrioritizedSplitRunner>& a,
@@ -97,5 +96,4 @@ private:
     std::array<std::atomic<int64_t>, LEVEL_THRESHOLD_SECONDS.size()> _level_min_priority;
 };
 
-} // namespace vectorized
 } // namespace doris

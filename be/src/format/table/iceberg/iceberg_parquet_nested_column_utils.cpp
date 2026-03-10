@@ -28,7 +28,7 @@
 #include "format/parquet/schema_desc.h"
 #include "format/table/table_format_reader.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 void IcebergParquetNestedColumnUtils::extract_nested_column_ids(
@@ -169,4 +169,4 @@ void IcebergParquetNestedColumnUtils::extract_nested_column_ids(
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

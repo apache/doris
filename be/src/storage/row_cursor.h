@@ -33,7 +33,7 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-class Field;
+class StorageField;
 
 // Delegate the operation of a row of data
 class RowCursor {
@@ -65,7 +65,7 @@ public:
     size_t get_fixed_len() const { return _fixed_len; }
     size_t get_variable_len() const { return _variable_len; }
 
-    const Field* column_schema(uint32_t cid) const { return _schema->column(cid); }
+    const StorageField* column_schema(uint32_t cid) const { return _schema->column(cid); }
 
     const Schema* schema() const { return _schema.get(); }
 

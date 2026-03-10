@@ -32,12 +32,10 @@ class RowDescriptor;
 class RuntimeProfile;
 class RuntimeState;
 
-namespace vectorized {
 class VSortExecExprs;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 TopNSorter::TopNSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
                        ObjectPool* pool, std::vector<bool>& is_asc_order,
@@ -97,4 +95,4 @@ size_t TopNSorter::data_size() const {
     return _state->data_size();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

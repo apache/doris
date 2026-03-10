@@ -73,6 +73,7 @@ public class IcebergTransaction implements Transaction {
     private String branchName;
 
     // Rewrite operation support
+    long startingSnapshotId = -1L; // Track the starting snapshot ID for rewrite operations
     private final List<DataFile> filesToDelete = Lists.newArrayList();
     private final List<DataFile> filesToAdd = Lists.newArrayList();
     private boolean isRewriteMode = false;
@@ -132,6 +133,9 @@ public class IcebergTransaction implements Transaction {
             ops.getExecutionAuthenticator().execute(() -> {
                 // create and start the iceberg transaction
                 this.table = IcebergUtils.getIcebergTable(dorisTable);
+
+                // Capture the starting snapshot ID for validation during rewrite commit
+                this.startingSnapshotId = table.currentSnapshot().snapshotId();
 
                 // For rewrite operations, we work directly on the main table
                 // No branch information needed
@@ -197,6 +201,8 @@ public class IcebergTransaction implements Transaction {
         }
 
         RewriteFiles rewriteFiles = transaction.newRewrite();
+
+        rewriteFiles = rewriteFiles.validateFromSnapshot(startingSnapshotId);
 
         // For rewrite operations, we work directly on the main table
         rewriteFiles = rewriteFiles.scanManifestsWith(ops.getThreadPoolWithPreAuth());

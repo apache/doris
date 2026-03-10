@@ -46,7 +46,7 @@
 
 class SipHash;
 
-namespace doris::vectorized {
+namespace doris {
 
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& offsets_column)
         : data(std::move(nested_column)), offsets(std::move(offsets_column)) {
@@ -1007,4 +1007,4 @@ void ColumnArray::replace_float_special_values() {
     get_data().replace_float_special_values();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -19,10 +19,10 @@
 
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 void register_function_arrays_overlap(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArraysOverlap>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

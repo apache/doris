@@ -87,7 +87,7 @@ Status SchemaProcessListScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaProcessListScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaProcessListScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }
@@ -103,7 +103,7 @@ Status SchemaProcessListScanner::get_next_block_internal(vectorized::Block* bloc
     return _fill_block_impl(block);
 }
 
-Status SchemaProcessListScanner::_fill_block_impl(vectorized::Block* block) {
+Status SchemaProcessListScanner::_fill_block_impl(Block* block) {
     SCOPED_TIMER(_fill_block_timer);
 
     const auto& process_list = _process_list_result.process_list;

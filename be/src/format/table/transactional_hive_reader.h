@@ -41,7 +41,6 @@ namespace io {
 struct IOContext;
 } // namespace io
 
-namespace vectorized {
 class Block;
 class GenericReader;
 class ShardedKVCache;
@@ -77,7 +76,7 @@ public:
         };
     };
 
-    using AcidRowIDSet = vectorized::flat_hash_set<AcidRowID, AcidRowID::Hash, AcidRowID::Eq>;
+    using AcidRowIDSet = flat_hash_set<AcidRowID, AcidRowID::Hash, AcidRowID::Eq>;
 
     TransactionalHiveReader(std::unique_ptr<GenericReader> file_format_reader,
                             RuntimeProfile* profile, RuntimeState* state,
@@ -125,6 +124,5 @@ inline bool operator<(const TransactionalHiveReader::AcidRowID& lhs,
     }
 }
 
-} // namespace vectorized
 #include "common/compile_check_end.h"
 } // namespace doris

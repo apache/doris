@@ -41,14 +41,12 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 struct RetentionState {
     static constexpr size_t MAX_EVENTS = 32;
     uint8_t events[MAX_EVENTS] = {0};
@@ -165,5 +163,5 @@ public:
         to_arr.get_offsets().push_back(to_nested_col.size());
     }
 };
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

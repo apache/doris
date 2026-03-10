@@ -26,7 +26,7 @@
 #include "storage/index/index_iterator.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(FunctionIpTest, FunctionIsIPAddressInRangeTest) {
     std::string func_name = "is_ip_address_in_range";
@@ -280,4 +280,4 @@ TEST(FunctionIpTest, evaluate_inverted_index) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

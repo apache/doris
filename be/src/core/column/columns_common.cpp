@@ -29,7 +29,7 @@
 #include "util/simd/bits.h"
 #include "util/sse_util.hpp"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <PrimitiveType T>
 class ColumnVector;
@@ -396,4 +396,4 @@ INSTANTIATE(Decimal256, ColumnArray::Offset64)
 
 #undef INSTANTIATE
 
-} // namespace doris::vectorized
+} // namespace doris

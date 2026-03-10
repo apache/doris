@@ -20,7 +20,7 @@
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 static const std::string HADOOP_OPTION_PREFIX = "hadoop.";
@@ -57,4 +57,4 @@ Status IcebergSysTableJniReader::init_reader() {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

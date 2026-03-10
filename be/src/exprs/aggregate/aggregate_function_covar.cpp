@@ -21,7 +21,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <template <typename> class Function, template <PrimitiveType> class Data>
@@ -64,4 +64,4 @@ void register_aggregate_function_covar_samp(AggregateFunctionSimpleFactory& fact
     factory.register_function_both("covar_samp", create_aggregate_function_covariance_samp);
     register_aggregate_function_covar_samp_old(factory);
 }
-} // namespace doris::vectorized
+} // namespace doris

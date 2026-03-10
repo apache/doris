@@ -146,7 +146,7 @@ std::shared_ptr<ColumnReader> MultipleBinaryColumnReader::select_reader(uint32_t
 
 uint32_t MultipleBinaryColumnReader::pick_index(const std::string& relative_path) const {
     uint32_t N = static_cast<uint32_t>(_multiple_column_readers.size());
-    uint32_t bucket_index = vectorized::variant_util::variant_binary_shard_of(
+    uint32_t bucket_index = variant_util::variant_binary_shard_of(
             StringRef {relative_path.data(), relative_path.size()}, N);
     DCHECK(bucket_index < N);
     return bucket_index;
@@ -190,13 +190,13 @@ Status CombineMultipleBinaryColumnIterator::seek_to_ordinal(ordinal_t ord_idx) {
     return Status::OK();
 }
 
-Status CombineMultipleBinaryColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+Status CombineMultipleBinaryColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst,
                                                        bool* has_null) {
     // Read each bucket into temp maps.
     _binary_column_data.clear();
     _binary_column_data.reserve(_iters.size());
     for (auto& it : _iters) {
-        vectorized::MutableColumnPtr m = vectorized::ColumnVariant::create_binary_column_fn();
+        MutableColumnPtr m = ColumnVariant::create_binary_column_fn();
         RETURN_IF_ERROR(it->next_batch(n, m, has_null));
         _binary_column_data.emplace_back(std::move(m));
     }
@@ -206,11 +206,11 @@ Status CombineMultipleBinaryColumnIterator::next_batch(size_t* n, vectorized::Mu
 
 Status CombineMultipleBinaryColumnIterator::read_by_rowids(const rowid_t* rowids,
                                                            const size_t count,
-                                                           vectorized::MutableColumnPtr& dst) {
+                                                           MutableColumnPtr& dst) {
     _binary_column_data.clear();
     _binary_column_data.reserve(_iters.size());
     for (auto& it : _iters) {
-        vectorized::MutableColumnPtr m = vectorized::ColumnVariant::create_binary_column_fn();
+        MutableColumnPtr m = ColumnVariant::create_binary_column_fn();
         RETURN_IF_ERROR(it->read_by_rowids(rowids, count, m));
         _binary_column_data.emplace_back(std::move(m));
     }
@@ -223,9 +223,7 @@ ordinal_t CombineMultipleBinaryColumnIterator::get_current_ordinal() const {
 }
 
 void CombineMultipleBinaryColumnIterator::_collect_sparse_data_from_buckets(
-        vectorized::IColumn& binary_data_column) {
-    using namespace vectorized;
-
+        IColumn& binary_data_column) {
     // Get path, value, offset from all buckets.
     auto& column_map = assert_cast<ColumnMap&>(binary_data_column);
     auto& dst_paths = assert_cast<ColumnString&>(column_map.get_keys());

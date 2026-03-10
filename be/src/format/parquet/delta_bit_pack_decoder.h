@@ -38,7 +38,7 @@
 #include "util/bit_stream_utils.inline.h"
 #include "util/slice.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class DeltaDecoder : public Decoder {
 public:
@@ -382,9 +382,9 @@ private:
     std::vector<int32_t> _buffered_prefix_length;
     std::vector<char> _buffered_data;
 };
-} // namespace doris::vectorized
+} // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename T>
 Status DeltaBitPackDecoder<T>::_init_header() {
@@ -523,4 +523,4 @@ Status DeltaBitPackDecoder<T>::_get_internal(T* buffer, uint32_t num_values,
 
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

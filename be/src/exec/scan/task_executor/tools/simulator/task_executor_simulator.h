@@ -30,7 +30,6 @@
 #include "exec/scan/task_executor/tools/simulator/split_generators.h"
 
 namespace doris {
-namespace vectorized {
 
 class TaskSimulator {
 public:
@@ -92,5 +91,4 @@ private:
     std::chrono::time_point<std::chrono::high_resolution_clock> _start_time;
 };
 
-} // namespace vectorized
 } // namespace doris

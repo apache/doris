@@ -72,7 +72,7 @@ struct IOContext;
 enum class FileCachePolicy : uint8_t;
 } // namespace doris::io
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
@@ -347,7 +347,7 @@ Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
     for (int i = 0; i < objectValue->MemberCount(); ++i) {
         auto it = objectValue->MemberBegin() + i;
         col_names->emplace_back(it->name.GetString());
-        col_types->emplace_back(make_nullable(std::make_shared<vectorized::DataTypeString>()));
+        col_types->emplace_back(make_nullable(std::make_shared<DataTypeString>()));
     }
     return Status::OK();
 }
@@ -1046,11 +1046,11 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
 template <bool use_string_cache>
 Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& value,
                                                      const DataTypePtr& type_desc,
-                                                     vectorized::IColumn* column_ptr,
+                                                     IColumn* column_ptr,
                                                      const std::string& column_name,
                                                      DataTypeSerDeSPtr serde, bool* valid) {
     ColumnNullable* nullable_column = nullptr;
-    vectorized::IColumn* data_column_ptr = column_ptr;
+    IColumn* data_column_ptr = column_ptr;
     DataTypeSerDeSPtr data_serde = serde;
 
     if (column_ptr->is_nullable()) {
@@ -1188,8 +1188,8 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
         size_t field_count = 0;
         for (simdjson::ondemand::field member_value : object_value) {
             auto f = [](std::string_view key_view, const DataTypePtr& type_desc,
-                        vectorized::IColumn* column_ptr, DataTypeSerDeSPtr serde,
-                        vectorized::DataTypeSerDe::FormatOptions serde_options, bool* valid) {
+                        IColumn* column_ptr, DataTypeSerDeSPtr serde,
+                        DataTypeSerDe::FormatOptions serde_options, bool* valid) {
                 auto* data_column_ptr = column_ptr;
                 auto data_serde = serde;
                 if (column_ptr->is_nullable()) {
@@ -1584,4 +1584,4 @@ void NewJsonReader::_collect_profile_before_close() {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

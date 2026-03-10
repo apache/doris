@@ -27,7 +27,7 @@
 #include "exprs/function/function_unary_arithmetic.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 struct NameBitCount {
     static constexpr auto name = "bit_count";
@@ -71,4 +71,4 @@ void register_function_bit_count(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBitCountLargeInt>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

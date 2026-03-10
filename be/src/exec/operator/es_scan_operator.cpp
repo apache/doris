@@ -21,7 +21,7 @@
 #include "exec/es/es_scroll_query.h"
 #include "exec/scan/es_scanner.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 // Prefer to the local host
 static std::string get_host_and_port(const std::vector<doris::TNetworkAddress>& es_hosts) {
@@ -62,7 +62,7 @@ Status EsScanLocalState::_process_conjuncts(RuntimeState* state) {
     return Status::OK();
 }
 
-Status EsScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {
+Status EsScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
         _scan_dependency->set_ready();
@@ -90,7 +90,7 @@ Status EsScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scan
         properties[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(
                 properties, p._column_names, p._docvalue_context, &doc_value_mode);
 
-        std::shared_ptr<vectorized::EsScanner> scanner = vectorized::EsScanner::create_shared(
+        std::shared_ptr<EsScanner> scanner = EsScanner::create_shared(
                 _state, this, p._limit, p._tuple_id, properties, p._docvalue_context,
                 doc_value_mode, _state->runtime_profile());
 
@@ -149,4 +149,4 @@ Status EsScanOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

@@ -25,12 +25,10 @@
 namespace doris {
 class RuntimeProfile;
 class RuntimeState;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 const std::string PaimonJniReader::PAIMON_OPTION_PREFIX = "paimon.";
@@ -114,4 +112,4 @@ Status PaimonJniReader::init_reader() {
     return _jni_connector->open(_state, _profile);
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

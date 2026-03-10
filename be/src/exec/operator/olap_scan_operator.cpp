@@ -48,7 +48,7 @@
 #include "storage/tablet/tablet_manager.h"
 #include "util/to_string.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
@@ -58,9 +58,9 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         const doris::TExpr& ordering_expr = olap_scan_node.score_sort_info.ordering_exprs.front();
         const bool asc = olap_scan_node.score_sort_info.is_asc_order[0];
         const size_t limit = olap_scan_node.score_sort_limit;
-        std::shared_ptr<vectorized::VExprContext> ordering_expr_ctx;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
-        _score_runtime = vectorized::ScoreRuntime::create_shared(ordering_expr_ctx, asc, limit);
+        std::shared_ptr<VExprContext> ordering_expr_ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
+        _score_runtime = ScoreRuntime::create_shared(ordering_expr_ctx, asc, limit);
     }
 
     if (olap_scan_node.__isset.ann_sort_info || olap_scan_node.__isset.ann_sort_limit) {
@@ -73,8 +73,8 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         DCHECK(olap_scan_node.ann_sort_info.is_asc_order.size() == 1);
         const bool asc = olap_scan_node.ann_sort_info.is_asc_order[0];
         const size_t limit = olap_scan_node.ann_sort_limit;
-        std::shared_ptr<vectorized::VExprContext> ordering_expr_ctx;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
+        std::shared_ptr<VExprContext> ordering_expr_ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
         _ann_topn_runtime =
                 segment_v2::AnnTopNRuntime::create_shared(asc, limit, ordering_expr_ctx);
     }
@@ -96,20 +96,19 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 }
 
 PushDownType OlapScanLocalState::_should_push_down_binary_predicate(
-        vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
-        vectorized::Field& constant_val, const std::set<std::string> fn_name) const {
+        VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
+        const std::set<std::string> fn_name) const {
     if (!fn_name.contains(fn_call->fn().name.function_name)) {
         return PushDownType::UNACCEPTABLE;
     }
     const auto& children = fn_call->children();
     DCHECK(children.size() == 2);
-    DCHECK_EQ(vectorized::VExpr::expr_without_cast(children[0])->node_type(),
-              TExprNodeType::SLOT_REF);
+    DCHECK_EQ(VExpr::expr_without_cast(children[0])->node_type(), TExprNodeType::SLOT_REF);
     if (children[1]->is_constant()) {
         std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         THROW_IF_ERROR(children[1]->get_const_col(expr_ctx, &const_col_wrapper));
         const auto* const_column =
-                assert_cast<const vectorized::ColumnConst*>(const_col_wrapper->column_ptr.get());
+                assert_cast<const ColumnConst*>(const_col_wrapper->column_ptr.get());
         constant_val = const_column->operator[](0);
         return PushDownType::ACCEPTABLE;
     } else {
@@ -404,8 +403,8 @@ bool OlapScanLocalState::_is_key_column(const std::string& key_name) {
     return res != p._olap_scan_node.key_column_name.end();
 }
 
-Status OlapScanLocalState::_should_push_down_function_filter(vectorized::VectorizedFnCall* fn_call,
-                                                             vectorized::VExprContext* expr_ctx,
+Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* fn_call,
+                                                             VExprContext* expr_ctx,
                                                              StringRef* constant_str,
                                                              doris::FunctionContext** fn_ctx,
                                                              PushDownType& pdt) {
@@ -420,8 +419,7 @@ Status OlapScanLocalState::_should_push_down_function_filter(vectorized::Vectori
     DCHECK(func_cxt != nullptr);
     DCHECK(children.size() == 2);
     for (size_t i = 0; i < children.size(); i++) {
-        if (vectorized::VExpr::expr_without_cast(children[i])->node_type() !=
-            TExprNodeType::SLOT_REF) {
+        if (VExpr::expr_without_cast(children[i])->node_type() != TExprNodeType::SLOT_REF) {
             // not a slot ref(column)
             continue;
         }
@@ -433,8 +431,8 @@ Status OlapScanLocalState::_should_push_down_function_filter(vectorized::Vectori
             DCHECK(is_string_type(children[1 - i]->data_type()->get_primitive_type()));
             std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
-            if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(
-                        const_col_wrapper->column_ptr.get())) {
+            if (const auto* const_column =
+                        check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr.get())) {
                 *constant_str = const_column->get_data_at(0);
             } else {
                 pdt = PushDownType::UNACCEPTABLE;
@@ -459,7 +457,7 @@ bool OlapScanLocalState::_storage_no_merge() {
              p._olap_scan_node.enable_unique_key_merge_on_write));
 }
 
-Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {
+Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
         _scan_dependency->set_ready();
@@ -528,7 +526,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
 
         RETURN_IF_ERROR(scanner_builder.build_scanners(*scanners));
         for (auto& scanner : *scanners) {
-            auto* olap_scanner = assert_cast<vectorized::OlapScanner*>(scanner.get());
+            auto* olap_scanner = assert_cast<OlapScanner*>(scanner.get());
             RETURN_IF_ERROR(olap_scanner->init(state(), _conjuncts));
         }
 
@@ -578,17 +576,17 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
             for (auto& split : _read_sources[scan_range_idx].rs_splits) {
                 split.rs_reader = split.rs_reader->clone();
             }
-            auto scanner = vectorized::OlapScanner::create_shared(
-                    this, vectorized::OlapScanner::Params {
-                                  state(),
-                                  _scanner_profile.get(),
-                                  scanner_ranges,
-                                  _tablets[scan_range_idx].tablet,
-                                  version,
-                                  _read_sources[scan_range_idx],
-                                  p._limit,
-                                  p._olap_scan_node.is_preaggregation,
-                          });
+            auto scanner =
+                    OlapScanner::create_shared(this, OlapScanner::Params {
+                                                             state(),
+                                                             _scanner_profile.get(),
+                                                             scanner_ranges,
+                                                             _tablets[scan_range_idx].tablet,
+                                                             version,
+                                                             _read_sources[scan_range_idx],
+                                                             p._limit,
+                                                             p._olap_scan_node.is_preaggregation,
+                                                     });
             RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
             scanners->push_back(std::move(scanner));
         }
@@ -776,9 +774,8 @@ Status OlapScanLocalState::open(RuntimeState* state) {
         const SlotDescriptor* slot_desc = pair.second;
         std::shared_ptr<doris::TExpr> virtual_col_expr = slot_desc->get_virtual_column_expr();
         if (virtual_col_expr) {
-            std::shared_ptr<doris::vectorized::VExprContext> virtual_column_expr_ctx;
-            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*virtual_col_expr,
-                                                                virtual_column_expr_ctx));
+            std::shared_ptr<doris::VExprContext> virtual_column_expr_ctx;
+            RETURN_IF_ERROR(VExpr::create_expr_tree(*virtual_col_expr, virtual_column_expr_ctx));
             RETURN_IF_ERROR(virtual_column_expr_ctx->prepare(state, p.intermediate_row_desc()));
             RETURN_IF_ERROR(virtual_column_expr_ctx->open(state));
 
@@ -993,4 +990,4 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

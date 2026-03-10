@@ -41,7 +41,7 @@
 #include "util/io_helper.h"
 #include "util/jni-util.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 const char* UDAF_EXECUTOR_CLASS = "org/apache/doris/udf/UdafExecutor";
@@ -415,6 +415,6 @@ private:
     std::string _local_location;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

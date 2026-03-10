@@ -41,7 +41,6 @@ class TExpr;
 class TExprNode;
 class TSortInfo;
 
-namespace vectorized {
 class Arena;
 class Block;
 class BufferWritable;
@@ -99,8 +98,7 @@ public:
     bool is_merge() const { return _is_merge; }
     const VExprContextSPtrs& input_exprs_ctxs() const { return _input_exprs_ctxs; }
 
-    static Status check_agg_fn_output(uint32_t key_size,
-                                      const std::vector<vectorized::AggFnEvaluator*>& agg_fn,
+    static Status check_agg_fn_output(uint32_t key_size, const std::vector<AggFnEvaluator*>& agg_fn,
                                       const RowDescriptor& output_row_desc);
 
     void set_version(const int version) { _function->set_version(version); }
@@ -153,7 +151,6 @@ private:
 
     std::vector<const IColumn*> _agg_columns;
 };
-} // namespace vectorized
 
 #include "common/compile_check_end.h"
 } // namespace doris

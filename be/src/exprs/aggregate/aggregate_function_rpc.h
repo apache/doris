@@ -41,7 +41,7 @@
 #include "util/brpc_client_cache.h"
 #include "util/io_helper.h"
 #include "util/jni-util.h"
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_avoid_begin.h"
 // The rpc function has now been deprecated to avoid compilation checks.
 
@@ -406,4 +406,4 @@ private:
 };
 
 #include "common/compile_check_avoid_end.h"
-} // namespace doris::vectorized
+} // namespace doris

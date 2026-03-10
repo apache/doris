@@ -27,7 +27,7 @@
 #include "core/data_type/data_type_decimal.h"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 template <typename T>
 struct Bucket {
@@ -309,4 +309,4 @@ bool histogram_to_json(rapidjson::StringBuffer& buffer, const std::vector<Bucket
     return !buckets.empty() && buffer.GetSize() > 0;
 }
 #include "common/compile_check_end.h"
-} // namespace  doris::vectorized
+} // namespace  doris

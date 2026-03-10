@@ -49,7 +49,7 @@
 #include "util/io_helper.h"
 #include "util/string_parser.hpp"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 DataTypePtr get_data_type_with_default_argument(DataTypePtr type) {
@@ -288,4 +288,4 @@ template class DataTypeDecimal<TYPE_DECIMALV2>;
 template class DataTypeDecimal<TYPE_DECIMAL128I>;
 template class DataTypeDecimal<TYPE_DECIMAL256>;
 
-} // namespace doris::vectorized
+} // namespace doris

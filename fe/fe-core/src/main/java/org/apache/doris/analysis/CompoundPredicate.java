@@ -20,8 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
@@ -85,26 +83,8 @@ public class CompoundPredicate extends Predicate {
     }
 
     @Override
-    public String toSqlImpl() {
-        if (children.size() == 1) {
-            Preconditions.checkState(op == Operator.NOT);
-            return "NOT " + getChild(0).toSql();
-        } else {
-            return "(" + getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql() + ")";
-        }
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        if (children.size() == 1) {
-            Preconditions.checkState(op == Operator.NOT);
-            return "(NOT " + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + ")";
-        } else {
-            return "(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table)
-                    + " " + op.toString() + " "
-                    + getChild(1).toSql(disableTableName, needExternalSql, tableType, table) + ")";
-        }
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitCompoundPredicate(this, context);
     }
 
     @Override
@@ -143,6 +123,13 @@ public class CompoundPredicate extends Predicate {
 
     @Override
     public String toString() {
-        return toSqlImpl();
+        if (getChildren().size() == 1) {
+            Preconditions.checkState(getOp() == Operator.NOT);
+            return "NOT " + getChild(0).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
+        } else {
+            return "(" + getChild(0).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)
+                    + " " + getOp().toString()
+                    + " " + getChild(1).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE) + ")";
+        }
     }
 }

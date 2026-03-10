@@ -53,9 +53,7 @@ class OlapTableSchemaParam;
 class BetaRowsetWriterV2;
 class LoadStreamStub;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 // Writer for a particular (load, index, tablet).
 // This class is NOT thread-safe, external synchronization is required.
@@ -70,7 +68,7 @@ public:
 
     Status init();
 
-    Status write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs);
+    Status write(const Block* block, const DorisVector<uint32_t>& row_idxs);
 
     // flush the last memtable to flush queue, must call it before close_wait()
     Status close();

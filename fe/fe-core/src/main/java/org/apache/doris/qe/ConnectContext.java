@@ -175,6 +175,8 @@ public class ConnectContext {
     protected volatile SessionVariable sessionVariable;
     // Store user variable in this connection
     private Map<String, LiteralExpr> userVars = new HashMap<>();
+    // Connection attributes provided by the MySQL client during handshake.
+    private Map<String, String> connectAttributes = new HashMap<>();
     // Scheduler this connection belongs to
     protected volatile ConnectScheduler connectScheduler;
     // Executor
@@ -420,7 +422,20 @@ public class ConnectContext {
         context.setEnv(env);
         context.setDatabase(currentDb);
         context.setCurrentUserIdentity(currentUserIdentity);
+        context.setConnectAttributes(connectAttributes);
         return context;
+    }
+
+    public Map<String, String> getConnectAttributes() {
+        return connectAttributes;
+    }
+
+    public void setConnectAttributes(Map<String, String> connectAttributes) {
+        if (connectAttributes == null || connectAttributes.isEmpty()) {
+            this.connectAttributes = new HashMap<>();
+            return;
+        }
+        this.connectAttributes = new HashMap<>(connectAttributes);
     }
 
     public boolean isTxnModel() {

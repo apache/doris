@@ -25,7 +25,7 @@
 #include "exec/common/hash_table/hash.h"
 #include "exec/operator/partition_sort_source_operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
@@ -90,8 +90,8 @@ Status PartitionSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
     }
     //partition by key
     if (tnode.partition_sort_node.__isset.partition_exprs) {
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(
-                tnode.partition_sort_node.partition_exprs, _partition_expr_ctxs));
+        RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.partition_sort_node.partition_exprs,
+                                                 _partition_expr_ctxs));
     }
 
     return Status::OK();
@@ -100,14 +100,13 @@ Status PartitionSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
 Status PartitionSortSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<PartitionSortSinkLocalState>::prepare(state));
     RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child->row_desc(), _row_descriptor));
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_partition_expr_ctxs, state, _child->row_desc()));
+    RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _child->row_desc()));
     RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
-    RETURN_IF_ERROR(vectorized::VExpr::open(_partition_expr_ctxs, state));
+    RETURN_IF_ERROR(VExpr::open(_partition_expr_ctxs, state));
     return Status::OK();
 }
 
-Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* input_block,
-                                        bool eos) {
+Status PartitionSortSinkOperatorX::sink(RuntimeState* state, Block* input_block, bool eos) {
     auto& local_state = get_local_state(state);
     auto current_rows = input_block->rows();
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -179,9 +178,9 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 }
 
 Status PartitionSortSinkOperatorX::_split_block_by_partition(
-        vectorized::Block* input_block, PartitionSortSinkLocalState& local_state, bool eos) {
-    vectorized::ColumnRawPtrs key_columns_raw_ptr(_partition_exprs_num);
-    vectorized::Columns key_columns(_partition_exprs_num);
+        Block* input_block, PartitionSortSinkLocalState& local_state, bool eos) {
+    ColumnRawPtrs key_columns_raw_ptr(_partition_exprs_num);
+    Columns key_columns(_partition_exprs_num);
     for (int i = 0; i < _partition_exprs_num; ++i) {
         RETURN_IF_ERROR(_partition_expr_ctxs[i]->execute(input_block, key_columns[i]));
         key_columns_raw_ptr[i] = key_columns[i].get();
@@ -193,21 +192,21 @@ Status PartitionSortSinkOperatorX::_split_block_by_partition(
 size_t PartitionSortSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
     auto& local_state = get_local_state(state);
     auto rows = state->batch_size();
-    size_t reserve_mem_size = std::visit(
-            vectorized::Overload {[&](std::monostate&) -> size_t { return 0; },
-                                  [&](auto& agg_method) -> size_t {
-                                      return agg_method.hash_table->estimate_memory(rows);
-                                  }},
-            local_state._partitioned_data->method_variant);
+    size_t reserve_mem_size =
+            std::visit(Overload {[&](std::monostate&) -> size_t { return 0; },
+                                 [&](auto& agg_method) -> size_t {
+                                     return agg_method.hash_table->estimate_memory(rows);
+                                 }},
+                       local_state._partitioned_data->method_variant);
     reserve_mem_size += rows * sizeof(size_t); // hash values
     return reserve_mem_size;
 }
 
 Status PartitionSortSinkOperatorX::_emplace_into_hash_table(
-        const vectorized::ColumnRawPtrs& key_columns, vectorized::Block* input_block,
+        const ColumnRawPtrs& key_columns, Block* input_block,
         PartitionSortSinkLocalState& local_state, bool eos) {
     return std::visit(
-            vectorized::Overload {
+            Overload {
                     [&](std::monostate& arg) -> Status {
                         return Status::InternalError("Unit hash table");
                     },
@@ -302,4 +301,4 @@ bool PartitionSortSinkLocalState::check_whether_need_passthrough() {
 // NOLINTEND(readability-simplify-boolean-expr)
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

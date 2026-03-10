@@ -45,7 +45,7 @@
 #include "storage/olap_common.h"
 #include "testutil/test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 static std::string test_data_dir;
 
 static auto serde_str = std::make_shared<DataTypeStringSerDe>(TYPE_STRING);
@@ -315,4 +315,4 @@ TEST_F(DataTypeStringSerDeTest, ArrowMemNotAlignedNestedArr) {
     EXPECT_TRUE(st.ok());
 }
 
-} // namespace doris::vectorized
+} // namespace doris

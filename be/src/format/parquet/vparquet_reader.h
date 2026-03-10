@@ -59,16 +59,14 @@ namespace io {
 class FileSystem;
 struct IOContext;
 } // namespace io
-namespace vectorized {
 class Block;
 class FileMetaData;
 class PageIndex;
 class ShardedKVCache;
 class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class ParquetReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(ParquetReader);
@@ -365,4 +363,4 @@ private:
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

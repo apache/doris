@@ -68,11 +68,11 @@ suite("test_search_null_regression", "p0") {
     Thread.sleep(5000)
 
     // Regression Test 1: Original Issue - OR Query Inconsistency
-    // This reproduces the original bug: search('title:"Ronald" or (content:ALL("Selma Blair"))')
+    // This reproduces the original bug: search('title:"Ronald" or (content:ALL("Selma Blair"))', '{"mode":"standard"}')
     // vs title match "Ronald" or (content match_all "Selma Blair")
     qt_regression_1_search_or """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('title:Ronald OR (content:ALL(Selma Blair))')
+        WHERE search('title:Ronald OR (content:ALL(Selma Blair))', '{"mode":"standard"}')
     """
 
     qt_regression_1_match_or """
@@ -83,7 +83,7 @@ suite("test_search_null_regression", "p0") {
     // Detailed verification - get actual matching rows for OR query
     qt_regression_1_search_or_rows """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName}
-        WHERE search('title:Ronald OR (content:ALL(Selma Blair))')
+        WHERE search('title:Ronald OR (content:ALL(Selma Blair))', '{"mode":"standard"}')
         ORDER BY id
     """
 
@@ -94,27 +94,27 @@ suite("test_search_null_regression", "p0") {
     """
 
     // Regression Test 2: Original Issue - NOT Query Inconsistency
-    // This reproduces: search('not content:"Round"') vs not search('content:"Round"')
+    // This reproduces: search('not content:"Round"', '{"mode":"standard"}') vs not search('content:"Round"', '{"mode":"standard"}')
     qt_regression_2_internal_not """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('NOT content:Round')
+        WHERE search('NOT content:Round', '{"mode":"standard"}')
     """
 
     qt_regression_2_external_not """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE not search('content:Round')
+        WHERE not search('content:Round', '{"mode":"standard"}')
     """
 
     // Detailed verification for NOT query
     qt_regression_2_internal_not_rows """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName}
-        WHERE search('NOT content:Round')
+        WHERE search('NOT content:Round', '{"mode":"standard"}')
         ORDER BY id
     """
 
     qt_regression_2_external_not_rows """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName}
-        WHERE not search('content:Round')
+        WHERE not search('content:Round', '{"mode":"standard"}')
         ORDER BY id
     """
 
@@ -122,7 +122,7 @@ suite("test_search_null_regression", "p0") {
     // Verify that OR queries properly handle NULL values according to SQL semantics
     qt_regression_3_null_or """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName}
-        WHERE search('title:NonExistent OR content:Ronald')
+        WHERE search('title:NonExistent OR content:Ronald', '{"mode":"standard"}')
         ORDER BY id
     """
 
@@ -136,58 +136,58 @@ suite("test_search_null_regression", "p0") {
     // Regression Test 4: NULL Handling in AND Queries
     qt_regression_4_null_and """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableName}
-        WHERE search('title:Ronald AND content:biography')
+        WHERE search('title:Ronald AND content:biography', '{"mode":"standard"}')
         ORDER BY id
     """
 
     // Regression Test 5: Complex Boolean Operations
     qt_regression_5_complex_search """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('(title:Ronald OR content:Selma) AND NOT content:Round')
+        WHERE search('(title:Ronald OR content:Selma) AND NOT content:Round', '{"mode":"standard"}')
     """
 
     qt_regression_5_complex_match """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE (title match "Ronald" or content match "Selma") and not search('content:"Round"')
+        WHERE (title match "Ronald" or content match "Selma") and not search('content:"Round"', '{"mode":"standard"}')
     """
 
     // Regression Test 6: Edge Case - All NULL Query
     qt_regression_6_all_null """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('title:NonExistent AND content:NonExistent')
+        WHERE search('title:NonExistent AND content:NonExistent', '{"mode":"standard"}')
     """
 
     // Regression Test 7: Case Sensitivity and Variations
     qt_regression_7_case_lower """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('content:round')
+        WHERE search('content:round', '{"mode":"standard"}')
     """
 
     qt_regression_7_case_upper """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('content:Round')
+        WHERE search('content:Round', '{"mode":"standard"}')
     """
 
     // Regression Test 8: Multiple NOT operations
     qt_regression_8_multiple_not """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('NOT (title:nonexistent OR content:nonexistent)')
+        WHERE search('NOT (title:nonexistent OR content:nonexistent)', '{"mode":"standard"}')
     """
 
     qt_regression_8_external_multiple_not """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE not search('title:nonexistent OR content:nonexistent')
+        WHERE not search('title:nonexistent OR content:nonexistent', '{"mode":"standard"}')
     """
 
     // Regression Test 9: Empty string handling
     qt_regression_9_empty_string """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('title:"" OR content:Round')
+        WHERE search('title:"" OR content:Round', '{"mode":"standard"}')
     """
 
     // Regression Test 10: Performance test with complex query
     qt_regression_10_performance """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*) FROM ${tableName}
-        WHERE search('(title:Ronald OR title:Selma OR content:Round) AND NOT (title:NonExistent AND content:NonExistent)')
+        WHERE search('(title:Ronald OR title:Selma OR content:Round) AND NOT (title:NonExistent AND content:NonExistent)', '{"mode":"standard"}')
     """
 }
