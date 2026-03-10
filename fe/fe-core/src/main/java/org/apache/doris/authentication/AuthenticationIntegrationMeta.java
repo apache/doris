@@ -17,8 +17,8 @@
 
 package org.apache.doris.authentication;
 
-import org.apache.doris.common.UserAuditMetadata;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserAuditMetadata;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
