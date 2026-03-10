@@ -103,13 +103,14 @@ public class LocationPathTest {
     }
 
     @Test
-    public void testJFSLocationConvert() {
+    public void testJfsLocationConvertAsHdfsCompatible() {
         LocationPath locationPath = LocationPath.of("jfs://test.com");
         // FE
         Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("jfs://"));
         // BE
         String loc = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(loc.startsWith("jfs://"));
+        // JFS is treated as Hadoop-compatible, so Doris maps it to HDFS file system type.
         Assertions.assertEquals(FileSystemType.HDFS, locationPath.getFileSystemType());
         Assertions.assertEquals("jfs://test.com", locationPath.getFsIdentifier());
         Assertions.assertEquals(TFileType.FILE_HDFS, locationPath.getTFileTypeForBE());

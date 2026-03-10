@@ -57,10 +57,18 @@ suite("test_jfs_hms_catalog_read", "p0,external") {
         hdfsUser = "root"
     }
 
-    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    String hmsPort = context.config.otherConfigs.get("hive2HmsPort")
     String hmsUris = context.config.otherConfigs.get("jfsHiveMetastoreUris")
     if (hmsUris == null || hmsUris.trim().isEmpty()) {
+        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        String hmsPort = context.config.otherConfigs.get("hive3HmsPort")
+        if (hmsPort == null || hmsPort.trim().isEmpty()) {
+            hmsPort = context.config.otherConfigs.get("hive2HmsPort")
+        }
+        if (externalEnvIp == null || externalEnvIp.trim().isEmpty()
+                || hmsPort == null || hmsPort.trim().isEmpty()) {
+            logger.info("skip JFS test because jfsHiveMetastoreUris is empty and fallback externalEnvIp/hmsPort is invalid.")
+            return
+        }
         hmsUris = "thrift://${externalEnvIp}:${hmsPort}"
     }
     String catalogName = "test_jfs_hms_catalog_read"
@@ -78,9 +86,9 @@ suite("test_jfs_hms_catalog_read", "p0,external") {
     jfsStagingDir = jfsStagingDir.replaceAll('/+$', '')
     String dbLocation = "${jfsDbBasePath}/${dbName}"
 
-    try {
-        sql """drop catalog if exists ${catalogName}"""
+    sql """drop catalog if exists ${catalogName}"""
 
+    try {
         sql """
             CREATE CATALOG ${catalogName} PROPERTIES (
                 'type' = 'hms',
@@ -97,12 +105,16 @@ suite("test_jfs_hms_catalog_read", "p0,external") {
         def dbs = sql """show databases"""
         assertTrue(dbs.size() > 0)
 
+        def hasDb = sql """show databases like '${dbName}'"""
+        if (hasDb.size() > 0) {
+            sql """drop table if exists `${dbName}`.`${tableName}`"""
+            sql """drop database if exists `${dbName}`"""
+        }
         sql """
-            create database if not exists `${dbName}`
+            create database `${dbName}`
             properties('location'='${dbLocation}')
         """
         sql """use `${dbName}`"""
-        sql """drop table if exists `${tableName}`"""
         sql """
             CREATE TABLE `${tableName}` (
               `id` INT,
@@ -124,14 +136,6 @@ suite("test_jfs_hms_catalog_read", "p0,external") {
         assertEquals("2", rows[1][0].toString())
         assertEquals("jfs_2", rows[1][1].toString())
     } finally {
-        try {
-            sql """switch ${catalogName}"""
-            sql """drop table if exists `${dbName}`.`${tableName}`"""
-            sql """drop database if exists `${dbName}`"""
-        } catch (Exception e) {
-            logger.info("cleanup jfs hive objects failed: ${e.getMessage()}")
-        }
         sql """switch internal"""
-        sql """drop catalog if exists ${catalogName}"""
     }
 }

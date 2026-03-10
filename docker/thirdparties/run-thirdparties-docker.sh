@@ -232,11 +232,10 @@ reserve_ports() {
 
 JFS_META_FORMATTED=0
 DORIS_ROOT="$(cd "${ROOT}/../.." &>/dev/null && pwd)"
-JUICEFS_DEFAULT_VERSION="1.3.1"
+. "${DORIS_ROOT}/thirdparty/juicefs-helpers.sh"
 JUICEFS_LOCAL_BIN="${DORIS_ROOT}/thirdparty/installed/juicefs_bin/juicefs"
 
 find_juicefs_hadoop_jar() {
-    local juicefs_jar=""
     local -a jar_globs=(
         "${DORIS_ROOT}/thirdparty/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/output/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
@@ -246,51 +245,19 @@ find_juicefs_hadoop_jar() {
         "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
         "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
     )
-
-    for jar_glob in "${jar_globs[@]}"; do
-        juicefs_jar=$(compgen -G "${jar_glob}" | head -n 1 || true)
-        if [[ -n "${juicefs_jar}" ]]; then
-            echo "${juicefs_jar}"
-            return 0
-        fi
-    done
-
-    return 1
+    juicefs_find_hadoop_jar_by_globs "${jar_globs[@]}"
 }
 
 detect_juicefs_version() {
     local juicefs_jar
     juicefs_jar=$(find_juicefs_hadoop_jar || true)
-    if [[ -z "${juicefs_jar}" ]]; then
-        echo "${JUICEFS_DEFAULT_VERSION}"
-        return
-    fi
-
-    juicefs_jar=$(basename "${juicefs_jar}")
-    juicefs_jar=${juicefs_jar#juicefs-hadoop-}
-    echo "${juicefs_jar%.jar}"
+    juicefs_detect_hadoop_version "${juicefs_jar}" "${JUICEFS_DEFAULT_VERSION}"
 }
 
 download_juicefs_hadoop_jar() {
     local juicefs_version="$1"
     local cache_dir="${DORIS_ROOT}/thirdparty/installed/juicefs_libs"
-    local jar_name="juicefs-hadoop-${juicefs_version}.jar"
-    local target_jar="${cache_dir}/${jar_name}"
-    local download_url="https://github.com/juicedata/juicefs/releases/download/v${juicefs_version}/${jar_name}"
-
-    mkdir -p "${cache_dir}"
-    if [[ -s "${target_jar}" ]]; then
-        echo "${target_jar}"
-        return 0
-    fi
-
-    echo "Downloading JuiceFS Hadoop jar ${juicefs_version} from ${download_url}" >&2
-    if ! curl -fL --retry 3 --retry-delay 2 --connect-timeout 10 -o "${target_jar}" "${download_url}"; then
-        rm -f "${target_jar}"
-        return 1
-    fi
-
-    echo "${target_jar}"
+    juicefs_download_hadoop_jar_to_cache "${juicefs_version}" "${cache_dir}"
 }
 
 install_juicefs_cli() {

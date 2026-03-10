@@ -71,6 +71,7 @@ Usage: $0 <options>
     DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hadoop-hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
     DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
+    DISABLE_BUILD_JUICEFS       If set DISABLE_BUILD_JUICEFS=ON, it will skip packaging juicefs-hadoop jar into FE/BE output.
 
   Eg.
     $0                                      build all
@@ -134,64 +135,26 @@ function copy_common_files() {
     cp -r -p "${DORIS_HOME}/dist/licenses" "$1/"
 }
 
-JUICEFS_DEFAULT_VERSION="1.3.1"
+. "${DORIS_HOME}/thirdparty/juicefs-helpers.sh"
 
 find_juicefs_hadoop_jar() {
-    local juicefs_jar=""
-    local search_globs=(
-        "${DORIS_THIRDPARTY}/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar"
-        "${DORIS_THIRDPARTY}/src/juicefs-hadoop-[0-9]*.jar"
-        "${DORIS_HOME}/thirdparty/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar"
+    juicefs_find_hadoop_jar_by_globs \
+        "${DORIS_THIRDPARTY}/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar" \
+        "${DORIS_THIRDPARTY}/src/juicefs-hadoop-[0-9]*.jar" \
+        "${DORIS_HOME}/thirdparty/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar" \
         "${DORIS_HOME}/thirdparty/src/juicefs-hadoop-[0-9]*.jar"
-    )
-    local jar_glob=""
-    for jar_glob in "${search_globs[@]}"; do
-        juicefs_jar=$(compgen -G "${jar_glob}" | head -n 1 || true)
-        if [[ -n "${juicefs_jar}" ]]; then
-            echo "${juicefs_jar}"
-            return 0
-        fi
-    done
-    return 1
 }
 
 detect_juicefs_version() {
     local juicefs_jar
     juicefs_jar=$(find_juicefs_hadoop_jar || true)
-    if [[ -z "${juicefs_jar}" ]]; then
-        echo "${JUICEFS_DEFAULT_VERSION}"
-        return 0
-    fi
-    juicefs_jar=$(basename "${juicefs_jar}")
-    juicefs_jar=${juicefs_jar#juicefs-hadoop-}
-    echo "${juicefs_jar%.jar}"
+    juicefs_detect_hadoop_version "${juicefs_jar}" "${JUICEFS_DEFAULT_VERSION}"
 }
 
 download_juicefs_hadoop_jar() {
     local juicefs_version="$1"
     local cache_dir="${DORIS_HOME}/thirdparty/installed/juicefs_libs"
-    local jar_name="juicefs-hadoop-${juicefs_version}.jar"
-    local cached_jar="${cache_dir}/${jar_name}"
-    local download_url="https://repo1.maven.org/maven2/io/juicefs/juicefs-hadoop/${juicefs_version}/${jar_name}"
-    install -d "${cache_dir}"
-    if [[ -f "${cached_jar}" ]]; then
-        echo "${cached_jar}"
-        return 0
-    fi
-    echo "Downloading JuiceFS Hadoop jar ${juicefs_version} from ${download_url}" >&2
-    if command -v curl >/dev/null 2>&1; then
-        if curl -fSL "${download_url}" -o "${cached_jar}"; then
-            echo "${cached_jar}"
-            return 0
-        fi
-    elif command -v wget >/dev/null 2>&1; then
-        if wget -q "${download_url}" -O "${cached_jar}"; then
-            echo "${cached_jar}"
-            return 0
-        fi
-    fi
-    rm -f "${cached_jar}"
-    return 1
+    juicefs_download_hadoop_jar_to_cache "${juicefs_version}" "${cache_dir}"
 }
 
 copy_juicefs_hadoop_jar() {
@@ -574,6 +537,12 @@ else
     BUILD_JINDOFS='ON'
 fi
 
+if [[ "$(echo "${DISABLE_BUILD_JUICEFS}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+    BUILD_JUICEFS='OFF'
+else
+    BUILD_JUICEFS='ON'
+fi
+
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
     ENABLE_INJECTION_POINT='OFF'
 fi
@@ -622,6 +591,7 @@ echo "Get params:
     BUILD_BE_JAVA_EXTENSIONS            -- ${BUILD_BE_JAVA_EXTENSIONS}
     BUILD_BE_CDC_CLIENT                 -- ${BUILD_BE_CDC_CLIENT}
     BUILD_HIVE_UDF                      -- ${BUILD_HIVE_UDF}
+    BUILD_JUICEFS                       -- ${BUILD_JUICEFS}
     PARALLEL                            -- ${PARALLEL}
     CLEAN                               -- ${CLEAN}
     GLIBC_COMPATIBILITY                 -- ${GLIBC_COMPATIBILITY}
@@ -929,7 +899,9 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     if [[ "${BUILD_JINDOFS}" == "ON" ]]; then
         install -d "${DORIS_OUTPUT}/fe/lib/jindofs"
     fi
-    install -d "${DORIS_OUTPUT}/fe/lib/juicefs"
+    if [[ "${BUILD_JUICEFS}" == "ON" ]]; then
+        install -d "${DORIS_OUTPUT}/fe/lib/juicefs"
+    fi
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     if [[ "${WITH_TDE_DIR}" != "" ]]; then
@@ -951,7 +923,9 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     fi
 
     # copy juicefs hadoop client jar
-    copy_juicefs_hadoop_jar "${DORIS_OUTPUT}/fe/lib/juicefs"
+    if [[ "${BUILD_JUICEFS}" == "ON" ]]; then
+        copy_juicefs_hadoop_jar "${DORIS_OUTPUT}/fe/lib/juicefs"
+    fi
 
     cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/
@@ -1138,10 +1112,12 @@ EOF
             cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
         fi
     fi
-    install -d "${DORIS_OUTPUT}/be/lib/java_extensions/juicefs"/
+    if [[ "${BUILD_JUICEFS}" == "ON" ]]; then
+        install -d "${DORIS_OUTPUT}/be/lib/java_extensions/juicefs"/
 
-    # copy juicefs hadoop client jar
-    copy_juicefs_hadoop_jar "${DORIS_OUTPUT}/be/lib/java_extensions/juicefs"
+        # copy juicefs hadoop client jar
+        copy_juicefs_hadoop_jar "${DORIS_OUTPUT}/be/lib/java_extensions/juicefs"
+    fi
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
     copy_common_files "${DORIS_OUTPUT}/be/"
