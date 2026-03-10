@@ -115,7 +115,7 @@ public final class CacheSpec {
      * Convert ttlSecond to OptionalLong for CacheFactory.
      * ttlSecond=-1 means no expiration; ttlSecond=0 disables cache.
      */
-    public static OptionalLong toExpireAfterAccess(long ttlSecond) {
+    public static OptionalLong toExpireAfterWrite(long ttlSecond) {
         if (ttlSecond == CACHE_NO_TTL) {
             return OptionalLong.empty();
         }

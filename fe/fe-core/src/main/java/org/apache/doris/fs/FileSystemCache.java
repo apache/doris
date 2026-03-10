@@ -34,7 +34,7 @@ public class FileSystemCache {
     public FileSystemCache() {
         // no need to set refreshAfterWrite, because the FileSystem is created once and never changed
         CacheFactory fsCacheFactory = new CacheFactory(
-                OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
+                OptionalLong.of(Config.external_cache_expire_time_seconds_after_write),
                 OptionalLong.empty(),
                 Config.max_remote_file_system_cache_num,
                 false,

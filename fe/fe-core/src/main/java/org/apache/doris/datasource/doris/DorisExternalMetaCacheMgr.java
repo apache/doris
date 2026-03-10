@@ -40,7 +40,7 @@ public class DorisExternalMetaCacheMgr {
 
     public DorisExternalMetaCacheMgr(ExecutorService executor) {
         CacheFactory cacheFactory = new CacheFactory(
-                OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
+                OptionalLong.of(Config.external_cache_expire_time_seconds_after_write),
                 OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
                 20,
                 true,

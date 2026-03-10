@@ -37,6 +37,7 @@ import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -316,6 +317,16 @@ public class TestHMSCachedClient implements HMSCachedClient {
             }
             throw new RuntimeException("can't found the partition");
         }
+    }
+
+    @Override
+    public int getNumPartitionsByFilter(String dbName, String tableName, String filter) {
+        return 0;
+    }
+
+    @Override
+    public List<Partition> listPartitionsByFilter(String dbName, String tableName, String filter, short maxParts) {
+        return Collections.emptyList();
     }
 
     public List<Partition> getPartitionList(String dbName, String tableName) {

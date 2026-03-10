@@ -65,7 +65,7 @@ public class PaimonMetadataCache {
     public void init() {
         CacheSpec cacheSpec = resolveTableCacheSpec();
         CacheFactory tableCacheFactory = new CacheFactory(
-                CacheSpec.toExpireAfterAccess(cacheSpec.getTtlSecond()),
+                CacheSpec.toExpireAfterWrite(cacheSpec.getTtlSecond()),
                 OptionalLong.empty(),
                 cacheSpec.getCapacity(),
                 true,
@@ -77,7 +77,7 @@ public class PaimonMetadataCache {
         return CacheSpec.fromProperties(catalog.getProperties(),
                 PaimonExternalCatalog.PAIMON_TABLE_CACHE_ENABLE, true,
                 PaimonExternalCatalog.PAIMON_TABLE_CACHE_TTL_SECOND,
-                Config.external_cache_expire_time_seconds_after_access,
+                Config.external_cache_expire_time_seconds_after_write,
                 PaimonExternalCatalog.PAIMON_TABLE_CACHE_CAPACITY,
                 Config.max_external_table_cache_num);
     }

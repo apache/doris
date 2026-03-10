@@ -2318,16 +2318,16 @@ public class Config extends ConfigBase {
     public static long max_external_schema_cache_num = 10000;
 
     @ConfField(description = {
-            "外部表元数据缓存对象在最后访问后过期的时间。",
-            "The expiration time of a cache object after last access of it. For external meta cache."
+            "外部表元数据缓存对象在最后写入后过期的时间。",
+            "The expiration time of a cache object after last write of it. For external meta cache."
     })
-    public static long external_cache_expire_time_seconds_after_access = 86400L; // 24 hours
+    public static long external_cache_expire_time_seconds_after_write = 28800L; // 8 hours
 
     @ConfField(description = {
             "外部表元数据缓存对象的自动刷新时间",
             "The auto refresh time of external meta cache."
     })
-    public static long external_cache_refresh_time_minutes = 10; // 10 mins
+    public static long external_cache_refresh_time_minutes = 3; // 3 mins
 
     /**
      * Github workflow test type, for setting some session variables
@@ -3912,4 +3912,25 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"是否忽略hive表的transaction属性",
             "whether to ignore the transaction property of the hive table"})
     public static boolean ignore_hive_table_transaction = true;
+
+    /**
+     * Max cache num of hive partition count.
+     * Decrease this value if FE's memory is small
+     */
+    @ConfField(description = {"Hive Metastore 表级别分区计数缓存的最大数量。",
+        "Max cache number of partition count at table level in Hive Metastore."})
+    public static long max_hive_partition_count_cache_num = 10000;
+
+    @ConfField(description = {"过滤的Hive分区表缓存的最大数量",
+        "Max cache number of filter hive table partition"})
+    public static long max_filter_hive_partition_cache_num = 1000;
+
+    @ConfField(mutable = true, description = {"单个hive表不使用谓词下推的最大分区数量",
+        "max partition num for single hive table without filter"})
+    public static int max_partition_num_for_single_hive_table_without_filter = 3000;
+
+    @ConfField(mutable = true, description = {"单个hive表能扫描的最大分区数量",
+        "max selected partition num for single hive table"})
+    public static int max_selected_partition_num_for_hive_table = 100000;
+
 }

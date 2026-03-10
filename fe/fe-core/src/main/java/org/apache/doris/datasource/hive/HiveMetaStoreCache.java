@@ -56,6 +56,7 @@ import org.apache.doris.qe.BDPAuthContext;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.Weigher;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -75,6 +76,9 @@ import org.apache.hadoop.hive.metastore.utils.FileUtils;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.checkerframework.checker.index.qual.NonNegative;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -89,11 +93,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 // The cache of a hms catalog. 3 kind of caches:
 // 1. partitionValuesCache: cache the partition values of a table, for partition prune.
 // 2. partitionCache: cache the partition info(location, input format, etc.) of a table.
 // 3. fileCache: cache the files of a location.
+// 4. partitionNumCache: cache the partition num of a table.
 public class HiveMetaStoreCache {
     private static final Logger LOG = LogManager.getLogger(HiveMetaStoreCache.class);
     public static final String HIVE_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__";
@@ -104,6 +110,10 @@ public class HiveMetaStoreCache {
     private final ExecutorService refreshExecutor;
     private final ExecutorService fileListingExecutor;
 
+    // cache from <dbname-tblname> -> <num of partitions>
+    private LoadingCache<PartitionNumCacheKey, Integer> partitionNumCache;
+    // cache from <dbname-tblname-filter> -> <values of partitions>
+    private LoadingCache<FilterPartitionValueCacheKey, Map<Long, PartitionItem>> filterPartitionValuesCache;
     // cache from <dbname-tblname> -> <values of partitions>
     private LoadingCache<PartitionValueCacheKey, HivePartitionValues> partitionValuesCache;
     // cache from <dbname-tblname-partition_values> -> <partition info>
@@ -134,28 +144,62 @@ public class HiveMetaStoreCache {
 
         CacheFactory partitionValuesCacheFactory = new CacheFactory(
                 OptionalLong.of(partitionCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
-                        ? partitionCacheTtlSecond : Config.external_cache_expire_time_seconds_after_access),
+                        ? partitionCacheTtlSecond : Config.external_cache_expire_time_seconds_after_write),
                 OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
-                Config.max_hive_partition_table_cache_num,
                 true,
+                Config.max_hive_partition_table_cache_num
+                * Config.max_partition_num_for_single_hive_table_without_filter,
+                new Weigher<PartitionValueCacheKey, HivePartitionValues>() {
+                    @Override
+                    public @NonNegative int weigh(@NonNull PartitionValueCacheKey partitionValueCacheKey,
+                                              @NonNull HivePartitionValues hivePartitionValues) {
+                        return hivePartitionValues.idToPartitionItem.size();
+                    }
+                },
                 null);
         partitionValuesCache = partitionValuesCacheFactory.buildCache(this::loadPartitionValues,
                 refreshExecutor);
 
+        CacheFactory partitionNumCacheFactory = new CacheFactory(
+                OptionalLong.of(Config.external_cache_expire_time_seconds_after_write),
+                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
+                Config.max_hive_partition_count_cache_num,
+                true,
+                null);
+        partitionNumCache = partitionNumCacheFactory.buildCache(this::loadPartitionNum, refreshExecutor);
+
+        CacheFactory filterPartitionValuesCacheFactory = new CacheFactory(
+                OptionalLong.of(Config.external_cache_expire_time_seconds_after_write),
+                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
+                true,
+                Config.max_filter_hive_partition_cache_num
+                * Config.max_partition_num_for_single_hive_table_without_filter,
+                new Weigher<FilterPartitionValueCacheKey, Map<Long, PartitionItem>>() {
+                    @Override
+                    public @NonNegative int weigh(@NonNull FilterPartitionValueCacheKey filterPartitionValueCacheKey,
+                                              @NonNull Map<Long, PartitionItem> longPartitionItemMap) {
+                        return longPartitionItemMap.size();
+                    }
+                },
+                null);
+        filterPartitionValuesCache = filterPartitionValuesCacheFactory.buildCache(this::loadFilterPartitionValues,
+                refreshExecutor);
+
         CacheFactory partitionCacheFactory = new CacheFactory(
-                OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
+                OptionalLong.of(Config.external_cache_expire_time_seconds_after_write),
                 OptionalLong.empty(),
                 Config.max_hive_partition_cache_num,
                 true,
                 null);
         partitionCache = partitionCacheFactory.buildCache(new CacheLoader<PartitionCacheKey, HivePartition>() {
             @Override
-            public HivePartition load(PartitionCacheKey key) {
+            public HivePartition load(@NotNull PartitionCacheKey key) {
                 return loadPartition(key);
             }
 
             @Override
-            public Map<PartitionCacheKey, HivePartition> loadAll(Iterable<? extends PartitionCacheKey> keys) {
+            public @NotNull Map<PartitionCacheKey, HivePartition> loadAll(
+                @NotNull Iterable<? extends PartitionCacheKey> keys) {
                 return loadPartitions(keys);
             }
         }, refreshExecutor);
@@ -174,7 +218,7 @@ public class HiveMetaStoreCache {
 
         CacheFactory fileCacheFactory = new CacheFactory(
                 OptionalLong.of(fileMetaCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
-                        ? fileMetaCacheTtlSecond : Config.external_cache_expire_time_seconds_after_access),
+                        ? fileMetaCacheTtlSecond : Config.external_cache_expire_time_seconds_after_write),
                 OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
                 Config.max_external_file_cache_num,
                 true,
@@ -277,6 +321,61 @@ public class HiveMetaStoreCache {
             throw new CacheException("failed to convert hive partition %s to list partition in catalog %s",
                     e, partitionName, catalog.getName());
         }
+    }
+
+    private int loadPartitionNum(PartitionNumCacheKey key) {
+        Preconditions.checkNotNull(BDPAuthContext.get(), "bdp auth info cannot be null");
+        return catalog.getClient().getNumPartitionsByFilter(key.nameMapping.getRemoteDbName(),
+                key.nameMapping.getRemoteTblName(), "");
+    }
+
+    private Map<Long, PartitionItem> loadFilterPartitionValues(FilterPartitionValueCacheKey key) {
+        Preconditions.checkNotNull(BDPAuthContext.get(), "bdp auth info cannot be null");
+        List<Partition> partitions = catalog.getClient().listPartitionsByFilter(
+                key.nameMapping.getRemoteDbName(), key.nameMapping.getRemoteTblName(), key.filter, (short) -1);
+        Map<Long, PartitionItem> idToPartitionItem = Maps.newHashMapWithExpectedSize(partitions.size());
+        for (Partition partition : partitions) {
+            List<PartitionValue> values = Lists.newArrayListWithExpectedSize(key.types.size());
+            for (String partitionValue : partition.getValues()) {
+                values.add(new PartitionValue(partitionValue, HIVE_DEFAULT_PARTITION.equals(partitionValue)));
+            }
+            try {
+                PartitionKey partitionKey = PartitionKey.createListPartitionKeyWithTypes(values, key.types, true);
+                String partitionName = IntStream.range(0, key.partitionColumnNames.size())
+                        .mapToObj(i -> key.partitionColumnNames.get(i) + "=" + values.get(i).getStringValue())
+                        .collect(Collectors.joining("/"));
+                long partitionId = Util.genIdByName(catalog.getName(), key.nameMapping.getLocalDbName(),
+                        key.nameMapping.getLocalTblName(), partitionName);
+                idToPartitionItem.put(partitionId, new ListPartitionItem(Lists.newArrayList(partitionKey)));
+            } catch (AnalysisException e) {
+                throw new CacheException("failed to convert hive partition %s to list partition in catalog %s",
+                    e, partition.getValues(), catalog.getName());
+            }
+        }
+        return idToPartitionItem;
+    }
+
+    public Map<Long, PartitionItem> getPartitionValuesByFilter(ExternalTable dorisTable, String filter,
+                                                               List<String> partitionColumnNames, List<Type> types) {
+        Preconditions.checkNotNull(BDPAuthContext.get(), "bdp auth info cannot be null");
+        FilterPartitionValueCacheKey key = new FilterPartitionValueCacheKey(BDPAuthContext.get().getHadoopUserName(),
+                dorisTable.getOrBuildNameMapping(), filter, partitionColumnNames, types);
+        return getFilterPartitionValues(key);
+    }
+
+    public Map<Long, PartitionItem> getFilterPartitionValues(FilterPartitionValueCacheKey key) {
+        return filterPartitionValuesCache.get(key);
+    }
+
+    public int getPartitionNum(ExternalTable dorisTable) {
+        Preconditions.checkNotNull(BDPAuthContext.get(), "bdp auth info cannot be null");
+        PartitionNumCacheKey key = new PartitionNumCacheKey(BDPAuthContext.get().getHadoopUserName(),
+                dorisTable.getOrBuildNameMapping());
+        return getPartitionNum(key);
+    }
+
+    public int getPartitionNum(PartitionNumCacheKey key) {
+        return partitionNumCache.get(key);
     }
 
     private HivePartition loadPartition(PartitionCacheKey key) {
@@ -693,6 +792,8 @@ public class HiveMetaStoreCache {
     }
 
     public void invalidateAll() {
+        partitionNumCache.invalidateAll();
+        filterPartitionValuesCache.invalidateAll();
         partitionValuesCache.invalidateAll();
         partitionCache.invalidateAll();
         fileCacheRef.get().invalidateAll();
@@ -825,6 +926,91 @@ public class HiveMetaStoreCache {
             throw new CacheException("Failed to get input splits %s", e, txnValidIds.toString());
         }
         return fileCacheValues;
+    }
+
+    /**
+     * The Key of hive partition num cache
+     */
+    @Data
+    public static class PartitionNumCacheKey {
+        private String hadoopUserName;
+        private NameMapping nameMapping;
+
+        public PartitionNumCacheKey(String hadoopUserName, NameMapping nameMapping) {
+            this.hadoopUserName = hadoopUserName;
+            this.nameMapping = nameMapping;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof PartitionNumCacheKey)) {
+                return false;
+            }
+            return hadoopUserName.equals(((PartitionNumCacheKey) obj).hadoopUserName)
+                && nameMapping.equals(((PartitionNumCacheKey) obj).nameMapping);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(hadoopUserName, nameMapping);
+        }
+
+        @Override
+        public String toString() {
+            return "PartitionNumCacheKey{" + "hadoopUserName='" + hadoopUserName + '\''
+                + ",dbName='" + nameMapping.getLocalDbName() + '\'' + ", tblName='"
+                + nameMapping.getLocalTblName() + '\'' + '}';
+        }
+    }
+
+    /**
+     * The Key of hive filter partition value cache
+     */
+    @Data
+    public static class FilterPartitionValueCacheKey {
+        private String hadoopUserName;
+        private NameMapping nameMapping;
+        private String filter;
+        // not in key
+        private List<String> partitionColumnNames;
+        private List<Type> types;
+
+        public FilterPartitionValueCacheKey(String hadoopUserName, NameMapping nameMapping, String filer,
+                                            List<String> partitionColumnNames, List<Type> types) {
+            this.hadoopUserName = hadoopUserName;
+            this.nameMapping = nameMapping;
+            this.filter = filer;
+            this.partitionColumnNames = partitionColumnNames;
+            this.types = types;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof FilterPartitionValueCacheKey)) {
+                return false;
+            }
+            return hadoopUserName.equals(((FilterPartitionValueCacheKey) obj).hadoopUserName)
+                && nameMapping.equals(((FilterPartitionValueCacheKey) obj).nameMapping)
+                && filter.equals(((FilterPartitionValueCacheKey) obj).filter);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(hadoopUserName, nameMapping, filter);
+        }
+
+        @Override
+        public String toString() {
+            return "FilterPartitionValueCacheKey{" + "hadoopUserName='" + hadoopUserName + '\''
+                + ",dbName='" + nameMapping.getLocalDbName() + '\'' + ", tblName='"
+                + nameMapping.getLocalTblName() + '\'' + ",filter='" + filter + '\'' + '\'' + '}';
+        }
     }
 
     /**

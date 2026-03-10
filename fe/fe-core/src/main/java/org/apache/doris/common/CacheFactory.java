@@ -24,6 +24,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.github.benmanes.caffeine.cache.Ticker;
+import com.github.benmanes.caffeine.cache.Weigher;
 import org.jetbrains.annotations.NotNull;
 
 import java.time.Duration;
@@ -46,25 +47,42 @@ import java.util.concurrent.ExecutorService;
  */
 public class CacheFactory {
 
-    private OptionalLong expireAfterAccessSec;
+    private OptionalLong expireAfterWriteSec;
     private OptionalLong refreshAfterWriteSec;
-    private long maxSize;
+    private long maxSize = -1;
     private boolean enableStats;
     // Ticker is used to provide a time source for the cache.
     // Only used for test, to provide a fake time source.
     // If not provided, the system time is used.
     private Ticker ticker;
+    private long maxWeight = -1;
+    private Weigher weigher = null;
 
     public CacheFactory(
-            OptionalLong expireAfterAccessSec,
+            OptionalLong expireAfterWriteSec,
             OptionalLong refreshAfterWriteSec,
             long maxSize,
             boolean enableStats,
             Ticker ticker) {
-        this.expireAfterAccessSec = expireAfterAccessSec;
+        this.expireAfterWriteSec = expireAfterWriteSec;
         this.refreshAfterWriteSec = refreshAfterWriteSec;
         this.maxSize = maxSize;
         this.enableStats = enableStats;
+        this.ticker = ticker;
+    }
+
+    public CacheFactory(
+            OptionalLong expireAfterWriteSec,
+            OptionalLong refreshAfterWriteSec,
+            boolean enableStats,
+            long maxWeight,
+            Weigher weigher,
+            Ticker ticker) {
+        this.expireAfterWriteSec = expireAfterWriteSec;
+        this.refreshAfterWriteSec = refreshAfterWriteSec;
+        this.enableStats = enableStats;
+        this.maxWeight = maxWeight;
+        this.weigher = weigher;
         this.ticker = ticker;
     }
 
@@ -116,17 +134,23 @@ public class CacheFactory {
     @NotNull
     private Caffeine<Object, Object> buildWithParams() {
         Caffeine<Object, Object> builder = Caffeine.newBuilder();
-        builder.maximumSize(maxSize);
 
-        if (expireAfterAccessSec.isPresent()) {
-            builder.expireAfterAccess(Duration.ofSeconds(expireAfterAccessSec.getAsLong()));
+        if (expireAfterWriteSec.isPresent()) {
+            builder.expireAfterAccess(Duration.ofSeconds(expireAfterWriteSec.getAsLong()));
         }
+
         if (refreshAfterWriteSec.isPresent()) {
             builder.refreshAfterWrite(Duration.ofSeconds(refreshAfterWriteSec.getAsLong()));
         }
 
         if (enableStats) {
             builder.recordStats();
+        }
+
+        if (weigher != null) {
+            builder.weigher(weigher).maximumWeight(maxWeight);
+        } else {
+            builder.maximumSize(maxSize);
         }
 
         if (ticker != null) {

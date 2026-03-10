@@ -51,10 +51,10 @@ public class ExternalSchemaCache {
     private void init(ExecutorService executor) {
         CacheSpec cacheSpec = CacheSpec.fromTtlValue(
                 catalog.getProperties().get(ExternalCatalog.SCHEMA_CACHE_TTL_SECOND),
-                Config.external_cache_expire_time_seconds_after_access,
+                Config.external_cache_expire_time_seconds_after_write,
                 Config.max_external_schema_cache_num);
         CacheFactory schemaCacheFactory = new CacheFactory(
-                CacheSpec.toExpireAfterAccess(cacheSpec.getTtlSecond()),
+                CacheSpec.toExpireAfterWrite(cacheSpec.getTtlSecond()),
                 OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
                 cacheSpec.getCapacity(),
                 false,

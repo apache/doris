@@ -67,7 +67,7 @@ public class IcebergMetadataCache {
     public void init() {
         CacheSpec tableCacheSpec = resolveTableCacheSpec();
         CacheFactory tableCacheFactory = new CacheFactory(
-                CacheSpec.toExpireAfterAccess(tableCacheSpec.getTtlSecond()),
+                CacheSpec.toExpireAfterWrite(tableCacheSpec.getTtlSecond()),
                 OptionalLong.empty(),
                 tableCacheSpec.getCapacity(),
                 true,
@@ -84,7 +84,7 @@ public class IcebergMetadataCache {
         return CacheSpec.fromProperties(catalog.getProperties(),
                 IcebergExternalCatalog.ICEBERG_TABLE_CACHE_ENABLE, true,
                 IcebergExternalCatalog.ICEBERG_TABLE_CACHE_TTL_SECOND,
-                Config.external_cache_expire_time_seconds_after_access,
+                Config.external_cache_expire_time_seconds_after_write,
                 IcebergExternalCatalog.ICEBERG_TABLE_CACHE_CAPACITY,
                 Config.max_external_table_cache_num);
     }

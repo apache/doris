@@ -39,7 +39,7 @@ public class IcebergManifestCache {
 
     public IcebergManifestCache(long capacity, long ttlSec) {
         CacheFactory cacheFactory = new CacheFactory(
-                CacheSpec.toExpireAfterAccess(ttlSec),
+                CacheSpec.toExpireAfterWrite(ttlSec),
                 java.util.OptionalLong.empty(),
                 capacity,
                 true,
