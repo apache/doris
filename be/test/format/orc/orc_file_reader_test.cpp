@@ -23,6 +23,7 @@
 #include "util/slice.h"
 
 namespace doris {
+namespace {
 
 class MockFileReader : public io::FileReader {
 public:
@@ -61,6 +62,7 @@ private:
     bool _closed = false;
     io::Path _path = "/tmp/mock";
 };
+} // anonymous namespace
 
 class OrcMergeRangeFileReaderTest : public testing::Test {
 protected:
