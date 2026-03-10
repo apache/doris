@@ -450,6 +450,10 @@ protected:
 
         auto get_ptr() { return &(this->operator*()); }
 
+        // Provide get_first()/get_second() at the iterator level, consistent with PHHashMap::iterator
+        auto& get_first() { return (**this).get_first(); }
+        auto& get_second() { return (**this).get_second(); }
+
         size_t get_hash() const {
             switch (sub_table_index) {
             case 0: {
