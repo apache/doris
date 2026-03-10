@@ -26,7 +26,7 @@
 #include "exprs/aggregate/aggregate_function_window.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <template <typename> class AggregateFunctionTemplate,
@@ -354,4 +354,4 @@ AggregateFunctionPtr create_function_lead_lag_first_last(const String& name,
     }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

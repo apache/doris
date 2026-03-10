@@ -20,7 +20,7 @@
 #include "exprs/aggregate/aggregate_function_topn.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
@@ -49,4 +49,4 @@ AggregateFunctionPtr create_aggregate_function_topn_weighted(const std::string& 
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

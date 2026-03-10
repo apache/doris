@@ -17,7 +17,7 @@
 
 #include "exprs/aggregate/aggregate_function_collect_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_collect_with_limit(
@@ -27,4 +27,4 @@ AggregateFunctionPtr create_aggregate_function_collect_with_limit(
                                                         attr);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

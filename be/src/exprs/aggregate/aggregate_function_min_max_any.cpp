@@ -17,11 +17,11 @@
 
 #include "exprs/aggregate/aggregate_function_min_max_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // Explicit instantiation for AggregateFunctionAnyData
 template AggregateFunctionPtr create_aggregate_function_single_value<AggregateFunctionAnyData>(
         const String&, const DataTypes&, const DataTypePtr&, const bool,
         const AggregateFunctionAttr&);
 
-} // namespace doris::vectorized
+} // namespace doris

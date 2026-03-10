@@ -24,7 +24,7 @@
 #include "exprs/aggregate/factory_helpers.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <PrimitiveType T, bool HasLimit>
@@ -72,5 +72,5 @@ AggregateFunctionPtr create_aggregate_function_collect_impl(const std::string& n
     return agg_fn;
 }
 
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

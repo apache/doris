@@ -20,7 +20,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "exprs/aggregate/aggregate_function_group_array_set_op_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_group_array_union(
@@ -40,4 +40,4 @@ AggregateFunctionPtr create_aggregate_function_group_array_union(
             {argument_type}, result_is_nullable, attr);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

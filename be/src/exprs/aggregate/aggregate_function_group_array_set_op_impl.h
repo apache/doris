@@ -26,7 +26,7 @@
 #include "exprs/aggregate/factory_helpers.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <template <PrimitiveType> class ImplNumericData, typename ImplStringData>
@@ -112,5 +112,5 @@ inline AggregateFunctionPtr create_aggregate_function_group_array_impl(
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

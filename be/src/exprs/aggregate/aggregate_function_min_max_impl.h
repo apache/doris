@@ -25,7 +25,7 @@
 #include "exprs/aggregate/factory_helpers.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 /// min, max, any — shared template definition
@@ -144,5 +144,5 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

@@ -19,7 +19,7 @@
 #include "exprs/aggregate/aggregate_function_reader_first_last.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 // only replace function in load/reader do different agg operation.
@@ -47,4 +47,4 @@ void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFact
                       create_aggregate_function_last_non_null_value<false>, true);
 }
 
-} // namespace doris::vectorized
+} // namespace doris
