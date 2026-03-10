@@ -35,7 +35,7 @@ public class JdbcTypeHandlerFactory {
         switch (tableType.toUpperCase()) {
             case "MYSQL":
             case "OCEANBASE":
-                return new MySQLTypeHandler();
+                return new MySQLTypeHandler(tableType);
             case "ORACLE":
             case "OCEANBASE_ORACLE":
                 return new OracleTypeHandler();

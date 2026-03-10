@@ -50,6 +50,19 @@ import java.util.stream.Collectors;
  */
 public class MySQLTypeHandler extends DefaultTypeHandler {
 
+    // Store the table type to differentiate MySQL vs OceanBase behavior.
+    // OceanBase TIME columns lose fractional second precision with rs.getString(),
+    // so we only use getString() for MySQL TIME (to handle >24h values).
+    private final String tableType;
+
+    public MySQLTypeHandler() {
+        this("MYSQL");
+    }
+
+    public MySQLTypeHandler(String tableType) {
+        this.tableType = tableType != null ? tableType.toUpperCase() : "MYSQL";
+    }
+
     @Override
     public Object getColumnValue(ResultSet rs, int columnIndex, ColumnType type,
                                  ResultSetMetaData metadata) throws SQLException {
@@ -86,8 +99,9 @@ public class MySQLTypeHandler extends DefaultTypeHandler {
             case STRING: {
                 int jdbcType = metadata.getColumnType(columnIndex);
                 // MySQL TIME type needs getString() to handle >24h values.
-                // Also needed when MySQL driver connects to MariaDB.
-                if (jdbcType == Types.TIME) {
+                // But for OceanBase, getString() loses fractional second precision,
+                // so we use getObject() instead (matching old MySQLJdbcExecutor behavior).
+                if (jdbcType == Types.TIME && "MYSQL".equals(tableType)) {
                     return rs.getString(columnIndex);
                 }
                 return rs.getObject(columnIndex);

@@ -136,8 +136,8 @@ public class DefaultTypeHandler implements JdbcTypeHandler {
         if (time == null) {
             return null;
         }
-        long milliseconds = time.getTime() % 1000L;
-        if (milliseconds > 0) {
+        long milliseconds = Math.abs(time.getTime() % 1000L);
+        if (milliseconds != 0) {
             return String.format("%s.%03d", time, milliseconds);
         } else {
             return time.toString();
