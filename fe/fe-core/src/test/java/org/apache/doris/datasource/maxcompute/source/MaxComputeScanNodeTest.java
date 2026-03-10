@@ -275,10 +275,10 @@ public class MaxComputeScanNodeTest {
             return SessionStatus.NORMAL;
         }
 
-        @Override
-        public String toJson() {
-            return "{}";
-        }
+        // @Override
+        // public String toJson() {
+        //     return "{}";
+        // }
     }
 
     // ==================== Mock Session Helper ====================
