@@ -18,7 +18,6 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.maxcompute.MCProperties;
-import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.metastore.AWSGlueMetaStoreBaseProperties;
 import org.apache.doris.datasource.property.metastore.AliyunDLFBaseProperties;
 import org.apache.doris.datasource.property.storage.AzureProperties;
@@ -29,6 +28,7 @@ import org.apache.doris.datasource.property.storage.OBSProperties;
 import org.apache.doris.datasource.property.storage.OSSHdfsProperties;
 import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import com.google.common.collect.Sets;
 
