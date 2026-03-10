@@ -24,7 +24,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_topn(const std::string& name,
@@ -94,4 +94,4 @@ void register_aggregate_function_topn(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("topn_weighted", create_aggregate_function_topn_weighted);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

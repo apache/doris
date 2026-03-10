@@ -46,7 +46,7 @@
 //          to_string (const IColumn &column, size_t row_num, BufferWritable &ostr), to_string (const IColumn &column, size_t row_num), to_string_batch (const IColumn &column, ColumnString &column_to), from_string (ReadBuffer &rb, IColumn *column)
 //          serialize (const IColumn &column, char *buf, int be_exec_version), deserialize (const char *buf, MutableColumnPtr *column, int be_exec_version)
 
-namespace doris::vectorized {
+namespace doris {
 
 class DataTypeHLLTest : public ::testing::TestWithParam<int> {
 protected:
@@ -147,12 +147,10 @@ TEST_P(DataTypeHLLTest, SerializeDeserializeAsStreamTest) {
     auto* column_res = assert_cast<ColumnHLL*>(c.get());
     column_res->resize(rows_value);
     for (size_t i = 0; i != rows_value; ++i) {
-        doris::vectorized::DataTypeHLL::serialize_as_stream(column_data->get_element(i),
-                                                            buffer_writer);
+        doris::DataTypeHLL::serialize_as_stream(column_data->get_element(i), buffer_writer);
         buffer_writer.commit();
         BufferReadable buffer_readable(ser_col->get_data_at(i));
-        doris::vectorized::DataTypeHLL::deserialize_as_stream(column_res->get_element(i),
-                                                              buffer_readable);
+        doris::DataTypeHLL::deserialize_as_stream(column_res->get_element(i), buffer_readable);
         ASSERT_EQ(column_data->get_data()[i].to_string(), column_res->get_data()[i].to_string());
     }
     std::cout << "finish serialize deserialize as stream test" << std::endl;
@@ -160,4 +158,4 @@ TEST_P(DataTypeHLLTest, SerializeDeserializeAsStreamTest) {
 
 INSTANTIATE_TEST_SUITE_P(Params, DataTypeHLLTest, ::testing::Values(0, 1, 10, 100));
 
-} // namespace doris::vectorized
+} // namespace doris

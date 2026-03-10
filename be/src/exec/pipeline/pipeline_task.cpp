@@ -55,7 +55,7 @@ namespace doris {
 class RuntimeState;
 } // namespace doris
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
@@ -165,7 +165,7 @@ Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, co
     } else {
         return Status::InternalError("Fragment already finished! Query: {}", print_id(_query_id));
     }
-    _block = doris::vectorized::Block::create_unique();
+    _block = doris::Block::create_unique();
     return _state_transition(State::RUNNABLE);
 }
 
@@ -657,7 +657,7 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
     COUNTER_UPDATE(_memory_reserve_times, 1);
     auto sink_revocable_mem_size = _sink->revocable_mem_size(_state);
     if (st.ok() && _state->enable_force_spill() && _sink->is_spillable() &&
-        sink_revocable_mem_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+        sink_revocable_mem_size >= SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
         st = Status(ErrorCode::QUERY_MEMORY_EXCEEDED, "Force Spill");
     }
     if (!st.ok()) {
@@ -694,7 +694,7 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
         // build hash table directly and will consume a lot of memory. So that should return false directly.
         // TODO: we should using a global system buffer management logic to deal with low memory mode.
         /**
-        if (sink_revocable_mem_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+        if (sink_revocable_mem_size >= SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
             LOG(INFO) << fmt::format(
                     "Query: {} sink: {}, node id: {}, task id: "
                     "{}, revocable mem size: {}",
@@ -867,7 +867,7 @@ Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_co
     }
 
     const auto revocable_size = _sink->revocable_mem_size(_state);
-    if (revocable_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+    if (revocable_size >= SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
         auto revokable_task = std::make_shared<RevokableTask>(shared_from_this(), spill_context);
         RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(revokable_task));
     } else {
@@ -907,4 +907,4 @@ Status PipelineTask::_state_transition(State new_state) {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

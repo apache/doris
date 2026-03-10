@@ -32,7 +32,7 @@ class FrameOfReferencePageTest : public testing::Test {
 public:
     template <FieldType type, class PageDecoderType>
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
-        vectorized::Arena pool;
+        Arena pool;
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(1, true, get_scalar_type_info(type), nullptr, &cvb);
         ColumnBlock block(cvb.get(), &pool);
@@ -65,7 +65,7 @@ public:
         EXPECT_EQ(0, for_page_decoder.current_index());
         EXPECT_EQ(size, for_page_decoder.count());
 
-        vectorized::Arena pool;
+        Arena pool;
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(size, true, get_scalar_type_info(Type), nullptr, &cvb);
         ColumnBlock block(cvb.get(), &pool);

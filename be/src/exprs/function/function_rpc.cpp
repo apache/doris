@@ -32,7 +32,7 @@
 #include "runtime/exec_env.h"
 #include "util/brpc_client_cache.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 RPCFnImpl::RPCFnImpl(const TFunction& fn) : _fn(fn) {
     _function_name = _fn.scalar_fn.symbol;
@@ -107,4 +107,4 @@ Status FunctionRPC::open(FunctionContext* context, FunctionContext::FunctionStat
     }
     return Status::OK();
 }
-} // namespace doris::vectorized
+} // namespace doris

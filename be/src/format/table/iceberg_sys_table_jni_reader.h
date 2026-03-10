@@ -33,12 +33,10 @@ namespace doris {
 class RuntimeProfile;
 class RuntimeState;
 class SlotDescriptor;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class IcebergSysTableJniReader : public JniReader {
@@ -58,4 +56,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -41,7 +41,7 @@
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(IsStringType<FromDataType> && IsDatelikeTypes<ToDataType>)
@@ -527,4 +527,4 @@ WrapperType create_datelike_wrapper(FunctionContext* context, const DataTypePtr&
 }
 #include "common/compile_check_end.h"
 }; // namespace CastWrapper
-} // namespace doris::vectorized
+} // namespace doris

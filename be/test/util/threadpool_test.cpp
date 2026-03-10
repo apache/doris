@@ -23,6 +23,7 @@
 #include <gtest/gtest-param-test.h>
 #include <gtest/gtest-test-part.h>
 #include <sched.h>
+#include <sys/resource.h>
 #include <unistd.h>
 
 #include <atomic>
@@ -334,6 +335,8 @@ TEST_F(ThreadPoolTest, TestDeadlocks) {
 #endif
     EXPECT_DEATH(
             {
+                struct rlimit core_limit {};
+                setrlimit(RLIMIT_CORE, &core_limit);
                 EXPECT_TRUE(rebuild_pool_with_min_max(1, 1).ok());
                 EXPECT_TRUE(_pool->submit_func([pool = _pool.get()]() { pool->shutdown(); }).ok());
                 _pool->wait();
@@ -342,6 +345,8 @@ TEST_F(ThreadPoolTest, TestDeadlocks) {
 
     EXPECT_DEATH(
             {
+                struct rlimit core_limit {};
+                setrlimit(RLIMIT_CORE, &core_limit);
                 EXPECT_TRUE(rebuild_pool_with_min_max(1, 1).ok());
                 EXPECT_TRUE(_pool->submit_func([pool = _pool.get()]() { pool->wait(); }).ok());
                 _pool->wait();

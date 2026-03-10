@@ -49,10 +49,8 @@ class TupleDescriptor;
 namespace io {
 struct IOContext;
 } // namespace io
-namespace vectorized {
 class Block;
 class FieldDescriptor;
-} // namespace vectorized
 } // namespace doris
 namespace tparquet {
 class ColumnMetaData;
@@ -64,7 +62,7 @@ namespace doris::segment_v2 {
 class RowIdColumnIteratorV2;
 }
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 // TODO: we need to determine it by test.
 
@@ -284,4 +282,4 @@ private:
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

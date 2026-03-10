@@ -30,7 +30,7 @@
 #include "exprs/vexpr_fwd.h"
 #include "util/simd/bits.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 inline std::string compound_operator_to_string(TExprOpcode::type op) {
@@ -418,4 +418,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

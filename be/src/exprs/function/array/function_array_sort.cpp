@@ -21,7 +21,7 @@
 
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct NameArraySort {
     static constexpr auto name = "array_sort";
@@ -35,4 +35,4 @@ void register_function_array_sort(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArraySort<NameArrayReverseSort, false>>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

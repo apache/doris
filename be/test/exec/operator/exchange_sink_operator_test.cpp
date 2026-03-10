@@ -28,7 +28,7 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_data_stream_sender.h"
 #include "testutil/mock/mock_descriptors.h"
-namespace doris::pipeline {
+namespace doris {
 
 TUniqueId create_TUniqueId(int64_t hi, int64_t lo) {
     TUniqueId t {};
@@ -39,7 +39,6 @@ TUniqueId create_TUniqueId(int64_t hi, int64_t lo) {
 
 TUniqueId fragment_instance_id = create_TUniqueId(2, 2);
 
-using namespace vectorized;
 struct MockExchangeLocalState : public ExchangeSinkLocalState {
     MockExchangeLocalState(ExchangeSinkOperatorX* parent, RuntimeState* state)
             : ExchangeSinkLocalState(parent, state) {}
@@ -110,7 +109,7 @@ auto test_for_no_partitioned(std::vector<ChannelInfo> channel_info) {
     {
         //execute sink
         bool eos = true;
-        vectorized::Block block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
+        Block block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
         auto st = op->sink(&ctx->state, &block, eos);
         EXPECT_TRUE(st.ok()) << st.msg();
     }
@@ -189,4 +188,4 @@ TEST(ExchangeSinkOperatorTest, test_some_api) {
     EXPECT_TRUE(exchange_sink_local_state->_finish_dependency->ready());
 }
 
-} // namespace doris::pipeline
+} // namespace doris

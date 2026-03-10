@@ -36,7 +36,7 @@
 #include "core/types.h"
 #include "core/value/bitmap_value.h"
 
-namespace doris::vectorized {
+namespace doris {
 class BufferReadable;
 class BufferWritable;
 class IColumn;
@@ -93,4 +93,4 @@ public:
     };
 };
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -28,7 +28,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "storage/types.h" // for TypeInfo
 
-namespace doris::vectorized {
+namespace doris {
 // This test aim to make sense for text serde of data types.
 //  we use default formatOption and special formatOption to test serde behavior.
 TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
@@ -1245,4 +1245,4 @@ TEST(TextSerde, test_slice) {
         std::cout << s.to_string() << std::endl;
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

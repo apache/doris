@@ -25,7 +25,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 // get data type of variant column
 class FunctionVariantType : public IFunction {
@@ -105,4 +105,4 @@ void register_function_variant_type(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionVariantType>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

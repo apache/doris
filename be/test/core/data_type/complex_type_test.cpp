@@ -32,7 +32,7 @@
 #include "core/field.h"
 #include "gtest/gtest_pred_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(ComplexTypeTest, CreateColumnConstWithDefaultValue) {
     DataTypePtr n1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
@@ -70,4 +70,4 @@ TEST(ComplexTypeTest, CreateColumnConstWithDefaultValue) {
     col_a->get(0, af);
     EXPECT_EQ(PrimitiveType::TYPE_ARRAY, af.get_type());
 }
-} // namespace doris::vectorized
+} // namespace doris

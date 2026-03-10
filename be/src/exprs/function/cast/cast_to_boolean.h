@@ -21,7 +21,7 @@
 #include "exprs/function/cast/cast_base.h"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct CastToBool {
     template <class SRC>
@@ -234,4 +234,4 @@ inline WrapperType create_boolean_wrapper(FunctionContext* context, const DataTy
 
 }; // namespace CastWrapper
 
-} // namespace doris::vectorized
+} // namespace doris

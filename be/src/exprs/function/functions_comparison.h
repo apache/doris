@@ -41,7 +41,7 @@
 #include "exprs/function/functions_logical.h"
 #include "storage/index/index_reader_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 /** Comparison functions: ==, !=, <, >, <=, >=.
@@ -446,7 +446,7 @@ public:
 
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
-            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
@@ -624,4 +624,4 @@ public:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

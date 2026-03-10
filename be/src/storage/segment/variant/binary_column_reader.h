@@ -135,18 +135,18 @@ public:
 
     Status seek_to_ordinal(ordinal_t ord_idx) override;
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override;
+                          MutableColumnPtr& dst) override;
 
     ordinal_t get_current_ordinal() const override;
 
 private:
-    void _collect_sparse_data_from_buckets(vectorized::IColumn& binary_data_column);
+    void _collect_sparse_data_from_buckets(IColumn& binary_data_column);
 
     std::vector<std::unique_ptr<ColumnIterator>> _iters;
-    std::vector<vectorized::MutableColumnPtr> _binary_column_data;
+    std::vector<MutableColumnPtr> _binary_column_data;
 };
 
 #include "common/compile_check_end.h"

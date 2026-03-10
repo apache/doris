@@ -28,7 +28,6 @@
 #include "exprs/vexpr_context.h"
 
 namespace doris {
-namespace vectorized {
 
 JdbcConnectorParam VJdbcTableWriter::create_connect_param(const doris::TDataSink& t_sink) {
     const TJdbcTableSink& t_jdbc_sink = t_sink.jdbc_table_sink;
@@ -58,12 +57,12 @@ JdbcConnectorParam VJdbcTableWriter::create_connect_param(const doris::TDataSink
 
 VJdbcTableWriter::VJdbcTableWriter(const TDataSink& t_sink,
                                    const VExprContextSPtrs& output_expr_ctxs,
-                                   std::shared_ptr<pipeline::Dependency> dep,
-                                   std::shared_ptr<pipeline::Dependency> fin_dep)
+                                   std::shared_ptr<Dependency> dep,
+                                   std::shared_ptr<Dependency> fin_dep)
         : AsyncResultWriter(output_expr_ctxs, dep, fin_dep),
           JdbcConnector(create_connect_param(t_sink)) {}
 
-Status VJdbcTableWriter::write(RuntimeState* state, vectorized::Block& block) {
+Status VJdbcTableWriter::write(RuntimeState* state, Block& block) {
     Block output_block;
     RETURN_IF_ERROR(_projection_block(block, &output_block));
     auto num_rows = output_block.rows();
@@ -80,5 +79,4 @@ Status VJdbcTableWriter::write(RuntimeState* state, vectorized::Block& block) {
     return Status::OK();
 }
 
-} // namespace vectorized
 } // namespace doris

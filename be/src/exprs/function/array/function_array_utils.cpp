@@ -29,7 +29,7 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 bool extract_column_array_info(const IColumn& src, ColumnArrayExecutionData& data) {
     const IColumn* array_col = &src;
@@ -133,4 +133,4 @@ void slice_array(ColumnArrayMutableData& dst, ColumnArrayExecutionData& src,
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -35,12 +35,10 @@ class RuntimeProfile;
 class RuntimeState;
 class SlotDescriptor;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 class LakeSoulJniReader : public JniReader {
     ENABLE_FACTORY_CREATOR(LakeSoulJniReader);
 
@@ -57,4 +55,4 @@ private:
     const TLakeSoulFileDesc& _lakesoul_params;
 };
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

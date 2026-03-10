@@ -32,7 +32,7 @@
 #include "format/parquet/parquet_common.h"
 #include "format/parquet/schema_desc.h"
 
-namespace doris::vectorized::parquet {
+namespace doris::parquet {
 #include "common/compile_check_begin.h"
 struct ConvertParams {
     // schema.logicalType.TIMESTAMP.isAdjustedToUTC == false
@@ -270,28 +270,28 @@ struct UnsignedTypeTraits<TYPE_SMALLINT> {
     //INT(8, false), INT(16, false), and INT(32, false) must annotate an int32 primitive type and INT(64, false)
     //must annotate an int64 primitive type.
     using StorageCppType = Int32;
-    using StorageColumnType = vectorized::ColumnInt32;
+    using StorageColumnType = ColumnInt32;
 };
 
 template <>
 struct UnsignedTypeTraits<TYPE_INT> {
     using UnsignedCppType = UInt16;
     using StorageCppType = Int32;
-    using StorageColumnType = vectorized::ColumnInt32;
+    using StorageColumnType = ColumnInt32;
 };
 
 template <>
 struct UnsignedTypeTraits<TYPE_BIGINT> {
     using UnsignedCppType = UInt32;
     using StorageCppType = Int32;
-    using StorageColumnType = vectorized::ColumnInt32;
+    using StorageColumnType = ColumnInt32;
 };
 
 template <>
 struct UnsignedTypeTraits<TYPE_LARGEINT> {
     using UnsignedCppType = UInt64;
     using StorageCppType = Int64;
-    using StorageColumnType = vectorized::ColumnInt64;
+    using StorageColumnType = ColumnInt64;
 };
 
 template <PrimitiveType IntPrimitiveType>
@@ -447,8 +447,7 @@ public:
         DCHECK(!is_column_const(*src_logical_column)) << src_logical_column->dump_structure();
         const ColumnUInt8* uint8_col = nullptr;
         if (is_column_nullable(*src_physical_col)) {
-            const auto& nullable =
-                    assert_cast<const vectorized::ColumnNullable*>(src_physical_col.get());
+            const auto& nullable = assert_cast<const ColumnNullable*>(src_physical_col.get());
             uint8_col = &assert_cast<const ColumnUInt8&>(nullable->get_nested_column());
         } else {
             uint8_col = &assert_cast<const ColumnUInt8&>(*src_physical_col);
@@ -457,8 +456,7 @@ public:
         MutableColumnPtr to_col = nullptr;
         // nullmap flag seems have been handled in upper level
         if (src_logical_column->is_nullable()) {
-            const auto* nullable =
-                    assert_cast<const vectorized::ColumnNullable*>(src_logical_column.get());
+            const auto* nullable = assert_cast<const ColumnNullable*>(src_logical_column.get());
             to_col = nullable->get_nested_column_ptr()->assume_mutable();
         } else {
             to_col = src_logical_column->assume_mutable();
@@ -751,4 +749,4 @@ struct Int96toTimestampTz : public PhysicalToLogicalConverter {
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized::parquet
+} // namespace doris::parquet

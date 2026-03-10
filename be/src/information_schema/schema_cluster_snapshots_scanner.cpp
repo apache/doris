@@ -32,9 +32,7 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaClusterSnapshotsScanner::_s_tbls_columns = {
         {"ID", TYPE_STRING, sizeof(StringRef), true},
@@ -67,7 +65,7 @@ Status SchemaClusterSnapshotsScanner::start(RuntimeState* state) {
     return ExecEnv::GetInstance()->storage_engine().to_cloud().meta_mgr().list_snapshot(_snapshots);
 }
 
-Status SchemaClusterSnapshotsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaClusterSnapshotsScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }
@@ -83,7 +81,7 @@ Status SchemaClusterSnapshotsScanner::get_next_block_internal(vectorized::Block*
     return _fill_block_impl(block);
 }
 
-Status SchemaClusterSnapshotsScanner::_fill_block_impl(vectorized::Block* block) {
+Status SchemaClusterSnapshotsScanner::_fill_block_impl(Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     size_t row_num = _snapshots.size();
     if (row_num == 0) {

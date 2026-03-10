@@ -22,7 +22,7 @@
 #include "core/data_type/data_type.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_quantile_state_union(
@@ -45,4 +45,4 @@ void register_aggregate_function_quantile_state(AggregateFunctionSimpleFactory& 
                                    create_aggregate_function_quantile_state_union);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

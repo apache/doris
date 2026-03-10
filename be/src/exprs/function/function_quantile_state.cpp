@@ -58,7 +58,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 struct QuantileStateEmpty {
     static constexpr auto name = "quantile_state_empty";
@@ -343,4 +343,4 @@ void register_function_quantile_state(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionQuantileStateToBase64>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -29,7 +29,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/any_type.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(function_arithmetic_test, function_arithmetic_mod_test) {
     std::string func_name = "mod";
@@ -114,4 +114,4 @@ TEST(function_arithmetic_test, bitxor_test) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -51,7 +51,7 @@
 
 #include "util/indexed_priority_queue.hpp"
 
-namespace doris::vectorized {
+namespace doris {
 class SkewedPartitionRebalancer {
 private:
     struct TaskBucket {
@@ -127,4 +127,4 @@ private:
 
     std::vector<std::vector<TaskBucket>> _partition_assignments;
 };
-} // namespace doris::vectorized
+} // namespace doris

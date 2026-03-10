@@ -23,7 +23,6 @@
 #include "format/table/iceberg/partition_spec.h"
 
 namespace doris {
-namespace vectorized {
 
 const std::chrono::sys_days PartitionColumnTransformUtils::EPOCH = std::chrono::sys_days(
         std::chrono::year {1970} / std::chrono::January / std::chrono::day {1});
@@ -281,5 +280,4 @@ std::string PartitionColumnTransform::get_partition_value(const DataTypePtr type
     return "null";
 }
 
-} // namespace vectorized
 } // namespace doris

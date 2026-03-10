@@ -32,12 +32,10 @@ class RowDescriptor;
 class RuntimeProfile;
 class RuntimeState;
 
-namespace vectorized {
 class VSortExecExprs;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 PartitionSorter::PartitionSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
                                  ObjectPool* pool, std::vector<bool>& is_asc_order,
@@ -206,4 +204,4 @@ Status PartitionSorter::_read_row_rank(Block* output_block, bool* eos, int batch
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

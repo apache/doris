@@ -47,19 +47,19 @@ public:
 #endif
 
     // create and register runtime filters producers
-    Status init(RuntimeState* state, const vectorized::VExprContextSPtrs& build_expr_ctxs,
+    Status init(RuntimeState* state, const VExprContextSPtrs& build_expr_ctxs,
                 const std::vector<TRuntimeFilterDesc>& runtime_filter_descs);
 
     // send local size to remote to sync global rf size if needed
     MOCK_FUNCTION Status
     send_filter_size(RuntimeState* state, uint64_t hash_table_size,
-                     const std::shared_ptr<pipeline::CountedFinishDependency>& dependency);
+                     const std::shared_ptr<CountedFinishDependency>& dependency);
 
     // skip all runtime filter process, send size and rf to remote imeediately, mainly used to make join spill instance do not block other instance
     MOCK_FUNCTION Status skip_process(RuntimeState* state);
 
     // build rf
-    Status build(RuntimeState* state, const vectorized::Block* block, bool use_shared_table,
+    Status build(RuntimeState* state, const Block* block, bool use_shared_table,
                  std::map<int, std::shared_ptr<RuntimeFilterWrapper>>& runtime_filters);
 
     // publish rf
@@ -70,10 +70,10 @@ public:
     std::shared_ptr<RuntimeFilterWrapper> detect_local_in_filter(RuntimeState* state);
 
 protected:
-    virtual void _init_expr(const vectorized::VExprContextSPtrs& build_expr_ctxs,
+    virtual void _init_expr(const VExprContextSPtrs& build_expr_ctxs,
                             const std::vector<TRuntimeFilterDesc>& runtime_filter_descs);
     Status _init_filters(RuntimeState* state, uint64_t local_hash_table_size);
-    Status _insert(const vectorized::Block* block, size_t start);
+    Status _insert(const Block* block, size_t start);
     Status _publish(RuntimeState* state);
 
     std::vector<std::shared_ptr<RuntimeFilterProducer>> _producers;
@@ -88,7 +88,7 @@ protected:
     std::atomic_bool _skip_runtime_filters_process = false;
     const bool _is_broadcast_join;
 
-    std::vector<std::shared_ptr<vectorized::VExprContext>> _filter_expr_contexts;
+    std::vector<std::shared_ptr<VExprContext>> _filter_expr_contexts;
 };
 #include "common/compile_check_end.h"
 } // namespace doris

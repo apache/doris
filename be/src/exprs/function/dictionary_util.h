@@ -20,7 +20,7 @@
 #include "core/block/columns_with_type_and_name.h"
 #include "util/simd/bits.h"
 
-namespace doris::vectorized {
+namespace doris {
 /*
     If skip_null_key is false
         Check if there are null values in the columns of key_data, if so, return an error
@@ -75,4 +75,4 @@ Status inline check_dict_input_data(ColumnsWithTypeAndName& key_data,
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

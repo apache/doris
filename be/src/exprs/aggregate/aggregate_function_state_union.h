@@ -22,7 +22,7 @@
 #include "core/data_type/data_type_agg_state.h"
 #include "exprs/aggregate/aggregate_function.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 const static std::string AGG_UNION_SUFFIX = "_union";
 
@@ -112,6 +112,6 @@ protected:
     DataTypePtr _return_type;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

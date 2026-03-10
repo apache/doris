@@ -56,8 +56,6 @@ namespace doris {
 class DeltaWriterV2;
 class RuntimeProfile;
 
-namespace vectorized {
-
 class DeltaWriterV2Pool;
 
 class DeltaWriterV2Map {
@@ -107,7 +105,6 @@ private:
     std::unordered_map<UniqueId, std::shared_ptr<DeltaWriterV2Map>> _pool;
 };
 
-} // namespace vectorized
 } // namespace doris
 
 #include "common/compile_check_end.h"

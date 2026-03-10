@@ -75,7 +75,7 @@
 #include "util/simd/bits.h"
 #include "util/unaligned.h"
 
-namespace doris::vectorized {
+namespace doris {
 namespace {
 
 #include "common/compile_check_begin.h"
@@ -657,7 +657,7 @@ void ColumnVariant::Subcolumn::remove_nullable() {
     if (!is_finalized()) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Subcolumn is not finalized");
     }
-    data[0] = doris::vectorized::remove_nullable(data[0]);
+    data[0] = doris::remove_nullable(data[0]);
     least_common_type.remove_nullable();
 }
 
@@ -1481,7 +1481,7 @@ bool ColumnVariant::is_finalized() const {
 void ColumnVariant::Subcolumn::wrapp_array_nullable() {
     // Wrap array with nullable, treat empty array as null to elimate conflict at present
     auto& result_column = get_finalized_column_ptr();
-    if (is_column<vectorized::ColumnArray>(result_column.get()) && !result_column->is_nullable()) {
+    if (is_column<ColumnArray>(result_column.get()) && !result_column->is_nullable()) {
         auto new_null_map = ColumnUInt8::create();
         new_null_map->reserve(result_column->size());
         auto& null_map_data = new_null_map->get_data();
@@ -1945,13 +1945,13 @@ Status ColumnVariant::convert_typed_path_to_storage_type(
     for (auto&& entry : subcolumns) {
         if (auto it = typed_paths.find(entry->path.get_path()); it != typed_paths.end()) {
             CHECK(entry->data.is_finalized());
-            vectorized::DataTypePtr storage_type =
-                    vectorized::DataTypeFactory::instance().create_data_type(it->second.column);
-            vectorized::DataTypePtr finalized_type = entry->data.get_least_common_type();
+            DataTypePtr storage_type =
+                    DataTypeFactory::instance().create_data_type(it->second.column);
+            DataTypePtr finalized_type = entry->data.get_least_common_type();
             auto current_column = entry->data.get_finalized_column_ptr()->get_ptr();
             if (!storage_type->equals(*finalized_type)) {
-                RETURN_IF_ERROR(vectorized::variant_util::cast_column(
-                        {current_column, finalized_type, ""}, storage_type, &current_column));
+                RETURN_IF_ERROR(variant_util::cast_column({current_column, finalized_type, ""},
+                                                          storage_type, &current_column));
             }
             VLOG_DEBUG << "convert " << entry->path.get_path() << " from type"
                        << entry->data.get_least_common_type()->get_name() << " to "
@@ -2252,13 +2252,12 @@ bool NO_SANITIZE_UNDEFINED ColumnVariant::is_scalar_variant() const {
            doc_value_offsets[num_rows - 1] == 0; // no sparse data
 }
 
-const DataTypePtr ColumnVariant::NESTED_TYPE = std::make_shared<vectorized::DataTypeNullable>(
-        std::make_shared<vectorized::DataTypeArray>(std::make_shared<vectorized::DataTypeNullable>(
-                std::make_shared<vectorized::DataTypeVariant>(0))));
+const DataTypePtr ColumnVariant::NESTED_TYPE =
+        std::make_shared<DataTypeNullable>(std::make_shared<DataTypeArray>(
+                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeVariant>(0))));
 
-const DataTypePtr ColumnVariant::NESTED_TYPE_AS_ARRAY_OF_JSONB =
-        std::make_shared<vectorized::DataTypeArray>(std::make_shared<vectorized::DataTypeNullable>(
-                std::make_shared<vectorized::DataTypeJsonb>()));
+const DataTypePtr ColumnVariant::NESTED_TYPE_AS_ARRAY_OF_JSONB = std::make_shared<DataTypeArray>(
+        std::make_shared<DataTypeNullable>(std::make_shared<DataTypeJsonb>()));
 
 DataTypePtr ColumnVariant::get_root_type() const {
     return subcolumns.get_root()->data.get_least_common_type();
@@ -2670,4 +2669,4 @@ bool ColumnVariant::is_doc_mode() const {
 
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

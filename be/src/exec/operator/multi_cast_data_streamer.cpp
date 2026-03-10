@@ -38,16 +38,15 @@
 #include "util/pretty_printer.h"
 #include "util/uid_util.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
-MultiCastBlock::MultiCastBlock(vectorized::Block* block, int un_finish_copy, size_t mem_size)
+MultiCastBlock::MultiCastBlock(Block* block, int un_finish_copy, size_t mem_size)
         : _un_finish_copy(un_finish_copy), _mem_size(mem_size) {
-    _block = vectorized::Block::create_unique(block->get_columns_with_type_and_name());
+    _block = Block::create_unique(block->get_columns_with_type_and_name());
     block->clear();
 }
 
-Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, vectorized::Block* block,
-                                   bool* eos) {
+Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, Block* block, bool* eos) {
     MultiCastBlock* multi_cast_block = nullptr;
     {
         INJECT_MOCK_SLEEP(std::unique_lock l(_mutex));
@@ -90,7 +89,7 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, vectoriz
             }
 
             auto spill_func = [this, reader_item, sender_idx]() {
-                vectorized::Block block;
+                Block block;
                 bool spill_eos = false;
                 size_t read_size = 0;
                 while (!spill_eos) {
@@ -151,8 +150,7 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, vectoriz
     return _copy_block(state, sender_idx, block, *multi_cast_block);
 }
 
-Status MultiCastDataStreamer::_copy_block(RuntimeState* state, int32_t sender_idx,
-                                          vectorized::Block* block,
+Status MultiCastDataStreamer::_copy_block(RuntimeState* state, int32_t sender_idx, Block* block,
                                           MultiCastBlock& multi_cast_block) {
     const auto rows = block->rows();
     for (int i = 0; i < block->columns(); ++i) {
@@ -181,7 +179,7 @@ Status MultiCastDataStreamer::_trigger_spill_if_need(RuntimeState* state, bool* 
         return Status::OK();
     }
 
-    vectorized::SpillStreamSPtr spill_stream;
+    SpillStreamSPtr spill_stream;
     *triggered = false;
     if (_cumulative_mem_size.load() >= config::exchg_node_buffer_size_bytes &&
         _multi_cast_blocks.size() >= 4) {
@@ -237,9 +235,8 @@ Status MultiCastDataStreamer::_trigger_spill_if_need(RuntimeState* state, bool* 
     return Status::OK();
 }
 
-Status MultiCastDataStreamer::_start_spill_task(RuntimeState* state,
-                                                vectorized::SpillStreamSPtr spill_stream) {
-    std::vector<vectorized::Block> blocks;
+Status MultiCastDataStreamer::_start_spill_task(RuntimeState* state, SpillStreamSPtr spill_stream) {
+    std::vector<Block> blocks;
     for (auto& block : _multi_cast_blocks) {
         DCHECK_GT(block._block->rows(), 0);
         blocks.emplace_back(std::move(*block._block));
@@ -280,7 +277,7 @@ Status MultiCastDataStreamer::_start_spill_task(RuntimeState* state,
     return SpillSinkRunnable(state, nullptr, _sink_operator_profile, exception_catch_func).run();
 }
 
-Status MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block* block, bool eos) {
+Status MultiCastDataStreamer::push(RuntimeState* state, doris::Block* block, bool eos) {
     auto rows = block->rows();
     COUNTER_UPDATE(_process_rows, rows);
 
@@ -313,8 +310,7 @@ Status MultiCastDataStreamer::push(RuntimeState* state, doris::vectorized::Block
                 bool spilled = false;
                 RETURN_IF_ERROR(_trigger_spill_if_need(state, &spilled));
                 if (spilled) {
-                    _pending_block = vectorized::Block::create_unique(
-                            block->get_columns_with_type_and_name());
+                    _pending_block = Block::create_unique(block->get_columns_with_type_and_name());
                     block->clear();
                     return Status::OK();
                 }
@@ -395,4 +391,4 @@ std::string MultiCastDataStreamer::debug_string() {
     return fmt::to_string(debug_string_buffer);
 }
 
-} // namespace doris::pipeline
+} // namespace doris

@@ -25,7 +25,7 @@
 
 namespace doris {
 
-using namespace doris::vectorized;
+using namespace doris;
 
 constexpr static uint32_t MAX_PATH_LEN = 1024;
 constexpr static std::string_view dest_dir = "./ut_dir/inverted_index_test";
@@ -160,9 +160,9 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
     Block block = _tablet_schema->create_block();
     auto columns = block.mutate_columns();
 
-    vectorized::Field key = vectorized::Field::create_field<TYPE_INT>(10);
-    vectorized::Field v1 = vectorized::Field::create_field<TYPE_STRING>("v1");
-    vectorized::Field null_field = vectorized::Field();
+    Field key = Field::create_field<TYPE_INT>(10);
+    Field v1 = Field::create_field<TYPE_STRING>("v1");
+    Field null_field = Field();
     columns[0]->insert(key);
     columns[0]->insert(null_field);
     columns[0]->insert(key);
@@ -190,7 +190,7 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
         iter->set_context(context);
 
         ColumnsWithTypeAndName arguments;
-        std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
+        std::vector<IndexFieldNameAndTypePair> data_type_with_names;
         std::vector<segment_v2::IndexIterator*> iterators;
         iterators.push_back(iter.get());
         segment_v2::InvertedIndexResultBitmap bitmap_result;
@@ -253,7 +253,7 @@ TEST_F(FunctionIsNullTest, evaluate_inverted_index_corner_cases) {
     context->runtime_state = &runtime_state;
 
     ColumnsWithTypeAndName arguments;
-    std::vector<vectorized::IndexFieldNameAndTypePair> data_type_with_names;
+    std::vector<IndexFieldNameAndTypePair> data_type_with_names;
 
     auto is_null_function = std::make_shared<FunctionIsNull>();
     auto is_not_null_function = std::make_shared<FunctionIsNotNull>();
@@ -327,12 +327,12 @@ TEST_F(FunctionIsNullTest, evaluate_inverted_index_corner_cases) {
 
     // Create block with NO null values to test the scenario where
     // iterator might not have null bitmap or it's nullptr
-    vectorized::Field key1 = vectorized::Field::create_field<TYPE_INT>(10);
-    vectorized::Field key2 = vectorized::Field::create_field<TYPE_INT>(20);
-    vectorized::Field key3 = vectorized::Field::create_field<TYPE_INT>(30);
-    vectorized::Field v1 = vectorized::Field::create_field<TYPE_STRING>("value1");
-    vectorized::Field v2 = vectorized::Field::create_field<TYPE_STRING>("value2");
-    vectorized::Field v3 = vectorized::Field::create_field<TYPE_STRING>("value3");
+    Field key1 = Field::create_field<TYPE_INT>(10);
+    Field key2 = Field::create_field<TYPE_INT>(20);
+    Field key3 = Field::create_field<TYPE_INT>(30);
+    Field v1 = Field::create_field<TYPE_STRING>("value1");
+    Field v2 = Field::create_field<TYPE_STRING>("value2");
+    Field v3 = Field::create_field<TYPE_STRING>("value3");
 
     columns[0]->insert(key1);
     columns[0]->insert(key2);

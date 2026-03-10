@@ -44,7 +44,7 @@ class RowDescriptor;
 class RuntimeState;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
@@ -268,4 +268,4 @@ std::string VCastExpr::debug_string() const {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

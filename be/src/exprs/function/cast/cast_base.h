@@ -43,7 +43,7 @@
 #include "exprs/function/function_helpers.h"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct NameCast {
     static constexpr auto name = "CAST";
@@ -177,4 +177,4 @@ inline CastWrapper::WrapperType get_cast_wrapper(FunctionContext* context,
     return CastWrapper::prepare_unpack_dictionaries(context, from_type, to_type);
 }
 #endif
-} // namespace doris::vectorized
+} // namespace doris

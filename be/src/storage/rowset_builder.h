@@ -44,9 +44,7 @@ class SlotDescriptor;
 class OlapTableSchemaParam;
 class RowsetWriter;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 // Writer for a particular (load, index, tablet).
 // This class is NOT thread-safe, external synchronization is required.

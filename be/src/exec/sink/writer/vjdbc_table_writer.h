@@ -28,7 +28,6 @@
 #include "exec/sink/writer/async_result_writer.h"
 
 namespace doris {
-namespace vectorized {
 
 class Block;
 
@@ -37,8 +36,7 @@ public:
     static JdbcConnectorParam create_connect_param(const TDataSink&);
 
     VJdbcTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                     std::shared_ptr<pipeline::Dependency> dep,
-                     std::shared_ptr<pipeline::Dependency> fin_dep);
+                     std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
 
     // connect to jdbc server
     Status open(RuntimeState* state, RuntimeProfile* operator_profile) override {
@@ -46,7 +44,7 @@ public:
         return init_to_write(operator_profile);
     }
 
-    Status write(RuntimeState* state, vectorized::Block& block) override;
+    Status write(RuntimeState* state, Block& block) override;
 
     Status finish(RuntimeState* state) override { return JdbcConnector::finish_trans(); }
 
@@ -55,5 +53,4 @@ public:
 private:
     JdbcConnectorParam _param;
 };
-} // namespace vectorized
 } // namespace doris

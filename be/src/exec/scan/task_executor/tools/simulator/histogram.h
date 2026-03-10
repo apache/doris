@@ -31,7 +31,6 @@
 #include <vector>
 
 namespace doris {
-namespace vectorized {
 
 class HistogramUtils {
 public:
@@ -126,5 +125,4 @@ private:
     std::string to_string(const char* value) const { return std::string(value); }
 };
 
-} // namespace vectorized
 } // namespace doris

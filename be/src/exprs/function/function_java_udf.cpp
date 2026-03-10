@@ -35,7 +35,7 @@ const char* EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* EXECUTOR_EVALUATE_SIGNATURE = "(Ljava/util/Map;Ljava/util/Map;)J";
 const char* EXECUTOR_CLOSE_SIGNATURE = "()V";
 
-namespace doris::vectorized {
+namespace doris {
 
 JavaFunctionCall::JavaFunctionCall(const TFunction& fn, const DataTypes& argument_types,
                                    const DataTypePtr& return_type)
@@ -142,4 +142,4 @@ Status JavaFunctionCall::close(FunctionContext* context,
         return Status::OK();
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

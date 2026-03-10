@@ -66,7 +66,7 @@
 #include "runtime/runtime_state.h"
 #include "util/string_parser.hpp"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_avoid_begin.h"
 
 /// because all these functions(xxx_add/xxx_sub) defined in FE use Integer as the second value
@@ -1887,4 +1887,4 @@ using SubTimeDatetimeImpl = AddTimeImplBase<TYPE_DATETIMEV2, true>;
 using SubTimeTimeImpl = AddTimeImplBase<TYPE_TIMEV2, true>;
 using SubTimeTimestamptzImpl = AddTimeImplBase<TYPE_TIMESTAMPTZ, true>;
 #include "common/compile_check_avoid_end.h"
-} // namespace doris::vectorized
+} // namespace doris

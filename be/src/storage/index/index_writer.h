@@ -38,7 +38,7 @@ namespace doris {
 
 class CollectionValue;
 
-class Field;
+class StorageField;
 
 class TabletIndex;
 class TabletColumn;
@@ -48,7 +48,7 @@ class IndexFileWriter;
 
 class IndexColumnWriter {
 public:
-    static Status create(const Field* field, std::unique_ptr<IndexColumnWriter>* res,
+    static Status create(const StorageField* field, std::unique_ptr<IndexColumnWriter>* res,
                          IndexFileWriter* index_file_writer, const TabletIndex* inverted_index);
     virtual Status init() = 0;
 

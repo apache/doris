@@ -40,13 +40,11 @@
 namespace doris {
 class PColumnMeta;
 
-namespace vectorized {
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 /**
  * Use UInt32 as underlying type to represent DateV2 type.
@@ -191,4 +189,4 @@ constexpr bool IsDataTypeDateTimeV2 = false;
 template <>
 inline constexpr bool IsDataTypeDateTimeV2<DataTypeDateTimeV2> = true;
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris
