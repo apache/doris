@@ -27,7 +27,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/data_type/data_type.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 using ColumnsWithTypeAndName = std::vector<ColumnWithTypeAndName>;
 // only used in inverted index
@@ -40,4 +40,4 @@ using ColumnsWithTypeAndName = std::vector<ColumnWithTypeAndName>;
 // storage_type is the data type in Doris
 using IndexFieldNameAndTypePair = std::pair<std::string, DataTypePtr>;
 using NameAndTypePairs = std::vector<std::pair<std::string, DataTypePtr>>;
-} // namespace doris::vectorized
+} // namespace doris

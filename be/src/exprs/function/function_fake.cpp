@@ -38,7 +38,7 @@
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/table_function/table_function.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename ReturnType, bool AlwaysNullable = false, bool VARIADIC = false>
 struct FunctionFakeBaseImpl {
@@ -91,7 +91,7 @@ struct FunctionExplodeV2 {
         }
 
         if (fieldTypes.size() > 1) {
-            return make_nullable(std::make_shared<vectorized::DataTypeStruct>(fieldTypes));
+            return make_nullable(std::make_shared<DataTypeStruct>(fieldTypes));
         } else {
             return make_nullable(fieldTypes[0]);
         }
@@ -108,7 +108,7 @@ struct FunctionExplodeMap {
         DataTypes fieldTypes(2);
         fieldTypes[0] = check_and_get_data_type<DataTypeMap>(arguments[0].get())->get_key_type();
         fieldTypes[1] = check_and_get_data_type<DataTypeMap>(arguments[0].get())->get_value_type();
-        return make_nullable(std::make_shared<vectorized::DataTypeStruct>(fieldTypes));
+        return make_nullable(std::make_shared<DataTypeStruct>(fieldTypes));
     }
     static DataTypes get_variadic_argument_types() { return {}; }
     static std::string get_error_msg() { return "Fake function do not support execute"; }
@@ -126,7 +126,7 @@ struct FunctionPoseExplode {
                     check_and_get_data_type<DataTypeArray>(arguments[i].get())->get_nested_type();
             fieldTypes[i + 1] = make_nullable(nestedType);
         }
-        auto struct_type = std::make_shared<vectorized::DataTypeStruct>(fieldTypes);
+        auto struct_type = std::make_shared<DataTypeStruct>(fieldTypes);
         if constexpr (AlwaysNullable) {
             return make_nullable(struct_type);
         } else {
@@ -145,7 +145,7 @@ struct FunctionExplodeJsonObject {
         DataTypes fieldTypes(2);
         fieldTypes[0] = make_nullable(std::make_shared<DataTypeString>());
         fieldTypes[1] = make_nullable(std::make_shared<DataTypeJsonb>());
-        return make_nullable(std::make_shared<vectorized::DataTypeStruct>(fieldTypes));
+        return make_nullable(std::make_shared<DataTypeStruct>(fieldTypes));
     }
     static DataTypes get_variadic_argument_types() { return {}; }
     static std::string get_error_msg() { return "Fake function do not support execute"; }
@@ -260,4 +260,4 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_function_with_impl<FunctionExplodeV2>(factory, "explode_variant_array");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

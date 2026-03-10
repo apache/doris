@@ -32,7 +32,7 @@
 #include "testutil/datetime_ut_util.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 using namespace ut_type;
 
 class CastTimeStampTzTest : public testing::Test {
@@ -359,4 +359,4 @@ TEST_F(CastTimeStampTzTest, from_timestamptz_non_strict_mode_to_datetime) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

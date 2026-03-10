@@ -27,7 +27,7 @@
 #include "exec/common/sip_hash.h"
 #include "gtest/gtest_pred_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(ColumnNullableTest, HashTest) {
     MutableColumnPtr tmp_column = ColumnInt32::create();
@@ -51,4 +51,4 @@ TEST(ColumnNullableTest, HashTest) {
     EXPECT_NE(hashes[0].get64(), hashes[1].get64());
 }
 
-} // namespace doris::vectorized
+} // namespace doris

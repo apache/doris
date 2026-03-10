@@ -28,7 +28,7 @@ namespace doris::segment_v2 {
 
 struct InvertedIndexParam {
     std::string column_name;
-    vectorized::DataTypePtr column_type;
+    DataTypePtr column_type;
     const void* query_value;
     InvertedIndexQueryType query_type;
     uint32_t num_rows;
@@ -64,7 +64,7 @@ public:
     IndexReaderPtr get_reader(IndexReaderType reader_type) const override;
 
     [[nodiscard]] Result<InvertedIndexReaderPtr> select_best_reader(
-            const vectorized::DataTypePtr& column_type, InvertedIndexQueryType query_type,
+            const DataTypePtr& column_type, InvertedIndexQueryType query_type,
             const std::string& analyzer_key);
     [[nodiscard]] Result<InvertedIndexReaderPtr> select_best_reader(
             const std::string& analyzer_key);

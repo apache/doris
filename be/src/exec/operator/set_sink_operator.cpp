@@ -23,7 +23,7 @@
 #include "exec/common/hash_table/hash_table_set_build.h"
 #include "exec/operator/operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <bool is_intersect>
@@ -62,8 +62,7 @@ Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_s
 }
 
 template <bool is_intersect>
-Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Block* in_block,
-                                            bool eos) {
+Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block, bool eos) {
     constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
@@ -111,23 +110,22 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
 
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::_process_build_block(
-        SetSinkLocalState<is_intersect>& local_state, vectorized::Block& block,
-        RuntimeState* state) {
+        SetSinkLocalState<is_intersect>& local_state, Block& block, RuntimeState* state) {
     size_t rows = block.rows();
     if (rows == 0) {
         return Status::OK();
     }
 
-    vectorized::materialize_block_inplace(block);
-    vectorized::ColumnRawPtrs raw_ptrs(_child_exprs.size());
+    materialize_block_inplace(block);
+    ColumnRawPtrs raw_ptrs(_child_exprs.size());
     RETURN_IF_ERROR(_extract_build_column(local_state, block, raw_ptrs, rows));
     auto st = Status::OK();
     std::visit(
             [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                    vectorized::HashTableBuild<HashTableCtxType, is_intersect>
-                            hash_table_build_process(&local_state, uint32_t(rows), raw_ptrs, state);
+                    HashTableBuild<HashTableCtxType, is_intersect> hash_table_build_process(
+                            &local_state, uint32_t(rows), raw_ptrs, state);
                     st = hash_table_build_process(arg, local_state._shared_state->arena);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
@@ -141,8 +139,8 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
 
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::_extract_build_column(
-        SetSinkLocalState<is_intersect>& local_state, vectorized::Block& block,
-        vectorized::ColumnRawPtrs& raw_ptrs, size_t& rows) {
+        SetSinkLocalState<is_intersect>& local_state, Block& block, ColumnRawPtrs& raw_ptrs,
+        size_t& rows) {
     // use local state child exprs
     auto& child_expr = local_state._child_exprs;
     std::vector<int> result_locs(child_expr.size(), -1);
@@ -159,8 +157,7 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
 
         if (is_all_const) {
             block.get_by_position(result_col_id).column =
-                    assert_cast<const vectorized::ColumnConst&>(
-                            *block.get_by_position(result_col_id).column)
+                    assert_cast<const ColumnConst&>(*block.get_by_position(result_col_id).column)
                             .get_data_column_ptr();
         } else {
             block.get_by_position(result_col_id).column =
@@ -243,7 +240,7 @@ Status SetSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, RuntimeState
     }
 
     const auto& texpr = (*result_texpr_lists)[_cur_child_id];
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(texpr, _child_exprs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(texpr, _child_exprs));
 
     return Status::OK();
 }
@@ -272,8 +269,8 @@ size_t SetSinkOperatorX<is_intersect>::get_reserve_mem_size(RuntimeState* state,
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_exprs, state, _child->row_desc()));
-    return vectorized::VExpr::open(_child_exprs, state);
+    RETURN_IF_ERROR(VExpr::prepare(_child_exprs, state, _child->row_desc()));
+    return VExpr::open(_child_exprs, state);
 }
 
 template class SetSinkLocalState<true>;
@@ -281,4 +278,4 @@ template class SetSinkLocalState<false>;
 template class SetSinkOperatorX<true>;
 template class SetSinkOperatorX<false>;
 
-} // namespace doris::pipeline
+} // namespace doris

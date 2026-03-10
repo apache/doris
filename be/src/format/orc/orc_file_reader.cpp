@@ -21,7 +21,6 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-namespace vectorized {
 
 OrcMergeRangeFileReader::OrcMergeRangeFileReader(RuntimeProfile* profile,
                                                  io::FileReaderSPtr inner_reader,
@@ -103,5 +102,4 @@ void OrcMergeRangeFileReader::_collect_profile_before_close() {
     }
 }
 
-} // namespace vectorized
 } // namespace doris

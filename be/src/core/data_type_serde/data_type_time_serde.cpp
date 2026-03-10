@@ -24,7 +24,7 @@
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_time_impl.hpp"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Status DataTypeTimeV2SerDe::write_column_to_mysql_binary(const IColumn& column,
@@ -330,4 +330,4 @@ template Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDeci
 template Status DataTypeTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal256>(
         const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
 
-} // namespace doris::vectorized
+} // namespace doris

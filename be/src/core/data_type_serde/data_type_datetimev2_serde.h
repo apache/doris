@@ -30,7 +30,7 @@
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
 
-namespace doris::vectorized {
+namespace doris {
 class Arena;
 
 class DataTypeDateTimeV2SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_DATETIMEV2> {
@@ -98,7 +98,7 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
 
     Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, uint64_t rows,
@@ -110,9 +110,9 @@ public:
                                   int64_t row_num) const override;
     int get_scale() const override { return _scale; }
 
-    std::string to_olap_string(const vectorized::Field& field) const override;
+    std::string to_olap_string(const Field& field) const override;
 
 private:
     int _scale;
 };
-} // namespace doris::vectorized
+} // namespace doris

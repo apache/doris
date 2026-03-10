@@ -38,19 +38,17 @@ class TScanRange;
 class TScanRangeParams;
 class TupleDescriptor;
 
-namespace vectorized {
 class Block;
 class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class MetaScanner : public Scanner {
     ENABLE_FACTORY_CREATOR(MetaScanner);
 
 public:
-    MetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, TupleId tuple_id,
+    MetaScanner(RuntimeState* state, ScanLocalStateBase* local_state, TupleId tuple_id,
                 const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile,
                 TUserIdentity user_identity);
 
@@ -101,4 +99,4 @@ private:
     std::unordered_map<std::string, uint32_t> _src_block_name_to_idx;
 };
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

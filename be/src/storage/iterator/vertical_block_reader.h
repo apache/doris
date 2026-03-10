@@ -42,7 +42,6 @@
 namespace doris {
 struct RowsetId;
 
-namespace vectorized {
 class RowSourcesBuffer;
 struct RowBatch;
 
@@ -145,5 +144,4 @@ private:
     CompactionSampleInfo* _sample_info = nullptr;
 };
 
-} // namespace vectorized
 } // namespace doris

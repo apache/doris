@@ -29,7 +29,7 @@
 #include "exprs/function/function_search.h"
 #include "storage/segment/variant/nested_group_provider.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionSearchNestedTest : public testing::Test {
 public:
@@ -70,7 +70,7 @@ TEST_F(FunctionSearchNestedTest, NestedClauseMustBeTopLevel) {
     root_clause.__isset.children = true;
 
     auto context = std::make_shared<IndexQueryContext>();
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
     FieldReaderResolver resolver(data_types, iterators, context);
 
@@ -107,7 +107,7 @@ TEST_F(FunctionSearchNestedTest, CommunityBuildFallbackForNestedRootClause) {
     nested_clause.__set_children({inner_clause});
     search_param.root = nested_clause;
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> empty_data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> empty_data_types;
     std::unordered_map<std::string, IndexIterator*> empty_iterators;
     InvertedIndexResultBitmap bitmap_result;
 
@@ -145,7 +145,7 @@ TEST_F(FunctionSearchNestedTest, MissingNestedPath) {
     nested_clause.__set_children({inner});
 
     auto context = std::make_shared<IndexQueryContext>();
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
     FieldReaderResolver resolver(data_types, iterators, context);
     std::shared_ptr<roaring::Roaring> result_bitmap;
@@ -172,7 +172,7 @@ TEST_F(FunctionSearchNestedTest, MissingChildren) {
     nested_clause.__isset.children = false; // not set
 
     auto context = std::make_shared<IndexQueryContext>();
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
     FieldReaderResolver resolver(data_types, iterators, context);
     std::shared_ptr<roaring::Roaring> result_bitmap;
@@ -199,7 +199,7 @@ TEST_F(FunctionSearchNestedTest, EmptyChildrenList) {
     nested_clause.__set_children({}); // empty
 
     auto context = std::make_shared<IndexQueryContext>();
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
     FieldReaderResolver resolver(data_types, iterators, context);
     std::shared_ptr<roaring::Roaring> result_bitmap;
@@ -231,7 +231,7 @@ TEST_F(FunctionSearchNestedTest, NullExecContext) {
     nested_clause.__set_children({inner});
 
     auto context = std::make_shared<IndexQueryContext>();
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
     FieldReaderResolver resolver(data_types, iterators, context);
     std::shared_ptr<roaring::Roaring> result_bitmap;
@@ -257,7 +257,7 @@ TEST_F(FunctionSearchNestedTest, InitializesNullResultBitmap) {
     nested_clause.__isset.nested_path = false; // will fail early
 
     auto context = std::make_shared<IndexQueryContext>();
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
     FieldReaderResolver resolver(data_types, iterators, context);
     std::shared_ptr<roaring::Roaring> result_bitmap; // nullptr
@@ -291,7 +291,7 @@ TEST_F(FunctionSearchNestedTest, BitmapClearedAfterPassingValidation) {
     nested_clause.__set_children({inner});
 
     auto context = std::make_shared<IndexQueryContext>();
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
     FieldReaderResolver resolver(data_types, iterators, context);
 
@@ -331,7 +331,7 @@ TEST_F(FunctionSearchNestedTest, DottedNestedPath) {
     nested_clause.__set_children({inner});
 
     auto context = std::make_shared<IndexQueryContext>();
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
     FieldReaderResolver resolver(data_types, iterators, context);
     std::shared_ptr<roaring::Roaring> result_bitmap;
@@ -365,7 +365,7 @@ TEST_F(FunctionSearchNestedTest, NestedRootFallbackViaToplevelAPI) {
     nested_root.__set_children({inner});
     search_param.root = nested_root;
 
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
     std::unordered_map<std::string, IndexIterator*> iterators;
     InvertedIndexResultBitmap bitmap_result;
 
@@ -379,4 +379,4 @@ TEST_F(FunctionSearchNestedTest, NestedRootFallbackViaToplevelAPI) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

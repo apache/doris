@@ -46,14 +46,12 @@ namespace fs = std::filesystem;
 
 namespace doris {
 
-namespace vectorized {
 using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
-}
 
 RE2 time_zone_offset_format_reg(R"(^[+-]{1}\d{2}\:\d{2}$)"); // visiting is thread-safe
 
 // for ut, make it never nullptr.
-std::unique_ptr<vectorized::ZoneList> lower_zone_cache_ = std::make_unique<vectorized::ZoneList>();
+std::unique_ptr<ZoneList> lower_zone_cache_ = std::make_unique<ZoneList>();
 
 const std::string TimezoneUtils::default_time_zone = "+08:00";
 static const char* tzdir = "/usr/share/zoneinfo"; // default value, may change by TZDIR env var

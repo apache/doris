@@ -30,7 +30,7 @@
 #include "exprs/function/function.h"
 #include "exprs/function/function_helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <PrimitiveType A, typename Op>
 struct UnaryOperationImpl {
@@ -162,4 +162,4 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

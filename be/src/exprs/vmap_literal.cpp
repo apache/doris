@@ -31,13 +31,11 @@
 namespace doris {
 class RowDescriptor;
 class RuntimeState;
-namespace vectorized {
 class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
 //insert into table_map values ({'name':'zhangsan', 'gender':'male'}), ({'name':'lisi', 'gender':'female'});
-namespace doris::vectorized {
+namespace doris {
 
 Status VMapLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc,
                             VExprContext* context) {
@@ -65,4 +63,4 @@ Status VMapLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc,
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

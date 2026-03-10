@@ -71,7 +71,7 @@ public:
         EXPECT_TRUE(status.ok());
 
         //test1
-        vectorized::Arena pool;
+        Arena pool;
         size_t size = 3;
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(size, true,

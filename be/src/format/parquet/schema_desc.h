@@ -33,7 +33,7 @@
 #include "core/data_type/data_type_nothing.h"
 #include "util/slice.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 // Constant for unassigned column IDs
@@ -168,4 +168,4 @@ public:
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -41,7 +41,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 template <PrimitiveType T>
 struct AggregateFunctionHistogramData {
@@ -231,6 +231,6 @@ private:
     DataTypePtr _argument_type;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

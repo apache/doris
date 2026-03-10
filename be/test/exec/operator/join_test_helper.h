@@ -32,7 +32,7 @@
 #include "runtime/runtime_profile.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 class JoinTestHelper {
 public:
     virtual ~JoinTestHelper() = default;
@@ -50,4 +50,4 @@ public:
     DescriptorTbl* desc_tbl;
 };
 
-} // namespace doris::pipeline
+} // namespace doris

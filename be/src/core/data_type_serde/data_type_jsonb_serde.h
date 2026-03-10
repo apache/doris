@@ -29,7 +29,6 @@
 namespace doris {
 class JsonbOutStream;
 
-namespace vectorized {
 class Arena;
 
 class DataTypeJsonbSerDe : public DataTypeStringSerDe {
@@ -64,7 +63,7 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
 
     bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw, int64_t row_idx,
@@ -94,5 +93,4 @@ public:
 
 void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
                                 rapidjson::Document::AllocatorType& allocator);
-} // namespace vectorized
 } // namespace doris

@@ -30,7 +30,6 @@
 #include "util/simd/bits.h"
 
 namespace doris {
-namespace vectorized {
 class Arena;
 #include "common/compile_check_begin.h"
 Status DataTypeMapSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
@@ -429,7 +428,7 @@ Status DataTypeMapSerDe::write_column_to_mysql_binary(const IColumn& column,
 Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                              const NullMap* null_map,
                                              orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                             int64_t end, vectorized::Arena& arena,
+                                             int64_t end, Arena& arena,
                                              const FormatOptions& options) const {
     auto* cur_batch = dynamic_cast<orc::MapVectorBatch*>(orc_col_batch);
     cur_batch->offsets[0] = 0;
@@ -687,5 +686,4 @@ bool DataTypeMapSerDe::write_column_to_hive_text(const IColumn& column, BufferWr
     return true;
 }
 
-} // namespace vectorized
 } // namespace doris

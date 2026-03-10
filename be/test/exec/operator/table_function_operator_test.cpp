@@ -33,20 +33,15 @@
 #include "testutil/mock/mock_literal_expr.h"
 #include "testutil/mock/mock_operators.h"
 #include "testutil/mock/mock_slot_ref.h"
-namespace doris::pipeline {
-
-using namespace vectorized;
+namespace doris {
 
 class MockTableFunctionChildOperator : public OperatorXBase {
 public:
-    Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
-                                    bool* eos) override {
+    Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos) override {
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override {
-        return Status::OK();
-    }
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override { return Status::OK(); }
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
         return Status::OK();
     }
@@ -100,7 +95,7 @@ struct MockTableFunctionLocalState : TableFunctionLocalState {
         _vfn_ctxs.resize(p._vfn_ctxs.size());
         for (size_t i = 0; i < _vfn_ctxs.size(); i++) {
             RETURN_IF_ERROR(p._vfn_ctxs[i]->clone(state, _vfn_ctxs[i]));
-            vectorized::TableFunction* fn = p._fns[i];
+            TableFunction* fn = p._fns[i];
             fn->set_expr_context(_vfn_ctxs[i]);
             _fns.push_back(fn);
         }
@@ -143,7 +138,7 @@ TEST_F(TableFunctionOperatorTest, single_fn_test) {
         op->_output_slot_ids.push_back(true);
         child_op->_mock_row_desc.reset(new MockRowDescriptor {{}, &pool});
         op->_mock_row_descriptor.reset(
-                new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt32>()}, &pool});
+                new MockRowDescriptor {{std::make_shared<DataTypeInt32>()}, &pool});
         op->_fn_num = 1;
         EXPECT_TRUE(op->prepare(state.get()));
 
@@ -186,11 +181,9 @@ TEST_F(TableFunctionOperatorTest, single_fn_test2) {
         op->_fns.push_back(fn.get());
         op->_output_slot_ids.push_back(true);
         child_op->_mock_row_desc.reset(
-                new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt32>()}, &pool});
-        op->_mock_row_descriptor.reset(
-                new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt32>(),
-                                        std::make_shared<vectorized::DataTypeInt32>()},
-                                       &pool});
+                new MockRowDescriptor {{std::make_shared<DataTypeInt32>()}, &pool});
+        op->_mock_row_descriptor.reset(new MockRowDescriptor {
+                {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()}, &pool});
         op->_fn_num = 1;
         EXPECT_TRUE(op->prepare(state.get()));
 
@@ -243,10 +236,8 @@ TEST_F(TableFunctionOperatorTest, single_two_test) {
         }
 
         child_op->_mock_row_desc.reset(new MockRowDescriptor {{}, &pool});
-        op->_mock_row_descriptor.reset(
-                new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt32>(),
-                                        std::make_shared<vectorized::DataTypeInt32>()},
-                                       &pool});
+        op->_mock_row_descriptor.reset(new MockRowDescriptor {
+                {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()}, &pool});
         op->_fn_num = 2;
         EXPECT_TRUE(op->prepare(state.get()));
 
@@ -303,10 +294,8 @@ TEST_F(TableFunctionOperatorTest, single_two_eos_test) {
         }
 
         child_op->_mock_row_desc.reset(new MockRowDescriptor {{}, &pool});
-        op->_mock_row_descriptor.reset(
-                new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt32>(),
-                                        std::make_shared<vectorized::DataTypeInt32>()},
-                                       &pool});
+        op->_mock_row_descriptor.reset(new MockRowDescriptor {
+                {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeInt32>()}, &pool});
         op->_fn_num = 2;
         EXPECT_TRUE(op->prepare(state.get()));
 
@@ -727,10 +716,9 @@ TEST_F(UnnestTest, inner) {
     auto st = DescriptorTbl::create(obj_pool.get(), desc_table, &desc_tbl);
     EXPECT_TRUE(st.ok());
 
-    vectorized::DataTypePtr data_type_int(std::make_shared<vectorized::DataTypeInt32>());
+    DataTypePtr data_type_int(std::make_shared<DataTypeInt32>());
     auto data_type_int_nullable = make_nullable(data_type_int);
-    vectorized::DataTypePtr data_type_array_type(
-            std::make_shared<vectorized::DataTypeArray>(data_type_int_nullable));
+    DataTypePtr data_type_array_type(std::make_shared<DataTypeArray>(data_type_int_nullable));
     auto data_type_array_type_nullable = make_nullable(data_type_array_type);
 
     auto build_input_block = [&](const std::vector<int32_t>& ids,
@@ -836,10 +824,9 @@ TEST_F(UnnestTest, outer) {
     auto st = DescriptorTbl::create(obj_pool.get(), desc_table, &desc_tbl);
     EXPECT_TRUE(st.ok());
 
-    vectorized::DataTypePtr data_type_int(std::make_shared<vectorized::DataTypeInt32>());
+    DataTypePtr data_type_int(std::make_shared<DataTypeInt32>());
     auto data_type_int_nullable = make_nullable(data_type_int);
-    vectorized::DataTypePtr data_type_array_type(
-            std::make_shared<vectorized::DataTypeArray>(data_type_int_nullable));
+    DataTypePtr data_type_array_type(std::make_shared<DataTypeArray>(data_type_int_nullable));
     auto data_type_array_type_nullable = make_nullable(data_type_array_type);
 
     auto build_input_block = [&](const std::vector<int32_t>& ids,
@@ -931,4 +918,4 @@ TEST_F(UnnestTest, outer) {
         EXPECT_TRUE(ColumnHelper::block_equal(output_block, expected_output_block));
     }
 }
-} // namespace doris::pipeline
+} // namespace doris

@@ -35,7 +35,7 @@ inline static constexpr size_t DEFAULT_DISPOSABLE_PERCENT = 5;
 inline static constexpr size_t DEFAULT_INDEX_PERCENT = 5;
 inline static constexpr size_t DEFAULT_TTL_PERCENT = 50;
 
-using uint128_t = vectorized::UInt128;
+using uint128_t = UInt128;
 
 enum FileCacheType {
     INDEX = 2,

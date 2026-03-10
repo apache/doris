@@ -22,7 +22,7 @@
 #include "exprs/function/date_time_transforms.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 using FunctionDateFormatV2 = FunctionDateTimeStringToString<DateFormatImpl<TYPE_DATEV2>>;
 using FunctionDateTimeV2DateFormat =
@@ -55,4 +55,4 @@ void register_function_date_time_string_to_string(SimpleFunctionFactory& factory
     factory.register_function<FunctionTimeFormatTime>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -19,7 +19,7 @@
 
 #include "format/parquet/parquet_common.h"
 
-namespace doris::vectorized {
+namespace doris {
 class ParquetCrossPageTest : public testing::Test {
 protected:
     void SetUp() override {
@@ -176,4 +176,4 @@ TEST_F(ParquetCrossPageTest, test_single_row_across_three_pages) {
     EXPECT_EQ(current_row, 1); // Moved to second row
 }
 
-} // namespace doris::vectorized
+} // namespace doris

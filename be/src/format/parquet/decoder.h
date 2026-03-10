@@ -41,7 +41,7 @@
 #include "util/rle_encoding.h"
 #include "util/slice.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 template <typename T>
 class ColumnStr;
@@ -159,4 +159,4 @@ protected:
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

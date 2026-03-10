@@ -22,7 +22,7 @@
 #include "exprs/function/array/function_array_nary.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 #include "common/compile_check_begin.h"
 struct NameArrayIntersect {
@@ -80,4 +80,4 @@ void register_function_array_intersect(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayIntersect>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

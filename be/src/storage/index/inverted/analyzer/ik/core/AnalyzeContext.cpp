@@ -20,7 +20,7 @@
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
-AnalyzeContext::AnalyzeContext(vectorized::Arena& arena, std::shared_ptr<Configuration> config)
+AnalyzeContext::AnalyzeContext(Arena& arena, std::shared_ptr<Configuration> config)
         : segment_buff_(),
           typed_runes_(),
           buffer_offset_(0),

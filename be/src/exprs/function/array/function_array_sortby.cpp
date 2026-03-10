@@ -44,7 +44,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class FunctionArraySortBy : public IFunction {
 public:
@@ -176,4 +176,4 @@ void register_function_array_sortby(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArraySortBy>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -22,7 +22,6 @@
 #include "util/block_compression.h"
 
 namespace doris {
-namespace vectorized {
 Status DeletionVectorReader::open() {
     if (_is_opened) [[unlikely]] {
         return Status::OK();
@@ -87,5 +86,4 @@ void DeletionVectorReader::_init_system_properties() {
     }
 }
 
-} // namespace vectorized
 } // namespace doris

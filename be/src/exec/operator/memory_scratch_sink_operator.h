@@ -22,7 +22,7 @@
 #include "exec/operator/operator.h"
 #include "runtime/result_queue_mgr.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class MemoryScratchSinkOperatorX;
@@ -43,7 +43,7 @@ private:
     BlockQueueSharedPtr _queue;
 
     // Owned by the RuntimeState.
-    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+    VExprContextSPtrs _output_vexpr_ctxs;
 
     std::shared_ptr<Dependency> _queue_dependency = nullptr;
     RuntimeProfile::Counter* _get_arrow_schema_timer = nullptr;
@@ -58,15 +58,15 @@ public:
     Status init(const TDataSink& thrift_sink) override;
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
 
 private:
     friend class MemoryScratchSinkLocalState;
     const RowDescriptor& _row_desc;
     cctz::time_zone _timezone_obj;
     const std::vector<TExpr>& _t_output_expr;
-    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+    VExprContextSPtrs _output_vexpr_ctxs;
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

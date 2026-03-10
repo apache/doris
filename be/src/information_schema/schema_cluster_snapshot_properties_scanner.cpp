@@ -30,9 +30,7 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaClusterSnapshotPropertiesScanner::_s_tbls_columns = {
         {"SNAPSHOT_ENABLED", TYPE_STRING, sizeof(StringRef), true},
@@ -58,8 +56,7 @@ Status SchemaClusterSnapshotPropertiesScanner::start(RuntimeState* state) {
             _switch_status, _max_reserved_snapshots, _snapshot_interval_seconds);
 }
 
-Status SchemaClusterSnapshotPropertiesScanner::get_next_block_internal(vectorized::Block* block,
-                                                                       bool* eos) {
+Status SchemaClusterSnapshotPropertiesScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }
@@ -71,7 +68,7 @@ Status SchemaClusterSnapshotPropertiesScanner::get_next_block_internal(vectorize
     return _fill_block_impl(block);
 }
 
-Status SchemaClusterSnapshotPropertiesScanner::_fill_block_impl(vectorized::Block* block) {
+Status SchemaClusterSnapshotPropertiesScanner::_fill_block_impl(Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     bool auto_snapshot_enabled =
             _switch_status == cloud::SnapshotSwitchStatus::SNAPSHOT_SWITCH_ON &&

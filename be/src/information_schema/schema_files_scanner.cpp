@@ -28,9 +28,7 @@
 
 namespace doris {
 class RuntimeState;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaFilesScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
@@ -113,7 +111,7 @@ Status SchemaFilesScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaFilesScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaFilesScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }

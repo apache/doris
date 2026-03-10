@@ -22,7 +22,6 @@
 #include "io/fs/file_reader.h"
 
 namespace doris {
-namespace vectorized {
 
 class OrcMergeRangeFileReader : public io::FileReader {
 public:
@@ -87,5 +86,4 @@ private:
     Statistics _statistics;
 };
 
-} // namespace vectorized
 } // namespace doris

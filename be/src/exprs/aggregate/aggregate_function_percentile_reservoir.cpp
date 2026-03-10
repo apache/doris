@@ -21,7 +21,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 AggregateFunctionPtr createAggregateFunctionPercentileReservoir(const std::string& name,
@@ -49,4 +49,4 @@ void register_aggregate_function_percentile_reservoir(AggregateFunctionSimpleFac
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -33,9 +33,9 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
-using SpillPartitionerType = vectorized::Crc32HashPartitioner<vectorized::SpillPartitionChannelIds>;
+using SpillPartitionerType = Crc32HashPartitioner<SpillPartitionChannelIds>;
 
 struct SpillContext {
     std::atomic_int running_tasks_count;
@@ -240,4 +240,4 @@ inline void update_profile_from_inner_profile(const std::string& name,
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

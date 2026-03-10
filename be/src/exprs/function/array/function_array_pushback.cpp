@@ -41,7 +41,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 class FunctionArrayPushback : public IFunction {
 public:
     static constexpr auto name = "array_pushback";
@@ -118,4 +118,4 @@ void register_function_array_pushback(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayPushback>();
     factory.register_alias("array_pushback", "array_append");
 }
-} // namespace doris::vectorized
+} // namespace doris

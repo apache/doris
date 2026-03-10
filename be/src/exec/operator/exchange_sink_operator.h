@@ -35,8 +35,6 @@ namespace doris {
 class RuntimeState;
 class TDataSink;
 
-namespace pipeline {
-
 class ExchangeSinkLocalState MOCK_REMOVE(final) : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
     using Base = PipelineXSinkLocalState<>;
@@ -75,7 +73,7 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
     Dependency* finishdependency() override { return _finish_dependency.get(); }
-    void register_channels(pipeline::ExchangeSinkBuffer* buffer);
+    void register_channels(ExchangeSinkBuffer* buffer);
 
     RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
     RuntimeProfile::Counter* local_send_timer() { return _local_send_timer; }
@@ -104,18 +102,18 @@ public:
     RuntimeProfile::Counter* distribute_rows_into_channels_timer() {
         return _distribute_rows_into_channels_timer;
     }
-    std::vector<std::shared_ptr<vectorized::Channel>> channels;
+    std::vector<std::shared_ptr<Channel>> channels;
     std::vector<int> local_channel_ids;
     int current_channel_idx {0}; // index of current channel to send to if _random == true
     bool _only_local_exchange {false};
 
     void on_channel_finished(InstanceLoId channel_id);
-    vectorized::PartitionerBase* partitioner() const { return _partitioner.get(); }
+    PartitionerBase* partitioner() const { return _partitioner.get(); }
 
 private:
     friend class ExchangeSinkOperatorX;
-    friend class vectorized::Channel;
-    friend class vectorized::BlockSerializer;
+    friend class Channel;
+    friend class BlockSerializer;
 
     MOCK_FUNCTION void _create_channels();
 
@@ -142,10 +140,10 @@ private:
 
     // Sender instance id, unique within a fragment.
     int _sender_id;
-    std::shared_ptr<vectorized::BroadcastPBlockHolderMemLimiter> _broadcast_pb_mem_limiter;
+    std::shared_ptr<BroadcastPBlockHolderMemLimiter> _broadcast_pb_mem_limiter;
 
     size_t _rpc_channels_num = 0;
-    vectorized::BlockSerializer _serializer;
+    BlockSerializer _serializer;
 
     std::shared_ptr<Dependency> _queue_dependency = nullptr;
 
@@ -168,7 +166,7 @@ private:
      *                         +-----------------+                                                        +------------------+
      */
     std::vector<std::shared_ptr<Dependency>> _local_channels_dependency;
-    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
+    std::unique_ptr<PartitionerBase> _partitioner;
     std::unique_ptr<ExchangeWriterBase> _writer;
     size_t _partition_count;
 
@@ -201,7 +199,7 @@ public:
     // TaskExecutionContext.
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
 
     bool is_serial_operator() const override { return true; }
     void set_low_memory_mode(RuntimeState* state) override {
@@ -227,7 +225,7 @@ public:
     // In a merge sort scenario, there are only n RPCs, so a shared sink buffer is not needed.
     std::shared_ptr<ExchangeSinkBuffer> get_sink_buffer(RuntimeState* state,
                                                         InstanceLoId sender_ins_id);
-    vectorized::VExprContextSPtrs& tablet_sink_expr_ctxs() { return _tablet_sink_expr_ctxs; }
+    VExprContextSPtrs& tablet_sink_expr_ctxs() { return _tablet_sink_expr_ctxs; }
 
 private:
     friend class ExchangeSinkLocalState;
@@ -274,7 +272,7 @@ private:
     const TTupleId _tablet_sink_tuple_id;
     int64_t _tablet_sink_txn_id = -1;
     std::shared_ptr<ObjectPool> _pool;
-    vectorized::VExprContextSPtrs _tablet_sink_expr_ctxs;
+    VExprContextSPtrs _tablet_sink_expr_ctxs;
     const std::vector<TExpr>* _t_tablet_sink_exprs = nullptr;
 
     // for external table sink random partition
@@ -287,6 +285,5 @@ private:
     const std::vector<TUniqueId>& _fragment_instance_ids;
 };
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

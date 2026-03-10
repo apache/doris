@@ -39,7 +39,7 @@
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct MergeSorterStateTest : public testing::Test {
     void SetUp() override {
@@ -101,4 +101,4 @@ TEST_F(MergeSorterStateTest, test1) {
                                               ColumnHelper::create_block<DataTypeInt64>({5, 6})));
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

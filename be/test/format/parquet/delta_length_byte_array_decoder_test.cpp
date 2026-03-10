@@ -26,7 +26,7 @@
 #include "parquet/types.h"
 #include "util/slice.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class DeltaLengthByteArrayDecoderTest : public ::testing::Test {
 protected:
@@ -278,4 +278,4 @@ TEST_F(DeltaLengthByteArrayDecoderTest, test_skip_value) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

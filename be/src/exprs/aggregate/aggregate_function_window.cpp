@@ -28,7 +28,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <template <typename> class AggregateFunctionTemplate,
@@ -400,4 +400,4 @@ void register_aggregate_function_window_lead_lag_first_last(
     factory.register_function_both("nth_value", create_aggregate_function_window_nth_value);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

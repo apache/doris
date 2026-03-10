@@ -29,7 +29,7 @@
 #include "storage/olap_common.h"
 #include "testutil/test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 /*
 TODO, fix:
@@ -122,4 +122,4 @@ TEST_F(FunctionCastToDecimalTest, test_from_bool_overflow) {
     from_bool_overflow_test_func<Decimal128V3>();
     from_bool_overflow_test_func<Decimal256>();
 }
-} // namespace doris::vectorized
+} // namespace doris

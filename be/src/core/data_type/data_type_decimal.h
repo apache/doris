@@ -52,13 +52,11 @@ namespace doris {
 class DecimalV2Value;
 class PColumnMeta;
 
-namespace vectorized {
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
@@ -527,4 +525,4 @@ static_assert(!has_original_precision_and_scale<DataTypeDecimal128>);
 static_assert(!has_original_precision_and_scale<DataTypeDecimal256>);
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

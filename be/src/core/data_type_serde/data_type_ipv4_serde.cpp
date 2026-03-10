@@ -25,7 +25,7 @@
 #include "exprs/function/cast/cast_to_string.h"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Status DataTypeIPv4SerDe::write_column_to_mysql_binary(const IColumn& column,
@@ -222,8 +222,8 @@ void DataTypeIPv4SerDe::write_one_cell_to_binary(const IColumn& src_column,
     memcpy(chars.data() + old_size + sizeof(uint8_t), data_ref.data, data_ref.size);
 }
 
-std::string DataTypeIPv4SerDe::to_olap_string(const vectorized::Field& field) const {
+std::string DataTypeIPv4SerDe::to_olap_string(const Field& field) const {
     return CastToString::from_ip(field.get<TYPE_IPV4>());
 }
 
-} // namespace doris::vectorized
+} // namespace doris

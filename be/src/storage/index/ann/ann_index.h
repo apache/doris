@@ -77,7 +77,7 @@ public:
     VectorIndex();
     virtual ~VectorIndex();
 
-    virtual doris::Status train(vectorized::Int64 n, const float* x) = 0;
+    virtual doris::Status train(Int64 n, const float* x) = 0;
 
     /** Add n vectors of dimension d vectors to the index.
      *
@@ -87,7 +87,7 @@ public:
      * @param n      number of vectors
      * @param x      input matrix, size n * d
      */
-    virtual doris::Status add(vectorized::Int64 n, const float* x) = 0;
+    virtual doris::Status add(Int64 n, const float* x) = 0;
 
     /** Return approximate nearest neighbors of a query vector.
      * The result is stored in the result object.

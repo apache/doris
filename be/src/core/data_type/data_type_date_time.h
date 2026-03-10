@@ -34,7 +34,7 @@
 #include "core/data_type_serde/data_type_date_or_datetime_serde.h"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 class BufferWritable;
 class IColumn;
 class DataTypeDate;
@@ -146,4 +146,4 @@ constexpr bool IsDatelikeTypes =
         IsDatelikeV1Types<DataType> || IsDatelikeV2Types<DataType> || IsTimeV2Type<DataType>;
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

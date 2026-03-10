@@ -29,7 +29,7 @@
 #include "util/json/json_parser.h"
 #include "util/string_parser.hpp"
 
-namespace doris::vectorized {
+namespace doris {
 struct FunctionCastToDecimalPerfTest : public FunctionCastTest {
     template <PrimitiveType FromPT, PrimitiveType ToPT>
     void perf_test_func(const std::string& test_data_file, size_t orig_line_count,
@@ -380,4 +380,4 @@ TEST_F(FunctionCastToDecimalPerfTest, test_to_largeint_from_decimal128v3_perf) {
             test_data_file, orig_line_count, 38, 19, 0, 0, true);
 }
 */
-} // namespace doris::vectorized
+} // namespace doris

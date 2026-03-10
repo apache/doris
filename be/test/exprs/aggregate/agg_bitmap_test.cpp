@@ -35,7 +35,7 @@
 
 const int agg_test_batch_size = 10;
 
-namespace doris::vectorized {
+namespace doris {
 // declare function
 void register_aggregate_function_bitmap(AggregateFunctionSimpleFactory& factory);
 
@@ -299,4 +299,4 @@ TEST(AggBitmapTest, bitmap_union_int_test) {
     validate_bitmap_union_int_test<TYPE_BIGINT>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

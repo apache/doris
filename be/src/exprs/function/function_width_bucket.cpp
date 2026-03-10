@@ -43,7 +43,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 class FunctionWidthBucket : public IFunction {
 public:
     static constexpr auto name = "width_bucket";
@@ -161,4 +161,4 @@ void register_function_width_bucket(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionWidthBucket>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

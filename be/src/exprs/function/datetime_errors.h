@@ -26,7 +26,7 @@
 #include "core/types.h"
 #include "core/value/timestamptz_value.h"
 
-namespace doris::vectorized {
+namespace doris {
 // Convert a native datelike value to printable string using DateValueType::to_string
 // Note: DateValueType must support to_string(char*) -> char*
 //       NativeT is the corresponding FieldType of the DataType
@@ -167,4 +167,4 @@ constexpr const char* get_time_unit_name(TimeUnit unit) {
         return "date_add";
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

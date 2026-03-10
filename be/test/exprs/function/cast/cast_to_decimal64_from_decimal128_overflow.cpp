@@ -20,7 +20,7 @@
 
 #include "exprs/function/cast/cast_to_decimal_test.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST_F(FunctionCastToDecimalTest, test_to_decimal64_from_decimal128_overflow) {
     between_decimal_overflow_test_func<Decimal128V3, Decimal64>();
@@ -28,4 +28,4 @@ TEST_F(FunctionCastToDecimalTest, test_to_decimal64_from_decimal128_overflow) {
 TEST_F(FunctionCastToDecimalTest, test_to_decimal64_from_decimalv2_overflow) {
     between_decimal_overflow_test_func<DecimalV2Value, Decimal64>();
 }
-} // namespace doris::vectorized
+} // namespace doris

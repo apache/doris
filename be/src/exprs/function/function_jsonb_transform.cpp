@@ -24,7 +24,7 @@
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // Sort the keys of the JSON object and deduplicate the repeated keys, keeping the first one
 void sort_json_object_keys(JsonbWriter& jsonb_writer, const JsonbValue* jsonb_value) {
@@ -179,4 +179,4 @@ void register_function_json_transform(SimpleFunctionFactory& factory) {
                            "normalize_jsonb_numbers_to_double");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

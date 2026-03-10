@@ -32,7 +32,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/moments.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 enum class STATISTICS_FUNCTION_KIND : uint8_t { SKEW_POP, KURT_POP };
@@ -163,5 +163,5 @@ private:
     STATISTICS_FUNCTION_KIND kind;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"
