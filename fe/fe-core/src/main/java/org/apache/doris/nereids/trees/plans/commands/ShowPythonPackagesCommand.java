@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -97,6 +98,7 @@ public class ShowPythonPackagesCommand extends ShowCommand {
         // Collect packages from each alive BE, tracking which BE each result came from
         List<Map<String, String>> allBePackages = new ArrayList<>();
         List<String> beIdentifiers = new ArrayList<>();
+        Exception lastException = null;
         for (Backend backend : backendsInfo.values()) {
             if (!backend.isAlive()) {
                 continue;
@@ -118,6 +120,7 @@ public class ShowPythonPackagesCommand extends ShowCommand {
                 beIdentifiers.add(backend.getHost() + ":" + backend.getBePort());
             } catch (Exception e) {
                 LOG.warn("Failed to get python packages from backend[{}]", backend.getId(), e);
+                lastException = e;
             } finally {
                 if (ok) {
                     ClientPool.backendPool.returnObject(address, client);
@@ -128,7 +131,14 @@ public class ShowPythonPackagesCommand extends ShowCommand {
         }
 
         if (allBePackages.isEmpty()) {
-            return new ShowResultSet(getMetaData(), Lists.newArrayList());
+            if (lastException != null) {
+                String msg = lastException.getMessage();
+                int newline = msg.indexOf('\n');
+                throw new AnalysisException("Failed to get python packages from any backend: "
+                        + (newline > 0 ? msg.substring(0, newline).trim() : msg));
+            } else {
+                throw new AnalysisException("No alive backends found to get python packages");
+            }
         }
 
         // Check consistency across BEs

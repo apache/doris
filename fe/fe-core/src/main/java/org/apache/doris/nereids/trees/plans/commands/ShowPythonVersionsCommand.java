@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -84,6 +85,7 @@ public class ShowPythonVersionsCommand extends ShowCommand {
         ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         List<List<TPythonEnvInfo>> allBeEnvs = new ArrayList<>();
         Set<String> commonVersions = null;
+        Exception lastException = null;
 
         for (Backend backend : backendsInfo.values()) {
             if (!backend.isAlive()) {
@@ -110,6 +112,7 @@ public class ShowPythonVersionsCommand extends ShowCommand {
                 }
             } catch (Exception e) {
                 LOG.warn("Failed to get python envs from backend[{}]", backend.getId(), e);
+                lastException = e;
             } finally {
                 if (ok) {
                     ClientPool.backendPool.returnObject(address, client);
@@ -120,7 +123,14 @@ public class ShowPythonVersionsCommand extends ShowCommand {
         }
 
         List<List<String>> rows = Lists.newArrayList();
-        if (commonVersions != null && !allBeEnvs.isEmpty()) {
+        if (allBeEnvs.isEmpty()) {
+            if (lastException != null) {
+                String msg = lastException.getMessage();
+                int newline = msg.indexOf('\n');
+                throw new AnalysisException("Failed to get python envs from any backend: "
+                        + (newline > 0 ? msg.substring(0, newline).trim() : msg));
+            }
+        } else if (commonVersions != null) {
             // Use envs from the first BE as reference, filtered to common versions
             for (TPythonEnvInfo env : allBeEnvs.get(0)) {
                 if (commonVersions.contains(env.getFullVersion())) {

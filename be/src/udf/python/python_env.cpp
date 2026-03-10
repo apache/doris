@@ -301,6 +301,11 @@ Status PythonVersionManager::init(PythonEnvType env_type, const fs::path& python
 }
 
 std::vector<TPythonEnvInfo> PythonVersionManager::env_infos_to_thrift() const {
+    if (!_env_scanner) {
+        throw Exception(
+                ErrorCode::NOT_INITIALIZED,
+                "Set 'enable_python_udf_support = true' in be.conf to enable PythonUDF feature");
+    }
     std::vector<TPythonEnvInfo> infos;
     const auto& envs = _env_scanner->get_envs();
     infos.reserve(envs.size());

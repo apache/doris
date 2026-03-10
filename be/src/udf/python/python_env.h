@@ -22,6 +22,7 @@
 #include <filesystem>
 #include <utility>
 
+#include "common/exception.h"
 #include "common/status.h"
 
 namespace doris {
@@ -148,14 +149,39 @@ public:
                 const std::string& python_venv_interpreter_paths);
 
     Status get_version(const std::string& runtime_version, PythonVersion* version) const {
+        if (!_env_scanner) {
+            return Status::Uninitialized(
+                    "Set 'python_venv_interpreter_paths' in be.conf to enable PythonUDF feature");
+        }
         return _env_scanner->get_version(runtime_version, version);
     }
 
-    const std::vector<PythonEnvironment>& get_envs() const { return _env_scanner->get_envs(); }
+    const std::vector<PythonEnvironment>& get_envs() const {
+        if (!_env_scanner) {
+            throw Exception(
+                    ErrorCode::NOT_INITIALIZED,
+                    "Set 'python_venv_interpreter_paths' in be.conf to enable PythonUDF feature");
+        }
+        return _env_scanner->get_envs();
+    }
 
-    PythonEnvType env_type() const { return _env_scanner->env_type(); }
+    PythonEnvType env_type() const {
+        if (!_env_scanner) {
+            throw Exception(
+                    ErrorCode::NOT_INITIALIZED,
+                    "Set 'python_venv_interpreter_paths' in be.conf to enable PythonUDF feature");
+        }
+        return _env_scanner->env_type();
+    }
 
-    std::string to_string() const { return _env_scanner->to_string(); }
+    std::string to_string() const {
+        if (!_env_scanner) {
+            throw Exception(
+                    ErrorCode::NOT_INITIALIZED,
+                    "Set 'python_venv_interpreter_paths' in be.conf to enable PythonUDF feature");
+        }
+        return _env_scanner->to_string();
+    }
 
     std::vector<TPythonEnvInfo> env_infos_to_thrift() const;
 
