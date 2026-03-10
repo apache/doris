@@ -190,6 +190,13 @@ PartitionedHashJoinProbeLocalState* PartitionedHashJoinTestHelper::create_probe_
     shared_state->_inner_runtime_state = std::make_unique<MockRuntimeState>();
     shared_state->_inner_shared_state = std::make_shared<MockHashJoinSharedState>();
 
+    local_state->_dependency = shared_state->create_source_dependency(
+            probe_operator->operator_id(), probe_operator->node_id(),
+            "PartitionedHashJoinProbeTestDep");
+    local_state->_wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
+            local_state->common_profile(), "WaitForDependency[PartitionedHashJoinProbeTestDep]Time",
+            1);
+
     state->emplace_local_state(probe_operator->operator_id(), std::move(local_state_uptr));
     return local_state;
 }

@@ -21,6 +21,7 @@
 
 #include <limits>
 #include <memory>
+#include <unordered_set>
 
 #include "common/config.h"
 #include "core/block/block.h"
@@ -39,6 +40,156 @@ protected:
     void TearDown() override { _helper.TearDown(); }
     SpillSortTestHelper _helper;
 };
+
+namespace {
+
+struct SpillSortSourceTestContext {
+    std::shared_ptr<SpillSortSharedState> shared_state;
+    SpillSortLocalState* local_state = nullptr;
+    SpillSortSinkLocalState* sink_local_state = nullptr;
+};
+
+void init_spill_sort_description(SpillSortSharedState* shared_state) {
+    auto* sorter = shared_state->in_mem_shared_state->sorter.get();
+    auto& sort_desc = sorter->get_mutable_sort_description();
+    sort_desc.resize(sorter->get_vsort_exec_exprs().ordering_expr_ctxs().size());
+    for (int i = 0; i < static_cast<int>(sort_desc.size()); ++i) {
+        sort_desc[i].column_number = i;
+        sort_desc[i].direction = 1;
+        sort_desc[i].nulls_direction = 1;
+    }
+}
+
+Status prepare_spill_sort_source_context(
+        SpillSortTestHelper& helper,
+        const std::shared_ptr<SpillSortSourceOperatorX>& source_operator,
+        const std::shared_ptr<SpillSortSinkOperatorX>& sink_operator,
+        SpillSortSourceTestContext& context) {
+    auto tnode = helper.create_test_plan_node();
+    RETURN_IF_ERROR(source_operator->init(tnode, helper.runtime_state.get()));
+    RETURN_IF_ERROR(source_operator->prepare(helper.runtime_state.get()));
+
+    context.shared_state =
+            std::dynamic_pointer_cast<SpillSortSharedState>(sink_operator->create_shared_state());
+    DCHECK(context.shared_state != nullptr);
+
+    RETURN_IF_ERROR(sink_operator->init(tnode, helper.runtime_state.get()));
+    RETURN_IF_ERROR(sink_operator->prepare(helper.runtime_state.get()));
+
+    LocalSinkStateInfo sink_info {0, helper.operator_profile.get(), -1, context.shared_state.get(),
+                                  {}, {}};
+    RETURN_IF_ERROR(sink_operator->setup_local_state(helper.runtime_state.get(), sink_info));
+    context.sink_local_state = reinterpret_cast<SpillSortSinkLocalState*>(
+            helper.runtime_state->get_sink_local_state());
+    DCHECK(context.sink_local_state != nullptr);
+    RETURN_IF_ERROR(context.sink_local_state->open(helper.runtime_state.get()));
+
+    LocalStateInfo source_info {.parent_profile = helper.operator_profile.get(),
+                                .scan_ranges = {},
+                                .shared_state = context.shared_state.get(),
+                                .shared_state_map = {},
+                                .task_idx = 0};
+    RETURN_IF_ERROR(source_operator->setup_local_state(helper.runtime_state.get(), source_info));
+    context.local_state = reinterpret_cast<SpillSortLocalState*>(
+            helper.runtime_state->get_local_state(source_operator->operator_id()));
+    DCHECK(context.local_state != nullptr);
+    RETURN_IF_ERROR(context.local_state->open(helper.runtime_state.get()));
+
+    context.shared_state->is_spilled = true;
+    init_spill_sort_description(context.shared_state.get());
+    return Status::OK();
+}
+
+SpillFileSPtr create_sort_test_spill_file(RuntimeState* state, RuntimeProfile* profile, int node_id,
+                                          const std::string& prefix,
+                                          const std::vector<int32_t>& first_column,
+                                          const std::vector<int64_t>& second_column) {
+    EXPECT_EQ(first_column.size(), second_column.size());
+
+    SpillFileSPtr spill_file;
+    auto relative_path =
+            fmt::format("{}/{}-{}-{}", print_id(state->query_id()), prefix, node_id,
+                        ExecEnv::GetInstance()->spill_file_mgr()->next_id());
+    auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file(relative_path,
+                                                                          spill_file);
+    EXPECT_TRUE(st.ok()) << "create spill file failed: " << st.to_string();
+    if (!st.ok()) {
+        return nullptr;
+    }
+
+    SpillFileWriterSPtr writer;
+    st = spill_file->create_writer(state, profile, writer);
+    EXPECT_TRUE(st.ok()) << "create writer failed: " << st.to_string();
+    if (!st.ok()) {
+        return nullptr;
+    }
+
+    auto input_block = ColumnHelper::create_block<DataTypeInt32>(first_column);
+    input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(second_column));
+
+    st = writer->write_block(state, input_block);
+    EXPECT_TRUE(st.ok()) << "write block failed: " << st.to_string();
+    if (!st.ok()) {
+        return nullptr;
+    }
+
+    st = writer->close();
+    EXPECT_TRUE(st.ok()) << "close writer failed: " << st.to_string();
+    if (!st.ok()) {
+        return nullptr;
+    }
+
+    return spill_file;
+}
+
+Status read_all_blocks_from_source(RuntimeState* state, SpillSortSourceOperatorX* source_operator,
+                                   std::unique_ptr<MutableBlock>& mutable_block) {
+    bool eos = false;
+    while (!eos) {
+        Block block;
+        RETURN_IF_ERROR(source_operator->get_block(state, &block, &eos));
+        if (block.empty()) {
+            continue;
+        }
+        if (!mutable_block) {
+            mutable_block = MutableBlock::create_unique(std::move(block));
+        } else {
+            RETURN_IF_ERROR(mutable_block->merge(std::move(block)));
+        }
+    }
+    return Status::OK();
+}
+
+std::vector<SpillFileSPtr> collect_spill_files_for_cleanup(
+        const std::vector<SpillFileSPtr>& original_files, SpillSortLocalState* local_state,
+        SpillSortSharedState* shared_state) {
+    std::vector<SpillFileSPtr> spill_files;
+    std::unordered_set<SpillFile*> seen;
+    auto collect = [&](const SpillFileSPtr& spill_file) {
+        if (spill_file && seen.emplace(spill_file.get()).second) {
+            spill_files.emplace_back(spill_file);
+        }
+    };
+
+    for (const auto& spill_file : original_files) {
+        collect(spill_file);
+    }
+    for (const auto& spill_file : local_state->_current_merging_files) {
+        collect(spill_file);
+    }
+    for (const auto& spill_file : shared_state->sorted_spill_groups) {
+        collect(spill_file);
+    }
+    return spill_files;
+}
+
+void delete_spill_files(const std::vector<SpillFileSPtr>& spill_files) {
+    for (const auto& spill_file : spill_files) {
+        ExecEnv::GetInstance()->spill_file_mgr()->delete_spill_file(spill_file);
+    }
+}
+
+} // namespace
 
 TEST_F(SpillSortSourceOperatorTest, Basic) {
     auto [source_operator, sink_operator] = _helper.create_operators();
@@ -487,6 +638,202 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
 
     st = source_operator->close(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
+}
+
+TEST_F(SpillSortSourceOperatorTest, ExecuteMergeSortSpillFilesFastPath) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+
+    SpillSortSourceTestContext context;
+    auto st = prepare_spill_sort_source_context(_helper, source_operator, sink_operator, context);
+    ASSERT_TRUE(st.ok()) << "prepare spill sort source context failed: " << st.to_string();
+
+    std::vector<SpillFileSPtr> original_files;
+    original_files.emplace_back(create_sort_test_spill_file(
+            _helper.runtime_state.get(), context.local_state->operator_profile(),
+            source_operator->node_id(), "spill_sort_merge_fast_0", {1, 5}, {10, 50}));
+    original_files.emplace_back(create_sort_test_spill_file(
+            _helper.runtime_state.get(), context.local_state->operator_profile(),
+            source_operator->node_id(), "spill_sort_merge_fast_1", {2, 6}, {20, 60}));
+    original_files.emplace_back(create_sort_test_spill_file(
+            _helper.runtime_state.get(), context.local_state->operator_profile(),
+            source_operator->node_id(), "spill_sort_merge_fast_2", {0, 4}, {0, 40}));
+    original_files.emplace_back(create_sort_test_spill_file(
+            _helper.runtime_state.get(), context.local_state->operator_profile(),
+            source_operator->node_id(), "spill_sort_merge_fast_3", {3, 7}, {30, 70}));
+
+    for (const auto& spill_file : original_files) {
+        ASSERT_TRUE(spill_file != nullptr);
+        context.shared_state->sorted_spill_groups.emplace_back(spill_file);
+    }
+
+    st = context.local_state->execute_merge_sort_spill_files(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "execute_merge_sort_spill_files failed: " << st.to_string();
+    ASSERT_TRUE(context.shared_state->sorted_spill_groups.empty());
+    ASSERT_TRUE(context.local_state->_merger != nullptr);
+    ASSERT_EQ(context.local_state->_current_merging_files.size(), 4);
+    ASSERT_EQ(context.local_state->_current_merging_readers.size(), 4);
+
+    auto cleanup_files =
+            collect_spill_files_for_cleanup(original_files, context.local_state, context.shared_state.get());
+
+    std::unique_ptr<MutableBlock> mutable_block;
+    st = read_all_blocks_from_source(_helper.runtime_state.get(), source_operator.get(),
+                                     mutable_block);
+    ASSERT_TRUE(st.ok()) << "read merged blocks failed: " << st.to_string();
+    ASSERT_TRUE(mutable_block != nullptr);
+    ASSERT_EQ(mutable_block->rows(), 8);
+
+    auto output_block = mutable_block->to_block();
+    const auto& col1 = output_block.get_by_position(0).column;
+    for (int i = 0; i < 8; ++i) {
+        ASSERT_EQ(col1->get_int(i), i);
+    }
+
+    st = context.local_state->close(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
+    ASSERT_TRUE(context.local_state->_current_merging_files.empty());
+    ASSERT_TRUE(context.local_state->_current_merging_readers.empty());
+    ASSERT_EQ(context.local_state->_merger, nullptr);
+    st = source_operator->close(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "source close failed: " << st.to_string();
+    st = context.sink_local_state->close(_helper.runtime_state.get(), Status::OK());
+    ASSERT_TRUE(st.ok()) << "sink local close failed: " << st.to_string();
+
+    delete_spill_files(cleanup_files);
+}
+
+TEST_F(SpillSortSourceOperatorTest, ExecuteMergeSortSpillFilesIntermediateRound) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+
+    SpillSortSourceTestContext context;
+    auto st = prepare_spill_sort_source_context(_helper, source_operator, sink_operator, context);
+    ASSERT_TRUE(st.ok()) << "prepare spill sort source context failed: " << st.to_string();
+
+    std::vector<SpillFileSPtr> original_files;
+    for (int i = 0; i < 9; ++i) {
+        auto spill_file = create_sort_test_spill_file(
+                _helper.runtime_state.get(), context.local_state->operator_profile(),
+                source_operator->node_id(), fmt::format("spill_sort_merge_intermediate_{}", i),
+                {i}, {100 + i});
+        ASSERT_TRUE(spill_file != nullptr);
+        original_files.emplace_back(spill_file);
+        context.shared_state->sorted_spill_groups.emplace_back(spill_file);
+    }
+
+    st = context.local_state->execute_merge_sort_spill_files(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "execute_merge_sort_spill_files failed: " << st.to_string();
+    ASSERT_TRUE(context.shared_state->sorted_spill_groups.empty());
+    ASSERT_TRUE(context.local_state->_merger != nullptr);
+    ASSERT_EQ(context.local_state->_current_merging_files.size(), 2);
+    ASSERT_EQ(context.local_state->_current_merging_readers.size(), 2);
+
+    auto cleanup_files =
+            collect_spill_files_for_cleanup(original_files, context.local_state, context.shared_state.get());
+    ASSERT_GT(cleanup_files.size(), original_files.size());
+
+    std::unique_ptr<MutableBlock> mutable_block;
+    st = read_all_blocks_from_source(_helper.runtime_state.get(), source_operator.get(),
+                                     mutable_block);
+    ASSERT_TRUE(st.ok()) << "read merged blocks failed: " << st.to_string();
+    ASSERT_TRUE(mutable_block != nullptr);
+    ASSERT_EQ(mutable_block->rows(), 9);
+
+    auto output_block = mutable_block->to_block();
+    const auto& col1 = output_block.get_by_position(0).column;
+    for (int i = 0; i < 9; ++i) {
+        ASSERT_EQ(col1->get_int(i), i);
+    }
+
+    st = context.local_state->close(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
+    st = source_operator->close(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "source close failed: " << st.to_string();
+    st = context.sink_local_state->close(_helper.runtime_state.get(), Status::OK());
+    ASSERT_TRUE(st.ok()) << "sink local close failed: " << st.to_string();
+
+    delete_spill_files(cleanup_files);
+}
+
+TEST_F(SpillSortSourceOperatorTest, ExecuteMergeSortSpillFilesRecoverSpillDataError) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+
+    SpillSortSourceTestContext context;
+    auto st = prepare_spill_sort_source_context(_helper, source_operator, sink_operator, context);
+    ASSERT_TRUE(st.ok()) << "prepare spill sort source context failed: " << st.to_string();
+
+    std::vector<SpillFileSPtr> original_files;
+    for (int i = 0; i < 9; ++i) {
+        auto spill_file = create_sort_test_spill_file(
+                _helper.runtime_state.get(), context.local_state->operator_profile(),
+                source_operator->node_id(), fmt::format("spill_sort_merge_recover_error_{}", i),
+                {i}, {i});
+        ASSERT_TRUE(spill_file != nullptr);
+        original_files.emplace_back(spill_file);
+        context.shared_state->sorted_spill_groups.emplace_back(spill_file);
+    }
+
+    {
+        SpillableDebugPointHelper dp_helper("fault_inject::spill_sort_source::recover_spill_data");
+        st = context.local_state->execute_merge_sort_spill_files(_helper.runtime_state.get());
+    }
+    ASSERT_FALSE(st.ok());
+    ASSERT_TRUE(st.to_string().find("recover_spill_data failed") != std::string::npos)
+            << "unexpected error: " << st.to_string();
+    ASSERT_TRUE(context.local_state->_merger != nullptr);
+    ASSERT_FALSE(context.local_state->_current_merging_readers.empty());
+
+    auto cleanup_files =
+            collect_spill_files_for_cleanup(original_files, context.local_state, context.shared_state.get());
+
+    st = context.local_state->close(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
+    st = source_operator->close(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "source close failed: " << st.to_string();
+    st = context.sink_local_state->close(_helper.runtime_state.get(), Status::OK());
+    ASSERT_TRUE(st.ok()) << "sink local close failed: " << st.to_string();
+
+    delete_spill_files(cleanup_files);
+}
+
+TEST_F(SpillSortSourceOperatorTest, ExecuteMergeSortSpillFilesSpillMergedDataError) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+
+    SpillSortSourceTestContext context;
+    auto st = prepare_spill_sort_source_context(_helper, source_operator, sink_operator, context);
+    ASSERT_TRUE(st.ok()) << "prepare spill sort source context failed: " << st.to_string();
+
+    std::vector<SpillFileSPtr> original_files;
+    for (int i = 0; i < 9; ++i) {
+        auto spill_file = create_sort_test_spill_file(
+                _helper.runtime_state.get(), context.local_state->operator_profile(),
+                source_operator->node_id(), fmt::format("spill_sort_merge_spill_error_{}", i),
+                {i}, {i});
+        ASSERT_TRUE(spill_file != nullptr);
+        original_files.emplace_back(spill_file);
+        context.shared_state->sorted_spill_groups.emplace_back(spill_file);
+    }
+
+    {
+        SpillableDebugPointHelper dp_helper("fault_inject::spill_sort_source::spill_merged_data");
+        st = context.local_state->execute_merge_sort_spill_files(_helper.runtime_state.get());
+    }
+    ASSERT_FALSE(st.ok());
+    ASSERT_TRUE(st.to_string().find("recover_spill_data failed") != std::string::npos)
+            << "unexpected error: " << st.to_string();
+    ASSERT_TRUE(context.local_state->_merger != nullptr);
+    ASSERT_FALSE(context.local_state->_current_merging_readers.empty());
+
+    auto cleanup_files =
+            collect_spill_files_for_cleanup(original_files, context.local_state, context.shared_state.get());
+
+    st = context.local_state->close(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
+    st = source_operator->close(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "source close failed: " << st.to_string();
+    st = context.sink_local_state->close(_helper.runtime_state.get(), Status::OK());
+    ASSERT_TRUE(st.ok()) << "sink local close failed: " << st.to_string();
+
+    delete_spill_files(cleanup_files);
 }
 
 TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
