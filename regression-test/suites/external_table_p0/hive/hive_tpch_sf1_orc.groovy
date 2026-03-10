@@ -862,15 +862,15 @@ order by
         q16()
         q17()
         q18()
-        // q19()
+        q19()
         q20()
         q21()
         q22()
     }
 
-    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    // String enabled = context.config.otherConfigs.get("enableHiveTest")
     // cost too much time in p0, disable it temporary
-    // String enabled = "true";
+    String enabled = "false";
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
         return;

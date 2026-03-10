@@ -15,7 +15,89 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.util.regex.Pattern
+import groovy.json.JsonSlurper
+
 suite("condition_cache_parquet", "tvf,external,external_docker") {
+    def getProfileList = {
+        def dst = 'http://' + context.config.feHttpAddress
+        def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
+        conn.setRequestMethod("GET")
+        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" +
+                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
+        conn.setRequestProperty("Authorization", "Basic ${encoding}")
+        return conn.getInputStream().getText()
+    }
+
+    def getProfile = { id ->
+        def dst = 'http://' + context.config.feHttpAddress
+        def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
+        conn.setRequestMethod("GET")
+        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" +
+                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
+        conn.setRequestProperty("Authorization", "Basic ${encoding}")
+        return conn.getInputStream().getText()
+    }
+
+    def getProfileWithToken = { token ->
+        String profileId = ""
+        int attempts = 0
+        while (attempts < 10 && (profileId == null || profileId == "")) {
+            List profileData = new JsonSlurper().parseText(getProfileList()).data.rows
+            for (def profileItem in profileData) {
+                if (profileItem["Sql Statement"].toString().contains(token)) {
+                    profileId = profileItem["Profile ID"].toString()
+                    break
+                }
+            }
+            if (profileId == null || profileId == "") {
+                Thread.sleep(300)
+            }
+            attempts++
+        }
+        assertTrue(profileId != null && profileId != "")
+        Thread.sleep(800)
+        return getProfile(profileId).toString()
+    }
+
+    def extractProfileBlockMetrics = {String profileText, String blockName ->
+        List<String> lines = profileText.readLines()
+
+        Map<String, String> metrics = [:]
+        boolean inBlock = false
+        int blockIndent = -1
+
+        lines.each { line ->
+            if (!inBlock) {
+                def m = line =~ /^(\s*)\s+${Pattern.quote(blockName)}:/
+                if (m.find()) {
+                    inBlock = true
+                    blockIndent = m.group(1).length()
+                }
+            } else {
+                // 当前行缩进
+                def indent = (line =~ /^(\s*)/)[0][1].length()
+
+                if (indent > blockIndent) {
+                    def kv = line =~ /^\s*-\s*([^:]+):\s*(.+)$/
+                    if (kv.matches()) {
+                        metrics[kv[0][1].trim()] = kv[0][2].trim()
+                    }
+                } else {
+                    // 缩进回退，block 结束
+                    inBlock = false
+                }
+            }
+        }
+
+        return metrics
+    }
+
+    def extractProfileValue =  { String profileText, String keyName -> 
+        def matcher = profileText =~ /(?m)^\s*-\s*${keyName}:\s*(.+)$/
+        return matcher.find() ? matcher.group(1).trim() : null
+    }
+
 
     List<List<Object>> backends = sql """ show backends """
     assertTrue(backends.size() > 0)
@@ -39,7 +121,7 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
             `id` int NULL,
             `name` varchar(50) NULL,
             `age` int NULL,
-            `score` double NULL
+            `score` int NULL
         ) DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES ("replication_num" = "1")
     """
@@ -59,7 +141,7 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
             `id` int NULL,
             `department` varchar(50) NULL,
             `position` varchar(50) NULL,
-            `salary` double NULL
+            `salary` int NULL
         ) DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES ("replication_num" = "1")
     """
@@ -80,7 +162,7 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
             `id` int NULL,
             `name` varchar(50) NULL,
             `age` int NULL,
-            `score` double NULL
+            `score` int NULL
         ) DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES ("replication_num" = "1")
     """
@@ -91,7 +173,7 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
             cast(number AS INT),
             concat('name_', cast(number AS VARCHAR(20))),
             cast(20 + (number % 30) AS INT),
-            cast(50.0 + (number % 50) AS DOUBLE)
+            cast(50 + (number % 50) AS INT)
         FROM numbers("number" = "5000")
     """
 
@@ -138,6 +220,104 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
         "file_path" = "${basePath}/${fmt}_large_*",
         "backend_id" = "${be_id}",
         "format" = "${fmt}")"""
+
+    sql "unset variable all;"
+    sql "set enable_condition_cache=true;"
+    sql "set enable_profile=true;"
+    sql "set profile_level=2;"
+    sql " set parallel_pipeline_task_num = 1;"
+    sql """set max_file_scanners_concurrency =  1; """
+
+    def uuid = UUID.randomUUID().toString()
+    qt_condition_cache_verify_hit0 """
+        SELECT id, name, age, score FROM (
+            SELECT id, name, age, score, "${uuid}" FROM ${largeTvf}
+            WHERE id > 2048 and age > 47 and score > 80
+        ) tmpa
+        ORDER BY 1, 2, 3, 4;
+    """
+    def profileText = getProfileWithToken(uuid)
+    assertTrue(profileText.contains("Scanner"), "Profile does not contain Scanner")
+    assertTrue(profileText.contains("ConditionCacheFileHit"), "Profile does not contain ConditionCacheFileHit")
+    assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
+    def metrics = extractProfileBlockMetrics(profileText, "Scanner")
+    logger.info("metrics = ${metrics}")
+    assertEquals("0", metrics["ConditionCacheFileHit"])
+    assertEquals("0", metrics["ConditionCacheFilteredRows"])
+
+    uuid = UUID.randomUUID().toString()
+    qt_condition_cache_verify_hit0_1 """
+        SELECT id, name, age, score FROM (
+            SELECT id, name, age, score, "${uuid}" FROM ${largeTvf}
+            WHERE id > 2048 and age > 47 and score > 80
+        ) tmpa
+        ORDER BY 1, 2, 3, 4;
+    """
+    profileText = getProfileWithToken(uuid)
+    assertTrue(profileText.contains("Scanner"), "Profile does not contain Scanner")
+    assertTrue(profileText.contains("ConditionCacheFileHit"), "Profile does not contain ConditionCacheFileHit")
+    assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
+    metrics = extractProfileBlockMetrics(profileText, "Scanner")
+    logger.info("metrics = ${metrics}")
+    assertEquals("1", metrics["ConditionCacheFileHit"])
+    assertEquals("2.048K (2048)", metrics["ConditionCacheFilteredRows"])
+
+    qt_condition_cache_verify_hit1 """
+        SELECT id, name, age, score FROM ${largeTvf}
+            WHERE id > 4980
+        ORDER BY 1, 2, 3, 4;
+    """
+
+    uuid = UUID.randomUUID().toString()
+    qt_condition_cache_verify_hit1_1 """
+        SELECT id, name, age, score FROM (
+            SELECT id, name, age, score, "${uuid}" FROM ${largeTvf}
+            WHERE id > 4980
+        ) tmpa
+        ORDER BY 1, 2, 3, 4; """
+    profileText = getProfileWithToken(uuid)
+    assertTrue(profileText.contains("ConditionCacheFileHit"), "Profile does not contain ConditionCacheFileHit")
+    assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
+    metrics = extractProfileBlockMetrics(profileText, "Scanner")
+    logger.info("metrics = ${metrics}")
+    assertEquals("1", metrics["ConditionCacheFileHit"])
+    assertEquals("4.096K (4096)", metrics["ConditionCacheFilteredRows"])
+
+    // small split size to force more splits
+    sql "set MAX_INITIAL_FILE_SPLIT_SIZE = 16 * 1024;"
+    qt_condition_cache_verify_hit2 """
+        SELECT id, name, age, score FROM ${largeTvf}
+        WHERE id > 4981
+        ORDER BY 1, 2, 3, 4;
+    """
+    uuid = UUID.randomUUID().toString()
+    qt_condition_cache_verify_hit2_1 """
+        SELECT id, name, age, score FROM (
+            SELECT id, name, age, score, "${uuid}" FROM ${largeTvf}
+            WHERE id > 4981
+        ) tmpa
+        ORDER BY 1, 2, 3, 4; """
+    profileText = getProfileWithToken(uuid)
+    assertTrue(profileText.contains("ConditionCacheFileHit"), "Profile does not contain ConditionCacheFileHit")
+    assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
+    metrics = extractProfileBlockMetrics(profileText, "Scanner")
+    logger.info("metrics = ${metrics}")
+    /*
+|   0:VTVF_SCAN_NODE(63)                                                                                                                                      |
+|      table: null.null.LocalTableValuedFunction                                                                                                              |
+|      predicates: (_tvf_local.id[#0] > 4981)                                                                                                                 |
+|      inputSplitNum=4, totalFileSize=62494, scanRanges=4                                                                                                     |
+|      partition=0/0                                                                                                                                          |
+|      backends:                                                                                                                                              |
+|        1763953575995                                                                                                                                        |
+|          /tmp/test_condition_cache_parquet/parquet_large_9a9b87f91eb245e7-843725dec143358e_0.parquet start: 0 length: 16384                                 |
+|          /tmp/test_condition_cache_parquet/parquet_large_9a9b87f91eb245e7-843725dec143358e_0.parquet start: 16384 length: 16384                             |
+|          /tmp/test_condition_cache_parquet/parquet_large_9a9b87f91eb245e7-843725dec143358e_0.parquet start: 32768 length: 16384                             |
+|          /tmp/test_condition_cache_parquet/parquet_large_9a9b87f91eb245e7-843725dec143358e_0.parquet start: 49152 length: 13342                             |
+|          dataFileNum=1, deleteFileNum=0, deleteSplitNum=0 
+    */
+    assertEquals("4", metrics["ConditionCacheFileHit"])
+    assertEquals("4.096K (4096)", metrics["ConditionCacheFilteredRows"])
 
     // ---- Test 1: Basic predicate, no cache (baseline) ----
     sql "set enable_condition_cache=false"
@@ -253,11 +433,10 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
     // age > 25 matches ~4000 rows. LIMIT 10 causes early termination.
     // The incomplete cache must NOT be stored; otherwise the subsequent
     // full query would skip unread granules and return fewer rows.
-    sql "set runtime_filter_type=0"
 
     qt_condition_cache_limit0 """
         SELECT id, name, age, score FROM ${largeTvf}
-        WHERE age > 25
+        WHERE age > 48
         ORDER BY 1, 2, 3, 4 LIMIT 10
     """
     // assertTrue("${fmt}: limit query should return exactly 10 rows", limitResult.size() == 10)
@@ -265,15 +444,15 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
     // Run LIMIT again — result must be identical
     qt_condition_cache_limit1 """
         SELECT id, name, age, score FROM ${largeTvf}
-        WHERE age > 25
+        WHERE age > 48
         ORDER BY 1, 2, 3, 4 LIMIT 10
     """
 
     // Full query without LIMIT — must return ALL matching rows, not just
     // the granules that happened to be read during the LIMIT scan
-    qt_condition_cache_limit2 """
+    qt_condition_cache_no_limit0 """
         SELECT id, name, age, score FROM ${largeTvf}
-        WHERE age > 25
+        WHERE age > 48
         ORDER BY 1, 2, 3, 4
     """
     // age = 20 + (number % 30), age > 25 means number % 30 in [6..29] → 24/30 of rows
@@ -281,9 +460,16 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
     //            fullResult.size() > 3900)
 
     // Run full query again (cache HIT from the full scan above)
-    qt_condition_cache_limit3 """
+    qt_condition_cache_no_limit1 """
         SELECT id, name, age, score FROM ${largeTvf}
-        WHERE age > 25
+        WHERE age > 48
+        ORDER BY 1, 2, 3, 4
+    """
+
+    sql "set enable_condition_cache=false"
+    qt_condition_cache_no_limit_no_condition_cache """
+        SELECT id, name, age, score FROM ${largeTvf}
+        WHERE age > 48
         ORDER BY 1, 2, 3, 4
     """
     // assertEquals(fullResult, fullHit)

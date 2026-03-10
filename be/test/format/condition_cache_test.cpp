@@ -23,9 +23,9 @@
 #include <string>
 #include <vector>
 
-#include "vec/exec/format/generic_reader.h"
-#include "vec/exec/format/parquet/vparquet_reader.h"
-#include "vec/exec/format/table/iceberg_reader.h"
+#include "format/generic_reader.h"
+#include "format/parquet/vparquet_reader.h"
+#include "format/table/iceberg_reader.h"
 
 namespace doris::vectorized {
 
