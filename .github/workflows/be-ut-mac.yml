@@ -81,6 +81,7 @@ jobs:
             'maven'
             'node'
             'llvm@18'
+            'libomp'
           )
           brew install "${cellars[@]}" || true
 
@@ -98,17 +99,18 @@ jobs:
 
           export JAVA_HOME="${JAVA_HOME_17_arm64%\/}"
           export DORIS_CLANG_HOME="$(brew --prefix llvm@18)"
+          LIBOMP_PREFIX="$(brew --prefix libomp)"
 
-          # Debug: verify compiler and OpenMP library availability
-          echo "DORIS_CLANG_HOME=${DORIS_CLANG_HOME}"
-          ls -la "${DORIS_CLANG_HOME}/bin/clang" || true
-          ls -la "${DORIS_CLANG_HOME}/lib/libomp"* || true
-          "${DORIS_CLANG_HOME}/bin/clang" --version || true
+          # Debug: verify libomp availability
+          echo "LIBOMP_PREFIX=${LIBOMP_PREFIX}"
+          ls -la "${LIBOMP_PREFIX}/lib/libomp"* || true
+          ls -la "${LIBOMP_PREFIX}/include/omp.h" || true
 
           # Set CFLAGS/CXXFLAGS so cmake initializes CMAKE_C/CXX_FLAGS (cached globally)
-          # with the LLVM lib/include paths. This ensures FindOpenMP's try_compile can
+          # with the libomp lib/include paths. This ensures FindOpenMP's try_compile can
           # find libomp.dylib during linking (macOS -isysroot restricts default search paths).
-          export CFLAGS="-L${DORIS_CLANG_HOME}/lib -I${DORIS_CLANG_HOME}/include"
-          export CXXFLAGS="-L${DORIS_CLANG_HOME}/lib -I${DORIS_CLANG_HOME}/include"
+          # Homebrew's llvm@18 does NOT bundle libomp, so we use the standalone libomp formula.
+          export CFLAGS="-I${LIBOMP_PREFIX}/include -L${LIBOMP_PREFIX}/lib"
+          export CXXFLAGS="-I${LIBOMP_PREFIX}/include -L${LIBOMP_PREFIX}/lib"
 
           ./run-be-ut.sh --run -j "$(nproc)" --clean
