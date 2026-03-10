@@ -47,8 +47,9 @@ The following checkpoints must be **individually confirmed with conclusions** du
   - Which threads introduce concurrency, what are the critical variables? What locks protect them?
   - Are operations within locks as lightweight as possible? Are all heavy operations outside locks while maintaining concurrency safety?
   - If multiple locks exist, is the locking order consistent? Is there deadlock risk?
-- Is there special or non-intuitive lifecycle management? If yes:
+- Is there special or non-intuitive lifecycle management including static initialization order? If yes:
   - Understand the complete lifecycle and relationships of related variables. Are there circular references? When is each released? Can all lifecycles end normally?
+  - For cross-TU static/global variables: does the initializer of one static variable depend on another static variable defined in a different translation unit? If yes, the initialization order is undefined by the C++ standard (static initialization order fiasco). Use constexpr, inline variables in the same header, or lazy initialization to fix.
 - Are configuration items added?
   - Should the configuration allow dynamic changes, and does it actually allow them? If yes:
     - Can affected processes detect the change promptly without restart?
@@ -210,6 +211,13 @@ Vectorized columns (`IColumn`) use custom intrusive reference-counted Copy-on-Wr
 - [ ] Is `cache->release(handle)` called after using `Cache::Handle*`? Omission causes memory leaks
 - [ ] Do cache values inherit from `LRUCacheValueBase`? This base class automatically releases tracking bytes on destruction
 - [ ] Are new cache types registered with `CacheManager`? Unregistered caches don't participate in global GC
+
+#### 2.2.5 Static/Global Variable Initialization Order
+
+- [ ] Does the diff add or modify any `static` / global variable definition in a `.cpp` file? If the initializer references any static/global variable from another file (header or .cpp), this is a **SIOF** (static initialization order fiasco) — C++ does not define initialization order across translation units, so the dependency may be zero/garbage at the point of use.
+  - **Unsafe**: `const Foo Foo::X = Foo(Bar::Y.method());` in `foo.cpp`, where `Bar::Y` is `inline` in `bar.h` or defined in `bar.cpp` — different TU, order undefined
+  - **Safe**: `inline const Foo Foo::X = Foo(Bar::Y.method());` in `foo.h` where `bar.h` is included — same TU for every includer
+  - **Fix**: use `constexpr`, move to same header as `inline`, or use function-local static (Meyers' singleton)
 
 ### 2.3 Concurrency and Locks
 
@@ -757,6 +765,7 @@ MoW tables are one of the most complex data paths, require special attention dur
 | `op_not` const but modifies data | **MEDIUM** | `inverted_index_reader.h:170` | Modifies via shared_ptr bypassing const, callers assume immutable |
 | Schema change four-level lock order | **HIGH** | `schema_change.cpp:972-976` | base push→new push→base header→new header, out-of-order deadlock |
 | MOW schema change delete bitmap four steps | **CRITICAL** | `schema_change.cpp:1595-1657` | Step 3 must block publish, omission causes bitmap inconsistency |
+| Cross-TU static variable initialization dependency | **HIGH** | BE global | Static init order between TUs is undefined; initializer reading another TU's static gets zero/garbage |
 | `ExternalCatalog.isInitializing` dead code | **MEDIUM** | `ExternalCatalog.java:358` | Never set to true, reentrancy protection ineffective |
 | `lowerCaseToDatabaseName.clear()` race | **HIGH** | `ExternalCatalog.java:504` | Concurrent get returns null between clear and refill |
 | `resetToUninitialized()` sets fields to null | **HIGH** | `ExternalCatalog.java:581-590` | Concurrent queries encounter null fields midway causing NPE |
