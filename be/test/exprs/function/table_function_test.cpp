@@ -30,7 +30,11 @@
 #include "exprs/table_function/vexplode.h"
 #include "exprs/table_function/vexplode_numbers.h"
 #include "exprs/table_function/vexplode_v2.h"
+#include "exprs/table_function/vjson_each.h"
 #include "testutil/any_type.h"
+#include "util/jsonb_parser_simd.h"
+#include "util/jsonb_utils.h"
+#include "util/jsonb_writer.h"
 
 namespace doris {
 
@@ -324,9 +328,10 @@ static std::unique_ptr<Block> build_jsonb_input_block(const std::vector<std::str
             str_col->insert_default();
             null_col->insert_value(1);
         } else {
-            JsonBinaryValue jbv;
-            if (jbv.from_json_string(json.c_str(), json.size()).ok()) {
-                str_col->insert_data(jbv.value(), jbv.size());
+            JsonbWriter writer;
+            if (JsonbParser::parse(json.c_str(), json.size(), writer).ok()) {
+                str_col->insert_data(writer.getOutput()->getBuffer(),
+                                     writer.getOutput()->getSize());
                 null_col->insert_value(0);
             } else {
                 str_col->insert_default();
@@ -402,7 +407,8 @@ static std::vector<std::pair<std::string, std::string>> run_json_each_fn(TableFu
                 const JsonbDocument* doc = nullptr;
                 if (JsonbDocument::checkAndCreateDocument(sr.data, sr.size, &doc).ok() && doc &&
                     doc->getValue()) {
-                    val = JsonbToJson().to_json_string(doc->getValue());
+                    JsonbToJson converter;
+                    val = converter.to_json_string(doc->getValue());
                 } else {
                     val = "__BAD_JSONB__";
                 }

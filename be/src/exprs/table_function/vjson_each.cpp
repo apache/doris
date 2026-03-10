@@ -149,6 +149,7 @@ void VJsonEachTableFunction<TEXT_MODE>::process_close() {
     _json_column = nullptr;
     _kv_pairs.first = nullptr;
     _kv_pairs.second = nullptr;
+    _cur_size = 0;
 }
 
 template <bool TEXT_MODE>
