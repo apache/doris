@@ -3792,8 +3792,15 @@ public class Config extends ConfigBase {
             "agent tasks health check interval, default is five minutes, no health check when less than or equal to 0"
     })
     public static long agent_task_health_check_intervals_ms = 5 * 60 * 1000L; // 5 min
-    @ConfField(description = {"是否跳过 catalog 层级的鉴权",
-            "Whether to skip catalog level privilege check"})
+    @ConfField(description = {
+            "是否在 catalog 级权限检查中跳过 FE 内部的 catalog 权限校验。仅对配置了自定义 access controller 的外部 "
+                    + "catalog 的 SHOW/SELECT 生效；内部 catalog、未配置自定义 access controller 的 catalog，"
+                    + "以及 CREATE/LOAD/ALTER 等其他权限仍按默认逻辑校验",
+            "Whether to skip the FE internal catalog privilege check in catalog-level privilege validation. "
+                    + "This only applies to SHOW/SELECT on external catalogs with a custom access controller. "
+                    + "Internal catalogs, catalogs without a custom access controller, and other privileges such "
+                    + "as CREATE/LOAD/ALTER are still validated by the default logic"
+    })
     public static boolean skip_catalog_priv_check = false;
 
     @ConfField(mutable = true, description = {
