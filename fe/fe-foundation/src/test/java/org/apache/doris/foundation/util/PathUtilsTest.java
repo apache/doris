@@ -15,9 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
-
-import org.apache.doris.foundation.util.PathUtils;
+package org.apache.doris.foundation.util;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -25,7 +23,7 @@ import org.junit.jupiter.api.Test;
 public class PathUtilsTest {
 
     @Test
-    public void testEqualsIgnoreScheme_sameHostAndPath() {
+    public void testEqualsIgnoreSchemeSameHostAndPath() {
         Assertions.assertTrue(PathUtils.equalsIgnoreSchemeIfOneIsS3(
                 "s3://my-bucket/data/file.txt",
                 "cos://my-bucket/data/file.txt"
@@ -47,7 +45,7 @@ public class PathUtilsTest {
     }
 
     @Test
-    public void testEqualsIgnoreScheme_differentHost() {
+    public void testEqualsIgnoreSchemeDifferentHost() {
         Assertions.assertFalse(PathUtils.equalsIgnoreSchemeIfOneIsS3(
                 "s3://bucket-a/data/file.txt",
                 "cos://bucket-b/data/file.txt"
@@ -60,7 +58,7 @@ public class PathUtilsTest {
     }
 
     @Test
-    public void testEqualsIgnoreScheme_trailingSlash() {
+    public void testEqualsIgnoreSchemeTrailingSlash() {
         Assertions.assertFalse(PathUtils.equalsIgnoreSchemeIfOneIsS3(
                 "oss://bucket/data/",
                 "oss://bucket/data"
@@ -73,8 +71,7 @@ public class PathUtilsTest {
     }
 
     @Test
-    public void testEqualsIgnoreScheme_invalidURI() {
-        // Special characters that break URI parsing
+    public void testEqualsIgnoreSchemeInvalidUri() {
         Assertions.assertFalse(PathUtils.equalsIgnoreSchemeIfOneIsS3(
                 "s3://bucket/data file.txt",
                 "cos://bucket/data file.txt"
