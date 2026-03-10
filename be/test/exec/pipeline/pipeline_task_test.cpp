@@ -22,11 +22,11 @@
 #include "exec/operator/operator.h"
 #include "exec/operator/spill_utils.h"
 #include "exec/pipeline/dependency.h"
-#include "exec/spill/spill_file.h"
 #include "exec/pipeline/dummy_task_queue.h"
 #include "exec/pipeline/pipeline.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/pipeline/thrift_builder.h"
+#include "exec/spill/spill_file.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -1183,7 +1183,7 @@ TEST_F(PipelineTaskTest, TEST_SHOULD_TRIGGER_REVOKING) {
     auto wg = std::make_shared<WorkloadGroup>(WorkloadGroupInfo::parse_topic_info(twg_info));
     const int64_t wg_mem_limit = 1000LL * 1024 * 1024; // 1 GB
     wg->_memory_limit = wg_mem_limit;
-    wg->_memory_low_watermark = 50; // 50%
+    wg->_memory_low_watermark = 50;  // 50%
     wg->_memory_high_watermark = 80; // 80%
     wg->_total_mem_used = 0;
     _query_ctx->_resource_ctx->set_workload_group(wg);
@@ -1236,9 +1236,7 @@ TEST_F(PipelineTaskTest, TEST_SHOULD_TRIGGER_REVOKING) {
         query_mem_tracker->set_limit(wg_mem_limit);
     }
     // Case 4: reserve_size too small (reserve * parallelism <= query_limit / 5) -> false
-    {
-        EXPECT_FALSE(task->_should_trigger_revoking(wg_mem_limit / 5));
-    }
+    { EXPECT_FALSE(task->_should_trigger_revoking(wg_mem_limit / 5)); }
     // Case 5: no memory pressure (neither query tracker nor wg watermark) -> false
     {
         // consumption + reserve = 100MB + 250MB = 350MB < 90% of 1GB (900MB); wg not at watermark
@@ -1377,8 +1375,7 @@ TEST_F(PipelineTaskTest, TEST_DO_REVOKE_MEMORY) {
     {
         bool callback_fired = false;
         auto spill_ctx = std::make_shared<SpillContext>(
-                1, _query_id,
-                [&callback_fired](SpillContext*) { callback_fired = true; });
+                1, _query_id, [&callback_fired](SpillContext*) { callback_fired = true; });
         EXPECT_TRUE(task->do_revoke_memory(spill_ctx).ok());
         EXPECT_TRUE(callback_fired);
         EXPECT_EQ(spill_ctx->running_tasks_count.load(), 0);
@@ -1391,8 +1388,7 @@ TEST_F(PipelineTaskTest, TEST_DO_REVOKE_MEMORY) {
         task->_sink->cast<DummySinkOperatorX>()._terminated = false;
         bool callback_fired = false;
         auto spill_ctx = std::make_shared<SpillContext>(
-                1, _query_id,
-                [&callback_fired](SpillContext*) { callback_fired = true; });
+                1, _query_id, [&callback_fired](SpillContext*) { callback_fired = true; });
         EXPECT_TRUE(task->do_revoke_memory(spill_ctx).ok());
         EXPECT_TRUE(task->_eos);
         EXPECT_TRUE(task->_operators.front()->cast<DummyOperator>()._terminated);
@@ -1425,8 +1421,8 @@ TEST_F(PipelineTaskTest, TEST_REVOKE_MEMORY) {
                                                      ExecEnv::GetInstance(), _query_ctx.get());
         rs->set_task_execution_context(std::static_pointer_cast<TaskExecutionContext>(_context));
         rs->resize_op_id_to_local_state(-1);
-        auto task = std::make_shared<PipelineTask>(pip, task_id, rs.get(), _context,
-                                                   profile.get(), shared_state_map, task_id);
+        auto task = std::make_shared<PipelineTask>(pip, task_id, rs.get(), _context, profile.get(),
+                                                   shared_state_map, task_id);
         {
             std::vector<TScanRangeParams> scan_range;
             int sender_id = 0;
@@ -1438,8 +1434,7 @@ TEST_F(PipelineTaskTest, TEST_REVOKE_MEMORY) {
         EXPECT_TRUE(task->is_finalized());
         bool callback_fired = false;
         auto spill_ctx = std::make_shared<SpillContext>(
-                1, _query_id,
-                [&callback_fired](SpillContext*) { callback_fired = true; });
+                1, _query_id, [&callback_fired](SpillContext*) { callback_fired = true; });
         EXPECT_TRUE(task->revoke_memory(spill_ctx).ok());
         EXPECT_TRUE(callback_fired);
         EXPECT_EQ(spill_ctx->running_tasks_count.load(), 0);
@@ -1466,8 +1461,8 @@ TEST_F(PipelineTaskTest, TEST_REVOKE_MEMORY) {
                                                      ExecEnv::GetInstance(), _query_ctx.get());
         rs->set_task_execution_context(std::static_pointer_cast<TaskExecutionContext>(_context));
         rs->resize_op_id_to_local_state(-1);
-        auto task = std::make_shared<PipelineTask>(pip, task_id, rs.get(), _context,
-                                                   profile.get(), shared_state_map, task_id);
+        auto task = std::make_shared<PipelineTask>(pip, task_id, rs.get(), _context, profile.get(),
+                                                   shared_state_map, task_id);
         {
             std::vector<TScanRangeParams> scan_range;
             int sender_id = 0;
@@ -1480,8 +1475,7 @@ TEST_F(PipelineTaskTest, TEST_REVOKE_MEMORY) {
         task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size = 0;
         bool callback_fired = false;
         auto spill_ctx = std::make_shared<SpillContext>(
-                1, _query_id,
-                [&callback_fired](SpillContext*) { callback_fired = true; });
+                1, _query_id, [&callback_fired](SpillContext*) { callback_fired = true; });
         EXPECT_TRUE(task->revoke_memory(spill_ctx).ok());
         EXPECT_TRUE(callback_fired);
         EXPECT_EQ(spill_ctx->running_tasks_count.load(), 0);
@@ -1508,8 +1502,8 @@ TEST_F(PipelineTaskTest, TEST_REVOKE_MEMORY) {
                                                      ExecEnv::GetInstance(), _query_ctx.get());
         rs->set_task_execution_context(std::static_pointer_cast<TaskExecutionContext>(_context));
         rs->resize_op_id_to_local_state(-1);
-        auto task = std::make_shared<PipelineTask>(pip, task_id, rs.get(), _context,
-                                                   profile.get(), shared_state_map, task_id);
+        auto task = std::make_shared<PipelineTask>(pip, task_id, rs.get(), _context, profile.get(),
+                                                   shared_state_map, task_id);
         {
             std::vector<TScanRangeParams> scan_range;
             int sender_id = 0;
@@ -1522,8 +1516,7 @@ TEST_F(PipelineTaskTest, TEST_REVOKE_MEMORY) {
                 SpillFile::MIN_SPILL_WRITE_BATCH_MEM + 1;
         bool callback_fired = false;
         auto spill_ctx = std::make_shared<SpillContext>(
-                1, _query_id,
-                [&callback_fired](SpillContext*) { callback_fired = true; });
+                1, _query_id, [&callback_fired](SpillContext*) { callback_fired = true; });
         EXPECT_TRUE(task->revoke_memory(spill_ctx).ok());
         // RevokableTask submitted but not yet executed, callback not fired
         EXPECT_FALSE(callback_fired);

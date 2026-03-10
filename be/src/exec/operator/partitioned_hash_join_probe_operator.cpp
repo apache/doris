@@ -917,6 +917,11 @@ size_t PartitionedHashJoinProbeOperatorX::get_reserve_mem_size(RuntimeState* sta
             size_to_reserve += rows * sizeof(uint8_t); // JoinHashTable::visited
         }
 
+        // It is hard to precisely estimate the memory needed for serialized
+        // keys when building the hash table, so use the current build block
+        // size as an estimate. This may be imprecise, but it should not
+        // underestimate the requirement. Hash table construction also merges
+        // blocks, so this approximation is reasonable here.
         size_to_reserve += local_state._recovered_build_block->allocated_bytes();
     }
     // Otherwise (not about to build): we only need the spill I/O baseline
