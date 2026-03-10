@@ -1155,6 +1155,10 @@ public:
                        ? 0
                        : OperatorX<DummyOperatorLocalState>::get_reserve_mem_size(state);
     }
+    Status revoke_memory(RuntimeState* state) override {
+        _revoke_called = true;
+        return Status::OK();
+    }
 
 private:
     friend class AssertNumRowsLocalState;
@@ -1163,6 +1167,7 @@ private:
     bool _terminated = false;
     size_t _revocable_mem_size = 0;
     bool _disable_reserve_mem = false;
+    bool _revoke_called = false;
 };
 
 class DummySinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
@@ -1205,6 +1210,10 @@ public:
                        ? 0
                        : DataSinkOperatorX<DummySinkLocalState>::get_reserve_mem_size(state, eos);
     }
+    Status revoke_memory(RuntimeState* state) override {
+        _revoke_called = true;
+        return Status::OK();
+    }
 
 private:
     bool _low_memory_mode = false;
@@ -1212,6 +1221,7 @@ private:
     std::atomic_bool _return_eof = false;
     size_t _revocable_mem_size = 0;
     bool _disable_reserve_mem = false;
+    bool _revoke_called = false;
 };
 #endif
 
