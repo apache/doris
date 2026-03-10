@@ -32,10 +32,10 @@ namespace doris {
 class RuntimeState;
 } // namespace doris
 
-namespace doris::pipeline {
+namespace doris {
 
 TableFunctionLocalState::TableFunctionLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState<>(state, parent), _child_block(vectorized::Block::create_unique()) {}
+        : PipelineXLocalState<>(state, parent), _child_block(Block::create_unique()) {}
 
 Status TableFunctionLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
@@ -53,9 +53,9 @@ Status TableFunctionLocalState::_clone_table_function(RuntimeState* state) {
     for (size_t i = 0; i < _vfn_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._vfn_ctxs[i]->clone(state, _vfn_ctxs[i]));
 
-        vectorized::TableFunction* fn = nullptr;
-        RETURN_IF_ERROR(vectorized::TableFunctionFactory::get_fn(
-                _vfn_ctxs[i]->root()->fn(), state->obj_pool(), &fn, state->be_exec_version()));
+        TableFunction* fn = nullptr;
+        RETURN_IF_ERROR(TableFunctionFactory::get_fn(_vfn_ctxs[i]->root()->fn(), state->obj_pool(),
+                                                     &fn, state->be_exec_version()));
         fn->set_expr_context(_vfn_ctxs[i]);
         _fns.push_back(fn);
     }
@@ -79,7 +79,7 @@ Status TableFunctionLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-void TableFunctionLocalState::_copy_output_slots(std::vector<vectorized::MutableColumnPtr>& columns,
+void TableFunctionLocalState::_copy_output_slots(std::vector<MutableColumnPtr>& columns,
                                                  const TableFunctionOperatorX& p) {
     if (!_current_row_insert_times) {
         return;
@@ -160,17 +160,17 @@ bool TableFunctionLocalState::_is_inner_and_empty() {
     return false;
 }
 
-Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
-                                                   vectorized::Block* output_block, bool* eos) {
+Status TableFunctionLocalState::get_expanded_block(RuntimeState* state, Block* output_block,
+                                                   bool* eos) {
     SCOPED_TIMER(_process_rows_timer);
     if (_need_to_handle_outer_conjuncts) {
         return _get_expanded_block_for_outer_conjuncts(state, output_block, eos);
     }
 
     auto& p = _parent->cast<TableFunctionOperatorX>();
-    vectorized::MutableBlock m_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
-            output_block, p._output_slots);
-    vectorized::MutableColumns& columns = m_block.mutable_columns();
+    MutableBlock m_block =
+            VectorizedUtils::build_mutable_mem_reuse_block(output_block, p._output_slots);
+    MutableColumns& columns = m_block.mutable_columns();
 
     for (int i = 0; i < p._fn_num; i++) {
         if (columns[i + p._child_slots.size()]->is_nullable()) {
@@ -232,22 +232,23 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
 
     {
         SCOPED_TIMER(_filter_timer); // 3. eval conjuncts
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_expand_conjuncts_ctxs, output_block,
-                                                               output_block->columns()));
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
-                                                               output_block->columns()));
+        RETURN_IF_ERROR(VExprContext::filter_block(_expand_conjuncts_ctxs, output_block,
+                                                   output_block->columns()));
+        RETURN_IF_ERROR(
+                VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     }
 
     *eos = _child_eos && _cur_child_offset == -1;
     return Status::OK();
 }
 
-Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(
-        RuntimeState* state, vectorized::Block* output_block, bool* eos) {
+Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(RuntimeState* state,
+                                                                        Block* output_block,
+                                                                        bool* eos) {
     auto& p = _parent->cast<TableFunctionOperatorX>();
-    vectorized::MutableBlock m_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
-            output_block, p._output_slots);
-    vectorized::MutableColumns& columns = m_block.mutable_columns();
+    MutableBlock m_block =
+            VectorizedUtils::build_mutable_mem_reuse_block(output_block, p._output_slots);
+    MutableColumns& columns = m_block.mutable_columns();
     auto child_slot_count = p._child_slots.size();
     for (int i = 0; i < p._fn_num; i++) {
         if (columns[i + child_slot_count]->is_nullable()) {
@@ -379,11 +380,11 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(
     child rows 1, 2, 3 are all filtered out, so we need to insert one row with NULL tag value for each of them.
     */
     if (!child_block_empty) {
-        vectorized::IColumn::Filter filter;
+        IColumn::Filter filter;
         auto column_count = output_block->columns();
-        vectorized::ColumnNumbers columns_to_filter(column_count);
+        ColumnNumbers columns_to_filter(column_count);
         std::iota(columns_to_filter.begin(), columns_to_filter.end(), 0);
-        RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts_and_filter_block(
+        RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
                 _expand_conjuncts_ctxs, output_block, columns_to_filter, column_count, filter));
         size_t remain_row_count = output_block->rows();
         // for outer table function, need to handle those child rows which all expanded rows are filtered out
@@ -413,10 +414,9 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(
                 }
             }
             if (!null_row_indices.empty()) {
-                vectorized::MutableBlock m_block2 =
-                        vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
-                                                                                   p._output_slots);
-                vectorized::MutableColumns& columns2 = m_block2.mutable_columns();
+                MutableBlock m_block2 = VectorizedUtils::build_mutable_mem_reuse_block(
+                        output_block, p._output_slots);
+                MutableColumns& columns2 = m_block2.mutable_columns();
                 for (auto index : p._output_slot_indexs) {
                     auto src_column = _child_block->get_by_position(index).column;
                     columns2[index]->insert_indices_from(
@@ -438,8 +438,8 @@ Status TableFunctionLocalState::_get_expanded_block_for_outer_conjuncts(
 
     {
         SCOPED_TIMER(_filter_timer); // 3. eval conjuncts
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
-                                                               output_block->columns()));
+        RETURN_IF_ERROR(
+                VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     }
 
     *eos = _child_eos && _cur_child_offset == -1;
@@ -451,7 +451,7 @@ void TableFunctionLocalState::process_next_child_row() {
 
     if (_cur_child_offset >= _child_block->rows()) {
         // release block use count.
-        for (vectorized::TableFunction* fn : _fns) {
+        for (TableFunction* fn : _fns) {
             fn->process_close();
         }
 
@@ -466,7 +466,7 @@ void TableFunctionLocalState::process_next_child_row() {
         return;
     }
 
-    for (vectorized::TableFunction* fn : _fns) {
+    for (TableFunction* fn : _fns) {
         fn->process_row(_cur_child_offset);
     }
 }
@@ -495,22 +495,22 @@ Status TableFunctionOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
     RETURN_IF_ERROR(Base::init(tnode, state));
 
     for (const TExpr& texpr : tnode.table_function_node.fnCallExprList) {
-        vectorized::VExprContextSPtr ctx;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(texpr, ctx));
+        VExprContextSPtr ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(texpr, ctx));
         _vfn_ctxs.push_back(ctx);
 
         auto root = ctx->root();
-        vectorized::TableFunction* fn = nullptr;
-        RETURN_IF_ERROR(vectorized::TableFunctionFactory::get_fn(root->fn(), _pool, &fn,
-                                                                 state->be_exec_version()));
+        TableFunction* fn = nullptr;
+        RETURN_IF_ERROR(
+                TableFunctionFactory::get_fn(root->fn(), _pool, &fn, state->be_exec_version()));
         fn->set_expr_context(ctx);
         _fns.push_back(fn);
     }
     _fn_num = cast_set<int>(_fns.size());
 
     for (const TExpr& texpr : tnode.table_function_node.expand_conjuncts) {
-        vectorized::VExprContextSPtr ctx;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(texpr, ctx));
+        VExprContextSPtr ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(texpr, ctx));
         _expand_conjuncts_ctxs.push_back(ctx);
     }
     if (!_expand_conjuncts_ctxs.empty()) {
@@ -527,9 +527,9 @@ Status TableFunctionOperatorX::prepare(doris::RuntimeState* state) {
     for (auto* fn : _fns) {
         RETURN_IF_ERROR(fn->prepare());
     }
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_vfn_ctxs, state, row_descriptor()));
+    RETURN_IF_ERROR(VExpr::prepare(_vfn_ctxs, state, row_descriptor()));
 
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_expand_conjuncts_ctxs, state, row_descriptor()));
+    RETURN_IF_ERROR(VExpr::prepare(_expand_conjuncts_ctxs, state, row_descriptor()));
 
     // get current all output slots
     for (const auto& tuple_desc : row_descriptor().tuple_descriptors()) {
@@ -553,9 +553,9 @@ Status TableFunctionOperatorX::prepare(doris::RuntimeState* state) {
         }
     }
 
-    RETURN_IF_ERROR(vectorized::VExpr::open(_expand_conjuncts_ctxs, state));
-    return vectorized::VExpr::open(_vfn_ctxs, state);
+    RETURN_IF_ERROR(VExpr::open(_expand_conjuncts_ctxs, state));
+    return VExpr::open(_vfn_ctxs, state);
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

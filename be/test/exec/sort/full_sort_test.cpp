@@ -39,7 +39,7 @@
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct FullSorterTest : public testing::Test {
     void SetUp() override {
@@ -121,4 +121,4 @@ TEST_F(FullSorterTest, test_full_sorter3) {
     EXPECT_EQ(sorter->_state->get_sorted_block()[1]->rows(), 4);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

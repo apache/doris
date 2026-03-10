@@ -41,7 +41,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class ColumnStructTest : public ::testing::Test {
 protected:
@@ -113,4 +113,4 @@ TEST_F(ColumnStructTest, StructTypeTest2erase) {
         EXPECT_EQ(column_int.get_element(i), data_int_res[i]);
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

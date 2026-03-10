@@ -28,7 +28,6 @@
 namespace doris {
 class PValues;
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class IColumn;
 class Arena;
 
@@ -79,11 +78,10 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                    const FormatOptions& options) const override;
 };
 #include "common/compile_check_end.h"
-} // namespace vectorized
 } // namespace doris

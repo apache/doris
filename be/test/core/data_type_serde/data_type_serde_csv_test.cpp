@@ -32,7 +32,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "storage/types.h" // for TypeInfo
 
-namespace doris::vectorized {
+namespace doris {
 // This test aim to make sense for csv serde of data types.
 //  we use default formatOption and special formatOption to test serde behavior.
 TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
@@ -720,4 +720,4 @@ TEST(CsvSerde, ComplexTypeSerdeSchemaChangedCsvTest) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

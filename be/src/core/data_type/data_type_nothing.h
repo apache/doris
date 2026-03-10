@@ -36,7 +36,7 @@
 #include "core/field.h"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class IColumn;
 
@@ -91,4 +91,4 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

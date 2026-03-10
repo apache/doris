@@ -32,7 +32,7 @@
 #include "exprs/vexpr_context.h"
 #include "runtime/user_function_cache.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 const char* EXECUTOR_CLASS = "org/apache/doris/udf/UdfExecutor";
@@ -196,4 +196,4 @@ int UDFTableFunction::get_value(MutableColumnPtr& column, int max_step) {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

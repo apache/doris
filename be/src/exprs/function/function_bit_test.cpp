@@ -27,7 +27,7 @@
 #include "exprs/function/cast_type_to_either.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionBitTest : public IFunction {
 public:
@@ -154,4 +154,4 @@ void register_function_bit_test(SimpleFunctionFactory& factory) {
     factory.register_alias("bit_test", "bit_test_all");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

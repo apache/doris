@@ -25,8 +25,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-namespace pipeline {
-
 class PartitionedAggSourceOperatorX;
 class PartitionedAggLocalState;
 
@@ -64,7 +62,7 @@ protected:
     bool _current_partition_eos = true;
     bool _need_to_merge_data_for_current_partition = true;
 
-    std::vector<vectorized::Block> _blocks;
+    std::vector<Block> _blocks;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
 };
@@ -83,7 +81,7 @@ public:
 
     Status close(RuntimeState* state) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 
@@ -100,6 +98,5 @@ private:
 
     std::unique_ptr<AggSourceOperatorX> _agg_source_operator;
 };
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

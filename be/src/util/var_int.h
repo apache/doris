@@ -20,7 +20,7 @@
 #include "core/string_buffer.hpp"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 /** Write Int64 in variable length format (base128) */
 template <typename OUT>
 void write_var_int(Int64 x, OUT& ostr) {
@@ -34,4 +34,4 @@ void read_var_int(Int64& x, IN& istr) {
     x = (static_cast<UInt64>(x) >> 1) ^ -(x & 1);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

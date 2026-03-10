@@ -28,7 +28,7 @@
 #include "exprs/aggregate/factory_helpers.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <template <PrimitiveType> class ImplNumericData, typename ImplStringData>
@@ -155,4 +155,4 @@ void register_aggregate_function_group_array_set_op(AggregateFunctionSimpleFacto
     factory.register_function_both("group_array_union",
                                    create_aggregate_function_group_array_union);
 }
-} // namespace doris::vectorized
+} // namespace doris

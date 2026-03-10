@@ -28,16 +28,16 @@
 #include "exec/spill/spill_stream.h"
 #include "runtime/runtime_profile.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class Dependency;
 struct MultiCastSharedState;
 
 struct MultiCastBlock {
-    MultiCastBlock(vectorized::Block* block, int need_copy, size_t mem_size);
+    MultiCastBlock(Block* block, int need_copy, size_t mem_size);
 
-    std::unique_ptr<vectorized::Block> _block;
+    std::unique_ptr<Block> _block;
     // Each block is copied during pull. If _un_finish_copy == 0,
     // it indicates that this block has been fully used and can be released.
     int _un_finish_copy;
@@ -45,8 +45,8 @@ struct MultiCastBlock {
 };
 
 struct SpillingReader {
-    vectorized::SpillReaderUPtr reader;
-    vectorized::SpillStreamSPtr stream;
+    SpillReaderUPtr reader;
+    SpillStreamSPtr stream;
     int64_t block_offset {0};
     bool all_data_read {false};
 };
@@ -71,9 +71,9 @@ public:
 
     ~MultiCastDataStreamer() = default;
 
-    Status pull(RuntimeState* state, int sender_idx, vectorized::Block* block, bool* eos);
+    Status pull(RuntimeState* state, int sender_idx, Block* block, bool* eos);
 
-    Status push(RuntimeState* state, vectorized::Block* block, bool eos);
+    Status push(RuntimeState* state, Block* block, bool eos);
 
     RuntimeProfile* profile() { return _profile; }
 
@@ -96,16 +96,16 @@ private:
     void _set_ready_for_read(int sender_idx);
     void _block_reading(int sender_idx);
 
-    Status _copy_block(RuntimeState* state, int32_t sender_idx, vectorized::Block* block,
+    Status _copy_block(RuntimeState* state, int32_t sender_idx, Block* block,
                        MultiCastBlock& multi_cast_block);
 
-    Status _start_spill_task(RuntimeState* state, vectorized::SpillStreamSPtr spill_stream);
+    Status _start_spill_task(RuntimeState* state, SpillStreamSPtr spill_stream);
 
     Status _trigger_spill_if_need(RuntimeState* state, bool* triggered);
 
     RuntimeProfile* _profile = nullptr;
     std::list<MultiCastBlock> _multi_cast_blocks;
-    std::vector<std::vector<vectorized::Block>> _cached_blocks;
+    std::vector<std::vector<Block>> _cached_blocks;
     std::vector<std::list<MultiCastBlock>::iterator> _sender_pos_to_read;
     std::mutex _mutex;
     bool _eos = false;
@@ -119,7 +119,7 @@ private:
     Dependency* _write_dependency;
     std::vector<Dependency*> _dependencies;
 
-    vectorized::BlockUPtr _pending_block;
+    BlockUPtr _pending_block;
 
     std::vector<std::vector<std::shared_ptr<SpillingReader>>> _spill_readers;
 
@@ -128,4 +128,4 @@ private:
     std::vector<RuntimeProfile*> _source_operator_profiles;
 };
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

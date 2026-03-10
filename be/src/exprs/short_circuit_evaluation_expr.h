@@ -24,7 +24,7 @@
 #include "exprs/vexpr_context.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class Block;
 class VExprContext;
@@ -110,4 +110,4 @@ public:
 private:
     inline static const std::string COALESCE_NAME = "coalesce";
 };
-} // namespace doris::vectorized
+} // namespace doris

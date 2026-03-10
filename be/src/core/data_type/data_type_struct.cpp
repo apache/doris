@@ -45,7 +45,7 @@
 #include "core/string_buffer.hpp"
 #include "core/string_ref.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 DataTypeStruct::DataTypeStruct(const DataTypes& elems_)
         : elems(elems_), have_explicit_names(false) {
@@ -251,4 +251,4 @@ size_t DataTypeStruct::get_size_of_value_in_memory() const {
     return res;
 }
 
-} // namespace doris::vectorized
+} // namespace doris

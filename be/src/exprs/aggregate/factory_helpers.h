@@ -24,7 +24,7 @@
 
 #include "core/data_type/data_type.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 inline void assert_arity_range(const std::string& name, const DataTypes& argument_types,
@@ -36,6 +36,6 @@ inline void assert_arity_range(const std::string& name, const DataTypes& argumen
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

@@ -21,7 +21,7 @@
 #include <memory>
 #include <vector>
 
-namespace doris::vectorized {
+namespace doris {
 
 class ConcurrentQueueOrder : public testing::Test {
 public:
@@ -106,4 +106,4 @@ TEST_F(ConcurrentQueueOrder, test_guarantee_order) {
                   << "\n";
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

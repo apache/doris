@@ -20,7 +20,7 @@
 #include <memory>
 #include <vector>
 
-namespace doris::vectorized {
+namespace doris {
 class VExpr;
 class VExprContext;
 
@@ -30,4 +30,4 @@ using VExprContextSPtr = std::shared_ptr<VExprContext>;
 using VExprSPtrs = std::vector<VExprSPtr>;
 using VExprContextSPtrs = std::vector<VExprContextSPtr>;
 
-} // namespace doris::vectorized
+} // namespace doris

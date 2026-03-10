@@ -20,7 +20,7 @@
 #include "exprs/function/simple_function_factory.h"
 #include "util/jsonb_document.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 void json_hash(const JsonbValue* jsonb_value, size_t& hash_value) {
     auto update_hash = [&hash_value](const void* data, size_t size) {
@@ -101,4 +101,4 @@ void register_function_json_hash(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionJsonHash::name, "jsonb_hash");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

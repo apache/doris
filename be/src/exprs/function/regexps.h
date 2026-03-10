@@ -34,7 +34,7 @@
 #include "common/exception.h"
 #include "core/string_ref.h"
 
-namespace doris::vectorized::multiregexps {
+namespace doris::multiregexps {
 
 template <typename Deleter, Deleter deleter>
 struct HyperscanDeleter {
@@ -267,4 +267,4 @@ DeferredConstructedRegexpsPtr getOrSet(const std::vector<StringRef>& patterns,
     return bucket.regexps;
 }
 
-} // namespace doris::vectorized::multiregexps
+} // namespace doris::multiregexps

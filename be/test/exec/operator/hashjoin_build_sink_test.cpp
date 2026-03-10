@@ -40,7 +40,7 @@
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 class HashJoinBuildSinkTest : public testing::Test {
 public:
@@ -231,13 +231,13 @@ TEST_F(HashJoinBuildSinkTest, Sink) {
         ASSERT_EQ(sink_operator->get_reserve_mem_size(runtime_state.get(), false), 0);
 
         const auto& row_desc = sink_operator->child()->row_desc();
-        vectorized::Block block(row_desc.tuple_descriptors()[0]->slots(), 0);
+        Block block(row_desc.tuple_descriptors()[0]->slots(), 0);
 
-        auto mutable_block = vectorized::MutableBlock(block.clone_empty());
+        auto mutable_block = MutableBlock(block.clone_empty());
         for (auto& col : mutable_block.mutable_columns()) {
             col->insert_default();
             if (col->is_nullable()) {
-                auto& nullable_column = assert_cast<vectorized::ColumnNullable&>(*col);
+                auto& nullable_column = assert_cast<ColumnNullable&>(*col);
                 nullable_column.insert_not_null_elements(1);
             } else {
                 col->insert_default();
@@ -320,13 +320,13 @@ TEST_F(HashJoinBuildSinkTest, Terminate) {
         ASSERT_EQ(sink_operator->get_reserve_mem_size(runtime_state.get(), false), 0);
 
         const auto& row_desc = sink_operator->child()->row_desc();
-        vectorized::Block block(row_desc.tuple_descriptors()[0]->slots(), 0);
+        Block block(row_desc.tuple_descriptors()[0]->slots(), 0);
 
-        auto mutable_block = vectorized::MutableBlock(block.clone_empty());
+        auto mutable_block = MutableBlock(block.clone_empty());
         for (auto& col : mutable_block.mutable_columns()) {
             col->insert_default();
             if (col->is_nullable()) {
-                auto& nullable_column = assert_cast<vectorized::ColumnNullable&>(*col);
+                auto& nullable_column = assert_cast<ColumnNullable&>(*col);
                 nullable_column.insert_not_null_elements(1);
             } else {
                 col->insert_default();
@@ -358,4 +358,4 @@ TEST_F(HashJoinBuildSinkTest, Terminate) {
     run_test_block(test_block);
 }
 
-} // namespace doris::pipeline
+} // namespace doris

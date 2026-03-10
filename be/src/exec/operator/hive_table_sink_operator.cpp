@@ -19,7 +19,7 @@
 
 #include "common/status.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 Status HiveTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -30,4 +30,4 @@ Status HiveTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& in
     return Status::OK();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

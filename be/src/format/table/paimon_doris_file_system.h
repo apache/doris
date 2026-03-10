@@ -17,9 +17,9 @@
 
 #pragma once
 
-namespace doris::vectorized {
+namespace doris {
 
 // Force-link helper so the paimon-cpp file system factory registration is kept.
 void register_paimon_doris_file_system();
 
-} // namespace doris::vectorized
+} // namespace doris

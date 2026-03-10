@@ -67,7 +67,7 @@
 #include "runtime/runtime_state.h"
 #include "util/time_lut.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_avoid_begin.h"
 
 struct StrToDate {
@@ -1528,4 +1528,4 @@ void register_function_timestamp(SimpleFunctionFactory& factory) {
     factory.register_function<DateTimeToTimestamp<Sec>>();
 }
 #include "common/compile_check_avoid_end.h"
-} // namespace doris::vectorized
+} // namespace doris

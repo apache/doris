@@ -30,8 +30,8 @@
 #include "core/arena.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
-#include "core/field.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "storage/field.h"
 #include "storage/metadata_adder.h"
 #include "util/once.h"
 
@@ -45,9 +45,9 @@ namespace segment_v2 {
 
 struct ZoneMap {
     // min value of zone
-    doris::vectorized::Field min_value;
+    doris::Field min_value;
     // max value of zone
-    doris::vectorized::Field max_value;
+    doris::Field max_value;
 
     // if both has_null and has_not_null is false, means no rows.
     // if has_null is true and has_not_null is false, means all rows is null.
@@ -66,7 +66,7 @@ struct ZoneMap {
 
     bool has_nan = false;
 
-    void to_proto(ZoneMapPB* dst, const vectorized::DataTypePtr& data_type) const {
+    void to_proto(ZoneMapPB* dst, const DataTypePtr& data_type) const {
         if (pass_all || !has_not_null) {
             dst->set_min("");
             dst->set_max("");
@@ -82,13 +82,13 @@ struct ZoneMap {
         dst->set_has_nan(has_nan);
     }
 
-    static Status from_proto(const ZoneMapPB& zone_map, const vectorized::DataTypePtr& data_type,
+    static Status from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_type,
                              ZoneMap& zone_map_info);
 };
 
 class ZoneMapIndexWriter {
 public:
-    static Status create(vectorized::DataTypePtr data_type, Field* field,
+    static Status create(DataTypePtr data_type, StorageField* field,
                          std::unique_ptr<ZoneMapIndexWriter>& res);
 
     ZoneMapIndexWriter() = default;
@@ -120,7 +120,7 @@ class TypedZoneMapIndexWriter final : public ZoneMapIndexWriter {
 public:
     using ValType = std::conditional_t<is_string_type(Type), StringRef,
                                        typename PrimitiveTypeTraits<Type>::StorageFieldType>;
-    explicit TypedZoneMapIndexWriter(vectorized::DataTypePtr&& data_type);
+    explicit TypedZoneMapIndexWriter(DataTypePtr&& data_type);
 
     void add_values(const void* values, size_t count) override;
 
@@ -149,13 +149,13 @@ private:
 
     void _update_page_zonemap(const ValType& min_value, const ValType& max_value);
 
-    vectorized::DataTypePtr _data_type;
+    DataTypePtr _data_type;
     // memory will be managed by Arena
     ZoneMap _page_zone_map;
     ZoneMap _segment_zone_map;
     // TODO(zc): we should replace this arena later, we only allocate min/max
     // for field. But Arena allocate 4KB least, it will a waste for most cases.
-    vectorized::Arena _arena;
+    Arena _arena;
 
     // serialized ZoneMapPB for each data page
     std::vector<std::string> _values;

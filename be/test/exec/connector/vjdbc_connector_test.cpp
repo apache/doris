@@ -27,7 +27,7 @@
 #include "common/config.h"
 #include "common/status.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class JdbcConnectorTest : public ::testing::Test {
 protected:
@@ -348,4 +348,4 @@ TEST_F(JdbcConnectorTest, TestUrlDetectionLogic) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

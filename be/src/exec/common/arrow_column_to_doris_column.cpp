@@ -71,7 +71,7 @@
     M(::arrow::Type::DATE64, TYPE_DATETIME)           \
     M(::arrow::Type::DECIMAL, TYPE_DECIMALV2)
 
-namespace doris::vectorized {
+namespace doris {
 
 PrimitiveType arrow_type_to_primitive_type(::arrow::Type::type type) {
     switch (type) {
@@ -106,4 +106,4 @@ Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arr
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

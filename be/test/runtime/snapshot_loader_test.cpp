@@ -203,11 +203,11 @@ static void add_rowset(int64_t tablet_id, int32_t schema_hash, int64_t partition
     auto delta_writer =
             std::make_unique<DeltaWriter>(*engine_ref, write_req, profile.get(), TUniqueId {});
 
-    vectorized::Block block;
+    Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
         std::cout << "slot_desc: " << slot_desc->col_name() << std::endl;
-        block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->type(), slot_desc->col_name()));
+        block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(), slot_desc->type(),
+                                           slot_desc->col_name()));
     }
 
     std::cout << "total column " << block.mutate_columns().size() << std::endl;

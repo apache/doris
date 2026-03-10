@@ -25,7 +25,6 @@
 namespace doris {
 class RuntimeState;
 
-namespace pipeline {
 #include "common/compile_check_begin.h"
 
 class AnalyticSourceOperatorX;
@@ -49,7 +48,7 @@ public:
 #ifdef BE_TEST
     AnalyticSourceOperatorX() = default;
 #endif
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 
@@ -59,6 +58,5 @@ private:
     friend class AnalyticLocalState;
 };
 
-} // namespace pipeline
 } // namespace doris
 #include "common/compile_check_end.h"

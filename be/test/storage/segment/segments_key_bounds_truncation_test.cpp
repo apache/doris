@@ -169,12 +169,12 @@ public:
         EXPECT_TRUE(s.ok());
     }
 
-    std::vector<vectorized::Block> generate_blocks(
-            TabletSchemaSPtr tablet_schema, const std::vector<std::vector<std::string>>& data) {
-        std::vector<vectorized::Block> ret;
+    std::vector<Block> generate_blocks(TabletSchemaSPtr tablet_schema,
+                                       const std::vector<std::vector<std::string>>& data) {
+        std::vector<Block> ret;
         int const_value = 999;
         for (const auto& segment_rows : data) {
-            vectorized::Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (const auto& row : segment_rows) {
                 columns[0]->insert_data(row.data(), row.size());
@@ -213,7 +213,7 @@ public:
     }
 
     RowsetSharedPtr create_rowset(TabletSchemaSPtr tablet_schema, SegmentsOverlapPB overlap,
-                                  const std::vector<vectorized::Block> blocks, int64_t version,
+                                  const std::vector<Block> blocks, int64_t version,
                                   bool is_vertical) {
         auto writer_context = create_rowset_writer_context(tablet_schema, overlap, UINT32_MAX,
                                                            {version, version});
@@ -455,14 +455,14 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BlockReaderJudgeFuncTest) {
         {
             disable_segments_key_bounds_truncation();
             TabletReader::ReaderParams read_params = create_reader_params(tablet_schema, data);
-            vectorized::BlockReader block_reader;
+            BlockReader block_reader;
             EXPECT_FALSE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
 
         {
             config::segments_key_bounds_truncation_threshold = 3;
             TabletReader::ReaderParams read_params = create_reader_params(tablet_schema, data);
-            vectorized::BlockReader block_reader;
+            BlockReader block_reader;
             // can still determine that segments are non ascending after truncation
             EXPECT_FALSE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
@@ -479,21 +479,21 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BlockReaderJudgeFuncTest) {
         {
             disable_segments_key_bounds_truncation();
             TabletReader::ReaderParams read_params = create_reader_params(tablet_schema, data);
-            vectorized::BlockReader block_reader;
+            BlockReader block_reader;
             EXPECT_FALSE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
 
         {
             config::segments_key_bounds_truncation_threshold = 6;
             TabletReader::ReaderParams read_params = create_reader_params(tablet_schema, data);
-            vectorized::BlockReader block_reader;
+            BlockReader block_reader;
             EXPECT_FALSE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
 
         {
             config::segments_key_bounds_truncation_threshold = 3;
             TabletReader::ReaderParams read_params = create_reader_params(tablet_schema, data);
-            vectorized::BlockReader block_reader;
+            BlockReader block_reader;
             // can not determine wether rowset 2 and rowset 3 are mono ascending
             EXPECT_TRUE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
@@ -509,14 +509,14 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BlockReaderJudgeFuncTest) {
         {
             disable_segments_key_bounds_truncation();
             TabletReader::ReaderParams read_params = create_reader_params(tablet_schema, data);
-            vectorized::BlockReader block_reader;
+            BlockReader block_reader;
             EXPECT_TRUE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
 
         {
             config::segments_key_bounds_truncation_threshold = 3;
             TabletReader::ReaderParams read_params = create_reader_params(tablet_schema, data);
-            vectorized::BlockReader block_reader;
+            BlockReader block_reader;
             EXPECT_TRUE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
     }
@@ -528,28 +528,28 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BlockReaderJudgeFuncTest) {
         {
             TabletReader::ReaderParams read_params =
                     create_reader_params(tablet_schema, data, {-1, 9});
-            vectorized::BlockReader block_reader;
+            BlockReader block_reader;
             EXPECT_FALSE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
 
         {
             TabletReader::ReaderParams read_params =
                     create_reader_params(tablet_schema, data, {-1, 4});
-            vectorized::BlockReader block_reader;
+            BlockReader block_reader;
             EXPECT_TRUE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
 
         {
             TabletReader::ReaderParams read_params =
                     create_reader_params(tablet_schema, data, {9, -1});
-            vectorized::BlockReader block_reader;
+            BlockReader block_reader;
             EXPECT_FALSE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
 
         {
             TabletReader::ReaderParams read_params =
                     create_reader_params(tablet_schema, data, {4, -1});
-            vectorized::BlockReader block_reader;
+            BlockReader block_reader;
             EXPECT_TRUE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
     }
@@ -564,7 +564,7 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BlockReaderJudgeFuncTest) {
                                                         {"iiiiiiii", "jjjjjjjjj"}};
             TabletReader::ReaderParams read_params =
                     create_reader_params(tablet_schema, data, {4, 5, 4, -1, 6});
-            vectorized::BlockReader block_reader;
+            BlockReader block_reader;
             EXPECT_TRUE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
         {
@@ -575,7 +575,7 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BlockReaderJudgeFuncTest) {
                                                         {"iiiiiiii", "jjjjjjjjj"}};
             TabletReader::ReaderParams read_params =
                     create_reader_params(tablet_schema, data, {4, 5, 8, -1, 6});
-            vectorized::BlockReader block_reader;
+            BlockReader block_reader;
             EXPECT_FALSE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
 
@@ -587,7 +587,7 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BlockReaderJudgeFuncTest) {
                                                         {"iiiiiiii", "jjjjjjjjj"}};
             TabletReader::ReaderParams read_params =
                     create_reader_params(tablet_schema, data, {4, 5, -1, 4, 6});
-            vectorized::BlockReader block_reader;
+            BlockReader block_reader;
             EXPECT_TRUE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
         {
@@ -598,7 +598,7 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BlockReaderJudgeFuncTest) {
                                                         {"iiiiiiii", "jjjjjjjjj"}};
             TabletReader::ReaderParams read_params =
                     create_reader_params(tablet_schema, data, {4, 5, -1, 8, 6});
-            vectorized::BlockReader block_reader;
+            BlockReader block_reader;
             EXPECT_FALSE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
 
@@ -610,7 +610,7 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BlockReaderJudgeFuncTest) {
                                                         {"iiiiiiii", "jjjjjjjjj"}};
             TabletReader::ReaderParams read_params =
                     create_reader_params(tablet_schema, data, {4, 5, 8, 4, 6});
-            vectorized::BlockReader block_reader;
+            BlockReader block_reader;
             EXPECT_TRUE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
         {
@@ -621,7 +621,7 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BlockReaderJudgeFuncTest) {
                                                         {"iiiiiiii", "jjjjjjjjj"}};
             TabletReader::ReaderParams read_params =
                     create_reader_params(tablet_schema, data, {4, 5, 4, 8, 6});
-            vectorized::BlockReader block_reader;
+            BlockReader block_reader;
             EXPECT_TRUE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
         {
@@ -632,7 +632,7 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BlockReaderJudgeFuncTest) {
                                                         {"iiiiiiii", "jjjjjjjjj"}};
             TabletReader::ReaderParams read_params =
                     create_reader_params(tablet_schema, data, {4, 5, 8, 9, 6});
-            vectorized::BlockReader block_reader;
+            BlockReader block_reader;
             EXPECT_FALSE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
         {
@@ -643,7 +643,7 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BlockReaderJudgeFuncTest) {
                                                         {"iiiiiiii", "jjjjjjjjj"}};
             TabletReader::ReaderParams read_params =
                     create_reader_params(tablet_schema, data, {4, 5, 3, 4, 6});
-            vectorized::BlockReader block_reader;
+            BlockReader block_reader;
             EXPECT_TRUE(block_reader._rowsets_not_mono_asc_disjoint(read_params));
         }
     }

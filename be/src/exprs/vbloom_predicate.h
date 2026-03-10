@@ -30,13 +30,11 @@ class BloomFilterFuncBase;
 class RowDescriptor;
 class RuntimeState;
 class TExprNode;
-namespace vectorized {
 class Block;
 class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 class VBloomPredicate final : public VExpr {
     ENABLE_FACTORY_CREATOR(VBloomPredicate);
 
@@ -69,4 +67,4 @@ private:
     std::shared_ptr<BloomFilterFuncBase> _filter;
     inline static const std::string EXPR_NAME = "bloom_predicate";
 };
-} // namespace doris::vectorized
+} // namespace doris

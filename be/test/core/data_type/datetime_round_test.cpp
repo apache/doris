@@ -36,7 +36,7 @@
 #include "util/mysql_row_buffer.h"
 
 using namespace doris;
-using namespace doris::vectorized;
+using namespace doris;
 
 static void from_string_checker(UInt32 scale, const std::string& rounding,
                                 const std::string& expected) {
@@ -360,7 +360,7 @@ static std::multimap<size_t /*scale*/,
 
 };
 
-namespace doris::vectorized {
+namespace doris {
 // // make sure micro-seconds part of datetime has correct round behaviour
 TEST(DatetimeRountTest, test_datetime_round_behaviour_basic) {
     {
@@ -381,4 +381,4 @@ TEST(DatetimeRountTest, test_datetime_round_behaviour_get_field) {
         }
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

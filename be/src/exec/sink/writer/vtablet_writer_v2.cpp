@@ -54,14 +54,14 @@
 #include "exec/sink/vtablet_block_convertor.h"
 #include "exec/sink/vtablet_finder.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 extern bvar::Adder<int64_t> g_sink_load_back_pressure_version_time_ms;
 
 VTabletWriterV2::VTabletWriterV2(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                                 std::shared_ptr<pipeline::Dependency> dep,
-                                 std::shared_ptr<pipeline::Dependency> fin_dep)
+                                 std::shared_ptr<Dependency> dep,
+                                 std::shared_ptr<Dependency> fin_dep)
         : AsyncResultWriter(output_exprs, dep, fin_dep), _t_sink(t_sink) {
     DCHECK(t_sink.__isset.olap_table_sink);
 }
@@ -136,7 +136,7 @@ Status VTabletWriterV2::_init_row_distribution() {
                             .vec_output_expr_ctxs = &_vec_output_expr_ctxs,
                             .schema = _schema,
                             .caller = (void*)this,
-                            .create_partition_callback = &vectorized::on_partitions_created});
+                            .create_partition_callback = &::doris::on_partitions_created});
 
     return _row_distribution.open(_output_row_desc);
 }
@@ -507,7 +507,7 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     // This is just for passing compilation.
     _row_distribution_watch.start();
 
-    std::shared_ptr<vectorized::Block> block;
+    std::shared_ptr<Block> block;
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
             input_block, block, _row_part_tablet_ids, _number_input_rows));
     RowsForTablet rows_for_tablet;
@@ -531,7 +531,7 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     return Status::OK();
 }
 
-Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block, int64_t tablet_id,
+Status VTabletWriterV2::_write_memtable(std::shared_ptr<Block> block, int64_t tablet_id,
                                         const Rows& rows) {
     auto st = Status::OK();
     auto delta_writer = _delta_writer_for_tablet->get_or_create(tablet_id, [&]() {
@@ -1051,4 +1051,4 @@ Status VTabletWriterV2::_create_commit_info(std::vector<TTabletCommitInfo>& tabl
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

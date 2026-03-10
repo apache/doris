@@ -37,7 +37,7 @@
 #include "util/hash/murmur_hash3.h"
 #include "util/hash_util.hpp"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 constexpr uint64_t emtpy_value = 0xe28dbde7fe22e41c;
 
@@ -234,4 +234,4 @@ void register_function_hash(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionXxHash_64>();
     factory.register_alias("xxhash_64", "xxhash3_64");
 }
-} // namespace doris::vectorized
+} // namespace doris

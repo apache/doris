@@ -123,12 +123,11 @@ PFilterType get_type(RuntimeFilterType type) {
     }
 }
 
-Status create_literal(const vectorized::DataTypePtr& type, const void* data,
-                      vectorized::VExprSPtr& expr) {
+Status create_literal(const DataTypePtr& type, const void* data, VExprSPtr& expr) {
     try {
         TExprNode node = create_texpr_node_from(data, type->get_primitive_type(),
                                                 type->get_precision(), type->get_scale());
-        expr = vectorized::VLiteral::create_shared(node);
+        expr = VLiteral::create_shared(node);
     } catch (const Exception& e) {
         return e.to_status();
     }
@@ -136,8 +135,8 @@ Status create_literal(const vectorized::DataTypePtr& type, const void* data,
     return Status::OK();
 }
 
-Status create_vbin_predicate(const vectorized::DataTypePtr& type, TExprOpcode::type opcode,
-                             vectorized::VExprSPtr& expr, TExprNode* tnode, bool contain_null) {
+Status create_vbin_predicate(const DataTypePtr& type, TExprOpcode::type opcode, VExprSPtr& expr,
+                             TExprNode* tnode, bool contain_null) {
     TExprNode node;
     TScalarType tscalar_type;
     tscalar_type.__set_type(TPrimitiveType::BOOLEAN);
@@ -192,7 +191,7 @@ Status create_vbin_predicate(const vectorized::DataTypePtr& type, TExprOpcode::t
     fn.__set_has_var_args(false);
     node.__set_fn(fn);
     *tnode = node;
-    return vectorized::VExpr::create_expr(node, expr);
+    return VExpr::create_expr(node, expr);
 }
 
 } // namespace doris

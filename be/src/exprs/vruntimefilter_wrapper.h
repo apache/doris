@@ -40,7 +40,7 @@ double get_comparison_ignore_thredhold();
 double get_bloom_filter_ignore_thredhold();
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class Block;
@@ -131,4 +131,4 @@ private:
 using VRuntimeFilterPtr = std::shared_ptr<VRuntimeFilterWrapper>;
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

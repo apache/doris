@@ -30,11 +30,7 @@ namespace doris {
 
 class TDataSink;
 
-namespace vectorized {
 class Block;
-}
-
-namespace pipeline {
 
 // Forward declaration
 class BlackholeSinkOperatorX;
@@ -72,7 +68,7 @@ public:
 
     Status init(const TDataSink& tsink) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* block, bool eos) override;
+    Status sink(RuntimeState* state, Block* block, bool eos) override;
 
     Status close(RuntimeState* state) override;
 
@@ -83,8 +79,7 @@ private:
      * Process a data block by discarding it and collecting metrics.
      * This simulates a "/dev/null" sink - data goes in but nothing comes out.
      */
-    Status _process_block(RuntimeState* state, vectorized::Block* block);
+    Status _process_block(RuntimeState* state, Block* block);
 };
 
-} // namespace pipeline
 } // namespace doris

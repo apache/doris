@@ -24,10 +24,10 @@
 #include "core/data_type_serde/data_type_bitmap_serde.h"
 #include "util/slice.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(BitmapSerdeTest, writeOneCellToJsonb) {
-    auto bitmap_serde = std::make_shared<vectorized::DataTypeBitMapSerDe>(1);
+    auto bitmap_serde = std::make_shared<DataTypeBitMapSerDe>(1);
     auto column_bitmap = ColumnBitmap::create();
     column_bitmap->insert_value(BitmapValue(123));
     ASSERT_EQ(column_bitmap->size(), 1);
@@ -58,7 +58,7 @@ TEST(BitmapSerdeTest, writeOneCellToJsonb) {
 }
 
 TEST(BitmapSerdeTest, writeColumnToPb) {
-    auto bitmap_serde = std::make_shared<vectorized::DataTypeBitMapSerDe>(1);
+    auto bitmap_serde = std::make_shared<DataTypeBitMapSerDe>(1);
     auto column_bitmap = ColumnBitmap::create();
     column_bitmap->insert_value(BitmapValue::empty_bitmap());
     column_bitmap->insert_value(BitmapValue(123));
@@ -84,7 +84,7 @@ TEST(BitmapSerdeTest, writeColumnToPb) {
 }
 
 TEST(BitmapSerdeTest, serializeOneCellToJson) {
-    auto bitmap_serde = std::make_shared<vectorized::DataTypeBitMapSerDe>(1);
+    auto bitmap_serde = std::make_shared<DataTypeBitMapSerDe>(1);
     auto column_bitmap = ColumnBitmap::create();
     column_bitmap->insert_value(BitmapValue::empty_bitmap());
     column_bitmap->insert_value(BitmapValue(123));
@@ -126,7 +126,7 @@ TEST(BitmapSerdeTest, serializeOneCellToJson) {
 }
 
 TEST(BitmapSerdeTest, serializeColumnToJson) {
-    auto bitmap_serde = std::make_shared<vectorized::DataTypeBitMapSerDe>(1);
+    auto bitmap_serde = std::make_shared<DataTypeBitMapSerDe>(1);
     auto column_bitmap = ColumnBitmap::create();
     column_bitmap->insert_value(BitmapValue::empty_bitmap());
     column_bitmap->insert_value(BitmapValue(123));
@@ -168,7 +168,7 @@ TEST(BitmapSerdeTest, serializeColumnToJson) {
 }
 
 TEST(BitmapSerdeTest, SerdeArrowTest) {
-    auto bitmap_serde = std::make_shared<vectorized::DataTypeBitMapSerDe>(1);
+    auto bitmap_serde = std::make_shared<DataTypeBitMapSerDe>(1);
     auto column_bitmap = ColumnBitmap::create();
     column_bitmap->insert_value(BitmapValue::empty_bitmap());
     column_bitmap->insert_value(BitmapValue(123));
@@ -176,7 +176,7 @@ TEST(BitmapSerdeTest, SerdeArrowTest) {
 
     auto block = std::make_shared<Block>();
     DataTypePtr st = std::make_shared<DataTypeBitMap>();
-    vectorized::ColumnWithTypeAndName type_and_name(column_bitmap->get_ptr(), st, "bitmap");
+    ColumnWithTypeAndName type_and_name(column_bitmap->get_ptr(), st, "bitmap");
     block->insert(type_and_name);
     std::shared_ptr<arrow::RecordBatch> record_batch =
             CommonDataTypeSerdeTest::serialize_arrow(block);
@@ -188,4 +188,4 @@ TEST(BitmapSerdeTest, SerdeArrowTest) {
     std::cout << "test write/read_column_to_arrow " << std::endl;
 }
 
-} // namespace doris::vectorized
+} // namespace doris

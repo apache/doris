@@ -26,7 +26,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/tablet_info.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class TabletSinkHashPartitioner final : public PartitionerBase {
 public:
@@ -35,7 +35,7 @@ public:
                               TOlapTablePartitionParam tablet_sink_partition,
                               TOlapTableLocationParam tablet_sink_location,
                               const TTupleId& tablet_sink_tuple_id,
-                              pipeline::ExchangeSinkLocalState* local_state);
+                              ExchangeSinkLocalState* local_state);
 
     ~TabletSinkHashPartitioner() override = default;
 
@@ -68,20 +68,20 @@ private:
     const TOlapTablePartitionParam _tablet_sink_partition;
     const TOlapTableLocationParam _tablet_sink_location;
     const TTupleId _tablet_sink_tuple_id;
-    mutable pipeline::ExchangeSinkLocalState* _local_state;
+    mutable ExchangeSinkLocalState* _local_state;
     mutable OlapTableLocationParam* _location = nullptr;
-    mutable vectorized::VRowDistribution _row_distribution;
-    mutable vectorized::VExprContextSPtrs _tablet_sink_expr_ctxs;
+    mutable VRowDistribution _row_distribution;
+    mutable VExprContextSPtrs _tablet_sink_expr_ctxs;
     mutable std::unique_ptr<VOlapTablePartitionParam> _vpartition = nullptr;
-    mutable std::unique_ptr<vectorized::OlapTabletFinder> _tablet_finder = nullptr;
+    mutable std::unique_ptr<OlapTabletFinder> _tablet_finder = nullptr;
     mutable std::shared_ptr<OlapTableSchemaParam> _schema = nullptr;
-    mutable std::unique_ptr<vectorized::OlapTableBlockConvertor> _block_convertor = nullptr;
+    mutable std::unique_ptr<OlapTableBlockConvertor> _block_convertor = nullptr;
     mutable TupleDescriptor* _tablet_sink_tuple_desc = nullptr;
     mutable RowDescriptor* _tablet_sink_row_desc = nullptr;
-    mutable std::vector<vectorized::RowPartTabletIds> _row_part_tablet_ids;
+    mutable std::vector<RowPartTabletIds> _row_part_tablet_ids;
     mutable std::vector<HashValType> _hash_vals;
     mutable std::vector<bool> _skipped;
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

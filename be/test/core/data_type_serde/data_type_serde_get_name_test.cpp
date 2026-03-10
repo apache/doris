@@ -27,7 +27,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(DataTypeSerDeGetNameTest, test) {
     {
@@ -118,4 +118,4 @@ TEST(DataTypeSerDeGetNameTest, test) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

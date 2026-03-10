@@ -23,7 +23,7 @@
 #include "exprs/function/function_helpers.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // array_count([0, 1, 1, 1, 0, 0]) -> [3]
 class FunctionArrayCount : public IFunction {
@@ -109,4 +109,4 @@ public:
 void register_function_array_count(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayCount>();
 }
-} // namespace doris::vectorized
+} // namespace doris

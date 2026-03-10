@@ -23,7 +23,7 @@
 #include "exprs/aggregate/agg_function_test.h"
 #include "exprs/aggregate/aggregate_function_corr.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct AggregateFunctionCorrTest : public AggregateFunctiontest {
     using Corr = CorrMoment<TYPE_DOUBLE>;
@@ -145,4 +145,4 @@ TEST_F(AggregateFunctionCorrTest, test_corr_welford) {
             ColumnHelper::create_column_with_name<DataTypeFloat64>({1}));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -35,7 +35,7 @@
 #include "runtime/thread_context.h"
 #include "util/debug_points.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 SpillStream::SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* data_dir,
                          std::string spill_dir, size_t batch_rows, size_t batch_bytes,
@@ -170,4 +170,4 @@ Status SpillStream::read_next_block_sync(Block* block, bool* eos) {
     return reader_->read(block, eos);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -27,7 +27,7 @@
 #include "exprs/function/function.h"
 #include "exprs/function/function_date_or_datetime_computation.h"
 #include "exprs/function/simple_function_factory.h"
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 template <typename ToDataType, typename Transform>
 class FunctionTimeValueToField : public IFunction {
@@ -106,4 +106,4 @@ void register_function_time_value_field(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMicrosecondFromUnixtime>();
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

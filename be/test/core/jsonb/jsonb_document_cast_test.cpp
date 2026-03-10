@@ -29,7 +29,7 @@
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 
-namespace doris::vectorized {
+namespace doris {
 class JsonbDocumentCastTest : public testing::Test {
 protected:
     void SetUp() override {
@@ -529,4 +529,4 @@ TEST_F(JsonbDocumentCastTest, test_to_decimal) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

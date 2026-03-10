@@ -28,7 +28,7 @@
 #include "core/column/column_string.h"
 #include "exprs/function/complex_hash_map_dictionary.h"
 #include "exprs/function/function_test_util.h"
-namespace doris::vectorized {
+namespace doris {
 
 template <typename DataType, bool use_string64>
 auto random_column(size_t size) {
@@ -147,4 +147,4 @@ void test_hash_map_dict() {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -39,7 +39,7 @@
 #include "runtime/runtime_profile.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 class MockPartitionedHashJoinSharedState : public PartitionedHashJoinSharedState {
 public:
     MockPartitionedHashJoinSharedState() {
@@ -62,9 +62,8 @@ public:
     MockRuntimeFilterProducerHelper() = default;
     ~MockRuntimeFilterProducerHelper() override = default;
 
-    Status send_filter_size(
-            RuntimeState* state, uint64_t hash_table_size,
-            const std::shared_ptr<pipeline::CountedFinishDependency>& dependency) override {
+    Status send_filter_size(RuntimeState* state, uint64_t hash_table_size,
+                            const std::shared_ptr<CountedFinishDependency>& dependency) override {
         return Status::OK();
     }
 
@@ -116,9 +115,7 @@ public:
         return Status::OK();
     }
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override {
-        return Status::OK();
-    }
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override { return Status::OK(); }
 
     std::string get_memory_usage_debug_str(RuntimeState* state) const override { return "mock"; }
 };
@@ -146,15 +143,14 @@ public:
             : HashJoinProbeOperatorX(pool, tnode, operator_id, descs) {}
     ~MockHashJoinProbeOperator() override = default;
 
-    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos_) const override {
+    Status push(RuntimeState* state, Block* input_block, bool eos_) const override {
         const_cast<MockHashJoinProbeOperator*>(this)->block.swap(*input_block);
         const_cast<MockHashJoinProbeOperator*>(this)->eos = eos_;
         const_cast<MockHashJoinProbeOperator*>(this)->need_more_data = !eos;
         return Status::OK();
     }
 
-    Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
-                bool* eos_) const override {
+    Status pull(doris::RuntimeState* state, Block* output_block, bool* eos_) const override {
         output_block->swap(const_cast<MockHashJoinProbeOperator*>(this)->block);
         *eos_ = eos;
         const_cast<MockHashJoinProbeOperator*>(this)->block.clear_column_data();
@@ -170,7 +166,7 @@ public:
     bool need_more_input_data(RuntimeState* state) const override { return need_more_data; }
     bool need_more_data = true;
 
-    vectorized::Block block;
+    Block block;
     bool eos = false;
 };
 
@@ -243,4 +239,4 @@ public:
                std::shared_ptr<PartitionedHashJoinSinkOperatorX>>
     create_operators();
 };
-} // namespace doris::pipeline
+} // namespace doris

@@ -42,8 +42,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 enum KeysType : int;
 
-namespace vectorized {
-
 // Row source represent row location in multi-segments
 // use a uint16_t to store info
 // the lower 15 bits means segment_id in segment pool, and the higher 1 bits means agg flag.
@@ -198,7 +196,7 @@ public:
 
     bool is_first_row() const { return _is_first_row; }
     void set_is_first_row(bool is_first_row) { _is_first_row = is_first_row; }
-    void set_cur_row_ref(vectorized::IteratorRowRef* ref) {
+    void set_cur_row_ref(IteratorRowRef* ref) {
         ref->block = _block;
         ref->row_pos = _index_in_block;
     }
@@ -463,6 +461,5 @@ std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
         std::vector<RowwiseIteratorUPtr>&& inputs, size_t ori_return_cols,
         RowSourcesBuffer* row_sources_buf);
 
-} // namespace vectorized
 #include "common/compile_check_end.h"
 } // namespace doris

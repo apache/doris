@@ -30,7 +30,7 @@
 #include "testutil/column_helper.h"
 #include "util/to_string.h"
 
-namespace doris::vectorized {
+namespace doris {
 using namespace ut_type;
 
 static const std::string regression_case_dir = "regression-test/suites/function_p0/cast";
@@ -667,4 +667,4 @@ struct FunctionCastTest : public testing::Test {
         table_test_with_strict_arg(false);
     }
 };
-} // namespace doris::vectorized
+} // namespace doris

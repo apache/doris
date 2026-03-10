@@ -28,7 +28,6 @@ class RowDescriptor;
 class RuntimeState;
 class TExprNode;
 
-namespace vectorized {
 class Block;
 class VExprContext;
 
@@ -81,5 +80,4 @@ private:
     const std::string* _column_name = nullptr;
     const std::string _column_label;
 };
-} // namespace vectorized
 } // namespace doris
