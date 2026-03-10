@@ -695,16 +695,20 @@ Status PipelineFragmentContext::_create_tree_helper(
                     ? cur_pipe->sink()->required_data_distribution(_runtime_state.get())
                     : op->required_data_distribution(_runtime_state.get());
     current_followed_by_shuffled_operator =
-            (followed_by_shuffled_operator ||
-             (cur_pipe->operators().empty() ? cur_pipe->sink()->is_shuffled_operator()
-                                            : op->is_shuffled_operator())) &&
-            Pipeline::is_hash_exchange(required_data_distribution.distribution_type);
+            ((followed_by_shuffled_operator ||
+              (cur_pipe->operators().empty() ? cur_pipe->sink()->is_shuffled_operator()
+                                             : op->is_shuffled_operator())) &&
+             Pipeline::is_hash_exchange(required_data_distribution.distribution_type)) ||
+            (followed_by_shuffled_operator &&
+             required_data_distribution.distribution_type == ExchangeType::NOOP);
 
     current_require_bucket_distribution =
-            (require_bucket_distribution ||
-             (cur_pipe->operators().empty() ? cur_pipe->sink()->is_colocated_operator()
-                                            : op->is_colocated_operator())) &&
-            Pipeline::is_hash_exchange(required_data_distribution.distribution_type);
+            ((require_bucket_distribution ||
+              (cur_pipe->operators().empty() ? cur_pipe->sink()->is_colocated_operator()
+                                             : op->is_colocated_operator())) &&
+             Pipeline::is_hash_exchange(required_data_distribution.distribution_type)) ||
+            (require_bucket_distribution &&
+             required_data_distribution.distribution_type == ExchangeType::NOOP);
 
     if (num_children == 0) {
         _use_serial_source = op->is_serial_operator();
