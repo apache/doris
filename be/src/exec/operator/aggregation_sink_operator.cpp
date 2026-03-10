@@ -25,6 +25,7 @@
 #include "core/data_type/primitive_type.h"
 #include "exec/common/hash_table/hash.h"
 #include "exec/operator/operator.h"
+#include "exprs/aggregate/aggregate_function_count.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "runtime/runtime_profile.h"
@@ -156,6 +157,25 @@ Status AggSinkLocalState::open(RuntimeState* state) {
         RETURN_IF_ERROR(_create_agg_status(_agg_data->without_key));
         _shared_state->agg_data_created_without_key = true;
     }
+
+    // 判断是否使用简单的 count 聚合。
+    // 对于select xxx , count(*) / count(not null column) from table group by xxx这种查询，
+    // count(*) / count(not null column)可以直接在hash表中存储一个uint64的计数器，
+    // 而不需要存储完整的聚合状态，从而节省内存和计算开销。
+    // 需要满足，
+    // 1. 聚合函数只有一个 count。
+    // 2. 没有 having 条件。
+    // 3. 没有 limit 优化。
+    // 4. 没有开启 spill（spill 路径会访问 aggregate_data_container，inline count 模式下该容器为空）。
+    // 支持 update / merge / finalize / serialize 各阶段，因为 count 的序列化格式本身就是 UInt64。
+
+    if (!Base::_shared_state->probe_expr_ctxs.empty() && !_should_limit_output &&
+        (!p._have_conjuncts) && !Base::_shared_state->enable_spill &&
+        p._aggregate_evaluators.size() == 1 &&
+        p._aggregate_evaluators[0]->function()->is_simple_count()) {
+        _shared_state->use_simple_count = true;
+    }
+
     return Status::OK();
 }
 
@@ -335,7 +355,20 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(Block* block) {
                                                          key_columns, (uint32_t)rows);
             rows = block->rows();
         } else {
-            _emplace_into_hash_table(_places.data(), key_columns, (uint32_t)rows);
+            if (_shared_state->use_simple_count) {
+                size_t col_id = 0;
+                if constexpr (for_spill) {
+                    col_id = Base::_shared_state->probe_expr_ctxs.size();
+                } else {
+                    col_id = AggSharedState::get_slot_column_id(
+                            Base::_shared_state->aggregate_evaluators[0]);
+                }
+                auto column = block->get_by_position(col_id).column;
+                _merge_into_hash_table_inline_count(key_columns, column.get(), (uint32_t)rows);
+                need_do_agg = false;
+            } else {
+                _emplace_into_hash_table(_places.data(), key_columns, (uint32_t)rows);
+            }
         }
 
         if (need_do_agg) {
@@ -496,7 +529,9 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(Block* block) {
             }
         } else {
             _emplace_into_hash_table(_places.data(), key_columns, rows);
-            RETURN_IF_ERROR(do_aggregate_evaluators());
+            if (!_shared_state->use_simple_count) {
+                RETURN_IF_ERROR(do_aggregate_evaluators());
+            }
 
             if (_should_limit_output && !Base::_shared_state->enable_spill) {
                 const size_t hash_table_size = _get_hash_table_size();
@@ -524,6 +559,11 @@ size_t AggSinkLocalState::_get_hash_table_size() const {
 
 void AggSinkLocalState::_emplace_into_hash_table(AggregateDataPtr* places,
                                                  ColumnRawPtrs& key_columns, uint32_t num_rows) {
+    if (_shared_state->use_simple_count) {
+        _emplace_into_hash_table_inline_count(key_columns, num_rows);
+        return;
+    }
+
     std::visit(Overload {[&](std::monostate& arg) -> void {
                              throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                                     "uninited hash table");
@@ -564,6 +604,81 @@ void AggSinkLocalState::_emplace_into_hash_table(AggregateDataPtr* places,
                              for (size_t i = 0; i < num_rows; ++i) {
                                  places[i] = *agg_method.lazy_emplace(state, i, creator,
                                                                       creator_for_null_key);
+                             }
+
+                             COUNTER_UPDATE(_hash_table_input_counter, num_rows);
+                         }},
+               _agg_data->method_variant);
+}
+
+void AggSinkLocalState::_emplace_into_hash_table_inline_count(ColumnRawPtrs& key_columns,
+                                                              uint32_t num_rows) {
+    std::visit(Overload {[&](std::monostate& arg) -> void {
+                             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                    "uninited hash table");
+                         },
+                         [&](auto& agg_method) -> void {
+                             SCOPED_TIMER(_hash_table_compute_timer);
+                             using HashMethodType = std::decay_t<decltype(agg_method)>;
+                             using AggState = typename HashMethodType::State;
+                             AggState state(key_columns);
+                             agg_method.init_serialized_keys(key_columns, num_rows);
+
+                             auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                                 HashMethodType::try_presis_key_and_origin(
+                                         key, origin, Base::_shared_state->agg_arena_pool);
+                                 AggregateDataPtr mapped = nullptr;
+                                 ctor(key, mapped);
+                             };
+
+                             auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
+
+                             SCOPED_TIMER(_hash_table_emplace_timer);
+                             for (size_t i = 0; i < num_rows; ++i) {
+                                 auto* mapped_ptr = agg_method.lazy_emplace(state, i, creator,
+                                                                            creator_for_null_key);
+                                 ++reinterpret_cast<UInt64&>(*mapped_ptr);
+                             }
+
+                             COUNTER_UPDATE(_hash_table_input_counter, num_rows);
+                         }},
+               _agg_data->method_variant);
+}
+
+void AggSinkLocalState::_merge_into_hash_table_inline_count(ColumnRawPtrs& key_columns,
+                                                            const IColumn* merge_column,
+                                                            uint32_t num_rows) {
+    std::visit(Overload {[&](std::monostate& arg) -> void {
+                             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                    "uninited hash table");
+                         },
+                         [&](auto& agg_method) -> void {
+                             SCOPED_TIMER(_hash_table_compute_timer);
+                             using HashMethodType = std::decay_t<decltype(agg_method)>;
+                             using AggState = typename HashMethodType::State;
+                             AggState state(key_columns);
+                             agg_method.init_serialized_keys(key_columns, num_rows);
+
+                             const auto& col =
+                                     assert_cast<const ColumnFixedLengthObject&>(*merge_column);
+                             const auto* col_data =
+                                     reinterpret_cast<const AggregateFunctionCountData*>(
+                                             col.get_data().data());
+
+                             auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                                 HashMethodType::try_presis_key_and_origin(
+                                         key, origin, Base::_shared_state->agg_arena_pool);
+                                 AggregateDataPtr mapped = nullptr;
+                                 ctor(key, mapped);
+                             };
+
+                             auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
+
+                             SCOPED_TIMER(_hash_table_emplace_timer);
+                             for (size_t i = 0; i < num_rows; ++i) {
+                                 auto* mapped_ptr = agg_method.lazy_emplace(state, i, creator,
+                                                                            creator_for_null_key);
+                                 reinterpret_cast<UInt64&>(*mapped_ptr) += col_data[i].count;
                              }
 
                              COUNTER_UPDATE(_hash_table_input_counter, num_rows);
