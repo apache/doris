@@ -3563,6 +3563,18 @@ int InstanceRecycler::delete_rowset_data(
             }
         }
 
+        int64_t num_segments = rs.num_segments();
+        // Check num_segments before accessor lookup, because empty rowsets
+        // (e.g. base compaction output of empty rowsets) may have no resource_id
+        // set. Skipping them early avoids a spurious "no such resource id" error
+        // that marks the entire batch as failed and prevents txn_remove from
+        // cleaning up recycle KV keys.
+        if (num_segments <= 0) {
+            metrics_context.total_recycled_num++;
+            metrics_context.total_recycled_data_size += rs.total_disk_size();
+            continue;
+        }
+
         auto it = accessor_map_.find(rs.resource_id());
         // possible if the accessor is not initilized correctly
         if (it == accessor_map_.end()) [[unlikely]] {
@@ -3583,12 +3595,6 @@ int InstanceRecycler::delete_rowset_data(
                 .tag("merge_index_size", rs.packed_slice_locations_size());
         if (decrement_packed_file_ref_counts(rs) != 0) {
             ret = -1;
-            continue;
-        }
-        int64_t num_segments = rs.num_segments();
-        if (num_segments <= 0) {
-            metrics_context.total_recycled_num++;
-            metrics_context.total_recycled_data_size += rs.total_disk_size();
             continue;
         }
 
