@@ -2,8 +2,8 @@
 
 ## 1. Background & Motivation
 
-The existing `fe-common` module has accumulated heavy dependencies over time (Guava, Hadoop, Trino, 
-ANTLR, Alibaba MaxCompute SDK, etc.), making it unsuitable as a lightweight shared library for the 
+The existing `fe-common` module has accumulated heavy dependencies over time (Guava, Hadoop,
+ANTLR, Alibaba MaxCompute SDK, etc.), making it unsuitable as a lightweight shared library for the
 plugin/SPI ecosystem. When SPI plugin authors depend on `fe-common`, they are forced to pull in 
 dozens of transitive dependencies that have nothing to do with their plugin logic.
 
@@ -19,14 +19,8 @@ module — including SPI plugins — can safely depend on.
 | `fe-base`        | Too generic; widely used in other contexts.                             |
 | `fe-essentials`  | Good semantics but verbose.                                             |
 | `fe-primitives`  | Implies primitive types; misleading.                                    |
-| `fe-toolkit`     | Industry convention maps "toolkit" to heavier helper libs (e.g., Trino).|
+| `fe-toolkit`     | "Toolkit" implies a heavier helper library rather than a minimal foundation layer. |
 | `fe-kernel`      | Conflicts with database "kernel" terminology.                           |
-
-**Industry references:**
-- Trino: `trino-spi` (zero-dep contract) + `lib/trino-plugin-toolkit` (optional helpers)
-- Flink: `flink-annotations` (lightest) → `flink-core-api` → `flink-core`
-- Iceberg: `common/` (pure utilities) → `api/` (interfaces) → `core/` (implementation)
-- SeaTunnel: `seatunnel-common` (utilities) + `seatunnel-api` (SPI)
 
 ## 3. Module Positioning
 
