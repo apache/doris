@@ -25,19 +25,18 @@
 #include <vector>
 
 #include "common/status.h"
-#include "util/bitmap_value.h"
-#include "util/runtime_profile.h"
-#include "vec/core/block.h"
-#include "vec/exprs/vexpr_fwd.h"
-#include "vec/sink/writer/async_result_writer.h"
-#include "vec/sink/writer/iceberg/viceberg_delete_file_writer.h"
+#include "core/block/block.h"
+#include "core/value/bitmap_value.h"
+#include "exec/sink/writer/async_result_writer.h"
+#include "exec/sink/writer/iceberg/viceberg_delete_file_writer.h"
+#include "exprs/vexpr_fwd.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris {
 
 class ObjectPool;
 class RuntimeState;
-
-namespace vectorized {
+class Dependency;
 
 class VIcebergDeleteFileWriter;
 
@@ -61,8 +60,7 @@ struct IcebergFileDeletion {
 class VIcebergDeleteSink final : public AsyncResultWriter {
 public:
     VIcebergDeleteSink(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                       std::shared_ptr<pipeline::Dependency> dep,
-                       std::shared_ptr<pipeline::Dependency> fin_dep);
+                       std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
 
     ~VIcebergDeleteSink() override = default;
 
@@ -70,7 +68,7 @@ public:
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
-    Status write(RuntimeState* state, vectorized::Block& block) override;
+    Status write(RuntimeState* state, Block& block) override;
 
     Status close(Status) override;
 
@@ -150,5 +148,4 @@ private:
     VExprContextSPtrs _position_delete_output_expr_ctxs;
 };
 
-} // namespace vectorized
 } // namespace doris

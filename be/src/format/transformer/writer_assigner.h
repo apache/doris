@@ -22,9 +22,9 @@
 #include <cstdint>
 #include <vector>
 
-#include "vec/exec/skewed_partition_rebalancer.h"
+#include "exec/connector/skewed_partition_rebalancer.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class WriterAssigner {
@@ -124,4 +124,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -409,7 +409,6 @@ public class IcebergTransaction implements Transaction {
         }
 
         FileFormat fileFormat = IcebergUtils.getFileFormat(transaction.table());
-        PartitionSpec spec = transaction.table().spec();
 
         List<TIcebergCommitData> dataCommitData = new ArrayList<>();
         List<TIcebergCommitData> deleteCommitData = new ArrayList<>();
@@ -426,7 +425,7 @@ public class IcebergTransaction implements Transaction {
         List<DataFile> dataFiles = new ArrayList<>();
         if (!dataCommitData.isEmpty()) {
             WriteResult writeResult = IcebergWriterHelper.convertToWriterResult(
-                    fileFormat, spec, dataCommitData);
+                    transaction.table(), dataCommitData);
             dataFiles.addAll(Arrays.asList(writeResult.dataFiles()));
         }
 

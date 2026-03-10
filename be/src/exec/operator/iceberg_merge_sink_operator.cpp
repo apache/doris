@@ -15,19 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "iceberg_delete_sink_operator.h"
+#include "iceberg_merge_sink_operator.h"
 
 #include "common/status.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
-Status IcebergDeleteSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+
+Status IcebergMergeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<Parent>();
-    RETURN_IF_ERROR(_writer->init_properties(p._pool));
+    RETURN_IF_ERROR(_writer->init_properties(p._pool, p._row_desc));
     return Status::OK();
 }
 
-} // namespace doris::pipeline
+#include "common/compile_check_end.h"
+} // namespace doris

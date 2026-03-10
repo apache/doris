@@ -120,13 +120,14 @@ public class DataPartition {
             return str.toString();
         }
         if (mergePartitionInfo != null) {
-            str.append(": op=").append(mergePartitionInfo.operationExpr.toSql());
+            str.append(": op=").append(mergePartitionInfo.operationExpr
+                    .accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             if (mergePartitionInfo.insertRandom) {
                 str.append(", insert=RR");
             } else if (!mergePartitionInfo.insertPartitionExprs.isEmpty()) {
                 List<String> insertExprs = Lists.newArrayList();
                 for (Expr expr : mergePartitionInfo.insertPartitionExprs) {
-                    insertExprs.add(expr.toSql());
+                    insertExprs.add(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
                 }
                 str.append(", insert=").append(Joiner.on(", ").join(insertExprs));
             } else if (!mergePartitionInfo.insertPartitionFields.isEmpty()) {
@@ -139,7 +140,7 @@ public class DataPartition {
             if (!mergePartitionInfo.deletePartitionExprs.isEmpty()) {
                 List<String> deleteExprs = Lists.newArrayList();
                 for (Expr expr : mergePartitionInfo.deletePartitionExprs) {
-                    deleteExprs.add(expr.toSql());
+                    deleteExprs.add(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
                 }
                 str.append(", delete=").append(Joiner.on(", ").join(deleteExprs));
             }
@@ -173,7 +174,7 @@ public class DataPartition {
         public TIcebergPartitionField toThrift() {
             TIcebergPartitionField field = new TIcebergPartitionField();
             field.setTransform(transform);
-            field.setSourceExpr(sourceExpr.treeToThrift());
+            field.setSourceExpr(ExprToThriftVisitor.treeToThrift(sourceExpr));
             if (param != null) {
                 field.setParam(param);
             }
@@ -187,7 +188,7 @@ public class DataPartition {
         }
 
         public String toSql() {
-            return transform + "(" + sourceExpr.toSql() + ")";
+            return transform + "(" + sourceExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE) + ")";
         }
     }
 
@@ -215,12 +216,12 @@ public class DataPartition {
 
         private TMergePartitionInfo toThrift() {
             TMergePartitionInfo info = new TMergePartitionInfo();
-            info.setOperationExpr(operationExpr.treeToThrift());
+            info.setOperationExpr(ExprToThriftVisitor.treeToThrift(operationExpr));
             if (!insertPartitionExprs.isEmpty()) {
-                info.setInsertPartitionExprs(Expr.treesToThrift(insertPartitionExprs));
+                info.setInsertPartitionExprs(ExprToThriftVisitor.treesToThrift(insertPartitionExprs));
             }
             if (!deletePartitionExprs.isEmpty()) {
-                info.setDeletePartitionExprs(Expr.treesToThrift(deletePartitionExprs));
+                info.setDeletePartitionExprs(ExprToThriftVisitor.treesToThrift(deletePartitionExprs));
             }
             info.setInsertRandom(insertRandom);
             if (!insertPartitionFields.isEmpty()) {

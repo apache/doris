@@ -41,10 +41,9 @@
 #include "exec/sink/scale_writer_partitioning_exchanger.hpp"
 #include "exec/sink/tablet_sink_hash_partitioner.h"
 #include "exprs/vexpr.h"
+#include "format/transformer/merge_partitioner.h"
 #include "runtime/runtime_profile.h"
 #include "util/uid_util.h"
-
-
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -185,8 +184,8 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         const bool use_new_shuffle_hash_method =
                 _state->query_options().__isset.enable_new_shuffle_hash_method &&
                 _state->query_options().enable_new_shuffle_hash_method;
-        _partitioner = std::make_unique<vectorized::MergePartitioner>(
-                _partition_count, p._merge_partition_info, use_new_shuffle_hash_method);
+        _partitioner = std::make_unique<MergePartitioner>(_partition_count, p._merge_partition_info,
+                                                          use_new_shuffle_hash_method);
         RETURN_IF_ERROR(_partitioner->init({}));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         custom_profile()->add_info_string("Partitioner",

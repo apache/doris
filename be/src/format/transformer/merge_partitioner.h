@@ -21,10 +21,10 @@
 
 #include <string>
 
-#include "vec/runtime/partitioner.h"
-#include "vec/runtime/writer_assigner.h"
+#include "exec/partitioner/partitioner.h"
+#include "format/transformer/writer_assigner.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class MergePartitioner final : public PartitionerBase {
@@ -70,4 +70,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

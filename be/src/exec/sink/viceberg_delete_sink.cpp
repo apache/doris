@@ -15,34 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/viceberg_delete_sink.h"
+#include "exec/sink/viceberg_delete_sink.h"
 
 #include <fmt/format.h>
 
 #include "common/logging.h"
+#include "core/block/column_with_type_and_name.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_struct.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
+#include "exprs/vexpr.h"
+#include "format/transformer/vfile_format_transformer.h"
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_struct.h"
-#include "vec/columns/column_vector.h"
-#include "vec/core/column_with_type_and_name.h"
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_struct.h"
-#include "vec/exprs/vexpr.h"
-#include "vec/runtime/vfile_format_transformer.h"
 
 namespace doris {
-namespace vectorized {
 
 VIcebergDeleteSink::VIcebergDeleteSink(const TDataSink& t_sink,
                                        const VExprContextSPtrs& output_exprs,
-                                       std::shared_ptr<pipeline::Dependency> dep,
-                                       std::shared_ptr<pipeline::Dependency> fin_dep)
+                                       std::shared_ptr<Dependency> dep,
+                                       std::shared_ptr<Dependency> fin_dep)
         : AsyncResultWriter(output_exprs, dep, fin_dep), _t_sink(t_sink) {
     DCHECK(_t_sink.__isset.iceberg_delete_sink);
 }
@@ -120,7 +119,7 @@ Status VIcebergDeleteSink::open(RuntimeState* state, RuntimeProfile* profile) {
     return Status::OK();
 }
 
-Status VIcebergDeleteSink::write(RuntimeState* state, vectorized::Block& block) {
+Status VIcebergDeleteSink::write(RuntimeState* state, Block& block) {
     SCOPED_TIMER(_send_data_timer);
 
     if (block.rows() == 0) {
@@ -364,6 +363,9 @@ Status VIcebergDeleteSink::_write_position_delete_files(
             RETURN_IF_ERROR(writer->write(delete_block));
         }
 
+        // Set partition info on writer before close
+        writer->set_partition_info(deletion.partition_spec_id, deletion.partition_data_json);
+
         // Close writer and collect commit data
         TIcebergCommitData commit_data;
         RETURN_IF_ERROR(writer->close(commit_data));
@@ -371,18 +373,11 @@ Status VIcebergDeleteSink::_write_position_delete_files(
         // Set referenced data file path
         commit_data.__set_referenced_data_file_path(data_file_path);
 
-        // Set partition information
-        if (deletion.partition_spec_id != 0 || !deletion.partition_data_json.empty()) {
-            commit_data.__set_partition_spec_id(deletion.partition_spec_id);
-            commit_data.__set_partition_data_json(deletion.partition_data_json);
-        }
-
         _commit_data_list.push_back(commit_data);
         _delete_file_count++;
 
-        LOG(INFO) << fmt::format(
-                "Written position delete file: path={}, rows={}, referenced_file={}",
-                delete_file_path, commit_data.row_count, data_file_path);
+        VLOG(1) << fmt::format("Written position delete file: path={}, rows={}, referenced_file={}",
+                               delete_file_path, commit_data.row_count, data_file_path);
     }
 
     return Status::OK();
@@ -503,5 +498,4 @@ std::string VIcebergDeleteSink::_generate_delete_file_path(
     return fmt::format("{}{}", base_path, file_name);
 }
 
-} // namespace vectorized
 } // namespace doris

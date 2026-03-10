@@ -60,7 +60,7 @@ static std::vector<std::shared_ptr<Channel>> make_disabled_channels(
     return channels;
 }
 
-class RowExpandingPartitioner final : public vectorized::PartitionerBase {
+class RowExpandingPartitioner final : public PartitionerBase {
 public:
     RowExpandingPartitioner() : PartitionerBase(2) {}
 
@@ -94,8 +94,7 @@ public:
 
     const std::vector<HashValType>& get_channel_ids() const override { return _channel_ids; }
 
-    Status clone(RuntimeState* /*state*/,
-                 std::unique_ptr<vectorized::PartitionerBase>& partitioner) override {
+    Status clone(RuntimeState* /*state*/, std::unique_ptr<PartitionerBase>& partitioner) override {
         partitioner = std::make_unique<RowExpandingPartitioner>();
         return Status::OK();
     }

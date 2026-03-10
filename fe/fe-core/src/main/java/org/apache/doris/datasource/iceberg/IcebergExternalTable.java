@@ -260,7 +260,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     @Override
     protected boolean needInternalHiddenColumns() {
         ConnectContext ctx = ConnectContext.get();
-        return ctx != null && ctx.needIcebergRowId();
+        return ctx != null && ctx.needIcebergRowIdForTable(this.getId());
     }
 
     @Override

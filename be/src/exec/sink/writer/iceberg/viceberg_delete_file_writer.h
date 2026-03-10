@@ -22,10 +22,10 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/block/block.h"
+#include "exprs/vexpr_fwd.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "io/fs/file_writer.h"
-#include "vec/core/block.h"
-#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 
@@ -36,8 +36,6 @@ class ObjectPool;
 namespace io {
 class FileSystem;
 }
-
-namespace vectorized {
 
 class VFileFormatTransformer;
 
@@ -75,6 +73,15 @@ public:
     Status close(TIcebergCommitData& commit_data);
 
     /**
+     * Set partition information for the delete file.
+     * Must be called before close() so that commit data includes correct partition info.
+     */
+    void set_partition_info(int32_t partition_spec_id, const std::string& partition_data_json) {
+        _partition_spec_id = partition_spec_id;
+        _partition_data_json = partition_data_json;
+    }
+
+    /**
      * Get the number of rows written
      */
     int64_t get_written_rows() const { return _written_rows; }
@@ -98,7 +105,7 @@ private:
     io::FileWriterPtr _file_writer;
     std::unique_ptr<VFileFormatTransformer> _file_format_transformer;
 
-    std::string _partition_spec_json;
+    int32_t _partition_spec_id = 0;
     std::string _partition_data_json;
     std::vector<std::string> _partition_values;
 };
@@ -113,5 +120,4 @@ public:
             TFileFormatType::type file_format, TFileCompressType::type compress_type);
 };
 
-} // namespace vectorized
 } // namespace doris

@@ -55,7 +55,7 @@ public:
 
     Status write(RuntimeState* state, Block& block) override;
 
-    Status write_prepared_block(vectorized::Block& block);
+    Status write_prepared_block(Block& block);
 
     Status close(Status) override;
 
@@ -125,7 +125,7 @@ private:
     Status _filter_block(doris::Block& block, const IColumn::Filter* filter,
                          doris::Block* output_block);
 
-    Status _write_prepared_block(vectorized::Block& output_block);
+    Status _write_prepared_block(Block& output_block);
 
     // Currently it is a copy, maybe it is better to use move semantics to eliminate it.
     TDataSink _t_sink;

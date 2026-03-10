@@ -25,31 +25,26 @@ import org.apache.doris.datasource.iceberg.IcebergConflictDetectionFilterUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
-import org.apache.doris.datasource.iceberg.IcebergRowId;
+import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergDeleteExecutor;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
@@ -60,7 +55,6 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -128,8 +122,8 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
         //             + "Current format version: " + formatVersion);
         // }
 
-        boolean previousNeedIcebergRowId = ctx.needIcebergRowId();
-        ctx.setNeedIcebergRowId(true);
+        long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
+        ctx.setIcebergRowIdTargetTableId(icebergTable.getId());
         try {
             // Build query plan with DELETE sink
             LogicalPlan deleteQueryPlan = completeQueryPlan(ctx, logicalQuery, icebergTable);
@@ -174,7 +168,7 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
             executor.setCoord(deleteExecutor.getCoordinator());
             deleteExecutor.executeSingleInsert(executor);
         } finally {
-            ctx.setNeedIcebergRowId(previousNeedIcebergRowId);
+            ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
         }
     }
 
@@ -188,7 +182,7 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
 
         // Convert output to NamedExpression list
         List<NamedExpression> outputExprs;
-        if (!hasUnboundPlan(queryPlan)) {
+        if (!IcebergNereidsUtils.hasUnboundPlan(queryPlan)) {
             outputExprs = queryPlan.getOutput().stream()
                     .map(slot -> (NamedExpression) slot)
                     .collect(java.util.stream.Collectors.toList());
@@ -226,14 +220,12 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
     private LogicalPlan buildPositionDeletePlan(ConnectContext ctx, LogicalPlan logicalQuery,
                                                 IcebergExternalTable icebergTable) {
         // Step 1: Inject $row_id metadata column into the scan
-        // 这会触发 getFullSchema() 返回包含隐藏列的完整 Schema
-        LogicalPlan planWithRowId = injectRowIdColumn(logicalQuery);
+        LogicalPlan planWithRowId = IcebergNereidsUtils.injectRowIdColumn(logicalQuery);
 
         // Step 2: Project operation + __DORIS_ICEBERG_ROWID_COL__
-        // These are sent to the delete file writer and used for shuffle requirements
         Optional<Slot> rowIdSlot = Optional.empty();
-        if (!hasUnboundPlan(planWithRowId)) {
-            rowIdSlot = findRowIdSlot(planWithRowId.getOutput());
+        if (!IcebergNereidsUtils.hasUnboundPlan(planWithRowId)) {
+            rowIdSlot = IcebergNereidsUtils.findRowIdSlot(planWithRowId.getOutput());
         }
         NamedExpression operationColumn = new UnboundAlias(
                 new TinyIntLiteral(IcebergMergeOperation.DELETE_OPERATION_NUMBER),
@@ -264,92 +256,6 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
                 && sink.child(0) instanceof PhysicalEmptyRelation;
     }
 
-    /**
-     * Inject $row_id metadata column into the logical plan.
-     *
-     * This method traverses the plan tree and marks scans to include the $row_id column.
-     * The actual column generation happens in BE during execution.
-     *
-     * Similar to Trino's IcebergPageSourceProvider which injects row position
-     * during page source creation.
-     */
-    private LogicalPlan injectRowIdColumn(LogicalPlan plan) {
-        if (hasUnboundPlan(plan)) {
-            return plan;
-        }
-        return (LogicalPlan) plan.accept(new IcebergRowIdInjector(), null);
-    }
-
-    private static boolean hasUnboundPlan(Plan plan) {
-        return plan.anyMatch(node -> node instanceof Unbound || ((Plan) node).hasUnboundExpression());
-    }
-
-    private static class IcebergRowIdInjector extends DefaultPlanRewriter<Void> {
-        @Override
-        public Plan visitLogicalFileScan(LogicalFileScan scan, Void context) {
-            if (!(scan.getTable() instanceof IcebergExternalTable)) {
-                return scan;
-            }
-            if (hasRowIdSlot(scan.getOutput())) {
-                return scan;
-            }
-            IcebergExternalTable table = (IcebergExternalTable) scan.getTable();
-            Column rowIdColumn = getRowIdColumn(table);
-            SlotReference rowIdSlot = SlotReference.fromColumn(
-                    StatementScopeIdGenerator.newExprId(), table, rowIdColumn, scan.getQualifier());
-            List<Slot> outputs = new ArrayList<>(scan.getOutput());
-            outputs.add(rowIdSlot);
-            return scan.withCachedOutput(outputs);
-        }
-
-        @Override
-        public Plan visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
-            project = (LogicalProject<? extends Plan>) visitChildren(this, project, context);
-            Optional<Slot> rowIdSlot = findRowIdSlot(project.child().getOutput());
-            if (!rowIdSlot.isPresent() || hasRowIdProject(project.getProjects())) {
-                return project;
-            }
-            List<NamedExpression> newProjects = new ArrayList<>(project.getProjects());
-            newProjects.add((NamedExpression) rowIdSlot.get());
-            return project.withProjects(newProjects);
-        }
-    }
-
-    private static boolean hasRowIdSlot(List<Slot> slots) {
-        return findRowIdSlot(slots).isPresent();
-    }
-
-    private static Optional<Slot> findRowIdSlot(List<Slot> slots) {
-        for (Slot slot : slots) {
-            if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getName())) {
-                return Optional.of(slot);
-            }
-        }
-        return Optional.empty();
-    }
-
-    private static boolean hasRowIdProject(List<NamedExpression> projects) {
-        for (NamedExpression project : projects) {
-            if (project instanceof Slot
-                    && Column.ICEBERG_ROWID_COL.equalsIgnoreCase(((Slot) project).getName())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static Column getRowIdColumn(IcebergExternalTable table) {
-        List<Column> fullSchema = table.getFullSchema();
-        if (fullSchema != null) {
-            for (Column column : fullSchema) {
-                if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(column.getName())) {
-                    return column;
-                }
-            }
-        }
-        return IcebergRowId.createHiddenColumn();
-    }
-
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
         List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
@@ -357,12 +263,12 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
         if (!(table instanceof IcebergExternalTable)) {
             throw new AnalysisException("Table must be IcebergExternalTable in DELETE command");
         }
-        boolean previousNeedIcebergRowId = ctx.needIcebergRowId();
-        ctx.setNeedIcebergRowId(true);
+        long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
+        ctx.setIcebergRowIdTargetTableId(table.getId());
         try {
             return completeQueryPlan(ctx, logicalQuery, (IcebergExternalTable) table);
         } finally {
-            ctx.setNeedIcebergRowId(previousNeedIcebergRowId);
+            ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
         }
     }
 

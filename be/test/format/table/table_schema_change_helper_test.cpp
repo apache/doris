@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "format/table/table_schema_change_helper.h"
+
 #include <gtest/gtest.h>
 
 #include <string>

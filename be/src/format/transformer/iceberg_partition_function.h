@@ -23,10 +23,10 @@
 #include <string>
 #include <vector>
 
-#include "vec/runtime/partitioner.h"
-#include "vec/sink/writer/iceberg/partition_transformers.h"
+#include "exec/partitioner/partitioner.h"
+#include "exec/sink/writer/iceberg/partition_transformers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class IcebergInsertPartitionFunction final : public PartitionFunction {
@@ -98,4 +98,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

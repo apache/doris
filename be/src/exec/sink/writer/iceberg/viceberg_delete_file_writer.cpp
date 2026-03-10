@@ -19,13 +19,12 @@
 
 #include <fmt/format.h>
 
+#include "format/transformer/vorc_transformer.h"
+#include "format/transformer/vparquet_transformer.h"
 #include "io/file_factory.h"
 #include "runtime/runtime_state.h"
-#include "vec/runtime/vorc_transformer.h"
-#include "vec/runtime/vparquet_transformer.h"
 
 namespace doris {
-namespace vectorized {
 
 VIcebergDeleteFileWriter::VIcebergDeleteFileWriter(TFileContent::type delete_type,
                                                    const std::string& output_path,
@@ -132,9 +131,9 @@ Status VIcebergDeleteFileWriter::close(TIcebergCommitData& commit_data) {
     commit_data.__set_file_size(_file_size);
     commit_data.__set_file_content(_delete_type);
 
-    // Set partition information
-    if (!_partition_spec_json.empty()) {
-        commit_data.__set_partition_spec_id(0); // TODO: Parse from partition_spec_json
+    // Set partition information (set via set_partition_info() before close)
+    commit_data.__set_partition_spec_id(_partition_spec_id);
+    if (!_partition_data_json.empty()) {
         commit_data.__set_partition_data_json(_partition_data_json);
     }
 
@@ -153,5 +152,4 @@ std::unique_ptr<VIcebergDeleteFileWriter> VIcebergDeleteFileWriterFactory::creat
                                                       compress_type);
 }
 
-} // namespace vectorized
 } // namespace doris

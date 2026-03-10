@@ -73,6 +73,7 @@ struct IOContext;
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
 const std::vector<int64_t> RowGroupReader::NO_DELETE = {};
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 
@@ -310,10 +311,22 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         bool modify_row_ids = false;
         RETURN_IF_ERROR(_read_empty_batch(batch_size, read_rows, batch_eof, &modify_row_ids));
 
-        RETURN_IF_ERROR(
-                _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
-        RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
-
+        if (_table_format_reader) {
+            RETURN_IF_ERROR(_table_format_reader->on_fill_partition_columns(
+                    block, *read_rows, _lazy_read_ctx.partition_col_names));
+            RETURN_IF_ERROR(_table_format_reader->on_fill_missing_columns(
+                    block, *read_rows, _lazy_read_ctx.missing_col_names));
+            if (!_lazy_read_ctx.predicate_synthesized_col_names.empty()) {
+                RETURN_IF_ERROR(_get_current_batch_row_id(*read_rows));
+            }
+            RETURN_IF_ERROR(_table_format_reader->on_fill_synthesized_columns(
+                    block, *read_rows, _lazy_read_ctx.predicate_synthesized_col_names));
+        } else {
+            RETURN_IF_ERROR(
+                    _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
+            RETURN_IF_ERROR(
+                    _fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
+        }
         RETURN_IF_ERROR(_fill_row_id_columns(block, *read_rows, modify_row_ids));
 
         Status st = VExprContext::filter_block(_lazy_read_ctx.conjuncts, block, block->columns());
@@ -327,9 +340,22 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         FilterMap filter_map;
         RETURN_IF_ERROR((_read_column_data(block, _lazy_read_ctx.all_read_columns, batch_size,
                                            read_rows, batch_eof, filter_map)));
-        RETURN_IF_ERROR(
-                _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
-        RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
+        if (_table_format_reader) {
+            RETURN_IF_ERROR(_table_format_reader->on_fill_partition_columns(
+                    block, *read_rows, _lazy_read_ctx.partition_col_names));
+            RETURN_IF_ERROR(_table_format_reader->on_fill_missing_columns(
+                    block, *read_rows, _lazy_read_ctx.missing_col_names));
+            if (!_lazy_read_ctx.predicate_synthesized_col_names.empty()) {
+                RETURN_IF_ERROR(_get_current_batch_row_id(*read_rows));
+            }
+            RETURN_IF_ERROR(_table_format_reader->on_fill_synthesized_columns(
+                    block, *read_rows, _lazy_read_ctx.predicate_synthesized_col_names));
+        } else {
+            RETURN_IF_ERROR(
+                    _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
+            RETURN_IF_ERROR(
+                    _fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
+        }
         RETURN_IF_ERROR(_fill_row_id_columns(block, *read_rows, false));
 
 #ifndef NDEBUG
@@ -511,10 +537,22 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             break;
         }
         pre_raw_read_rows += pre_read_rows;
-        RETURN_IF_ERROR(_fill_partition_columns(block, pre_read_rows,
-                                                _lazy_read_ctx.predicate_partition_columns));
-        RETURN_IF_ERROR(_fill_missing_columns(block, pre_read_rows,
-                                              _lazy_read_ctx.predicate_missing_columns));
+        if (_table_format_reader) {
+            RETURN_IF_ERROR(_table_format_reader->on_fill_partition_columns(
+                    block, pre_read_rows, _lazy_read_ctx.predicate_partition_col_names));
+            RETURN_IF_ERROR(_table_format_reader->on_fill_missing_columns(
+                    block, pre_read_rows, _lazy_read_ctx.predicate_missing_col_names));
+            if (!_lazy_read_ctx.predicate_synthesized_col_names.empty()) {
+                RETURN_IF_ERROR(_get_current_batch_row_id(pre_read_rows));
+            }
+            RETURN_IF_ERROR(_table_format_reader->on_fill_synthesized_columns(
+                    block, pre_read_rows, _lazy_read_ctx.predicate_synthesized_col_names));
+        } else {
+            RETURN_IF_ERROR(_fill_partition_columns(block, pre_read_rows,
+                                                    _lazy_read_ctx.predicate_partition_columns));
+            RETURN_IF_ERROR(_fill_missing_columns(block, pre_read_rows,
+                                                  _lazy_read_ctx.predicate_missing_columns));
+        }
         RETURN_IF_ERROR(_fill_row_id_columns(block, pre_read_rows, false));
 
         RETURN_IF_ERROR(_build_pos_delete_filter(pre_read_rows));
@@ -532,6 +570,13 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
 #endif
 
         bool can_filter_all = false;
+        bool resize_first_column = _lazy_read_ctx.resize_first_column;
+        if (resize_first_column && !_lazy_read_ctx.predicate_synthesized_col_names.empty()) {
+            int row_id_idx = block->get_position_by_name(doris::BeConsts::ICEBERG_ROWID_COL);
+            if (row_id_idx == 0) {
+                resize_first_column = false;
+            }
+        }
         {
             SCOPED_RAW_TIMER(&_predicate_filter_time);
 
@@ -589,6 +634,15 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
                     block->get_by_position(_row_id_column_iterator_pair.second)
                             .column->assume_mutable()
                             ->clear();
+                }
+                if (!_lazy_read_ctx.predicate_synthesized_col_names.empty()) {
+                    int row_id_idx =
+                            block->get_position_by_name(doris::BeConsts::ICEBERG_ROWID_COL);
+                    if (row_id_idx >= 0) {
+                        block->get_by_position(static_cast<size_t>(row_id_idx))
+                                .column->assume_mutable()
+                                ->clear();
+                    }
                 }
                 Block::erase_useless_column(block, origin_column_num);
             }
@@ -648,8 +702,17 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     {
         SCOPED_RAW_TIMER(&_predicate_filter_time);
         if (filter_map.has_filter()) {
-            RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(
-                    block, _lazy_read_ctx.all_predicate_col_ids, result_filter));
+            std::vector<uint32_t> predicate_columns = _lazy_read_ctx.all_predicate_col_ids;
+            if (!_lazy_read_ctx.predicate_synthesized_col_names.empty()) {
+                int row_id_idx = block->get_position_by_name(doris::BeConsts::ICEBERG_ROWID_COL);
+                if (row_id_idx >= 0 &&
+                    std::find(predicate_columns.begin(), predicate_columns.end(),
+                              static_cast<uint32_t>(row_id_idx)) == predicate_columns.end()) {
+                    predicate_columns.push_back(static_cast<uint32_t>(row_id_idx));
+                }
+            }
+            RETURN_IF_CATCH_EXCEPTION(
+                    Block::filter_block_internal(block, predicate_columns, result_filter));
             Block::erase_useless_column(block, origin_column_num);
 
         } else {
@@ -674,8 +737,16 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     *read_rows = column_size;
 
     *batch_eof = pre_eof;
-    RETURN_IF_ERROR(_fill_partition_columns(block, column_size, _lazy_read_ctx.partition_columns));
-    RETURN_IF_ERROR(_fill_missing_columns(block, column_size, _lazy_read_ctx.missing_columns));
+    if (_table_format_reader) {
+        RETURN_IF_ERROR(_table_format_reader->on_fill_partition_columns(
+                block, column_size, _lazy_read_ctx.partition_col_names));
+        RETURN_IF_ERROR(_table_format_reader->on_fill_missing_columns(
+                block, column_size, _lazy_read_ctx.missing_col_names));
+    } else {
+        RETURN_IF_ERROR(
+                _fill_partition_columns(block, column_size, _lazy_read_ctx.partition_columns));
+        RETURN_IF_ERROR(_fill_missing_columns(block, column_size, _lazy_read_ctx.missing_columns));
+    }
 #ifndef NDEBUG
     for (auto col : *block) {
         col.column->sanity_check();
@@ -814,7 +885,8 @@ Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, b
         _position_delete_ctx.current_row_id = end_row_id;
         *batch_eof = _position_delete_ctx.current_row_id == _position_delete_ctx.last_row_id;
 
-        if (_row_id_column_iterator_pair.first != nullptr) {
+        if (_row_id_column_iterator_pair.first != nullptr ||
+            !_lazy_read_ctx.predicate_synthesized_col_names.empty()) {
             *modify_row_ids = true;
             _current_batch_row_ids.clear();
             _current_batch_row_ids.resize(*read_rows);
@@ -837,6 +909,10 @@ Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, b
             *read_rows = _remaining_rows;
             _remaining_rows = 0;
             *batch_eof = true;
+        }
+        if (!_lazy_read_ctx.predicate_synthesized_col_names.empty()) {
+            *modify_row_ids = true;
+            RETURN_IF_ERROR(_get_current_batch_row_id(*read_rows));
         }
     }
     _total_read_rows += *read_rows;

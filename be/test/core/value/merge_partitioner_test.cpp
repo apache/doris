@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/runtime/merge_partitioner.h"
+#include "format/transformer/merge_partitioner.h"
 
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Partitions_types.h>
@@ -29,20 +29,20 @@
 
 #include "common/config.h"
 #include "common/object_pool.h"
+#include "core/block/block.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_struct.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
+#include "core/types.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
-#include "runtime/types.h"
 #include "testutil/mock/mock_runtime_state.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_struct.h"
-#include "vec/columns/column_vector.h"
-#include "vec/core/block.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_struct.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 namespace {
 
@@ -348,4 +348,4 @@ TEST_F(MergePartitionerTest, TestInvalidTransformFallbacksToRandom) {
     ASSERT_TRUE(partitioner.close(&_state).ok());
 }
 
-} // namespace doris::vectorized
+} // namespace doris

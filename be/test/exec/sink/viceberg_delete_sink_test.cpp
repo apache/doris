@@ -15,24 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/viceberg_delete_sink.h"
+#include "exec/sink/viceberg_delete_sink.h"
 
 #include <gtest/gtest.h>
 
 #include "common/consts.h"
 #include "common/object_pool.h"
+#include "core/block/block.h"
+#include "core/column/column_string.h"
+#include "core/column/column_struct.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/runtime_state.h"
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_struct.h"
-#include "vec/columns/column_vector.h"
-#include "vec/core/block.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_struct.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class VIcebergDeleteSinkTest : public testing::Test {
 protected:
@@ -482,4 +482,4 @@ TEST_F(VIcebergDeleteSinkTest, TestUnsupportedDeleteType) {
     ASSERT_FALSE(status.ok());
 }
 
-} // namespace doris::vectorized
+} // namespace doris

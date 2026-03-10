@@ -97,13 +97,19 @@ public class ExplainCommand extends Command implements NoForward {
             new NereidsPlanner(ctx.getStatementContext())
         );
 
-        boolean resetNeedIcebergRowId = false;
-        boolean previousNeedIcebergRowId = ctx.needIcebergRowId();
-        if (explainPlan instanceof LogicalIcebergDeleteSink
-                || explainPlan instanceof LogicalIcebergMergeSink) {
-            if (!previousNeedIcebergRowId) {
-                ctx.setNeedIcebergRowId(true);
-                resetNeedIcebergRowId = true;
+        long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
+        boolean resetTargetTableId = false;
+        if (explainPlan instanceof LogicalIcebergDeleteSink) {
+            if (previousTargetTableId < 0) {
+                ctx.setIcebergRowIdTargetTableId(
+                        ((LogicalIcebergDeleteSink<?>) explainPlan).getTargetTable().getId());
+                resetTargetTableId = true;
+            }
+        } else if (explainPlan instanceof LogicalIcebergMergeSink) {
+            if (previousTargetTableId < 0) {
+                ctx.setIcebergRowIdTargetTableId(
+                        ((LogicalIcebergMergeSink<?>) explainPlan).getTargetTable().getId());
+                resetTargetTableId = true;
             }
         }
         try {
@@ -127,8 +133,8 @@ public class ExplainCommand extends Command implements NoForward {
                 scanNode.stop();
             }
         } finally {
-            if (resetNeedIcebergRowId) {
-                ctx.setNeedIcebergRowId(previousNeedIcebergRowId);
+            if (resetTargetTableId) {
+                ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
             }
         }
     }

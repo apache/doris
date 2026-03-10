@@ -15,25 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/viceberg_merge_sink.h"
+#include "exec/sink/viceberg_merge_sink.h"
 
 #include <fmt/format.h>
 
 #include "common/consts.h"
 #include "common/exception.h"
 #include "common/logging.h"
+#include "core/block/block.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
+#include "exec/sink/viceberg_delete_sink.h"
+#include "exec/sink/writer/iceberg/viceberg_table_writer.h"
+#include "format/table/iceberg/schema.h"
+#include "format/table/iceberg/schema_parser.h"
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_vector.h"
-#include "vec/core/block.h"
-#include "vec/exec/format/table/iceberg/schema.h"
-#include "vec/exec/format/table/iceberg/schema_parser.h"
-#include "vec/sink/viceberg_delete_sink.h"
-#include "vec/sink/writer/iceberg/viceberg_table_writer.h"
 
 namespace doris {
-namespace vectorized {
 
 namespace {
 constexpr int8_t kInsertOperation = 1;
@@ -46,22 +45,22 @@ constexpr const char* kOperationColumnName = "operation";
 } // namespace
 
 VIcebergMergeSink::VIcebergMergeSink(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                                     std::shared_ptr<pipeline::Dependency> dep,
-                                     std::shared_ptr<pipeline::Dependency> fin_dep)
+                                     std::shared_ptr<Dependency> dep,
+                                     std::shared_ptr<Dependency> fin_dep)
         : AsyncResultWriter(output_exprs, dep, fin_dep), _t_sink(t_sink) {
     DCHECK(_t_sink.__isset.iceberg_merge_sink);
 }
 
 VIcebergMergeSink::~VIcebergMergeSink() = default;
 
-Status VIcebergMergeSink::init_properties(ObjectPool* pool) {
+Status VIcebergMergeSink::init_properties(ObjectPool* pool, const RowDescriptor& row_desc) {
     RETURN_IF_ERROR(_build_inner_sinks());
 
     _table_writer = std::make_unique<VIcebergTableWriter>(_table_sink, _table_output_expr_ctxs,
                                                           nullptr, nullptr);
     _delete_writer = std::make_unique<VIcebergDeleteSink>(_delete_sink, _delete_output_expr_ctxs,
                                                           nullptr, nullptr);
-    RETURN_IF_ERROR(_table_writer->init_properties(pool));
+    RETURN_IF_ERROR(_table_writer->init_properties(pool, row_desc));
     RETURN_IF_ERROR(_delete_writer->init_properties(pool));
     return Status::OK();
 }
@@ -89,7 +88,7 @@ Status VIcebergMergeSink::open(RuntimeState* state, RuntimeProfile* profile) {
     return Status::OK();
 }
 
-Status VIcebergMergeSink::write(RuntimeState* state, vectorized::Block& block) {
+Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
     SCOPED_TIMER(_send_data_timer);
     if (block.rows() == 0) {
         return Status::OK();
@@ -368,5 +367,4 @@ bool VIcebergMergeSink::_is_insert_op(int8_t op) const {
     return op == kInsertOperation || op == kUpdateInsertOperation || op == kUpdateOperation;
 }
 
-} // namespace vectorized
 } // namespace doris

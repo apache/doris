@@ -192,7 +192,7 @@ Status VIcebergTableWriter::write(RuntimeState* state, Block& block) {
     return _write_prepared_block(output_block);
 }
 
-Status VIcebergTableWriter::write_prepared_block(vectorized::Block& block) {
+Status VIcebergTableWriter::write_prepared_block(Block& block) {
     SCOPED_RAW_TIMER(&_send_data_ns);
     if (block.rows() == 0) {
         return Status::OK();
@@ -200,7 +200,7 @@ Status VIcebergTableWriter::write_prepared_block(vectorized::Block& block) {
     return _write_prepared_block(block);
 }
 
-Status VIcebergTableWriter::_write_prepared_block(vectorized::Block& output_block) {
+Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
     std::unordered_map<std::shared_ptr<IPartitionWriterBase>, IColumn::Filter> writer_positions;
     _row_count += output_block.rows();
 

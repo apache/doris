@@ -33,8 +33,11 @@
 #include "format/parquet/parquet_common.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/table/table_format_reader.h"
+#include "format/table/table_schema_change_helper.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "parquet_column_convert.h"
+#include "vparquet_column_chunk_reader.h"
 
 namespace cctz {
 class time_zone;

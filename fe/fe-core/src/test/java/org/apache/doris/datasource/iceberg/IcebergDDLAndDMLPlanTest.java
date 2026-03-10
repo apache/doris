@@ -648,19 +648,20 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         adapter.setViewDdlSqls(statementContext.getViewDdlSqls());
         statementContext.setParsedStatement(adapter);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        boolean resetNeedIcebergRowId = false;
-        boolean previousNeedIcebergRowId = connectContext.needIcebergRowId();
+        long previousTargetTableId = connectContext.getIcebergRowIdTargetTableId();
         DeleteCommandContext deleteContext = null;
+        long targetTableId = -1;
         if (plan instanceof LogicalIcebergDeleteSink) {
             deleteContext = ((LogicalIcebergDeleteSink<?>) plan).getDeleteContext();
+            targetTableId = ((LogicalIcebergDeleteSink<?>) plan).getTargetTable().getId();
         } else if (plan instanceof LogicalIcebergMergeSink) {
             deleteContext = ((LogicalIcebergMergeSink<?>) plan).getDeleteContext();
+            targetTableId = ((LogicalIcebergMergeSink<?>) plan).getTargetTable().getId();
         }
         if (deleteContext != null
                 && deleteContext.getDeleteFileType() == DeleteCommandContext.DeleteFileType.POSITION_DELETE
-                && !previousNeedIcebergRowId) {
-            connectContext.setNeedIcebergRowId(true);
-            resetNeedIcebergRowId = true;
+                && previousTargetTableId < 0) {
+            connectContext.setIcebergRowIdTargetTableId(targetTableId);
         }
         try {
             planner.plan(adapter, connectContext.getSessionVariable().toThrift());
@@ -671,9 +672,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         } catch (Exception exception) {
             throw new IllegalStateException("Failed to plan statement: " + sql, exception);
         } finally {
-            if (resetNeedIcebergRowId) {
-                connectContext.setNeedIcebergRowId(previousNeedIcebergRowId);
-            }
+            connectContext.setIcebergRowIdTargetTableId(previousTargetTableId);
         }
     }
 
@@ -685,19 +684,20 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         adapter.setViewDdlSqls(statementContext.getViewDdlSqls());
         statementContext.setParsedStatement(adapter);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        boolean resetNeedIcebergRowId = false;
-        boolean previousNeedIcebergRowId = connectContext.needIcebergRowId();
+        long previousTargetTableId = connectContext.getIcebergRowIdTargetTableId();
         DeleteCommandContext deleteContext = null;
+        long targetTableId = -1;
         if (plan instanceof LogicalIcebergDeleteSink) {
             deleteContext = ((LogicalIcebergDeleteSink<?>) plan).getDeleteContext();
+            targetTableId = ((LogicalIcebergDeleteSink<?>) plan).getTargetTable().getId();
         } else if (plan instanceof LogicalIcebergMergeSink) {
             deleteContext = ((LogicalIcebergMergeSink<?>) plan).getDeleteContext();
+            targetTableId = ((LogicalIcebergMergeSink<?>) plan).getTargetTable().getId();
         }
         if (deleteContext != null
                 && deleteContext.getDeleteFileType() == DeleteCommandContext.DeleteFileType.POSITION_DELETE
-                && !previousNeedIcebergRowId) {
-            connectContext.setNeedIcebergRowId(true);
-            resetNeedIcebergRowId = true;
+                && previousTargetTableId < 0) {
+            connectContext.setIcebergRowIdTargetTableId(targetTableId);
         }
         try {
             planner.plan(adapter, connectContext.getSessionVariable().toThrift());
@@ -706,9 +706,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         } catch (Exception exception) {
             throw new IllegalStateException("Failed to plan statement: " + sql, exception);
         } finally {
-            if (resetNeedIcebergRowId) {
-                connectContext.setNeedIcebergRowId(previousNeedIcebergRowId);
-            }
+            connectContext.setIcebergRowIdTargetTableId(previousTargetTableId);
         }
     }
 

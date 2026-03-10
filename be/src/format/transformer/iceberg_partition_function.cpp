@@ -15,22 +15,56 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/runtime/iceberg_partition_function.h"
+#include "format/transformer/iceberg_partition_function.h"
 
 #include "common/cast_set.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_struct.h"
+#include "core/data_type/data_type_struct.h"
+#include "exec/sink/writer/iceberg/partition_transformers.h"
+#include "format/table/iceberg/partition_spec.h"
 #include "util/string_util.h"
-#include "vec/columns/column_const.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_struct.h"
-#include "vec/data_types/data_type_struct.h"
-#include "vec/exec/format/table/iceberg/partition_spec.h"
-#include "vec/sink/writer/iceberg/partition_transformers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
+
+using HashValType = PartitionerBase::HashValType;
+
+static void initialize_shuffle_hashes(std::vector<HashValType>& hashes, size_t rows,
+                                      ShuffleHashMethod method) {
+    hashes.resize(rows);
+    if (method == ShuffleHashMethod::CRC32C) {
+        constexpr HashValType CRC32C_SHUFFLE_SEED = 0x9E3779B9U;
+        std::fill(hashes.begin(), hashes.end(), CRC32C_SHUFFLE_SEED);
+    } else {
+        std::fill(hashes.begin(), hashes.end(), 0);
+    }
+}
+
+static void update_shuffle_hashes(const ColumnPtr& column, const DataTypePtr& type,
+                                  HashValType* __restrict result, ShuffleHashMethod method) {
+    if (method == ShuffleHashMethod::CRC32C) {
+        column->update_crc32c_batch(result, nullptr);
+    } else {
+        column->update_crcs_with_value(result, type->get_primitive_type(),
+                                       cast_set<HashValType>(column->size()));
+    }
+}
+
+static void apply_shuffle_channel_ids(std::vector<HashValType>& hashes, size_t partition_count,
+                                      ShuffleHashMethod method) {
+    for (auto& h : hashes) {
+        if (method == ShuffleHashMethod::CRC32C) {
+            h = crc32c_shuffle_mix(h) % partition_count;
+        } else {
+            h = h % partition_count;
+        }
+    }
+}
 
 IcebergInsertPartitionFunction::IcebergInsertPartitionFunction(
         HashValType partition_count, ShuffleHashMethod hash_method,
@@ -358,4 +392,4 @@ Status IcebergDeletePartitionFunction::_clone_expr_ctxs(RuntimeState* state,
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

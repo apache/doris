@@ -27,14 +27,17 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/block/block.h"
 #include "core/column/column.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/parquet/parquet_common.h"
 #include "format/parquet/vparquet_column_reader.h"
 #include "format/table/table_format_reader.h"
+#include "format/table/table_schema_change_helper.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "storage/id_manager.h"
-#include "storage/utils.h"
+#include "storage/segment/common.h"
+#include "vparquet_column_reader.h"
 
 namespace cctz {
 class time_zone;
@@ -66,15 +69,8 @@ namespace doris {
 #include "common/compile_check_begin.h"
 // TODO: we need to determine it by test.
 
-class RowGroupReader : public ProfileCollector {
+class RowGroupReader : public ProfileCollector, public RowPositionProvider {
 public:
-    struct IcebergRowIdParams {
-        bool enabled = false;
-        std::string file_path;
-        int32_t partition_spec_id = 0;
-        std::string partition_data_json;
-        int row_id_column_pos = -1;
-    };
     std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr;
     static const std::vector<int64_t> NO_DELETE;
 
@@ -121,6 +117,15 @@ public:
         std::unordered_map<std::string, VExprContextSPtr> missing_columns;
         // should turn off filtering by page index, lazy read and dict filter if having complex type
         bool has_complex_type = false;
+
+        // ColumnProcessor path: column name lists for each category.
+        // Predicate phase: columns involved in predicate filtering.
+        std::vector<std::string> predicate_partition_col_names;
+        std::vector<std::string> predicate_missing_col_names;
+        std::vector<std::string> predicate_synthesized_col_names;
+        // Remaining phase: columns filled after lazy reads.
+        std::vector<std::string> partition_col_names;
+        std::vector<std::string> missing_col_names;
     };
 
     /**
@@ -194,8 +199,11 @@ public:
         _row_id_column_iterator_pair = iterator_pair;
     }
 
-    void set_iceberg_rowid_params(const IcebergRowIdParams& params) {
-        _iceberg_rowid_params = params;
+    void set_table_format_reader(TableFormatReader* reader) { _table_format_reader = reader; }
+
+    // RowPositionProvider interface
+    const std::vector<rowid_t>& current_batch_row_positions() const override {
+        return _current_batch_row_ids;
     }
 
     void set_current_row_group_idx(RowGroupIndex row_group_idx) {
@@ -247,7 +255,6 @@ private:
 
     Status _get_current_batch_row_id(size_t read_rows);
     Status _fill_row_id_columns(Block* block, size_t read_rows, bool is_current_row_ids);
-    Status _append_iceberg_rowid_column(Block* block, size_t read_rows, bool is_current_row_ids);
 
     io::FileReaderSPtr _file_reader;
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>>
@@ -291,7 +298,7 @@ private:
     std::vector<rowid_t> _current_batch_row_ids;
 
     std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
-    IcebergRowIdParams _iceberg_rowid_params;
+    TableFormatReader* _table_format_reader = nullptr;
 };
 #include "common/compile_check_end.h"
 

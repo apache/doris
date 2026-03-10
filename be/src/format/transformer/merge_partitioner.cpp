@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/runtime/merge_partitioner.h"
+#include "format/transformer/merge_partitioner.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -24,13 +24,13 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "vec/columns/column_const.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_vector.h"
-#include "vec/core/block.h"
-#include "vec/runtime/iceberg_partition_function.h"
+#include "core/block/block.h"
+#include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
+#include "format/transformer/iceberg_partition_function.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 namespace {
@@ -362,4 +362,4 @@ Status MergePartitioner::_clone_expr_ctxs(RuntimeState* state, const VExprContex
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

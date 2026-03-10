@@ -15,28 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/viceberg_merge_sink.h"
+#include "exec/sink/viceberg_merge_sink.h"
 
 #include <gtest/gtest.h>
 
 #include "common/consts.h"
 #include "common/object_pool.h"
+#include "core/block/block.h"
+#include "core/column/column_string.h"
+#include "core/column/column_struct.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
+#include "exprs/vexpr_context.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Types_types.h"
+#include "runtime/runtime_profile.h"
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
-#include "util/runtime_profile.h"
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_struct.h"
-#include "vec/columns/column_vector.h"
-#include "vec/core/block.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_struct.h"
-#include "vec/exprs/vexpr_context.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class VIcebergMergeSinkTest : public testing::Test {
 protected:
@@ -172,7 +172,7 @@ TEST_F(VIcebergMergeSinkTest, TestUpdateProducesDeleteAndInsert) {
     auto sink = std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
     sink->set_skip_io(true);
 
-    ASSERT_TRUE(sink->init_properties(&pool).ok());
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
     RuntimeProfile profile("iceberg_merge_sink");
     ASSERT_TRUE(sink->open(&state, &profile).ok());
 
@@ -201,7 +201,7 @@ TEST_F(VIcebergMergeSinkTest, TestMissingOperationColumn) {
 
     auto sink = std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
 
-    ASSERT_TRUE(sink->init_properties(&pool).ok());
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
     RuntimeProfile profile("iceberg_merge_sink");
     Status status = sink->open(&state, &profile);
     ASSERT_FALSE(status.ok());
@@ -224,7 +224,7 @@ TEST_F(VIcebergMergeSinkTest, TestMissingRowIdColumn) {
 
     auto sink = std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
 
-    ASSERT_TRUE(sink->init_properties(&pool).ok());
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
     RuntimeProfile profile("iceberg_merge_sink");
     Status status = sink->open(&state, &profile);
     ASSERT_FALSE(status.ok());
@@ -248,7 +248,7 @@ TEST_F(VIcebergMergeSinkTest, TestUnknownOperation) {
     auto sink = std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
     sink->set_skip_io(true);
 
-    ASSERT_TRUE(sink->init_properties(&pool).ok());
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
     RuntimeProfile profile("iceberg_merge_sink");
     ASSERT_TRUE(sink->open(&state, &profile).ok());
 
@@ -275,7 +275,7 @@ TEST_F(VIcebergMergeSinkTest, TestUpdateInsertAndDeleteOperations) {
     auto sink = std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
     sink->set_skip_io(true);
 
-    ASSERT_TRUE(sink->init_properties(&pool).ok());
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
     RuntimeProfile profile("iceberg_merge_sink");
     ASSERT_TRUE(sink->open(&state, &profile).ok());
 
@@ -308,11 +308,11 @@ TEST_F(VIcebergMergeSinkTest, TestSchemaMismatch) {
 
     auto sink = std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);
 
-    ASSERT_TRUE(sink->init_properties(&pool).ok());
+    ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
     RuntimeProfile profile("iceberg_merge_sink");
     Status status = sink->open(&state, &profile);
     ASSERT_FALSE(status.ok());
     ASSERT_NE(std::string::npos, status.to_string().find("do not match schema columns"));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

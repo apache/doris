@@ -25,9 +25,9 @@ import org.apache.doris.datasource.iceberg.IcebergConflictDetectionFilterUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
+import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
 import org.apache.doris.datasource.iceberg.IcebergRowId;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -44,7 +44,6 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -58,7 +57,6 @@ import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergMergeExecutor;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeNotMatchedClause;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -68,7 +66,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -139,13 +136,13 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
                     + "Table " + Util.getTempTableDisplayName(table.getName()) + " is not an Iceberg table.");
         }
         IcebergExternalTable icebergTable = (IcebergExternalTable) table;
-        boolean previousNeedIcebergRowId = ctx.needIcebergRowId();
-        ctx.setNeedIcebergRowId(true);
+        long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
+        ctx.setIcebergRowIdTargetTableId(icebergTable.getId());
         try {
             LogicalPlan mergePlan = buildMergePlan(ctx, icebergTable);
             executeMergePlan(ctx, executor, icebergTable, mergePlan);
         } finally {
-            ctx.setNeedIcebergRowId(previousNeedIcebergRowId);
+            ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
         }
     }
 
@@ -156,12 +153,12 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
             throw new AnalysisException("MERGE INTO can only be used on Iceberg tables. "
                     + "Table " + Util.getTempTableDisplayName(table.getName()) + " is not an Iceberg table.");
         }
-        boolean previousNeedIcebergRowId = ctx.needIcebergRowId();
-        ctx.setNeedIcebergRowId(true);
+        long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
+        ctx.setIcebergRowIdTargetTableId(((IcebergExternalTable) table).getId());
         try {
             return buildMergePlan(ctx, (IcebergExternalTable) table);
         } finally {
-            ctx.setNeedIcebergRowId(previousNeedIcebergRowId);
+            ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
         }
     }
 
@@ -377,8 +374,8 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         plan = injectRowIdColumn(plan, icebergTable);
 
         Expression rowIdExpr = getTargetRowIdSlot();
-        if (!hasUnboundPlan(plan)) {
-            Optional<Slot> rowIdSlot = findRowIdSlot(plan.getOutput());
+        if (!IcebergNereidsUtils.hasUnboundPlan(plan)) {
+            Optional<Slot> rowIdSlot = IcebergNereidsUtils.findRowIdSlot(plan.getOutput());
             if (rowIdSlot.isPresent()) {
                 rowIdExpr = rowIdSlot.get();
             }
@@ -427,7 +424,7 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         LogicalPlan projectPlan = buildMergeProjectPlan(ctx, icebergTable);
 
         List<NamedExpression> outputExprs;
-        if (!hasUnboundPlan(projectPlan)) {
+        if (!IcebergNereidsUtils.hasUnboundPlan(projectPlan)) {
             outputExprs = projectPlan.getOutput().stream()
                     .map(NamedExpression.class::cast)
                     .collect(ImmutableList.toImmutableList());
@@ -501,92 +498,18 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
     }
 
     private LogicalPlan injectRowIdColumn(LogicalPlan plan, IcebergExternalTable targetTable) {
-        if (hasUnboundPlan(plan)) {
+        if (IcebergNereidsUtils.hasUnboundPlan(plan)) {
             return plan;
         }
-        return (LogicalPlan) plan.accept(new IcebergRowIdInjector(targetTable), null);
-    }
-
-    private static class IcebergRowIdInjector extends DefaultPlanRewriter<Void> {
-        private final IcebergExternalTable targetTable;
-
-        IcebergRowIdInjector(IcebergExternalTable targetTable) {
-            this.targetTable = targetTable;
-        }
-
-        @Override
-        public Plan visitLogicalFileScan(LogicalFileScan scan, Void context) {
-            if (!(scan.getTable() instanceof IcebergExternalTable)) {
-                return scan;
-            }
-            if (((IcebergExternalTable) scan.getTable()).getId() != targetTable.getId()) {
-                return scan;
-            }
-            if (hasRowIdSlot(scan.getOutput())) {
-                return scan;
-            }
-            Column rowIdColumn = getRowIdColumn(targetTable);
-            SlotReference rowIdSlot = SlotReference.fromColumn(
-                    StatementScopeIdGenerator.newExprId(), targetTable, rowIdColumn, scan.getQualifier());
-            List<Slot> outputs = new ArrayList<>(scan.getOutput());
-            outputs.add(rowIdSlot);
-            return scan.withCachedOutput(outputs);
-        }
-
-        @Override
-        public Plan visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
-            project = (LogicalProject<? extends Plan>) visitChildren(this, project, context);
-            Optional<Slot> rowIdSlot = findRowIdSlot(project.child().getOutput());
-            if (!rowIdSlot.isPresent() || hasRowIdProject(project.getProjects())) {
-                return project;
-            }
-            List<NamedExpression> newProjects = new ArrayList<>(project.getProjects());
-            newProjects.add((NamedExpression) rowIdSlot.get());
-            return project.withProjects(newProjects);
-        }
-    }
-
-    private static boolean hasUnboundPlan(Plan plan) {
-        return plan.anyMatch(node -> node instanceof Unbound || ((Plan) node).hasUnboundExpression());
+        return IcebergNereidsUtils.injectRowIdColumn(plan, targetTable);
     }
 
     private Expression getTargetRowIdSlot() {
         return new UnboundSlot(Column.ICEBERG_ROWID_COL);
     }
 
-    private static boolean hasRowIdSlot(List<Slot> slots) {
-        return findRowIdSlot(slots).isPresent();
-    }
-
-    private static Optional<Slot> findRowIdSlot(List<Slot> slots) {
-        for (Slot slot : slots) {
-            if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getName())) {
-                return Optional.of(slot);
-            }
-        }
-        return Optional.empty();
-    }
-
-    private static boolean hasRowIdProject(List<NamedExpression> projects) {
-        for (NamedExpression project : projects) {
-            if (project instanceof Slot
-                    && Column.ICEBERG_ROWID_COL.equalsIgnoreCase(((Slot) project).getName())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private static Column getRowIdColumn(IcebergExternalTable table) {
-        List<Column> fullSchema = table.getFullSchema();
-        if (fullSchema != null) {
-            for (Column column : fullSchema) {
-                if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(column.getName())) {
-                    return column;
-                }
-            }
-        }
-        return IcebergRowId.createHiddenColumn();
+        return IcebergNereidsUtils.getRowIdColumn(table);
     }
 
 }

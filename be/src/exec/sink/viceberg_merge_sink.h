@@ -24,16 +24,16 @@
 #include <vector>
 
 #include "common/status.h"
-#include "util/runtime_profile.h"
-#include "vec/exprs/vexpr_fwd.h"
-#include "vec/sink/writer/async_result_writer.h"
+#include "exec/sink/writer/async_result_writer.h"
+#include "exprs/vexpr_fwd.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris {
 
 class ObjectPool;
 class RuntimeState;
-
-namespace vectorized {
+class Dependency;
 
 class VIcebergDeleteSink;
 class VIcebergTableWriter;
@@ -41,16 +41,15 @@ class VIcebergTableWriter;
 class VIcebergMergeSink final : public AsyncResultWriter {
 public:
     VIcebergMergeSink(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                      std::shared_ptr<pipeline::Dependency> dep,
-                      std::shared_ptr<pipeline::Dependency> fin_dep);
+                      std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
 
     ~VIcebergMergeSink() override;
 
-    Status init_properties(ObjectPool* pool);
+    Status init_properties(ObjectPool* pool, const RowDescriptor& row_desc);
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
-    Status write(RuntimeState* state, vectorized::Block& block) override;
+    Status write(RuntimeState* state, Block& block) override;
 
     Status close(Status) override;
 
@@ -96,5 +95,4 @@ private:
 #endif
 };
 
-} // namespace vectorized
 } // namespace doris
