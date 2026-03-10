@@ -17,6 +17,7 @@
 
 package org.apache.doris.authentication;
 
+import org.apache.doris.common.UserAuditMetadata;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -36,7 +37,7 @@ import java.util.Set;
 /**
  * Persistent metadata for AUTHENTICATION INTEGRATION.
  */
-public class AuthenticationIntegrationMeta implements Writable {
+public class AuthenticationIntegrationMeta extends UserAuditMetadata implements Writable {
     public static final String TYPE_PROPERTY = "type";
 
     @SerializedName(value = "n")
@@ -49,13 +50,16 @@ public class AuthenticationIntegrationMeta implements Writable {
     private String comment;
 
     private AuthenticationIntegrationMeta() {
+        super();
         this.name = "";
         this.type = "";
         this.properties = Collections.emptyMap();
         this.comment = null;
     }
 
-    public AuthenticationIntegrationMeta(String name, String type, Map<String, String> properties, String comment) {
+    public AuthenticationIntegrationMeta(String name, String type, Map<String, String> properties, String comment,
+            String createUser, long createTime, String alterUser, long modifyTime) {
+        super(createUser, createTime, alterUser, modifyTime);
         this.name = Objects.requireNonNull(name, "name can not be null");
         this.type = Objects.requireNonNull(type, "type can not be null");
         this.properties = Collections.unmodifiableMap(
@@ -67,7 +71,8 @@ public class AuthenticationIntegrationMeta implements Writable {
      * Build metadata from CREATE SQL arguments.
      */
     public static AuthenticationIntegrationMeta fromCreateSql(
-            String integrationName, Map<String, String> properties, String comment) throws DdlException {
+            String integrationName, Map<String, String> properties, String comment, String createUser)
+            throws DdlException {
         if (properties == null || properties.isEmpty()) {
             throw new DdlException("Property 'type' is required in CREATE AUTHENTICATION INTEGRATION");
         }
@@ -87,13 +92,17 @@ public class AuthenticationIntegrationMeta implements Writable {
         if (type == null || type.isEmpty()) {
             throw new DdlException("Property 'type' is required in CREATE AUTHENTICATION INTEGRATION");
         }
-        return new AuthenticationIntegrationMeta(integrationName, type, copiedProperties, comment);
+        long currentTime = System.currentTimeMillis();
+        return new AuthenticationIntegrationMeta(integrationName, type, copiedProperties, comment,
+                Objects.requireNonNull(createUser, "createUser can not be null"),
+                currentTime, createUser, currentTime);
     }
 
     /**
      * Build a new metadata object after ALTER ... SET PROPERTIES.
      */
-    public AuthenticationIntegrationMeta withAlterProperties(Map<String, String> propertiesDelta) throws DdlException {
+    public AuthenticationIntegrationMeta withAlterProperties(Map<String, String> propertiesDelta, String alterUser)
+            throws DdlException {
         if (propertiesDelta == null || propertiesDelta.isEmpty()) {
             throw new DdlException("ALTER AUTHENTICATION INTEGRATION should contain at least one property");
         }
@@ -104,13 +113,16 @@ public class AuthenticationIntegrationMeta implements Writable {
         }
         Map<String, String> mergedProperties = new LinkedHashMap<>(properties);
         mergedProperties.putAll(propertiesDelta);
-        return new AuthenticationIntegrationMeta(name, type, mergedProperties, comment);
+        return new AuthenticationIntegrationMeta(name, type, mergedProperties, comment,
+                getCreateUser(), getCreateTime(),
+                Objects.requireNonNull(alterUser, "alterUser can not be null"), System.currentTimeMillis());
     }
 
     /**
      * Build a new metadata object after ALTER ... UNSET PROPERTIES.
      */
-    public AuthenticationIntegrationMeta withUnsetProperties(Set<String> propertiesToUnset) throws DdlException {
+    public AuthenticationIntegrationMeta withUnsetProperties(Set<String> propertiesToUnset, String alterUser)
+            throws DdlException {
         if (propertiesToUnset == null || propertiesToUnset.isEmpty()) {
             throw new DdlException("ALTER AUTHENTICATION INTEGRATION should contain at least one property");
         }
@@ -121,11 +133,15 @@ public class AuthenticationIntegrationMeta implements Writable {
             }
             reducedProperties.remove(key);
         }
-        return new AuthenticationIntegrationMeta(name, type, reducedProperties, comment);
+        return new AuthenticationIntegrationMeta(name, type, reducedProperties, comment,
+                getCreateUser(), getCreateTime(),
+                Objects.requireNonNull(alterUser, "alterUser can not be null"), System.currentTimeMillis());
     }
 
-    public AuthenticationIntegrationMeta withComment(String newComment) {
-        return new AuthenticationIntegrationMeta(name, type, properties, newComment);
+    public AuthenticationIntegrationMeta withComment(String newComment, String alterUser) {
+        return new AuthenticationIntegrationMeta(name, type, properties, newComment,
+                getCreateUser(), getCreateTime(),
+                Objects.requireNonNull(alterUser, "alterUser can not be null"), System.currentTimeMillis());
     }
 
     public String getName() {
