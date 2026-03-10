@@ -155,8 +155,7 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state, Bloc
                             {
                                 SCOPED_TIMER(_hash_table_iterate_timer);
                                 auto& it = agg_method.begin;
-                                while (it != agg_method.end &&
-                                       num_rows < state->batch_size()) {
+                                while (it != agg_method.end && num_rows < state->batch_size()) {
                                     keys[num_rows] = it.get_first();
                                     inline_counts[num_rows] =
                                             reinterpret_cast<const UInt64&>(it.get_second());
@@ -177,12 +176,29 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state, Bloc
                             count_col.resize(num_rows);
                             auto* col_data = count_col.get_data().data();
                             for (uint32_t i = 0; i < num_rows; ++i) {
-                                *reinterpret_cast<UInt64*>(
-                                        col_data + i * sizeof(UInt64)) = inline_counts[i];
+                                *reinterpret_cast<UInt64*>(col_data + i * sizeof(UInt64)) =
+                                        inline_counts[i];
                             }
 
+                            // Handle null key if present
                             if (agg_method.begin == agg_method.end) {
-                                *eos = true;
+                                if (agg_method.hash_table->has_null_key_data()) {
+                                    DCHECK(key_columns.size() == 1);
+                                    DCHECK(key_columns[0]->is_nullable());
+                                    if (num_rows < state->batch_size()) {
+                                        key_columns[0]->insert_data(nullptr, 0);
+                                        auto mapped =
+                                                agg_method.hash_table->template get_null_key_data<
+                                                        AggregateDataPtr>();
+                                        count_col.resize(num_rows + 1);
+                                        *reinterpret_cast<UInt64*>(count_col.get_data().data() +
+                                                                   num_rows * sizeof(UInt64)) =
+                                                reinterpret_cast<const UInt64&>(mapped);
+                                        *eos = true;
+                                    }
+                                } else {
+                                    *eos = true;
+                                }
                             }
                             return;
                         }
@@ -339,8 +355,23 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, Block
                                 agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
                             }
 
+                            // Handle null key if present
                             if (agg_method.begin == agg_method.end) {
-                                *eos = true;
+                                if (agg_method.hash_table->has_null_key_data()) {
+                                    DCHECK(key_columns.size() == 1);
+                                    DCHECK(key_columns[0]->is_nullable());
+                                    if (key_columns[0]->size() < state->batch_size()) {
+                                        key_columns[0]->insert_data(nullptr, 0);
+                                        auto mapped =
+                                                agg_method.hash_table->template get_null_key_data<
+                                                        AggregateDataPtr>();
+                                        count_column.insert_value(static_cast<Int64>(
+                                                reinterpret_cast<const UInt64&>(mapped)));
+                                        *eos = true;
+                                    }
+                                } else {
+                                    *eos = true;
+                                }
                             }
                             return;
                         }
