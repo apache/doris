@@ -216,14 +216,6 @@ public:
     int64_t reserved_consumption() const { return _reserved_counter.current_value(); }
     int64_t reserved_peak_consumption() const { return _reserved_counter.peak_value(); }
 
-    bool try_reserve(int64_t bytes) {
-        bool rt = try_consume(bytes);
-        if (rt) {
-            _reserved_counter.add(bytes);
-        }
-        return rt;
-    }
-
     void release_reserved(int64_t bytes) {
         _reserved_counter.sub(bytes);
         DCHECK(reserved_consumption() >= 0);
