@@ -120,7 +120,6 @@ public class JdbcJniWriter extends JniWriter {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
             initializeClassLoaderAndDataSource();
-            Thread.currentThread().setContextClassLoader(classLoader);
 
             conn = hikariDataSource.getConnection();
 
@@ -353,6 +352,10 @@ public class JdbcJniWriter extends JniWriter {
         java.net.URL[] urls = {new java.net.URL(jdbcDriverUrl)};
         ClassLoader parent = getClass().getClassLoader();
         this.classLoader = java.net.URLClassLoader.newInstance(urls, parent);
+        // Must set thread context classloader BEFORE creating HikariDataSource,
+        // because HikariCP's setDriverClassName() loads the driver class from
+        // the thread context classloader.
+        Thread.currentThread().setContextClassLoader(classLoader);
 
         String cacheKey = createCacheKey();
         hikariDataSource = JdbcDataSource.getDataSource().getSource(cacheKey);
