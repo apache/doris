@@ -161,6 +161,9 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION = "enable_single_replica_compaction";
 
+    public static final String PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP =
+            "vertical_compaction_num_columns_per_group";
+
     public static final String PROPERTIES_STORE_ROW_COLUMN = "store_row_column"; // deprecated
 
     public static final String PROPERTIES_ROW_STORE_COLUMNS = "row_store_columns";
@@ -255,6 +258,7 @@ public class PropertyAnalyzer {
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
     public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
     public static final long TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE = 1;
+    public static final int VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP_DEFAULT_VALUE = 5;
 
     public static final String PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT = "variant_max_subcolumns_count";
 
@@ -2249,5 +2253,28 @@ public class PropertyAnalyzer {
             return TEncryptionAlgorithm.PLAINTEXT;
         }
         throw new AnalysisException("Invalid tde algorithm: " + name + ", only support AES256 and SM4 currently");
+    }
+
+    public static Integer analyzeVerticalCompactionNumColumnsPerGroup(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP_DEFAULT_VALUE;
+        }
+        String value = properties.get(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
+        if (null == value) {
+            return VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP_DEFAULT_VALUE;
+        }
+        properties.remove(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
+        try {
+            int num = Integer.parseInt(value);
+            if (num < 1 || num > 50) {
+                throw new AnalysisException(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP
+                        + " must be between 1 and 50");
+            }
+            return num;
+        } catch (NumberFormatException e) {
+            throw new AnalysisException(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP
+                    + " must be a valid integer");
+        }
     }
 }

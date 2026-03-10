@@ -192,7 +192,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.variantEnableFlattenNested(), clusterKeyUids,
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
                         tbl.storageDictPageSize(), true,
-                        tbl.getColumnSeqMapping());
+                        tbl.getColumnSeqMapping(),
+                                    tbl.getVerticalCompactionNumColumnsPerGroup());
                 requestBuilder.addTabletMetas(builder);
             }
             requestBuilder.setDbId(dbId);
@@ -226,7 +227,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
             boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
             long storagePageSize, EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
-            boolean createInitialRowset, Map<String, List<String>> columnSeqMapping) throws DdlException {
+            boolean createInitialRowset, Map<String, List<String>> columnSeqMapping,
+            int verticalCompactionNumColumnsPerGroup) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -261,6 +263,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         builder.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionTimeThresholdSeconds);
         builder.setTimeSeriesCompactionEmptyRowsetsThreshold(timeSeriesCompactionEmptyRowsetsThreshold);
         builder.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionLevelThreshold);
+        builder.setVerticalCompactionNumColumnsPerGroup(verticalCompactionNumColumnsPerGroup);
 
         OlapFile.TabletSchemaCloudPB.Builder schemaBuilder = OlapFile.TabletSchemaCloudPB.newBuilder();
         schemaBuilder.setSchemaVersion(schemaVersion);
