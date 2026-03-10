@@ -28,9 +28,9 @@
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
-#include "olap/data_dir.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet_manager.h"
+#include "storage/data_dir.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet_manager.h"
 #include "util/threadpool.h"
 
 namespace doris {
