@@ -304,6 +304,99 @@ TEST(FunctionLikeTest, regexp_extract_all_array) {
     run_case("hitdecisiondlist", "(i)(.*?)(e)", "[\"i\"]");
     run_case("no_match_here", "x=([0-9]+)", "[]");
     run_case("abc", "([a-z]+)", "[\"abc\"]");
+
+    // Helper for testing null input propagation
+    auto nullable_str_type = make_nullable(str_type);
+    auto run_null_case = [&](bool null_str, bool null_pattern) {
+        ColumnPtr col_str;
+        DataTypePtr str_col_type;
+        if (null_str) {
+            auto col = ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
+            col->insert_default();
+            col_str = std::move(col);
+            str_col_type = nullable_str_type;
+        } else {
+            auto col = ColumnString::create();
+            col->insert_data("abc", 3);
+            col_str = std::move(col);
+            str_col_type = str_type;
+        }
+
+        ColumnPtr col_pattern;
+        DataTypePtr pattern_col_type;
+        if (null_pattern) {
+            auto col = ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
+            col->insert_default();
+            col_pattern = ColumnConst::create(std::move(col), 1);
+            pattern_col_type = nullable_str_type;
+        } else {
+            auto col = ColumnString::create();
+            col->insert_data("([a-z]+)", 8);
+            col_pattern = ColumnConst::create(std::move(col), 1);
+            pattern_col_type = str_type;
+        }
+
+        Block block;
+        block.insert({col_str, str_col_type, "str"});
+        block.insert({col_pattern, pattern_col_type, "pattern"});
+        block.insert({nullptr, return_type, "result"});
+
+        ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1)};
+        auto func =
+                SimpleFunctionFactory::instance().get_function(func_name, arg_cols, return_type);
+        ASSERT_TRUE(func != nullptr);
+
+        std::vector<DataTypePtr> arg_types = {str_col_type, pattern_col_type};
+        FunctionUtils fn_utils({}, arg_types, false);
+        auto* fn_ctx = fn_utils.get_fn_ctx();
+        fn_ctx->set_constant_cols(
+                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column)});
+
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+        ASSERT_EQ(Status::OK(), func->execute(fn_ctx, block, {0, 1}, 2, 1));
+
+        EXPECT_TRUE(block.get_by_position(2).column->is_null_at(0))
+                << "Expected null for null_str=" << null_str << " null_pattern=" << null_pattern;
+
+        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    };
+
+    // NULL input string → null result
+    run_null_case(true, false);
+    // NULL pattern → null result
+    run_null_case(false, true);
+
+    // Invalid const pattern → open() should fail
+    {
+        auto col_str = ColumnString::create();
+        col_str->insert_data("abc", 3);
+        auto col_pattern = ColumnString::create();
+        col_pattern->insert_data("(", 1);
+        Block block;
+        block.insert({std::move(col_str), str_type, "str"});
+        block.insert({ColumnConst::create(std::move(col_pattern), 1), str_type, "pattern"});
+        block.insert({nullptr, return_type, "result"});
+
+        ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1)};
+        auto func =
+                SimpleFunctionFactory::instance().get_function(func_name, arg_cols, return_type);
+        ASSERT_TRUE(func != nullptr);
+
+        std::vector<DataTypePtr> arg_types = {str_type, str_type};
+        FunctionUtils fn_utils({}, arg_types, false);
+        auto* fn_ctx = fn_utils.get_fn_ctx();
+        fn_ctx->set_constant_cols(
+                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column)});
+
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        // Invalid pattern should cause open() to fail for THREAD_LOCAL scope
+        EXPECT_NE(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+
+        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    }
 }
 
 TEST(FunctionLikeTest, regexp_replace) {
