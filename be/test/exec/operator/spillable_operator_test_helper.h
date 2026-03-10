@@ -24,6 +24,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "common/object_pool.h"
@@ -79,15 +80,19 @@ public:
 class SpillableDebugPointHelper {
 public:
     SpillableDebugPointHelper(const std::string name)
-            : _enable_debug_points(config::enable_debug_points) {
+            : _enable_debug_points(config::enable_debug_points), _debug_point_name(name) {
         config::enable_debug_points = true;
         DebugPoints::instance()->add(name);
     }
 
-    ~SpillableDebugPointHelper() { config::enable_debug_points = _enable_debug_points; }
+    ~SpillableDebugPointHelper() {
+        DebugPoints::instance()->remove(_debug_point_name);
+        config::enable_debug_points = _enable_debug_points;
+    }
 
 private:
     const bool _enable_debug_points;
+    const std::string _debug_point_name;
 };
 
 class SpillableOperatorTestHelper {

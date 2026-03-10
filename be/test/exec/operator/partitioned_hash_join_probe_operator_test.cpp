@@ -53,11 +53,10 @@ SpillFileSPtr create_probe_test_spill_file(RuntimeState* state, RuntimeProfile* 
                                            int node_id, const std::string& prefix,
                                            const std::vector<std::vector<int32_t>>& batches) {
     SpillFileSPtr spill_file;
-    auto relative_path =
-            fmt::format("{}/{}-{}-{}", print_id(state->query_id()), prefix, node_id,
-                        ExecEnv::GetInstance()->spill_file_mgr()->next_id());
-    auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file(relative_path,
-                                                                          spill_file);
+    auto relative_path = fmt::format("{}/{}-{}-{}", print_id(state->query_id()), prefix, node_id,
+                                     ExecEnv::GetInstance()->spill_file_mgr()->next_id());
+    auto st =
+            ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file(relative_path, spill_file);
     EXPECT_TRUE(st.ok()) << "create spill file failed: " << st.to_string();
     if (!st.ok()) {
         return nullptr;
@@ -246,9 +245,9 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, CloseReleasesSpillResources) {
     auto create_spill_file = [&](const std::string& prefix,
                                  std::initializer_list<int32_t> values) -> SpillFileSPtr {
         SpillFileSPtr spill_file;
-        auto relative_path = fmt::format(
-                "{}/{}-{}-{}", print_id(_helper.runtime_state->query_id()), prefix,
-                probe_operator->node_id(), ExecEnv::GetInstance()->spill_file_mgr()->next_id());
+        auto relative_path = fmt::format("{}/{}-{}-{}", print_id(_helper.runtime_state->query_id()),
+                                         prefix, probe_operator->node_id(),
+                                         ExecEnv::GetInstance()->spill_file_mgr()->next_id());
         auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file(relative_path,
                                                                               spill_file);
         EXPECT_TRUE(st.ok()) << "create spill file failed: " << st.to_string();
@@ -405,9 +404,9 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RepartitionCurrentPartition) {
             [&](const std::string& prefix,
                 const std::vector<std::vector<int32_t>>& batches) -> SpillFileSPtr {
         SpillFileSPtr spill_file;
-        auto relative_path = fmt::format(
-                "{}/{}-{}-{}", print_id(_helper.runtime_state->query_id()), prefix,
-                probe_operator->node_id(), ExecEnv::GetInstance()->spill_file_mgr()->next_id());
+        auto relative_path = fmt::format("{}/{}-{}-{}", print_id(_helper.runtime_state->query_id()),
+                                         prefix, probe_operator->node_id(),
+                                         ExecEnv::GetInstance()->spill_file_mgr()->next_id());
         auto status = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file(relative_path,
                                                                                   spill_file);
         EXPECT_TRUE(status.ok()) << "create spill file failed: " << status.to_string();
@@ -464,10 +463,8 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RepartitionCurrentPartition) {
         return rows;
     };
 
-    auto build_file =
-            create_spill_file("hash_build_repartition_test", {{1, 2, 3}, {4, 5}});
-    auto probe_file =
-            create_spill_file("hash_probe_repartition_test", {{6, 7}, {8, 9, 10}});
+    auto build_file = create_spill_file("hash_build_repartition_test", {{1, 2, 3}, {4, 5}});
+    auto probe_file = create_spill_file("hash_probe_repartition_test", {{6, 7}, {8, 9, 10}});
     ASSERT_TRUE(build_file != nullptr);
     ASSERT_TRUE(probe_file != nullptr);
 
@@ -550,14 +547,12 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RevokeBuildData) {
                                                         _helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "prepare probe local state failed: " << st.to_string();
 
-    auto build_file =
-            create_probe_test_spill_file(_helper.runtime_state.get(), local_state->operator_profile(),
-                                         probe_operator->node_id(), "hash_build_revoke_test",
-                                         {{1, 2, 3}, {4, 5}});
-    auto probe_file =
-            create_probe_test_spill_file(_helper.runtime_state.get(), local_state->operator_profile(),
-                                         probe_operator->node_id(), "hash_probe_revoke_test",
-                                         {{6, 7}, {8, 9, 10}});
+    auto build_file = create_probe_test_spill_file(
+            _helper.runtime_state.get(), local_state->operator_profile(), probe_operator->node_id(),
+            "hash_build_revoke_test", {{1, 2, 3}, {4, 5}});
+    auto probe_file = create_probe_test_spill_file(
+            _helper.runtime_state.get(), local_state->operator_profile(), probe_operator->node_id(),
+            "hash_probe_revoke_test", {{6, 7}, {8, 9, 10}});
     ASSERT_TRUE(build_file != nullptr);
     ASSERT_TRUE(probe_file != nullptr);
 
@@ -601,12 +596,12 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RevokeBuildData) {
     for (auto& queue_partition : local_state->_spill_partition_queue) {
         ASSERT_TRUE(queue_partition.is_valid());
         ASSERT_EQ(queue_partition.level, 1);
-        repartitioned_build_rows += count_spill_rows(_helper.runtime_state.get(),
-                                                     local_state->operator_profile(),
-                                                     queue_partition.build_file);
-        repartitioned_probe_rows += count_spill_rows(_helper.runtime_state.get(),
-                                                     local_state->operator_profile(),
-                                                     queue_partition.probe_file);
+        repartitioned_build_rows +=
+                count_spill_rows(_helper.runtime_state.get(), local_state->operator_profile(),
+                                 queue_partition.build_file);
+        repartitioned_probe_rows +=
+                count_spill_rows(_helper.runtime_state.get(), local_state->operator_profile(),
+                                 queue_partition.probe_file);
     }
     ASSERT_EQ(repartitioned_build_rows, 5);
     ASSERT_EQ(repartitioned_probe_rows, 5);
@@ -911,8 +906,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverProbeBlocksFromDiskError) {
     spill_file.reset();
 
     ASSERT_FALSE(status.ok());
-    ASSERT_TRUE(status.to_string().find("fault_inject spill_file read_next_block") !=
-                std::string::npos)
+    ASSERT_TRUE(status.to_string().find("spill_file read_next_block failed") != std::string::npos)
             << "unexpected error: " << status.to_string();
 }
 
@@ -1394,10 +1388,9 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, PullInitializesSpillQueueFromLevel0
     auto local_state = _helper.create_probe_local_state(_helper.runtime_state.get(),
                                                         probe_operator.get(), shared_state);
 
-    auto build_file =
-            create_probe_test_spill_file(_helper.runtime_state.get(), local_state->operator_profile(),
-                                         probe_operator->node_id(), "hash_build_pull_init",
-                                         {{1, 2, 3}});
+    auto build_file = create_probe_test_spill_file(
+            _helper.runtime_state.get(), local_state->operator_profile(), probe_operator->node_id(),
+            "hash_build_pull_init", {{1, 2, 3}});
     ASSERT_TRUE(build_file != nullptr);
 
     shared_state->_spilled_build_groups[0] = build_file;
@@ -1568,10 +1561,9 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, PullRecoversProbeBlocksFromPartitio
     auto local_state = _helper.create_probe_local_state(_helper.runtime_state.get(),
                                                         probe_operator.get(), shared_state);
 
-    auto probe_file =
-            create_probe_test_spill_file(_helper.runtime_state.get(), local_state->operator_profile(),
-                                         probe_operator->node_id(), "hash_probe_pull_recover",
-                                         {{1, 2, 3}, {4, 5}});
+    auto probe_file = create_probe_test_spill_file(
+            _helper.runtime_state.get(), local_state->operator_profile(), probe_operator->node_id(),
+            "hash_probe_pull_recover", {{1, 2, 3}, {4, 5}});
     ASSERT_TRUE(probe_file != nullptr);
 
     local_state->_shared_state->_is_spilled = true;
@@ -1604,10 +1596,9 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, PullFinishesPartitionAfterRecovered
     auto local_state = _helper.create_probe_local_state(_helper.runtime_state.get(),
                                                         probe_operator.get(), shared_state);
 
-    auto probe_file =
-            create_probe_test_spill_file(_helper.runtime_state.get(), local_state->operator_profile(),
-                                         probe_operator->node_id(), "hash_probe_pull_finish",
-                                         {{6, 7, 8}});
+    auto probe_file = create_probe_test_spill_file(
+            _helper.runtime_state.get(), local_state->operator_profile(), probe_operator->node_id(),
+            "hash_probe_pull_finish", {{6, 7, 8}});
     ASSERT_TRUE(probe_file != nullptr);
 
     local_state->_shared_state->_is_spilled = true;

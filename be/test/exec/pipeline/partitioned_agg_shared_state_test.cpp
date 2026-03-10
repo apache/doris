@@ -38,7 +38,8 @@ protected:
         if (_exec_env->spill_file_mgr() == nullptr) {
             _spill_dir = "./ut_dir/doris_ut_partitioned_agg_" + std::to_string(getpid());
             auto spill_data_dir = std::make_unique<SpillDataDir>(_spill_dir, -1);
-            auto st = io::global_local_filesystem()->create_directory(spill_data_dir->path(), false);
+            auto st =
+                    io::global_local_filesystem()->create_directory(spill_data_dir->path(), false);
             ASSERT_TRUE(st.ok()) << st.to_string();
             std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> data_map;
             data_map.emplace("test", std::move(spill_data_dir));

@@ -705,8 +705,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, RevocableMemSizeWithLargeBlocks
 }
 
 // Spilled + valid spill_file + aggregate_data_container (>1MB) → returns container bytes.
-TEST_F(PartitionedAggregationSourceOperatorTest,
-       RevocableMemSizeWithAggContainerCountsMemory) {
+TEST_F(PartitionedAggregationSourceOperatorTest, RevocableMemSizeWithAggContainerCountsMemory) {
     auto [source_operator, sink_operator] = _helper.create_operators();
     const auto tnode = _helper.create_test_plan_node();
     ASSERT_TRUE(source_operator->init(tnode, _helper.runtime_state.get()).ok());
@@ -933,12 +932,11 @@ TEST_F(PartitionedAggregationSourceOperatorTest, FlushHashTableToSubSpillFilesSu
     }
     std::vector<SpillFileSPtr> output_spill_files;
     ASSERT_TRUE(SpillRepartitioner::create_output_spill_files(
-                        _helper.runtime_state.get(), source_operator->node_id(),
-                        "ut/flush_ht_test", fanout, output_spill_files)
+                        _helper.runtime_state.get(), source_operator->node_id(), "ut/flush_ht_test",
+                        fanout, output_spill_files)
                         .ok());
-    local_state->_repartitioner.init_with_key_columns(key_column_indices, key_data_types,
-                                                      local_state->operator_profile(), fanout,
-                                                      new_level);
+    local_state->_repartitioner.init_with_key_columns(
+            key_column_indices, key_data_types, local_state->operator_profile(), fanout, new_level);
     ASSERT_TRUE(local_state->_repartitioner
                         .setup_output(_helper.runtime_state.get(), output_spill_files)
                         .ok());

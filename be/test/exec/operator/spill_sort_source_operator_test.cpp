@@ -76,8 +76,8 @@ Status prepare_spill_sort_source_context(
     RETURN_IF_ERROR(sink_operator->init(tnode, helper.runtime_state.get()));
     RETURN_IF_ERROR(sink_operator->prepare(helper.runtime_state.get()));
 
-    LocalSinkStateInfo sink_info {0, helper.operator_profile.get(), -1, context.shared_state.get(),
-                                  {}, {}};
+    LocalSinkStateInfo sink_info {
+            0, helper.operator_profile.get(), -1, context.shared_state.get(), {}, {}};
     RETURN_IF_ERROR(sink_operator->setup_local_state(helper.runtime_state.get(), sink_info));
     context.sink_local_state = reinterpret_cast<SpillSortSinkLocalState*>(
             helper.runtime_state->get_sink_local_state());
@@ -107,11 +107,10 @@ SpillFileSPtr create_sort_test_spill_file(RuntimeState* state, RuntimeProfile* p
     EXPECT_EQ(first_column.size(), second_column.size());
 
     SpillFileSPtr spill_file;
-    auto relative_path =
-            fmt::format("{}/{}-{}-{}", print_id(state->query_id()), prefix, node_id,
-                        ExecEnv::GetInstance()->spill_file_mgr()->next_id());
-    auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file(relative_path,
-                                                                          spill_file);
+    auto relative_path = fmt::format("{}/{}-{}-{}", print_id(state->query_id()), prefix, node_id,
+                                     ExecEnv::GetInstance()->spill_file_mgr()->next_id());
+    auto st =
+            ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file(relative_path, spill_file);
     EXPECT_TRUE(st.ok()) << "create spill file failed: " << st.to_string();
     if (!st.ok()) {
         return nullptr;
@@ -673,8 +672,8 @@ TEST_F(SpillSortSourceOperatorTest, ExecuteMergeSortSpillFilesFastPath) {
     ASSERT_EQ(context.local_state->_current_merging_files.size(), 4);
     ASSERT_EQ(context.local_state->_current_merging_readers.size(), 4);
 
-    auto cleanup_files =
-            collect_spill_files_for_cleanup(original_files, context.local_state, context.shared_state.get());
+    auto cleanup_files = collect_spill_files_for_cleanup(original_files, context.local_state,
+                                                         context.shared_state.get());
 
     std::unique_ptr<MutableBlock> mutable_block;
     st = read_all_blocks_from_source(_helper.runtime_state.get(), source_operator.get(),
@@ -713,8 +712,8 @@ TEST_F(SpillSortSourceOperatorTest, ExecuteMergeSortSpillFilesIntermediateRound)
     for (int i = 0; i < 9; ++i) {
         auto spill_file = create_sort_test_spill_file(
                 _helper.runtime_state.get(), context.local_state->operator_profile(),
-                source_operator->node_id(), fmt::format("spill_sort_merge_intermediate_{}", i),
-                {i}, {100 + i});
+                source_operator->node_id(), fmt::format("spill_sort_merge_intermediate_{}", i), {i},
+                {100 + i});
         ASSERT_TRUE(spill_file != nullptr);
         original_files.emplace_back(spill_file);
         context.shared_state->sorted_spill_groups.emplace_back(spill_file);
@@ -727,8 +726,8 @@ TEST_F(SpillSortSourceOperatorTest, ExecuteMergeSortSpillFilesIntermediateRound)
     ASSERT_EQ(context.local_state->_current_merging_files.size(), 2);
     ASSERT_EQ(context.local_state->_current_merging_readers.size(), 2);
 
-    auto cleanup_files =
-            collect_spill_files_for_cleanup(original_files, context.local_state, context.shared_state.get());
+    auto cleanup_files = collect_spill_files_for_cleanup(original_files, context.local_state,
+                                                         context.shared_state.get());
     ASSERT_GT(cleanup_files.size(), original_files.size());
 
     std::unique_ptr<MutableBlock> mutable_block;
@@ -782,8 +781,8 @@ TEST_F(SpillSortSourceOperatorTest, ExecuteMergeSortSpillFilesRecoverSpillDataEr
     ASSERT_TRUE(context.local_state->_merger != nullptr);
     ASSERT_FALSE(context.local_state->_current_merging_readers.empty());
 
-    auto cleanup_files =
-            collect_spill_files_for_cleanup(original_files, context.local_state, context.shared_state.get());
+    auto cleanup_files = collect_spill_files_for_cleanup(original_files, context.local_state,
+                                                         context.shared_state.get());
 
     st = context.local_state->close(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
@@ -806,8 +805,8 @@ TEST_F(SpillSortSourceOperatorTest, ExecuteMergeSortSpillFilesSpillMergedDataErr
     for (int i = 0; i < 9; ++i) {
         auto spill_file = create_sort_test_spill_file(
                 _helper.runtime_state.get(), context.local_state->operator_profile(),
-                source_operator->node_id(), fmt::format("spill_sort_merge_spill_error_{}", i),
-                {i}, {i});
+                source_operator->node_id(), fmt::format("spill_sort_merge_spill_error_{}", i), {i},
+                {i});
         ASSERT_TRUE(spill_file != nullptr);
         original_files.emplace_back(spill_file);
         context.shared_state->sorted_spill_groups.emplace_back(spill_file);
@@ -818,13 +817,13 @@ TEST_F(SpillSortSourceOperatorTest, ExecuteMergeSortSpillFilesSpillMergedDataErr
         st = context.local_state->execute_merge_sort_spill_files(_helper.runtime_state.get());
     }
     ASSERT_FALSE(st.ok());
-    ASSERT_TRUE(st.to_string().find("recover_spill_data failed") != std::string::npos)
+    ASSERT_TRUE(st.to_string().find("spill_merged_data failed") != std::string::npos)
             << "unexpected error: " << st.to_string();
     ASSERT_TRUE(context.local_state->_merger != nullptr);
     ASSERT_FALSE(context.local_state->_current_merging_readers.empty());
 
-    auto cleanup_files =
-            collect_spill_files_for_cleanup(original_files, context.local_state, context.shared_state.get());
+    auto cleanup_files = collect_spill_files_for_cleanup(original_files, context.local_state,
+                                                         context.shared_state.get());
 
     st = context.local_state->close(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
