@@ -111,6 +111,10 @@ public class MySQLTypeHandler extends DefaultTypeHandler {
                 return createConverter(input -> {
                     if (input instanceof Integer) {
                         return ((Integer) input).byteValue();
+                    } else if (input instanceof Number) {
+                        return ((Number) input).byteValue();
+                    } else if (input instanceof String) {
+                        return Byte.parseByte((String) input);
                     }
                     return input;
                 }, Byte.class);
@@ -118,6 +122,10 @@ public class MySQLTypeHandler extends DefaultTypeHandler {
                 return createConverter(input -> {
                     if (input instanceof Integer) {
                         return ((Integer) input).shortValue();
+                    } else if (input instanceof Number) {
+                        return ((Number) input).shortValue();
+                    } else if (input instanceof String) {
+                        return Short.parseShort((String) input);
                     }
                     return input;
                 }, Short.class);
@@ -125,6 +133,8 @@ public class MySQLTypeHandler extends DefaultTypeHandler {
                 return createConverter(input -> {
                     if (input instanceof String) {
                         return new BigInteger((String) input);
+                    } else if (input instanceof Number) {
+                        return BigInteger.valueOf(((Number) input).longValue());
                     }
                     return input;
                 }, BigInteger.class);

@@ -98,6 +98,9 @@ public class JdbcJniScanner extends JniScanner {
     private List<Object[]> block = null;
     // Per-column replace strings for special type handling (bitmap, hll)
     private String[] replaceStringList;
+    // Mapping from field index (in types[]/fields[]) to JDBC ResultSet column index (1-based).
+    // The slot descriptor order may differ from the query SQL column order.
+    private int[] columnIndexMapping;
 
     // Statistics
     private long readRows = 0;
@@ -171,6 +174,30 @@ public class JdbcJniScanner extends JniScanner {
             resultSetMetaData = resultSet.getMetaData();
             resultSetOpened = true;
 
+            // Build column name -> JDBC ResultSet index mapping.
+            // The slot descriptors (fields[]) may be in a different order than the
+            // query SQL columns. We must map by name to avoid reading data with
+            // the wrong type handler.
+            columnIndexMapping = new int[fields.length];
+            int rsColumnCount = resultSetMetaData.getColumnCount();
+            Map<String, Integer> rsColumnMap = new HashMap<>(rsColumnCount);
+            for (int i = 1; i <= rsColumnCount; i++) {
+                String colName = resultSetMetaData.getColumnLabel(i).toLowerCase();
+                rsColumnMap.put(colName, i);
+            }
+            for (int i = 0; i < fields.length; i++) {
+                String fieldName = fields[i].toLowerCase();
+                Integer rsIdx = rsColumnMap.get(fieldName);
+                if (rsIdx != null) {
+                    columnIndexMapping[i] = rsIdx;
+                } else {
+                    // Fallback to positional mapping if name not found
+                    columnIndexMapping[i] = i + 1;
+                    LOG.warn("Column '" + fields[i] + "' not found in ResultSet by name, "
+                            + "falling back to positional index " + (i + 1));
+                }
+            }
+
             block = new ArrayList<>(types.length);
 
             // Initialize per-column output converters once
@@ -223,7 +250,7 @@ public class JdbcJniScanner extends JniScanner {
                     break;
                 }
                 for (int col = 0; col < types.length; col++) {
-                    int columnIndex = col + 1; // JDBC columns are 1-indexed
+                    int columnIndex = columnIndexMapping[col];
                     String replaceStr = (replaceStringList != null && col < replaceStringList.length)
                             ? replaceStringList[col] : "not_replace";
                     if ("bitmap".equals(replaceStr) || "hll".equals(replaceStr)) {
