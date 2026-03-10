@@ -59,7 +59,7 @@ public class SchemaChangeManager {
     public static void executeDdls(String feAddr, String db, String token, List<String> sqls)
             throws IOException {
         if (sqls == null || sqls.isEmpty()) {
-            LOG.warn("No DDL statements to execute");
+            LOG.info("No DDL statements to execute");
             return;
         }
         for (String stmt : sqls) {

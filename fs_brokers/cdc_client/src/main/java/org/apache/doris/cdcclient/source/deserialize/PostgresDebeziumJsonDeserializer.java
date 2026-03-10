@@ -120,6 +120,15 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
 
         // the last fresh schema
         TableChanges.TableChange fresh = pgSchemaRefresher.apply(tableId);
+        if (fresh == null || fresh.getTable() == null) {
+            // Cannot proceed: DDL must be executed before the triggering DML record is written,
+            // otherwise new column data in this record would be silently dropped.
+            // Throwing here causes the batch to be retried from the same offset.
+            throw new IOException(
+                    "Failed to fetch fresh schema for table "
+                            + tableId.identifier()
+                            + "; cannot apply schema change safely. Will retry.");
+        }
 
         // Second diff: use afterSchema as the source of truth for which columns the current WAL
         // record is aware of. Only process additions/drops visible in afterSchema — columns that

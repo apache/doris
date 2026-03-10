@@ -86,9 +86,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
 
     public PostgresSourceReader() {
         super();
-        this.setSerializer(
-                new org.apache.doris.cdcclient.source.deserialize
-                        .PostgresDebeziumJsonDeserializer());
+        this.setSerializer(new PostgresDebeziumJsonDeserializer());
     }
 
     @Override

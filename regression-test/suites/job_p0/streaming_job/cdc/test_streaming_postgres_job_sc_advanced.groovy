@@ -193,7 +193,7 @@ suite("test_streaming_postgres_job_sc_advanced",
 
         // Pre-double-ADD row C1 must have NULL for both new columns.
         assert (sql "SELECT c1 FROM ${table1} WHERE name='C1'")[0][0] == null : "C1.c1 must be NULL"
-        assert (sql "SELECT c1 FROM ${table1} WHERE name='C1'")[0][0] == null : "C1.c2 must be NULL"
+        assert (sql "SELECT c2 FROM ${table1} WHERE name='C1'")[0][0] == null : "C1.c2 must be NULL"
 
         // C1(30,null,null), D1(40,'hello',42)
         qt_double_add """ SELECT name, age, c1, c2 FROM ${table1} ORDER BY name """

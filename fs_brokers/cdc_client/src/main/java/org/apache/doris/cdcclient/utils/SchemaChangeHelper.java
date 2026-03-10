@@ -149,7 +149,7 @@ public class SchemaChangeHelper {
         } catch (NumberFormatException ignored) {
             // fall through
         }
-        return "'" + defaultValue + "'";
+        return "'" + defaultValue.replace("'", "''") + "'";
     }
 
     /** Escape single quotes inside a COMMENT string. */
@@ -157,7 +157,7 @@ public class SchemaChangeHelper {
         if (comment == null) {
             return "";
         }
-        return comment.replaceAll("'", "\\\\'");
+        return comment.replace("'", "''");
     }
 
     // ─── DDL builders ─────────────────────────────────────────────────────────
@@ -234,6 +234,9 @@ public class SchemaChangeHelper {
                 }
             case "bpchar":
                 {
+                    if (length <= 0) {
+                        return DorisType.STRING;
+                    }
                     int len = length * 3;
                     if (len > 255) {
                         return String.format("%s(%s)", DorisType.VARCHAR, len);

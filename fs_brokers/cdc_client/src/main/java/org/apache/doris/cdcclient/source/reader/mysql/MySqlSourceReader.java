@@ -775,7 +775,9 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         configFactory.serverTimeZone(
                 ConfigUtil.getTimeZoneFromProps(cu.getOriginalProperties()).toString());
 
-        configFactory.includeSchemaChanges(true);
+        // Schema change handling for MySQL is not yet implemented; keep disabled to avoid
+        // unnecessary processing overhead until DDL support is added.
+        configFactory.includeSchemaChanges(false);
 
         String includingTables = cdcConfig.get(DataSourceConfigKeys.INCLUDE_TABLES);
         String[] includingTbls =
