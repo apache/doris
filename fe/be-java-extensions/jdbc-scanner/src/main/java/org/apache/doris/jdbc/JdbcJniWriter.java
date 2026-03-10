@@ -387,6 +387,8 @@ public class JdbcJniWriter extends JniWriter {
     }
 
     private String createCacheKey() {
-        return catalogId + "#" + jdbcUrl + "#" + jdbcUser + "#" + jdbcDriverClass;
+        return JdbcDataSource.createCacheKey(catalogId, jdbcUrl, jdbcUser, jdbcPassword,
+                jdbcDriverUrl, jdbcDriverClass, connectionPoolMinSize, connectionPoolMaxSize,
+                connectionPoolMaxLifeTime, connectionPoolMaxWaitTime, connectionPoolKeepAlive);
     }
 }
