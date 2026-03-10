@@ -654,8 +654,11 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                     if (clientPool.size() > poolSize) {
                         Pair<String, Long> pair = priorityQueue.poll();
                         List<ThriftHMSClient> clients = (List<ThriftHMSClient>) clientPool.get(pair.first);
-                        ThriftHMSClient removeClient = clients.remove(clients.size() - 1);
-                        removeClient.setReadyToClose();
+                        try (ThriftHMSClient removeClient = clients.remove(clients.size() - 1)) {
+                            removeClient.setReadyToClose();
+                        } catch (Exception e) {
+                            LOG.warn("failed to remove HMS client: ", e);
+                        }
                     }
                 }
             }
