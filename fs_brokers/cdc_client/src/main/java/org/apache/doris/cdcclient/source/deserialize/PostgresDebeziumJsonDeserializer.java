@@ -41,6 +41,7 @@ import static io.debezium.connector.AbstractSourceInfo.TABLE_NAME_KEY;
 
 import io.debezium.data.Envelope;
 import io.debezium.relational.Column;
+import io.debezium.relational.TableEditor;
 import io.debezium.relational.TableId;
 import io.debezium.relational.history.TableChanges;
 import org.slf4j.Logger;
@@ -120,18 +121,29 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
         // the last fresh schema
         TableChanges.TableChange fresh = pgSchemaRefresher.apply(tableId);
 
-        // Second diff: compare PG Column objects (fresh vs stored) for accurate added/dropped lists
+        // Second diff: use afterSchema as the source of truth for which columns the current WAL
+        // record is aware of. Only process additions/drops visible in afterSchema — columns that
+        // exist in fresh (JDBC) but are absent from afterSchema belong to a later DDL that has not
+        // yet produced a DML record, and will be processed when that DML record arrives.
+        //
+        // pgAdded: present in afterSchema but absent from stored → look up Column in fresh for
+        //          accurate PG type metadata. If fresh doesn't have the column yet (shouldn't
+        //          happen normally), skip it.
+        // pgDropped: present in stored but absent from afterSchema.
         List<Column> pgAdded = new ArrayList<>();
         List<String> pgDropped = new ArrayList<>();
 
-        for (Column col : fresh.getTable().columns()) {
-            if (stored.getTable().columnWithName(col.name()) == null) {
-                pgAdded.add(col);
+        for (Field field : afterSchema.fields()) {
+            if (stored.getTable().columnWithName(field.name()) == null) {
+                Column freshCol = fresh.getTable().columnWithName(field.name());
+                if (freshCol != null) {
+                    pgAdded.add(freshCol);
+                }
             }
         }
 
         for (Column col : stored.getTable().columns()) {
-            if (fresh.getTable().columnWithName(col.name()) == null) {
+            if (afterSchema.field(col.name()) == null) {
                 pgDropped.add(col.name());
             }
         }
@@ -146,8 +158,19 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
             return super.deserialize(context, record);
         }
 
+        // Build updatedSchemas from fresh filtered to afterSchema columns only, so that the stored
+        // cache does not jump ahead to include columns not yet seen by any DML record. Those
+        // unseen columns will trigger their own schema change when their first DML record arrives.
+        TableEditor editor = fresh.getTable().edit();
+        for (Column col : fresh.getTable().columns()) {
+            if (afterSchema.field(col.name()) == null) {
+                editor.removeColumn(col.name());
+            }
+        }
+        TableChanges.TableChange filteredChange =
+                new TableChanges.TableChange(TableChanges.TableChangeType.ALTER, editor.create());
         Map<TableId, TableChanges.TableChange> updatedSchemas = new HashMap<>();
-        updatedSchemas.put(tableId, fresh);
+        updatedSchemas.put(tableId, filteredChange);
 
         // Rename guard: simultaneous ADD+DROP may be a column RENAME — skip DDL to avoid data loss.
         // Users must manually RENAME the column in Doris.
@@ -179,14 +202,18 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
         for (Column col : pgAdded) {
             String colType = SchemaChangeHelper.columnToDorisType(col);
             String nullable = col.isOptional() ? "" : " NOT NULL";
-            // PG WAL DML records do not carry column comment metadata
+            // pgAdded only contains columns present in afterSchema, so field lookup is safe.
+            // afterSchema.defaultValue() returns an already-deserialized Java object
+            // (e.g. String "hello", Integer 42) — no PG SQL cast suffix to strip.
+            // PG WAL DML records do not carry column comment metadata.
+            Object defaultObj = afterSchema.field(col.name()).schema().defaultValue();
             ddls.add(
                     SchemaChangeHelper.buildAddColumnSql(
                             db,
                             tableId.table(),
                             col.name(),
                             colType + nullable,
-                            col.defaultValueExpression().orElse(null),
+                            defaultObj != null ? String.valueOf(defaultObj) : null,
                             null));
         }
 

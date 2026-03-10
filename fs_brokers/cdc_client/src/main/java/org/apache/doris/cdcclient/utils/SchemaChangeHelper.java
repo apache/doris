@@ -17,7 +17,6 @@
 
 package org.apache.doris.cdcclient.utils;
 
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cdcclient.common.DorisType;
 
 import org.apache.flink.util.Preconditions;
@@ -120,16 +119,35 @@ public class SchemaChangeHelper {
     }
 
     /**
-     * Quote a DEFAULT value. {@code current_timestamp} and {@code null} are returned as-is;
-     * everything else is wrapped in single quotes.
+     * Format a default value (already a plain Java string, not a raw SQL expression) into a form
+     * suitable for a Doris {@code DEFAULT} clause.
+     *
+     * <p>The caller is expected to pass a <em>deserialized</em> value — e.g. obtained from the
+     * Kafka Connect schema via {@code field.schema().defaultValue().toString()} — rather than a raw
+     * PG SQL expression. This avoids having to strip PG-specific type casts ({@code ::text}, etc.).
+     *
+     * <ul>
+     *   <li>SQL keywords ({@code NULL}, {@code CURRENT_TIMESTAMP}, {@code TRUE}, {@code FALSE}) are
+     *       returned as-is.
+     *   <li>Numeric literals are returned as-is (no quotes).
+     *   <li>Everything else is wrapped in single quotes.
+     * </ul>
      */
     public static String quoteDefaultValue(String defaultValue) {
         if (defaultValue == null) {
             return null;
         }
         if (defaultValue.equalsIgnoreCase("current_timestamp")
-                || defaultValue.equalsIgnoreCase("null")) {
+                || defaultValue.equalsIgnoreCase("null")
+                || defaultValue.equalsIgnoreCase("true")
+                || defaultValue.equalsIgnoreCase("false")) {
             return defaultValue;
+        }
+        try {
+            Double.parseDouble(defaultValue);
+            return defaultValue;
+        } catch (NumberFormatException ignored) {
+            // fall through
         }
         return "'" + defaultValue + "'";
     }
@@ -217,7 +235,7 @@ public class SchemaChangeHelper {
             case "bpchar":
                 {
                     int len = length * 3;
-                    if (len > ScalarType.MAX_CHAR_LENGTH) {
+                    if (len > 255) {
                         return String.format("%s(%s)", DorisType.VARCHAR, len);
                     } else {
                         return String.format("%s(%s)", DorisType.CHAR, len);
