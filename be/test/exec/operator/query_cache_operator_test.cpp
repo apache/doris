@@ -62,6 +62,13 @@ struct QueryCacheOperatorTest : public ::testing::Test {
         scan_range.scan_range.__set_palo_scan_range(palp_scan_range);
         scan_ranges.push_back(scan_range);
     }
+    void TearDown() override {
+        // Must clear state before query_cache_uptr is destroyed, because
+        // local states inside `state` hold QueryCacheHandle which references
+        // the QueryCache. C++ destroys members in reverse declaration order,
+        // so state (declared before query_cache_uptr) would outlive the cache.
+        state.reset();
+    }
     void create_local_state() {
         shared_state = sink->create_shared_state();
         {
@@ -261,8 +268,6 @@ TEST_F(QueryCacheOperatorTest, test_hit_cache) {
         EXPECT_TRUE(eos);
         EXPECT_TRUE(block.empty());
     }
-
-    query_cache_uptr.release();
 }
 
 } // namespace doris
