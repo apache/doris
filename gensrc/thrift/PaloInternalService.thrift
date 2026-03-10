@@ -343,6 +343,8 @@ struct TQueryOptions {
 
   // upgrade options. keep them same in every branch.
   200: optional bool new_is_ip_address_in_range = false;
+  // Use paimon-cpp to read Paimon splits on BE
+  201: optional bool enable_paimon_cpp_reader = false;
 
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false

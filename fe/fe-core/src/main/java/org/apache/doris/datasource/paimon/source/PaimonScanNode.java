@@ -46,6 +46,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.data.BinaryRow;
+import org.apache.paimon.io.DataOutputViewStreamWrapper;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
@@ -53,6 +54,7 @@ import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.utils.InstantiationUtil;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -147,6 +149,20 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
     }
 
+    /**
+     * Serialize DataSplit using Paimon's native binary format for paimon-cpp reader.
+     */
+    public static String encodeDataSplitToString(DataSplit split) {
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            DataOutputViewStreamWrapper out = new DataOutputViewStreamWrapper(baos);
+            split.serialize(out);
+            return Base64.getEncoder().encodeToString(baos.toByteArray());
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to serialize DataSplit using Paimon native format", e);
+        }
+    }
+
     @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
         if (split instanceof PaimonSplit) {
@@ -167,9 +183,17 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         String fileFormat = getFileFormat(paimonSplit.getPathString());
         if (split != null) {
-            // use jni reader
+            // use jni reader or paimon-cpp reader
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
-            fileDesc.setPaimonSplit(encodeObjectToString(split));
+            if (sessionVariable.isEnablePaimonCppReader() && split instanceof DataSplit) {
+                fileDesc.setPaimonSplit(encodeDataSplitToString((DataSplit) split));
+            } else {
+                fileDesc.setPaimonSplit(encodeObjectToString(split));
+            }
+            String tableLocation = source.getTableLocation();
+            if (tableLocation != null) {
+                fileDesc.setPaimonTable(tableLocation);
+            }
         } else {
             // use native reader
             if (fileFormat.equals("orc")) {

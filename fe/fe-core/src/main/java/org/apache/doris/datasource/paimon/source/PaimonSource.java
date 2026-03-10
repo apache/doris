@@ -27,6 +27,7 @@ import org.apache.doris.datasource.property.constants.PaimonProperties;
 import org.apache.doris.thrift.TFileAttributes;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 
 
@@ -70,5 +71,13 @@ public class PaimonSource {
 
     public String getFileFormatFromTableProperties() {
         return originTable.options().getOrDefault(PaimonProperties.FILE_FORMAT, "parquet");
+    }
+
+    public String getTableLocation() {
+        if (originTable instanceof FileStoreTable) {
+            return ((FileStoreTable) originTable).location().toString();
+        }
+        // Fallback to path option
+        return originTable.options().get("path");
     }
 }

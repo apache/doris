@@ -135,6 +135,22 @@ option(WITH_MYSQL "Support access MySQL" ON)
 option(BUILD_FS_BENCHMARK "ON for building fs benchmark tool or OFF for not" OFF)
 message(STATUS "build fs benchmark tool: ${BUILD_FS_BENCHMARK}")
 
+option(BUILD_TASK_EXECUTOR_SIMULATOR "ON for building task executor simulator or OFF for not" OFF)
+message(STATUS "build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}")
+
+option(BUILD_FILE_CACHE_LRU_TOOL "ON for building file cache lru tool or OFF for not" OFF)
+message(STATUS "build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}")
+
+option(ENABLE_PAIMON_CPP "Enable Paimon C++ integration" ON)
+set(PAIMON_HOME "" CACHE PATH "Paimon install prefix")
+
+# Allow env to override when reconfiguring (avoid picking /usr/local).
+if (DEFINED ENV{ENABLE_PAIMON_CPP})
+    set(ENABLE_PAIMON_CPP "$ENV{ENABLE_PAIMON_CPP}" CACHE BOOL "" FORCE)
+endif()
+if (DEFINED ENV{PAIMON_HOME} AND NOT PAIMON_HOME)
+    set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "" FORCE)
+endif()
 set(CMAKE_SKIP_RPATH TRUE)
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_STATIC_RUNTIME ON)
@@ -495,6 +511,10 @@ set(COMMON_THIRDPARTY
     ${COMMON_THIRDPARTY}
 )
 
+if (ENABLE_PAIMON_CPP)
+    message(STATUS "Paimon C++ enabled: legacy thirdparty static linkage mode")
+endif()
+
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
     add_library(hadoop_hdfs STATIC IMPORTED)
     set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs/native/libhdfs.a)
@@ -548,6 +568,14 @@ if (MAKE_TEST)
     )
 endif()
 
+set(PAIMON_FACTORY_REGISTRY_LIBS)
+if (ENABLE_PAIMON_CPP)
+    # Doris Arrow is built with COMPUTE/DATASET/ACERO/FILESYSTEM enabled for
+    # this branch, so paimon-cpp should reuse Doris's single Arrow stack.
+    set(PAIMON_FACTORY_REGISTRY_LIBS paimon_parquet_file_format)
+    list(REMOVE_ITEM COMMON_THIRDPARTY ${PAIMON_FACTORY_REGISTRY_LIBS})
+endif()
+
 set(DORIS_DEPENDENCIES
     ${DORIS_DEPENDENCIES}
     ${WL_START_GROUP}
@@ -568,6 +596,22 @@ set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ic)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-core-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-shared-static)
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-contribs-lib)
+
+if (ENABLE_PAIMON_CPP)
+    if (PAIMON_FACTORY_REGISTRY_LIBS)
+        set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
+            -Wl,--whole-archive
+            ${PAIMON_FACTORY_REGISTRY_LIBS}
+            -Wl,--no-whole-archive)
+    endif()
+
+    # paimon-cpp internal dependencies (renamed with _paimon suffix)
+    # These must come after paimon libraries to resolve symbols.
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} roaring_bitmap_paimon)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} xxhash_paimon)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} fmt_paimon)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} tbb_paimon)
+endif()
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 

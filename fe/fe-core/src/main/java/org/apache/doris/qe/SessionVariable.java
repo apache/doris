@@ -612,6 +612,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
+    public static final String ENABLE_PAIMON_CPP_READER = "enable_paimon_cpp_reader";
+
     public static final String HUDI_JNI_SCANNER = "hudi_jni_scanner";
 
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
@@ -956,13 +958,14 @@ public class SessionVariable implements Serializable, Writable {
     public enum IgnoreSplitType {
         NONE,
         IGNORE_JNI,
-        IGNORE_NATIVE
+        IGNORE_NATIVE,
+        IGNORE_PAIMON_CPP
     }
 
     public static final String IGNORE_SPLIT_TYPE = "ignore_split_type";
     @VariableMgr.VarAttr(name = IGNORE_SPLIT_TYPE,
             checker = "checkIgnoreSplitType",
-            options = {"NONE", "IGNORE_JNI", "IGNORE_NATIVE"},
+            options = {"NONE", "IGNORE_JNI", "IGNORE_NATIVE", "IGNORE_PAIMON_CPP"},
             description = {"忽略指定类型的split", "Ignore splits of the specified type"})
     public String ignoreSplitType = IgnoreSplitType.NONE.toString();
 
@@ -2016,6 +2019,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
             description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
     private boolean forceJniScanner = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_PAIMON_CPP_READER,
+            fuzzy = true,
+            description = {"Paimon 非原生文件读取使用 paimon-cpp", "Use paimon-cpp for non-native Paimon reads"})
+    private boolean enablePaimonCppReader = false;
 
     @VariableMgr.VarAttr(name = HUDI_JNI_SCANNER, description = { "使用那种hudi jni scanner, 'hadoop' 或 'spark'",
             "Which hudi jni scanner to use, 'hadoop' or 'spark'" })
@@ -3870,6 +3878,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setOrcTinyStripeThresholdBytes(orcTinyStripeThresholdBytes);
         tResult.setOrcMaxMergeDistanceBytes(orcMaxMergeDistanceBytes);
         tResult.setOrcOnceMaxReadBytes(orcOnceMaxReadBytes);
+        tResult.setEnablePaimonCppReader(enablePaimonCppReader);
 
         tResult.setNewIsIpAddressInRange(newIsIpAddressInRange);
 
@@ -4473,6 +4482,10 @@ public class SessionVariable implements Serializable, Writable {
         return hudiJniScanner;
     }
 
+    public boolean isEnablePaimonCppReader() {
+        return enablePaimonCppReader;
+    }
+
     public String getIgnoreSplitType() {
         return ignoreSplitType;
     }
@@ -4481,7 +4494,8 @@ public class SessionVariable implements Serializable, Writable {
         try {
             IgnoreSplitType.valueOf(value);
         } catch (Exception e) {
-            throw new UnsupportedOperationException("We only support `NONE`, `IGNORE_JNI` and `IGNORE_NATIVE`");
+            throw new UnsupportedOperationException(
+                    "We only support `NONE`, `IGNORE_JNI`, `IGNORE_NATIVE` and `IGNORE_PAIMON_CPP`");
         }
     }
 
@@ -4495,6 +4509,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setHudiJniScanner(String hudiJniScanner) {
         this.hudiJniScanner = hudiJniScanner;
+    }
+
+    public void setEnablePaimonCppReader(boolean enable) {
+        enablePaimonCppReader = enable;
     }
 
     public boolean isEnableCountPushDownForExternalTable() {
