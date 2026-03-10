@@ -111,6 +111,7 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
 --conf spark.sql.catalog.${sparkSeedCatalogName}.warehouse=s3://${warehouseBucket}/paimon_jdbc_catalog/ \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.metastore=jdbc \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.uri=jdbc:postgresql://${externalEnvIp}:${jdbcPort}/postgres \
+--conf spark.sql.catalog.${sparkSeedCatalogName}.catalog-key=${catalogName} \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.jdbc.user=postgres \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.jdbc.password=123456 \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.lock.enabled=false \
