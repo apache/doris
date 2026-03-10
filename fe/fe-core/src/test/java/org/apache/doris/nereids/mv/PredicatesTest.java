@@ -20,6 +20,7 @@ package org.apache.doris.nereids.mv;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.ComparisonResult;
 import org.apache.doris.nereids.rules.exploration.mv.HyperGraphComparator;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.ExpressionInfo;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
@@ -33,7 +34,11 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.BitSet;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /** Test the method in Predicates*/
 public class PredicatesTest extends SqlTestBase {
@@ -177,8 +182,68 @@ public class PredicatesTest extends SqlTestBase {
 
         Map<Expression, ExpressionInfo> compensateRangePredicates = Predicates.compensateRangePredicate(
                 queryStructInfo, mvStructInfo, mvToQuerySlotMapping, comparisonResult,
-                queryContext);
+                queryContext, new HashSet<>());
         Assertions.assertNotNull(compensateRangePredicates);
         Assertions.assertEquals(1, compensateRangePredicates.size());
+        String rangeSql = compensateRangePredicates.keySet().iterator().next().toSql();
+        Assertions.assertEquals("(score > 15)", rangeSql);
+    }
+
+    @Test
+    public void testResidualCompensateWithUncoveredRangeAsExtraResidual() {
+        CascadesContext mvContext = createCascadesContext(
+                "select id, score from T1 where id = 5 or id = 2 or id > 10",
+                connectContext);
+        Plan mvPlan = PlanChecker.from(mvContext).analyze().rewrite().getPlan().child(0);
+
+        CascadesContext queryContext = createCascadesContext(
+                "select id, score from T1 where (id = 5 or id = 2) and score = 1",
+                connectContext);
+        Plan queryPlan = PlanChecker.from(queryContext).analyze().rewrite().getAllPlan().get(0).child(0);
+
+        StructInfo mvStructInfo = MaterializedViewUtils.extractStructInfoFuzzy(mvPlan, mvPlan,
+                mvContext, new BitSet()).get(0);
+        StructInfo queryStructInfo = MaterializedViewUtils.extractStructInfoFuzzy(queryPlan, queryPlan,
+                queryContext, new BitSet()).get(0);
+        RelationMapping relationMapping = RelationMapping.generate(mvStructInfo.getRelations(),
+                queryStructInfo.getRelations(), 16).get(0);
+        SlotMapping mvToQuerySlotMapping = SlotMapping.generate(relationMapping);
+        ComparisonResult comparisonResult = HyperGraphComparator.isLogicCompatible(
+                queryStructInfo.getHyperGraph(),
+                mvStructInfo.getHyperGraph(),
+                constructContext(queryPlan, mvPlan, queryContext));
+
+        Set<Expression> uncoveredRanges = new HashSet<>();
+        Map<Expression, ExpressionInfo> compensateRangePredicates = Predicates.compensateRangePredicate(
+                queryStructInfo, mvStructInfo, mvToQuerySlotMapping, comparisonResult,
+                queryContext, uncoveredRanges);
+        Assertions.assertNotNull(compensateRangePredicates);
+        Assertions.assertFalse(compensateRangePredicates.isEmpty());
+        Assertions.assertFalse(uncoveredRanges.isEmpty());
+
+        Set<String> rangeCompensationSqls = compensateRangePredicates.keySet().stream()
+                .map(Expression::toSql)
+                .collect(Collectors.toSet());
+        Assertions.assertTrue(rangeCompensationSqls.stream()
+                .anyMatch(sql -> sql.contains("score") && sql.contains("1")));
+        Set<String> uncoveredRangeSqls = uncoveredRanges.stream()
+                .map(Expression::toSql)
+                .collect(Collectors.toSet());
+        Assertions.assertEquals(rangeCompensationSqls, uncoveredRangeSqls);
+        Assertions.assertTrue(compensateRangePredicates.values().stream().anyMatch(info -> info.literal != null));
+
+        Map<Expression, ExpressionInfo> residualComp = Predicates.compensateResidualPredicate(
+                queryStructInfo, mvStructInfo, mvToQuerySlotMapping, comparisonResult, uncoveredRanges);
+        Assertions.assertNotNull(residualComp);
+
+        Set<String> compensationSqls = residualComp.keySet().stream()
+                .map(Expression::toSql)
+                .collect(Collectors.toSet());
+        Set<String> expectedCompensationSqls = queryStructInfo.getSplitPredicate().getResidualPredicateMap().keySet()
+                .stream()
+                .map(Expression::toSql)
+                .collect(Collectors.toSet());
+        expectedCompensationSqls.addAll(uncoveredRangeSqls);
+        Assertions.assertEquals(expectedCompensationSqls, compensationSqls);
     }
 }
