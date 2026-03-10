@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.paimon.source;
 
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
@@ -25,7 +26,6 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.thrift.TExprOpcode;
 
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.predicate.Predicate;
@@ -124,7 +124,6 @@ public class PaimonPredicateConverter {
     }
 
     private Predicate binaryExprDesc(Expr dorisExpr) {
-        TExprOpcode opcode = dorisExpr.getOpcode();
         // Make sure the col slot is always first
         SlotRef slotRef = convertDorisExprToSlotRef(dorisExpr.getChild(0));
         LiteralExpr literalExpr = convertDorisExprToLiteralExpr(dorisExpr.getChild(1));
@@ -138,40 +137,40 @@ public class PaimonPredicateConverter {
         if (value == null) {
             return null;
         }
-        switch (opcode) {
-            case EQ:
-                return builder.equal(idx, value);
-            case EQ_FOR_NULL:
+        if (dorisExpr instanceof BinaryPredicate) {
+            BinaryPredicate.Operator op = ((BinaryPredicate) dorisExpr).getOp();
+            switch (op) {
+                case EQ:
+                    return builder.equal(idx, value);
+                case EQ_FOR_NULL:
+                    return builder.isNull(idx);
+                case NE:
+                    return builder.notEqual(idx, value);
+                case GE:
+                    return builder.greaterOrEqual(idx, value);
+                case GT:
+                    return builder.greaterThan(idx, value);
+                case LE:
+                    return builder.lessOrEqual(idx, value);
+                case LT:
+                    return builder.lessThan(idx, value);
+                default:
+                    return null;
+            }
+        } else if (dorisExpr instanceof FunctionCallExpr) {
+            String name = dorisExpr.getExprName().toLowerCase();
+            String s = value.toString();
+            if (name.equals("like") && !s.startsWith("%") && s.endsWith("%")) {
+                return builder.startsWith(idx, BinaryString.fromString(s.substring(0, s.length() - 1)));
+            }
+        } else if (dorisExpr instanceof IsNullPredicate) {
+            if (((IsNullPredicate) dorisExpr).isNotNull()) {
+                return builder.isNotNull(idx);
+            } else {
                 return builder.isNull(idx);
-            case NE:
-                return builder.notEqual(idx, value);
-            case GE:
-                return builder.greaterOrEqual(idx, value);
-            case GT:
-                return builder.greaterThan(idx, value);
-            case LE:
-                return builder.lessOrEqual(idx, value);
-            case LT:
-                return builder.lessThan(idx, value);
-            case INVALID_OPCODE:
-                if (dorisExpr instanceof FunctionCallExpr) {
-                    String name = dorisExpr.getExprName().toLowerCase();
-                    String s = value.toString();
-                    if (name.equals("like") && !s.startsWith("%") && s.endsWith("%")) {
-                        return builder.startsWith(idx, BinaryString.fromString(s.substring(0, s.length() - 1)));
-                    }
-                } else if (dorisExpr instanceof IsNullPredicate) {
-                    if (((IsNullPredicate) dorisExpr).isNotNull()) {
-                        return builder.isNotNull(idx);
-                    } else {
-                        return builder.isNull(idx);
-                    }
-                }
-                return null;
-            default:
-                return null;
+            }
         }
-
+        return null;
     }
 
 
