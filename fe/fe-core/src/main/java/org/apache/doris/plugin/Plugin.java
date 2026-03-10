@@ -41,6 +41,7 @@ public abstract class Plugin implements Closeable {
 
     }
 
+
     /**
      * invoke when the plugin uninstall
      */
