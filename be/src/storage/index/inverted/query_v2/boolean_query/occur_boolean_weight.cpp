@@ -19,8 +19,8 @@
 
 #include "storage/index/inverted/query_v2/all_query/all_query.h"
 #include "storage/index/inverted/query_v2/disjunction_scorer.h"
-#include "storage/index/inverted/query_v2/exclude_scorer.h"
 #include "storage/index/inverted/query_v2/intersection.h"
+#include "storage/index/inverted/query_v2/intersection_scorer.h"
 #include "storage/index/inverted/query_v2/reqopt_scorer.h"
 #include "storage/index/inverted/query_v2/union/buffered_union.h"
 
@@ -28,12 +28,16 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 
 template <typename ScoreCombinerPtrT>
 OccurBooleanWeight<ScoreCombinerPtrT>::OccurBooleanWeight(
-        std::vector<std::pair<Occur, WeightPtr>> sub_weights, size_t minimum_number_should_match,
-        bool enable_scoring, ScoreCombinerPtrT score_combiner)
+        std::vector<std::pair<Occur, WeightPtr>> sub_weights, std::vector<std::string> binding_keys,
+        size_t minimum_number_should_match, bool enable_scoring, ScoreCombinerPtrT score_combiner)
         : _sub_weights(std::move(sub_weights)),
+          _binding_keys(std::move(binding_keys)),
           _minimum_number_should_match(minimum_number_should_match),
           _enable_scoring(enable_scoring),
-          _score_combiner(std::move(score_combiner)) {}
+          _score_combiner(std::move(score_combiner)) {
+    // Ensure binding_keys has the same size as sub_weights
+    _binding_keys.resize(_sub_weights.size());
+}
 
 template <typename ScoreCombinerPtrT>
 ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::scorer(const QueryExecutionContext& context) {
@@ -62,8 +66,10 @@ template <typename ScoreCombinerPtrT>
 std::unordered_map<Occur, std::vector<ScorerPtr>>
 OccurBooleanWeight<ScoreCombinerPtrT>::per_occur_scorers(const QueryExecutionContext& context) {
     std::unordered_map<Occur, std::vector<ScorerPtr>> result;
-    for (const auto& [occur, weight] : _sub_weights) {
-        auto sub_scorer = weight->scorer(context);
+    for (size_t i = 0; i < _sub_weights.size(); ++i) {
+        const auto& [occur, weight] = _sub_weights[i];
+        const auto& binding_key = _binding_keys[i];
+        auto sub_scorer = weight->scorer(context, binding_key);
         if (sub_scorer) {
             result[occur].push_back(std::move(sub_scorer));
         }
@@ -120,17 +126,6 @@ std::optional<CombinationMethod> OccurBooleanWeight<ScoreCombinerPtrT>::build_sh
     } else {
         return Required {scorer_disjunction(std::move(should_scorers), combiner, adjusted_minimum)};
     }
-}
-
-template <typename ScoreCombinerPtrT>
-ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::build_exclude_opt(
-        std::vector<ScorerPtr> must_not_scorers) {
-    if (must_not_scorers.empty()) {
-        return nullptr;
-    }
-    auto do_nothing = std::make_shared<DoNothingCombiner>();
-    auto specialized_scorer = scorer_union(std::move(must_not_scorers), do_nothing);
-    return into_box_scorer(std::move(specialized_scorer), do_nothing);
 }
 
 template <typename ScoreCombinerPtrT>
@@ -242,13 +237,17 @@ SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::complex_scorer(
         return std::make_shared<EmptyScorer>();
     }
 
-    ScorerPtr exclude_opt = build_exclude_opt(std::move(must_not_scorers));
     SpecializedScorer positive_opt =
             build_positive_opt(*should_opt, std::move(must_scorers), combiner, must_special_counts,
                                should_special_counts);
-    if (exclude_opt) {
+    // Use null-bitmap-aware AndNotScorer instead of ExcludeScorer for MUST_NOT clauses.
+    // AndNotScorer correctly implements SQL three-valued logic: NOT(NULL) = NULL,
+    // so documents where the excluded field is NULL are placed in the null bitmap
+    // rather than being incorrectly included in the true result set.
+    if (!must_not_scorers.empty()) {
         ScorerPtr positive_boxed = into_box_scorer(std::move(positive_opt), combiner);
-        return make_exclude(std::move(positive_boxed), std::move(exclude_opt));
+        return std::make_shared<AndNotScorer>(std::move(positive_boxed),
+                                              std::move(must_not_scorers), context.null_resolver);
     }
     return positive_opt;
 }
