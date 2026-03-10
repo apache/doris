@@ -102,6 +102,7 @@ import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.base.Joiner;
@@ -596,7 +597,13 @@ public class BindExpression implements AnalysisRuleFactory {
         LogicalJoin<Plan, Plan> join = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
 
-        checkConflictAlias(join);
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null) {
+            String dialect = connectContext.getSessionVariable().getSqlDialect();
+            if (!dialect.equals("presto")) {
+                checkConflictAlias(join);
+            }
+        }
 
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(join, cascadesContext, join.children());
 
