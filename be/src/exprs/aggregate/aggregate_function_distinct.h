@@ -37,18 +37,16 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
 template <PrimitiveType>
 class ColumnVector;
-} // namespace vectorized
 } // namespace doris
 template <typename, typename>
 struct DefaultHash;
 
-namespace doris::vectorized {
+namespace doris {
 
 template <PrimitiveType T, bool stable>
 struct AggregateFunctionDistinctSingleNumericData {
@@ -371,6 +369,6 @@ struct FunctionStableTransfer<AggregateFunctionDistinct<Data, false>> {
     using FunctionStable = AggregateFunctionDistinct<Data, true>;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

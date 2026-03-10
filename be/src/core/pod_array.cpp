@@ -20,8 +20,8 @@
 
 #include "core/pod_array.h"
 
-namespace doris::vectorized {
+namespace doris {
 /// Used for left padding of PODArray when empty
 const char empty_pod_array[EmptyPODArraySize] {};
 
-} // namespace doris::vectorized
+} // namespace doris

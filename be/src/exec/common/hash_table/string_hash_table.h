@@ -27,10 +27,10 @@
 #include "exec/common/hash_table/hash.h"
 #include "exec/common/hash_table/hash_table.h"
 
-using StringKey2 = doris::vectorized::UInt16;
-using StringKey4 = doris::vectorized::UInt32;
-using StringKey8 = doris::vectorized::UInt64;
-using StringKey16 = doris::vectorized::UInt128;
+using StringKey2 = doris::UInt16;
+using StringKey4 = doris::UInt32;
+using StringKey8 = doris::UInt64;
+using StringKey16 = doris::UInt128;
 
 struct StringHashMapSubKeys {
     using T1 = StringKey2;

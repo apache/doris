@@ -74,9 +74,9 @@ public:
                 const TQueryOptions& query_options, const TabletSchema& schema,
                 size_t block_size = 1);
 
-    std::unique_ptr<vectorized::Block> get_block();
+    std::unique_ptr<Block> get_block();
 
-    const vectorized::DataTypeSerDeSPtrs& get_data_type_serdes() const { return _data_type_serdes; }
+    const DataTypeSerDeSPtrs& get_data_type_serdes() const { return _data_type_serdes; }
 
     const std::unordered_map<uint32_t, uint32_t>& get_col_uid_to_idx() const {
         return _col_uid_to_idx;
@@ -85,11 +85,11 @@ public:
     const std::vector<std::string>& get_col_default_values() const { return _col_default_values; }
 
     // do not touch block after returned
-    void return_block(std::unique_ptr<vectorized::Block>& block);
+    void return_block(std::unique_ptr<Block>& block);
 
     TupleDescriptor* tuple_desc() { return _desc_tbl->get_tuple_descriptor(0); }
 
-    const vectorized::VExprContextSPtrs& output_exprs() { return _output_exprs_ctxs; }
+    const VExprContextSPtrs& output_exprs() { return _output_exprs_ctxs; }
 
     int32_t rs_column_uid() const { return _row_store_column_ids; }
 
@@ -108,10 +108,10 @@ private:
     DescriptorTbl* _desc_tbl = nullptr;
     std::mutex _block_mutex;
     // prevent from allocte too many tmp blocks
-    std::vector<std::unique_ptr<vectorized::Block>> _block_pool;
-    vectorized::VExprContextSPtrs _output_exprs_ctxs;
+    std::vector<std::unique_ptr<Block>> _block_pool;
+    VExprContextSPtrs _output_exprs_ctxs;
     int64_t _create_timestamp = 0;
-    vectorized::DataTypeSerDeSPtrs _data_type_serdes;
+    DataTypeSerDeSPtrs _data_type_serdes;
     std::unordered_map<uint32_t, uint32_t> _col_uid_to_idx;
     std::vector<std::string> _col_default_values;
     // picked rowstore(column group) column unique id
@@ -338,7 +338,7 @@ private:
     BaseTabletSPtr _tablet;
     std::vector<RowReadContext> _row_read_ctxs;
     std::shared_ptr<Reusable> _reusable;
-    std::unique_ptr<vectorized::Block> _result_block;
+    std::unique_ptr<Block> _result_block;
     Metrics _profile_metrics;
     bool _binary_row_format = false;
     OlapReaderStatistics _read_stats;

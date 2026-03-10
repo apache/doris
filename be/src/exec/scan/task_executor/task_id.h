@@ -20,7 +20,6 @@
 #include <string>
 
 namespace doris {
-namespace vectorized {
 
 class TaskId {
 public:
@@ -32,13 +31,12 @@ private:
     std::string _id;
 };
 
-} // namespace vectorized
 } // namespace doris
 
 namespace std {
 template <>
-struct hash<doris::vectorized::TaskId> {
-    size_t operator()(const doris::vectorized::TaskId& task_id) const {
+struct hash<doris::TaskId> {
+    size_t operator()(const doris::TaskId& task_id) const {
         return std::hash<std::string> {}(task_id.to_string());
     }
 };

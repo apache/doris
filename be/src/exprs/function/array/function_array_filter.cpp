@@ -40,7 +40,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionArrayFilter : public IFunction {
 public:
@@ -93,7 +93,7 @@ public:
         auto result_data_column = first_nested_nullable_column.clone_empty();
         auto result_offset_column = ColumnArray::ColumnOffsets::create();
         auto& result_offset_data = result_offset_column->get_data();
-        vectorized::IColumn::Selector selector;
+        IColumn::Selector selector;
         selector.reserve(first_off_data.size());
         result_offset_data.reserve(input_rows_count);
 
@@ -129,4 +129,4 @@ void register_function_array_filter_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayFilter>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

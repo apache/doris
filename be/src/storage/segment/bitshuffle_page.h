@@ -123,7 +123,7 @@ public:
         // The write process of column array has two steps: write nested column(column float here), and write offsets column.
         // The row count of column array is 3751968, which is not that big, but each row of column array has 768 float numbers (this is a common case in vector search scenario).
         // so the row num of nested column float will be 3751968 * 768 = 2,881,511,424, which is bigger than INT32_MAX.
-        uint32_t to_add = cast_set<vectorized::UInt32>(
+        uint32_t to_add = cast_set<UInt32>(
                 std::min(cast_set<size_t>(_remain_element_capacity), *num_written));
         // Max value of to_add_size is less than STORAGE_PAGE_SIZE_DEFAULT_VALUE
         int to_add_size = to_add * SIZE_OF_TYPE;
@@ -180,7 +180,7 @@ public:
             _buffer.clear();
             _buffer.resize(BITSHUFFLE_PAGE_HEADER_SIZE);
             _finished = false;
-            _remain_element_capacity = cast_set<vectorized::UInt32>(block_size / SIZE_OF_TYPE);
+            _remain_element_capacity = cast_set<UInt32>(block_size / SIZE_OF_TYPE);
         });
         return Status::OK();
     }
@@ -408,7 +408,7 @@ public:
     }
 
     template <bool forward_index = true>
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
         DCHECK(_parsed);
         if (*n == 0 || _cur_index >= _num_elements) [[unlikely]] {
             *n = 0;
@@ -426,12 +426,10 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
-        return next_batch<>(n, dst);
-    }
+    Status next_batch(size_t* n, MutableColumnPtr& dst) override { return next_batch<>(n, dst); }
 
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
-                          vectorized::MutableColumnPtr& dst) override {
+                          MutableColumnPtr& dst) override {
         DCHECK(_parsed);
         if (*n == 0) [[unlikely]] {
             *n = 0;
@@ -458,7 +456,7 @@ public:
         return Status::OK();
     }
 
-    Status peek_next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
+    Status peek_next_batch(size_t* n, MutableColumnPtr& dst) override {
         return next_batch<false>(n, dst);
     }
 

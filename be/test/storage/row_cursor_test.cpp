@@ -258,13 +258,13 @@ void set_tablet_schema_for_cmp_and_aggregate(TabletSchemaSPtr tablet_schema) {
 
 class TestRowCursor : public testing::Test {
 public:
-    TestRowCursor() { _arena.reset(new vectorized::Arena()); }
+    TestRowCursor() { _arena.reset(new Arena()); }
 
     virtual void SetUp() {}
 
     virtual void TearDown() {}
 
-    std::unique_ptr<vectorized::Arena> _arena;
+    std::unique_ptr<Arena> _arena;
 };
 
 TEST_F(TestRowCursor, InitRowCursorWithScanKey) {

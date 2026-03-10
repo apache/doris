@@ -18,10 +18,10 @@
 #include "exprs/function/is_null.h"
 
 #include "exprs/function/simple_function_factory.h"
-namespace doris::vectorized {
+namespace doris {
 
 void register_function_is_null(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIsNull>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

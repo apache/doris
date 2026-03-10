@@ -30,7 +30,7 @@
 #include "exec/common/hash_table/ph_hash_map.h"
 #include "exec/common/hash_table/string_hash_map.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // key -> column index
 template <typename KeyType>
@@ -53,9 +53,9 @@ using DictHashMapVariants = std::variant<
         MethodKeysFixed<DictHashMap<UInt256>>>;
 
 struct DictionaryHashMapMethod
-        : public DataVariants<DictHashMapVariants, vectorized::MethodSingleNullableColumn,
-                              vectorized::MethodOneNumber, vectorized::DataWithNullKey> {
-    void init(const std::vector<vectorized::DataTypePtr>& data_types, HashKeyType type) {
+        : public DataVariants<DictHashMapVariants, MethodSingleNullableColumn, MethodOneNumber,
+                              DataWithNullKey> {
+    void init(const std::vector<DataTypePtr>& data_types, HashKeyType type) {
         switch (type) {
         case HashKeyType::serialized:
             method_variant.emplace<MethodSerialized<StringHashMap<IColumn::ColumnIndex>>>();
@@ -114,4 +114,4 @@ struct DictionaryHashMapMethod
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -19,7 +19,7 @@
 
 #include "exprs/function/ai/ai_functions.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionAIGenerate : public AIFunction<FunctionAIGenerate> {
 public:
@@ -42,4 +42,4 @@ public:
                         std::string& prompt) const override;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

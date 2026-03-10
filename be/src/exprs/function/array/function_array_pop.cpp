@@ -40,7 +40,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename PopType>
 class FunctionArrayPop : public IFunction {
@@ -109,4 +109,4 @@ void register_function_array_pop(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayPopfront>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -38,7 +38,7 @@
 #include "udf/python/python_udf_meta.h"
 #include "util/timezone_utils.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 PythonFunctionCall::PythonFunctionCall(const TFunction& fn, const DataTypes& argument_types,
                                        const DataTypePtr& return_type)
@@ -118,8 +118,8 @@ Status PythonFunctionCall::execute_impl(FunctionContext* context, Block& block,
     uint32_t input_columns = block.columns();
     DCHECK(input_columns > 0 && result < input_columns &&
            _argument_types.size() == arguments.size());
-    vectorized::Block input_block;
-    vectorized::Block output_block;
+    Block input_block;
+    Block output_block;
 
     if (!_return_type->equals(*block.get_by_position(result).type)) {
         return Status::InternalError(fmt::format("Python UDF output type {} not equal to {}",
@@ -177,4 +177,4 @@ Status PythonFunctionCall::close(FunctionContext* context,
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

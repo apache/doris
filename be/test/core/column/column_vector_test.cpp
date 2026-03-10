@@ -27,7 +27,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 static std::string test_data_dir;
 static std::string test_result_dir;
 static DataTypePtr dt_float32 =
@@ -570,4 +570,4 @@ TEST_F(ColumnVectorTest, ScalaTypeInt32Test2erase) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

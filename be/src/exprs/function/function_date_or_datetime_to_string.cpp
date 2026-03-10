@@ -48,7 +48,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 class DataTypeString;
 
 template <typename Transform>
@@ -251,4 +251,4 @@ void register_function_date_time_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionTimestampTzIso8601>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

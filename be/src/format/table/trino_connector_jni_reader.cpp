@@ -27,12 +27,10 @@ namespace doris {
 class RuntimeProfile;
 class RuntimeState;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 const std::string TrinoConnectorJniReader::TRINO_CONNECTOR_OPTION_PREFIX = "trino.";
 
@@ -105,4 +103,4 @@ Status TrinoConnectorJniReader::_set_spi_plugins_dir() {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

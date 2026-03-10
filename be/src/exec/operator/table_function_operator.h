@@ -28,7 +28,7 @@ namespace doris {
 class RuntimeState;
 } // namespace doris
 
-namespace doris::pipeline {
+namespace doris {
 
 class TableFunctionOperatorX;
 class TableFunctionLocalState MOCK_REMOVE(final) : public PipelineXLocalState<> {
@@ -48,7 +48,7 @@ public:
         return Status::OK();
     }
     void process_next_child_row();
-    Status get_expanded_block(RuntimeState* state, vectorized::Block* output_block, bool* eos);
+    Status get_expanded_block(RuntimeState* state, Block* output_block, bool* eos);
 
 private:
     friend class TableFunctionOperatorX;
@@ -56,7 +56,7 @@ private:
 
     MOCK_FUNCTION Status _clone_table_function(RuntimeState* state);
 
-    void _copy_output_slots(std::vector<vectorized::MutableColumnPtr>& columns,
+    void _copy_output_slots(std::vector<MutableColumnPtr>& columns,
                             const TableFunctionOperatorX& p);
     bool _roll_table_functions(int last_eos_idx);
     // return:
@@ -66,16 +66,16 @@ private:
     int _find_last_fn_eos_idx() const;
     bool _is_inner_and_empty();
 
-    Status _get_expanded_block_for_outer_conjuncts(RuntimeState* state,
-                                                   vectorized::Block* output_block, bool* eos);
+    Status _get_expanded_block_for_outer_conjuncts(RuntimeState* state, Block* output_block,
+                                                   bool* eos);
 
-    std::vector<vectorized::TableFunction*> _fns;
-    vectorized::VExprContextSPtrs _vfn_ctxs;
-    vectorized::VExprContextSPtrs _expand_conjuncts_ctxs;
+    std::vector<TableFunction*> _fns;
+    VExprContextSPtrs _vfn_ctxs;
+    VExprContextSPtrs _expand_conjuncts_ctxs;
     // for table function with outer conjuncts, need to handle those child rows which all expanded rows are filtered out
     bool _need_to_handle_outer_conjuncts = false;
     int64_t _cur_child_offset = -1;
-    std::unique_ptr<vectorized::Block> _child_block;
+    std::unique_ptr<Block> _child_block;
     int _current_row_insert_times = 0;
     bool _child_eos = false;
     DorisVector<bool> _child_rows_has_output;
@@ -108,7 +108,7 @@ public:
         return {ExchangeType::PASSTHROUGH};
     }
 
-    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override {
+    Status push(RuntimeState* state, Block* input_block, bool eos) const override {
         auto& local_state = get_local_state(state);
         if (input_block->rows() == 0) {
             return Status::OK();
@@ -123,7 +123,7 @@ public:
         return Status::OK();
     }
 
-    Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) const override {
+    Status pull(RuntimeState* state, Block* output_block, bool* eos) const override {
         auto& local_state = get_local_state(state);
         RETURN_IF_ERROR(local_state.get_expanded_block(state, output_block, eos));
         local_state.reached_limit(output_block, eos);
@@ -158,10 +158,10 @@ private:
     std::vector<SlotDescriptor*> _child_slots;
     std::vector<SlotDescriptor*> _output_slots;
 
-    vectorized::VExprContextSPtrs _vfn_ctxs;
-    vectorized::VExprContextSPtrs _expand_conjuncts_ctxs;
+    VExprContextSPtrs _vfn_ctxs;
+    VExprContextSPtrs _expand_conjuncts_ctxs;
 
-    std::vector<vectorized::TableFunction*> _fns;
+    std::vector<TableFunction*> _fns;
     int _fn_num = 0;
 
     std::vector<bool> _output_slot_ids;
@@ -172,4 +172,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

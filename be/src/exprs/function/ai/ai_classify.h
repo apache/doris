@@ -19,7 +19,7 @@
 
 #include "exprs/function/ai/ai_functions.h"
 
-namespace doris::vectorized {
+namespace doris {
 class FunctionAIClassify : public AIFunction<FunctionAIClassify> {
 public:
     static constexpr auto name = "ai_classify";
@@ -43,4 +43,4 @@ public:
     Status build_prompt(const Block& block, const ColumnNumbers& arguments, size_t row_num,
                         std::string& prompt) const override;
 };
-} // namespace doris::vectorized
+} // namespace doris

@@ -28,7 +28,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFactory& factory) {
@@ -65,4 +65,4 @@ void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFacto
     factory.register_foreach_function_combinator(
             creator, AggregateFunctionForEach::AGG_FOREACH_SUFFIX, false);
 }
-} // namespace doris::vectorized
+} // namespace doris

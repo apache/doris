@@ -38,7 +38,7 @@
 #include "testutil/column_helper.h"
 #include "util/jsonb_writer.h"
 
-namespace doris::vectorized {
+namespace doris {
 using namespace ut_type;
 
 TEST(FunctionJsonbTEST, JsonbParseTest) {
@@ -914,4 +914,4 @@ TEST(FunctionJsonbTEST, JsonContains) {
     ASSERT_TRUE(st.ok()) << "execute failed: " << st.to_string();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

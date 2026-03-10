@@ -102,10 +102,9 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     _init_resource_context();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
     _query_watcher.start();
-    _execution_dependency =
-            pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency", false);
+    _execution_dependency = Dependency::create_unique(-1, -1, "ExecutionDependency", false);
     _memory_sufficient_dependency =
-            pipeline::Dependency::create_unique(-1, -1, "MemorySufficientDependency", true);
+            Dependency::create_unique(-1, -1, "MemorySufficientDependency", true);
 
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(true);
 
@@ -342,7 +341,7 @@ std::string QueryContext::get_first_error_msg() {
 }
 
 void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragment_id) {
-    std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
+    std::vector<std::weak_ptr<PipelineFragmentContext>> ctx_to_cancel;
     {
         std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
         for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
@@ -360,7 +359,7 @@ void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragmen
 }
 
 std::string QueryContext::print_all_pipeline_context() {
-    std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_print;
+    std::vector<std::weak_ptr<PipelineFragmentContext>> ctx_to_print;
     fmt::memory_buffer debug_string_buffer;
     size_t i = 0;
     {
@@ -386,13 +385,13 @@ std::string QueryContext::print_all_pipeline_context() {
     return fmt::to_string(debug_string_buffer);
 }
 
-void QueryContext::set_pipeline_context(
-        const int fragment_id, std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx) {
+void QueryContext::set_pipeline_context(const int fragment_id,
+                                        std::shared_ptr<PipelineFragmentContext> pip_ctx) {
     std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
     _fragment_id_to_pipeline_ctx.insert({fragment_id, pip_ctx});
 }
 
-doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
+doris::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
     if (!_task_scheduler) {
         throw Exception(Status::InternalError("task_scheduler is null"));
     }
@@ -533,7 +532,7 @@ Status QueryContext::send_block_to_cte_scan(
 }
 
 void QueryContext::registe_cte_scan(const TUniqueId& instance_id, int node_id,
-                                    pipeline::RecCTEScanLocalState* scan) {
+                                    RecCTEScanLocalState* scan) {
     std::unique_lock<std::mutex> l(_cte_scan_lock);
     auto key = std::make_pair(instance_id, node_id);
     DCHECK(!_cte_scan.contains(key)) << "Duplicate registe cte scan for instance "

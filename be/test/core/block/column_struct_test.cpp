@@ -29,7 +29,7 @@
 #include "core/field.h"
 #include "gtest/gtest_pred_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 TEST(ColumnStructTest2, StringTest) {
     auto str64_column = ColumnString64::create();
     auto i32_column = ColumnInt32::create();
@@ -77,4 +77,4 @@ TEST(ColumnStructTest2, StringTest) {
     EXPECT_EQ(t[0], Field::create_field<TYPE_STRING>("ddd"));
     EXPECT_EQ(t[1], Field::create_field<TYPE_INT>(444));
 };
-} // namespace doris::vectorized
+} // namespace doris

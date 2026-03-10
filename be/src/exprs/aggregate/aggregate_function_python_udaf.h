@@ -26,7 +26,7 @@
 #include "udf/python/python_udaf_client.h"
 #include "udf/python/python_udf_meta.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 /**
@@ -181,6 +181,6 @@ private:
     mutable std::once_flag _schema_init_flag;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

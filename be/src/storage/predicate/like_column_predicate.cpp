@@ -38,28 +38,26 @@ LikeColumnPredicate<T>::LikeColumnPredicate(bool opposite, uint32_t column_id, s
 }
 
 template <PrimitiveType T>
-void LikeColumnPredicate<T>::evaluate_vec(const vectorized::IColumn& column, uint16_t size,
-                                          bool* flags) const {
+void LikeColumnPredicate<T>::evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const {
     _evaluate_vec<false>(column, size, flags);
 }
 
 template <PrimitiveType T>
-void LikeColumnPredicate<T>::evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
+void LikeColumnPredicate<T>::evaluate_and_vec(const IColumn& column, uint16_t size,
                                               bool* flags) const {
     _evaluate_vec<true>(column, size, flags);
 }
 
 template <PrimitiveType T>
-uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
+uint16_t LikeColumnPredicate<T>::_evaluate_inner(const IColumn& column, uint16_t* sel,
                                                  uint16_t size) const {
     uint16_t new_size = 0;
     if (column.is_nullable()) {
-        auto* nullable_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
+        auto* nullable_col = check_and_get_column<ColumnNullable>(column);
         auto& null_map_data = nullable_col->get_null_map_column().get_data();
         auto& nested_col = nullable_col->get_nested_column();
         if (nested_col.is_column_dictionary()) {
-            auto* nested_col_ptr =
-                    vectorized::check_and_get_column<vectorized::ColumnDictI32>(nested_col);
+            auto* nested_col_ptr = check_and_get_column<ColumnDictI32>(nested_col);
             auto& data_array = nested_col_ptr->get_data();
             const auto& dict_res = _find_code_from_dictionary_column(*nested_col_ptr);
             if (!nullable_col->has_null()) {
@@ -82,10 +80,9 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
                 }
             }
         } else {
-            auto* str_col = vectorized::check_and_get_column<vectorized::PredicateColumnType<T>>(
-                    nested_col);
+            auto* str_col = check_and_get_column<PredicateColumnType<T>>(nested_col);
             if (!nullable_col->has_null()) {
-                vectorized::ColumnUInt8::Container res(size, 0);
+                ColumnUInt8::Container res(size, 0);
                 for (uint16_t i = 0; i != size; i++) {
                     uint16_t idx = sel[i];
                     sel[new_size] = idx;
@@ -114,8 +111,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
         }
     } else {
         if (column.is_column_dictionary()) {
-            auto* nested_col_ptr =
-                    vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
+            auto* nested_col_ptr = check_and_get_column<ColumnDictI32>(column);
             const auto& dict_res = _find_code_from_dictionary_column(*nested_col_ptr);
             auto& data_array = nested_col_ptr->get_data();
             for (uint16_t i = 0; i != size; i++) {
@@ -125,10 +121,10 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
                 new_size += _opposite ^ flag;
             }
         } else {
-            const vectorized::PredicateColumnType<T>* str_col =
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<T>>(column);
+            const PredicateColumnType<T>* str_col =
+                    check_and_get_column<PredicateColumnType<T>>(column);
 
-            vectorized::ColumnUInt8::Container res(size, 0);
+            ColumnUInt8::Container res(size, 0);
             for (uint16_t i = 0; i != size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;

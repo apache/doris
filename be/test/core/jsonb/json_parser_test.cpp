@@ -24,9 +24,9 @@
 #include "common/config.h"
 #include "core/string_ref.h"
 
-using doris::vectorized::JSONDataParser;
-using doris::vectorized::SimdJSONParser;
-using doris::vectorized::ParseConfig;
+using doris::JSONDataParser;
+using doris::SimdJSONParser;
+using doris::ParseConfig;
 
 TEST(JsonParserTest, ParseSimpleTypes) {
     JSONDataParser<SimdJSONParser> parser;
@@ -325,20 +325,19 @@ TEST(JsonParserTest, TestHandleNewPathDirectCall) {
     ctx.is_top_array = true;
 
     // Create a path with nested parts
-    doris::vectorized::PathInData::Parts path;
+    doris::PathInData::Parts path;
     // Create a nested part (is_nested = true)
     path.emplace_back("nested_key", true, 0); // is_nested = true
     path.emplace_back("inner_key", false, 0); // is_nested = false
 
     // Create a Field with array type (required for getNameOfNested to return non-empty)
-    doris::vectorized::Array array_data;
-    array_data.push_back(doris::vectorized::Field::create_field<doris::TYPE_INT>(1));
-    array_data.push_back(doris::vectorized::Field::create_field<doris::TYPE_INT>(2));
-    doris::vectorized::Field value =
-            doris::vectorized::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data));
+    doris::Array array_data;
+    array_data.push_back(doris::Field::create_field<doris::TYPE_INT>(1));
+    array_data.push_back(doris::Field::create_field<doris::TYPE_INT>(2));
+    doris::Field value = doris::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data));
 
     // Create hash for the path
-    UInt128 hash = doris::vectorized::PathInData::get_parts_hash(path);
+    UInt128 hash = doris::PathInData::get_parts_hash(path);
 
     // Call handleNewPath directly
     // This should trigger the if (!nested_key.empty()) branch
@@ -364,19 +363,18 @@ TEST(JsonParserTest, TestHandleNewPathElseBranch) {
     ctx.is_top_array = true;
 
     // Create a path with nested parts
-    doris::vectorized::PathInData::Parts path;
+    doris::PathInData::Parts path;
     path.emplace_back("nested_key", true, 0);
     path.emplace_back("inner_key", false, 0);
 
     // Create a Field with array type
-    doris::vectorized::Array array_data;
-    array_data.push_back(doris::vectorized::Field::create_field<doris::TYPE_INT>(1));
-    array_data.push_back(doris::vectorized::Field::create_field<doris::TYPE_INT>(2));
-    doris::vectorized::Field value =
-            doris::vectorized::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data));
+    doris::Array array_data;
+    array_data.push_back(doris::Field::create_field<doris::TYPE_INT>(1));
+    array_data.push_back(doris::Field::create_field<doris::TYPE_INT>(2));
+    doris::Field value = doris::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data));
 
     // Create hash for the path
-    UInt128 hash = doris::vectorized::PathInData::get_parts_hash(path);
+    UInt128 hash = doris::PathInData::get_parts_hash(path);
 
     // First call to populate nested_sizes_by_key
     parser.handleNewPath(hash, path, value, ctx);
@@ -386,11 +384,10 @@ TEST(JsonParserTest, TestHandleNewPathElseBranch) {
     EXPECT_EQ(ctx.nested_sizes_by_key.at(doris::StringRef("nested_key"))[0], 0);
 
     // Create another array with same size
-    doris::vectorized::Array array_data2;
-    array_data2.push_back(doris::vectorized::Field::create_field<doris::TYPE_INT>(3));
-    array_data2.push_back(doris::vectorized::Field::create_field<doris::TYPE_INT>(4));
-    doris::vectorized::Field value2 =
-            doris::vectorized::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data2));
+    doris::Array array_data2;
+    array_data2.push_back(doris::Field::create_field<doris::TYPE_INT>(3));
+    array_data2.push_back(doris::Field::create_field<doris::TYPE_INT>(4));
+    doris::Field value2 = doris::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data2));
 
     // Second call should trigger the else branch (nested_sizes is not empty)
     ctx.is_top_array = false;

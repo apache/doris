@@ -34,25 +34,25 @@ class ColumnIterator;
 class ColumnReader;
 
 struct SubstreamIterator {
-    vectorized::MutableColumnPtr column;
+    MutableColumnPtr column;
     std::unique_ptr<ColumnIterator> iterator;
-    std::shared_ptr<const vectorized::IDataType> type;
-    std::shared_ptr<vectorized::DataTypeSerDe> serde;
+    std::shared_ptr<const IDataType> type;
+    std::shared_ptr<DataTypeSerDe> serde;
     bool inited = false;
     size_t rows_read = 0;
     SubstreamIterator() = default;
-    SubstreamIterator(vectorized::MutableColumnPtr&& col, std::unique_ptr<ColumnIterator>&& it,
-                      std::shared_ptr<const vectorized::IDataType> t);
+    SubstreamIterator(MutableColumnPtr&& col, std::unique_ptr<ColumnIterator>&& it,
+                      std::shared_ptr<const IDataType> t);
 };
 
 // path -> SubstreamIterator
-using SubstreamReaderTree = vectorized::SubcolumnsTree<SubstreamIterator, false>;
+using SubstreamReaderTree = SubcolumnsTree<SubstreamIterator, false>;
 
 // Meta for the storage layer, the file_column_type indicates the read type of the column in segment file
 struct SubcolumnMeta {
-    std::shared_ptr<const vectorized::IDataType> file_column_type;
+    std::shared_ptr<const IDataType> file_column_type;
     int32_t footer_ordinal = -1;
 };
-using SubcolumnColumnMetaInfo = vectorized::SubcolumnsTree<SubcolumnMeta, true>;
+using SubcolumnColumnMetaInfo = SubcolumnsTree<SubcolumnMeta, true>;
 
 } // namespace doris::segment_v2

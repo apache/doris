@@ -652,9 +652,9 @@ void PInternalService::fetch_data(google::protobuf::RpcController* controller,
                                   google::protobuf::Closure* done) {
     // fetch_data is a light operation which will put a request rather than wait inplace when there's no data ready.
     // when there's data ready, use brpc to send. there's queue in brpc service. won't take it too long.
-    auto ctx = vectorized::GetResultBatchCtx::create_shared(result, done);
+    auto ctx = GetResultBatchCtx::create_shared(result, done);
     TUniqueId unique_id = UniqueId(request->finst_id()).to_thrift(); // query_id or instance_id
-    std::shared_ptr<vectorized::MySQLResultBlockBuffer> buffer;
+    std::shared_ptr<MySQLResultBlockBuffer> buffer;
     Status st = ExecEnv::GetInstance()->result_mgr()->find_buffer(unique_id, buffer);
     if (!st.ok()) {
         LOG(WARNING) << "Result buffer not found! finst ID: " << print_id(unique_id);
@@ -670,9 +670,9 @@ void PInternalService::fetch_arrow_data(google::protobuf::RpcController* control
                                         PFetchArrowDataResult* result,
                                         google::protobuf::Closure* done) {
     bool ret = _arrow_flight_work_pool.try_offer([request, result, done]() {
-        auto ctx = vectorized::GetArrowResultBatchCtx::create_shared(result, done);
+        auto ctx = GetArrowResultBatchCtx::create_shared(result, done);
         TUniqueId unique_id = UniqueId(request->finst_id()).to_thrift(); // query_id or instance_id
-        std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> arrow_buffer;
+        std::shared_ptr<ArrowFlightResultBlockBuffer> arrow_buffer;
         auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(unique_id, arrow_buffer);
         if (!st.ok()) {
             LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(unique_id);
@@ -822,7 +822,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         // might asynchronouslly access the profile
         std::unique_ptr<RuntimeProfile> profile =
                 std::make_unique<RuntimeProfile>("FetchTableSchema");
-        std::unique_ptr<vectorized::GenericReader> reader(nullptr);
+        std::unique_ptr<GenericReader> reader(nullptr);
         auto io_ctx = std::make_shared<io::IOContext>();
         auto file_cache_statis = std::make_shared<io::FileCacheStatistics>();
         auto file_reader_stats = std::make_shared<io::FileReaderStats>();
@@ -839,36 +839,35 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
-            reader = vectorized::CsvReader::create_unique(nullptr, profile.get(), nullptr, params,
-                                                          range, file_slots, io_ctx.get(), io_ctx);
+            reader = CsvReader::create_unique(nullptr, profile.get(), nullptr, params, range,
+                                              file_slots, io_ctx.get(), io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_TEXT: {
-            reader = vectorized::TextReader::create_unique(nullptr, profile.get(), nullptr, params,
-                                                           range, file_slots, io_ctx.get());
+            reader = TextReader::create_unique(nullptr, profile.get(), nullptr, params, range,
+                                               file_slots, io_ctx.get());
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
-            reader = vectorized::ParquetReader::create_unique(params, range, io_ctx, nullptr);
+            reader = ParquetReader::create_unique(params, range, io_ctx, nullptr);
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            reader = vectorized::OrcReader::create_unique(params, range, "", io_ctx);
+            reader = OrcReader::create_unique(params, range, "", io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_NATIVE: {
-            reader = vectorized::NativeReader::create_unique(profile.get(), params, range,
-                                                             io_ctx.get(), nullptr);
+            reader = NativeReader::create_unique(profile.get(), params, range, io_ctx.get(),
+                                                 nullptr);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
-            reader = vectorized::NewJsonReader::create_unique(profile.get(), params, range,
-                                                              file_slots, io_ctx.get(), io_ctx);
+            reader = NewJsonReader::create_unique(profile.get(), params, range, file_slots,
+                                                  io_ctx.get(), io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_AVRO: {
-            reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
-                                                              file_slots);
+            reader = AvroJNIReader::create_unique(profile.get(), params, range, file_slots);
             break;
         }
         default:
@@ -889,7 +888,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             return;
         }
         std::vector<std::string> col_names;
-        std::vector<vectorized::DataTypePtr> col_types;
+        std::vector<DataTypePtr> col_types;
         st = reader->get_parsed_schema(&col_names, &col_types);
         if (!st.ok()) {
             LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
@@ -919,7 +918,7 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
     bool ret = _arrow_flight_work_pool.try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         std::shared_ptr<arrow::Schema> schema;
-        std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> buffer;
+        std::shared_ptr<ArrowFlightResultBlockBuffer> buffer;
         auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(
                 UniqueId(request->finst_id()).to_thrift(), buffer);
         if (!st.ok()) {
@@ -990,7 +989,7 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
                 fmt::format("InternalService::test_jdbc_connection"));
         SCOPED_ATTACH_TASK(mem_tracker);
         TTableDescriptor table_desc;
-        vectorized::JdbcConnectorParam jdbc_param;
+        JdbcConnectorParam jdbc_param;
         Status st = Status::OK();
         {
             const uint8_t* buf = (const uint8_t*)request->jdbc_table().data();
@@ -1019,8 +1018,8 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
         jdbc_param.connection_pool_max_wait_time = jdbc_table.connection_pool_max_wait_time;
         jdbc_param.connection_pool_keep_alive = jdbc_table.connection_pool_keep_alive;
 
-        std::unique_ptr<vectorized::JdbcConnector> jdbc_connector;
-        jdbc_connector.reset(new (std::nothrow) vectorized::JdbcConnector(jdbc_param));
+        std::unique_ptr<JdbcConnector> jdbc_connector;
+        jdbc_connector.reset(new (std::nothrow) JdbcConnector(jdbc_param));
 
         st = jdbc_connector->test_connection();
         st.to_protobuf(result->mutable_status());
@@ -1204,8 +1203,7 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
             if (!schemas.empty() && st.ok()) {
                 // merge all
                 TabletSchemaSPtr merged_schema;
-                st = vectorized::variant_util::get_least_common_schema(schemas, nullptr,
-                                                                       merged_schema);
+                st = variant_util::get_least_common_schema(schemas, nullptr, merged_schema);
                 if (!st.ok()) {
                     LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
                     st = Status::InternalError("Failed to get least common schema: {}",
@@ -1240,15 +1238,16 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                     }
                     auto tablet = res.value();
                     auto rowsets = tablet->get_snapshot_rowset();
-                    auto schema = vectorized::variant_util::VariantCompactionUtil::
-                            calculate_variant_extended_schema(rowsets, tablet->tablet_schema());
+                    auto schema =
+                            variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+                                    rowsets, tablet->tablet_schema());
                     tablet_schemas.push_back(schema);
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
                     TabletSchemaSPtr merged_schema;
-                    st = vectorized::variant_util::get_least_common_schema(tablet_schemas, nullptr,
-                                                                           merged_schema);
+                    st = variant_util::get_least_common_schema(tablet_schemas, nullptr,
+                                                               merged_schema);
                     if (!st.ok()) {
                         LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
                         st = Status::InternalError("Failed to get least common schema: {}",
@@ -2182,14 +2181,14 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
         return;
     }
 
-    doris::pipeline::TaskScheduler* exec_sched = nullptr;
-    vectorized::ScannerScheduler* scan_sched = nullptr;
-    vectorized::ScannerScheduler* remote_scan_sched = nullptr;
+    doris::TaskScheduler* exec_sched = nullptr;
+    ScannerScheduler* scan_sched = nullptr;
+    ScannerScheduler* remote_scan_sched = nullptr;
     wg->get_query_scheduler(&exec_sched, &scan_sched, &remote_scan_sched);
     DCHECK(remote_scan_sched);
 
     st = remote_scan_sched->submit_scan_task(
-            vectorized::SimplifiedScanTask(
+            SimplifiedScanTask(
                     [request, response, done]() {
                         SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
                         signal::set_signal_task_id(request->query_id());

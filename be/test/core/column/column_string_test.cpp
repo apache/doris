@@ -35,7 +35,7 @@
 #include "exprs/function/function_string.h"
 
 using namespace doris;
-namespace doris::vectorized {
+namespace doris {
 static std::string test_data_dir;
 static std::string test_result_dir;
 static DataTypePtr dt_str =
@@ -1237,7 +1237,7 @@ TEST_F(ColumnStringTest, resize) {
 }
 TEST_F(ColumnStringTest, TestConcat) {
     Block block;
-    vectorized::DataTypePtr str_type = std::make_shared<vectorized::DataTypeString>();
+    DataTypePtr str_type = std::make_shared<DataTypeString>();
 
     auto str_col0 = ColumnString::create();
     std::vector<std::string> vals0 = {"aaa", "bb", "cccc"};
@@ -1425,4 +1425,4 @@ TEST_F(ColumnStringTest, is_ascii) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

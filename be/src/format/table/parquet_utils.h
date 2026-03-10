@@ -28,7 +28,7 @@
 #include "core/types.h"
 #include "format/parquet/schema_desc.h"
 
-namespace doris::vectorized::parquet_utils {
+namespace doris::parquet_utils {
 
 inline constexpr const char* MODE_SCHEMA = "parquet_schema";
 inline constexpr const char* MODE_METADATA = "parquet_metadata";
@@ -181,4 +181,4 @@ void build_path_map(const FieldSchema& field, const std::string& prefix,
 void merge_stats(const std::shared_ptr<::parquet::Statistics>& left,
                  const std::shared_ptr<::parquet::Statistics>& right);
 
-} // namespace doris::vectorized::parquet_utils
+} // namespace doris::parquet_utils

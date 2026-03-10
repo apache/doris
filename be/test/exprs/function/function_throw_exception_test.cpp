@@ -22,7 +22,7 @@
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class MockFunctionThrowException : public IFunction {
 public:
@@ -99,4 +99,4 @@ TEST(FunctionThrowExceptionTest, not_match_return_type) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

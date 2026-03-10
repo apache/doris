@@ -21,7 +21,7 @@
 
 #include "exec/operator/operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class EmptySetLocalState final : public PipelineXLocalState<FakeSharedState> {
@@ -43,10 +43,10 @@ public:
     EmptySetSourceOperatorX() = default;
 #endif
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
 
     [[nodiscard]] bool is_source() const override { return true; }
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

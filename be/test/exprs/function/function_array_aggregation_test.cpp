@@ -26,7 +26,7 @@
 #include "exprs/function/function_test_util.h"
 #include "testutil/any_type.h"
 
-namespace doris::vectorized {
+namespace doris {
 using namespace ut_type;
 template <typename T>
 struct AnyValue {
@@ -373,4 +373,4 @@ TEST(VFunctionArrayAggregationTest, TestArrayProductNullable) {
             func_name, data_set, PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE, true));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

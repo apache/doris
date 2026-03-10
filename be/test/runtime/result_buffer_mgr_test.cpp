@@ -89,7 +89,7 @@ TEST_F(ResultBufferMgrTest, find_buffer) {
     EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1, &_state, false, nullptr)
                         .ok());
 
-    std::shared_ptr<vectorized::MySQLResultBlockBuffer> buffer;
+    std::shared_ptr<MySQLResultBlockBuffer> buffer;
     EXPECT_TRUE(buffer_mgr.find_buffer(query_id, buffer).ok());
     EXPECT_TRUE(buffer != nullptr);
 }

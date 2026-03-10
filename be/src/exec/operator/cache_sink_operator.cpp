@@ -26,7 +26,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 Status CacheSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -50,14 +50,14 @@ CacheSinkOperatorX::CacheSinkOperatorX(int sink_id, int child_id, int dest_id)
     _name = "CACHE_SINK_OPERATOR";
 }
 
-Status CacheSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {
+Status CacheSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
     if (in_block->rows() > 0) {
         RETURN_IF_ERROR(local_state._shared_state->data_queue.push_block(
-                vectorized::Block::create_unique(std::move(*in_block)), 0));
+                Block::create_unique(std::move(*in_block)), 0));
     }
     if (UNLIKELY(eos)) {
         local_state._shared_state->data_queue.set_finish(0);
@@ -65,4 +65,4 @@ Status CacheSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block
     return Status::OK();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

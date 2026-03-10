@@ -58,9 +58,9 @@
 TEST(TEST_VEXPR, ABSTEST) {
     doris::ObjectPool object_pool;
     doris::DescriptorTblBuilder builder(&object_pool);
-    builder.declare_tuple() << doris::vectorized::DataTypeFactory::instance().create_data_type(
-                                       doris::TYPE_INT, false)
-                            << doris::vectorized::DataTypeFactory::instance().create_data_type(
+    builder.declare_tuple() << doris::DataTypeFactory::instance().create_data_type(doris::TYPE_INT,
+                                                                                   false)
+                            << doris::DataTypeFactory::instance().create_data_type(
                                        doris::TYPE_DOUBLE, false);
     doris::DescriptorTbl* desc_tbl = builder.build();
 
@@ -69,8 +69,8 @@ TEST(TEST_VEXPR, ABSTEST) {
     std::string expr_json =
             R"|({"1":{"lst":["rec",2,{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"abs"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"5":{"tf":0},"7":{"str":"abs(INT)"},"9":{"rec":{"1":{"str":"_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_6IntValE"}}},"11":{"i64":0}}}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":0},"2":{"i32":0}}},"20":{"i32":-1},"23":{"i32":-1}}]}})|";
     doris::TExpr exprx = apache::thrift::from_json_string<doris::TExpr>(expr_json);
-    doris::vectorized::VExprContextSPtr context;
-    static_cast<void>(doris::vectorized::VExpr::create_expr_tree(exprx, context));
+    doris::VExprContextSPtr context;
+    static_cast<void>(doris::VExpr::create_expr_tree(exprx, context));
 
     doris::RuntimeState runtime_stat;
     runtime_stat.set_desc_tbl(desc_tbl);
@@ -101,11 +101,11 @@ static doris::TupleDescriptor* create_tuple_desc(
     for (int i = 0; i < column_descs.size(); ++i) {
         TSlotDescriptor t_slot_desc;
         if (column_descs[i].type == TYPE_DECIMALV2) {
-            t_slot_desc.__set_slotType(vectorized::DataTypeFactory::instance()
+            t_slot_desc.__set_slotType(DataTypeFactory::instance()
                                                .create_data_type(TYPE_DECIMALV2, false, 27, 9)
                                                ->to_thrift());
         } else {
-            auto descriptor = vectorized::DataTypeFactory::instance().create_data_type(
+            auto descriptor = DataTypeFactory::instance().create_data_type(
                     column_descs[i].type, false,
                     column_descs[i].precision >= 0 ? column_descs[i].precision : 0,
                     column_descs[i].scale >= 0 ? column_descs[i].scale : 0);
@@ -161,8 +161,8 @@ TEST(TEST_VEXPR, ABSTEST2) {
             R"|({"1":{"lst":["rec",2,{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"abs"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"5":{"tf":0},"7":{"str":"abs(INT)"},"9":{"rec":{"1":{"str":"_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_6IntValE"}}},"11":{"i64":0}}}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":0},"2":{"i32":0}}},"20":{"i32":-1},"23":{"i32":-1}}]}})|";
     TExpr exprx = apache::thrift::from_json_string<TExpr>(expr_json);
 
-    doris::vectorized::VExprContextSPtr context;
-    static_cast<void>(doris::vectorized::VExpr::create_expr_tree(exprx, context));
+    doris::VExprContextSPtr context;
+    static_cast<void>(doris::VExpr::create_expr_tree(exprx, context));
 
     doris::RuntimeState runtime_stat;
     DescriptorTbl desc_tbl;
@@ -414,7 +414,7 @@ doris::TExprNode create_literal(const U& value, int scale = 9) {
 
 TEST(TEST_VEXPR, LITERALTEST) {
     using namespace doris;
-    using namespace doris::vectorized;
+    using namespace doris;
     // bool
     {
         VLiteral literal(create_literal<TYPE_BOOLEAN>(true));

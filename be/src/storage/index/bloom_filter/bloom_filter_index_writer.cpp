@@ -164,7 +164,7 @@ private:
 private:
     BloomFilterOptions _bf_options {};
     const TypeInfo* _type_info = nullptr;
-    vectorized::Arena _arena;
+    Arena _arena;
     bool _has_null = false;
     uint64_t _bf_buffer_size = 0;
     // distinct values

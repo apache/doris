@@ -40,7 +40,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 /// Implements the function is_null which returns true if a value
 /// is null, false otherwise.
@@ -76,7 +76,7 @@ public:
 
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
-            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
@@ -101,4 +101,4 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

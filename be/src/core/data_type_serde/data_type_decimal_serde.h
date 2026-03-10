@@ -32,7 +32,6 @@
 
 namespace doris {
 
-namespace vectorized {
 template <PrimitiveType T>
 class ColumnDecimal;
 class Arena;
@@ -118,7 +117,7 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
 
     Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, uint64_t rows,
@@ -133,7 +132,7 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                    const FormatOptions& options) const override;
 
-    std::string to_olap_string(const vectorized::Field& field) const override;
+    std::string to_olap_string(const Field& field) const override;
 
     void to_string_batch(const IColumn& column, ColumnString& column_to,
                          const FormatOptions& options) const override;
@@ -188,5 +187,4 @@ Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValu
 }
 
 #include "common/compile_check_end.h"
-} // namespace vectorized
 } // namespace doris

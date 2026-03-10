@@ -34,8 +34,8 @@ namespace doris {
 static const int MAX_WARNINGS = 1000;
 
 std::unique_ptr<doris::FunctionContext> FunctionContext::create_context(
-        RuntimeState* state, const vectorized::DataTypePtr& return_type,
-        const std::vector<vectorized::DataTypePtr>& arg_types) {
+        RuntimeState* state, const DataTypePtr& return_type,
+        const std::vector<DataTypePtr>& arg_types) {
     auto ctx = std::unique_ptr<doris::FunctionContext>(new doris::FunctionContext());
     ctx->_state = state;
     ctx->_return_type = return_type;
@@ -105,7 +105,7 @@ bool FunctionContext::add_warning(const char* warning_msg) {
     }
 }
 
-const vectorized::DataTypePtr FunctionContext::get_arg_type(int arg_idx) const {
+const DataTypePtr FunctionContext::get_arg_type(int arg_idx) const {
     if (arg_idx < 0 || arg_idx >= _arg_types.size()) {
         return nullptr;
     }
@@ -130,7 +130,7 @@ int FunctionContext::get_num_args() const {
     return cast_set<int>(_arg_types.size());
 }
 
-const vectorized::DataTypePtr FunctionContext::get_return_type() const {
+const DataTypePtr FunctionContext::get_return_type() const {
     return _return_type;
 }
 

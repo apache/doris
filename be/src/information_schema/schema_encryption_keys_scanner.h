@@ -27,9 +27,7 @@
 
 namespace doris {
 class RuntimeState;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 class SchemaEncryptionKeysScanner : public SchemaScanner {
     ENABLE_FACTORY_CREATOR(SchemaEncryptionKeysScanner);
@@ -39,10 +37,10 @@ public:
     ~SchemaEncryptionKeysScanner() override;
 
     Status start(RuntimeState* state) override;
-    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
+    Status get_next_block_internal(Block* block, bool* eos) override;
 
 private:
-    Status _fill_block_impl(vectorized::Block* block);
+    Status _fill_block_impl(Block* block);
 
     std::vector<EncryptionKeyPB> _master_keys;
     static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;

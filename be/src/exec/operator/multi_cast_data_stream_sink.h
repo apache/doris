@@ -23,7 +23,7 @@
 #include "exec/operator/data_queue.h"
 #include "exec/operator/operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class MultiCastDataStreamSinkOperatorX;
@@ -57,7 +57,7 @@ public:
               _num_dests(sources.size()) {}
     ~MultiCastDataStreamSinkOperatorX() override = default;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
 
     std::shared_ptr<BasicSharedState> create_shared_state() const override;
 
@@ -77,4 +77,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

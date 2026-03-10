@@ -79,8 +79,8 @@ TEST(IPValueTest, IPv6ValueTest) {
 }
 
 static void apply_cidr_mask(const char* __restrict src, char* __restrict dst_lower,
-                            char* __restrict dst_upper, vectorized::UInt8 bits_to_keep) {
-    const auto& mask = vectorized::get_cidr_mask_ipv6(bits_to_keep);
+                            char* __restrict dst_upper, UInt8 bits_to_keep) {
+    const auto& mask = get_cidr_mask_ipv6(bits_to_keep);
 
     for (int8_t i = IPV6_BINARY_LENGTH - 1; i >= 0; --i) {
         dst_lower[i] = src[i] & mask[i];

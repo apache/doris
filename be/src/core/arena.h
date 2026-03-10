@@ -31,7 +31,7 @@
 #include "core/allocator.h"
 #include "core/allocator_fwd.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 /** Memory pool to append something. For example, short strings.
   * Usage scenario:
@@ -345,4 +345,4 @@ public:
 using ArenaPtr = std::shared_ptr<Arena>;
 using Arenas = std::vector<ArenaPtr>;
 
-} // namespace doris::vectorized
+} // namespace doris

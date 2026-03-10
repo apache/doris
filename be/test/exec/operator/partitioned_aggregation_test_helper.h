@@ -39,7 +39,7 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_profile.h"
 
-namespace doris::pipeline {
+namespace doris {
 class MockAggSharedState : public AggSharedState {
 public:
 };
@@ -83,9 +83,7 @@ public:
         return Status::OK();
     }
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override {
-        return Status::OK();
-    }
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override { return Status::OK(); }
 };
 
 class MockPartitionedAggLocalState : public PartitionedAggLocalState {
@@ -126,7 +124,7 @@ public:
     bool need_more_input_data(RuntimeState* state) const override { return need_more_data; }
     bool need_more_data = true;
 
-    vectorized::Block block;
+    Block block;
     bool eos = false;
 };
 
@@ -154,4 +152,4 @@ public:
                std::shared_ptr<PartitionedAggSinkOperatorX>>
     create_operators();
 };
-} // namespace doris::pipeline
+} // namespace doris

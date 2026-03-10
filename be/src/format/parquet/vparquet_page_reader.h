@@ -47,7 +47,7 @@ struct IOContext;
 struct Slice;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 /**
  * Use to deserialize parquet page header, and get the page data in iterator interface.
@@ -259,4 +259,4 @@ std::unique_ptr<PageReader<IN_COLLECTION, OFFSET_INDEX>> create_page_reader(
 }
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

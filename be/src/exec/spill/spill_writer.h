@@ -29,7 +29,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-namespace vectorized {
 class SpillDataDir;
 class SpillWriter {
 public:
@@ -99,7 +98,6 @@ private:
     std::shared_ptr<ResourceContext> _resource_ctx = nullptr;
 };
 using SpillWriterUPtr = std::unique_ptr<SpillWriter>;
-} // namespace vectorized
 } // namespace doris
 
 #include "common/compile_check_end.h"

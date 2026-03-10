@@ -41,7 +41,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/tablet_info.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class IndexChannel;
@@ -254,6 +254,6 @@ private:
     std::set<int64_t> _new_partition_ids; // if contains, not to replace it again.
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

@@ -33,7 +33,7 @@
 #include "core/field.h"
 #include "core/string_view.h"
 
-namespace doris::vectorized {
+namespace doris {
 class BufferWritable;
 class IColumn;
 
@@ -99,4 +99,4 @@ constexpr static bool IsVarBinaryType = false;
 template <>
 inline constexpr bool IsVarBinaryType<DataTypeVarbinary> = true;
 
-} // namespace doris::vectorized
+} // namespace doris

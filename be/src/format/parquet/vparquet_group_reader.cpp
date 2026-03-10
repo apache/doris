@@ -71,7 +71,7 @@ struct IOContext;
 } // namespace io
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 const std::vector<int64_t> RowGroupReader::NO_DELETE = {};
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
@@ -760,7 +760,7 @@ Status RowGroupReader::_fill_missing_columns(
             // no default column, fill with null
             auto mutable_column = block->get_by_position((*_col_name_to_block_idx)[kv.first])
                                           .column->assume_mutable();
-            auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_column.get());
+            auto* nullable_column = assert_cast<ColumnNullable*>(mutable_column.get());
             nullable_column->insert_many_defaults(rows);
         } else {
             // fill with default value
@@ -1114,7 +1114,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             for (int j = 0; j < dict_codes.size(); ++j) {
                 hybrid_set->insert(&dict_codes[j]);
             }
-            root = vectorized::VDirectInPredicate::create_shared(node, hybrid_set);
+            root = VDirectInPredicate::create_shared(node, hybrid_set);
         }
         {
             SlotDescriptor* slot = nullptr;
@@ -1184,4 +1184,4 @@ ParquetColumnReader::ColumnStatistics RowGroupReader::merged_column_statistics()
 }
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

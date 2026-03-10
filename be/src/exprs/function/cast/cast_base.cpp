@@ -20,7 +20,7 @@
 #include <cstdint>
 
 #include "util/jsonb_writer.h"
-namespace doris::vectorized::CastWrapper {
+namespace doris::CastWrapper {
 
 Status cast_from_generic_to_jsonb(FunctionContext* context, Block& block,
                                   const ColumnNumbers& arguments, uint32_t result,
@@ -42,7 +42,7 @@ Status cast_from_generic_to_jsonb(FunctionContext* context, Block& block,
     auto col_to = data_type_to->create_column();
 
     auto tmp_col = ColumnString::create();
-    vectorized::DataTypeSerDe::FormatOptions options;
+    DataTypeSerDe::FormatOptions options;
     auto time_zone = cctz::utc_time_zone();
     options.timezone =
             (context && context->state()) ? &context->state()->timezone_obj() : &time_zone;
@@ -239,4 +239,4 @@ Status cast_from_string_to_complex_type_strict_mode(FunctionContext* context, Bl
     return Status::OK();
 }
 
-} // namespace doris::vectorized::CastWrapper
+} // namespace doris::CastWrapper

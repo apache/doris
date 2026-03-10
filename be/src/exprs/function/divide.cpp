@@ -29,7 +29,7 @@
 #include "exprs/function/function_helpers.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct DivideFloatingImpl;
 
@@ -759,4 +759,4 @@ void register_function_divide(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDiv<DivideDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL256>>>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

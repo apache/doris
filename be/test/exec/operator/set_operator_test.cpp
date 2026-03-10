@@ -28,9 +28,7 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_literal_expr.h"
 #include "testutil/mock/mock_slot_ref.h"
-namespace doris::pipeline {
-
-using namespace vectorized;
+namespace doris {
 
 template <bool is_intersect>
 struct MockSetSourceOperatorX : public SetSourceOperatorX<is_intersect> {
@@ -553,4 +551,4 @@ TEST_F(ExceptOperatorTest, test_refresh_hash_table) {
         EXPECT_TRUE(block.empty());
     }
 }
-} // namespace doris::pipeline
+} // namespace doris

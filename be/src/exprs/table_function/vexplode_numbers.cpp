@@ -33,7 +33,7 @@
 #include "exprs/vexpr_context.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 VExplodeNumbersTableFunction::VExplodeNumbersTableFunction() {
@@ -117,4 +117,4 @@ void VExplodeNumbersTableFunction::get_same_many_values(MutableColumnPtr& column
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

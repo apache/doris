@@ -32,7 +32,7 @@
 #include "exprs/table_function/vexplode_v2.h"
 #include "testutil/any_type.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 using ::testing::_;
 using ::testing::DoAll;
@@ -308,4 +308,4 @@ TEST_F(TableFunctionTest, vexplode_numbers) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

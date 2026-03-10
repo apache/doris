@@ -23,7 +23,7 @@
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function_context.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename Impl>
 class FunctionMultiSameArgs : public IFunction {
@@ -49,4 +49,4 @@ public:
         return Status::OK();
     }
 };
-}; // namespace doris::vectorized
+}; // namespace doris

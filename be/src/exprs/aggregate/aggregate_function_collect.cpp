@@ -24,7 +24,7 @@
 #include "exprs/aggregate/factory_helpers.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <PrimitiveType T, bool HasLimit>
@@ -96,4 +96,4 @@ void register_aggregate_function_collect_list(AggregateFunctionSimpleFactory& fa
     factory.register_alias("collect_list", "group_array");
     factory.register_alias("collect_set", "group_uniq_array");
 }
-} // namespace doris::vectorized
+} // namespace doris

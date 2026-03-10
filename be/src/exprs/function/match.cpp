@@ -25,7 +25,7 @@
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "util/debug_points.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 namespace {
@@ -47,7 +47,7 @@ const InvertedIndexAnalyzerCtx* get_match_analyzer_ctx(FunctionContext* context)
 
 Status FunctionMatchBase::evaluate_inverted_index(
         const ColumnsWithTypeAndName& arguments,
-        const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+        const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
         std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
         const InvertedIndexAnalyzerCtx* analyzer_ctx,
         segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
@@ -131,7 +131,7 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
     const auto* values = check_and_get_column<ColumnString>(source_col.get());
     const ColumnArray* array_col = nullptr;
-    if (is_column<vectorized::ColumnArray>(source_col.get())) {
+    if (is_column<ColumnArray>(source_col.get())) {
         array_col = check_and_get_column<ColumnArray>(source_col.get());
         if (array_col && !array_col->get_data().is_column_string()) {
             return Status::NotSupported(fmt::format(
@@ -638,4 +638,4 @@ void register_function_match(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMatchPhraseEdge>();
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -30,7 +30,7 @@
 #include "exec/pipeline/thrift_builder.h"
 #include "exprs/vslot_ref.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 class LocalExchangerTest : public testing::Test {
 public:
@@ -106,7 +106,7 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
         _sink_local_states[i]->_compute_hash_value_timer = compute_hash_value_timer;
         _sink_local_states[i]->_distribute_timer = distribute_timer;
         _sink_local_states[i]->_partitioner =
-                std::make_unique<vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>>(
+                std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(
 
                         num_partitions);
         auto texpr =
@@ -120,12 +120,10 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
                                  0)
                         .set_slot_ref(TSlotRefBuilder(0, 0).build())
                         .build();
-        auto slot = doris::vectorized::VSlotRef::create_shared(texpr);
+        auto slot = doris::VSlotRef::create_shared(texpr);
         slot->_column_id = 0;
-        ((vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>*)_sink_local_states[i]
-                 ->_partitioner.get())
-                ->_partition_expr_ctxs.push_back(
-                        std::make_shared<doris::vectorized::VExprContext>(slot));
+        ((Crc32HashPartitioner<ShuffleChannelIds>*)_sink_local_states[i]->_partitioner.get())
+                ->_partition_expr_ctxs.push_back(std::make_shared<doris::VExprContext>(slot));
         _sink_local_states[i]->_channel_id = i;
         _sink_local_states[i]->_shared_state = shared_state.get();
         _sink_local_states[i]->_dependency = sink_dep.get();
@@ -153,9 +151,9 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
         for (size_t i = 0; i < num_partitions; i++) {
             hash_vals_and_value.emplace_back(std::vector<uint32_t> {}, i);
             for (size_t j = 0; j < num_blocks; j++) {
-                vectorized::Block in_block;
-                vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
-                auto int_col0 = vectorized::ColumnInt32::create();
+                Block in_block;
+                DataTypePtr int_type = std::make_shared<DataTypeInt32>();
+                auto int_col0 = ColumnInt32::create();
                 int_col0->insert_many_vals(hash_vals_and_value.back().second, 10);
 
                 auto pre_size = hash_vals_and_value.back().first.size();
@@ -196,7 +194,7 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
         for (const auto& it : hash_vals_and_value) {
             bool eos = false;
             auto channel_id = it.first.back() % num_partitions;
-            vectorized::Block block;
+            Block block;
             EXPECT_EQ(exchanger->get_block(
                               _runtime_state.get(), &block, &eos,
                               {nullptr, nullptr, _local_states[channel_id]->_copy_data_timer},
@@ -213,9 +211,9 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
         // Add new block and source dependency will be ready again.
         for (size_t i = 0; i < num_partitions; i++) {
             EXPECT_EQ(_sink_local_states[i]->_dependency->ready(), true);
-            vectorized::Block in_block;
-            vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
-            auto int_col0 = vectorized::ColumnInt32::create();
+            Block in_block;
+            DataTypePtr int_type = std::make_shared<DataTypeInt32>();
+            auto int_col0 = ColumnInt32::create();
             int_col0->insert_many_vals(hash_vals_and_value[i].second, 10);
 
             auto pre_size = hash_vals_and_value[i].first.size();
@@ -244,7 +242,7 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
             bool eos = false;
             auto channel_id = it.first.back() % num_partitions;
             EXPECT_EQ(_local_states[channel_id]->_dependency->ready(), true);
-            vectorized::Block block;
+            Block block;
             EXPECT_EQ(exchanger->get_block(
                               _runtime_state.get(), &block, &eos,
                               {nullptr, nullptr, _local_states[channel_id]->_copy_data_timer},
@@ -265,7 +263,7 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
     }
     for (size_t i = 0; i < num_sources; i++) {
         bool eos = false;
-        vectorized::Block block;
+        Block block;
         EXPECT_EQ(exchanger->get_block(
                           _runtime_state.get(), &block, &eos,
                           {nullptr, nullptr, _local_states[i]->_copy_data_timer},
@@ -291,9 +289,9 @@ TEST_F(LocalExchangerTest, ShuffleExchanger) {
         hash_vals_and_value.clear();
         for (size_t i = 0; i < num_partitions; i++) {
             hash_vals_and_value.emplace_back(std::vector<uint32_t> {}, i);
-            vectorized::Block in_block;
-            vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
-            auto int_col0 = vectorized::ColumnInt32::create();
+            Block in_block;
+            DataTypePtr int_type = std::make_shared<DataTypeInt32>();
+            auto int_col0 = ColumnInt32::create();
             int_col0->insert_many_vals(hash_vals_and_value.back().second, 10);
 
             auto pre_size = hash_vals_and_value.back().first.size();
@@ -380,9 +378,9 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
         // Enqueue `num_blocks` blocks with 10 rows for each data queue.
         for (size_t i = 0; i < num_sources; i++) {
             for (size_t j = 0; j < num_blocks; j++) {
-                vectorized::Block in_block;
-                vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
-                auto int_col0 = vectorized::ColumnInt32::create();
+                Block in_block;
+                DataTypePtr int_type = std::make_shared<DataTypeInt32>();
+                auto int_col0 = ColumnInt32::create();
                 int_col0->insert_many_vals(i, 10);
                 in_block.insert({std::move(int_col0), int_type, "test_int_col0"});
                 EXPECT_EQ(expect_block_bytes, in_block.allocated_bytes());
@@ -414,7 +412,7 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
         for (size_t i = 0; i < num_sources; i++) {
             for (size_t j = 0; j <= num_blocks; j++) {
                 bool eos = false;
-                vectorized::Block block;
+                Block block;
                 EXPECT_EQ(
                         exchanger->get_block(_runtime_state.get(), &block, &eos,
                                              {nullptr, nullptr, _local_states[i]->_copy_data_timer},
@@ -432,9 +430,9 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
         // Add new block and source dependency will be ready again.
         for (size_t i = 0; i < num_sink; i++) {
             EXPECT_EQ(_sink_local_states[i]->_dependency->ready(), true);
-            vectorized::Block in_block;
-            vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
-            auto int_col0 = vectorized::ColumnInt32::create();
+            Block in_block;
+            DataTypePtr int_type = std::make_shared<DataTypeInt32>();
+            auto int_col0 = ColumnInt32::create();
             int_col0->insert_many_vals(i, 10);
             in_block.insert({std::move(int_col0), int_type, "test_int_col0"});
             bool in_eos = false;
@@ -453,7 +451,7 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
             EXPECT_EQ(_local_states[i]->_dependency->ready(), true);
             for (size_t j = 0; j <= 1; j++) {
                 bool eos = false;
-                vectorized::Block block;
+                Block block;
                 EXPECT_EQ(
                         exchanger->get_block(_runtime_state.get(), &block, &eos,
                                              {nullptr, nullptr, _local_states[i]->_copy_data_timer},
@@ -475,7 +473,7 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
     }
     for (size_t i = 0; i < num_sources; i++) {
         bool eos = false;
-        vectorized::Block block;
+        Block block;
         EXPECT_EQ(exchanger->get_block(
                           _runtime_state.get(), &block, &eos,
                           {nullptr, nullptr, _local_states[i]->_copy_data_timer},
@@ -499,9 +497,9 @@ TEST_F(LocalExchangerTest, PassthroughExchanger) {
     {
         // After exchanger closed, data will never push into data queue again.
         for (size_t i = 0; i < num_sink; i++) {
-            vectorized::Block in_block;
-            vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
-            auto int_col0 = vectorized::ColumnInt32::create();
+            Block in_block;
+            DataTypePtr int_type = std::make_shared<DataTypeInt32>();
+            auto int_col0 = ColumnInt32::create();
             int_col0->insert_many_vals(i, 10);
             in_block.insert({std::move(int_col0), int_type, "test_int_col0"});
             bool in_eos = false;
@@ -580,9 +578,9 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
         // Enqueue `num_blocks` blocks with 10 rows for each data queue.
         for (size_t i = 0; i < num_sources; i++) {
             for (size_t j = 0; j < num_blocks; j++) {
-                vectorized::Block in_block;
-                vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
-                auto int_col0 = vectorized::ColumnInt32::create();
+                Block in_block;
+                DataTypePtr int_type = std::make_shared<DataTypeInt32>();
+                auto int_col0 = ColumnInt32::create();
                 int_col0->insert_many_vals(i, 10);
                 in_block.insert({std::move(int_col0), int_type, "test_int_col0"});
                 EXPECT_EQ(expect_block_bytes, in_block.allocated_bytes());
@@ -620,7 +618,7 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
         for (size_t i = 0; i < num_sources; i++) {
             for (size_t j = 0; j <= (i == 0 ? num_blocks * num_sink : 0); j++) {
                 bool eos = false;
-                vectorized::Block block;
+                Block block;
                 EXPECT_EQ(
                         exchanger->get_block(_runtime_state.get(), &block, &eos,
                                              {nullptr, nullptr, _local_states[i]->_copy_data_timer},
@@ -640,9 +638,9 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
         // Add new block and source dependency will be ready again.
         for (size_t i = 0; i < 1; i++) {
             EXPECT_EQ(_sink_local_states[i]->_dependency->ready(), true);
-            vectorized::Block in_block;
-            vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
-            auto int_col0 = vectorized::ColumnInt32::create();
+            Block in_block;
+            DataTypePtr int_type = std::make_shared<DataTypeInt32>();
+            auto int_col0 = ColumnInt32::create();
             int_col0->insert_many_vals(i, 10);
             in_block.insert({std::move(int_col0), int_type, "test_int_col0"});
             bool in_eos = false;
@@ -661,7 +659,7 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
             EXPECT_EQ(_local_states[i]->_dependency->ready(), true);
             for (size_t j = 0; j <= 1; j++) {
                 bool eos = false;
-                vectorized::Block block;
+                Block block;
                 EXPECT_EQ(
                         exchanger->get_block(_runtime_state.get(), &block, &eos,
                                              {nullptr, nullptr, _local_states[i]->_copy_data_timer},
@@ -683,7 +681,7 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
     }
     for (size_t i = 0; i < 1; i++) {
         bool eos = false;
-        vectorized::Block block;
+        Block block;
         EXPECT_EQ(exchanger->get_block(
                           _runtime_state.get(), &block, &eos,
                           {nullptr, nullptr, _local_states[i]->_copy_data_timer},
@@ -707,9 +705,9 @@ TEST_F(LocalExchangerTest, PassToOneExchanger) {
     {
         // After exchanger closed, data will never push into data queue again.
         for (size_t i = 0; i < num_sink; i++) {
-            vectorized::Block in_block;
-            vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
-            auto int_col0 = vectorized::ColumnInt32::create();
+            Block in_block;
+            DataTypePtr int_type = std::make_shared<DataTypeInt32>();
+            auto int_col0 = ColumnInt32::create();
             int_col0->insert_many_vals(i, 10);
             in_block.insert({std::move(int_col0), int_type, "test_int_col0"});
             bool in_eos = false;
@@ -788,9 +786,9 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
         // Enqueue `num_blocks` blocks with 10 rows for each data queue.
         for (size_t i = 0; i < num_sources; i++) {
             for (size_t j = 0; j < num_blocks; j++) {
-                vectorized::Block in_block;
-                vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
-                auto int_col0 = vectorized::ColumnInt32::create();
+                Block in_block;
+                DataTypePtr int_type = std::make_shared<DataTypeInt32>();
+                auto int_col0 = ColumnInt32::create();
                 int_col0->insert_many_vals(i, 10);
                 in_block.insert({std::move(int_col0), int_type, "test_int_col0"});
                 EXPECT_EQ(expect_block_bytes, in_block.allocated_bytes());
@@ -822,7 +820,7 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
         for (size_t i = 0; i < num_sources; i++) {
             for (size_t j = 0; j <= num_blocks * num_sources; j++) {
                 bool eos = false;
-                vectorized::Block block;
+                Block block;
                 EXPECT_EQ(
                         exchanger->get_block(_runtime_state.get(), &block, &eos,
                                              {nullptr, nullptr, _local_states[i]->_copy_data_timer},
@@ -840,9 +838,9 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
         // Add new block and source dependency will be ready again.
         for (size_t i = 0; i < num_sink; i++) {
             EXPECT_EQ(_sink_local_states[i]->_dependency->ready(), true);
-            vectorized::Block in_block;
-            vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
-            auto int_col0 = vectorized::ColumnInt32::create();
+            Block in_block;
+            DataTypePtr int_type = std::make_shared<DataTypeInt32>();
+            auto int_col0 = ColumnInt32::create();
             int_col0->insert_many_vals(i, 10);
             in_block.insert({std::move(int_col0), int_type, "test_int_col0"});
             bool in_eos = false;
@@ -861,7 +859,7 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
             EXPECT_EQ(_local_states[i]->_dependency->ready(), true);
             for (size_t j = 0; j <= num_sources; j++) {
                 bool eos = false;
-                vectorized::Block block;
+                Block block;
                 EXPECT_EQ(
                         exchanger->get_block(_runtime_state.get(), &block, &eos,
                                              {nullptr, nullptr, _local_states[i]->_copy_data_timer},
@@ -883,7 +881,7 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
     }
     for (size_t i = 0; i < num_sources; i++) {
         bool eos = false;
-        vectorized::Block block;
+        Block block;
         EXPECT_EQ(exchanger->get_block(
                           _runtime_state.get(), &block, &eos,
                           {nullptr, nullptr, _local_states[i]->_copy_data_timer},
@@ -907,9 +905,9 @@ TEST_F(LocalExchangerTest, BroadcastExchanger) {
     {
         // After exchanger closed, data will never push into data queue again.
         for (size_t i = 0; i < num_sink; i++) {
-            vectorized::Block in_block;
-            vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
-            auto int_col0 = vectorized::ColumnInt32::create();
+            Block in_block;
+            DataTypePtr int_type = std::make_shared<DataTypeInt32>();
+            auto int_col0 = ColumnInt32::create();
             int_col0->insert_many_vals(i, 10);
             in_block.insert({std::move(int_col0), int_type, "test_int_col0"});
             bool in_eos = false;
@@ -993,9 +991,9 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
         for (size_t i = 0; i < num_sources; i++) {
             for (size_t j = 0; j < num_blocks; j++) {
                 EXPECT_EQ(exchanger->_is_pass_through, i * num_blocks + j >= num_sources);
-                vectorized::Block in_block;
-                vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
-                auto int_col0 = vectorized::ColumnInt32::create();
+                Block in_block;
+                DataTypePtr int_type = std::make_shared<DataTypeInt32>();
+                auto int_col0 = ColumnInt32::create();
                 int_col0->insert_many_vals(i, num_rows_per_block);
                 in_block.insert({std::move(int_col0), int_type, "test_int_col0"});
                 EXPECT_EQ(expect_block_bytes, in_block.allocated_bytes());
@@ -1030,7 +1028,7 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
             // First `num_sources` blocks are splited by rows into all channels and the others are passthrough.
             for (size_t j = 0; j <= 2 * num_blocks - 1; j++) {
                 bool eos = false;
-                vectorized::Block block;
+                Block block;
                 EXPECT_EQ(
                         exchanger->get_block(_runtime_state.get(), &block, &eos,
                                              {nullptr, nullptr, _local_states[i]->_copy_data_timer},
@@ -1051,9 +1049,9 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
         // Add new block and source dependency will be ready again.
         for (size_t i = 0; i < num_sink; i++) {
             EXPECT_EQ(_sink_local_states[i]->_dependency->ready(), true);
-            vectorized::Block in_block;
-            vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
-            auto int_col0 = vectorized::ColumnInt32::create();
+            Block in_block;
+            DataTypePtr int_type = std::make_shared<DataTypeInt32>();
+            auto int_col0 = ColumnInt32::create();
             int_col0->insert_many_vals(i, num_rows_per_block);
             in_block.insert({std::move(int_col0), int_type, "test_int_col0"});
             bool in_eos = false;
@@ -1072,7 +1070,7 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
             EXPECT_EQ(_local_states[i]->_dependency->ready(), true);
             for (size_t j = 0; j <= 1; j++) {
                 bool eos = false;
-                vectorized::Block block;
+                Block block;
                 EXPECT_EQ(
                         exchanger->get_block(_runtime_state.get(), &block, &eos,
                                              {nullptr, nullptr, _local_states[i]->_copy_data_timer},
@@ -1094,7 +1092,7 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
     }
     for (size_t i = 0; i < num_sources; i++) {
         bool eos = false;
-        vectorized::Block block;
+        Block block;
         EXPECT_EQ(exchanger->get_block(
                           _runtime_state.get(), &block, &eos,
                           {nullptr, nullptr, _local_states[i]->_copy_data_timer},
@@ -1118,9 +1116,9 @@ TEST_F(LocalExchangerTest, AdaptivePassthroughExchanger) {
     {
         // After exchanger closed, data will never push into data queue again.
         for (size_t i = 0; i < num_sink; i++) {
-            vectorized::Block in_block;
-            vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
-            auto int_col0 = vectorized::ColumnInt32::create();
+            Block in_block;
+            DataTypePtr int_type = std::make_shared<DataTypeInt32>();
+            auto int_col0 = ColumnInt32::create();
             int_col0->insert_many_vals(i, 10);
             in_block.insert({std::move(int_col0), int_type, "test_int_col0"});
             bool in_eos = false;
@@ -1193,15 +1191,13 @@ TEST_F(LocalExchangerTest, TestShuffleExchangerWrongMap) {
         _sink_local_states[i]->_compute_hash_value_timer = compute_hash_value_timer;
         _sink_local_states[i]->_distribute_timer = distribute_timer;
         _sink_local_states[i]->_partitioner =
-                std::make_unique<vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>>(
+                std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(
 
                         num_partitions);
-        auto slot = doris::vectorized::VSlotRef::create_shared(texpr);
+        auto slot = doris::VSlotRef::create_shared(texpr);
         slot->_column_id = 0;
-        ((vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>*)_sink_local_states[i]
-                 ->_partitioner.get())
-                ->_partition_expr_ctxs.push_back(
-                        std::make_shared<doris::vectorized::VExprContext>(slot));
+        ((Crc32HashPartitioner<ShuffleChannelIds>*)_sink_local_states[i]->_partitioner.get())
+                ->_partition_expr_ctxs.push_back(std::make_shared<doris::VExprContext>(slot));
         _sink_local_states[i]->_channel_id = i;
         _sink_local_states[i]->_shared_state = shared_state.get();
         _sink_local_states[i]->_dependency = sink_dep.get();
@@ -1228,9 +1224,9 @@ TEST_F(LocalExchangerTest, TestShuffleExchangerWrongMap) {
         for (size_t i = 0; i < num_partitions; i++) {
             hash_vals_and_value.emplace_back(std::vector<uint32_t> {}, i);
             for (size_t j = 0; j < num_blocks; j++) {
-                vectorized::Block in_block;
-                vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
-                auto int_col0 = vectorized::ColumnInt32::create();
+                Block in_block;
+                DataTypePtr int_type = std::make_shared<DataTypeInt32>();
+                auto int_col0 = ColumnInt32::create();
                 int_col0->insert_many_vals(hash_vals_and_value.back().second, 10);
 
                 auto pre_size = hash_vals_and_value.back().first.size();
@@ -1249,9 +1245,9 @@ TEST_F(LocalExchangerTest, TestShuffleExchangerWrongMap) {
         for (size_t i = 0; i < num_partitions; i++) {
             hash_vals_and_value.emplace_back(std::vector<uint32_t> {}, i);
             for (size_t j = 0; j < num_blocks; j++) {
-                vectorized::Block in_block;
-                vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
-                auto int_col0 = vectorized::ColumnInt32::create();
+                Block in_block;
+                DataTypePtr int_type = std::make_shared<DataTypeInt32>();
+                auto int_col0 = ColumnInt32::create();
                 int_col0->insert_many_vals(hash_vals_and_value[i].second, 10);
                 in_block.insert({std::move(int_col0), int_type, "test_int_col0"});
                 bool in_eos = false;
@@ -1277,9 +1273,9 @@ TEST_F(LocalExchangerTest, TestShuffleExchangerWrongMap) {
         LocalExchangeSinkOperatorX op(texprs, wrong_shuffle_idx_to_instance_idx);
         _sink_local_states[0]->_parent = &op;
         EXPECT_EQ(hash_vals_and_value[0].first.front() % num_partitions, 0);
-        vectorized::Block in_block;
-        vectorized::DataTypePtr int_type = std::make_shared<vectorized::DataTypeInt32>();
-        auto int_col0 = vectorized::ColumnInt32::create();
+        Block in_block;
+        DataTypePtr int_type = std::make_shared<DataTypeInt32>();
+        auto int_col0 = ColumnInt32::create();
         int_col0->insert_many_vals(hash_vals_and_value[0].second, 10);
         in_block.insert({std::move(int_col0), int_type, "test_int_col0"});
         bool in_eos = false;
@@ -1295,4 +1291,4 @@ TEST_F(LocalExchangerTest, TestShuffleExchangerWrongMap) {
                             .is<ErrorCode::INTERNAL_ERROR>());
     }
 }
-} // namespace doris::pipeline
+} // namespace doris

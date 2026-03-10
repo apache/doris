@@ -29,7 +29,7 @@
 #include "core/types.h"
 #include "core/uint128.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 /** Allows get the result type of the functions +, -, *, /, %, intDiv (integer division).
   * The rules are different from those used in C++.
@@ -326,4 +326,4 @@ inline constexpr int max_ascii_len<double>() {
 }
 } // namespace NumberTraits
 
-} // namespace doris::vectorized
+} // namespace doris

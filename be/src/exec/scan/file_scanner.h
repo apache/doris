@@ -46,14 +46,12 @@ class TFileRangeDesc;
 class TFileScanRange;
 class TFileScanRangeParams;
 
-namespace vectorized {
 class ShardedKVCache;
 class VExpr;
 class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class FileScanner : public Scanner {
     ENABLE_FACTORY_CREATOR(FileScanner);
@@ -65,9 +63,9 @@ public:
     static const std::string FileReadBytesProfile;
     static const std::string FileReadTimeProfile;
 
-    FileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
-                std::shared_ptr<vectorized::SplitSourceConnector> split_source,
-                RuntimeProfile* profile, ShardedKVCache* kv_cache,
+    FileScanner(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
+                std::shared_ptr<SplitSourceConnector> split_source, RuntimeProfile* profile,
+                ShardedKVCache* kv_cache,
                 const std::unordered_map<std::string, int>* colname_to_slot_id);
 
     Status _open_impl(RuntimeState* state) override;
@@ -117,7 +115,7 @@ protected:
 
 protected:
     const TFileScanRangeParams* _params = nullptr;
-    std::shared_ptr<vectorized::SplitSourceConnector> _split_source;
+    std::shared_ptr<SplitSourceConnector> _split_source;
     bool _first_scan_range = false;
     TFileRangeDesc _current_range;
 
@@ -139,7 +137,7 @@ protected:
     // dest slot name to index in _dest_vexpr_ctx;
     std::unordered_map<std::string, int> _dest_slot_name_to_idx;
     // col name to default value expr
-    std::unordered_map<std::string, vectorized::VExprContextSPtr> _col_default_value_ctx;
+    std::unordered_map<std::string, VExprContextSPtr> _col_default_value_ctx;
     // the map values of dest slot id to src slot desc
     // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
     std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
@@ -158,7 +156,7 @@ protected:
     std::map<std::string, DataTypePtr> _source_file_col_name_types;
 
     // For load task
-    vectorized::VExprContextSPtrs _pre_conjunct_ctxs;
+    VExprContextSPtrs _pre_conjunct_ctxs;
     std::unique_ptr<RowDescriptor> _src_row_desc;
     std::unique_ptr<RowDescriptor> _dest_row_desc;
     // row desc for default exprs
@@ -293,4 +291,4 @@ private:
                _split_source->num_scan_ranges() < config::max_external_file_meta_cache_num / 3;
     }
 };
-} // namespace doris::vectorized
+} // namespace doris

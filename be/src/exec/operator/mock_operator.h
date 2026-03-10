@@ -22,12 +22,12 @@
 #include "core/block/block.h"
 #include "exec/operator/operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 #ifdef BE_TEST
-class MockLocalState final : public doris::pipeline::PipelineXLocalState<FakeSharedState> {
+class MockLocalState final : public doris::PipelineXLocalState<FakeSharedState> {
 public:
-    using Base = doris::pipeline::PipelineXLocalState<FakeSharedState>;
+    using Base = doris::PipelineXLocalState<FakeSharedState>;
     ENABLE_FACTORY_CREATOR(MockLocalState);
 
     MockLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {}
@@ -42,7 +42,7 @@ public:
     ENABLE_FACTORY_CREATOR(MockOperatorX);
     MockOperatorX() = default;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override {
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
         if (_outout_blocks.empty()) {
             *eos = true;
             return Status::OK();
@@ -59,9 +59,9 @@ public:
 
     [[nodiscard]] bool is_source() const override { return true; }
     friend class MockLocalState;
-    std::list<vectorized::Block> _outout_blocks;
+    std::list<Block> _outout_blocks;
 };
 
 #endif
 
-} // namespace doris::pipeline
+} // namespace doris

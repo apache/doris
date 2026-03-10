@@ -31,7 +31,7 @@
 #include "core/types.h"
 #include "core/uint24.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 /**
@@ -435,4 +435,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

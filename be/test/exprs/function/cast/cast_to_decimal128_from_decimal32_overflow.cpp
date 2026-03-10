@@ -29,9 +29,9 @@
 #include "storage/olap_common.h"
 #include "testutil/test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST_F(FunctionCastToDecimalTest, test_to_decimal128_from_decimal32_overflow) {
     between_decimal_overflow_test_func<Decimal32, Decimal128V3>();
 }
-} // namespace doris::vectorized
+} // namespace doris

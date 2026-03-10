@@ -27,7 +27,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 void GetArrowResultBatchCtx::on_failure(const Status& status) {
@@ -44,7 +44,7 @@ void GetArrowResultBatchCtx::on_close(int64_t packet_seq, int64_t /* returned_ro
     _done->Run();
 }
 
-Status GetArrowResultBatchCtx::on_data(const std::shared_ptr<vectorized::Block>& block,
+Status GetArrowResultBatchCtx::on_data(const std::shared_ptr<Block>& block,
                                        const int64_t packet_seq, ResultBlockBufferBase* buffer) {
     if (_result != nullptr) {
         auto* arrow_buffer = assert_cast<ArrowFlightResultBlockBuffer*>(buffer);
@@ -97,7 +97,7 @@ Status ArrowFlightResultBlockBuffer::get_schema(std::shared_ptr<arrow::Schema>* 
                                              print_id(_fragment_id), _status));
 }
 
-Status ArrowFlightResultBlockBuffer::get_arrow_batch(std::shared_ptr<vectorized::Block>* result) {
+Status ArrowFlightResultBlockBuffer::get_arrow_batch(std::shared_ptr<Block>* result) {
     std::unique_lock<std::mutex> l(_lock);
     Defer defer {[&]() { _update_dependency(); }};
     if (!_status.ok()) {
@@ -178,10 +178,10 @@ Status VArrowFlightResultWriter::write(RuntimeState* state, Block& input_block) 
 
     {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_sinker->mem_tracker());
-        std::unique_ptr<vectorized::MutableBlock> mutable_block =
-                vectorized::MutableBlock::create_unique(block.clone_empty());
+        std::unique_ptr<MutableBlock> mutable_block =
+                MutableBlock::create_unique(block.clone_empty());
         RETURN_IF_ERROR(mutable_block->merge_ignore_overflow(std::move(block)));
-        std::shared_ptr<vectorized::Block> output_block = vectorized::Block::create_shared();
+        std::shared_ptr<Block> output_block = Block::create_shared();
         output_block->swap(mutable_block->to_block());
 
         auto num_rows = output_block->rows();
@@ -212,4 +212,4 @@ Status VArrowFlightResultWriter::close(Status st) {
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

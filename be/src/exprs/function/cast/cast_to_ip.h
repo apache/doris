@@ -22,7 +22,7 @@
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/cast/cast_base.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 struct CastToIPv4 {
@@ -145,4 +145,4 @@ WrapperType create_ip_wrapper(FunctionContext* context, const DataTypePtr& from_
 #include "common/compile_check_end.h"
 }; // namespace CastWrapper
 
-} // namespace doris::vectorized
+} // namespace doris

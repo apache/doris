@@ -32,7 +32,7 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class MockClosure : public google::protobuf::Closure {
 public:
@@ -62,7 +62,7 @@ public:
 
     void on_failure(const Status& status) override { _fail_cb(); }
     void on_close(int64_t packet_seq, int64_t returned_rows = 0) override { _close_cb(); }
-    Status on_data(const std::shared_ptr<vectorized::Block>& t_result, int64_t packet_seq,
+    Status on_data(const std::shared_ptr<Block>& t_result, int64_t packet_seq,
                    ResultBlockBufferBase* buffer) override {
         _data_cb();
         return GetArrowResultBatchCtx::on_data(t_result, packet_seq, buffer);
@@ -78,7 +78,7 @@ TEST_F(ArrowResultBlockBufferTest, TestArrowResultBlockBuffer) {
     MockRuntimeState state;
     state.batsh_size = 1;
     int buffer_size = 16;
-    auto dep = pipeline::Dependency::create_shared(0, 0, "Test", true);
+    auto dep = Dependency::create_shared(0, 0, "Test", true);
     auto ins_id = TUniqueId();
     bool fail = false;
     bool close = false;
@@ -203,7 +203,7 @@ TEST_F(ArrowResultBlockBufferTest, TestCancelArrowResultBlockBuffer) {
     MockRuntimeState state;
     state.batsh_size = 1;
     int buffer_size = 16;
-    auto dep = pipeline::Dependency::create_shared(0, 0, "Test", true);
+    auto dep = Dependency::create_shared(0, 0, "Test", true);
     auto ins_id = TUniqueId();
     bool fail = false;
     bool close = false;
@@ -277,7 +277,7 @@ TEST_F(ArrowResultBlockBufferTest, TestErrorClose) {
     MockRuntimeState state;
     state.batsh_size = 1;
     int buffer_size = 16;
-    auto dep = pipeline::Dependency::create_shared(0, 0, "Test", true);
+    auto dep = Dependency::create_shared(0, 0, "Test", true);
     auto ins_id = TUniqueId();
     bool fail = false;
     bool close = false;
@@ -322,7 +322,7 @@ TEST_F(ArrowResultBlockBufferTest, TestErrorClose) {
     {
         auto new_ins_id = TUniqueId();
         new_ins_id.lo = 1;
-        auto new_dep = pipeline::Dependency::create_shared(0, 0, "Test", true);
+        auto new_dep = Dependency::create_shared(0, 0, "Test", true);
         buffer.set_dependency(new_ins_id, new_dep);
         EXPECT_EQ(buffer.close(ins_id, Status::InternalError(""), 0).code(),
                   ErrorCode::INTERNAL_ERROR);
@@ -336,7 +336,7 @@ TEST_F(ArrowResultBlockBufferTest, TestArrowResultSerializeFailure) {
     MockRuntimeState state;
     state.batsh_size = 1;
     int buffer_size = 16;
-    auto dep = pipeline::Dependency::create_shared(0, 0, "Test", true);
+    auto dep = Dependency::create_shared(0, 0, "Test", true);
     auto ins_id = TUniqueId();
     bool fail = false;
     bool close = false;
@@ -391,4 +391,4 @@ TEST_F(ArrowResultBlockBufferTest, TestArrowResultSerializeFailure) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

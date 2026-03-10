@@ -41,7 +41,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 /**
  * support array_first_index and array_last_index for input lambda expr
@@ -121,4 +121,4 @@ void register_function_array_first_or_last_index(SimpleFunctionFactory& factory)
     factory.register_function<FunctionArrayFirstOrLastIndex<false>>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

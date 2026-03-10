@@ -65,17 +65,13 @@ namespace segment_v2 {
 enum CompressionTypePB : int;
 } // namespace segment_v2
 
-namespace pipeline {
 class ExchangeSinkOperatorX;
 class Dependency;
 class ExchangeSinkLocalState;
-} // namespace pipeline
-
-namespace vectorized {
 
 class BlockSerializer {
 public:
-    BlockSerializer(pipeline::ExchangeSinkLocalState* parent, bool is_local = true);
+    BlockSerializer(ExchangeSinkLocalState* parent, bool is_local = true);
 #ifdef BE_TEST
     BlockSerializer() : _batch_size(0) {};
 #endif
@@ -98,7 +94,7 @@ public:
 private:
     Status _serialize_block(PBlock* dest, size_t num_receivers = 1);
 
-    pipeline::ExchangeSinkLocalState* _parent;
+    ExchangeSinkLocalState* _parent;
     std::unique_ptr<MutableBlock> _mutable_block;
 
     bool _is_local;
@@ -108,12 +104,12 @@ private:
 
 class Channel {
 public:
-    friend class pipeline::ExchangeSinkBuffer;
+    friend class ExchangeSinkBuffer;
     // Create channel to send data to particular ipaddress/port/query/node
     // combination. buffer_size is specified in bytes and a soft limit on
     // how much tuple data is getting accumulated before being sent; it only applies
     // when data is added via add_row() and not sent directly via send_batch().
-    Channel(pipeline::ExchangeSinkLocalState* parent, TNetworkAddress brpc_dest,
+    Channel(ExchangeSinkLocalState* parent, TNetworkAddress brpc_dest,
             TUniqueId fragment_instance_id, PlanNodeId dest_node_id)
             : _parent(parent),
               _fragment_instance_id(std::move(fragment_instance_id)),
@@ -162,14 +158,14 @@ public:
     Status add_rows(Block* block, const uint32_t* data, const uint32_t offset, const uint32_t size,
                     bool eos);
 
-    void set_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) { _buffer = buffer; }
+    void set_exchange_buffer(ExchangeSinkBuffer* buffer) { _buffer = buffer; }
 
     InstanceLoId dest_ins_id() const { return _fragment_instance_id.lo; }
 
-    std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> get_send_callback(
-            pipeline::RpcInstance* ins, bool eos) {
+    std::shared_ptr<ExchangeSendCallback<PTransmitDataResult>> get_send_callback(RpcInstance* ins,
+                                                                                 bool eos) {
         if (!_send_callback) {
-            _send_callback = pipeline::ExchangeSendCallback<PTransmitDataResult>::create_shared();
+            _send_callback = ExchangeSendCallback<PTransmitDataResult>::create_shared();
         } else {
             _send_callback->cntl_->Reset();
         }
@@ -177,7 +173,7 @@ public:
         return _send_callback;
     }
 
-    std::shared_ptr<pipeline::Dependency> get_local_channel_dependency();
+    std::shared_ptr<Dependency> get_local_channel_dependency();
 
     void set_low_memory_mode(RuntimeState* state) { _serializer.set_low_memory_mode(state); }
 
@@ -196,7 +192,7 @@ private:
                 "local data stream receiver closed"); // local data stream receiver closed
     }
 
-    pipeline::ExchangeSinkLocalState* _parent = nullptr;
+    ExchangeSinkLocalState* _parent = nullptr;
 
     const TUniqueId _fragment_instance_id;
     PlanNodeId _dest_node_id;
@@ -215,9 +211,9 @@ private:
 
     BlockSerializer _serializer;
 
-    pipeline::ExchangeSinkBuffer* _buffer = nullptr;
+    ExchangeSinkBuffer* _buffer = nullptr;
     bool _eos_send = false;
-    std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> _send_callback;
+    std::shared_ptr<ExchangeSendCallback<PTransmitDataResult>> _send_callback;
     std::unique_ptr<PBlock> _pblock;
 };
 
@@ -230,7 +226,6 @@ private:
         }                                                                 \
     } while (0)
 
-} // namespace vectorized
 } // namespace doris
 
 #include "common/compile_check_end.h"

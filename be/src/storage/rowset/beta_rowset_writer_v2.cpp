@@ -96,8 +96,7 @@ Status BetaRowsetWriterV2::add_segment(uint32_t segment_id, const SegmentStatist
     return Status::OK();
 }
 
-Status BetaRowsetWriterV2::flush_memtable(vectorized::Block* block, int32_t segment_id,
-                                          int64_t* flush_size) {
+Status BetaRowsetWriterV2::flush_memtable(Block* block, int32_t segment_id, int64_t* flush_size) {
     if (block->rows() == 0) {
         return Status::OK();
     }
@@ -110,7 +109,7 @@ Status BetaRowsetWriterV2::flush_memtable(vectorized::Block* block, int32_t segm
     return Status::OK();
 }
 
-Status BetaRowsetWriterV2::flush_single_block(const vectorized::Block* block) {
+Status BetaRowsetWriterV2::flush_single_block(const Block* block) {
     return _segment_creator.flush_single_block(block);
 }
 
