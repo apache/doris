@@ -74,7 +74,6 @@ under the License.
         <dependency>
             <groupId>com.huaweicloud</groupId>
             <artifactId>hadoop-huaweicloud</artifactId>
-            <version>3.1.1-hw-46</version>
         </dependency>
         <dependency>
             <groupId>org.apache.hadoop</groupId>
