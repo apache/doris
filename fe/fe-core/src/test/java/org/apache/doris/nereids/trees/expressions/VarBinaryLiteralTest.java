@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.VarBinaryLiteral;
@@ -61,7 +62,7 @@ public class VarBinaryLiteralTest {
     public void testToThriftNode() throws Exception {
         VarBinaryLiteral lit = new VarBinaryLiteral(bytes("abc\0def"));
         TExprNode node = new TExprNode();
-        lit.toThrift(node);
+        lit.accept(ExprToThriftVisitor.INSTANCE, node);
         Assertions.assertEquals(TExprNodeType.VARBINARY_LITERAL, node.node_type);
         TVarBinaryLiteral v = node.getVarbinaryLiteral();
         Assertions.assertNotNull(v);
@@ -99,7 +100,7 @@ public class VarBinaryLiteralTest {
         Assertions.assertEquals(a.getStringValue(), b.getStringValue());
         // thrift should be constructed correctly after clone
         TExprNode node = new TExprNode();
-        b.toThrift(node);
+        b.accept(ExprToThriftVisitor.INSTANCE, node);
         Assertions.assertEquals(TExprNodeType.VARBINARY_LITERAL, node.node_type);
     }
 }

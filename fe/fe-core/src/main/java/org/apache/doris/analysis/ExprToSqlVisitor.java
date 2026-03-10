@@ -281,7 +281,7 @@ public class ExprToSqlVisitor extends ExprVisitor<String, ToSqlParams> {
     @Override
     public String visitMatchPredicate(MatchPredicate expr, ToSqlParams context) {
         return expr.getChild(0).accept(this, context)
-                + " " + expr.op.toString()
+                + " " + expr.getOp().toString()
                 + " " + expr.getChild(1).accept(this, context)
                 + expr.analyzerSqlFragment();
     }
@@ -301,7 +301,7 @@ public class ExprToSqlVisitor extends ExprVisitor<String, ToSqlParams> {
 
         StringBuilder sb = new StringBuilder("search('" + expr.getDslString() + "')");
 
-        List<String> astLines = expr.buildDslAstExplainLines();
+        List<String> astLines = ExprToThriftVisitor.buildDslAstExplainLines(expr);
         if (!astLines.isEmpty()) {
             sb.append("\n|      dsl_ast:");
             for (String line : astLines) {

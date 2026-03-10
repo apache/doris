@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -286,7 +287,7 @@ public abstract class FileScanNode extends ExternalScanNode {
                             DataType.fromCatalogType(slotDesc.getType()));
                     expr = ExpressionTranslator.translate(expression,
                             new PlanTranslatorContext(CascadesContext.initTempContext()));
-                    params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), expr.treeToThrift());
+                    params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), ExprToThriftVisitor.treeToThrift(expr));
                 } else {
                     params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), tExpr);
                 }
