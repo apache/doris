@@ -40,7 +40,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionGroupingBase : public IFunction {
 public:
@@ -81,4 +81,4 @@ public:
 
     String get_name() const override { return name; }
 };
-} // namespace doris::vectorized
+} // namespace doris

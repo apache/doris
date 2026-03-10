@@ -18,8 +18,10 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.gson.annotations.SerializedName;
@@ -106,7 +108,7 @@ public class AliasFunction extends Function {
                 .append(" WITH PARAMETER(")
                 .append(getParamsSting(parameters))
                 .append(") AS ")
-                .append(originFunction.toSqlWithoutTbl())
+                .append(originFunction.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE))
                 .append(";");
         return sb.toString();
     }

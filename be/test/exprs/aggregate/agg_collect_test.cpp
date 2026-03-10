@@ -44,12 +44,10 @@
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {
-namespace vectorized {
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 void register_aggregate_function_collect_list(AggregateFunctionSimpleFactory& factory);
 
@@ -167,7 +165,7 @@ public:
 
 private:
     const size_t _repeated_times = 2;
-    vectorized::Arena _agg_arena_pool;
+    Arena _agg_arena_pool;
 };
 
 TEST_F(VAggCollectTest, test_empty) {
@@ -321,4 +319,4 @@ TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64_with_max_size) {
             ColumnWithTypeAndName(std::move(array_column), array_data_type, "column"));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

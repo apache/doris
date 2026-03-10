@@ -29,7 +29,7 @@ namespace orc {
 class Type;
 } // namespace orc
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class HiveOrcNestedColumnUtils {
@@ -40,4 +40,4 @@ public:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

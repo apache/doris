@@ -282,7 +282,7 @@ private:
     }
 
     HllDataType _type = HLL_DATA_EMPTY;
-    vectorized::flat_hash_set<uint64_t> _hash_set;
+    flat_hash_set<uint64_t> _hash_set;
 
     // This field is much space consuming(HLL_REGISTERS_COUNT), we create
     // it only when it is really needed.

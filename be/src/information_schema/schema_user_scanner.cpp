@@ -76,7 +76,7 @@ Status SchemaUserScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaUserScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaUserScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }
@@ -92,7 +92,7 @@ Status SchemaUserScanner::get_next_block_internal(vectorized::Block* block, bool
     return _fill_block_impl(block);
 }
 
-Status SchemaUserScanner::_fill_block_impl(vectorized::Block* block) {
+Status SchemaUserScanner::_fill_block_impl(Block* block) {
     SCOPED_TIMER(_fill_block_timer);
 
     const auto& userinfo_list = _user_result.userinfo_list;

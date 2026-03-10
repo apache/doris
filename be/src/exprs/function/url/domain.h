@@ -27,7 +27,7 @@
 #include "exprs/function/url/protocol.h"
 #include "exprs/function/url/tldLookup.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 inline StringRef check_and_return_host(const Pos& pos, const Pos& dot_pos,
                                        const Pos& start_of_host) {
@@ -269,4 +269,4 @@ struct CutToFirstSignificantSubdomain {
         res_size = domain_end - tmp_data;
     }
 };
-} // namespace doris::vectorized
+} // namespace doris

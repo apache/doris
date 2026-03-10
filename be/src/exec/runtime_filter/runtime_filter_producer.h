@@ -57,10 +57,10 @@ public:
 
     Status send_size(RuntimeState* state, uint64_t local_filter_size);
 
-    void latch_dependency(const std::shared_ptr<pipeline::CountedFinishDependency>& dependency);
+    void latch_dependency(const std::shared_ptr<CountedFinishDependency>& dependency);
 
     // insert data to build filter
-    Status insert(vectorized::ColumnPtr column, size_t start) {
+    Status insert(ColumnPtr column, size_t start) {
         std::unique_lock<std::recursive_mutex> l(_rmtx);
         if (!_wrapper->is_valid() || _rf_state == State::READY_TO_PUBLISH ||
             _rf_state == State::PUBLISHED) {
@@ -180,7 +180,7 @@ private:
     bool _need_sync_filter_size = false;
 
     int64_t _synced_size = -1;
-    std::shared_ptr<pipeline::CountedFinishDependency> _dependency;
+    std::shared_ptr<CountedFinishDependency> _dependency;
 
     std::atomic<State> _rf_state;
 };

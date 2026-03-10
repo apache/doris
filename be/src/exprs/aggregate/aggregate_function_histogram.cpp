@@ -25,7 +25,7 @@
 #include "exprs/aggregate/factory_helpers.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <typename Data>
@@ -59,4 +59,4 @@ void register_aggregate_function_histogram(AggregateFunctionSimpleFactory& facto
     factory.register_alias("histogram", "hist");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

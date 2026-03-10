@@ -47,7 +47,7 @@ namespace doris {
 class RuntimeProfile;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 #define FOR_FIXED_LENGTH_TYPES(M)                                  \
     M(PrimitiveType::TYPE_TINYINT, ColumnInt8, Int8)               \
@@ -303,7 +303,7 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
     MutableColumnPtr data_column;
     if (doris_column->is_nullable()) {
         auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(doris_column->assume_mutable().get());
+                reinterpret_cast<ColumnNullable*>(doris_column->assume_mutable().get());
         data_column = nullable_column->get_nested_column_ptr();
         NullMap& null_map = nullable_column->get_null_map_data();
         size_t origin_size = null_map.size();
@@ -678,7 +678,7 @@ Status JniConnector::_fill_column_meta(const ColumnPtr& doris_column, const Data
     // insert null map address
     const IColumn* data_column = nullptr;
     if (column->is_nullable()) {
-        const auto& nullable_column = assert_cast<const vectorized::ColumnNullable&>(*column);
+        const auto& nullable_column = assert_cast<const ColumnNullable&>(*column);
         data_column = &(nullable_column.get_nested_column());
         const auto& null_map = nullable_column.get_null_map_data();
         meta_data.emplace_back((long)null_map.data());
@@ -858,4 +858,4 @@ void JniConnector::_collect_profile_before_close() {
     }
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

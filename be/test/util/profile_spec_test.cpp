@@ -28,7 +28,7 @@
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 class ProfileSpecTest : public testing::Test {
 public:
@@ -73,7 +73,7 @@ private:
         Status prepare(RuntimeState* state) override { return Status::OK(); }
         Status open(RuntimeState* state) { return Status::OK(); }
         Status close(RuntimeState* state) override { return Status::OK(); }
-        Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override {
+        Status get_block(RuntimeState* state, Block* block, bool* eos) override {
             return Status::OK();
         }
     };
@@ -171,4 +171,4 @@ TEST_F(ProfileSpecTest, CommonCountersCustomCounters) {
     ASSERT_TRUE(local_state->operator_profile()->get_child("CommonCounters") != nullptr);
 }
 
-} // namespace doris::pipeline
+} // namespace doris

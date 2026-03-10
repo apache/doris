@@ -36,7 +36,7 @@
 #include "exprs/function/cast/cast_to_variant.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 namespace CastWrapper {
 
@@ -401,4 +401,4 @@ protected:
 void register_function_cast(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBuilderCast>();
 }
-} // namespace doris::vectorized
+} // namespace doris

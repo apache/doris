@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.thrift.TExprNode;
 
@@ -54,19 +52,13 @@ public final class MaxLiteral extends LiteralExpr {
     }
 
     @Override
-    public String toSqlImpl() {
-        return "MAXVALUE";
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return "MAXVALUE";
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitMaxLiteral(this, context);
     }
 
     @Override
     public String toString() {
-        return toSql();
+        return "MAXVALUE";
     }
 
     @Override

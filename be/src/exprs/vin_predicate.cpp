@@ -41,7 +41,7 @@ class RowDescriptor;
 class RuntimeState;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 VInPredicate::VInPredicate(const TExprNode& node)
@@ -188,4 +188,4 @@ std::string VInPredicate::debug_string() const {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

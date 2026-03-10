@@ -45,12 +45,9 @@ class TUniqueId;
 
 using InstanceLoId = int64_t;
 
-namespace pipeline {
 class Dependency;
 class ExchangeSinkLocalState;
-} // namespace pipeline
 
-namespace vectorized {
 class Channel;
 
 // We use BroadcastPBlockHolder to hold a broadcasted PBlock. For broadcast shuffle, one PBlock
@@ -84,7 +81,7 @@ class BroadcastPBlockHolderMemLimiter
 public:
     BroadcastPBlockHolderMemLimiter() = delete;
 
-    BroadcastPBlockHolderMemLimiter(std::shared_ptr<pipeline::Dependency>& broadcast_dependency)
+    BroadcastPBlockHolderMemLimiter(std::shared_ptr<Dependency>& broadcast_dependency)
             : _total_queue_buffer_size_limit(config::exchg_node_buffer_size_bytes),
               _total_queue_blocks_count_limit(config::num_broadcast_buffer) {
         _broadcast_dependency = broadcast_dependency;
@@ -103,20 +100,17 @@ private:
     std::atomic_int64_t _total_queue_blocks_count_limit {0};
     std::atomic_int64_t _total_queue_buffer_size {0};
     std::atomic_int64_t _total_queue_blocks_count {0};
-    std::shared_ptr<pipeline::Dependency> _broadcast_dependency;
+    std::shared_ptr<Dependency> _broadcast_dependency;
     std::mutex _holders_lock;
 };
 
-} // namespace vectorized
-
-namespace pipeline {
 struct TransmitInfo {
     std::unique_ptr<PBlock> block;
     bool eos;
 };
 
 struct BroadcastTransmitInfo {
-    std::shared_ptr<vectorized::BroadcastPBlockHolder> block_holder = nullptr;
+    std::shared_ptr<BroadcastPBlockHolder> block_holder = nullptr;
     bool eos;
 };
 
@@ -142,11 +136,10 @@ struct RpcInstance {
     int64_t seq = 0;
 
     // Queue for regular data transmission requests
-    std::unordered_map<vectorized::Channel*, std::queue<TransmitInfo, std::list<TransmitInfo>>>
-            package_queue;
+    std::unordered_map<Channel*, std::queue<TransmitInfo, std::list<TransmitInfo>>> package_queue;
 
     // Queue for broadcast data transmission requests
-    std::unordered_map<vectorized::Channel*,
+    std::unordered_map<Channel*,
                        std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>
             broadcast_package_queue;
 
@@ -173,7 +166,7 @@ class ExchangeSendCallback : public ::doris::DummyBrpcCallback<Response> {
 public:
     ExchangeSendCallback() = default;
 
-    void init(pipeline::RpcInstance* ins, bool eos) {
+    void init(RpcInstance* ins, bool eos) {
         _ins = ins;
         _eos = eos;
     }
@@ -276,8 +269,8 @@ public:
 
     void construct_request(TUniqueId);
 
-    Status add_block(vectorized::Channel* channel, TransmitInfo&& request);
-    Status add_block(vectorized::Channel* channel, BroadcastTransmitInfo&& request);
+    Status add_block(Channel* channel, TransmitInfo&& request);
+    Status add_block(Channel* channel, BroadcastTransmitInfo&& request);
     void close();
     void update_rpc_time(RpcInstance& ins, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
@@ -347,6 +340,5 @@ private:
     int _send_multi_blocks_byte_size = 256 * 1024;
 };
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

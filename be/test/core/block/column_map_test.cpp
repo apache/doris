@@ -33,7 +33,7 @@
 #include "core/field.h"
 #include "gtest/gtest_pred_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 TEST(ColumnMapTest2, StringKeyTest) {
     auto col_map_str64 = ColumnMap(ColumnString64::create(), ColumnInt64::create(),
                                    ColumnArray::ColumnOffsets::create());
@@ -415,4 +415,4 @@ TEST(ColumnMapTest2, StringValueTest) {
         EXPECT_EQ(v[i], v3[i]);
     }
 };
-} // namespace doris::vectorized
+} // namespace doris

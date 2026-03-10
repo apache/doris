@@ -50,7 +50,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 // space-saving algorithm
 template <PrimitiveType T>
@@ -380,6 +380,6 @@ private:
     DataTypePtr _argument_type;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

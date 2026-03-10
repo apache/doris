@@ -35,7 +35,7 @@
 #include "exprs/function/cast/cast_to_string.h"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 bool DataTypeDateTime::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
@@ -49,4 +49,4 @@ MutableColumnPtr DataTypeDateTime::create_column() const {
     return DataTypeNumberBase<PrimitiveType::TYPE_DATETIME>::create_column();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

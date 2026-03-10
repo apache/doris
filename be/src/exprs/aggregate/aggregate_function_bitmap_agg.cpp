@@ -22,7 +22,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <bool nullable>
@@ -60,4 +60,4 @@ AggregateFunctionPtr create_aggregate_function_bitmap_agg(const std::string& nam
 void register_aggregate_function_bitmap_agg(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("bitmap_agg", create_aggregate_function_bitmap_agg);
 }
-} // namespace doris::vectorized
+} // namespace doris

@@ -23,7 +23,7 @@
 #include "core/data_type/primitive_type.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 TEST(BlockCheckType, test1) {
     auto block = Block {
             ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3, 4}),
@@ -39,4 +39,4 @@ TEST(BlockCheckType, test1) {
     EXPECT_FALSE(st.ok());
     std::cout << st.msg() << std::endl;
 }
-} // namespace doris::vectorized
+} // namespace doris

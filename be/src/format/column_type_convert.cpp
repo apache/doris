@@ -20,7 +20,7 @@
 #include "common/cast_set.h"
 #include "core/data_type/define_primitive_type.h"
 
-namespace doris::vectorized::converter {
+namespace doris::converter {
 #include "common/compile_check_begin.h"
 
 #define FOR_LOGICAL_INTEGER_TYPES(M) \
@@ -442,4 +442,4 @@ std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(const Da
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized::converter
+} // namespace doris::converter

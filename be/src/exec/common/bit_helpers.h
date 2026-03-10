@@ -20,7 +20,7 @@
 
 #pragma once
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename T>
 inline uint32_t get_leading_zero_bits_unsafe(T x) {
@@ -42,4 +42,4 @@ inline uint32_t bit_scan_reverse(T x) {
            get_leading_zero_bits_unsafe(x);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

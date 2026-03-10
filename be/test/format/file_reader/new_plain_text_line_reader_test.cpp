@@ -21,7 +21,7 @@
 
 #include <gtest/gtest.h>
 
-namespace doris::vectorized {
+namespace doris {
 
 // Base test class for text line reader tests
 class PlainTextLineReaderTest : public testing::Test {
@@ -165,4 +165,4 @@ TEST_F(EncloseCsvLineReaderTest, MultiCharDelimiters) {
                      {"\"a|||b\"|||c", "\"d|||e\"|||f"}, {{7}, {7}});
 }
 
-} // namespace doris::vectorized
+} // namespace doris

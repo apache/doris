@@ -29,7 +29,7 @@ namespace doris {
 class ColumnPredicate;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class Block;
@@ -112,4 +112,4 @@ protected:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

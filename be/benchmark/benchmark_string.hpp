@@ -23,7 +23,7 @@
 #include "vec/functions/function_string.cpp"
 #include "vec/functions/string_hex_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // old logic for to_base64
 struct OldToBase64Impl {
@@ -391,4 +391,4 @@ BENCHMARK(BM_UnhexNullImpl_New)
         ->Args({100, 100000})
         ->Unit(benchmark::kNanosecond);
 
-} // namespace doris::vectorized
+} // namespace doris

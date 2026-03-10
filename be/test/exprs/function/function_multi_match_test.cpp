@@ -24,7 +24,7 @@
 #include "core/data_type/data_type_string.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionMultiMatchTest : public testing::Test {
 protected:
@@ -73,4 +73,4 @@ TEST_F(FunctionMultiMatchTest, EvaluateInvertedIndexWithNullIterator) {
             << "Error message should contain column name. Actual message: " << error_msg;
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -46,7 +46,7 @@
 #include "util/string_parser.hpp"
 #include "util/to_string.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 #ifdef BE_TEST
 template <PrimitiveType T>
@@ -212,4 +212,4 @@ template class DataTypeNumberBase<TYPE_TIME>;
 template class DataTypeNumberBase<TYPE_TIMEV2>;
 template class DataTypeNumberBase<TYPE_TIMESTAMPTZ>;
 
-} // namespace doris::vectorized
+} // namespace doris

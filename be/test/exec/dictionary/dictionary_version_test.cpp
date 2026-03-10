@@ -25,7 +25,7 @@
 #include "exprs/function/dictionary.h"
 #include "exprs/function/dictionary_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(DictionaryVersionTest, refresh_dict) {
     auto dict_factory = std::make_shared<DictionaryFactory>();
@@ -158,4 +158,4 @@ TEST(DictionaryVersionTest, commit_dict) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -33,12 +33,10 @@
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {
-namespace vectorized {
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 void register_aggregate_function_sequence_match(AggregateFunctionSimpleFactory& factory);
 
@@ -128,7 +126,7 @@ TEST_F(VSequenceMatchTest, testMatchSerialize) {
     const int NUM_CONDS = 4;
     auto column_pattern = ColumnString::create();
     for (int i = 0; i < NUM_CONDS; i++) {
-        column_pattern->insert(vectorized::Field::create_field<TYPE_STRING>("(?1)(?2)"));
+        column_pattern->insert(Field::create_field<TYPE_STRING>("(?1)(?2)"));
     }
 
     auto column_timestamp = ColumnDateTimeV2::create();
@@ -139,22 +137,22 @@ TEST_F(VSequenceMatchTest, testMatchSerialize) {
     }
 
     auto column_event1 = ColumnUInt8::create();
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event2 = ColumnUInt8::create();
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event3 = ColumnUInt8::create();
-    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
-    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
 
     std::unique_ptr<char[]> memory(new char[agg_function_sequence_match->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -199,7 +197,7 @@ TEST_F(VSequenceMatchTest, testCountSerialize) {
     const int NUM_CONDS = 4;
     auto column_pattern = ColumnString::create();
     for (int i = 0; i < NUM_CONDS; i++) {
-        column_pattern->insert(vectorized::Field::create_field<TYPE_STRING>("(?1)(?2)"));
+        column_pattern->insert(Field::create_field<TYPE_STRING>("(?1)(?2)"));
     }
 
     auto column_timestamp = ColumnDateTimeV2::create();
@@ -210,16 +208,16 @@ TEST_F(VSequenceMatchTest, testCountSerialize) {
     }
 
     auto column_event1 = ColumnUInt8::create();
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event2 = ColumnUInt8::create();
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
 
     std::unique_ptr<char[]> memory(new char[agg_function_sequence_count->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -264,7 +262,7 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
     const int NUM_CONDS = 2;
     auto column_pattern = ColumnString::create();
     for (int i = 0; i < NUM_CONDS; i++) {
-        column_pattern->insert(vectorized::Field::create_field<TYPE_STRING>("(?1)(?2)"));
+        column_pattern->insert(Field::create_field<TYPE_STRING>("(?1)(?2)"));
     }
 
     auto column_timestamp = ColumnDateTimeV2::create();
@@ -275,12 +273,12 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
     }
 
     auto column_event1 = ColumnUInt8::create();
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
 
     auto column_event2 = ColumnUInt8::create();
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
 
     std::unique_ptr<char[]> memory(new char[agg_function_sequence_match->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -316,12 +314,12 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
     }
 
     auto column_event3 = ColumnUInt8::create();
-    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event4 = ColumnUInt8::create();
-    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event4->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event4->insert(Field::create_field<TYPE_BOOLEAN>(1));
 
     std::unique_ptr<char[]> memory3(new char[agg_function_sequence_match->size_of_data()]);
     AggregateDataPtr place3 = memory3.get();
@@ -353,7 +351,7 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     const int NUM_CONDS = 2;
     auto column_pattern = ColumnString::create();
     for (int i = 0; i < NUM_CONDS; i++) {
-        column_pattern->insert(vectorized::Field::create_field<TYPE_STRING>("(?1)(?2)"));
+        column_pattern->insert(Field::create_field<TYPE_STRING>("(?1)(?2)"));
     }
 
     auto column_timestamp = ColumnDateTimeV2::create();
@@ -364,12 +362,12 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     }
 
     auto column_event1 = ColumnUInt8::create();
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
 
     auto column_event2 = ColumnUInt8::create();
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
 
     std::unique_ptr<char[]> memory(new char[agg_function_sequence_count->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -405,12 +403,12 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     }
 
     auto column_event3 = ColumnUInt8::create();
-    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(1));
 
     auto column_event4 = ColumnUInt8::create();
-    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
-    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event4->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event4->insert(Field::create_field<TYPE_BOOLEAN>(0));
 
     std::unique_ptr<char[]> memory3(new char[agg_function_sequence_count->size_of_data()]);
     AggregateDataPtr place3 = memory3.get();
@@ -431,4 +429,4 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     agg_function_sequence_count->destroy(place3);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

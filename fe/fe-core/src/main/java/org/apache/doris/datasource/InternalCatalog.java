@@ -2933,14 +2933,14 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException(e.getMessage());
         }
         try {
-            int groupCommitIntervalMs = PropertyAnalyzer.analyzeGroupCommitIntervalMs(properties);
+            int groupCommitIntervalMs = PropertyAnalyzer.analyzeGroupCommitIntervalMs(properties, true);
             olapTable.setGroupCommitIntervalMs(groupCommitIntervalMs);
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
         }
 
         try {
-            int groupCommitDataBytes = PropertyAnalyzer.analyzeGroupCommitDataBytes(properties);
+            int groupCommitDataBytes = PropertyAnalyzer.analyzeGroupCommitDataBytes(properties, true);
             olapTable.setGroupCommitDataBytes(groupCommitDataBytes);
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
@@ -3008,9 +3008,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                         idGeneratorBuffer,
                         binlogConfigForTask,
                         partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified());
+                olapTable.addPartition(partition);
                 afterCreatePartitions(db.getId(), olapTable.getId(), olapTable.getPartitionIds(),
                         olapTable.getIndexIdList(), true /* isCreateTable */, true /* isBatchCommit */, olapTable);
-                olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
                 try {

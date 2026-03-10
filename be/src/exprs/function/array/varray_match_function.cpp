@@ -32,7 +32,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 ///* bool array_match_all/any(array<boolean>) *///
 template <bool MATCH_ALL>
@@ -139,4 +139,4 @@ void register_function_array_match(SimpleFunctionFactory& factory) {
     factory.register_function<
             ArrayMatchFunction<false>>(); // MATCH_ALL = false means array_match_any
 }
-} // namespace doris::vectorized
+} // namespace doris

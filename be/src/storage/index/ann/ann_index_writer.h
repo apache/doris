@@ -79,7 +79,7 @@ private:
     // VectorIndex should be weak shared by AnnIndexWriter and VectorIndexReader
     // This should be a weak_ptr
     std::shared_ptr<VectorIndex> _vector_index;
-    vectorized::PODArray<float> _float_array;
+    PODArray<float> _float_array;
     IndexFileWriter* _index_file_writer;
     const TabletIndex* _index_meta;
     std::shared_ptr<DorisFSDirectory> _dir;

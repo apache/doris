@@ -66,7 +66,6 @@ class ColumnIterator;
 struct AnnRangeSearchRuntime;
 }; // namespace segment_v2
 
-namespace vectorized {
 #include "common/compile_check_begin.h"
 #define RETURN_IF_ERROR_OR_PREPARED(stmt) \
     if (_prepared) {                      \
@@ -449,8 +448,6 @@ protected:
     bool _virtual_column_is_fulfilled = false;
 };
 
-} // namespace vectorized
-
 // NOLINTBEGIN(readability-function-size)
 template <PrimitiveType T>
 Status create_texpr_literal_node(const void* data, TExprNode* node, int precision = 0,
@@ -545,21 +542,21 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_decimal_literal(decimal_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMALV2, precision, scale));
     } else if constexpr (T == TYPE_DECIMAL32) {
-        const auto* origin_value = reinterpret_cast<const vectorized::Decimal<int32_t>*>(data);
+        const auto* origin_value = reinterpret_cast<const Decimal<int32_t>*>(data);
         (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
         TDecimalLiteral decimal_literal;
         decimal_literal.__set_value(origin_value->to_string(precision, scale));
         (*node).__set_decimal_literal(decimal_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL32, precision, scale));
     } else if constexpr (T == TYPE_DECIMAL64) {
-        const auto* origin_value = reinterpret_cast<const vectorized::Decimal<int64_t>*>(data);
+        const auto* origin_value = reinterpret_cast<const Decimal<int64_t>*>(data);
         (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
         TDecimalLiteral decimal_literal;
         decimal_literal.__set_value(origin_value->to_string(precision, scale));
         (*node).__set_decimal_literal(decimal_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL64, precision, scale));
     } else if constexpr (T == TYPE_DECIMAL128I) {
-        const auto* origin_value = reinterpret_cast<const vectorized::Decimal<int128_t>*>(data);
+        const auto* origin_value = reinterpret_cast<const Decimal<int128_t>*>(data);
         (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
         TDecimalLiteral decimal_literal;
         // e.g. For a decimal(26,6) column, the initial value of the _min of the MinMax RF
@@ -573,7 +570,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_decimal_literal(decimal_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL128I, precision, scale));
     } else if constexpr (T == TYPE_DECIMAL256) {
-        const auto* origin_value = reinterpret_cast<const vectorized::Decimal<wide::Int256>*>(data);
+        const auto* origin_value = reinterpret_cast<const Decimal<wide::Int256>*>(data);
         (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
         TDecimalLiteral decimal_literal;
         decimal_literal.__set_value(origin_value->to_string(precision, scale));
@@ -611,7 +608,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         const auto* origin_value = reinterpret_cast<const IPv6*>(data);
         (*node).__set_node_type(TExprNodeType::IPV6_LITERAL);
         TIPv6Literal literal;
-        literal.__set_value(vectorized::CastToString::from_ip(*origin_value));
+        literal.__set_value(CastToString::from_ip(*origin_value));
         (*node).__set_ipv6_literal(literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV6));
     } else if constexpr (T == TYPE_TIMEV2) {
@@ -640,8 +637,8 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
 TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, int precision = 0,
                                  int scale = 0);
 
-TExprNode create_texpr_node_from(const vectorized::Field& field, const PrimitiveType& type,
-                                 int precision, int scale);
+TExprNode create_texpr_node_from(const Field& field, const PrimitiveType& type, int precision,
+                                 int scale);
 
 #include "common/compile_check_end.h"
 } // namespace doris

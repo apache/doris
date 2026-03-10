@@ -20,8 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
@@ -50,7 +48,7 @@ public class LikePredicate extends Predicate {
     }
 
     @SerializedName("op")
-    private Operator op;
+    Operator op;
 
     private LikePredicate() {
         // use for serde only
@@ -88,15 +86,8 @@ public class LikePredicate extends Predicate {
     }
 
     @Override
-    public String toSqlImpl() {
-        return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + op.toString() + " "
-                + getChild(1).toSql(disableTableName, needExternalSql, tableType, table);
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitLikePredicate(this, context);
     }
 
     @Override

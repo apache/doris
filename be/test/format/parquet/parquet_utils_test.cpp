@@ -27,7 +27,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/types.h"
 
-namespace doris::vectorized::parquet_utils {
+namespace doris::parquet_utils {
 
 TEST(ParquetUtilsTest, JoinPath) {
     EXPECT_EQ("a.b.c", join_path({"a", "b", "c"}));
@@ -214,4 +214,4 @@ TEST(ParquetUtilsTest, BuildPathMap) {
     EXPECT_EQ("c", map["root.b.c"]->name);
 }
 
-} // namespace doris::vectorized::parquet_utils
+} // namespace doris::parquet_utils

@@ -49,7 +49,7 @@
 #include "util/thread.h"
 #include "util/threadpool.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                                 std::shared_ptr<ScanTask> scan_task) {
@@ -267,8 +267,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     scan_task->cached_blocks.back().first->rows() + free_block->rows() <=
                             ctx->batch_size()) {
                     size_t block_size = scan_task->cached_blocks.back().first->allocated_bytes();
-                    vectorized::MutableBlock mutable_block(
-                            scan_task->cached_blocks.back().first.get());
+                    MutableBlock mutable_block(scan_task->cached_blocks.back().first.get());
                     status = mutable_block.merge(*free_block);
                     if (!status.ok()) {
                         LOG(WARNING) << "Block merge failed: " << status.to_string();
@@ -374,7 +373,7 @@ int ScannerScheduler::default_min_active_file_scan_threads() {
 }
 
 void ScannerScheduler::_make_sure_virtual_col_is_materialized(
-        const std::shared_ptr<Scanner>& scanner, vectorized::Block* free_block) {
+        const std::shared_ptr<Scanner>& scanner, Block* free_block) {
 #ifndef NDEBUG
     // Currently, virtual column can only be used on olap table.
     std::shared_ptr<OlapScanner> olap_scanner = std::dynamic_pointer_cast<OlapScanner>(scanner);
@@ -389,8 +388,8 @@ void ScannerScheduler::_make_sure_virtual_col_is_materialized(
     size_t idx = 0;
     for (const auto& entry : *free_block) {
         // Virtual column must be materialized on the end of SegmentIterator's next batch method.
-        const vectorized::ColumnNothing* column_nothing =
-                vectorized::check_and_get_column<vectorized::ColumnNothing>(entry.column.get());
+        const ColumnNothing* column_nothing =
+                check_and_get_column<ColumnNothing>(entry.column.get());
         if (column_nothing == nullptr) {
             idx++;
             continue;
@@ -438,4 +437,4 @@ bool ScannerSplitRunner::is_auto_reschedule() const {
     return false;
 }
 
-} // namespace doris::vectorized
+} // namespace doris

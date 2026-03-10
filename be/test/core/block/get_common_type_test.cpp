@@ -29,15 +29,15 @@
 #include "core/data_type/get_least_supertype.h"
 #include "gtest/gtest_pred_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 static bool operator==(const IDataType& left, const IDataType& right) {
     return left.equals(right);
 }
 
-} // namespace doris::vectorized
+} // namespace doris
 
-using namespace doris::vectorized;
+using namespace doris;
 
 static DataTypePtr typeFromString(const std::string& str) {
     if (str == "Nothing") {

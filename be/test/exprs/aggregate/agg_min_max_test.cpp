@@ -40,7 +40,7 @@
 
 const int agg_test_batch_size = 4096;
 
-namespace doris::vectorized {
+namespace doris {
 // declare function
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory);
 
@@ -196,4 +196,4 @@ TEST_P(AggMinMaxTest, any_json_test) {
 INSTANTIATE_TEST_SUITE_P(Params, AggMinMaxTest,
                          ::testing::ValuesIn(std::vector<std::string> {"min", "max"}));
 
-} // namespace doris::vectorized
+} // namespace doris

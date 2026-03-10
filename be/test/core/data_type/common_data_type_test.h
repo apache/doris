@@ -48,7 +48,7 @@
 //          serialize (const IColumn &column, char *buf, int be_exec_version), deserialize (const char *buf, MutableColumnPtr *column, int be_exec_version)
 // 4. compare: equals (const IDataType &rhs)
 
-namespace doris::vectorized {
+namespace doris {
 
 static bool gen_check_data_in_assert = true;
 
@@ -281,4 +281,4 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

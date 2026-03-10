@@ -24,12 +24,14 @@ import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.info.TableNameInfo;
@@ -208,7 +210,7 @@ public class LakeSoulPredicateTest {
                 CompoundPredicate orPredicate = new CompoundPredicate(Operator.OR,
                         validExprs.get(i), validExprs.get(j));
                 Expression expression = LakeSoulUtils.convertToSubstraitExpr(orPredicate, schema);
-                Assert.assertNotNull("pred: " + orPredicate.toSql(), expression);
+                Assert.assertNotNull("pred: " + orPredicate.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE), expression);
             }
         }
         // both invalid
@@ -217,7 +219,7 @@ public class LakeSoulPredicateTest {
                 CompoundPredicate orPredicate = new CompoundPredicate(Operator.OR,
                         invalidExprs.get(i), invalidExprs.get(j));
                 Expression expression = LakeSoulUtils.convertToSubstraitExpr(orPredicate, schema);
-                Assert.assertNull("pred: " + orPredicate.toSql(), expression);
+                Assert.assertNull("pred: " + orPredicate.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE), expression);
             }
         }
         // valid or invalid
@@ -226,7 +228,7 @@ public class LakeSoulPredicateTest {
                 CompoundPredicate orPredicate = new CompoundPredicate(Operator.OR,
                         validExprs.get(i), invalidExprs.get(j));
                 Expression expression = LakeSoulUtils.convertToSubstraitExpr(orPredicate, schema);
-                Assert.assertNull("pred: " + orPredicate.toSql(), expression);
+                Assert.assertNull("pred: " + orPredicate.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE), expression);
             }
         }
 
@@ -237,7 +239,7 @@ public class LakeSoulPredicateTest {
                 CompoundPredicate andPredicate = new CompoundPredicate(Operator.AND,
                         validExprs.get(i), validExprs.get(j));
                 Expression expression = LakeSoulUtils.convertToSubstraitExpr(andPredicate, schema);
-                Assert.assertNotNull("pred: " + andPredicate.toSql(), expression);
+                Assert.assertNotNull("pred: " + andPredicate.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE), expression);
             }
         }
         // both invalid
@@ -246,7 +248,7 @@ public class LakeSoulPredicateTest {
                 CompoundPredicate andPredicate = new CompoundPredicate(Operator.AND,
                         invalidExprs.get(i), invalidExprs.get(j));
                 Expression expression = LakeSoulUtils.convertToSubstraitExpr(andPredicate, schema);
-                Assert.assertNull("pred: " + andPredicate.toSql(), expression);
+                Assert.assertNull("pred: " + andPredicate.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE), expression);
             }
         }
         // valid and invalid
@@ -255,7 +257,7 @@ public class LakeSoulPredicateTest {
                 CompoundPredicate andPredicate = new CompoundPredicate(Operator.AND,
                         validExprs.get(i), invalidExprs.get(j));
                 Expression expression = LakeSoulUtils.convertToSubstraitExpr(andPredicate, schema);
-                Assert.assertNotNull("pred: " + andPredicate.toSql(), expression);
+                Assert.assertNotNull("pred: " + andPredicate.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE), expression);
                 Assert.assertEquals(SubstraitUtil.substraitExprToProto(LakeSoulUtils.convertToSubstraitExpr(validExprs.get(i), schema), "table"),
                         SubstraitUtil.substraitExprToProto(expression, "table"));
             }
@@ -267,14 +269,14 @@ public class LakeSoulPredicateTest {
             CompoundPredicate notPredicate = new CompoundPredicate(Operator.NOT,
                     validExprs.get(i), null);
             Expression expression = LakeSoulUtils.convertToSubstraitExpr(notPredicate, schema);
-            Assert.assertNotNull("pred: " + notPredicate.toSql(), expression);
+            Assert.assertNotNull("pred: " + notPredicate.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE), expression);
         }
         // invalid
         for (int i = 0; i < invalidExprs.size(); i++) {
             CompoundPredicate notPredicate = new CompoundPredicate(Operator.NOT,
                     invalidExprs.get(i), null);
             Expression expression = LakeSoulUtils.convertToSubstraitExpr(notPredicate, schema);
-            Assert.assertNull("pred: " + notPredicate.toSql(), expression);
+            Assert.assertNull("pred: " + notPredicate.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE), expression);
         }
     }
 }

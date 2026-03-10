@@ -18,11 +18,13 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -210,7 +212,8 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                     if (c instanceof Predicate) {
                         return (Predicate) c;
                     } else {
-                        throw new AnalysisException("non predicate in filter: " + c.toSql());
+                        throw new AnalysisException("non predicate in filter: "
+                                + c.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
                     }
                 }).collect(Collectors.toList());
         if (predicates.isEmpty()) {

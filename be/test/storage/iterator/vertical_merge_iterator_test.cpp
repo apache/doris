@@ -32,7 +32,7 @@
 #include "util/rle_encoding.h"
 #include "util/simd/bits.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class SparseColumnOptimizationTest : public ::testing::Test {
 protected:
@@ -1127,4 +1127,4 @@ TEST_F(SparseColumnOptimizationTest, NullableColumnAllNullReplace) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

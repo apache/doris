@@ -21,7 +21,7 @@
 
 #include "exprs/function/ai/ai_functions.h"
 
-namespace doris::vectorized {
+namespace doris {
 class FunctionAIFixGrammar : public AIFunction<FunctionAIFixGrammar> {
 public:
     static constexpr auto name = "ai_fixgrammar";
@@ -40,4 +40,4 @@ public:
 
     static FunctionPtr create() { return std::make_shared<FunctionAIFixGrammar>(); }
 };
-} // namespace doris::vectorized
+} // namespace doris
