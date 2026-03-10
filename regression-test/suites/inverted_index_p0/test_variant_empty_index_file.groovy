@@ -57,6 +57,6 @@ suite("test_variant_empty_index_file", "p0") {
         sql """ select /*+ SET_VAR(enable_match_without_inverted_index = 0) */  * from ${tableName} where v match 'abcd';  """
     } catch (Exception e) {
         log.info(e.getMessage());
-        assertTrue(e.getMessage().contains("match_any not support execute_match"))
+        assertTrue(e.getMessage().contains("VARIANT root column does not support MATCH predicates"))
     }
 }
