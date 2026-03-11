@@ -184,6 +184,14 @@ public class OutFileClause {
         return maxFileSizeBytes;
     }
 
+    public boolean shouldDeleteExistingFiles() {
+        return deleteExistingFiles;
+    }
+
+    public void markDeleteExistingFilesHandledInFe() {
+        deleteExistingFiles = false;
+    }
+
     public BrokerDesc getBrokerDesc() {
         return brokerDesc;
     }
@@ -450,7 +458,6 @@ public class OutFileClause {
         throw new AnalysisException("project field type is " + dorisType
                 + ", should use " + expectType + ", but the definition type is " + orcType);
     }
-
 
     private void analyzeForParquetFormat(List<Expr> resultExprs, List<String> colLabels) throws AnalysisException {
         if (this.parquetSchemas.isEmpty()) {
@@ -766,5 +773,3 @@ public class OutFileClause {
         return sinkOptions;
     }
 }
-
-

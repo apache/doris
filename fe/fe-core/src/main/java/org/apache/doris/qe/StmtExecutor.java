@@ -56,6 +56,7 @@ import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
@@ -1368,6 +1369,9 @@ public class StmtExecutor {
         coordBase.setIsProfileSafeStmt(this.isProfileSafeStmt());
 
         try {
+            if (isOutfileQuery) {
+                deleteExistingOutfileFilesInFe(queryStmt.getOutFileClause());
+            }
             coordBase.exec();
             profile.getSummaryProfile().setQueryScheduleFinishTime(TimeUtils.getStartTimeMs());
             updateProfile(false);
@@ -1542,6 +1546,28 @@ public class StmtExecutor {
             }
             throw new AnalysisException(errMsg);
         }
+    }
+
+    private void deleteExistingOutfileFilesInFe(OutFileClause outFileClause) throws UserException {
+        // Handle directory cleanup once in FE so parallel outfile writers never race on deletion.
+        if (!outFileClause.shouldDeleteExistingFiles()) {
+            return;
+        }
+        if (outFileClause.getBrokerDesc() == null
+                || outFileClause.getBrokerDesc().storageType() == StorageType.LOCAL) {
+            return;
+        }
+        String parentDir = extractParentDirectory(outFileClause.getFilePath());
+        BrokerUtil.deleteDirectoryWithFileSystem(parentDir, outFileClause.getBrokerDesc());
+        outFileClause.markDeleteExistingFilesHandledInFe();
+    }
+
+    private static String extractParentDirectory(String path) {
+        int lastSlash = path.lastIndexOf('/');
+        if (lastSlash >= 0) {
+            return path.substring(0, lastSlash + 1);
+        }
+        return path;
     }
 
     public static void syncLoadForTablets(List<List<Backend>> backendsList, List<Long> allTabletIds) {

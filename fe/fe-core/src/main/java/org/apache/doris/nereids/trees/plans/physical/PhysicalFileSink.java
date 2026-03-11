@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -85,11 +86,22 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHIL
     }
 
     public PhysicalProperties requestProperties(ConnectContext ctx) {
-        if (!ctx.getSessionVariable().enableParallelOutfile) {
+        if (!ctx.getSessionVariable().enableParallelOutfile || shouldFallbackToGather()) {
             return PhysicalProperties.GATHER;
         }
         // come here means we turn on parallel output export
         return PhysicalProperties.ANY;
+    }
+
+    private boolean shouldFallbackToGather() {
+        // Local outfile cleanup cannot be coordinated once in FE like remote storage, so keep
+        // delete_existing_files on file:/// paths serialized to avoid parallel writers racing on deletion.
+        if (!filePath.startsWith(OutFileClause.LOCAL_FILE_PREFIX) || properties == null || properties.isEmpty()) {
+            return false;
+        }
+        return properties.entrySet().stream()
+                .anyMatch(entry -> entry.getKey().equalsIgnoreCase(OutFileClause.PROP_DELETE_EXISTING_FILES)
+                        && Boolean.parseBoolean(entry.getValue()));
     }
 
     @Override
