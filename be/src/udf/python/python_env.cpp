@@ -267,8 +267,8 @@ std::string VenvEnvScanner::to_string() const {
     return ss.str();
 }
 
-Status PythonVersionManager::init(PythonEnvType env_type, const fs::path& python_root_path,
-                                  const std::string& python_venv_interpreter_paths) {
+Status PythonEnvScannerHolder::init(PythonEnvType env_type, const fs::path& python_root_path,
+                                    const std::string& python_venv_interpreter_paths) {
     switch (env_type) {
     case PythonEnvType::CONDA: {
         if (!fs::exists(python_root_path) || !fs::is_directory(python_root_path)) {
@@ -301,16 +301,11 @@ Status PythonVersionManager::init(PythonEnvType env_type, const fs::path& python
 }
 
 std::vector<TPythonEnvInfo> PythonVersionManager::env_infos_to_thrift() const {
-    if (!_env_scanner) {
-        throw Exception(
-                ErrorCode::NOT_INITIALIZED,
-                "Set 'enable_python_udf_support = true' in be.conf to enable PythonUDF feature");
-    }
     std::vector<TPythonEnvInfo> infos;
-    const auto& envs = _env_scanner->get_envs();
+    const auto& envs = this->get_envs();
     infos.reserve(envs.size());
 
-    const auto env_type_str = _python_env_type_to_string(_env_scanner->env_type());
+    const auto env_type_str = _python_env_type_to_string(this->env_type());
     for (const auto& env : envs) {
         TPythonEnvInfo info;
         info.__set_env_name(env.env_name);

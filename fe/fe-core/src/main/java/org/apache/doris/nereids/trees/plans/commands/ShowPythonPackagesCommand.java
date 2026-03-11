@@ -38,8 +38,6 @@ import org.apache.doris.thrift.TPythonPackageInfo;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -51,8 +49,6 @@ import java.util.Map;
  * Shows pip packages installed for the given Python version, collected from all alive BEs.
  */
 public class ShowPythonPackagesCommand extends ShowCommand {
-    private static final Logger LOG = LogManager.getLogger(ShowPythonPackagesCommand.class);
-
     private static final String[] TITLE_NAMES = {"Package", "Version"};
     private static final String[] TITLE_NAMES_INCONSISTENT = {"Package", "Version", "Consistent", "Backends"};
 
@@ -98,7 +94,6 @@ public class ShowPythonPackagesCommand extends ShowCommand {
         // Collect packages from each alive BE, tracking which BE each result came from
         List<Map<String, String>> allBePackages = new ArrayList<>();
         List<String> beIdentifiers = new ArrayList<>();
-        Exception lastException = null;
         for (Backend backend : backendsInfo.values()) {
             if (!backend.isAlive()) {
                 continue;
@@ -118,9 +113,6 @@ public class ShowPythonPackagesCommand extends ShowCommand {
                 }
                 allBePackages.add(pkgMap);
                 beIdentifiers.add(backend.getHost() + ":" + backend.getBePort());
-            } catch (Exception e) {
-                LOG.warn("Failed to get python packages from backend[{}]", backend.getId(), e);
-                lastException = e;
             } finally {
                 if (ok) {
                     ClientPool.backendPool.returnObject(address, client);
@@ -131,14 +123,7 @@ public class ShowPythonPackagesCommand extends ShowCommand {
         }
 
         if (allBePackages.isEmpty()) {
-            if (lastException != null) {
-                String msg = lastException.getMessage();
-                int newline = msg.indexOf('\n');
-                throw new AnalysisException("Failed to get python packages from any backend: "
-                        + (newline > 0 ? msg.substring(0, newline).trim() : msg));
-            } else {
-                throw new AnalysisException("No alive backends found to get python packages");
-            }
+            throw new AnalysisException("No alive backends found to get python packages");
         }
 
         // Check consistency across BEs

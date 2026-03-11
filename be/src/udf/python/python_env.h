@@ -138,6 +138,29 @@ private:
     std::vector<std::string> _interpreter_paths;
 };
 
+// Holds a PythonEnvScanner instance and centralizes the initialization check
+// to avoid accessing the scanner when the Python UDF feature is disabled.
+// This class is intended for internal use by PythonVersionManager only.
+class PythonEnvScannerHolder {
+public:
+    Status init(PythonEnvType env_type, const fs::path& python_root_path,
+                const std::string& python_venv_interpreter_paths);
+
+    const PythonEnvScanner& get() const {
+        if (!_env_scanner) {
+            throw Exception(ErrorCode::NOT_INITIALIZED,
+                            "Set 'enable_python_udf_support = true' in be.conf to enable PythonUDF "
+                            "feature");
+        }
+        return *_env_scanner;
+    }
+
+    bool is_initialized() const { return _env_scanner != nullptr; }
+
+private:
+    std::unique_ptr<PythonEnvScanner> _env_scanner;
+};
+
 class PythonVersionManager {
 public:
     static PythonVersionManager& instance() {
@@ -146,42 +169,24 @@ public:
     }
 
     Status init(PythonEnvType env_type, const fs::path& python_root_path,
-                const std::string& python_venv_interpreter_paths);
+                const std::string& python_venv_interpreter_paths) {
+        return _holder.init(env_type, python_root_path, python_venv_interpreter_paths);
+    }
 
     Status get_version(const std::string& runtime_version, PythonVersion* version) const {
-        if (!_env_scanner) {
+        if (!_holder.is_initialized()) {
             return Status::Uninitialized(
-                    "Set 'python_venv_interpreter_paths' in be.conf to enable PythonUDF feature");
+                    "Set 'enable_python_udf_support = true' in be.conf to enable PythonUDF "
+                    "feature");
         }
-        return _env_scanner->get_version(runtime_version, version);
+        return _holder.get().get_version(runtime_version, version);
     }
 
-    const std::vector<PythonEnvironment>& get_envs() const {
-        if (!_env_scanner) {
-            throw Exception(
-                    ErrorCode::NOT_INITIALIZED,
-                    "Set 'python_venv_interpreter_paths' in be.conf to enable PythonUDF feature");
-        }
-        return _env_scanner->get_envs();
-    }
+    const std::vector<PythonEnvironment>& get_envs() const { return _holder.get().get_envs(); }
 
-    PythonEnvType env_type() const {
-        if (!_env_scanner) {
-            throw Exception(
-                    ErrorCode::NOT_INITIALIZED,
-                    "Set 'python_venv_interpreter_paths' in be.conf to enable PythonUDF feature");
-        }
-        return _env_scanner->env_type();
-    }
+    PythonEnvType env_type() const { return _holder.get().env_type(); }
 
-    std::string to_string() const {
-        if (!_env_scanner) {
-            throw Exception(
-                    ErrorCode::NOT_INITIALIZED,
-                    "Set 'python_venv_interpreter_paths' in be.conf to enable PythonUDF feature");
-        }
-        return _env_scanner->to_string();
-    }
+    std::string to_string() const { return _holder.get().to_string(); }
 
     std::vector<TPythonEnvInfo> env_infos_to_thrift() const;
 
@@ -189,7 +194,7 @@ public:
             const std::vector<std::pair<std::string, std::string>>& packages) const;
 
 private:
-    std::unique_ptr<PythonEnvScanner> _env_scanner;
+    PythonEnvScannerHolder _holder;
 };
 
 // List installed pip packages for a given Python version.
