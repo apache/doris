@@ -25,7 +25,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.datasource.systable.TvfSysTable;
 import org.apache.doris.info.TableValuedFunctionRefInfo;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
