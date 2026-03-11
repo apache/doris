@@ -134,7 +134,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public synchronized void resetToUninitialized(boolean invalidCache) {
+    public void resetToUninitialized(boolean invalidCache) {
         super.resetToUninitialized(invalidCache);
         this.identifierMapping = new JdbcIdentifierMapping(
                 (Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase()),
