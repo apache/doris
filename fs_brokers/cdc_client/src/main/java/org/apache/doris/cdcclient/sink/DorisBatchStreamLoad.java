@@ -530,7 +530,11 @@ public class DorisBatchStreamLoad implements Serializable {
                             .commit()
                             .setEntity(new StringEntity(param));
 
-            LOG.info("commit offset for jobId {} taskId {}, commitRequest {}", jobId, taskId, commitRequest.toString());
+            LOG.info(
+                    "commit offset for jobId {} taskId {}, commitRequest {}",
+                    jobId,
+                    taskId,
+                    commitRequest.toString());
             Throwable resEx = null;
             int retry = 0;
             while (retry <= RETRY) {
