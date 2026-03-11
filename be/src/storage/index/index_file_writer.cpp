@@ -228,10 +228,8 @@ Status IndexFileWriter::begin_close() {
 }
 
 Status IndexFileWriter::finish_close() {
-    LOG_INFO("IndexFileWriter::finish_close called");
     DCHECK(_closed) << debug_string();
     if (_indices_dirs.empty()) {
-        LOG_INFO("IndexFileWriter::finish_close called with empty indices_dirs");
         // An empty file must still be created even if there are no indexes to write
         if (dynamic_cast<io::StreamSinkFileWriter*>(_idx_v2_writer.get()) != nullptr ||
             dynamic_cast<io::S3FileWriter*>(_idx_v2_writer.get()) != nullptr ||
@@ -243,8 +241,7 @@ Status IndexFileWriter::finish_close() {
     if (_idx_v2_writer != nullptr && _idx_v2_writer->state() != io::FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(_idx_v2_writer->close(false));
     }
-    LOG_INFO("IndexFileWriter finish_close, enable_write_index_searcher_cache: {}",
-             config::enable_write_index_searcher_cache);
+
     Status st = Status::OK();
     if (config::enable_write_index_searcher_cache) {
         st = add_into_searcher_cache();
