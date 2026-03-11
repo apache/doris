@@ -463,12 +463,6 @@ bool OlapScanLocalState::_read_mor_as_dup() {
     return p._olap_scan_node.__isset.read_mor_as_dup && p._olap_scan_node.read_mor_as_dup;
 }
 
-bool OlapScanLocalState::_should_push_down_mor_value_predicate() {
-    auto& p = _parent->cast<OlapScanOperatorX>();
-    return p._olap_scan_node.__isset.enable_mor_value_predicate_pushdown &&
-           p._olap_scan_node.enable_mor_value_predicate_pushdown;
-}
-
 Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;

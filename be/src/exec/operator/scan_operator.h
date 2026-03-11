@@ -202,7 +202,6 @@ protected:
     virtual bool _should_push_down_common_expr() { return false; }
 
     virtual bool _storage_no_merge() { return false; }
-    virtual bool _should_push_down_mor_value_predicate() { return false; }
     virtual bool _push_down_topn(const RuntimePredicate& predicate) { return false; }
     virtual bool _is_key_column(const std::string& col_name) { return false; }
     virtual PushDownType _should_push_down_bloom_filter() const {
