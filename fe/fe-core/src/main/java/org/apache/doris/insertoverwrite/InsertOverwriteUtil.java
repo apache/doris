@@ -92,6 +92,7 @@ public class InsertOverwriteUtil {
                 }
                 Map<String, String> properties = Maps.newHashMap();
                 properties.put(PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, "false");
+                properties.put(PropertyAnalyzer.PROPERTIES_STRICT_RANGE, "false");
                 ReplacePartitionClause replacePartitionClause = new ReplacePartitionClause(
                         new PartitionNamesInfo(false, validPartitionNames),
                         new PartitionNamesInfo(true, tempPartitionNames), isForce, properties);
