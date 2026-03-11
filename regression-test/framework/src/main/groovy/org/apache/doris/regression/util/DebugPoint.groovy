@@ -56,6 +56,11 @@ class DebugPoint {
         Http.checkHttpResult(result, type)
     }
 
+    static def enableFeDebugPoint(String host, int httpPort, String name, Map<String, String> params = null) {
+        enableDebugPoint(host, httpPort, NodeType.FE, name, params)
+    }
+
+
     /* Disable debug point in regression
      * Parameters:
      *    host:        hostname or ip of target node
