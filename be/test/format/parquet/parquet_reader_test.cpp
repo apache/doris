@@ -227,8 +227,9 @@ public:
         while (!eof) {
             BlockUPtr block = Block::create_unique();
             for (const auto& slot_desc : tuple_desc->slots()) {
-                auto data_type = slot_desc->col_name() == "part_col" ? slot_desc->type()
-                                                                     : make_nullable(slot_desc->type());
+                auto data_type = slot_desc->col_name() == "part_col"
+                                         ? slot_desc->type()
+                                         : make_nullable(slot_desc->type());
                 MutableColumnPtr data_column = data_type->create_column();
                 block->insert(ColumnWithTypeAndName(std::move(data_column), data_type,
                                                     slot_desc->col_name()));
