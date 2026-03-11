@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <string>
 
+#include "core/row_cursor.h"
 #include "util/slice.h"
 
 namespace doris {
