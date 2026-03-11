@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
@@ -54,6 +55,15 @@ public class Zeroifnull extends ScalarFunction
     @Override
     public FunctionSignature customSignature() {
         return FunctionSignature.ret(getArgumentType(0)).args(getArgumentType(0));
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (!getArgumentType(0).isNumericType() && !getArgumentType(0).isNullType()) {
+            throw new AnalysisException(
+                    "zeroifnull requires a numeric argument but got: "
+                            + getArgumentType(0).toSql() + " in: " + this.toSql());
+        }
     }
 
     /**

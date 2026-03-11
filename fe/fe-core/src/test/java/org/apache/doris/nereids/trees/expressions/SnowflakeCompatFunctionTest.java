@@ -170,6 +170,13 @@ public class SnowflakeCompatFunctionTest extends TestWithFeService implements Pl
     }
 
     @Test
+    public void testZeroifnullWithNonNumericShouldFail() {
+        Assertions.assertThrows(Exception.class, () ->
+                PlanChecker.from(connectContext).analyze("select zeroifnull('hello')")
+        );
+    }
+
+    @Test
     public void testZeroifnullWithColumn() {
         // ZEROIFNULL on a column should rewrite to Coalesce
         PlanChecker.from(connectContext)
@@ -193,6 +200,13 @@ public class SnowflakeCompatFunctionTest extends TestWithFeService implements Pl
                             return expr instanceof NullIf;
                         })
                 );
+    }
+
+    @Test
+    public void testNullifzeroWithNonNumericShouldFail() {
+        Assertions.assertThrows(Exception.class, () ->
+                PlanChecker.from(connectContext).analyze("select nullifzero('hello')")
+        );
     }
 
     @Test
@@ -349,6 +363,19 @@ public class SnowflakeCompatFunctionTest extends TestWithFeService implements Pl
                 .matches(
                         logicalProject().when(proj -> {
                             Expression expr = ((LogicalProject<?>) proj).getProjects().get(0).child(0);
+                            return expr instanceof Cast;
+                        })
+                );
+    }
+
+    @Test
+    public void testToChar() {
+        // TO_CHAR is a Snowflake alias for TO_VARCHAR; 1-arg form rewrites to Cast
+        PlanChecker.from(connectContext)
+                .analyze("select to_char(123)")
+                .matches(
+                        logicalOneRowRelation().when(oneRow -> {
+                            Expression expr = oneRow.getProjects().get(0).child(0);
                             return expr instanceof Cast;
                         })
                 );

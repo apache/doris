@@ -29,6 +29,12 @@ suite("test_snowflake_rewrite") {
     qt_zeroifnull_negative """ SELECT ZEROIFNULL(-5) """
     qt_zeroifnull_eq_coalesce """ SELECT ZEROIFNULL(NULL) = COALESCE(NULL, 0) """
 
+    // ZEROIFNULL must reject non-numeric types
+    test {
+        sql """ SELECT ZEROIFNULL('hello') """
+        exception "zeroifnull requires a numeric argument"
+    }
+
     // =====================================================================
     // NULLIFZERO: rewrites to NULLIF(x, 0)
     // =====================================================================
@@ -37,6 +43,12 @@ suite("test_snowflake_rewrite") {
     qt_nullifzero_null """ SELECT NULLIFZERO(NULL) """
     qt_nullifzero_negative """ SELECT NULLIFZERO(-1) """
     qt_nullifzero_eq_nullif """ SELECT NULLIFZERO(5) = NULLIF(5, 0) """
+
+    // NULLIFZERO must reject non-numeric types
+    test {
+        sql """ SELECT NULLIFZERO('hello') """
+        exception "nullifzero requires a numeric argument"
+    }
 
     // =====================================================================
     // NVL2: rewrites to IF(NOT IS_NULL(e1), e2, e3)
@@ -83,7 +95,8 @@ suite("test_snowflake_rewrite") {
     qt_obj_construct_eq_json """ SELECT OBJECT_CONSTRUCT('x', 1) = JSON_OBJECT('x', 1) """
 
     // =====================================================================
-    // TO_VARCHAR: 1-arg rewrites to CAST, 2-arg rewrites to DATE_FORMAT
+    // TO_VARCHAR / TO_CHAR: 1-arg rewrites to CAST, 2-arg rewrites to DATE_FORMAT
+    // Snowflake supports both TO_VARCHAR and TO_CHAR as aliases.
     // =====================================================================
     // 1-arg: cast to VARCHAR
     qt_to_varchar_int """ SELECT TO_VARCHAR(12345) """
@@ -93,4 +106,11 @@ suite("test_snowflake_rewrite") {
     // 2-arg: date format
     qt_to_varchar_date_fmt """ SELECT TO_VARCHAR(CAST('2024-01-15' AS DATE), '%Y-%m-%d') """
     qt_to_varchar_datetime_fmt """ SELECT TO_VARCHAR(CAST('2024-01-15 10:30:00' AS DATETIME), '%Y/%m/%d %H:%i:%s') """
+
+    // TO_CHAR is a Snowflake alias for TO_VARCHAR
+    qt_to_char_int """ SELECT TO_CHAR(12345) """
+    qt_to_char_float """ SELECT TO_CHAR(3.14) """
+    qt_to_char_date_fmt """ SELECT TO_CHAR(CAST('2024-01-15' AS DATE), '%Y-%m-%d') """
+    // Verify TO_CHAR and TO_VARCHAR produce identical results
+    qt_to_char_eq_to_varchar """ SELECT TO_CHAR(42) = TO_VARCHAR(42) """
 }

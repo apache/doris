@@ -531,9 +531,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6OrDefau
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6OrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIso8601;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ToVarcharFn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToVarcharFn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToSeconds;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TopLevelDomain;
@@ -572,7 +572,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.XpathString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash32;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Zeroifnull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearMonth;
@@ -581,6 +580,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Zeroifnull;
 
 import com.google.common.collect.ImmutableList;
 
@@ -1100,7 +1100,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Timestamp.class, "timestamp"),
             scalar(ToBase64.class, "to_base64", "base64_encode"),
             scalar(ToBase64Binary.class, "to_base64_binary"),
-            scalar(ToVarcharFn.class, "to_varchar"),
             scalar(ToBinary.class, "to_binary", "to_hex"),
             scalar(ToBitmap.class, "to_bitmap"),
             scalar(ToBitmapWithCheck.class, "to_bitmap_with_check"),
@@ -1120,6 +1119,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(TopLevelDomain.class, "top_level_domain"),
             scalar(ToQuantileState.class, "to_quantile_state"),
             scalar(ToSeconds.class, "to_seconds"),
+            scalar(ToVarcharFn.class, "to_varchar", "to_char"),
             scalar(Translate.class, "translate"),
             scalar(Trim.class, "trim"),
             scalar(TrimIn.class, "trim_in"),

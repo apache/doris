@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -55,8 +56,16 @@ public class ConvertTimezone extends ScalarFunction
 
     @Override
     public FunctionSignature customSignature() {
-        return FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, DateTimeV2Type.WILDCARD);
+        // Preserve the precision of the input timestamp argument.
+        // If arg2 is already a DateTimeV2Type, use its precision for both the signature
+        // type constraint and the return type. If arg2 is a string literal (VarcharType),
+        // the framework will cast it to DateTimeV2Type.SYSTEM_DEFAULT (precision 6).
+        DataType tsArgType = getArgumentType(2);
+        DateTimeV2Type effectiveDtType = (tsArgType instanceof DateTimeV2Type)
+                ? (DateTimeV2Type) tsArgType
+                : DateTimeV2Type.SYSTEM_DEFAULT;
+        return FunctionSignature.ret(effectiveDtType)
+                .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, effectiveDtType);
     }
 
     /**
