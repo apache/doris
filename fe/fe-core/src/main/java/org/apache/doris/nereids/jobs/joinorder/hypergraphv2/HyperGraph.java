@@ -93,7 +93,8 @@ public class HyperGraph {
             return false;
         }
         LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
-        return !join.isMarkJoin() && !join.isLeadingJoin();
+        // TODO add asof join here later
+        return !join.isMarkJoin() && !join.isLeadingJoin() && !join.hasDistributeHint();
     }
 
     public static Builder builderForDPhyper(Group group, CascadesContext ctx) {
@@ -128,6 +129,9 @@ public class HyperGraph {
         return !nodeToLiteralAlias.isEmpty();
     }
 
+    /**
+     * find all literal alias should be projected after left join right
+     */
     public List<NamedExpression> getLiteralAlias(long left, long right) {
         ImmutableList.Builder<NamedExpression> aliasList = ImmutableList.builder();
         if (left == right) {
