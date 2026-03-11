@@ -56,7 +56,7 @@ constexpr uint8_t KEY_NORMAL_NEXT_MARKER = 0x03;
 // be added, if padding_minimal is false, KEY_MAXIMAL_MARKER will be added.
 // If all num_keys are found in row, no marker will be added.
 template <bool is_mow = false>
-void encode_key_with_padding(std::string* buf, const Rowcursor& row, size_t num_keys,
+void encode_key_with_padding(std::string* buf, const RowCursor& row, size_t num_keys,
                              bool padding_minimal) {
     for (auto cid = 0; cid < num_keys; cid++) {
         auto field = row.schema()->column(cid);
@@ -90,8 +90,8 @@ void encode_key_with_padding(std::string* buf, const Rowcursor& row, size_t num_
 // Encode one row into binary according given num_keys.
 // Client call this function must assure that row contains the first
 // num_keys columns.
-template <typename RowType, bool full_encode = false>
-void encode_key(std::string* buf, const RowType& row, size_t num_keys) {
+template <bool full_encode = false>
+void encode_key(std::string* buf, const RowCursor& row, size_t num_keys) {
     for (auto cid = 0; cid < num_keys; cid++) {
         auto cell = row.cell(cid);
         if (cell.is_null()) {
