@@ -290,6 +290,8 @@ import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
 import org.apache.doris.transaction.GlobalExternalTransactionInfoMgr;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.PublishVersionDaemon;
+import org.apache.doris.tso.TSOService;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -592,6 +594,9 @@ public class Env {
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
             .of("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler);
 
+    private AtomicLong windowEndTSO = new AtomicLong(0);
+    private TSOService tsoService;
+
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
 
@@ -851,6 +856,7 @@ public class Env {
         if (Config.agent_task_health_check_intervals_ms > 0) {
             this.agentTaskCleanupDaemon = new AgentTaskCleanupDaemon();
         }
+        this.tsoService = new TSOService();
     }
 
     public static Map<String, Long> getSessionReportTimeMap() {
@@ -1995,6 +2001,7 @@ public class Env {
             keyManager.init();
         }
         agentTaskCleanupDaemon.start();
+        tsoService.start();
     }
 
     // start threads that should run on all FE
@@ -2876,6 +2883,27 @@ public class Env {
         this.keyManagerStore.write(out);
         LOG.info("finished save KeyManager to image");
         return checksum;
+    }
+
+    // Persist TSO-related info into image for fast recovery
+    public long saveTSO(CountingDataOutputStream dos, long checksum) throws IOException {
+        if (!Config.experimental_enable_feature_tso || !Config.enable_tso_checkpoint_module) {
+            return checksum;
+        }
+        TSOTimestamp tsoTimestamp = new TSOTimestamp(this.windowEndTSO.get(), 0);
+        tsoTimestamp.write(dos);
+        checksum ^= tsoTimestamp.getPhysicalTimestamp();
+        LOG.info("Save TSO windowEndTSO {} to image", tsoTimestamp);
+        return checksum;
+    }
+
+    // Load TSO-related info from image during checkpoint load
+    public long loadTSO(DataInputStream dis, long checksum) throws IOException {
+        TSOTimestamp tsoTimestamp = TSOTimestamp.read(dis);
+        this.windowEndTSO.set(tsoTimestamp.getPhysicalTimestamp());
+        long newChecksum = checksum ^ tsoTimestamp.getPhysicalTimestamp();
+        LOG.info("finished replay TSO windowEndTSO {} from image", windowEndTSO);
+        return newChecksum;
     }
 
     public void createLabelCleaner() {
@@ -6135,6 +6163,7 @@ public class Env {
                 .buildSkipWriteIndexOnLoad()
                 .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction()
+                .buildEnableTso()
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
                 .buildTimeSeriesCompactionLevelThreshold()
                 .buildTTLSeconds()
@@ -7497,4 +7526,28 @@ public class Env {
     protected void checkClusterSnapshot(File dir) {}
 
     protected void cloneClusterSnapshot() throws Exception {}
+
+    public TSOService getTSOService() {
+        return tsoService;
+    }
+
+    public static TSOService getCurrentTSOService() {
+        return getCurrentEnv().getTSOService();
+    }
+
+    /**
+     * Get the window end TSO value
+     * @return window end TSO value
+     */
+    public long getWindowEndTSO() {
+        return this.windowEndTSO.get();
+    }
+
+    /**
+     * Set the window end TSO value
+     * @param windowEndTSO window end TSO value
+     */
+    public void setWindowEndTSO(long windowEndTSO) {
+        this.windowEndTSO.set(windowEndTSO);
+    }
 }

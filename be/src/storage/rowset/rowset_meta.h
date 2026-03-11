@@ -462,6 +462,10 @@ public:
                 [algorithm]() -> Result<EncryptionAlgorithmPB> { return algorithm; });
     }
 
+    int64_t commit_tso() const { return _rowset_meta_pb.commit_tso(); }
+
+    void set_commit_tso(int64_t commit_tso) { _rowset_meta_pb.set_commit_tso(commit_tso); }
+
 private:
     bool _deserialize_from_pb(std::string_view value);
 

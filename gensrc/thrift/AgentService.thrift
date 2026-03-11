@@ -458,6 +458,7 @@ struct TPartitionVersionInfo {
     1: required Types.TPartitionId partition_id
     2: required Types.TVersion version
     3: required Types.TVersionHash version_hash // Deprecated
+    4: required i64 commit_tso
 }
 
 struct TMoveDirReq {

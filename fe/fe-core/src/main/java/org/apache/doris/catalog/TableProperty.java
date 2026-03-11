@@ -98,6 +98,8 @@ public class TableProperty implements GsonPostProcessable {
 
     private boolean enableSingleReplicaCompaction = false;
 
+    private boolean enableTso = false;
+
     private boolean storeRowColumn = false;
 
     private boolean skipWriteIndexOnLoad = false;
@@ -167,6 +169,7 @@ public class TableProperty implements GsonPostProcessable {
                 buildTimeSeriesCompactionTimeThresholdSeconds();
                 buildSkipWriteIndexOnLoad();
                 buildEnableSingleReplicaCompaction();
+                buildEnableTso();
                 buildDisableAutoCompaction();
                 buildTimeSeriesCompactionEmptyRowsetsThreshold();
                 buildTimeSeriesCompactionLevelThreshold();
@@ -341,6 +344,15 @@ public class TableProperty implements GsonPostProcessable {
 
     public boolean enableSingleReplicaCompaction() {
         return enableSingleReplicaCompaction;
+    }
+
+    public TableProperty buildEnableTso() {
+        enableTso = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_TSO, "false"));
+        return this;
+    }
+
+    public boolean enableTso() {
+        return enableTso;
     }
 
     public TableProperty buildStoreRowColumn() {
@@ -885,6 +897,7 @@ public class TableProperty implements GsonPostProcessable {
         buildTimeSeriesCompactionTimeThresholdSeconds();
         buildDisableAutoCompaction();
         buildEnableSingleReplicaCompaction();
+        buildEnableTso();
         buildTimeSeriesCompactionEmptyRowsetsThreshold();
         buildTimeSeriesCompactionLevelThreshold();
         buildTTLSeconds();

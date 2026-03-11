@@ -140,7 +140,7 @@ public:
     const std::string& tablet_path() const { return _tablet_path; }
 
     // publish rowset to make it visible to read
-    void make_visible(Version version);
+    void make_visible(Version version, int64_t commit_tso);
     void set_version(Version version);
     const TabletSchemaSPtr& tablet_schema() const;
 
@@ -166,6 +166,9 @@ public:
     RowsetMetaPB get_rowset_pb() const { return rowset_meta()->get_rowset_pb(); }
     // The writing time of the newest data in rowset, to measure the freshness of a rowset.
     int64_t newest_write_timestamp() const { return rowset_meta()->newest_write_timestamp(); }
+    // The commit tso of the newest data in rowset.
+    int64_t commit_tso() const { return rowset_meta()->commit_tso(); }
+
     bool is_segments_overlapping() const { return rowset_meta()->is_segments_overlapping(); }
     KeysType keys_type() { return _schema->keys_type(); }
     RowsetStatePB rowset_meta_state() const { return rowset_meta()->rowset_state(); }

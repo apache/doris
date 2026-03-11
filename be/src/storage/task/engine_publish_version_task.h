@@ -65,7 +65,8 @@ class TabletPublishTxnTask {
 public:
     TabletPublishTxnTask(StorageEngine& engine, EnginePublishVersionTask* engine_task,
                          TabletSharedPtr tablet, RowsetSharedPtr rowset, int64_t partition_id,
-                         int64_t transaction_id, Version version, const TabletInfo& tablet_info);
+                         int64_t transaction_id, Version version, const TabletInfo& tablet_info,
+                         int64_t commit_tso);
     ~TabletPublishTxnTask();
 
     void handle();
@@ -84,16 +85,25 @@ private:
     TabletPublishStatistics _stats;
     Status _result;
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+    int64_t _commit_tso;
+};
+
+struct DiscontinuousVersionTablet {
+    int64_t partition_id;
+    int64_t tablet_id;
+    int64_t publish_version;
+    int64_t commit_tso;
 };
 
 class EnginePublishVersionTask final : public EngineTask {
 public:
-    EnginePublishVersionTask(
-            StorageEngine& engine, const TPublishVersionRequest& publish_version_req,
-            std::set<TTabletId>* error_tablet_ids, std::map<TTabletId, TVersion>* succ_tablets,
-            std::vector<std::tuple<int64_t, int64_t, int64_t>>* discontinous_version_tablets,
-            std::map<TTableId, std::map<TTabletId, int64_t>>*
-                    table_id_to_tablet_id_to_num_delta_rows);
+    EnginePublishVersionTask(StorageEngine& engine,
+                             const TPublishVersionRequest& publish_version_req,
+                             std::set<TTabletId>* error_tablet_ids,
+                             std::map<TTabletId, TVersion>* succ_tablets,
+                             std::vector<DiscontinuousVersionTablet>* discontinous_version_tablets,
+                             std::map<TTableId, std::map<TTabletId, int64_t>>*
+                                     table_id_to_tablet_id_to_num_delta_rows);
     ~EnginePublishVersionTask() override = default;
 
     Status execute() override;
@@ -103,8 +113,9 @@ public:
 private:
     void _handle_publish_version_not_continuous(int64_t partition_id, const TabletInfo& tablet_info,
                                                 const TabletSharedPtr& tablet,
-                                                const Version& version, int64_t max_version,
-                                                bool first_time_update, Status& res);
+                                                const Version& version, const int64_t commit_tso,
+                                                int64_t max_version, bool first_time_update,
+                                                Status& res);
     void _calculate_tbl_num_delta_rows(
             const std::unordered_map<int64_t, int64_t>& tablet_id_to_num_delta_rows);
 
@@ -113,7 +124,7 @@ private:
     std::mutex _tablet_ids_mutex;
     std::set<TTabletId>* _error_tablet_ids = nullptr;
     std::map<TTabletId, TVersion>* _succ_tablets;
-    std::vector<std::tuple<int64_t, int64_t, int64_t>>* _discontinuous_version_tablets = nullptr;
+    std::vector<DiscontinuousVersionTablet>* _discontinuous_version_tablets = nullptr;
     std::map<TTableId, std::map<TTabletId, int64_t>>* _table_id_to_tablet_id_to_num_delta_rows =
             nullptr;
 };
@@ -121,14 +132,15 @@ private:
 class AsyncTabletPublishTask {
 public:
     AsyncTabletPublishTask(StorageEngine& engine, TabletSharedPtr tablet, int64_t partition_id,
-                           int64_t transaction_id, int64_t version)
+                           int64_t transaction_id, int64_t version, int64_t commit_tso)
             : _engine(engine),
               _tablet(std::move(tablet)),
               _partition_id(partition_id),
               _transaction_id(transaction_id),
               _version(version),
               _mem_tracker(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
-                                                            "AsyncTabletPublishTask")) {
+                                                            "AsyncTabletPublishTask")),
+              _commit_tso(commit_tso) {
         _stats.submit_time_us = MonotonicMicros();
     }
     ~AsyncTabletPublishTask() = default;
@@ -143,6 +155,7 @@ private:
     int64_t _version;
     TabletPublishStatistics _stats;
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+    int64_t _commit_tso;
 };
 
 } // namespace doris

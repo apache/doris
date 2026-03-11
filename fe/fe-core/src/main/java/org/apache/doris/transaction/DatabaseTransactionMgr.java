@@ -1586,6 +1586,9 @@ public class DatabaseTransactionMgr {
         // update transaction state version
         long commitTime = System.currentTimeMillis();
         transactionState.setCommitTime(commitTime);
+        long commitTSO = getCommitTSO(transactionState, db, tableToPartition.keySet());
+        transactionState.setCommitTSO(commitTSO);
+
         if (MetricRepo.isInit) {
             MetricRepo.HISTO_TXN_EXEC_LATENCY.update(commitTime - transactionState.getPrepareTime());
         }
@@ -1593,6 +1596,10 @@ public class DatabaseTransactionMgr {
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
+            if (Config.experimental_enable_feature_tso && table.enableTso()) {
+                tableCommitInfo.setCommitTSO(commitTSO);
+            }
+
             for (long partitionId : tableToPartition.get(tableId)) {
                 Partition partition = table.getPartition(partitionId);
                 tableCommitInfo.addPartitionCommitInfo(
@@ -1619,6 +1626,14 @@ public class DatabaseTransactionMgr {
         // update transaction state version
         long commitTime = System.currentTimeMillis();
         transactionState.setCommitTime(commitTime);
+        Set<Long> tableIds = new HashSet<>();
+        for (SubTransactionState subTransactionState : subTransactionStates) {
+            long tableId = subTransactionState.getTable().getId();
+            tableIds.add(tableId);
+        }
+        long commitTSO = getCommitTSO(transactionState, db, tableIds);
+        transactionState.setCommitTSO(commitTSO);
+
         if (MetricRepo.isInit) {
             MetricRepo.HISTO_TXN_EXEC_LATENCY.update(commitTime - transactionState.getPrepareTime());
         }
@@ -1646,6 +1661,9 @@ public class DatabaseTransactionMgr {
                 TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
                 tableCommitInfo.setVersion(tableNextVersion);
                 tableCommitInfo.setVersionTime(System.currentTimeMillis());
+                if (Config.experimental_enable_feature_tso && table.enableTso()) {
+                    tableCommitInfo.setCommitTSO(commitTSO);
+                }
 
                 for (long partitionId : partitionIds) {
                     long partitionNextVersion = table.getPartition(partitionId).getNextVersion();
@@ -1682,6 +1700,9 @@ public class DatabaseTransactionMgr {
         }
         // update transaction state version
         transactionState.setCommitTime(System.currentTimeMillis());
+        long commitTSO = getCommitTSO(transactionState, db, transactionState.getIdToTableCommitInfos().keySet());
+        transactionState.setCommitTSO(commitTSO);
+
         transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
 
         Iterator<TableCommitInfo> tableCommitInfoIterator
@@ -1697,6 +1718,9 @@ public class DatabaseTransactionMgr {
                         tableId,
                         transactionState);
                 continue;
+            }
+            if (Config.experimental_enable_feature_tso && table.enableTso()) {
+                tableCommitInfo.setCommitTSO(commitTSO);
             }
             Iterator<PartitionCommitInfo> partitionCommitInfoIterator
                     = tableCommitInfo.getIdToPartitionCommitInfo().values().iterator();
@@ -3049,5 +3073,33 @@ public class DatabaseTransactionMgr {
                 iterator.remove();
             }
         }
+    }
+
+    private long getCommitTSO(TransactionState transactionState, Database db, Set<Long> tableIds) {
+        long tso = -1L;
+        if (!Config.experimental_enable_feature_tso) {
+            return tso;
+        }
+        if (tableIds == null || tableIds.isEmpty()) {
+            return tso;
+        }
+        boolean anyEnableTso = false;
+        for (long tableId : tableIds) {
+            Table table = db.getTableNullable(tableId);
+            if (table instanceof OlapTable && ((OlapTable) table).enableTso()) {
+                anyEnableTso = true;
+                break;
+            }
+        }
+        if (!anyEnableTso) {
+            return tso;
+        }
+        long fetched = Env.getCurrentEnv().getTSOService().getTSO();
+        if (fetched <= 0) {
+            LOG.warn("failed to get TSO for txn {}, fallback to -1",
+                    transactionState.getTransactionId());
+            return tso;
+        }
+        return fetched;
     }
 }

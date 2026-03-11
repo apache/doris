@@ -3738,6 +3738,52 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long mow_get_ms_lock_retry_backoff_interval = 80;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否启用TSO功能",
+            "Whether to enable TSO"})
+    public static boolean experimental_enable_feature_tso = false;
+
+    @ConfField(mutable = false, masterOnly = true, description = {
+            "TSO服务的更新间隔，单位为毫秒。默认值为50，表示TSO服务每隔50毫秒执行一次时间戳更新检查。",
+            "TSO service update interval in milliseconds. Default is 50, which means the TSO service "
+                    + "will perform timestamp update checks every 50 milliseconds."})
+    public static int tso_service_update_interval_ms = 50;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "TSO服务最大重试次数，默认值为3，表示TSO服务最多重试3次更新全局时间戳。",
+            "TSO service max retry count. Default is 3, which means the TSO service will retry 3 times"
+                    + "to update the global timestamp."})
+    public static int max_update_tso_retry_count = 3;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "TSO获取最大重试次数，默认值为10，表示TSO服务最多重试10次生成TSO。",
+            "TSO get max retry count. Default is 10, which means the TSO service will retry 10 times"
+                    + "to generate TSO."})
+    public static int max_get_tso_retry_count = 10;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "TSO服务时间窗口，单位为毫秒。默认值为5000ms，表示TSO服务一次从BDBJE中申请的TSO时间窗口为5000ms。",
+            "TSO service time window in milliseconds. Default is 5000, which means the TSO service"
+                    + "will apply for a TSO time window of 5000ms from BDBJE once."})
+    public static int tso_service_window_duration_ms = 5000;
+
+    @ConfField(mutable = true, description = {"TSO服务时间偏移，仅用于测试，单位为毫秒。默认值为0，表示TSO服务时间戳偏移为0ms。",
+            "TSO service time offset in milliseconds. Only for test. Default is 0, which means the TSO service"
+                    + "timestamp offset is 0 milliseconds."})
+    public static int tso_time_offset_debug_mode = 0;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否启用将 TSO 窗口右界写入编辑日志。启用后会生成新操作码，旧版本不识别可能导致回滚不兼容，",
+            "Whether to enable persisting TSO window end into edit log. Enabling emits new op code,"
+                    + " which may break rollback to older versions."})
+    public static boolean enable_tso_persist_journal = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "是否启用将 TSO 信息作为镜像模块参与 checkpoint。启用后镜像中包含新模块，旧版本读取新镜像可能需要忽略未知模块",
+            "Whether to include TSO info as an image module in checkpoint. Older versions may need to ignore"
+                    + " unknown modules when reading new images."})
+    public static boolean enable_tso_checkpoint_module = false;
+
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
@@ -3943,4 +3989,7 @@ public class Config extends ConfigBase {
                     + "by default"
     })
     public static boolean calc_delete_bitmap_get_versions_waiting_for_pending_txns = true;
+
+
+
 }

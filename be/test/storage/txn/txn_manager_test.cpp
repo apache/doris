@@ -344,6 +344,32 @@ TEST_F(TxnManagerTest, PublishVersionSuccessful) {
     EXPECT_EQ(rowset_meta->end_version(), 11);
 }
 
+TEST_F(TxnManagerTest, PublishVersionWithCommitTSO) {
+    auto guard = k_engine->pending_local_rowsets().add(_rowset->rowset_id());
+    auto st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id,
+                                                  tablet_id, _tablet_uid, load_id, _rowset,
+                                                  std::move(guard), false);
+    ASSERT_TRUE(st.ok()) << st;
+    Version new_version(10, 11);
+    TabletPublishStatistics stats;
+    int64_t commit_tso = 123456;
+    {
+        std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
+        st = k_engine->txn_manager()->publish_txn(_meta.get(), partition_id, transaction_id,
+                                                  tablet_id, _tablet_uid, new_version, &stats,
+                                                  extend_tablet_txn_info_lifetime, commit_tso);
+        ASSERT_TRUE(st.ok()) << st;
+    }
+
+    RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
+    st = RowsetMetaManager::get_rowset_meta(_meta.get(), _tablet_uid, _rowset->rowset_id(),
+                                            rowset_meta);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(rowset_meta->start_version(), 10);
+    EXPECT_EQ(rowset_meta->end_version(), 11);
+    EXPECT_EQ(rowset_meta->commit_tso(), commit_tso);
+}
+
 // 1. publish version failed if not found related txn and rowset
 TEST_F(TxnManagerTest, PublishNotExistedTxn) {
     Version new_version(10, 11);
@@ -451,7 +477,7 @@ TEST_F(TxnManagerTest, DeleteCommittedTxnCleanupOnError) {
 
     // make rowset visible
     Version version(0, 1);
-    _rowset->make_visible(version);
+    _rowset->make_visible(version, -1);
 
     // now try to delete the transaction
     // this should return TRANSACTION_ALREADY_COMMITTED but still clean up the transaction state

@@ -220,4 +220,12 @@ public class LocalJournal implements Journal {
     public boolean exceedMaxJournalSize(short op, Writable writable) throws IOException  {
         return false;
     }
+
+    public boolean isReadyToFlush() {
+        if (outputStream == null) {
+            return false;
+        } else {
+            return true;
+        }
+    }
 }

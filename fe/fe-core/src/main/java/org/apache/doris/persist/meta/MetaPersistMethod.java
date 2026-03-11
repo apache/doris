@@ -281,6 +281,12 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("saveKeyManagerStore",
                     CountingDataOutputStream.class, long.class);
                 break;
+            case "tso":
+                metaPersistMethod.readMethod = Env.class.getDeclaredMethod("loadTSO", DataInputStream.class,
+                        long.class);
+                metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("saveTSO",
+                        CountingDataOutputStream.class, long.class);
+                break;
             default:
                 break;
         }

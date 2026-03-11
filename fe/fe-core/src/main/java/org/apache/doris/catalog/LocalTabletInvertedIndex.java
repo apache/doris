@@ -544,7 +544,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
         if (tableCommitInfo != null && tableCommitInfo.getPartitionCommitInfo(partitionId) != null) {
             PartitionCommitInfo partitionCommitInfo = tableCommitInfo.getPartitionCommitInfo(partitionId);
             return new TPartitionVersionInfo(tabletMeta.getPartitionId(),
-                    partitionCommitInfo.getVersion(), 0);
+                    partitionCommitInfo.getVersion(), 0, tableCommitInfo.getCommitTSO());
         }
         return null;
     }

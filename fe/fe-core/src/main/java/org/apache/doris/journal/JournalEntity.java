@@ -143,6 +143,7 @@ import org.apache.doris.statistics.UpdateRowsEvent;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -1006,6 +1007,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_META_SYNC_POINT: {
                 data = CloudMetaSyncPoint.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_TSO_TIMESTAMP_WINDOW_END: {
+                data = TSOTimestamp.read(in);
                 isRead = true;
                 break;
             }

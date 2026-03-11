@@ -165,6 +165,8 @@ message RowsetMetaPB {
     
     optional bool is_recycled = 1013; // for recycler mark rowset as recycled
     optional string job_id = 1014;
+
+    optional int64 commit_tso = 1015 [default = -1]; // commit tso
 }
 
 message SchemaDictKeyList {
@@ -719,6 +721,7 @@ message BinlogMetaEntryPB {
 message PendingPublishInfoPB {
     optional int64 partition_id = 1;
     optional int64 transaction_id = 2;
+    optional int64 commit_tso = 3;
 }
 
 message RowsetBinlogMetasPB {
