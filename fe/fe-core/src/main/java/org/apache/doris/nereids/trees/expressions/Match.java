@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.analysis.InvertedIndexUtil;
+import org.apache.doris.analysis.InvertedIndexProperties;
 import org.apache.doris.analysis.MatchPredicate.Operator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
@@ -134,7 +134,7 @@ public abstract class Match extends BinaryOperator implements PropagateNullable 
     }
 
     protected String analyzerSqlFragment() {
-        return InvertedIndexUtil.buildAnalyzerSqlFragment(analyzer.orElse(null));
+        return InvertedIndexProperties.buildAnalyzerSqlFragment(analyzer.orElse(null));
     }
 
     @Override

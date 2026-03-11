@@ -17,18 +17,12 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.analysis.invertedindex.AnalyzerIdentityBuilder;
-import org.apache.doris.analysis.invertedindex.AnalyzerKeyNormalizer;
-
 import com.google.common.base.Strings;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.Map;
 
 public class InvertedIndexProperties {
-    private static final Logger LOG = LogManager.getLogger(InvertedIndexProperties.class);
 
     public static String INVERTED_INDEX_PARSER_KEY = "parser";
     public static String INVERTED_INDEX_PARSER_KEY_ALIAS = "built_in_analyzer";
@@ -45,7 +39,6 @@ public class InvertedIndexProperties {
     public static String INVERTED_INDEX_PARSER_MODE_KEY = "parser_mode";
     public static String INVERTED_INDEX_PARSER_FINE_GRANULARITY = "fine_grained";
     public static String INVERTED_INDEX_PARSER_COARSE_GRANULARITY = "coarse_grained";
-    public static String INVERTED_INDEX_PARSER_MAX_WORD = "ik_max_word";
     public static String INVERTED_INDEX_PARSER_SMART = "ik_smart";
 
     public static String INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE = "char_filter_type";
@@ -103,11 +96,6 @@ public class InvertedIndexProperties {
         return fieldPattern != null ? fieldPattern : "";
     }
 
-    public static boolean getInvertedIndexSupportPhrase(Map<String, String> properties) {
-        String supportPhrase = properties == null ? null : properties.get(INVERTED_INDEX_SUPPORT_PHRASE_KEY);
-        return supportPhrase != null ? Boolean.parseBoolean(supportPhrase) : true;
-    }
-
     public static String getPreferredAnalyzer(Map<String, String> properties) {
         if (properties == null || properties.isEmpty()) {
             return "";
@@ -159,27 +147,13 @@ public class InvertedIndexProperties {
     public static boolean getInvertedIndexParserLowercase(Map<String, String> properties) {
         String lowercase = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_LOWERCASE_KEY);
         // default is true if not set
-        return lowercase != null ? Boolean.parseBoolean(lowercase) : true;
+        return lowercase == null || Boolean.parseBoolean(lowercase);
     }
 
     public static String getInvertedIndexParserStopwords(Map<String, String> properties) {
         String stopwrods = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_STOPWORDS_KEY);
         // default is "" if not set
         return stopwrods != null ? stopwrods : "";
-    }
-
-    public static String getInvertedIndexAnalyzerName(Map<String, String> properties) {
-        if (properties == null) {
-            return "";
-        }
-
-        String analyzerName = properties.get(INVERTED_INDEX_ANALYZER_NAME_KEY);
-        if (analyzerName != null && !analyzerName.isEmpty()) {
-            return analyzerName;
-        }
-
-        String normalizerName = properties.get(INVERTED_INDEX_NORMALIZER_NAME_KEY);
-        return normalizerName != null ? normalizerName : "";
     }
 
     /**
@@ -199,50 +173,5 @@ public class InvertedIndexProperties {
             return " USING ANALYZER " + trimmed;
         }
         return " USING ANALYZER '" + trimmed.replace("'", "''") + "'";
-    }
-
-    public static String buildAnalyzerIdentity(Map<String, String> properties) {
-        String preferredAnalyzer = getPreferredAnalyzer(properties);
-        String parser = getInvertedIndexParser(properties);
-        return AnalyzerIdentityBuilder.buildAnalyzerIdentity(
-                properties,
-                preferredAnalyzer,
-                parser,
-                INVERTED_INDEX_DEFAULT_ANALYZER_KEY,
-                INVERTED_INDEX_PARSER_NONE,
-                LOG);
-    }
-
-    public static boolean isAnalyzerMatched(Map<String, String> properties, String analyzer) {
-        String normalizedAnalyzer = Strings.isNullOrEmpty(analyzer) ? "" : analyzer.trim();
-
-        if (Strings.isNullOrEmpty(normalizedAnalyzer)) {
-            return INVERTED_INDEX_DEFAULT_ANALYZER_KEY.equals(buildAnalyzerIdentity(properties));
-        }
-
-        String preferredAnalyzer = getPreferredAnalyzer(properties);
-        if (!Strings.isNullOrEmpty(preferredAnalyzer)) {
-            return normalizedAnalyzer.equalsIgnoreCase(preferredAnalyzer);
-        }
-
-        String parser = getInvertedIndexParser(properties);
-        if (Strings.isNullOrEmpty(parser)) {
-            return normalizedAnalyzer.equalsIgnoreCase("default")
-                    || normalizedAnalyzer.equalsIgnoreCase(INVERTED_INDEX_PARSER_NONE);
-        }
-        return normalizedAnalyzer.equalsIgnoreCase(parser);
-    }
-
-    /**
-     * Normalize analyzer and normalizer names in index properties to lowercase.
-     * This ensures case-insensitive matching between table creation and query time.
-     */
-    public static void normalizeInvertedIndexProperties(Map<String, String> properties) {
-        AnalyzerKeyNormalizer.normalizeInvertedIndexProperties(
-                properties,
-                INVERTED_INDEX_ANALYZER_NAME_KEY,
-                INVERTED_INDEX_NORMALIZER_NAME_KEY,
-                INVERTED_INDEX_PARSER_KEY,
-                INVERTED_INDEX_PARSER_KEY_ALIAS);
     }
 }
