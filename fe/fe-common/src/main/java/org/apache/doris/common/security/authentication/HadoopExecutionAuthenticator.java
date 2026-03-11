@@ -17,25 +17,8 @@
 
 package org.apache.doris.common.security.authentication;
 
-import java.util.concurrent.Callable;
-
 public class HadoopExecutionAuthenticator implements ExecutionAuthenticator {
-    private final HadoopAuthenticator hadoopAuthenticator;
 
-    public HadoopExecutionAuthenticator(HadoopAuthenticator hadoopAuthenticator) {
-        this.hadoopAuthenticator = hadoopAuthenticator;
-    }
-
-    @Override
-    public <T> T execute(Callable<T> task) throws Exception {
-        return hadoopAuthenticator.doAs(task::call);
-    }
-
-    @Override
-    public void execute(Runnable task) throws Exception {
-        hadoopAuthenticator.doAs(() -> {
-            task.run();
-            return null;
-        });
+    public HadoopExecutionAuthenticator() {
     }
 }

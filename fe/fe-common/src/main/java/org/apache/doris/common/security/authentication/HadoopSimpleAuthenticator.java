@@ -18,11 +18,8 @@
 package org.apache.doris.common.security.authentication;
 
 import org.apache.hadoop.security.UserGroupInformation;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 public class HadoopSimpleAuthenticator implements HadoopAuthenticator {
-    private static final Logger LOG = LogManager.getLogger(HadoopSimpleAuthenticator.class);
     private final UserGroupInformation ugi;
 
     public HadoopSimpleAuthenticator() {

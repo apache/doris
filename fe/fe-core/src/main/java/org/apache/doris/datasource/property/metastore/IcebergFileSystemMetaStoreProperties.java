@@ -79,7 +79,7 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
                 // Using FileIO for Kerberos authentication may cause serialization issues when accessing
                 // Iceberg system tables (e.g., history, snapshots, manifests).
                 //props.put(CatalogProperties.FILE_IO_IMPL,"org.apache.doris.datasource.iceberg.fileio.DelegateFileIO");
-                this.executionAuthenticator = new HadoopExecutionAuthenticator(hdfsProps.getHadoopAuthenticator());
+                this.executionAuthenticator = new HadoopExecutionAuthenticator();
             }
         }
     }

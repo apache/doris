@@ -58,7 +58,7 @@ public class HiveHMSProperties extends AbstractHiveProperties {
         initRefreshParams();
         hmsBaseProperties = HMSBaseProperties.of(origProps);
         this.hiveConf = hmsBaseProperties.getHiveConf();
-        this.executionAuthenticator = new HadoopExecutionAuthenticator(hmsBaseProperties.getHmsAuthenticator());
+        this.executionAuthenticator = new HadoopExecutionAuthenticator();
     }
 
     private void initRefreshParams() {
