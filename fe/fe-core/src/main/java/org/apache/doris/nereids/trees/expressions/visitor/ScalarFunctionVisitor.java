@@ -491,8 +491,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StAsBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAstext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAswkt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAzimuth;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StBuffer;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StCentroid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StCircle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StContains;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StConvexHull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StCrosses;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDisjoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
@@ -501,15 +505,21 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFro
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomfromtext;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StIntersection;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StIntersects;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StIsValid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinefromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinestringfromtext;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StMakeValid;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StOverlaps;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolyfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygon;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygonfromtext;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StSimplify;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StTouches;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StUnion;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StX;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StY;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
@@ -2446,6 +2456,46 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStAsBinary(StAsBinary stAsBinary, C context) {
         return visitScalarFunction(stAsBinary, context);
+    }
+
+    default R visitStIsValid(StIsValid stIsValid, C context) {
+        return visitScalarFunction(stIsValid, context);
+    }
+
+    default R visitStMakeValid(StMakeValid stMakeValid, C context) {
+        return visitScalarFunction(stMakeValid, context);
+    }
+
+    default R visitStBuffer(StBuffer stBuffer, C context) {
+        return visitScalarFunction(stBuffer, context);
+    }
+
+    default R visitStCentroid(StCentroid stCentroid, C context) {
+        return visitScalarFunction(stCentroid, context);
+    }
+
+    default R visitStConvexHull(StConvexHull stConvexHull, C context) {
+        return visitScalarFunction(stConvexHull, context);
+    }
+
+    default R visitStSimplify(StSimplify stSimplify, C context) {
+        return visitScalarFunction(stSimplify, context);
+    }
+
+    default R visitStUnion(StUnion stUnion, C context) {
+        return visitScalarFunction(stUnion, context);
+    }
+
+    default R visitStIntersection(StIntersection stIntersection, C context) {
+        return visitScalarFunction(stIntersection, context);
+    }
+
+    default R visitStOverlaps(StOverlaps stOverlaps, C context) {
+        return visitScalarFunction(stOverlaps, context);
+    }
+
+    default R visitStCrosses(StCrosses stCrosses, C context) {
+        return visitScalarFunction(stCrosses, context);
     }
 
     default R visitStartsWith(StartsWith startsWith, C context) {

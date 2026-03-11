@@ -26,6 +26,7 @@
 #include "common/compiler_util.h"
 #include "geo/geo_common.h"
 #include "geo/geo_types.h"
+#include "geo/geos_wrapper.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_execute_util.h"
@@ -917,6 +918,461 @@ private:
     }
 };
 
+// Helper: convert Doris encoded geometry to WKT string
+static std::string shape_to_wkt(const StringRef& shape_value) {
+    auto shape = GeoShape::from_encoded(shape_value.data, shape_value.size);
+    if (!shape) {
+        return "";
+    }
+    return shape->as_wkt();
+}
+
+// Helper: convert WKT string to Doris encoded geometry, write into ColumnString
+static bool wkt_to_encoded(const std::string& wkt, ColumnString::MutablePtr& res) {
+    if (wkt.empty()) {
+        return false;
+    }
+    GeoParseStatus status;
+    auto shape = GeoShape::from_wkt(wkt.data(), wkt.size(), status);
+    if (!shape || status != GEO_PARSE_OK) {
+        return false;
+    }
+    std::string buf;
+    shape->encode_to(&buf);
+    res->insert_data(buf.data(), buf.size());
+    return true;
+}
+
+struct StIsValidImpl {
+    static constexpr auto NAME = "st_isvalid";
+    static const size_t NUM_ARGS = 1;
+    using Type = DataTypeUInt8;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+
+        auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto size = col->size();
+        auto res = ColumnUInt8::create(size, 0);
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& null_map_data = null_map->get_data();
+        auto& geos = GEOSWrapper::instance();
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = col->get_data_at(row);
+            auto wkt = shape_to_wkt(shape_value);
+            if (wkt.empty()) {
+                null_map_data[row] = 1;
+                continue;
+            }
+            auto geom = geos.from_wkt(wkt);
+            if (!geom) {
+                null_map_data[row] = 1;
+                continue;
+            }
+            res->get_data()[row] = geom->isValid() ? 1 : 0;
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+};
+
+struct StMakeValidImpl {
+    static constexpr auto NAME = "st_makevalid";
+    static const size_t NUM_ARGS = 1;
+    using Type = DataTypeString;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+
+        auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto size = col->size();
+        auto res = ColumnString::create();
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& null_map_data = null_map->get_data();
+        auto& geos = GEOSWrapper::instance();
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = col->get_data_at(row);
+            auto wkt = shape_to_wkt(shape_value);
+            if (wkt.empty()) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            auto geom = geos.from_wkt(wkt);
+            if (!geom) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            if (geom->isValid()) {
+                // Already valid, return original encoded data
+                res->insert_data(shape_value.data, shape_value.size);
+                continue;
+            }
+            try {
+                auto valid_geom = geos::operation::valid::MakeValid().build(geom.get());
+                if (valid_geom && valid_geom->isValid()) {
+                    auto result_wkt = geos.to_wkt(valid_geom.get());
+                    if (!wkt_to_encoded(result_wkt, res)) {
+                        null_map_data[row] = 1;
+                        res->insert_default();
+                    }
+                } else {
+                    null_map_data[row] = 1;
+                    res->insert_default();
+                }
+            } catch (...) {
+                null_map_data[row] = 1;
+                res->insert_default();
+            }
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+};
+
+struct StBufferImpl {
+    static constexpr auto NAME = "st_buffer";
+    static const size_t NUM_ARGS = 2;
+    using Type = DataTypeString;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 2);
+
+        auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto dist_col = ColumnView<TYPE_DOUBLE>::create(block.get_by_position(arguments[1]).column);
+        const auto size = col->size();
+        auto res = ColumnString::create();
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& null_map_data = null_map->get_data();
+        auto& geos = GEOSWrapper::instance();
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = col->get_data_at(row);
+            auto wkt = shape_to_wkt(shape_value);
+            if (wkt.empty()) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            auto geom = geos.from_wkt(wkt);
+            if (!geom) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            double distance = dist_col.value_at(row);
+            try {
+                auto buffered = geom->buffer(distance);
+                if (!buffered) {
+                    null_map_data[row] = 1;
+                    res->insert_default();
+                    continue;
+                }
+                auto result_wkt = geos.to_wkt(buffered.get());
+                if (!wkt_to_encoded(result_wkt, res)) {
+                    null_map_data[row] = 1;
+                    res->insert_default();
+                }
+            } catch (...) {
+                null_map_data[row] = 1;
+                res->insert_default();
+            }
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+};
+
+struct StCentroidImpl {
+    static constexpr auto NAME = "st_centroid";
+    static const size_t NUM_ARGS = 1;
+    using Type = DataTypeString;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+
+        auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto size = col->size();
+        auto res = ColumnString::create();
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& null_map_data = null_map->get_data();
+        auto& geos = GEOSWrapper::instance();
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = col->get_data_at(row);
+            auto wkt = shape_to_wkt(shape_value);
+            if (wkt.empty()) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            auto geom = geos.from_wkt(wkt);
+            if (!geom) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            try {
+                auto centroid = geom->getCentroid();
+                if (!centroid || centroid->isEmpty()) {
+                    null_map_data[row] = 1;
+                    res->insert_default();
+                    continue;
+                }
+                auto result_wkt = geos.to_wkt(centroid.get());
+                if (!wkt_to_encoded(result_wkt, res)) {
+                    null_map_data[row] = 1;
+                    res->insert_default();
+                }
+            } catch (...) {
+                null_map_data[row] = 1;
+                res->insert_default();
+            }
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+};
+
+struct StConvexHullImpl {
+    static constexpr auto NAME = "st_convexhull";
+    static const size_t NUM_ARGS = 1;
+    using Type = DataTypeString;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 1);
+
+        auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto size = col->size();
+        auto res = ColumnString::create();
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& null_map_data = null_map->get_data();
+        auto& geos = GEOSWrapper::instance();
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = col->get_data_at(row);
+            auto wkt = shape_to_wkt(shape_value);
+            if (wkt.empty()) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            auto geom = geos.from_wkt(wkt);
+            if (!geom) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            try {
+                auto hull = geom->convexHull();
+                if (!hull) {
+                    null_map_data[row] = 1;
+                    res->insert_default();
+                    continue;
+                }
+                auto result_wkt = geos.to_wkt(hull.get());
+                if (!wkt_to_encoded(result_wkt, res)) {
+                    null_map_data[row] = 1;
+                    res->insert_default();
+                }
+            } catch (...) {
+                null_map_data[row] = 1;
+                res->insert_default();
+            }
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+};
+
+struct StSimplifyImpl {
+    static constexpr auto NAME = "st_simplify";
+    static const size_t NUM_ARGS = 2;
+    using Type = DataTypeString;
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 2);
+
+        auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto tolerance_col =
+                ColumnView<TYPE_DOUBLE>::create(block.get_by_position(arguments[1]).column);
+        const auto size = col->size();
+        auto res = ColumnString::create();
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& null_map_data = null_map->get_data();
+        auto& geos = GEOSWrapper::instance();
+
+        for (int row = 0; row < size; ++row) {
+            auto shape_value = col->get_data_at(row);
+            auto wkt = shape_to_wkt(shape_value);
+            if (wkt.empty()) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            auto geom = geos.from_wkt(wkt);
+            if (!geom) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            double tolerance = tolerance_col.value_at(row);
+            try {
+                auto simplified =
+                        geos::simplify::TopologyPreservingSimplifier::simplify(geom.get(),
+                                                                              tolerance);
+                if (!simplified) {
+                    null_map_data[row] = 1;
+                    res->insert_default();
+                    continue;
+                }
+                auto result_wkt = geos.to_wkt(simplified.get());
+                if (!wkt_to_encoded(result_wkt, res)) {
+                    null_map_data[row] = 1;
+                    res->insert_default();
+                }
+            } catch (...) {
+                null_map_data[row] = 1;
+                res->insert_default();
+            }
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+};
+
+// Template for binary GEOS geometry operations that return a geometry
+template <typename Func>
+struct StBinaryGeoFunction {
+    static constexpr auto NAME = Func::NAME;
+    static const size_t NUM_ARGS = 2;
+    using Type = DataTypeString;
+
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 2);
+
+        auto col1 = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto col2 = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        const auto size = col1->size();
+        auto res = ColumnString::create();
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& null_map_data = null_map->get_data();
+        auto& geos = GEOSWrapper::instance();
+
+        for (int row = 0; row < size; ++row) {
+            auto wkt1 = shape_to_wkt(col1->get_data_at(row));
+            auto wkt2 = shape_to_wkt(col2->get_data_at(row));
+            if (wkt1.empty() || wkt2.empty()) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            auto geom1 = geos.from_wkt(wkt1);
+            auto geom2 = geos.from_wkt(wkt2);
+            if (!geom1 || !geom2) {
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
+            }
+            try {
+                auto result_geom = Func::evaluate(geom1.get(), geom2.get());
+                if (!result_geom) {
+                    null_map_data[row] = 1;
+                    res->insert_default();
+                    continue;
+                }
+                auto result_wkt = geos.to_wkt(result_geom.get());
+                if (!wkt_to_encoded(result_wkt, res)) {
+                    null_map_data[row] = 1;
+                    res->insert_default();
+                }
+            } catch (...) {
+                null_map_data[row] = 1;
+                res->insert_default();
+            }
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+};
+
+struct StUnionFunc {
+    static constexpr auto NAME = "st_union";
+    static std::unique_ptr<geos::geom::Geometry> evaluate(const geos::geom::Geometry* g1,
+                                                          const geos::geom::Geometry* g2) {
+        return g1->Union(g2);
+    }
+};
+
+struct StIntersectionFunc {
+    static constexpr auto NAME = "st_intersection";
+    static std::unique_ptr<geos::geom::Geometry> evaluate(const geos::geom::Geometry* g1,
+                                                          const geos::geom::Geometry* g2) {
+        return g1->intersection(g2);
+    }
+};
+
+// Template for binary GEOS predicate operations that return boolean
+template <typename Func>
+struct StGeosPredicate {
+    static constexpr auto NAME = Func::NAME;
+    static const size_t NUM_ARGS = 2;
+    using Type = DataTypeUInt8;
+
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+        DCHECK_EQ(arguments.size(), 2);
+
+        auto col1 = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto col2 = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        const auto size = col1->size();
+        auto res = ColumnUInt8::create(size, 0);
+        auto null_map = ColumnUInt8::create(size, 0);
+        auto& null_map_data = null_map->get_data();
+        auto& geos = GEOSWrapper::instance();
+
+        for (int row = 0; row < size; ++row) {
+            auto wkt1 = shape_to_wkt(col1->get_data_at(row));
+            auto wkt2 = shape_to_wkt(col2->get_data_at(row));
+            if (wkt1.empty() || wkt2.empty()) {
+                null_map_data[row] = 1;
+                continue;
+            }
+            auto geom1 = geos.from_wkt(wkt1);
+            auto geom2 = geos.from_wkt(wkt2);
+            if (!geom1 || !geom2) {
+                null_map_data[row] = 1;
+                continue;
+            }
+            try {
+                res->get_data()[row] = Func::evaluate(geom1.get(), geom2.get()) ? 1 : 0;
+            } catch (...) {
+                null_map_data[row] = 1;
+            }
+        }
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+};
+
+struct StOverlapsFunc {
+    static constexpr auto NAME = "st_overlaps";
+    static bool evaluate(const geos::geom::Geometry* g1, const geos::geom::Geometry* g2) {
+        return g1->overlaps(g2);
+    }
+};
+
+struct StCrossesFunc {
+    static constexpr auto NAME = "st_crosses";
+    static bool evaluate(const geos::geom::Geometry* g1, const geos::geom::Geometry* g2) {
+        return g1->crosses(g2);
+    }
+};
+
 void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StPoint>>();
     factory.register_function<GeoFunction<StAsText<StAsWktName>>>();
@@ -947,6 +1403,17 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StLength>>();
     factory.register_function<GeoFunction<StGeometryType>>();
     factory.register_function<GeoFunction<StDistance>>();
+    // GEOS-based functions
+    factory.register_function<GeoFunction<StIsValidImpl>>();
+    factory.register_function<GeoFunction<StMakeValidImpl>>();
+    factory.register_function<GeoFunction<StBufferImpl>>();
+    factory.register_function<GeoFunction<StCentroidImpl>>();
+    factory.register_function<GeoFunction<StConvexHullImpl>>();
+    factory.register_function<GeoFunction<StSimplifyImpl>>();
+    factory.register_function<GeoFunction<StBinaryGeoFunction<StUnionFunc>>>();
+    factory.register_function<GeoFunction<StBinaryGeoFunction<StIntersectionFunc>>>();
+    factory.register_function<GeoFunction<StGeosPredicate<StOverlapsFunc>>>();
+    factory.register_function<GeoFunction<StGeosPredicate<StCrossesFunc>>>();
 }
 
 } // namespace doris::vectorized

@@ -1188,6 +1188,29 @@ build_s2() {
     strip_lib libs2.a
 }
 
+# geos
+build_geos() {
+    check_if_source_exist "${GEOS_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${GEOS_SOURCE}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    rm -rf CMakeCache.txt CMakeFiles/
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DBUILD_TESTING=OFF \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DBUILD_GEOSOP=OFF \
+        -DBUILD_DOCUMENTATION=OFF ..
+
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+    strip_lib libgeos.a
+}
+
 # bitshuffle
 build_bitshuffle() {
     check_if_source_exist "${BITSHUFFLE_SOURCE}"
@@ -2116,6 +2139,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         grpc # after cares, protobuf
         arrow
         s2
+        geos
         bitshuffle
         croaringbitmap
         fmt

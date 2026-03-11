@@ -565,6 +565,12 @@ PAIMON_CPP_NAME="paimon-cpp-0a4f4e2.tar.gz"
 PAIMON_CPP_SOURCE="doris-thirdparty-paimon-cpp-0a4f4e2"
 PAIMON_CPP_MD5SUM="b8599a0421dbf1ec05e2f1a481d64e87"
 
+# geos
+GEOS_DOWNLOAD="https://download.osgeo.org/geos/geos-3.12.1.tar.bz2"
+GEOS_NAME="geos-3.12.1.tar.bz2"
+GEOS_SOURCE="geos-3.12.1"
+GEOS_MD5SUM="36d16fbea7e923c50b33ddb83516c36e"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -649,6 +655,7 @@ export TP_ARCHIVES=(
     'JINDOFS'
     'PUGIXML'
     'PAIMON_CPP'
+    'GEOS'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

@@ -470,8 +470,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StAsBinary;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAstext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAswkt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAzimuth;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StBuffer;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StCentroid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StCircle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StContains;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StConvexHull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StCrosses;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDisjoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
@@ -480,15 +484,21 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFro
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomfromtext;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StIntersection;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StIntersects;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StIsValid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinefromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinestringfromtext;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StMakeValid;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StOverlaps;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPoint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolyfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygon;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygonfromtext;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StSimplify;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StTouches;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StUnion;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StX;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StY;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
@@ -1069,6 +1079,16 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StPolygonfromtext.class, "st_polygonfromtext"),
             scalar(StX.class, "st_x"),
             scalar(StY.class, "st_y"),
+            scalar(StIsValid.class, "st_isvalid"),
+            scalar(StMakeValid.class, "st_makevalid"),
+            scalar(StBuffer.class, "st_buffer"),
+            scalar(StCentroid.class, "st_centroid"),
+            scalar(StConvexHull.class, "st_convexhull"),
+            scalar(StSimplify.class, "st_simplify"),
+            scalar(StUnion.class, "st_union"),
+            scalar(StIntersection.class, "st_intersection"),
+            scalar(StOverlaps.class, "st_overlaps"),
+            scalar(StCrosses.class, "st_crosses"),
             scalar(StartsWith.class, "starts_with"),
             scalar(Strcmp.class, "strcmp"),
             scalar(StripNullValue.class, "strip_null_value"),
