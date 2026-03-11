@@ -155,8 +155,6 @@ public:
         return *_env_scanner;
     }
 
-    bool is_initialized() const { return _env_scanner != nullptr; }
-
 private:
     std::unique_ptr<PythonEnvScanner> _env_scanner;
 };
@@ -174,11 +172,6 @@ public:
     }
 
     Status get_version(const std::string& runtime_version, PythonVersion* version) const {
-        if (!_holder.is_initialized()) {
-            return Status::Uninitialized(
-                    "Set 'enable_python_udf_support = true' in be.conf to enable PythonUDF "
-                    "feature");
-        }
         return _holder.get().get_version(runtime_version, version);
     }
 
