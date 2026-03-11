@@ -292,39 +292,33 @@ public class PlanReceiver extends AbstractReceiver {
 
     private LogicalPlan proposeProject(LogicalPlan join, List<Edge> edges, long left, long right) {
         Set<Slot> outputSet = join.getOutputSet();
-        if (LongBitmap.newBitmapUnion(left, right) == allNodeBitmap
-                && !outputSet.equals(new HashSet<>(finalProjects))) {
-            // add final project for the join cluster
-            List<NamedExpression> outputs = finalProjects;
-            if (hyperGraph.hasLiteralAlias()) {
-                List<NamedExpression> literalAliasList = hyperGraph.getLiteralAlias(left, right);
-                outputs = ExpressionUtils.replaceNamedExpressions(finalProjects,
-                        ExpressionUtils.generateReplaceMap(literalAliasList));
-            }
-            return new LogicalProject<>(outputs, join);
-        } else {
-            // calculate required columns by all parents
-            Set<Slot> requireSlots = calculateRequiredSlots(left, right, edges);
-            List<NamedExpression> allProjects = new ArrayList<>(outputSet.size());
-            for (Slot slot : outputSet) {
-                if (requireSlots.contains(slot)) {
-                    allProjects.add(slot);
-                }
-            }
-            if (hyperGraph.hasLiteralAlias()) {
-                allProjects.addAll(hyperGraph.getLiteralAlias(left, right));
-            }
-
-            // propose logical project
-            if (allProjects.isEmpty()) {
-                allProjects.add(new Alias(new ExprId(-1), new TinyIntLiteral((byte) 1)));
-            }
-
-            if (outputSet.equals(new HashSet<>(allProjects))) {
-                return join;
-            } else {
-                return new LogicalProject<>(allProjects, join);
+        // calculate required columns by all parents
+        Set<Slot> requireSlots = calculateRequiredSlots(left, right, edges);
+        List<NamedExpression> allProjects = new ArrayList<>(outputSet.size());
+        for (Slot slot : outputSet) {
+            if (requireSlots.contains(slot)) {
+                allProjects.add(slot);
             }
         }
+        if (hyperGraph.hasLiteralAlias()) {
+            allProjects.addAll(hyperGraph.getLiteralAlias(left, right));
+        }
+
+        if (allProjects.isEmpty()) {
+            allProjects.add(new Alias(new ExprId(-1), new TinyIntLiteral((byte) 1)));
+        }
+
+        // propose logical project
+        LogicalPlan logicalPlan;
+        if (outputSet.equals(new HashSet<>(allProjects))) {
+            logicalPlan = join;
+        } else {
+            logicalPlan = new LogicalProject<>(allProjects, join);
+        }
+        if (LongBitmap.newBitmapUnion(left, right) == allNodeBitmap
+                && !logicalPlan.getOutputSet().equals(new HashSet<>(finalProjects))) {
+            logicalPlan = new LogicalProject<>(finalProjects, logicalPlan);
+        }
+        return logicalPlan;
     }
 }
