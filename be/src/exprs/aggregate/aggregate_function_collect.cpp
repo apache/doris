@@ -17,9 +17,6 @@
 
 #include "exprs/aggregate/aggregate_function_collect.h"
 
-#include "common/exception.h"
-#include "common/status.h"
-#include "core/call_on_type_index.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/factory_helpers.h"
 #include "exprs/aggregate/helpers.h"
@@ -27,50 +24,14 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-template <PrimitiveType T, bool HasLimit>
-AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTypes& argument_types,
-                                                    const bool result_is_nullable,
-
-                                                    const AggregateFunctionAttr& attr) {
-    if (distinct) {
-        if constexpr (T == INVALID_TYPE) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "unexpected type for collect, please check the input");
-        } else {
-            return creator_without_type::create<AggregateFunctionCollect<
-                    AggregateFunctionCollectSetData<T, HasLimit>, HasLimit>>(
-                    argument_types, result_is_nullable, attr);
-        }
-    } else {
-        return creator_without_type::create<
-                AggregateFunctionCollect<AggregateFunctionCollectListData<T, HasLimit>, HasLimit>>(
-                argument_types, result_is_nullable, attr);
-    }
-}
-
-template <bool HasLimit>
-AggregateFunctionPtr create_aggregate_function_collect_impl(const std::string& name,
-                                                            const DataTypes& argument_types,
-                                                            const bool result_is_nullable,
-
-                                                            const AggregateFunctionAttr& attr) {
-    bool distinct = name == "collect_set";
-
-    AggregateFunctionPtr agg_fn;
-    auto call = [&](const auto& type) -> bool {
-        using DispatcType = std::decay_t<decltype(type)>;
-        agg_fn = do_create_agg_function_collect<DispatcType::PType, HasLimit>(
-                distinct, argument_types, result_is_nullable, attr);
-        return true;
-    };
-
-    if (!dispatch_switch_all(argument_types[0]->get_primitive_type(), call)) {
-        // We do not care what the real type is.
-        agg_fn = do_create_agg_function_collect<INVALID_TYPE, HasLimit>(distinct, argument_types,
-                                                                        result_is_nullable, attr);
-    }
-    return agg_fn;
-}
+// Forward declarations — template instantiations live in separate TUs
+AggregateFunctionPtr create_aggregate_function_collect_no_limit(const std::string& name,
+                                                                const DataTypes& argument_types,
+                                                                const bool result_is_nullable,
+                                                                const AggregateFunctionAttr& attr);
+AggregateFunctionPtr create_aggregate_function_collect_with_limit(
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
+        const AggregateFunctionAttr& attr);
 
 AggregateFunctionPtr create_aggregate_function_collect(const std::string& name,
                                                        const DataTypes& argument_types,
@@ -79,11 +40,11 @@ AggregateFunctionPtr create_aggregate_function_collect(const std::string& name,
                                                        const AggregateFunctionAttr& attr) {
     assert_arity_range(name, argument_types, 1, 2);
     if (argument_types.size() == 1) {
-        return create_aggregate_function_collect_impl<false>(name, argument_types,
-                                                             result_is_nullable, attr);
+        return create_aggregate_function_collect_no_limit(name, argument_types, result_is_nullable,
+                                                          attr);
     }
     if (argument_types.size() == 2) {
-        return create_aggregate_function_collect_impl<true>(name, argument_types,
+        return create_aggregate_function_collect_with_limit(name, argument_types,
                                                             result_is_nullable, attr);
     }
     return nullptr;
