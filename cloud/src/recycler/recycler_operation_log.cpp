@@ -65,6 +65,7 @@ using namespace std::chrono;
 int OperationLogRecycleChecker::init() {
     source_snapshot_versionstamp_ = Versionstamp::min();
     if (instance_info_.has_source_snapshot_id() &&
+        instance_info_.snapshot_compact_status() != SNAPSHOT_COMPACT_DONE &&
         !SnapshotManager::parse_snapshot_versionstamp(instance_info_.source_snapshot_id(),
                                                       &source_snapshot_versionstamp_)) {
         LOG_WARNING("failed to parse versionstamp from source snapshot id")
