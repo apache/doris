@@ -36,7 +36,6 @@
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/data_type/data_type_factory.hpp"
-#include "core/data_type/serde/data_type_string_serde.h"
 #include "exec/scan/scanner.h"
 #include "format/file_reader/new_plain_binary_line_reader.h"
 #include "format/file_reader/new_plain_text_line_reader.h"
@@ -661,6 +660,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                 _nullable_str_col_cache[i].nested_str_col = str_col;
                 _nullable_str_col_cache[i].null_map = null_map;
                 // Pre-reserve to avoid repeated realloc inside insert_data/push_back.
+                // Estimate 64 bytes per string as a reasonable average for typical CSV data.
                 str_col->get_offsets().reserve(str_col->get_offsets().size() + batch_size);
                 str_col->get_chars().reserve(str_col->get_chars().size() + batch_size * 64);
                 null_map->reserve(null_map->size() + batch_size);
@@ -691,6 +691,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
 
         if (_use_nullable_string_opt[i]) {
             // Inline fast path: bypass StringSerDe and per-row assert_cast entirely.
+            DCHECK_LT(i, _nullable_str_col_cache.size());
             auto& cache = _nullable_str_col_cache[i];
             if (_empty_field_as_null && value.size == 0) {
                 cache.nested_str_col->insert_default();
@@ -712,6 +713,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
             cache.nested_str_col->insert_data(value.data, value.size);
             cache.null_map->push_back(0);
         } else {
+            // Non-optimized path: col_ptr only needed here since fast path uses cached pointers
             IColumn* col_ptr = columns[i].get();
             if (!_is_load) {
                 col_ptr = const_cast<IColumn*>(
