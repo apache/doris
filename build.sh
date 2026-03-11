@@ -765,6 +765,57 @@ function build_ui() {
     cp -r "${ui_dist}"/* "${DORIS_HOME}/fe/fe-core/src/main/resources/static"/
 }
 
+function build_fe_modules() {
+    local thread_count="${FE_MAVEN_THREADS:-1C}"
+    local retry_thread_count="${FE_MAVEN_RETRY_THREADS:-1}"
+    local log_file
+    local -a dependency_mvn_opts=()
+    local -a extra_mvn_opts=()
+    local -a user_settings_opts=()
+    local -a mvn_cmd=(
+        "${MVN_CMD}"
+        package
+        -pl
+        "${FE_MODULES}"
+        -am
+        -Dskip.doc=true
+        -DskipTests
+    )
+
+    if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
+        mvn_cmd+=("-Dcheckstyle.skip=true")
+    fi
+    if [[ -n "${MVN_OPT}" ]]; then
+        # shellcheck disable=SC2206
+        extra_mvn_opts=(${MVN_OPT})
+    fi
+    if [[ "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
+        dependency_mvn_opts+=("-Dobs.dependency.scope=provided")
+    fi
+    if [[ "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
+        dependency_mvn_opts+=("-Dcos.dependency.scope=provided")
+    fi
+    if [[ -n "${USER_SETTINGS_MVN_REPO}" && -f "${USER_SETTINGS_MVN_REPO}" ]]; then
+        user_settings_opts=(-gs "${USER_SETTINGS_MVN_REPO}")
+    fi
+
+    mvn_cmd+=("${extra_mvn_opts[@]}" "${dependency_mvn_opts[@]}" "${user_settings_opts[@]}" -T "${thread_count}")
+    log_file="$(mktemp)"
+    if "${mvn_cmd[@]}" 2>&1 | tee "${log_file}"; then
+        rm -f "${log_file}"
+        return 0
+    fi
+    if [[ "${thread_count}" != "${retry_thread_count}" ]] && grep -Fq "Could not acquire lock(s)" "${log_file}"; then
+        echo "FE Maven build hit Maven resolver lock contention. Retrying with -T ${retry_thread_count}."
+        mvn_cmd=("${mvn_cmd[@]:0:${#mvn_cmd[@]}-2}" -T "${retry_thread_count}")
+        "${mvn_cmd[@]}"
+        rm -f "${log_file}"
+        return 0
+    fi
+    rm -f "${log_file}"
+    return 1
+}
+
 # FE UI must be built before building FE
 if [[ "${BUILD_FE}" -eq 1 ]]; then
     if [[ "${BUILD_UI}" -eq 1 ]]; then
@@ -779,28 +830,7 @@ if [[ "${FE_MODULES}" != '' ]]; then
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_fe
     fi
-    DEPENDENCIES_MVN_OPTS=" "
-    if [[ "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
-        DEPENDENCIES_MVN_OPTS+=" -Dobs.dependency.scope=provided "
-    fi
-    if [[ "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
-        DEPENDENCIES_MVN_OPTS+=" -Dcos.dependency.scope=provided "
-    fi
-    
-    if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
-        # Allowed user customer set env param USER_SETTINGS_MVN_REPO means settings.xml file path
-        if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -am -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
-        else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -am -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
-        fi
-    else
-        if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -am -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
-        else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -am -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
-        fi
-    fi
+    build_fe_modules
     cd "${DORIS_HOME}"
 fi
 
