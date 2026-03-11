@@ -2121,9 +2121,9 @@ public class Env {
 
         Frontend fe = checkFeExist(selfNode.getHost(), selfNode.getPort());
         if (fe == null) {
-            LOG.error("current node {}:{} is not added to the cluster, will exit."
+            LOG.error("current node {}:{} is not added to the cluster {}, will exit."
                             + " Your FE IP maybe changed, please set 'priority_networks' config in fe.conf properly.",
-                    selfNode.getHost(), selfNode.getPort());
+                    selfNode.getHost(), selfNode.getPort(), frontends);
             System.exit(-1);
         } else if (fe.getRole() != role) {
             LOG.error("current node role is {} not match with frontend recorded role {}. will exit", role,

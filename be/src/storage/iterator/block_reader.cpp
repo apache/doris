@@ -213,7 +213,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
         // For each original cid, find the index in return_columns
         for (int j = 0; j < read_params.return_columns.size(); ++j) {
             if (read_params.return_columns[j] == cid) {
-                if (j < _tablet->num_key_columns() || _tablet->keys_type() != AGG_KEYS) {
+                if (j < _tablet->num_key_columns(*_tablet_schema) || _tablet->keys_type() != AGG_KEYS) {
                     pos_map[cid] = (int32_t)_normal_columns_idx.size();
                     _normal_columns_idx.emplace_back(j);
                 } else {

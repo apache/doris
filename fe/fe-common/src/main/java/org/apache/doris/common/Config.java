@@ -2788,11 +2788,11 @@ public class Config extends ConfigBase {
     })
     public static boolean enable_convert_light_weight_schema_change = false;
 
-    @ConfField(mutable = true, masterOnly = true, description = {
+    @ConfField(description = {
             "暂时性配置项，开启后加 key 列采用轻量级实现",
             "temporary config filed, will enable light weight add key column"
     })
-    public static boolean enable_light_add_key = false;
+    public static boolean enable_light_add_key = true;
 
     @ConfField(mutable = true, masterOnly = false, description = {
             "查询 information_schema.metadata_name_ids 表时，获取一个数据库中所有表用的时间",

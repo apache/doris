@@ -209,7 +209,7 @@ Status OlapScanner::prepare() {
                 // Originally scanner get TabletSchema from tablet object in BE.
                 // To support lightweight schema change for adding / dropping columns,
                 // tabletschema is bounded to rowset and tablet's schema maybe outdated,
-                //  so we have to use schema from a query plan witch FE puts it in query plans.
+                //  so we have to use schema from a query plan which FE puts it in query plans.
                 tablet_schema->clear_columns();
                 for (const auto& column_desc : olap_scan_node.columns_desc) {
                     tablet_schema->append_column(TabletColumn(column_desc));
@@ -419,7 +419,7 @@ Status OlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.return_columns = _return_columns;
     } else {
         // we need to fetch all key columns to do the right aggregation on storage engine side.
-        for (size_t i = 0; i < tablet_schema->num_key_columns(); ++i) {
+        for (size_t i = 0; i < _tablet_reader_params.tablet->num_key_columns(*tablet_schema); ++i) {
             _tablet_reader_params.return_columns.push_back(i);
         }
         for (auto index : _return_columns) {
