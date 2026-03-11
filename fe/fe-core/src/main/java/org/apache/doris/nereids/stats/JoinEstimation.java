@@ -502,7 +502,7 @@ public class JoinEstimation {
             return crossJoinStats.withRowCountAndEnforceValid(rowCount);
         } else if (joinType == JoinType.ASOF_RIGHT_OUTER_JOIN) {
             double rowCount = Math.max(rightStats.getRowCount(), 1);
-            updateNumNullsForOuterJoin(crossJoinStats, innerJoinStats, leftStats, rightStats, rowCount);
+            updateNumNullsForOuterJoin(crossJoinStats, innerJoinStats, rightStats, leftStats, rowCount);
             updateJoinConditionColumnStatistics(crossJoinStats, join);
             return crossJoinStats.withRowCountAndEnforceValid(rowCount);
         } else if (joinType.isAsofInnerJoin()) {

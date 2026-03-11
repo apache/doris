@@ -157,7 +157,7 @@ public class HashJoinNode extends JoinNodeBase {
         if (matchCondition != null) {
             Preconditions.checkState(joinOp == JoinOperator.ASOF_LEFT_OUTER_JOIN
                     || joinOp == JoinOperator.ASOF_LEFT_INNER_JOIN, "match condition is not allowed in " + joinOp);
-            msg.hash_join_node.setMatchCondition(matchCondition.treeToThrift());
+            msg.hash_join_node.setMatchCondition(ExprToThriftVisitor.treeToThrift(matchCondition));
         }
 
         if (markJoinConjuncts != null) {
@@ -223,7 +223,7 @@ public class HashJoinNode extends JoinNodeBase {
         }
         if (matchCondition != null) {
             output.append(detailPrefix).append("match condition: ")
-                    .append(matchCondition.toSql()).append("\n");
+                    .append(matchCondition.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
         }
         if (markJoinConjuncts != null && !markJoinConjuncts.isEmpty()) {
             output.append(detailPrefix).append("mark join predicates: ")
