@@ -890,15 +890,13 @@ std::string SegmentWriter::_encode_keys(const std::vector<IOlapColumnDataAccesso
     }
     return encoded_keys;
 }
-
-template <typename RowType>
-Status SegmentWriter::append_row(const RowType& row) {
+Status SegmentWriter::append_row(const RowCursor& row) {
     for (size_t cid = 0; cid < _column_writers.size(); ++cid) {
         auto cell = row.cell(cast_set<uint32_t>(cid));
         RETURN_IF_ERROR(_column_writers[cid]->append(cell));
     }
     std::string full_encoded_key;
-    encode_key<RowType, true>(&full_encoded_key, row, _num_sort_key_columns);
+    encode_key<true>(&full_encoded_key, row, _num_sort_key_columns);
     if (_tablet_schema->has_sequence_col()) {
         full_encoded_key.push_back(KEY_NORMAL_MARKER);
         auto cid = _tablet_schema->sequence_col_idx();
