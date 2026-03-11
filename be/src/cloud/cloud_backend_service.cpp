@@ -215,10 +215,11 @@ void CloudBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& respons
         }
         PGetFileCacheMetaRequest brpc_request;
         std::stringstream ss;
-        std::for_each(request.tablet_ids.cbegin(), request.tablet_ids.cend(), [&](int64_t tablet_id) {
-            brpc_request.add_tablet_ids(tablet_id);
-            ss << tablet_id << ",";
-        });
+        std::for_each(request.tablet_ids.cbegin(), request.tablet_ids.cend(),
+                      [&](int64_t tablet_id) {
+                          brpc_request.add_tablet_ids(tablet_id);
+                          ss << tablet_id << ",";
+                      });
         VLOG_DEBUG << "tablets set: " << ss.str() << " stack: " << get_stack_trace();
 
         auto run_rpc = [this, brpc_stub,
