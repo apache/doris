@@ -68,6 +68,12 @@ enum SnapshotSwitchStatus {
     SNAPSHOT_SWITCH_ON = 2;
 }
 
+enum SnapshotCompactStatus {
+    SNAPSHOT_COMPACT_UNKNOWN = 0;
+    SNAPSHOT_COMPACT_DOING = 1;
+    SNAPSHOT_COMPACT_DONE = 2;
+}
+
 enum KeySetType {
     UNKNOWN_KEY_SET = 0;
 
@@ -140,6 +146,7 @@ message InstanceInfoPB {
 
     optional int64 snapshot_retained_data_size = 121;
     optional int64 snapshot_billable_data_size = 122;
+    optional SnapshotCompactStatus snapshot_compact_status = 123;
 }
 
 message StagePB {
@@ -2198,6 +2205,16 @@ message CloneInstanceResponse {
     optional string image_url = 3;
 }
 
+message CompactSnapshotRequest {
+    optional string instance_id = 1;
+    optional string cloud_unique_id = 2;
+    optional string request_ip = 3;
+}
+
+message CompactSnapshotResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
 message PackedSlicePB {
     optional string path = 1;
     optional int64 offset = 2;
@@ -2338,6 +2355,7 @@ service MetaService {
     rpc drop_snapshot(DropSnapshotRequest) returns (DropSnapshotResponse);
     rpc list_snapshot(ListSnapshotRequest) returns (ListSnapshotResponse);
     rpc clone_instance(CloneInstanceRequest) returns (CloneInstanceResponse);
+    rpc compact_snapshot(CompactSnapshotRequest) returns (CompactSnapshotResponse);
 
     rpc update_packed_file_info(UpdatePackedFileInfoRequest) returns (UpdatePackedFileInfoResponse);
 };
