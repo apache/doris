@@ -1624,9 +1624,31 @@ public class CloudTabletRebalancer extends MasterDaemon {
         long partId = tabletMeta.getPartitionId();
         long indexId = tabletMeta.getIndexId();
 
-        globalBeToTablets.get(srcBe).remove(tabletId);
-        beToTabletsInTable.get(tableId).get(srcBe).remove(tabletId);
-        partToTablets.get(partId).get(indexId).get(srcBe).remove(tabletId);
+        Set<Long> globalSrcTablets = globalBeToTablets.get(srcBe);
+        if (globalSrcTablets == null || !globalSrcTablets.remove(tabletId)) {
+            LOG.debug("skip updateBeToTablets for tablet {}: srcBe {} not in globalBeToTablets", tabletId, srcBe);
+            return;
+        }
+
+        ConcurrentHashMap<Long, Set<Long>> tableBeMap = beToTabletsInTable.get(tableId);
+        if (tableBeMap == null) {
+            return;
+        }
+        Set<Long> tableSrcTablets = tableBeMap.get(srcBe);
+        if (tableSrcTablets != null) {
+            tableSrcTablets.remove(tabletId);
+        }
+
+        ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>> indexMap = partToTablets.get(partId);
+        if (indexMap != null) {
+            ConcurrentHashMap<Long, Set<Long>> beMap = indexMap.get(indexId);
+            if (beMap != null) {
+                Set<Long> partSrcTablets = beMap.get(srcBe);
+                if (partSrcTablets != null) {
+                    partSrcTablets.remove(tabletId);
+                }
+            }
+        }
 
         fillBeToTablets(destBe, tableId, partId, indexId, tabletId, globalBeToTablets, beToTabletsInTable,
                         partToTablets);
@@ -2096,6 +2118,14 @@ public class CloudTabletRebalancer extends MasterDaemon {
             ((CloudEnv) Env.getCurrentEnv()).getCloudUpgradeMgr().setBeStateInactive(srcBe);
             return;
         }
+        Backend be = cloudSystemInfoService.getBackend(srcBe);
+        if (be == null) {
+            LOG.info("src backend {} not found", srcBe);
+            return;
+        }
+        String clusterId = be.getCloudClusterId();
+        String clusterName = be.getCloudClusterName();
+
         List<UpdateCloudReplicaInfo> infos = new ArrayList<>();
         for (Long tabletId : tabletIds) {
             TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex().getTabletMeta(tabletId);
@@ -2112,15 +2142,6 @@ public class CloudTabletRebalancer extends MasterDaemon {
             if (table == null) {
                 continue;
             }
-
-            Backend be = cloudSystemInfoService.getBackend(srcBe);
-            if (be == null) {
-                LOG.info("src backend {} not found", srcBe);
-                continue;
-            }
-
-            String clusterId = be.getCloudClusterId();
-            String clusterName = be.getCloudClusterName();
 
             table.readLock();
             try {
