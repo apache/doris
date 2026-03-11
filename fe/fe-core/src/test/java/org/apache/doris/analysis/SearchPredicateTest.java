@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TSearchFieldBinding;

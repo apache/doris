@@ -144,7 +144,7 @@ public class SchemaChangeHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeHandler.class);
 
     // all shadow indexes should have this prefix in name
-    public static final String SHADOW_NAME_PREFIX = "__doris_shadow_";
+    public static final String SHADOW_NAME_PREFIX = Column.SHADOW_NAME_PREFIX;
 
     public static final int MAX_ACTIVE_SCHEMA_CHANGE_JOB_V2_SIZE = 10;
 

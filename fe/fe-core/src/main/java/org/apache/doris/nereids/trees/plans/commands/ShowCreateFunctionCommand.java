@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.catalog.Column;
@@ -25,6 +24,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.ScalarType;
@@ -117,7 +117,7 @@ public class ShowCreateFunctionCommand extends ShowCommand {
         List<List<String>> resultRowSet = Lists.newArrayList();
         List<String> resultRow = Lists.newArrayList();
         resultRow.add(function.signatureString());
-        resultRow.add(function.toSql(false));
+        resultRow.add(org.apache.doris.catalog.FunctionToSqlConverter.toSql(function, false));
         resultRowSet.add(resultRow);
         return resultRowSet;
     }

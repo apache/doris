@@ -17,7 +17,6 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
@@ -322,9 +321,9 @@ public class CreateReplicaTask extends AgentTask {
                 }
                 // when doing schema change, some modified column has a prefix in name.
                 // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
-                if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+                if (column.getName().startsWith(Column.SHADOW_NAME_PREFIX)) {
                     tColumn.setColumnName(
-                            column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length()));
+                            column.getName().substring(Column.SHADOW_NAME_PREFIX.length()));
                 }
                 tColumn.setVisible(column.isVisible());
                 tColumns.add(tColumn);
