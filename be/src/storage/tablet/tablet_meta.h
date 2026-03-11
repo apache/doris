@@ -152,6 +152,7 @@ public:
     TabletTypePB tablet_type() const { return _tablet_type; }
     TabletUid tablet_uid() const;
     void set_tablet_uid(TabletUid uid) { _tablet_uid = uid; }
+    int64_t db_id() const;
     int64_t table_id() const;
     int64_t index_id() const;
     int64_t partition_id() const;
@@ -213,6 +214,14 @@ public:
     RowsetMetaSharedPtr acquire_stale_rs_meta_by_version(const Version& version) const;
 
     Status set_partition_id(int64_t partition_id);
+
+    Status set_index_id(int64_t index_id);
+
+    Status set_table_id(int64_t table_id);
+
+    Status set_tablet_id(int64_t tablet_id);
+
+    Status set_db_id(int64_t db_id);
 
     RowsetTypePB preferred_rowset_type() const { return _preferred_rowset_type; }
 
@@ -319,6 +328,7 @@ private:
     friend bool operator!=(const TabletMeta& a, const TabletMeta& b);
 
 private:
+    int64_t _db_id = 0; // only set when preload from ms
     int64_t _table_id = 0;
     int64_t _index_id = 0;
     int64_t _partition_id = 0;
@@ -635,6 +645,10 @@ private:
 
 inline TabletUid TabletMeta::tablet_uid() const {
     return _tablet_uid;
+}
+
+inline int64_t TabletMeta::db_id() const {
+    return _db_id;
 }
 
 inline int64_t TabletMeta::table_id() const {

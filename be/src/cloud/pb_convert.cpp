@@ -84,6 +84,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     out->mutable_num_segment_rows()->CopyFrom(in.num_segment_rows());
     out->mutable_segments_file_size()->CopyFrom(in.segments_file_size());
     out->set_index_id(in.index_id());
+    if (in.has_table_id()) {
+        out->set_table_id(in.table_id());
+    }
     if (in.has_schema_version()) {
         // See cloud/src/meta-service/meta_service_schema.cpp for details.
         out->set_schema_version(in.schema_version());
@@ -162,6 +165,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     out->mutable_num_segment_rows()->Swap(in.mutable_num_segment_rows());
     out->mutable_segments_file_size()->Swap(in.mutable_segments_file_size());
     out->set_index_id(in.index_id());
+    if (in.has_table_id()) {
+        out->set_table_id(in.table_id());
+    }
     if (in.has_schema_version()) {
         // See cloud/src/meta-service/meta_service_schema.cpp for details.
         out->set_schema_version(in.schema_version());
@@ -252,6 +258,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     out->mutable_num_segment_rows()->CopyFrom(in.num_segment_rows());
     out->mutable_segments_file_size()->CopyFrom(in.segments_file_size());
     out->set_index_id(in.index_id());
+    if (in.has_table_id()) {
+        out->set_table_id(in.table_id());
+    }
     if (in.has_schema_version()) {
         // See cloud/src/meta-service/meta_service_schema.cpp for details.
         out->set_schema_version(in.schema_version());
@@ -330,6 +339,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     out->mutable_num_segment_rows()->Swap(in.mutable_num_segment_rows());
     out->mutable_segments_file_size()->Swap(in.mutable_segments_file_size());
     out->set_index_id(in.index_id());
+    if (in.has_table_id()) {
+        out->set_table_id(in.table_id());
+    }
     if (in.has_schema_version()) {
         // See cloud/src/meta-service/meta_service_schema.cpp for details.
         out->set_schema_version(in.schema_version());

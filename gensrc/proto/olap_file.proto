@@ -165,6 +165,7 @@ message RowsetMetaPB {
     
     optional bool is_recycled = 1013; // for recycler mark rowset as recycled
     optional string job_id = 1014;
+    optional int64 table_id = 1015;
 }
 
 message SchemaDictKeyList {
@@ -270,6 +271,7 @@ message RowsetMetaCloudPB {
 
     optional bool is_recycled = 112;
     optional string job_id = 113;
+    optional int64 table_id = 114;
 }
 
 message SegmentStatisticsPB {

@@ -1040,15 +1040,20 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
 }
 
 void internal_get_tablet(MetaServiceCode& code, std::string& msg, const std::string& instance_id,
-                         Transaction* txn, int64_t tablet_id, doris::TabletMetaCloudPB* tablet_meta,
+                         Transaction* txn, int64_t table_id, int64_t index_id, int64_t partition_id,
+                         int64_t tablet_id, doris::TabletMetaCloudPB* tablet_meta,
                          bool skip_schema) {
     // TODO: validate request
     TabletIndexPB tablet_idx;
-    get_tablet_idx(code, msg, txn, instance_id, tablet_id, tablet_idx);
-    if (code != MetaServiceCode::OK) return;
+    if (table_id < 0 || index_id < 0 || partition_id < 0) {
+        get_tablet_idx(code, msg, txn, instance_id, tablet_id, tablet_idx);
+        if (code != MetaServiceCode::OK) return;
+        table_id = tablet_idx.table_id();
+        index_id = tablet_idx.index_id();
+        partition_id = tablet_idx.partition_id();
+    }
 
-    MetaTabletKeyInfo key_info1 {instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
-                                 tablet_idx.partition_id(), tablet_id};
+    MetaTabletKeyInfo key_info1 {instance_id, table_id, index_id, partition_id, tablet_id};
     std::string key1, val1;
     meta_tablet_key(key_info1, &key1);
     TxnErrorCode err = txn->get(key1, &val1);
@@ -1158,8 +1163,8 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
     for (const TabletMetaInfoPB& tablet_meta_info : request->tablet_meta_infos()) {
         doris::TabletMetaCloudPB tablet_meta;
         if (!is_versioned_read) {
-            internal_get_tablet(code, msg, instance_id, txn.get(), tablet_meta_info.tablet_id(),
-                                &tablet_meta, true);
+            internal_get_tablet(code, msg, instance_id, txn.get(), -1, -1, -1,
+                                tablet_meta_info.tablet_id(), &tablet_meta, true);
             if (code != MetaServiceCode::OK) {
                 return;
             }
@@ -1317,8 +1322,11 @@ void MetaServiceImpl::get_tablet(::google::protobuf::RpcController* controller,
         return;
     }
     if (!is_version_read_enabled(instance_id)) {
-        internal_get_tablet(code, msg, instance_id, txn.get(), request->tablet_id(),
-                            response->mutable_tablet_meta(), false);
+        int64_t table_id = request->has_table_id() ? request->table_id() : -1;
+        int64_t index_id = request->has_index_id() ? request->index_id() : -1;
+        int64_t partition_id = request->has_partition_id() ? request->partition_id() : -1;
+        internal_get_tablet(code, msg, instance_id, txn.get(), table_id, index_id, partition_id,
+                            request->tablet_id(), response->mutable_tablet_meta(), false);
         return;
     }
 
@@ -2322,14 +2330,20 @@ static void fill_schema_from_dict(MetaServiceCode& code, std::string& msg,
 }
 
 bool check_job_existed(Transaction* txn, MetaServiceCode& code, std::string& msg,
-                       const std::string& instance_id, int64_t tablet_id,
-                       const std::string& rowset_id, const std::string& job_id,
-                       bool is_versioned_read, ResourceManager* resource_mgr) {
+                       const std::string& instance_id, int64_t tablet_id, int64_t table_id,
+                       int64_t index_id, int64_t partition_id, const std::string& rowset_id,
+                       const std::string& job_id, bool is_versioned_read,
+                       ResourceManager* resource_mgr) {
     TabletIndexPB tablet_idx;
     if (!is_versioned_read) {
-        get_tablet_idx(code, msg, txn, instance_id, tablet_id, tablet_idx);
-        if (code != MetaServiceCode::OK) {
-            return false;
+        if (table_id <= 0 || index_id <= 0 || partition_id <= 0) {
+            get_tablet_idx(code, msg, txn, instance_id, tablet_id, tablet_idx);
+            if (code != MetaServiceCode::OK) {
+                return false;
+            }
+            table_id = tablet_idx.table_id();
+            index_id = tablet_idx.index_id();
+            partition_id = tablet_idx.partition_id();
         }
     } else {
         CloneChainReader reader(instance_id, resource_mgr);
@@ -2339,16 +2353,20 @@ bool check_job_existed(Transaction* txn, MetaServiceCode& code, std::string& msg
             msg = fmt::format("failed to get tablet index, tablet_id={} err={}", tablet_id, err);
             return false;
         }
+        table_id = tablet_idx.table_id();
+        index_id = tablet_idx.index_id();
+        partition_id = tablet_idx.partition_id();
     }
 
-    std::string job_key = job_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
-                                          tablet_idx.partition_id(), tablet_id});
+    std::string job_key =
+            job_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
     std::string job_val;
     auto err = txn->get(job_key, &job_val);
     if (err != TxnErrorCode::TXN_OK) {
         std::stringstream ss;
         ss << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? "job not found," : "internal error,")
-           << " instance_id=" << instance_id << " tablet_id=" << tablet_id
+           << " instance_id=" << instance_id << " table_id=" << table_id << " index_id=" << index_id
+           << " partition_id=" << partition_id << " tablet_id=" << tablet_id
            << " rowset_id=" << rowset_id << " err=" << err;
         msg = ss.str();
         code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::STALE_PREPARE_ROWSET
@@ -2499,8 +2517,12 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     bool is_versioned_read = is_version_read_enabled(instance_id);
     if (config::enable_tablet_job_check && request->has_tablet_job_id() &&
         !request->tablet_job_id().empty()) {
-        if (!check_job_existed(txn.get(), code, msg, instance_id, tablet_id, rowset_id,
-                               request->tablet_job_id(), is_versioned_read, resource_mgr_.get())) {
+        if (!check_job_existed(txn.get(), code, msg, instance_id, tablet_id,
+                               rowset_meta.has_table_id() ? rowset_meta.table_id() : -1,
+                               rowset_meta.has_index_id() ? rowset_meta.index_id() : -1,
+                               rowset_meta.has_partition_id() ? rowset_meta.partition_id() : -1,
+                               rowset_id, request->tablet_job_id(), is_versioned_read,
+                               resource_mgr_.get())) {
             return;
         }
     }
@@ -2656,9 +2678,12 @@ int check_idempotent_for_txn_or_job(Transaction* txn, const std::string& recycle
             return -1;
         }
     } else if (!config::enable_recycle_delete_rowset_key_check) {
-        if (config::enable_tablet_job_check && tablet_job_id.empty() && !tablet_job_id.empty()) {
-            if (!check_job_existed(txn, code, msg, instance_id, tablet_id, rowset_id, tablet_job_id,
-                                   is_versioned_read, resource_mgr)) {
+        if (config::enable_tablet_job_check && !tablet_job_id.empty()) {
+            if (!check_job_existed(txn, code, msg, instance_id, tablet_id,
+                                   rowset_meta.has_table_id() ? rowset_meta.table_id() : -1,
+                                   rowset_meta.has_index_id() ? rowset_meta.index_id() : -1,
+                                   rowset_meta.has_partition_id() ? rowset_meta.partition_id() : -1,
+                                   rowset_id, tablet_job_id, is_versioned_read, resource_mgr)) {
                 return 1;
             }
         }
@@ -3217,12 +3242,21 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             stats.get_bytes += txn->get_bytes();
             stats.get_counter += txn->num_get_keys();
         };
+
+        DCHECK(request->has_idx());
+
         TabletIndexPB idx;
+        int64_t db_id = request->idx().has_db_id() ? request->idx().db_id() : -1;
         // Get tablet id index from kv
         if (!is_versioned_read) {
-            get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, idx);
-            if (code != MetaServiceCode::OK) {
-                return;
+            if (db_id <= 0) {
+                get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, idx);
+                if (code != MetaServiceCode::OK) {
+                    return;
+                }
+                db_id = idx.db_id();
+            } else {
+                db_id = request->idx().db_id();
             }
         } else {
             err = reader.get_tablet_index(txn.get(), tablet_id, &idx);
@@ -3233,10 +3267,11 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                 LOG(WARNING) << msg;
                 return;
             }
+            db_id = idx.db_id();
         }
-        DCHECK(request->has_idx());
 
-        if (idx.has_db_id() && config::advance_txn_lazy_commit_during_reads) {
+        DCHECK(db_id > 0);
+        if (db_id > 0 && config::advance_txn_lazy_commit_during_reads) {
             // there is maybe a lazy commit txn when call get_rowset
             // we need advance lazy commit txn here
             int64_t first_txn_id = -1;

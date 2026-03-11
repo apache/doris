@@ -317,7 +317,8 @@ Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
     }
 
     TabletMetaSharedPtr tablet_meta;
-    auto st = _engine.meta_mgr().get_tablet_meta(tablet_id(), &tablet_meta);
+    auto st = _engine.meta_mgr().get_tablet_meta(table_id(), index_id(), partition_id(),
+                                                 tablet_id(), &tablet_meta);
     if (!st.ok()) {
         if (st.is<ErrorCode::NOT_FOUND>()) {
             clear_cache();
@@ -711,6 +712,7 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
     context.rowset_id = _engine.next_rowset_id();
     // FIXME(plat1ko): Seems `tablet_id` and `index_id` has been set repeatedly
     context.tablet_id = tablet_id();
+    context.table_id = table_id();
     context.index_id = index_id();
     context.partition_id = partition_id();
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
@@ -752,6 +754,7 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     context.is_transient_rowset_writer = true;
     context.rowset_id = rowset.rowset_id();
     context.tablet_id = tablet_id();
+    context.table_id = table_id();
     context.index_id = index_id();
     context.partition_id = partition_id();
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
@@ -1342,7 +1345,8 @@ Status CloudTablet::sync_meta() {
     }
 
     TabletMetaSharedPtr tablet_meta;
-    auto st = _engine.meta_mgr().get_tablet_meta(tablet_id(), &tablet_meta);
+    auto st = _engine.meta_mgr().get_tablet_meta(table_id(), index_id(), partition_id(),
+                                                 tablet_id(), &tablet_meta);
     if (!st.ok()) {
         if (st.is<ErrorCode::NOT_FOUND>()) {
             clear_cache();
@@ -1394,6 +1398,22 @@ Status CloudTablet::sync_meta() {
     if (_tablet_meta->tablet_schema()->disable_auto_compaction() != new_disable_auto_compaction) {
         _tablet_meta->mutable_tablet_schema()->set_disable_auto_compaction(
                 new_disable_auto_compaction);
+    }
+    auto db_id = tablet_meta->db_id();
+    if (_tablet_meta->db_id() != db_id) {
+        RETURN_IF_ERROR(_tablet_meta->set_db_id(db_id));
+    }
+    auto new_table_id = tablet_meta->table_id();
+    if (_tablet_meta->table_id() != new_table_id) {
+        RETURN_IF_ERROR(_tablet_meta->set_table_id(new_table_id));
+    }
+    auto new_index_id = tablet_meta->index_id();
+    if (_tablet_meta->index_id() != new_index_id) {
+        RETURN_IF_ERROR(_tablet_meta->set_index_id(new_index_id));
+    }
+    auto new_partition_id = tablet_meta->partition_id();
+    if (_tablet_meta->partition_id() != new_partition_id) {
+        RETURN_IF_ERROR(_tablet_meta->set_partition_id(new_partition_id));
     }
 
     return Status::OK();
