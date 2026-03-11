@@ -42,6 +42,9 @@ namespace segment_v2 {
 class ReaderFileEntry;
 class DorisCompoundReader;
 
+// A singleton class responsible for reading index files, managing file entries, and providing interfaces to access index data.
+// The singleton object is at segment level, and it is shared by all threads that read the same segment (even across different queries).
+// It is created when the first index reader is initialized, and destroyed when the segment is closed.
 class IndexFileReader {
 public:
     // Modern C++ using std::unordered_map with smart pointers for automatic memory management
