@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -204,8 +205,39 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
             // only support integer or float types
             return null;
         }
+        // Strip redundant widening integer cast introduced by type coercion.
+        // e.g. SUM(CAST(smallint_col AS INT) + 1) → after rewrite becomes SUM(CAST(smallint_col AS INT)).
+        // Since SUM always returns BIGINT for any integer input, CAST(smallint→int) is unnecessary
+        // and forces wider data reads. Strip it so we get SUM(smallint_col) directly.
+        left = stripWideningIntegerCast(left);
         SumInfo info = new SumInfo(left, ((Sum) func).isDistinct(), ((Sum) func).isAlwaysNullable());
         return Pair.of(namedExpression, Pair.of(info, (Literal) right));
+    }
+
+    /**
+     * Strip a widening integer cast that is redundant for SUM/COUNT.
+     * For example, CAST(smallint_col AS INT) → smallint_col.
+     *
+     * This is safe because:
+     * - SUM returns BIGINT for all integer inputs (TINYINT/SMALLINT/INT/BIGINT),
+     *   so widening the input before aggregation does not change the result.
+     * - COUNT just counts non-null values, unaffected by widening.
+     *
+     * Only implicit (type-coercion) casts between integer-like types are stripped.
+     */
+    private static Expression stripWideningIntegerCast(Expression expr) {
+        if (!(expr instanceof Cast)) {
+            return expr;
+        }
+        Cast cast = (Cast) expr;
+        if (cast.isExplicitType()) {
+            return expr;
+        }
+        Expression inner = cast.child();
+        if (inner.getDataType().isIntegerLikeType() && cast.getDataType().isIntegerLikeType()) {
+            return inner;
+        }
+        return expr;
     }
 
     static class SumInfo {
