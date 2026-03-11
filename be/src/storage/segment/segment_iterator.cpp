@@ -1626,8 +1626,8 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     DCHECK(pk_index_reader != nullptr);
 
     std::string index_key;
-    encode_key_with_padding<RowCursor, true>(
-            &index_key, key, _segment->_tablet_schema->num_key_columns(), is_include);
+    encode_key_with_padding<true>(&index_key, key, _segment->_tablet_schema->num_key_columns(),
+                                  is_include);
     if (index_key < _segment->min_key()) {
         *rowid = 0;
         return Status::OK();

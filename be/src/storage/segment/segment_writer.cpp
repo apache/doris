@@ -922,8 +922,6 @@ Status SegmentWriter::append_row(const RowCursor& row) {
     return Status::OK();
 }
 
-template Status SegmentWriter::append_row(const RowCursor& row);
-
 // TODO(lingbin): Currently this function does not include the size of various indexes,
 // We should make this more precise.
 // NOTE: This function will be called when any row of data is added, so we need to
