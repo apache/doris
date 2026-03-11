@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.FunctionSearchDesc;
+import org.apache.doris.catalog.FunctionToSqlConverter;
 import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
@@ -117,7 +118,7 @@ public class ShowCreateFunctionCommand extends ShowCommand {
         List<List<String>> resultRowSet = Lists.newArrayList();
         List<String> resultRow = Lists.newArrayList();
         resultRow.add(function.signatureString());
-        resultRow.add(org.apache.doris.catalog.FunctionToSqlConverter.toSql(function, false));
+        resultRow.add(FunctionToSqlConverter.toSql(function, false));
         resultRowSet.add(resultRow);
         return resultRowSet;
     }

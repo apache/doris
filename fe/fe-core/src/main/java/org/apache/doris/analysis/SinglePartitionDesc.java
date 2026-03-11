@@ -22,8 +22,8 @@ import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.foundation.util.BasicPrintableMap;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -234,7 +234,7 @@ public class SinglePartitionDesc implements AllPartitionDesc {
 
         if (properties != null && !properties.isEmpty()) {
             sb.append(" (");
-            sb.append(new DatasourcePrintableMap<String, String>(properties, "=", true, false));
+            sb.append(new BasicPrintableMap<>(properties, "=", true, false));
             sb.append(")");
         }
 

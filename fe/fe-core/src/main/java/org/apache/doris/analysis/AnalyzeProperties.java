@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.DatasourcePrintableMap;
+import org.apache.doris.foundation.util.BasicPrintableMap;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 
 import com.google.common.collect.ImmutableSet;
@@ -290,7 +290,7 @@ public class AnalyzeProperties {
     public String toSQL() {
         StringBuilder sb = new StringBuilder();
         sb.append("PROPERTIES(");
-        sb.append(new DatasourcePrintableMap<>(properties, " = ",
+        sb.append(new BasicPrintableMap<>(properties, " = ",
                 true,
                 false));
         sb.append(")");

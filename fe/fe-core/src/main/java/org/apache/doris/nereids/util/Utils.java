@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.common.NameFormatUtils;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -438,13 +437,6 @@ public class Utils {
 
     public static <T> List<T> copyRequiredMutableList(List<T> list) {
         return Lists.newArrayList(Objects.requireNonNull(list, "non-null list is required"));
-    }
-
-    /**
-     * Normalize the name to lower underscore style, return default name if the name is empty.
-     */
-    public static String normalizeName(String name, String defaultName) {
-        return NameFormatUtils.normalizeName(name, defaultName);
     }
 
     /**
