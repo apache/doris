@@ -88,9 +88,10 @@ public class ShortCircuitQueryContext {
                 new TSerializer().serialize(options));
         List<TExpr> exprs = new ArrayList<>();
         OlapScanNode olapScanNode = (OlapScanNode) planner.getScanNodes().get(0);
-        if (olapScanNode.getProjectList() != null) {
+        List<Expr> pointQueryProjectList = olapScanNode.getPointQueryProjectList();
+        if (pointQueryProjectList != null) {
             // project on scan node
-            exprs.addAll(olapScanNode.getProjectList().stream()
+            exprs.addAll(pointQueryProjectList.stream()
                     .map(Expr::treeToThrift).collect(Collectors.toList()));
         } else {
             // add output slots

@@ -23,6 +23,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.BitmapFilterPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -861,6 +862,21 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return projectList;
     }
 
+    public List<Expr> getPointQueryProjectList() {
+        if (CollectionUtils.isEmpty(projectList) || intermediateProjectListList.isEmpty()) {
+            return projectList;
+        }
+
+        List<Expr> flattenedProjectList = Expr.cloneList(projectList);
+        for (int i = intermediateProjectListList.size() - 1; i >= 0; --i) {
+            flattenedProjectList = Expr.cloneList(
+                    flattenedProjectList,
+                    createPointQueryProjectionSmap(intermediateOutputTupleDescList.get(i),
+                            intermediateProjectListList.get(i)));
+        }
+        return flattenedProjectList;
+    }
+
     public void setCardinalityAfterFilter(long cardinalityAfterFilter) {
         this.cardinalityAfterFilter = cardinalityAfterFilter;
     }
@@ -889,6 +905,20 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public void addIntermediateProjectList(List<Expr> exprs) {
         intermediateProjectListList.add(exprs);
+    }
+
+    private ExprSubstitutionMap createPointQueryProjectionSmap(
+            TupleDescriptor outputTupleDesc, List<Expr> projectionExprs) {
+        List<SlotDescriptor> outputSlots = outputTupleDesc.getSlots();
+        Preconditions.checkState(outputSlots.size() == projectionExprs.size(),
+                "point query projection slot size %s does not match expr size %s",
+                outputSlots.size(), projectionExprs.size());
+
+        ExprSubstitutionMap substitutionMap = new ExprSubstitutionMap();
+        for (int i = 0; i < outputSlots.size(); ++i) {
+            substitutionMap.put(new SlotRef(outputSlots.get(i)), projectionExprs.get(i));
+        }
+        return substitutionMap;
     }
 
     public <T extends PlanNode> List<T> collectInCurrentFragment(Predicate<PlanNode> predicate) {
