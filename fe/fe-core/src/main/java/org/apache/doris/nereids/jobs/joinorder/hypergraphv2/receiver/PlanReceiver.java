@@ -28,6 +28,7 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.rewrite.PushDownExpressionsInHashCondition;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -123,6 +124,7 @@ public class PlanReceiver extends AbstractReceiver {
         if (emitCount > limit || System.currentTimeMillis() - startTime > timeLimit) {
             return EmitState.FAIL;
         }
+
         edges.addAll(missingEdges);
         if (!checkConflictRule(left, right, edges)) {
             if (fullKeyEmitted) {
@@ -246,7 +248,12 @@ public class PlanReceiver extends AbstractReceiver {
 
     private LogicalPlan proposeJoin(JoinType joinType, Plan left, Plan right, List<Expression> hashConjuncts,
                                     List<Expression> otherConjuncts) {
-        return new LogicalJoin<>(joinType, hashConjuncts, otherConjuncts, left, right, null);
+        LogicalJoin logicalJoin = new LogicalJoin<>(joinType, hashConjuncts, otherConjuncts, left, right, null);
+        if (hashConjuncts.stream()
+                .anyMatch(equalTo -> equalTo.children().stream().anyMatch(e -> !(e instanceof Slot)))) {
+            logicalJoin = PushDownExpressionsInHashCondition.pushDownHashExpression(logicalJoin);
+        }
+        return logicalJoin;
     }
 
     @Override
@@ -288,7 +295,13 @@ public class PlanReceiver extends AbstractReceiver {
         if (LongBitmap.newBitmapUnion(left, right) == allNodeBitmap
                 && !outputSet.equals(new HashSet<>(finalProjects))) {
             // add final project for the join cluster
-            return new LogicalProject<>(finalProjects, join);
+            List<NamedExpression> outputs = finalProjects;
+            if (hyperGraph.hasLiteralAlias()) {
+                List<NamedExpression> literalAliasList = hyperGraph.getLiteralAlias(left, right);
+                outputs = ExpressionUtils.replaceNamedExpressions(finalProjects,
+                        ExpressionUtils.generateReplaceMap(literalAliasList));
+            }
+            return new LogicalProject<>(outputs, join);
         } else {
             // calculate required columns by all parents
             Set<Slot> requireSlots = calculateRequiredSlots(left, right, edges);
@@ -297,6 +310,9 @@ public class PlanReceiver extends AbstractReceiver {
                 if (requireSlots.contains(slot)) {
                     allProjects.add(slot);
                 }
+            }
+            if (hyperGraph.hasLiteralAlias()) {
+                allProjects.addAll(hyperGraph.getLiteralAlias(left, right));
             }
 
             // propose logical project

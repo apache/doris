@@ -216,7 +216,7 @@ public class HyperGraphBuilder {
             this.rowCounts.add(rowCounts[i]);
             BitSet bitSet = new BitSet();
             bitSet.set(i);
-            LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(i, String.valueOf(i), 0);
+            LogicalOlapScan scan = PlanConstructor.newDpHyperLogicalOlapScan(i, String.valueOf(i), 0);
             plans.put(bitSet, scan);
             tables.add(scan);
             List<Integer> schema = new ArrayList<>();
@@ -529,6 +529,74 @@ public class HyperGraphBuilder {
         if (join.getJoinType() == JoinType.CROSS_JOIN) {
             conditions.removeIf(e -> true); // clear all conditions
         }
+        // Normalize hash equalities so left-side slots come from left child
+        // and right-side slots come from right child. If possible, swap sides;
+        // otherwise try to extract a pair of slots (one from left, one from right)
+        // to form a binary equality. If not possible, demote the expression to
+        // other-conditions (it will be attached as a non-hash conjunct).
+        java.util.List<Expression> normalized = new ArrayList<>();
+        Set<Slot> leftSlots = new HashSet<>(join.left().getOutput());
+        Set<Slot> rightSlots = new HashSet<>(join.right().getOutput());
+        for (Expression expr : conditions) {
+            if (expr instanceof EqualPredicate) {
+                Expression leftExpr = ((EqualPredicate) expr).left();
+                Expression rightExpr = ((EqualPredicate) expr).right();
+                Set<Slot> leftInputs = leftExpr.getInputSlots();
+                Set<Slot> rightInputs = rightExpr.getInputSlots();
+                // already correct
+                if (leftSlots.containsAll(leftInputs) && rightSlots.containsAll(rightInputs)) {
+                    normalized.add(expr);
+                    continue;
+                }
+                // try swapping sides
+                if (leftSlots.containsAll(rightInputs) && rightSlots.containsAll(leftInputs)) {
+                    normalized.add(new EqualTo(rightExpr, leftExpr));
+                    continue;
+                }
+                // try to extract a simple left-slot and right-slot from the inputs
+                Slot pickLeft = null;
+                Slot pickRight = null;
+                for (Slot s : leftInputs) {
+                    if (leftSlots.contains(s)) {
+                        pickLeft = s;
+                        break;
+                    }
+                }
+                if (pickLeft == null) {
+                    for (Slot s : rightInputs) {
+                        if (leftSlots.contains(s)) {
+                            pickLeft = s;
+                            break;
+                        }
+                    }
+                }
+                for (Slot s : rightInputs) {
+                    if (rightSlots.contains(s)) {
+                        pickRight = s;
+                        break;
+                    }
+                }
+                if (pickRight == null) {
+                    for (Slot s : leftInputs) {
+                        if (rightSlots.contains(s)) {
+                            pickRight = s;
+                            break;
+                        }
+                    }
+                }
+                if (pickLeft != null && pickRight != null) {
+                    normalized.add(new EqualTo(pickLeft, pickRight));
+                } else {
+                    // cannot normalize into a clean hash equality between left/right,
+                    // demote to non-hash condition so it won't violate left/right side rule
+                    // (it will be placed into otherConjuncts by attachCondition)
+                    normalized.add(expr); // keep it, attachCondition will place it accordingly
+                }
+            } else {
+                normalized.add(expr);
+            }
+        }
+        conditions = normalized;
         LogicalJoin current = join;
         for (Expression condition : conditions) {
             current = attachCondition(condition, current);
@@ -562,8 +630,63 @@ public class HyperGraphBuilder {
             }
         } else {
             if (condition instanceof EqualPredicate) {
-                if (hashConjuncts.size() < 2) {
-                    hashConjuncts.add(condition);
+                // Ensure equality is between left and right child slots.
+                EqualPredicate eq = (EqualPredicate) condition;
+                Expression lExpr = eq.left();
+                Expression rExpr = eq.right();
+                Set<Slot> lInputs = lExpr.getInputSlots();
+                Set<Slot> rInputs = rExpr.getInputSlots();
+                boolean lFromLeft = leftSlots.containsAll(lInputs) && !lInputs.isEmpty();
+                boolean rFromRight = rightSlots.containsAll(rInputs) && !rInputs.isEmpty();
+                boolean swapped = false;
+                if (lFromLeft && rFromRight) {
+                    // good
+                } else if (leftSlots.containsAll(rInputs) && rightSlots.containsAll(lInputs)) {
+                    // sides are swapped
+                    Expression tmpL = rExpr;
+                    Expression tmpR = lExpr;
+                    lExpr = tmpL;
+                    rExpr = tmpR;
+                    lInputs = lExpr.getInputSlots();
+                    rInputs = rExpr.getInputSlots();
+                    swapped = true;
+                }
+
+                if (!(leftSlots.containsAll(lInputs) && rightSlots.containsAll(rInputs) && !lInputs.isEmpty()
+                        && !rInputs.isEmpty())) {
+                    // try to extract one slot from left and one from right to form a simple equality
+                    Slot pickLeft = null;
+                    Slot pickRight = null;
+                    for (Slot s : condition.getInputSlots()) {
+                        if (pickLeft == null && leftSlots.contains(s)) {
+                            pickLeft = s;
+                        }
+                        if (pickRight == null && rightSlots.contains(s)) {
+                            pickRight = s;
+                        }
+                        if (pickLeft != null && pickRight != null) {
+                            break;
+                        }
+                    }
+                    if (pickLeft != null && pickRight != null) {
+                        if (hashConjuncts.size() < 2) {
+                            hashConjuncts.add(new EqualTo(pickLeft, pickRight));
+                        }
+                    } else {
+                        // cannot form a valid left-right equality, treat as other conjunct
+                        if (otherConjuncts.size() < 2) {
+                            otherConjuncts.add(condition);
+                        }
+                    }
+                } else {
+                    if (hashConjuncts.size() < 2) {
+                        // preserve original or swapped equality
+                        if (swapped) {
+                            hashConjuncts.add(new EqualTo(lExpr, rExpr));
+                        } else {
+                            hashConjuncts.add(condition);
+                        }
+                    }
                 }
             } else {
                 if (otherConjuncts.size() < 2) {
@@ -636,14 +759,49 @@ public class HyperGraphBuilder {
 
         // build hash (equality) conditions
         for (int h = 0; h < hashCount; h++) {
-            int lPos = leftCandidates.get(rand.nextInt(leftCandidates.size()));
-            int rPos = rightCandidates.get(rand.nextInt(rightCandidates.size()));
-            // with some probability use arithmetic on right side
-            if (rand.nextInt(100) < 30) {
-                conditions.add(new EqualTo(plan.getOutput().get(lPos),
-                        new Add(plan.getOutput().get(rPos), Literal.of(1))));
+            // With ~25% probability generate a multi-table equality involving 3-5 tables
+            if (rand.nextInt(4) == 0 && size >= 3) {
+                // choose k distinct table positions (indices into schema list)
+                int maxTables = Math.min(5, size);
+                int k = 3 + rand.nextInt(Math.max(1, maxTables - 2)); // 3..maxTables
+                List<Integer> indices = new ArrayList<>();
+                for (int ii = 0; ii < size; ii++) {
+                    indices.add(ii);
+                }
+                java.util.Collections.shuffle(indices, rand);
+                List<Integer> chosen = indices.subList(0, k);
+                // left side: slot from first chosen table
+                int firstIdx = chosen.get(0);
+                int lPos = firstIdx * 2 + rand.nextInt(2);
+                // right side: sum of slots from the other chosen tables
+                Expression acc = null;
+                for (int t = 1; t < chosen.size(); t++) {
+                    int idx = chosen.get(t);
+                    int pos = idx * 2 + rand.nextInt(2);
+                    Expression slotExpr = plan.getOutput().get(pos);
+                    if (acc == null) {
+                        acc = slotExpr;
+                    } else {
+                        acc = new Add(acc, slotExpr);
+                    }
+                }
+                if (acc == null) {
+                    // fallback to binary equality
+                    int rPos = rightCandidates.get(rand.nextInt(rightCandidates.size()));
+                    conditions.add(new EqualTo(plan.getOutput().get(lPos), plan.getOutput().get(rPos)));
+                } else {
+                    conditions.add(new EqualTo(plan.getOutput().get(lPos), acc));
+                }
             } else {
-                conditions.add(new EqualTo(plan.getOutput().get(lPos), plan.getOutput().get(rPos)));
+                int lPos = leftCandidates.get(rand.nextInt(leftCandidates.size()));
+                int rPos = rightCandidates.get(rand.nextInt(rightCandidates.size()));
+                // with some probability use arithmetic on right side
+                if (rand.nextInt(100) < 30) {
+                    conditions.add(new EqualTo(plan.getOutput().get(lPos),
+                            new Add(plan.getOutput().get(rPos), Literal.of(1))));
+                } else {
+                    conditions.add(new EqualTo(plan.getOutput().get(lPos), plan.getOutput().get(rPos)));
+                }
             }
         }
 
