@@ -19,8 +19,6 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.HadoopKerberosAuthenticator;
-import org.apache.doris.common.security.authentication.HadoopSimpleAuthenticator;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.google.common.collect.Maps;
@@ -48,7 +46,6 @@ public class HdfsPropertiesTest {
         HdfsProperties hdfsProperties = (HdfsProperties) storageProperties.get(0);
         Configuration conf = hdfsProperties.getHadoopStorageConfig();
         Assertions.assertEquals("simple", conf.get("hadoop.security.authentication"));
-        Assertions.assertEquals(HadoopSimpleAuthenticator.class, hdfsProperties.getHadoopAuthenticator().getClass());
 
         // Test 2: Kerberos without necessary configurations (should throw exception)
         origProps.put("hdfs.authentication.type", "kerberos");
@@ -66,7 +63,6 @@ public class HdfsPropertiesTest {
         Assertions.assertEquals("kerberos", configuration.get("hdfs.security.authentication"));
         Assertions.assertEquals("hadoop", configuration.get("hadoop.kerberos.principal"));
         Assertions.assertEquals("keytab", configuration.get("hadoop.kerberos.keytab"));
-        Assertions.assertEquals(HadoopKerberosAuthenticator.class, properties.hadoopAuthenticator.getClass());
     }
 
     @Test

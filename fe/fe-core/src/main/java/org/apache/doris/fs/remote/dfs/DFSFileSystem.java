@@ -20,7 +20,6 @@ package org.apache.doris.fs.remote.dfs;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
@@ -561,11 +560,6 @@ public class DFSFileSystem extends RemoteFileSystem {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
         }
         return Status.OK;
-    }
-
-    @VisibleForTesting
-    public HadoopAuthenticator getAuthenticator() {
-        return hdfsProperties.getHadoopAuthenticator();
     }
 
     @Override

@@ -42,13 +42,9 @@ public class HMSBaseConnectivityTester implements MetaConnectivityTester {
         HiveConf hiveConf = properties.getHiveConf();
         IMetaStoreClient client = null;
         try {
-            client = properties.getHmsAuthenticator()
-                    .doAs(() -> RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
-                            org.apache.hadoop.hive.metastore.HiveMetaStoreClient.class.getName()));
-
-            final IMetaStoreClient finalClient = client;
-            properties.getHmsAuthenticator()
-                    .doAs(finalClient::getAllDatabases);
+            client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
+                            org.apache.hadoop.hive.metastore.HiveMetaStoreClient.class.getName());
+            client.getAllDatabases();
         } finally {
             if (client != null) {
                 try {

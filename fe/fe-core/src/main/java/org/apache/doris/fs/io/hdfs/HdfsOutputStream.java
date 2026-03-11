@@ -87,10 +87,7 @@ public class HdfsOutputStream extends FSDataOutputStream {
     @Override
     public void write(int b) throws IOException {
         checkClosed();
-        dfs.getAuthenticator().doAs(() -> {
-            super.write(b);
-            return null;
-        });
+        super.write(b);
     }
 
     /**
@@ -105,10 +102,7 @@ public class HdfsOutputStream extends FSDataOutputStream {
     @Override
     public void write(byte[] b, int off, int len) throws IOException {
         checkClosed();
-        dfs.getAuthenticator().doAs(() -> {
-            super.write(b, off, len);
-            return null;
-        });
+        super.write(b, off, len);
     }
 
     /**
