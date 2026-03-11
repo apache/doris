@@ -18,65 +18,37 @@
 package org.apache.doris.jdbc;
 
 import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnType.Type;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
-import org.apache.doris.common.jni.vec.VectorTable;
 
 import com.google.common.util.concurrent.MoreExecutors;
 
 import java.sql.Connection;
 import java.sql.Date;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
- * @deprecated Use {@link SQLServerTypeHandler} instead.
+ * SQLServer-specific type handler.
+ * Key specializations:
+ * - Connection abort for incomplete result sets (avoids driver drain)
+ * - DATE/DATETIME: explicit type conversion in output converter
+ * - STRING: Time and byte[] handling
  */
-@Deprecated
-public class SQLServerJdbcExecutor extends BaseJdbcExecutor {
-    public SQLServerJdbcExecutor(byte[] thriftParams) throws Exception {
-        super(thriftParams);
-    }
+public class SQLServerTypeHandler extends DefaultTypeHandler {
 
     @Override
-    protected void abortReadConnection(Connection connection, ResultSet resultSet)
-            throws SQLException {
-        if (!resultSet.isAfterLast()) {
-            // Abort connection before closing. Without this, the SQLServer driver
-            // attempts to drain the connection by reading all the results.
-            connection.abort(MoreExecutors.directExecutor());
-        }
-    }
-
-    @Override
-    protected void initializeBlock(int columnCount, String[] replaceStringList, int batchSizeNum,
-            VectorTable outputTable) {
-        for (int i = 0; i < columnCount; ++i) {
-            if (outputTable.getColumnType(i).getType() == Type.DATE
-                    || outputTable.getColumnType(i).getType() == Type.DATEV2) {
-                block.add(new Date[batchSizeNum]);
-            } else if (outputTable.getColumnType(i).getType() == Type.DATETIME
-                    || outputTable.getColumnType(i).getType() == Type.DATETIMEV2) {
-                block.add(new Timestamp[batchSizeNum]);
-            } else if (outputTable.getColumnType(i).getType() == Type.STRING) {
-                block.add(new Object[batchSizeNum]);
-            } else {
-                block.add(outputTable.getColumn(i).newObjectContainerArray(batchSizeNum));
-            }
-        }
-    }
-
-    @Override
-    protected Object getColumnValue(int columnIndex, ColumnType type, String[] replaceStringList) throws SQLException {
+    public Object getColumnValue(ResultSet rs, int columnIndex, ColumnType type,
+                                 ResultSetMetaData metadata) throws SQLException {
         switch (type.getType()) {
             case DECIMALV2:
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
-                return resultSet.getBigDecimal(columnIndex + 1);
+                return rs.getBigDecimal(columnIndex);
             case BOOLEAN:
             case SMALLINT:
             case INT:
@@ -90,16 +62,16 @@ public class SQLServerJdbcExecutor extends BaseJdbcExecutor {
             case CHAR:
             case VARCHAR:
             case STRING:
-                return resultSet.getObject(columnIndex + 1);
+                return rs.getObject(columnIndex);
             case VARBINARY:
-                return resultSet.getObject(columnIndex + 1, byte[].class);
+                return rs.getObject(columnIndex, byte[].class);
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
         }
     }
 
     @Override
-    protected ColumnValueConverter getOutputConverter(ColumnType columnType, String replaceString) {
+    public ColumnValueConverter getOutputConverter(ColumnType columnType, String replaceString) {
         switch (columnType.getType()) {
             case DATE:
             case DATEV2:
@@ -114,25 +86,21 @@ public class SQLServerJdbcExecutor extends BaseJdbcExecutor {
                     if (input instanceof java.sql.Time) {
                         return timeToString((java.sql.Time) input);
                     } else if (input instanceof byte[]) {
-                        return sqlserverByteArrayToHexString((byte[]) input);
-                    } else {
-                        return input.toString();
+                        return defaultByteArrayToHexString((byte[]) input);
                     }
+                    return input.toString();
                 }, String.class);
             default:
                 return null;
         }
     }
 
-    private String sqlserverByteArrayToHexString(byte[] bytes) {
-        StringBuilder hexString = new StringBuilder("0x");
-        for (byte b : bytes) {
-            String hex = Integer.toHexString(0xFF & b);
-            if (hex.length() == 1) {
-                hexString.append('0');
-            }
-            hexString.append(hex);
+    @Override
+    public void abortReadConnection(Connection conn, ResultSet rs) throws SQLException {
+        if (rs != null && !rs.isAfterLast()) {
+            // SQLServer driver attempts to drain results on close.
+            // Abort connection to prevent this behavior.
+            conn.abort(MoreExecutors.directExecutor());
         }
-        return hexString.toString();
     }
 }

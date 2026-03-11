@@ -38,7 +38,7 @@
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
-#include "storage/olap_scan_common.h"
+#include "storage/olap_common.h"
 
 namespace doris {
 class RuntimeState;
