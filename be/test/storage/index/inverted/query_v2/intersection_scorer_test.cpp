@@ -250,4 +250,239 @@ TEST_F(IntersectionScorerTest, AndNotScorerRespectsTrueAndNullExcludes) {
     EXPECT_EQ(include->size_hint(), and_not->size_hint());
 }
 
+TEST_F(IntersectionScorerTest, AndNotScorerAllExcludesAreNull) {
+    // When all exclude docs are NULL (not TRUE), those docs should appear
+    // in the null bitmap rather than being excluded from the result set.
+    DummyResolver resolver;
+    // Include docs: 1, 2, 3, 4, 5
+    auto include =
+            std::make_shared<VectorScorer>(std::vector<uint32_t> {1, 2, 3, 4, 5},
+                                           std::vector<float> {1.0F, 2.0F, 3.0F, 4.0F, 5.0F});
+    // Exclude scorer has no TRUE docs but has null docs {2, 4}
+    auto exclude = std::make_shared<VectorScorer>(std::vector<uint32_t> {}, std::vector<float> {},
+                                                  std::vector<uint32_t> {2, 4});
+
+    std::vector<ScorerPtr> excludes {exclude};
+    auto and_not = std::make_shared<AndNotScorer>(include, std::move(excludes), &resolver);
+    ASSERT_NE(nullptr, and_not);
+
+    std::vector<uint32_t> docs;
+    while (and_not->doc() != TERMINATED) {
+        docs.push_back(and_not->doc());
+        and_not->advance();
+    }
+
+    // Docs 2 and 4 are null-excluded (go to null bitmap), rest pass through
+    std::vector<uint32_t> expected_docs {1, 3, 5};
+    EXPECT_EQ(expected_docs, docs);
+
+    EXPECT_TRUE(and_not->has_null_bitmap());
+    const auto* null_bitmap = and_not->get_null_bitmap();
+    ASSERT_NE(nullptr, null_bitmap);
+    EXPECT_TRUE(null_bitmap->contains(2));
+    EXPECT_TRUE(null_bitmap->contains(4));
+    EXPECT_FALSE(null_bitmap->contains(1));
+    EXPECT_FALSE(null_bitmap->contains(3));
+    EXPECT_FALSE(null_bitmap->contains(5));
+}
+
+TEST_F(IntersectionScorerTest, AndNotScorerNoResolver) {
+    // Without a resolver, null bitmaps are not tracked.
+    auto include = std::make_shared<VectorScorer>(std::vector<uint32_t> {1, 2, 3},
+                                                  std::vector<float> {1.0F, 2.0F, 3.0F});
+    auto exclude = std::make_shared<VectorScorer>(
+            std::vector<uint32_t> {2}, std::vector<float> {0.0F}, std::vector<uint32_t> {3});
+
+    std::vector<ScorerPtr> excludes {exclude};
+    auto and_not = std::make_shared<AndNotScorer>(include, std::move(excludes), nullptr);
+
+    std::vector<uint32_t> docs;
+    while (and_not->doc() != TERMINATED) {
+        docs.push_back(and_not->doc());
+        and_not->advance();
+    }
+
+    // Doc 2 is TRUE-excluded, doc 3 has null but no resolver → not detected
+    std::vector<uint32_t> expected_docs {1, 3};
+    EXPECT_EQ(expected_docs, docs);
+    EXPECT_FALSE(and_not->has_null_bitmap());
+}
+
+TEST_F(IntersectionScorerTest, AndNotScorerEmptyExcludes) {
+    // No excludes: all include docs should pass through with no null bitmap.
+    DummyResolver resolver;
+    auto include = std::make_shared<VectorScorer>(std::vector<uint32_t> {1, 5, 10},
+                                                  std::vector<float> {1.0F, 2.0F, 3.0F});
+
+    std::vector<ScorerPtr> excludes {};
+    auto and_not = std::make_shared<AndNotScorer>(include, std::move(excludes), &resolver);
+
+    std::vector<uint32_t> docs;
+    while (and_not->doc() != TERMINATED) {
+        docs.push_back(and_not->doc());
+        and_not->advance();
+    }
+
+    std::vector<uint32_t> expected_docs {1, 5, 10};
+    EXPECT_EQ(expected_docs, docs);
+    EXPECT_FALSE(and_not->has_null_bitmap());
+}
+
+TEST_F(IntersectionScorerTest, AndNotScorerMultipleExcludesWithNulls) {
+    // Multiple exclude scorers with overlapping TRUE and NULL docs.
+    DummyResolver resolver;
+    auto include = std::make_shared<VectorScorer>(std::vector<uint32_t> {1, 2, 3, 4, 5, 6, 7, 8},
+                                                  std::vector<float> {1, 2, 3, 4, 5, 6, 7, 8});
+    // Exclude 1: TRUE docs {3}, NULL docs {5}
+    auto exclude1 = std::make_shared<VectorScorer>(
+            std::vector<uint32_t> {3}, std::vector<float> {0.0F}, std::vector<uint32_t> {5});
+    // Exclude 2: TRUE docs {6}, NULL docs {7}
+    auto exclude2 = std::make_shared<VectorScorer>(
+            std::vector<uint32_t> {6}, std::vector<float> {0.0F}, std::vector<uint32_t> {7});
+
+    std::vector<ScorerPtr> excludes {exclude1, exclude2};
+    auto and_not = std::make_shared<AndNotScorer>(include, std::move(excludes), &resolver);
+
+    std::vector<uint32_t> docs;
+    while (and_not->doc() != TERMINATED) {
+        docs.push_back(and_not->doc());
+        and_not->advance();
+    }
+
+    // TRUE-excluded: 3, 6
+    // NULL-excluded: 5, 7 (go to null bitmap)
+    // Remaining: 1, 2, 4, 8
+    std::vector<uint32_t> expected_docs {1, 2, 4, 8};
+    EXPECT_EQ(expected_docs, docs);
+
+    EXPECT_TRUE(and_not->has_null_bitmap());
+    const auto* null_bitmap = and_not->get_null_bitmap();
+    ASSERT_NE(nullptr, null_bitmap);
+    EXPECT_TRUE(null_bitmap->contains(5));
+    EXPECT_TRUE(null_bitmap->contains(7));
+    EXPECT_FALSE(null_bitmap->contains(3));
+    EXPECT_FALSE(null_bitmap->contains(6));
+}
+
+TEST_F(IntersectionScorerTest, AndNotScorerTrueOverridesNull) {
+    // When a doc is in both TRUE exclude and NULL exclude, TRUE takes priority.
+    DummyResolver resolver;
+    auto include =
+            std::make_shared<VectorScorer>(std::vector<uint32_t> {1, 2, 3, 4, 5},
+                                           std::vector<float> {1.0F, 2.0F, 3.0F, 4.0F, 5.0F});
+    // Exclude 1: TRUE docs {3}, NULL docs {4}
+    auto exclude1 = std::make_shared<VectorScorer>(
+            std::vector<uint32_t> {3}, std::vector<float> {0.0F}, std::vector<uint32_t> {4});
+    // Exclude 2: TRUE docs {4}, NULL docs {3}
+    // Doc 3 is TRUE in exclude1, NULL in exclude2 → TRUE wins
+    // Doc 4 is NULL in exclude1, TRUE in exclude2 → TRUE wins
+    auto exclude2 = std::make_shared<VectorScorer>(
+            std::vector<uint32_t> {4}, std::vector<float> {0.0F}, std::vector<uint32_t> {3});
+
+    std::vector<ScorerPtr> excludes {exclude1, exclude2};
+    auto and_not = std::make_shared<AndNotScorer>(include, std::move(excludes), &resolver);
+
+    std::vector<uint32_t> docs;
+    while (and_not->doc() != TERMINATED) {
+        docs.push_back(and_not->doc());
+        and_not->advance();
+    }
+
+    // 3 is TRUE-excluded (TRUE from exclude1 trumps NULL from exclude2)
+    // 4 is TRUE-excluded (TRUE from exclude2 trumps NULL from exclude1)
+    std::vector<uint32_t> expected_docs {1, 2, 5};
+    EXPECT_EQ(expected_docs, docs);
+
+    // Neither 3 nor 4 should be in null bitmap since both are TRUE-excluded
+    EXPECT_FALSE(and_not->has_null_bitmap());
+}
+
+TEST_F(IntersectionScorerTest, AndNotScorerSeekWithNullExclusion) {
+    // Test seek operations when exclude docs have null entries.
+    DummyResolver resolver;
+    auto include = std::make_shared<VectorScorer>(std::vector<uint32_t> {1, 5, 10, 15, 20, 25, 30},
+                                                  std::vector<float> {1, 2, 3, 4, 5, 6, 7});
+    // TRUE docs {5, 20}, NULL docs {10, 25}
+    auto exclude = std::make_shared<VectorScorer>(std::vector<uint32_t> {5, 20},
+                                                  std::vector<float> {0.0F, 0.0F},
+                                                  std::vector<uint32_t> {10, 25});
+
+    std::vector<ScorerPtr> excludes {exclude};
+    auto and_not = std::make_shared<AndNotScorer>(include, std::move(excludes), &resolver);
+
+    // First doc should be 1 (not excluded)
+    EXPECT_EQ(1u, and_not->doc());
+
+    // Seek to 10 → doc 10 is null-excluded, should skip to 15
+    EXPECT_EQ(15u, and_not->seek(10));
+
+    // Seek to 20 → doc 20 is TRUE-excluded, should skip to 30
+    // (25 is null-excluded)
+    EXPECT_EQ(30u, and_not->seek(20));
+
+    EXPECT_EQ(TERMINATED, and_not->advance());
+
+    EXPECT_TRUE(and_not->has_null_bitmap());
+    const auto* null_bitmap = and_not->get_null_bitmap();
+    ASSERT_NE(nullptr, null_bitmap);
+    EXPECT_TRUE(null_bitmap->contains(10));
+    EXPECT_TRUE(null_bitmap->contains(25));
+}
+
+TEST_F(IntersectionScorerTest, AndNotScorerIncludeHasNullBitmap) {
+    // When the include scorer has a null bitmap, it should be inherited.
+    DummyResolver resolver;
+    // Include scorer has null docs {8}
+    auto include = std::make_shared<VectorScorer>(std::vector<uint32_t> {1, 3, 5, 7},
+                                                  std::vector<float> {1.0F, 2.0F, 3.0F, 4.0F},
+                                                  std::vector<uint32_t> {8});
+    // Exclude scorer: TRUE docs {3}, NULL docs {5}
+    auto exclude = std::make_shared<VectorScorer>(
+            std::vector<uint32_t> {3}, std::vector<float> {0.0F}, std::vector<uint32_t> {5});
+
+    std::vector<ScorerPtr> excludes {exclude};
+    auto and_not = std::make_shared<AndNotScorer>(include, std::move(excludes), &resolver);
+
+    std::vector<uint32_t> docs;
+    while (and_not->doc() != TERMINATED) {
+        docs.push_back(and_not->doc());
+        and_not->advance();
+    }
+
+    // 3 is TRUE-excluded, 5 is NULL-excluded
+    std::vector<uint32_t> expected_docs {1, 7};
+    EXPECT_EQ(expected_docs, docs);
+
+    EXPECT_TRUE(and_not->has_null_bitmap());
+    const auto* null_bitmap = and_not->get_null_bitmap();
+    ASSERT_NE(nullptr, null_bitmap);
+    // Include's null doc 8 should be inherited
+    EXPECT_TRUE(null_bitmap->contains(8));
+    // Exclude's null doc 5 should also be in null bitmap
+    EXPECT_TRUE(null_bitmap->contains(5));
+}
+
+TEST_F(IntersectionScorerTest, AndNotScorerAllDocsExcluded) {
+    // All include docs are either TRUE-excluded or NULL-excluded.
+    DummyResolver resolver;
+    auto include = std::make_shared<VectorScorer>(std::vector<uint32_t> {1, 2, 3},
+                                                  std::vector<float> {1.0F, 2.0F, 3.0F});
+    auto exclude = std::make_shared<VectorScorer>(std::vector<uint32_t> {1, 3},
+                                                  std::vector<float> {0.0F, 0.0F},
+                                                  std::vector<uint32_t> {2});
+
+    std::vector<ScorerPtr> excludes {exclude};
+    auto and_not = std::make_shared<AndNotScorer>(include, std::move(excludes), &resolver);
+
+    EXPECT_EQ(TERMINATED, and_not->doc());
+
+    // Doc 2 should be in null bitmap (NULL-excluded but no TRUE match)
+    EXPECT_TRUE(and_not->has_null_bitmap());
+    const auto* null_bitmap = and_not->get_null_bitmap();
+    ASSERT_NE(nullptr, null_bitmap);
+    EXPECT_TRUE(null_bitmap->contains(2));
+    EXPECT_FALSE(null_bitmap->contains(1));
+    EXPECT_FALSE(null_bitmap->contains(3));
+}
+
 } // namespace doris
