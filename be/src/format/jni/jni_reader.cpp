@@ -255,9 +255,17 @@ Status JniReader::_fill_block(Block* block, size_t num_rows) {
     SCOPED_RAW_TIMER(&_fill_block_watcher);
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
+    // Fallback: if _col_name_to_block_idx was not set by the caller (e.g. JdbcScanner),
+    // build the name-to-position map from the block itself.
+    std::unordered_map<std::string, uint32_t> local_name_to_idx;
+    const std::unordered_map<std::string, uint32_t>* col_map = _col_name_to_block_idx;
+    if (col_map == nullptr) {
+        local_name_to_idx = block->get_name_to_pos_map();
+        col_map = &local_name_to_idx;
+    }
     for (int i = 0; i < _column_names.size(); ++i) {
         auto& column_with_type_and_name =
-                block->get_by_position(_col_name_to_block_idx->at(_column_names[i]));
+                block->get_by_position(col_map->at(_column_names[i]));
         auto& column_ptr = column_with_type_and_name.column;
         auto& column_type = column_with_type_and_name.type;
         RETURN_IF_ERROR(JniDataBridge::fill_column(_table_meta, column_ptr, column_type, num_rows));
