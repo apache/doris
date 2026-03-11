@@ -264,8 +264,7 @@ Status JniReader::_fill_block(Block* block, size_t num_rows) {
         col_map = &local_name_to_idx;
     }
     for (int i = 0; i < _column_names.size(); ++i) {
-        auto& column_with_type_and_name =
-                block->get_by_position(col_map->at(_column_names[i]));
+        auto& column_with_type_and_name = block->get_by_position(col_map->at(_column_names[i]));
         auto& column_ptr = column_with_type_and_name.column;
         auto& column_type = column_with_type_and_name.type;
         RETURN_IF_ERROR(JniDataBridge::fill_column(_table_meta, column_ptr, column_type, num_rows));
