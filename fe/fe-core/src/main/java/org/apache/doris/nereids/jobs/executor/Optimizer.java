@@ -116,6 +116,9 @@ public class Optimizer {
                 && !cascadesContext.isLeadingDisableJoinReorder()
                 && continuousJoinNum <= sessionVariable.getMaxJoinNumberOfReorder()
                 && isDpHyp;
+         if (continuousJoinNum > 0) {
+             finalEnableDpHyp = true;
+         }
         cascadesContext.getStatementContext().setDpHyp(finalEnableDpHyp);
         return finalEnableDpHyp;
     }

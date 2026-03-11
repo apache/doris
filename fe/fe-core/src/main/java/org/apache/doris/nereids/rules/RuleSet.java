@@ -369,6 +369,7 @@ public class RuleSet {
                     .add(PushDownProjectThroughInnerOuterJoin.INSTANCE)
                     .add(PushDownProjectThroughSemiJoin.INSTANCE)
                     .build())
+            .add(new AggregateStrategies().buildRules().toArray(new Rule[0]))
             .addAll(EXPLORATION_RULES)
             .addAll(new PushDownTopNThroughJoin().buildRules())
             .addAll(new PushDownLimitDistinctThroughJoin().buildRules())

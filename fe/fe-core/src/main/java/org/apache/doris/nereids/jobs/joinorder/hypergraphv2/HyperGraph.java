@@ -62,13 +62,15 @@ public class HyperGraph {
     private final List<Edge> joinEdges;
     private final List<AbstractNode> nodes;
     private final List<NamedExpression> finalProjects;
+    private final Map<Long, List<NamedExpression>> nodeToLiteralAlias;
     private final CascadesContext ctx;
 
     HyperGraph(List<NamedExpression> finalProjects, List<Edge> joinEdges, List<AbstractNode> nodes,
-               CascadesContext ctx) {
+               Map<Long, List<NamedExpression>> nodeToLiteralAlias, CascadesContext ctx) {
         this.finalProjects = ImmutableList.copyOf(finalProjects);
         this.joinEdges = ImmutableList.copyOf(joinEdges);
         this.nodes = ImmutableList.copyOf(nodes);
+        this.nodeToLiteralAlias = nodeToLiteralAlias;
         this.ctx = ctx;
     }
 
@@ -120,6 +122,30 @@ public class HyperGraph {
 
     public Edge getJoinEdge(int index) {
         return joinEdges.get(index);
+    }
+
+    public boolean hasLiteralAlias() {
+        return !nodeToLiteralAlias.isEmpty();
+    }
+
+    public List<NamedExpression> getLiteralAlias(long left, long right) {
+        ImmutableList.Builder<NamedExpression> aliasList = ImmutableList.builder();
+        if (left == right) {
+            List<NamedExpression> namedExpressions = nodeToLiteralAlias.get(left);
+            if (namedExpressions != null) {
+                aliasList.addAll(namedExpressions);
+                nodeToLiteralAlias.remove(left);
+            }
+        } else {
+            long nodes = LongBitmap.newBitmapUnion(left, right);
+            for (Map.Entry<Long, List<NamedExpression>> entry : nodeToLiteralAlias.entrySet()) {
+                if (!LongBitmap.isSubset(entry.getKey(), left) && !LongBitmap.isSubset(entry.getKey(), right)
+                        && LongBitmap.isSubset(entry.getKey(), nodes)) {
+                    aliasList.addAll(entry.getValue());
+                }
+            }
+        }
+        return aliasList.build();
     }
 
     // find edges to connect left and right node
@@ -250,6 +276,8 @@ public class HyperGraph {
         // addAlias method add slots from both simple node and joined nodes, depending on the alias's input slots
         private final HashMap<Slot, Long> slotToHyperNodeMap = new LinkedHashMap<>();
 
+        private final Map<Long, List<NamedExpression>> nodeToLiteralAlias = new LinkedHashMap<>();
+
         private Set<Slot> finalOutputs;
 
         private CascadesContext ctx;
@@ -283,7 +311,7 @@ public class HyperGraph {
         }
 
         public HyperGraph build() {
-            return new HyperGraph(finalProjects, joinEdges, nodes, ctx);
+            return new HyperGraph(finalProjects, joinEdges, nodes, nodeToLiteralAlias, ctx);
         }
 
         public void updateNode(int idx, Group group) {
@@ -350,13 +378,23 @@ public class HyperGraph {
             //          select *, 1 as b1 from t2)
             //              on t1.b = b1
             // just reference them all for this slot
+            boolean addToReplaceMap = true;
             if (bitmap == 0) {
                 bitmap = subTreeNodes;
+                addToReplaceMap = false;
+                List<NamedExpression> aliasList = nodeToLiteralAlias.get(bitmap);
+                if (aliasList == null) {
+                    aliasList = new ArrayList<>(1);
+                    nodeToLiteralAlias.put(bitmap, aliasList);
+                }
+                aliasList.add(alias);
             }
             Preconditions.checkArgument(bitmap > 0, "slot must belong to some table");
             slotToHyperNodeMap.put(aliasSlot, bitmap);
             alias = (Alias) ExpressionUtils.replaceNameExpression(alias, aliasReplaceMap);
-            aliasReplaceMap.put(aliasSlot, alias.child());
+            if (addToReplaceMap) {
+                aliasReplaceMap.put(aliasSlot, alias.child());
+            }
             return true;
         }
 
@@ -410,6 +448,10 @@ public class HyperGraph {
             long rightSubtreeNodes = rightChildEdgeNodes.second;
             Map<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> requiredNodesToConjuncts =
                     new LinkedHashMap<>();
+            if (join.getHashJoinConjuncts().isEmpty() && join.getOtherJoinConjuncts().isEmpty()
+                    && join.getMarkJoinConjuncts().isEmpty()) {
+                join = join.withJoinType(JoinType.CROSS_JOIN);
+            }
             if (join.getJoinType().isCrossJoin()) {
                 return addCrossJoin(join, leftChildEdgeNodes, rightChildEdgeNodes);
             } else {
