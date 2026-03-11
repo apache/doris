@@ -20,7 +20,7 @@
 #include <alibabacloud/oss/OssClient.h>
 #include <alibabacloud/oss/client/ClientConfiguration.h>
 #include <bvar/reducer.h>
-#include <util/string_util.h>
+#include "util/string_util.h"
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -55,20 +55,21 @@ OSSConf OSSConf::get_oss_conf(const cloud::ObjectStoreInfoPB& obj_info) {
         switch (obj_info.cred_provider_type()) {
         case cloud::CredProviderTypePB::DEFAULT:
             conf.client_conf.cred_provider_type = OSSCredProviderType::DEFAULT;
-            LOG(INFO) << "Using OSS DEFAULT credential provider";
+            VLOG(2) << "Using OSS DEFAULT credential provider";
             break;
         case cloud::CredProviderTypePB::INSTANCE_PROFILE:
             conf.client_conf.cred_provider_type = OSSCredProviderType::INSTANCE_PROFILE;
-            LOG(INFO) << "Using OSS INSTANCE_PROFILE credential provider";
+            VLOG(2) << "Using OSS INSTANCE_PROFILE credential provider";
             break;
         case cloud::CredProviderTypePB::SIMPLE:
             conf.client_conf.cred_provider_type = OSSCredProviderType::SIMPLE;
             conf.client_conf.ak = obj_info.ak();
             conf.client_conf.sk = obj_info.sk();
-            LOG(INFO) << "Using OSS SIMPLE credential provider";
-            break;        default:
+            VLOG(2) << "Using OSS SIMPLE credential provider";
+            break;
+        default:
             conf.client_conf.cred_provider_type = OSSCredProviderType::DEFAULT;
-            LOG(INFO) << "Unknown credential provider type, defaulting to DEFAULT";
+            VLOG(2) << "Unknown credential provider type, defaulting to DEFAULT";
             break;
         }
     } else {
@@ -76,15 +77,15 @@ OSSConf OSSConf::get_oss_conf(const cloud::ObjectStoreInfoPB& obj_info) {
             conf.client_conf.cred_provider_type = OSSCredProviderType::SIMPLE;
             conf.client_conf.ak = obj_info.ak();
             conf.client_conf.sk = obj_info.sk();
-            LOG(INFO) << "Using OSS SIMPLE credential provider (from AK/SK)";
+            VLOG(2) << "Using OSS SIMPLE credential provider (from AK/SK)";
         } else {
             conf.client_conf.cred_provider_type = OSSCredProviderType::DEFAULT;
-            LOG(INFO) << "No AK/SK provided, using OSS DEFAULT credential provider";
+            VLOG(2) << "No AK/SK provided, using OSS DEFAULT credential provider";
         }
     }
 
     if (!conf.client_conf.role_arn.empty()) {
-        LOG(INFO) << "OSS AssumeRole enabled with role_arn: " << conf.client_conf.role_arn;
+        VLOG(2) << "OSS AssumeRole enabled with role_arn: " << conf.client_conf.role_arn;
     }
 
     return conf;
@@ -129,7 +130,8 @@ Status OSSClientFactory::convert_properties_to_oss_conf(
 
     if (!role_arn.empty()) {
         oss_conf->client_conf.cred_provider_type = OSSCredProviderType::INSTANCE_PROFILE;
-    } else if (provider == "INSTANCE_PROFILE" || provider == "instance_profile") {        oss_conf->client_conf.cred_provider_type = OSSCredProviderType::INSTANCE_PROFILE;
+    } else if (provider == "INSTANCE_PROFILE" || provider == "instance_profile") {
+        oss_conf->client_conf.cred_provider_type = OSSCredProviderType::INSTANCE_PROFILE;
     } else if (provider == "DEFAULT" || provider == "default") {
         oss_conf->client_conf.cred_provider_type = OSSCredProviderType::DEFAULT;
     } else if (provider == "SIMPLE" || provider == "simple") {

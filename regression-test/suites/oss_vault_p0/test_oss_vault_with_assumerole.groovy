@@ -28,15 +28,20 @@ suite("test_oss_vault_with_assumerole") {
         return
     }
 
+    def endpoint = context.config.otherConfigs.get("ossEndpoint")
+    if (!endpoint) {
+        logger.info("skip ${name} case, OSS config not set (ossEndpoint not configured)")
+        return
+    }
+
     def randomStr = UUID.randomUUID().toString().replace("-", "")
     def ossVaultName = "oss_" + randomStr
 
-    def endpoint = context.config.ossEndpoint
-    def region = context.config.ossRegion
-    def bucket = context.config.ossBucket
-    def roleArn = context.config.ossRoleArn
-    def externalId = context.config.ossExternalId
-    def prefix = context.config.ossPrefix
+    def region = context.config.otherConfigs.get("ossRegion")
+    def bucket = context.config.otherConfigs.get("ossBucket")
+    def roleArn = context.config.otherConfigs.get("ossRoleArn")
+    def externalId = context.config.otherConfigs.get("ossExternalId")
+    def prefix = context.config.otherConfigs.get("ossPrefix")
 
     // Test 1: Create OSS storage vault with AssumeRole (no external_id)
     // Note: When role_arn is provided, INSTANCE_PROFILE is automatically used as base credential provider

@@ -76,14 +76,11 @@ AlibabaCloud::OSS::Credentials ECSMetadataCredentialsProvider::getCredentials() 
             VLOG(2) << "Returning cached ECS metadata credentials";
             return *_cached_credentials;
         }
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(_mtx);
         if (_cached_credentials) {
             auto t = std::chrono::system_clock::to_time_t(_expiration);
+            struct tm tm_buf;
             LOG(INFO) << "ECS metadata credentials expiring ("
-                      << std::put_time(std::localtime(&t), "%Y-%m-%d %H:%M:%S")
+                      << std::put_time(localtime_r(&t, &tm_buf), "%Y-%m-%d %H:%M:%S")
                       << "), refreshing";
         } else {
             LOG(INFO) << "Fetching ECS metadata credentials (first time)";
@@ -111,8 +108,9 @@ AlibabaCloud::OSS::Credentials ECSMetadataCredentialsProvider::getCredentials() 
         _cached_credentials = std::move(new_credentials);
         _expiration = new_expiration;
         auto t = std::chrono::system_clock::to_time_t(_expiration);
+        struct tm tm_buf;
         LOG(INFO) << "ECS metadata credentials refreshed, expiry: "
-                  << std::put_time(std::localtime(&t), "%Y-%m-%d %H:%M:%S");
+                  << std::put_time(localtime_r(&t, &tm_buf), "%Y-%m-%d %H:%M:%S");
         return *_cached_credentials;
     }
 }
@@ -269,14 +267,11 @@ AlibabaCloud::OSS::Credentials OSSSTSCredentialProvider::getCredentials() {
             VLOG(2) << "Returning cached STS AssumeRole credentials";
             return *_cached_credentials;
         }
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(_mtx);
         if (_cached_credentials) {
             auto t = std::chrono::system_clock::to_time_t(_expiration);
+            struct tm tm_buf;
             LOG(INFO) << "STS credentials expiring ("
-                      << std::put_time(std::localtime(&t), "%Y-%m-%d %H:%M:%S")
+                      << std::put_time(localtime_r(&t, &tm_buf), "%Y-%m-%d %H:%M:%S")
                       << "), refreshing";
         } else {
             LOG(INFO) << "Fetching STS AssumeRole credentials (first time)";
@@ -304,8 +299,9 @@ AlibabaCloud::OSS::Credentials OSSSTSCredentialProvider::getCredentials() {
         _cached_credentials = std::move(new_credentials);
         _expiration = new_expiration;
         auto t = std::chrono::system_clock::to_time_t(_expiration);
+        struct tm tm_buf;
         LOG(INFO) << "STS AssumeRole credentials refreshed, expiry: "
-                  << std::put_time(std::localtime(&t), "%Y-%m-%d %H:%M:%S");
+                  << std::put_time(localtime_r(&t, &tm_buf), "%Y-%m-%d %H:%M:%S");
         return *_cached_credentials;
     }
 }
@@ -397,10 +393,6 @@ AlibabaCloud::OSS::Credentials OSSDefaultCredentialsProvider::getCredentials() {
             VLOG(2) << "Returning cached default provider credentials";
             return *_cached_credentials;
         }
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(_mtx);
         if (_cached_credentials) {
             LOG(INFO) << "Default provider credentials expiring, refreshing";
         } else {
@@ -437,9 +429,10 @@ AlibabaCloud::OSS::Credentials OSSDefaultCredentialsProvider::getCredentials() {
             _cached_credentials = std::move(new_credentials);
             _expiration = new_expiration;
             auto t = std::chrono::system_clock::to_time_t(_expiration);
+            struct tm tm_buf;
             LOG(INFO) << "Default provider credentials fetched, provider: "
                       << cred_model.getProviderName() << ", expiry: "
-                      << std::put_time(std::localtime(&t), "%Y-%m-%d %H:%M:%S");
+                      << std::put_time(localtime_r(&t, &tm_buf), "%Y-%m-%d %H:%M:%S");
             return *_cached_credentials;
         }
     } catch (const std::exception& e) {

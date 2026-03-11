@@ -72,7 +72,7 @@ private:
     std::atomic<bool> _closed {false};
 
     OSSFileReaderStats _oss_stats;
-    [[maybe_unused]] RuntimeProfile* _profile = nullptr;
+    RuntimeProfile* _profile = nullptr;
 };
 
 } // namespace io

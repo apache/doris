@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 
@@ -44,7 +45,8 @@ public class OSSPropertiesTest {
         origProps.put(StorageProperties.FS_OSS_SUPPORT, "true");
         Map<String, String> finalOrigProps = origProps;
         ExceptionChecker.expectThrowsWithMsg(IllegalArgumentException.class,
-                "Region is not set. If you are using a standard endpoint, the region will be detected automatically. Otherwise, please specify it explicitly.", () -> StorageProperties.createPrimary(finalOrigProps));
+                "Region is not set. Either set a standard endpoint or specify oss.region explicitly.",
+                () -> StorageProperties.createPrimary(finalOrigProps));
         origProps.put("oss.endpoint", "oss-cn-shenzhen-finance-1-internal.aliyuncs.com");
         Map<String, String> finalOrigProps1 = origProps;
         OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(finalOrigProps1);
@@ -325,8 +327,7 @@ public class OSSPropertiesTest {
 
         var pb = ossProperties.getObjStoreInfoPB();
         Assertions.assertEquals(
-                org.apache.doris.proto.ObjStoreInfoOuterClass.ObjectStoreInfoPB.CredProviderType
-                        .INSTANCE_PROFILE,
+                Cloud.CredProviderTypePB.INSTANCE_PROFILE,
                 pb.getCredProviderType(),
                 "No AK/SK should yield INSTANCE_PROFILE cred provider");
     }
@@ -341,8 +342,7 @@ public class OSSPropertiesTest {
 
         var pb = ossProperties.getObjStoreInfoPB();
         Assertions.assertEquals(
-                org.apache.doris.proto.ObjStoreInfoOuterClass.ObjectStoreInfoPB.CredProviderType
-                        .SIMPLE,
+                Cloud.CredProviderTypePB.SIMPLE,
                 pb.getCredProviderType(),
                 "AK/SK present without role_arn should yield SIMPLE cred provider");
         Assertions.assertEquals("myAccessKey", pb.getAk());
@@ -359,8 +359,7 @@ public class OSSPropertiesTest {
 
         var pb = ossProperties.getObjStoreInfoPB();
         Assertions.assertEquals(
-                org.apache.doris.proto.ObjStoreInfoOuterClass.ObjectStoreInfoPB.CredProviderType
-                        .INSTANCE_PROFILE,
+                Cloud.CredProviderTypePB.INSTANCE_PROFILE,
                 pb.getCredProviderType(),
                 "role_arn present should yield INSTANCE_PROFILE as base cred provider for STS");
         Assertions.assertFalse(pb.getRoleArn().isEmpty());
@@ -376,7 +375,7 @@ public class OSSPropertiesTest {
 
         var pb = ossProperties.getObjStoreInfoPB();
         Assertions.assertEquals(
-                org.apache.doris.proto.ObjStoreInfoOuterClass.ObjectStoreInfoPB.Provider.OSS,
+                Cloud.ObjectStoreInfoPB.Provider.OSS,
                 pb.getProvider(),
                 "Provider must be OSS in ObjectStoreInfoPB");
     }

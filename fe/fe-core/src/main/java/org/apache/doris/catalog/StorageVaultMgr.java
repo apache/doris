@@ -71,7 +71,7 @@ public class StorageVaultMgr {
                 createS3Vault(StorageVault.fromCommand(command));
                 break;
             case OSS:
-                createOssVault(StorageVault.fromStmt(stmt));
+                createOssVault(StorageVault.fromCommand(command));
                 break;
             case UNKNOWN:
             default:
@@ -437,8 +437,9 @@ public class StorageVaultMgr {
     public void createOssVault(StorageVault vault) throws Exception {
         Cloud.StorageVaultPB.Builder ossStorageVaultBuilder = buildAlterStorageVaultRequest(vault);
         Cloud.AlterObjStoreInfoRequest.Builder requestBuilder
-                = Cloud.AlterObjStoreInfoRequest.newBuilder();
-        requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_S3_VAULT);  // OSS uses same operation as S3
+                = Cloud.AlterObjStoreInfoRequest.newBuilder()
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
+        requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_S3_VAULT);
         requestBuilder.setVault(ossStorageVaultBuilder);
         requestBuilder.setSetAsDefaultStorageVault(vault.setAsDefault());
         try {

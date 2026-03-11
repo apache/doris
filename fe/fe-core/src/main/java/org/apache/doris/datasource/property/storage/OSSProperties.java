@@ -289,6 +289,8 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         if (StringUtils.isBlank(endpoint) || !STANDARD_ENDPOINT_PATTERN.matcher(endpoint).matches()) {
+            Preconditions.checkArgument(StringUtils.isNotBlank(region),
+                    "Region is not set. Either set a standard endpoint or specify oss.region explicitly.");
             this.endpoint = getOssEndpoint(region, BooleanUtils.toBoolean(dlfAccessPublic));
         }
     }
@@ -402,6 +404,11 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         }
     }
 
+    /** Delegates to {@link #getObjStoreInfoPB(Map)} using this instance's origProps. */
+    public Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB() {
+        return getObjStoreInfoPB(this.origProps);
+    }
+
     /**
      * Build ObjectStoreInfoPB from OSS properties for storage vault creation/alteration.
      * This method specifically handles OSS properties and sets the provider to OSS.
@@ -470,7 +477,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         }
 
         // Bucket - try multiple property keys for compatibility
-        String bucket = Stream.of(BUCKET_KEY, "bucket")
+        String bucket = Stream.of("oss.bucket", BUCKET_KEY)
                 .map(properties::get)
                 .filter(StringUtils::isNotBlank)
                 .findFirst()

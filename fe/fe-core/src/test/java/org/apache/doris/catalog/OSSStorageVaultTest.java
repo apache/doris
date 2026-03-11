@@ -22,6 +22,7 @@ import org.apache.doris.common.UserException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -47,19 +48,10 @@ public class OSSStorageVaultTest {
         return props;
     }
 
-    private static OSSStorageVault newVault() throws DdlException {
-        // OSSStorageVault.checkCreationProperties is the method under test.
-        // We call it directly without constructing a full vault object to
-        // keep tests lightweight and independent of catalog infrastructure.
-        return null; // placeholder — tests call checkCreationProperties directly
-    }
-
     // Thin wrapper so tests read cleanly.
     private static void check(Map<String, String> props) throws UserException {
-        // Re-use a minimal stub: we only need the validation logic.
-        // Reflection-free: instantiate via anonymous subclass if needed,
-        // or call the static helper if one is added. For now, call directly.
-        new OSSStorageVaultValidator().checkCreationProperties(props);
+        OSSStorageVault vault = Mockito.mock(OSSStorageVault.class, Mockito.CALLS_REAL_METHODS);
+        vault.checkCreationProperties(props);
     }
 
     // ---------------------------------------------------------------------------
@@ -309,16 +301,4 @@ public class OSSStorageVaultTest {
                 OSSStorageVault.PropertyKey.MAX_CONNECTIONS));
     }
 
-    // ---------------------------------------------------------------------------
-    // Inner validator stub — calls checkCreationProperties directly.
-    // Avoids constructing a full OSSStorageVault (which requires catalog context).
-    // ---------------------------------------------------------------------------
-    private static class OSSStorageVaultValidator extends OSSStorageVault {
-        OSSStorageVaultValidator() throws DdlException {
-            super(/* name= */ "_test_vault_",
-                  /* ifNotExists= */ false,
-                  /* setAsDefault= */ false,
-                  /* stmt= */ null);
-        }
-    }
 }

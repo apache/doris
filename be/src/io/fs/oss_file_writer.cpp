@@ -263,41 +263,6 @@ Status OSSFileWriter::_create_multipart_upload() {
     return Status::OK();
 }
 
-Status OSSFileWriter::_upload_part(int part_num, const char* data, size_t size) {
-    auto client = _client->get();
-    if (!client) {
-        return Status::InternalError("OSS client not initialized");
-    }
-
-    auto content = std::make_shared<std::stringstream>();
-    content->write(data, size);
-
-    AlibabaCloud::OSS::UploadPartRequest request(_bucket, _key, content);
-    request.setPartNumber(part_num);
-    request.setUploadId(_upload_id);
-    request.setContentLength(size);
-
-    auto outcome = client->UploadPart(request);
-    if (!outcome.isSuccess()) {
-        _failed = true;
-        std::string err = fmt::format("OSS UploadPart {} failed: {} - {}", part_num,
-                                      outcome.error().Code(), outcome.error().Message());
-        LOG(WARNING) << err << ", path: " << _path.native();
-        return Status::IOError(err);
-    }
-
-    oss_bytes_written_total << size;
-
-    AlibabaCloud::OSS::Part part(part_num, outcome.result().ETag());
-
-    std::lock_guard<std::mutex> lock(_completed_lock);
-    _completed_parts.push_back(part);
-
-    VLOG_DEBUG << "OSS UploadPart " << part_num << " completed: " << _path.native()
-               << " size: " << size;
-
-    return Status::OK();
-}
 
 Status OSSFileWriter::_complete_multipart_upload() {
     auto client = _client->get();
@@ -480,6 +445,7 @@ Status OSSFileWriter::_close_impl() {
 
         if (!_used_by_oss_committer) {
             auto* pending_buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
+            DCHECK(pending_buf != nullptr);
             pending_buf->set_upload_to_remote([this](UploadFileBuffer& buf) {
                 Status st = _put_object(buf);
                 if (!st.ok()) {

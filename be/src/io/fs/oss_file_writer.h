@@ -53,8 +53,6 @@ private:
     Status _close_impl();
     Status _create_multipart_upload();
 
-    Status _upload_part(int part_num, const char* data, size_t size);
-
     void _upload_one_part(int64_t part_num, UploadFileBuffer& buf);
 
     Status _complete_multipart_upload();

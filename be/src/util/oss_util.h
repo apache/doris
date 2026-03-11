@@ -76,8 +76,7 @@ struct OSSClientConf {
 
     uint64_t get_hash() const {
         uint64_t hash_code = 0;
-        hash_code ^= crc32_hash(ak);
-        hash_code ^= crc32_hash(sk);
+        hash_code ^= crc32_hash(ak + sk);
         hash_code ^= crc32_hash(token);
         hash_code ^= crc32_hash(endpoint);
         hash_code ^= crc32_hash(region);
@@ -96,7 +95,7 @@ struct OSSClientConf {
                 "(ak={}, token={}, endpoint={}, region={}, bucket={}, role_arn={}, external_id={}, "
                 "max_connections={}, request_timeout_ms={}, connect_timeout_ms={}, cred_provider_type={})",
                 hide_access_key(ak), hide_access_key(token), endpoint, region, bucket,
-                role_arn, hide_access_key(external_id), max_connections, request_timeout_ms,
+                role_arn, external_id, max_connections, request_timeout_ms,
                 connect_timeout_ms, static_cast<int>(cred_provider_type));
     }
 };
