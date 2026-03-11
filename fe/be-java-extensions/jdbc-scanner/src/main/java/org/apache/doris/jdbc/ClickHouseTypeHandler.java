@@ -20,8 +20,11 @@ package org.apache.doris.jdbc;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
 
+import com.google.common.collect.Lists;
+
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.net.InetAddress;
 import java.sql.Array;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -34,7 +37,7 @@ import java.util.List;
 /**
  * ClickHouse-specific type handler.
  * Key specializations:
- * - ARRAY: direct getArray() call
+ * - ARRAY: direct getArray() call with element type conversion
  * - All numeric types use getObject(Class) for proper null handling
  */
 public class ClickHouseTypeHandler extends DefaultTypeHandler {
@@ -100,16 +103,109 @@ public class ClickHouseTypeHandler extends DefaultTypeHandler {
         if (array == null) {
             return null;
         }
-        List<Object> list = new ArrayList<>();
-        if (array instanceof Object[]) {
-            for (Object element : (Object[]) array) {
-                list.add(element);
-            }
+        int length = java.lang.reflect.Array.getLength(array);
+        List<Object> list = new ArrayList<>(length);
+        for (int i = 0; i < length; i++) {
+            Object element = java.lang.reflect.Array.get(array, i);
+            list.add(element);
         }
         return list;
     }
 
-    private Object convertArray(List<?> input, ColumnType childType) {
-        return input;
+    /**
+     * Convert array elements to the expected Doris column type.
+     * ClickHouse JDBC driver may return unsigned integer array elements as wider
+     * Java types (e.g., UInt32 elements as BigInteger instead of Long).
+     */
+    private List<?> convertArray(List<?> array, ColumnType type) {
+        if (array == null) {
+            return null;
+        }
+        switch (type.getType()) {
+            case SMALLINT: {
+                List<Short> result = Lists.newArrayList();
+                for (Object element : array) {
+                    if (element == null) {
+                        result.add(null);
+                    } else if (element instanceof Number) {
+                        result.add(((Number) element).shortValue());
+                    } else {
+                        throw new IllegalArgumentException("Unsupported element type: " + element.getClass());
+                    }
+                }
+                return result;
+            }
+            case INT: {
+                List<Integer> result = Lists.newArrayList();
+                for (Object element : array) {
+                    if (element == null) {
+                        result.add(null);
+                    } else if (element instanceof Number) {
+                        result.add(((Number) element).intValue());
+                    } else {
+                        throw new IllegalArgumentException("Unsupported element type: " + element.getClass());
+                    }
+                }
+                return result;
+            }
+            case BIGINT: {
+                List<Long> result = Lists.newArrayList();
+                for (Object element : array) {
+                    if (element == null) {
+                        result.add(null);
+                    } else if (element instanceof Number) {
+                        result.add(((Number) element).longValue());
+                    } else {
+                        throw new IllegalArgumentException("Unsupported element type: " + element.getClass());
+                    }
+                }
+                return result;
+            }
+            case LARGEINT: {
+                List<BigInteger> result = Lists.newArrayList();
+                for (Object element : array) {
+                    if (element == null) {
+                        result.add(null);
+                    } else if (element instanceof BigInteger) {
+                        result.add((BigInteger) element);
+                    } else if (element instanceof BigDecimal) {
+                        result.add(((BigDecimal) element).toBigInteger());
+                    } else if (element instanceof Number) {
+                        result.add(BigInteger.valueOf(((Number) element).longValue()));
+                    } else {
+                        throw new IllegalArgumentException("Unsupported element type: " + element.getClass());
+                    }
+                }
+                return result;
+            }
+            case STRING: {
+                List<String> result = Lists.newArrayList();
+                for (Object element : array) {
+                    if (element == null) {
+                        result.add(null);
+                    } else if (element instanceof InetAddress) {
+                        result.add(((InetAddress) element).getHostAddress());
+                    } else {
+                        result.add(element.toString());
+                    }
+                }
+                return result;
+            }
+            case ARRAY: {
+                List<List<?>> resultArray = Lists.newArrayList();
+                for (Object element : array) {
+                    if (element == null) {
+                        resultArray.add(null);
+                    } else {
+                        resultArray.add(
+                                Lists.newArrayList(convertArray((List<?>) element, type.getChildTypes().get(0))));
+                    }
+                }
+                return resultArray;
+            }
+            default:
+                return array;
+        }
     }
 }
+
