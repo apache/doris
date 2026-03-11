@@ -110,11 +110,10 @@ Status JdbcScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
     // Build reader params from tuple descriptor
     auto jdbc_params = _build_jdbc_params(_tuple_desc);
 
-    // Get slot descriptors for the reader
-    const auto& slots = _tuple_desc->slots();
-    std::vector<SlotDescriptor*> slot_descs(slots.begin(), slots.end());
-
-    _jni_reader = JdbcJniReader::create_unique(slot_descs, state, _profile, jdbc_params);
+    // Pass _tuple_desc->slots() directly. JniReader stores _file_slot_descs as a reference,
+    // so we must pass a vector whose lifetime outlives the reader (i.e., _tuple_desc->slots()).
+    // Previously a local vector was passed, causing a dangling reference after init() returned.
+    _jni_reader = JdbcJniReader::create_unique(_tuple_desc->slots(), state, _profile, jdbc_params);
 
     return Status::OK();
 }
