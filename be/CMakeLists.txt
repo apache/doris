@@ -960,3 +960,5 @@ if (BUILD_BENCHMARK)
     message(STATUS "Add benchmark to build")
     install(TARGETS benchmark_test DESTINATION ${OUTPUT_DIR}/lib)
 endif()
+
+# security-testing
