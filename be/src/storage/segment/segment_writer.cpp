@@ -73,13 +73,13 @@
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "util/jsonb/serialize.h"
-#include "util/key_util.h"
 #include "util/simd/bits.h"
 namespace doris {
 namespace segment_v2 {
 #include "common/compile_check_begin.h"
 
 using namespace ErrorCode;
+using namespace KeyConsts;
 
 const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
@@ -896,7 +896,7 @@ Status SegmentWriter::append_row(const RowCursor& row) {
         RETURN_IF_ERROR(_column_writers[cid]->append(cell));
     }
     std::string full_encoded_key;
-    encode_key<true>(&full_encoded_key, row, _num_sort_key_columns);
+    row.encode_key<true>(&full_encoded_key, _num_sort_key_columns);
     if (_tablet_schema->has_sequence_col()) {
         full_encoded_key.push_back(KEY_NORMAL_MARKER);
         auto cid = _tablet_schema->sequence_col_idx();
@@ -913,7 +913,7 @@ Status SegmentWriter::append_row(const RowCursor& row) {
         // At the beginning of one block, so add a short key index entry
         if ((_num_rows_written % _opts.num_rows_per_block) == 0) {
             std::string encoded_key;
-            encode_key(&encoded_key, row, _num_short_key_columns);
+            row.encode_key(&encoded_key, _num_short_key_columns);
             RETURN_IF_ERROR(_short_key_index_builder->add_item(encoded_key));
         }
         set_min_max_key(full_encoded_key);

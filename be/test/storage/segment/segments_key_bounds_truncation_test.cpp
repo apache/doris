@@ -37,7 +37,7 @@
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_reader.h"
 #include "storage/tablet/tablet_schema.h"
-#include "util/key_util.h"
+#include "common/consts.h"
 
 namespace doris {
 static std::string kSegmentDir = "./ut_dir/segments_key_bounds_truncation_test";
@@ -203,8 +203,8 @@ public:
             }
 
             // segments key bounds have marker
-            min_key = std::string {KEY_NORMAL_MARKER} + min_key;
-            max_key = std::string {KEY_NORMAL_MARKER} + max_key;
+            min_key = std::string {KeyConsts::KEY_NORMAL_MARKER} + min_key;
+            max_key = std::string {KeyConsts::KEY_NORMAL_MARKER} + max_key;
 
             cur.emplace_back(do_trunacte(min_key));
             cur.emplace_back(do_trunacte(max_key));

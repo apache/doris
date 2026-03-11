@@ -55,7 +55,6 @@
 #include "util/bvar_helper.h"
 #include "util/debug_points.h"
 #include "util/jsonb/serialize.h"
-#include "util/key_util.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -468,7 +467,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
         DCHECK_EQ(segments_key_bounds.size(), num_segments);
         std::vector<uint32_t> picked_segments;
         for (int j = num_segments - 1; j >= 0; j--) {
-            if (key_is_not_in_segment(key_without_seq, segments_key_bounds[j],
+            if (_key_is_not_in_segment(key_without_seq, segments_key_bounds[j],
                                       rs->rowset_meta()->is_segments_key_bounds_truncated())) {
                 continue;
             }
@@ -2133,6 +2132,17 @@ void BaseTablet::prefill_dbm_agg_cache_after_compaction(const RowsetSharedPtr& o
             prefill_dbm_agg_cache(output_rowset, cur_max_version);
         }
     }
+}
+
+bool BaseTablet::_key_is_not_in_segment(Slice key, const KeyBoundsPB& segment_key_bounds,
+                                        bool is_segments_key_bounds_truncated) {
+    Slice maybe_truncated_min_key {segment_key_bounds.min_key()};
+    Slice maybe_truncated_max_key {segment_key_bounds.max_key()};
+    bool res1 = Slice::lhs_is_strictly_less_than_rhs(key, false, maybe_truncated_min_key,
+                                                     is_segments_key_bounds_truncated);
+    bool res2 = Slice::lhs_is_strictly_less_than_rhs(maybe_truncated_max_key,
+                                                     is_segments_key_bounds_truncated, key, false);
+    return res1 || res2;
 }
 
 } // namespace doris
