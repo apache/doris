@@ -646,7 +646,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
     if (UNLIKELY(_nullable_str_col_cache.empty())) {
         _nullable_str_col_cache.resize(_file_slot_descs.size());
         _has_escape_char = (_options.escape_char != 0);
-        const size_t batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
+        const size_t batch_size = std::max<size_t>(_state->batch_size(), _MIN_BATCH_SIZE);
         for (int i = 0; i < _file_slot_descs.size(); ++i) {
             if (_use_nullable_string_opt[i]) {
                 IColumn* col_ptr =
@@ -680,14 +680,6 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
         auto value = col_idx < _split_values.size()
                              ? _split_values[col_idx]
                              : Slice(_options.null_format, _options.null_len);
-
-        IColumn* col_ptr = columns[i].get();
-        if (!_is_load) {
-            // block is a Block*, and get_by_position returns a ColumnPtr,
-            // which is a const pointer. Therefore, using const_cast is permissible.
-            col_ptr = const_cast<IColumn*>(
-                    block->get_by_position(_file_slot_idx_map[i]).column.get());
-        }
 
         if (_use_nullable_string_opt[i]) {
             // Inline fast path: bypass StringSerDe and per-row assert_cast entirely.
