@@ -60,9 +60,9 @@ private:
     /// param compact_type in req to distinguish the task type, base or cumulative
     Status _handle_run_compaction(HttpRequest* req, std::string* json_result);
 
-    /// thread callback function for the tablet to do compaction
+    /// thread callback function for the tablet to do base/cumulative compaction
     Status _execute_compaction_callback(TabletSharedPtr tablet, const std::string& compaction_type,
-                                        bool fethch_from_remote);
+                                        bool fetch_from_remote);
 
     /// fetch compaction running status
     Status _handle_run_status_compaction(HttpRequest* req, std::string* json_result);
