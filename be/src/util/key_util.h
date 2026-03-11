@@ -55,8 +55,8 @@ constexpr uint8_t KEY_NORMAL_NEXT_MARKER = 0x03;
 // fill a marker and return. If padding_minimal is true, KEY_MINIMAL_MARKER will
 // be added, if padding_minimal is false, KEY_MAXIMAL_MARKER will be added.
 // If all num_keys are found in row, no marker will be added.
-template <typename RowType, bool is_mow = false>
-void encode_key_with_padding(std::string* buf, const RowType& row, size_t num_keys,
+template <bool is_mow = false>
+void encode_key_with_padding(std::string* buf, const Rowcursor& row, size_t num_keys,
                              bool padding_minimal) {
     for (auto cid = 0; cid < num_keys; cid++) {
         auto field = row.schema()->column(cid);
