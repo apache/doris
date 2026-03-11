@@ -26,9 +26,7 @@
 
 namespace doris {
 class RuntimeState;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 class SchemaColumnDataSizesScanner : public SchemaScanner {
 public:
@@ -36,7 +34,7 @@ public:
     ~SchemaColumnDataSizesScanner() override;
 
     Status start(RuntimeState* state) override;
-    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
+    Status get_next_block_internal(Block* block, bool* eos) override;
 
     static std::unique_ptr<SchemaScanner> create_unique() {
         return std::make_unique<SchemaColumnDataSizesScanner>();
@@ -47,7 +45,7 @@ private:
                                                  int64_t table_id, int64_t index_id,
                                                  int64_t partition_id, int64_t tablet_id);
     Status _get_all_column_data_sizes();
-    Status _fill_block_impl(vectorized::Block* block);
+    Status _fill_block_impl(Block* block);
 
     struct ColumnDataSizeInfo {
         int64_t backend_id;

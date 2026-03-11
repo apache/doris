@@ -29,7 +29,7 @@
 #include "exec/operator/hashjoin_probe_operator.h"
 #include "exec/operator/join_test_helper.h"
 
-namespace doris::pipeline {
+namespace doris {
 class HashJoinTestHelper : public JoinTestHelper {
 public:
     TPlanNode create_test_plan_node(const TJoinOp::type& join_op_type,
@@ -53,4 +53,4 @@ protected:
     std::vector<TExprNode*> _left_slots, _right_slots;
 };
 
-} // namespace doris::pipeline
+} // namespace doris

@@ -22,7 +22,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
-import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Preconditions;
 
@@ -51,11 +50,6 @@ public class PlaceHolderExpr extends LiteralExpr {
     public static PlaceHolderExpr create(String value, Type type) throws AnalysisException {
         Preconditions.checkArgument(!type.equals(Type.INVALID));
         return new PlaceHolderExpr(LiteralExpr.create(value, type));
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        lExpr.toThrift(msg);
     }
 
     /*

@@ -29,7 +29,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/array/function_array_utils.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 struct AggregateFunctionForEachData {
@@ -260,6 +260,6 @@ public:
         }
     }
 };
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

@@ -25,7 +25,7 @@ namespace doris {
 class RuntimeState;
 } // namespace doris
 
-namespace doris::pipeline {
+namespace doris {
 
 class RecCTEScanOperatorX;
 class RecCTEScanLocalState final : public PipelineXLocalState<> {
@@ -45,7 +45,7 @@ public:
     }
 
     Status add_block(const PBlock& pblock) {
-        vectorized::Block block;
+        Block block;
         size_t uncompressed_bytes;
         int64_t decompress_time;
         RETURN_IF_ERROR(block.deserialize(pblock, &uncompressed_bytes, &decompress_time));
@@ -59,7 +59,7 @@ public:
 
 private:
     friend class RecCTEScanOperatorX;
-    std::vector<vectorized::Block> _blocks;
+    std::vector<Block> _blocks;
     DependencySPtr _scan_dependency = nullptr;
 };
 
@@ -69,7 +69,7 @@ public:
                         const DescriptorTbl& descs)
             : OperatorX<RecCTEScanLocalState>(pool, tnode, operator_id, descs) {}
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override {
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
         auto& local_state = get_local_state(state);
 
         if (local_state._blocks.empty()) {
@@ -86,4 +86,4 @@ public:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

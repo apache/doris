@@ -30,7 +30,7 @@
 #include "core/types.h"
 #include "exprs/function/function.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class PythonUDFPreparedFunction : public PreparedFunctionImpl {
 public:
@@ -105,4 +105,4 @@ private:
     const DataTypePtr _return_type {nullptr};
 };
 
-} // namespace doris::vectorized
+} // namespace doris

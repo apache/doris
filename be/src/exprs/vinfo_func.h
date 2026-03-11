@@ -27,7 +27,6 @@
 namespace doris {
 class TExprNode;
 
-namespace vectorized {
 class Block;
 class VExprContext;
 
@@ -46,6 +45,5 @@ private:
     const std::string _expr_name = "vinfofunc expr";
     ColumnPtr _column_ptr;
 };
-} // namespace vectorized
 
 } // namespace doris

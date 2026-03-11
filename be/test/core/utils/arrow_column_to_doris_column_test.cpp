@@ -60,7 +60,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "gtest/gtest_pred_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename ArrowType, typename ArrowCppType = typename arrow::TypeTraits<ArrowType>::CType>
 ArrowCppType string_to_arrow_datetime(std::shared_ptr<ArrowType> type, const std::string& value) {
@@ -143,10 +143,10 @@ void test_arrow_to_datetime_column(std::shared_ptr<ArrowType> type, ColumnWithTy
     ASSERT_EQ(ret.ok(), true);
     ASSERT_EQ(column.column->size(), counter);
     MutableColumnPtr data_column = nullptr;
-    vectorized::ColumnNullable* nullable_column = nullptr;
+    ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
-        nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(column.column)).mutate().get());
+        nullable_column =
+                reinterpret_cast<ColumnNullable*>((*std::move(column.column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = (*std::move(column.column)).mutate();
@@ -244,10 +244,10 @@ void test_arrow_to_numeric_column(std::shared_ptr<ArrowType> type, ColumnWithTyp
     ASSERT_EQ(ret.ok(), true);
     ASSERT_EQ(column.column->size(), counter);
     MutableColumnPtr data_column = nullptr;
-    vectorized::ColumnNullable* nullable_column = nullptr;
+    ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
-        nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(column.column)).mutate().get());
+        nullable_column =
+                reinterpret_cast<ColumnNullable*>((*std::move(column.column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = (*std::move(column.column)).mutate();
@@ -353,10 +353,10 @@ void test_arrow_to_decimal_column(std::shared_ptr<arrow::Decimal128Type> type,
     ASSERT_EQ(ret.ok(), true);
     ASSERT_EQ(column.column->size(), counter);
     MutableColumnPtr data_column = nullptr;
-    vectorized::ColumnNullable* nullable_column = nullptr;
+    ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
-        nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(column.column)).mutate().get());
+        nullable_column =
+                reinterpret_cast<ColumnNullable*>((*std::move(column.column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = (*std::move(column.column)).mutate();
@@ -420,10 +420,10 @@ void test_arrow_to_fixed_binary_column(ColumnWithTypeAndName& column, size_t num
     ASSERT_EQ(ret.ok(), true);
     ASSERT_EQ(column.column->size(), counter);
     MutableColumnPtr data_column = nullptr;
-    vectorized::ColumnNullable* nullable_column = nullptr;
+    ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
-        nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(column.column)).mutate().get());
+        nullable_column =
+                reinterpret_cast<ColumnNullable*>((*std::move(column.column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = (*std::move(column.column)).mutate();
@@ -522,10 +522,10 @@ void test_arrow_to_binary_column(ColumnWithTypeAndName& column, size_t num_eleme
     ASSERT_EQ(ret.ok(), true);
     ASSERT_EQ(column.column->size(), counter);
     MutableColumnPtr data_column = nullptr;
-    vectorized::ColumnNullable* nullable_column = nullptr;
+    ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
-        nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(column.column)).mutate().get());
+        nullable_column =
+                reinterpret_cast<ColumnNullable*>((*std::move(column.column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = (*std::move(column.column)).mutate();
@@ -620,10 +620,10 @@ void test_arrow_to_array_column(ColumnWithTypeAndName& column,
     ASSERT_EQ(ret.ok(), true);
     ASSERT_EQ(column.column->size() - old_size, counter);
     MutableColumnPtr data_column = nullptr;
-    vectorized::ColumnNullable* nullable_column = nullptr;
+    ColumnNullable* nullable_column = nullptr;
     if (column.column->is_nullable()) {
-        nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(column.column)).mutate().get());
+        nullable_column =
+                reinterpret_cast<ColumnNullable*>((*std::move(column.column)).mutate().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = (*std::move(column.column)).mutate();
@@ -692,4 +692,4 @@ TEST(ArrowColumnToDorisColumnTest, test_array) {
     test_array<arrow::BinaryType, true>(test_cases, 64, vec_offsets, null_map,
                                         arrow::list(arrow::binary()));
 }
-} // namespace doris::vectorized
+} // namespace doris

@@ -18,8 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -71,11 +69,6 @@ public class LambdaFunctionExpr extends Expr {
     @Override
     public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
         return visitor.visitLambdaFunctionExpr(this, context);
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.setNodeType(TExprNodeType.LAMBDA_FUNCTION_EXPR);
     }
 
     @Override

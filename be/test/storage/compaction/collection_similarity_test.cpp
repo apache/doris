@@ -43,15 +43,15 @@ protected:
         return bitmap;
     }
 
-    void verify_scores(const vectorized::IColumn::MutablePtr& scores,
+    void verify_scores(const IColumn::MutablePtr& scores,
                        const std::vector<float>& expected_scores) {
         ASSERT_EQ(scores->size(), expected_scores.size());
 
-        auto* nullable_column = dynamic_cast<vectorized::ColumnNullable*>(scores.get());
+        auto* nullable_column = dynamic_cast<ColumnNullable*>(scores.get());
         ASSERT_NE(nullable_column, nullptr);
 
-        const auto* float_column = dynamic_cast<const vectorized::ColumnFloat32*>(
-                &nullable_column->get_nested_column());
+        const auto* float_column =
+                dynamic_cast<const ColumnFloat32*>(&nullable_column->get_nested_column());
         ASSERT_NE(float_column, nullptr);
 
         const auto& data = float_column->get_data();
@@ -78,7 +78,7 @@ TEST_F(CollectionSimilarityTest, GetTopnBm25ScoresDescendingTest) {
     similarity->collect(6, 0.8f);
 
     roaring::Roaring bitmap = create_bitmap({1, 2, 3, 4, 5, 6});
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     similarity->get_topn_bm25_scores(&bitmap, scores, row_ids, OrderType::DESC, 3);
@@ -102,7 +102,7 @@ TEST_F(CollectionSimilarityTest, GetTopnBm25ScoresAscendingTest) {
     similarity->collect(50, 0.9f);
 
     roaring::Roaring bitmap = create_bitmap({10, 20, 30, 40, 50});
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     similarity->get_topn_bm25_scores(&bitmap, scores, row_ids, OrderType::ASC, 3);
@@ -117,7 +117,7 @@ TEST_F(CollectionSimilarityTest, GetTopnBm25ScoresZeroTopKTest) {
     similarity->collect(3, 0.3f);
 
     roaring::Roaring bitmap = create_bitmap({1, 2, 3});
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     similarity->get_topn_bm25_scores(&bitmap, scores, row_ids, OrderType::DESC, 0);
@@ -131,7 +131,7 @@ TEST_F(CollectionSimilarityTest, GetTopnBm25ScoresNegativeTopKTest) {
     similarity->collect(2, 0.8f);
 
     roaring::Roaring bitmap = create_bitmap({1, 2});
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     similarity->get_topn_bm25_scores(&bitmap, scores, row_ids, OrderType::DESC, 0);
@@ -145,7 +145,7 @@ TEST_F(CollectionSimilarityTest, GetTopnBm25ScoresTopKLargerThanDataTest) {
     similarity->collect(2, 0.7f);
 
     roaring::Roaring bitmap = create_bitmap({1, 2});
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     similarity->get_topn_bm25_scores(&bitmap, scores, row_ids, OrderType::DESC, 10);
@@ -160,7 +160,7 @@ TEST_F(CollectionSimilarityTest, GetTopnBm25ScoresFallbackTest) {
     similarity->collect(5, 0.2f);
 
     roaring::Roaring bitmap = create_bitmap({1, 2, 3, 4, 5, 6});
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     similarity->get_topn_bm25_scores(&bitmap, scores, row_ids, OrderType::DESC, 6);
@@ -176,7 +176,7 @@ TEST_F(CollectionSimilarityTest, IdenticalScoresSortingTest) {
     similarity->collect(40, 0.5f);
 
     roaring::Roaring bitmap = create_bitmap({10, 20, 30, 40});
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     similarity->get_topn_bm25_scores(&bitmap, scores, row_ids, OrderType::DESC, 2);
@@ -194,7 +194,7 @@ TEST_F(CollectionSimilarityTest, GetBm25ScoresBasicTest) {
     similarity->collect(5, 0.7f);
 
     roaring::Roaring bitmap = create_bitmap({1, 2, 3, 4, 5, 6});
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     similarity->get_bm25_scores(&bitmap, scores, row_ids);
@@ -213,7 +213,7 @@ TEST_F(CollectionSimilarityTest, GetBm25ScoresEmptyBitmapTest) {
     similarity->collect(30, 0.6f);
 
     roaring::Roaring bitmap;
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     similarity->get_bm25_scores(&bitmap, scores, row_ids);
@@ -230,7 +230,7 @@ TEST_F(CollectionSimilarityTest, GetBm25ScoresWithFilterGTTest) {
     similarity->collect(3, 0.9f);
 
     roaring::Roaring bitmap = create_bitmap({1, 2, 3, 4}); // 4 has score 0
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     auto filter = std::make_shared<ScoreRangeFilter>(TExprOpcode::GT, 0.5);
@@ -247,7 +247,7 @@ TEST_F(CollectionSimilarityTest, GetBm25ScoresWithFilterGETest) {
     similarity->collect(3, 0.9f);
 
     roaring::Roaring bitmap = create_bitmap({1, 2, 3, 4});
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     auto filter = std::make_shared<ScoreRangeFilter>(TExprOpcode::GE, 0.5);
@@ -262,7 +262,7 @@ TEST_F(CollectionSimilarityTest, GetBm25ScoresWithFilterZeroThresholdTest) {
     similarity->collect(2, 0.6f);
 
     roaring::Roaring bitmap = create_bitmap({1, 2, 3}); // 3 has score 0
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     // GT 0: should exclude score=0
@@ -278,7 +278,7 @@ TEST_F(CollectionSimilarityTest, GetBm25ScoresWithFilterGEZeroTest) {
     similarity->collect(2, 0.6f);
 
     roaring::Roaring bitmap = create_bitmap({1, 2, 3}); // 3 has score 0
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     // GE 0: should include score=0
@@ -296,7 +296,7 @@ TEST_F(CollectionSimilarityTest, GetTopnBm25ScoresWithFilterDescTest) {
     similarity->collect(4, 0.4f);
 
     roaring::Roaring bitmap = create_bitmap({1, 2, 3, 4, 5}); // 5 has score 0
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     auto filter = std::make_shared<ScoreRangeFilter>(TExprOpcode::GT, 0.35);
@@ -313,7 +313,7 @@ TEST_F(CollectionSimilarityTest, GetTopnBm25ScoresWithFilterAscTest) {
     similarity->collect(3, 0.9f);
 
     roaring::Roaring bitmap = create_bitmap({1, 2, 3, 4, 5}); // 4,5 have score 0
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     // GE 0: includes zeros, ASC order puts zeros first
@@ -331,7 +331,7 @@ TEST_F(CollectionSimilarityTest, GetTopnBm25ScoresWithFilterExcludeZerosAscTest)
     similarity->collect(3, 0.9f);
 
     roaring::Roaring bitmap = create_bitmap({1, 2, 3, 4, 5}); // 4,5 have score 0
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     // GT 0: excludes zeros
@@ -347,7 +347,7 @@ TEST_F(CollectionSimilarityTest, GetTopnBm25ScoresWithFilterAllFilteredTest) {
     similarity->collect(2, 0.4f);
 
     roaring::Roaring bitmap = create_bitmap({1, 2, 3});
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     // Filter threshold too high, all filtered out
@@ -373,7 +373,7 @@ TEST_F(CollectionSimilarityTest, LargeDataGetBm25ScoresBasicTest) {
     }
     roaring::Roaring bitmap = create_bitmap(all_ids);
 
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     similarity->get_bm25_scores(&bitmap, scores, row_ids);
@@ -399,7 +399,7 @@ TEST_F(CollectionSimilarityTest, LargeDataGetBm25ScoresWithGTFilterTest) {
     }
     roaring::Roaring bitmap = create_bitmap(all_ids);
 
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     auto filter = std::make_shared<ScoreRangeFilter>(TExprOpcode::GT, THRESHOLD);
@@ -417,10 +417,10 @@ TEST_F(CollectionSimilarityTest, LargeDataGetBm25ScoresWithGTFilterTest) {
     EXPECT_EQ(row_ids->size(), expected_count);
     EXPECT_EQ(bitmap.cardinality(), expected_count);
 
-    auto* nullable_column = dynamic_cast<vectorized::ColumnNullable*>(scores.get());
+    auto* nullable_column = dynamic_cast<ColumnNullable*>(scores.get());
     ASSERT_NE(nullable_column, nullptr);
     const auto* float_column =
-            dynamic_cast<const vectorized::ColumnFloat32*>(&nullable_column->get_nested_column());
+            dynamic_cast<const ColumnFloat32*>(&nullable_column->get_nested_column());
     ASSERT_NE(float_column, nullptr);
     const auto& data = float_column->get_data();
     for (size_t i = 0; i < data.size(); ++i) {
@@ -444,7 +444,7 @@ TEST_F(CollectionSimilarityTest, LargeDataGetBm25ScoresWithGEFilterTest) {
     }
     roaring::Roaring bitmap = create_bitmap(all_ids);
 
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     auto filter = std::make_shared<ScoreRangeFilter>(TExprOpcode::GE, THRESHOLD);
@@ -461,10 +461,10 @@ TEST_F(CollectionSimilarityTest, LargeDataGetBm25ScoresWithGEFilterTest) {
     EXPECT_EQ(scores->size(), expected_count);
     EXPECT_EQ(row_ids->size(), expected_count);
 
-    auto* nullable_column = dynamic_cast<vectorized::ColumnNullable*>(scores.get());
+    auto* nullable_column = dynamic_cast<ColumnNullable*>(scores.get());
     ASSERT_NE(nullable_column, nullptr);
     const auto* float_column =
-            dynamic_cast<const vectorized::ColumnFloat32*>(&nullable_column->get_nested_column());
+            dynamic_cast<const ColumnFloat32*>(&nullable_column->get_nested_column());
     ASSERT_NE(float_column, nullptr);
     const auto& data = float_column->get_data();
     for (size_t i = 0; i < data.size(); ++i) {
@@ -488,7 +488,7 @@ TEST_F(CollectionSimilarityTest, LargeDataTopNDescTest) {
     }
     roaring::Roaring bitmap = create_bitmap(all_ids);
 
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     similarity->get_topn_bm25_scores(&bitmap, scores, row_ids, OrderType::DESC, TOP_K);
@@ -496,10 +496,10 @@ TEST_F(CollectionSimilarityTest, LargeDataTopNDescTest) {
     EXPECT_EQ(scores->size(), TOP_K);
     EXPECT_EQ(row_ids->size(), TOP_K);
 
-    auto* nullable_column = dynamic_cast<vectorized::ColumnNullable*>(scores.get());
+    auto* nullable_column = dynamic_cast<ColumnNullable*>(scores.get());
     ASSERT_NE(nullable_column, nullptr);
     const auto* float_column =
-            dynamic_cast<const vectorized::ColumnFloat32*>(&nullable_column->get_nested_column());
+            dynamic_cast<const ColumnFloat32*>(&nullable_column->get_nested_column());
     ASSERT_NE(float_column, nullptr);
     const auto& data = float_column->get_data();
 
@@ -527,7 +527,7 @@ TEST_F(CollectionSimilarityTest, LargeDataTopNAscTest) {
     }
     roaring::Roaring bitmap = create_bitmap(all_ids);
 
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     similarity->get_topn_bm25_scores(&bitmap, scores, row_ids, OrderType::ASC, TOP_K);
@@ -535,10 +535,10 @@ TEST_F(CollectionSimilarityTest, LargeDataTopNAscTest) {
     EXPECT_EQ(scores->size(), TOP_K);
     EXPECT_EQ(row_ids->size(), TOP_K);
 
-    auto* nullable_column = dynamic_cast<vectorized::ColumnNullable*>(scores.get());
+    auto* nullable_column = dynamic_cast<ColumnNullable*>(scores.get());
     ASSERT_NE(nullable_column, nullptr);
     const auto* float_column =
-            dynamic_cast<const vectorized::ColumnFloat32*>(&nullable_column->get_nested_column());
+            dynamic_cast<const ColumnFloat32*>(&nullable_column->get_nested_column());
     ASSERT_NE(float_column, nullptr);
     const auto& data = float_column->get_data();
 
@@ -567,7 +567,7 @@ TEST_F(CollectionSimilarityTest, LargeDataTopNDescWithFilterTest) {
     }
     roaring::Roaring bitmap = create_bitmap(all_ids);
 
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     auto filter = std::make_shared<ScoreRangeFilter>(TExprOpcode::GT, THRESHOLD);
@@ -576,10 +576,10 @@ TEST_F(CollectionSimilarityTest, LargeDataTopNDescWithFilterTest) {
     EXPECT_EQ(scores->size(), TOP_K);
     EXPECT_EQ(row_ids->size(), TOP_K);
 
-    auto* nullable_column = dynamic_cast<vectorized::ColumnNullable*>(scores.get());
+    auto* nullable_column = dynamic_cast<ColumnNullable*>(scores.get());
     ASSERT_NE(nullable_column, nullptr);
     const auto* float_column =
-            dynamic_cast<const vectorized::ColumnFloat32*>(&nullable_column->get_nested_column());
+            dynamic_cast<const ColumnFloat32*>(&nullable_column->get_nested_column());
     ASSERT_NE(float_column, nullptr);
     const auto& data = float_column->get_data();
 
@@ -608,7 +608,7 @@ TEST_F(CollectionSimilarityTest, LargeDataTopKExceedsFilteredCountTest) {
     }
     roaring::Roaring bitmap = create_bitmap(all_ids);
 
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     auto filter = std::make_shared<ScoreRangeFilter>(TExprOpcode::GT, THRESHOLD);
@@ -625,10 +625,10 @@ TEST_F(CollectionSimilarityTest, LargeDataTopKExceedsFilteredCountTest) {
     EXPECT_EQ(scores->size(), expected_count);
     EXPECT_EQ(row_ids->size(), expected_count);
 
-    auto* nullable_column = dynamic_cast<vectorized::ColumnNullable*>(scores.get());
+    auto* nullable_column = dynamic_cast<ColumnNullable*>(scores.get());
     ASSERT_NE(nullable_column, nullptr);
     const auto* float_column =
-            dynamic_cast<const vectorized::ColumnFloat32*>(&nullable_column->get_nested_column());
+            dynamic_cast<const ColumnFloat32*>(&nullable_column->get_nested_column());
     ASSERT_NE(float_column, nullptr);
     const auto& data = float_column->get_data();
     for (size_t i = 0; i < data.size(); ++i) {
@@ -653,7 +653,7 @@ TEST_F(CollectionSimilarityTest, LargeDataSparseBitmapTest) {
     }
     roaring::Roaring bitmap = create_bitmap(all_ids);
 
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     auto filter = std::make_shared<ScoreRangeFilter>(TExprOpcode::GT, 0.0);
@@ -662,10 +662,10 @@ TEST_F(CollectionSimilarityTest, LargeDataSparseBitmapTest) {
     EXPECT_EQ(scores->size(), TOP_K);
     EXPECT_EQ(row_ids->size(), TOP_K);
 
-    auto* nullable_column = dynamic_cast<vectorized::ColumnNullable*>(scores.get());
+    auto* nullable_column = dynamic_cast<ColumnNullable*>(scores.get());
     ASSERT_NE(nullable_column, nullptr);
     const auto* float_column =
-            dynamic_cast<const vectorized::ColumnFloat32*>(&nullable_column->get_nested_column());
+            dynamic_cast<const ColumnFloat32*>(&nullable_column->get_nested_column());
     ASSERT_NE(float_column, nullptr);
     const auto& data = float_column->get_data();
     for (size_t i = 0; i < data.size(); ++i) {
@@ -691,17 +691,17 @@ TEST_F(CollectionSimilarityTest, LargeDataScoreAccumulationTest) {
     }
     roaring::Roaring bitmap = create_bitmap(all_ids);
 
-    vectorized::IColumn::MutablePtr scores;
+    IColumn::MutablePtr scores;
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     similarity->get_bm25_scores(&bitmap, scores, row_ids);
 
     EXPECT_EQ(scores->size(), NUM_ROWS);
 
-    auto* nullable_column = dynamic_cast<vectorized::ColumnNullable*>(scores.get());
+    auto* nullable_column = dynamic_cast<ColumnNullable*>(scores.get());
     ASSERT_NE(nullable_column, nullptr);
     const auto* float_column =
-            dynamic_cast<const vectorized::ColumnFloat32*>(&nullable_column->get_nested_column());
+            dynamic_cast<const ColumnFloat32*>(&nullable_column->get_nested_column());
     ASSERT_NE(float_column, nullptr);
     const auto& data = float_column->get_data();
 
@@ -730,7 +730,7 @@ TEST_F(CollectionSimilarityTest, LargeDataBoundaryThresholdTest) {
     roaring::Roaring bitmap = create_bitmap(all_ids);
 
     {
-        vectorized::IColumn::MutablePtr scores;
+        IColumn::MutablePtr scores;
         std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
         auto filter = std::make_shared<ScoreRangeFilter>(TExprOpcode::GT, THRESHOLD);
         similarity->get_bm25_scores(&bitmap, scores, row_ids, filter);
@@ -746,7 +746,7 @@ TEST_F(CollectionSimilarityTest, LargeDataBoundaryThresholdTest) {
     }
 
     {
-        vectorized::IColumn::MutablePtr scores;
+        IColumn::MutablePtr scores;
         std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
         roaring::Roaring bitmap2 = create_bitmap(all_ids);
         auto filter = std::make_shared<ScoreRangeFilter>(TExprOpcode::GE, THRESHOLD);

@@ -27,7 +27,7 @@
 #include "core/column/column_nullable.h"
 #include "exprs/aggregate/aggregate_function.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 struct CountByEnumData {
@@ -237,5 +237,5 @@ private:
     size_t arg_count;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

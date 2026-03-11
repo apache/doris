@@ -22,7 +22,7 @@
 #include "core/arena.h"
 #include "core/column/column_string.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(StringBufferTest, TestWrite) {
     auto column = ColumnString::create();
@@ -197,4 +197,4 @@ TEST(StringBufferTest, ReadWriteStringRefWithArena) {
     ASSERT_TRUE(new_str_ref.data >= arena_start && new_str_ref.data < arena_end);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

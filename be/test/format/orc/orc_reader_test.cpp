@@ -34,7 +34,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
-namespace doris::vectorized {
+namespace doris {
 class OrcReaderTest : public testing::Test {
 public:
     OrcReaderTest() : cache(1024) {}
@@ -175,4 +175,4 @@ TEST_F(OrcReaderTest, test_build_search_argument) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

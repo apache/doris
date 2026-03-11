@@ -22,7 +22,7 @@
 
 namespace doris {
 
-using namespace doris::vectorized;
+using namespace doris;
 
 constexpr static uint32_t MAX_PATH_LEN = 1024;
 constexpr static std::string_view dest_dir = "./ut_dir/inverted_index_test";

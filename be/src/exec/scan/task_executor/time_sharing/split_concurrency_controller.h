@@ -24,7 +24,7 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class SplitConcurrencyController {
     ENABLE_FACTORY_CREATOR(SplitConcurrencyController);
@@ -84,4 +84,4 @@ private:
     void _reset_adjust_counter() { _thread_nanos_since_adjust = 0; }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

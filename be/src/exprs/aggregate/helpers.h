@@ -79,7 +79,7 @@
         }                                                                                          \
     } while (false)
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 struct creator_without_type {
@@ -517,6 +517,6 @@ struct creator_with_type_list_base {
 template <PrimitiveType... AllowedTypes>
 using creator_with_type_list = creator_with_type_list_base<0, AllowedTypes...>;
 
-} // namespace  doris::vectorized
+} // namespace  doris
 
 #include "common/compile_check_end.h"

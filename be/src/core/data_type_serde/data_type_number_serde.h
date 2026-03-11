@@ -37,7 +37,6 @@
 namespace doris {
 class JsonbOutStream;
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class Arena;
 
 // special data type using, maybe has various serde actions, so use specific date serde
@@ -127,7 +126,7 @@ public:
                                         const FormatOptions& options) const override;
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
 
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
@@ -144,7 +143,7 @@ public:
     void to_string_batch(const IColumn& column, ColumnString& column_to,
                          const FormatOptions& options) const override;
 
-    std::string to_olap_string(const vectorized::Field& field) const override;
+    std::string to_olap_string(const Field& field) const override;
 
     // will override in DateTime and Time
     virtual int get_scale() const { return 0; }
@@ -313,5 +312,4 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
 }
 
 #include "common/compile_check_end.h"
-} // namespace vectorized
 } // namespace doris

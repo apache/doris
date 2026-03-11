@@ -20,7 +20,7 @@
 #include "core/data_type/data_type_map.h"
 #include "exprs/function/cast/cast_base.h"
 
-namespace doris::vectorized::CastWrapper {
+namespace doris::CastWrapper {
 #include "common/compile_check_begin.h"
 //TODO(Amory) . Need support more cast for key , value for map
 WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from_type,
@@ -83,4 +83,4 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
     };
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized::CastWrapper
+} // namespace doris::CastWrapper

@@ -21,16 +21,16 @@
 #include "exec/pipeline/dependency.h"
 #include "util/brpc_client_cache.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 struct RecCTESharedState : public BasicSharedState {
     std::vector<TRecCTETarget> targets;
-    std::vector<vectorized::Block> blocks;
-    vectorized::IColumn::Selector distinct_row;
+    std::vector<Block> blocks;
+    IColumn::Selector distinct_row;
     Dependency* source_dep = nullptr;
     Dependency* anchor_dep = nullptr;
-    vectorized::Arena arena;
+    Arena arena;
     RuntimeProfile::Counter* hash_table_compute_timer = nullptr;
     RuntimeProfile::Counter* hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* hash_table_input_counter = nullptr;
@@ -48,52 +48,51 @@ struct RecCTESharedState : public BasicSharedState {
         }
     }
 
-    Status emplace_block(RuntimeState* state, vectorized::Block&& block) {
+    Status emplace_block(RuntimeState* state, Block&& block) {
         if (agg_data) {
             auto num_rows = uint32_t(block.rows());
-            vectorized::ColumnRawPtrs raw_columns;
-            std::vector<vectorized::ColumnPtr> columns = block.get_columns_and_convert();
+            ColumnRawPtrs raw_columns;
+            std::vector<ColumnPtr> columns = block.get_columns_and_convert();
             for (auto& col : columns) {
                 raw_columns.push_back(col.get());
             }
 
-            std::visit(vectorized::Overload {
-                               [&](std::monostate& arg) -> void {
-                                   throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                                          "uninited hash table");
-                               },
-                               [&](auto& agg_method) -> void {
-                                   SCOPED_TIMER(hash_table_compute_timer);
-                                   using HashMethodType = std::decay_t<decltype(agg_method)>;
-                                   using AggState = typename HashMethodType::State;
+            std::visit(Overload {[&](std::monostate& arg) -> void {
+                                     throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                            "uninited hash table");
+                                 },
+                                 [&](auto& agg_method) -> void {
+                                     SCOPED_TIMER(hash_table_compute_timer);
+                                     using HashMethodType = std::decay_t<decltype(agg_method)>;
+                                     using AggState = typename HashMethodType::State;
 
-                                   AggState agg_state(raw_columns);
-                                   agg_method.init_serialized_keys(raw_columns, num_rows);
-                                   distinct_row.clear();
+                                     AggState agg_state(raw_columns);
+                                     agg_method.init_serialized_keys(raw_columns, num_rows);
+                                     distinct_row.clear();
 
-                                   size_t row = 0;
-                                   auto creator = [&](const auto& ctor, auto& key, auto& origin) {
-                                       HashMethodType::try_presis_key(key, origin, arena);
-                                       ctor(key);
-                                       distinct_row.push_back(row);
-                                   };
-                                   auto creator_for_null_key = [&]() {
-                                       distinct_row.push_back(row);
-                                   };
+                                     size_t row = 0;
+                                     auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                                         HashMethodType::try_presis_key(key, origin, arena);
+                                         ctor(key);
+                                         distinct_row.push_back(row);
+                                     };
+                                     auto creator_for_null_key = [&]() {
+                                         distinct_row.push_back(row);
+                                     };
 
-                                   SCOPED_TIMER(hash_table_emplace_timer);
-                                   for (; row < num_rows; ++row) {
-                                       agg_method.lazy_emplace(agg_state, row, creator,
-                                                               creator_for_null_key);
-                                   }
-                                   COUNTER_UPDATE(hash_table_input_counter, num_rows);
-                               }},
+                                     SCOPED_TIMER(hash_table_emplace_timer);
+                                     for (; row < num_rows; ++row) {
+                                         agg_method.lazy_emplace(agg_state, row, creator,
+                                                                 creator_for_null_key);
+                                     }
+                                     COUNTER_UPDATE(hash_table_input_counter, num_rows);
+                                 }},
                        agg_data->method_variant);
 
             if (distinct_row.size() == block.rows()) {
                 blocks.emplace_back(std::move(block));
             } else if (!distinct_row.empty()) {
-                auto distinct_block = vectorized::MutableBlock(block.clone_empty());
+                auto distinct_block = MutableBlock(block.clone_empty());
                 RETURN_IF_ERROR(block.append_to_block_by_selector(&distinct_block, distinct_row));
                 blocks.emplace_back(distinct_block.to_block());
             }
@@ -177,4 +176,4 @@ struct RecCTESharedState : public BasicSharedState {
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

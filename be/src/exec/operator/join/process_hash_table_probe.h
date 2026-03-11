@@ -25,20 +25,17 @@
 #include "core/custom_allocator.h"
 
 namespace doris {
-namespace vectorized {
 class Block;
 class MutableBlock;
 struct HashJoinProbeContext;
-} // namespace vectorized
-namespace pipeline {
 
 class HashJoinProbeLocalState;
 class HashJoinProbeOperatorX;
 
-using MutableColumnPtr = vectorized::IColumn::MutablePtr;
-using MutableColumns = std::vector<vectorized::MutableColumnPtr>;
+using MutableColumnPtr = IColumn::MutablePtr;
+using MutableColumns = std::vector<MutableColumnPtr>;
 
-using NullMap = vectorized::ColumnUInt8::Container;
+using NullMap = ColumnUInt8::Container;
 using ConstNullMapPtr = const NullMap*;
 
 template <int JoinOpType>
@@ -47,32 +44,31 @@ struct ProcessHashTableProbe {
     ~ProcessHashTableProbe() = default;
 
     // output build side result column
-    void build_side_output_column(vectorized::MutableColumns& mcol, bool is_mark_join);
+    void build_side_output_column(MutableColumns& mcol, bool is_mark_join);
 
-    void probe_side_output_column(vectorized::MutableColumns& mcol);
+    void probe_side_output_column(MutableColumns& mcol);
 
     // Only process the join with no other join conjunct, because of no other join conjunt
     // the output block struct is same with mutable block. we can do more opt on it and simplify
     // the logic of probe
     template <typename HashTableType>
     Status process(HashTableType& hash_table_ctx, const uint8_t* null_map,
-                   vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,
-                   uint32_t probe_rows, bool is_mark_join);
+                   MutableBlock& mutable_block, Block* output_block, uint32_t probe_rows,
+                   bool is_mark_join);
 
     template <typename HashTableType>
-    void process_direct_return(HashTableType& hash_table_ctx,
-                               vectorized::MutableBlock& mutable_block,
-                               vectorized::Block* output_block, uint32_t probe_rows);
+    void process_direct_return(HashTableType& hash_table_ctx, MutableBlock& mutable_block,
+                               Block* output_block, uint32_t probe_rows);
 
     // In the presence of other join conjunct, the process of join become more complicated.
     // each matching join column need to be processed by other join conjunct. so the struct of mutable block
     // and output block may be different
     // The output result is determined by the other join conjunct result and same_to_prev struct
-    Status do_other_join_conjuncts(vectorized::Block* output_block, DorisVector<uint8_t>& visited);
+    Status do_other_join_conjuncts(Block* output_block, DorisVector<uint8_t>& visited);
 
-    Status do_mark_join_conjuncts(vectorized::Block* output_block, const uint8_t* null_map);
+    Status do_mark_join_conjuncts(Block* output_block, const uint8_t* null_map);
 
-    Status finalize_block_with_filter(vectorized::Block* output_block, size_t filter_column_id,
+    Status finalize_block_with_filter(Block* output_block, size_t filter_column_id,
                                       size_t column_to_keep);
 
     template <typename HashTableType>
@@ -82,25 +78,25 @@ struct ProcessHashTableProbe {
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table
     template <typename HashTableType>
-    Status finish_probing(HashTableType& hash_table_ctx, vectorized::MutableBlock& mutable_block,
-                          vectorized::Block* output_block, bool* eos, bool is_mark_join);
+    Status finish_probing(HashTableType& hash_table_ctx, MutableBlock& mutable_block,
+                          Block* output_block, bool* eos, bool is_mark_join);
 
     /// For null aware join with other conjuncts, if the probe key of one row on left side is null,
     /// we should make this row match with all rows in build side.
     uint32_t _process_probe_null_key(uint32_t probe_idx);
 
-    pipeline::HashJoinProbeLocalState* _parent = nullptr;
-    pipeline::HashJoinProbeOperatorX* _parent_operator = nullptr;
+    HashJoinProbeLocalState* _parent = nullptr;
+    HashJoinProbeOperatorX* _parent_operator = nullptr;
 
     const int _batch_size;
-    const std::shared_ptr<vectorized::Block>& _build_block;
-    std::unique_ptr<vectorized::Arena> _arena;
+    const std::shared_ptr<Block>& _build_block;
+    std::unique_ptr<Arena> _arena;
 
-    vectorized::ColumnOffset32 _probe_indexs;
-    vectorized::ColumnOffset32 _output_row_indexs;
+    ColumnOffset32 _probe_indexs;
+    ColumnOffset32 _output_row_indexs;
     bool _probe_visited = false;
     bool _picking_null_keys = false;
-    vectorized::ColumnOffset32 _build_indexs;
+    ColumnOffset32 _build_indexs;
     std::vector<uint8_t> _null_flags;
 
     /// If the probe key of one row on left side is null,
@@ -137,5 +133,4 @@ struct ProcessHashTableProbe {
     DorisVector<int8_t> mark_join_flags;
 };
 
-} // namespace pipeline
 } // namespace doris

@@ -25,7 +25,7 @@
 #include "core/column/columns_common.h"
 #include "core/pod_array.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 /** Base class for columns-constants that contain a value that is not in the `Field`.
   * Not a full-fledged column and is used in a special way.
@@ -180,4 +180,4 @@ protected:
     size_t s;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

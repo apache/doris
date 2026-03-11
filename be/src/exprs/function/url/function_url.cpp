@@ -26,7 +26,7 @@
 #include "exprs/function/url/functions_url.h"
 #include "exprs/function/url/protocol.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct NameDomain {
     static constexpr auto name = "domain";
@@ -75,4 +75,4 @@ void register_function_url(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionCutToFirstSignificantSubdomain>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

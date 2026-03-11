@@ -45,7 +45,7 @@
  *  5. json->struct<struct<>> deserialization result is NULL.
 */
 
-namespace doris::vectorized {
+namespace doris {
 
 class DataTypeStructTest : public CommonDataTypeTest {
 protected:
@@ -409,7 +409,7 @@ TEST_F(DataTypeStructTest, SerdeNestedTypeArrowTest) {
         struct_column->reserve(2);
         struct_column->insert(Field::create_field<TYPE_STRUCT>(tt1));
         struct_column->insert(Field::create_field<TYPE_STRUCT>(tt2));
-        vectorized::ColumnWithTypeAndName type_and_name(struct_column->get_ptr(), st, col_name);
+        ColumnWithTypeAndName type_and_name(struct_column->get_ptr(), st, col_name);
         block->insert(type_and_name);
     }
     std::shared_ptr<arrow::RecordBatch> record_batch =
@@ -448,7 +448,7 @@ TEST_F(DataTypeStructTest, writeColumnToOrc) {
     MutableColumnPtr struct_column = st->create_column();
     struct_column->insert(Field::create_field<TYPE_STRUCT>(test_data));
 
-    vectorized::Arena arena;
+    Arena arena;
     TimezoneUtils::load_timezones_to_cache();
     DataTypeSerDe::FormatOptions format_options;
     cctz::time_zone tz;
@@ -488,8 +488,8 @@ TEST_F(DataTypeStructTest, formString) {
     EXPECT_EQ(struct_column->operator[](0), res_column->operator[](0))
             << "Failed to from_string, data is not equal";
 
-    vectorized::ColumnWithTypeAndName type_and_name1(struct_column->get_ptr(), st, "col_asd1");
-    vectorized::ColumnWithTypeAndName type_and_name2(res_column->get_ptr(), st, "col_asd2");
+    ColumnWithTypeAndName type_and_name1(struct_column->get_ptr(), st, "col_asd1");
+    ColumnWithTypeAndName type_and_name2(res_column->get_ptr(), st, "col_asd2");
     Block block;
     block.insert(type_and_name1);
     block.insert(type_and_name2);
@@ -514,10 +514,10 @@ TEST_F(DataTypeStructTest, insertColumnLastValueMultipleTimes) {
     EXPECT_EQ(struct_column->operator[](0), struct_column->operator[](1))
             << "Failed to insert_column_last_value_multiple_times, data is not equal";
 
-    vectorized::ColumnWithTypeAndName type_and_name1(struct_column->get_ptr(), st, "col_asd1");
+    ColumnWithTypeAndName type_and_name1(struct_column->get_ptr(), st, "col_asd1");
     Block block;
     block.insert(type_and_name1);
     std::cout << "block: " << block.dump_data() << std::endl;
 }
 
-} // namespace doris::vectorized
+} // namespace doris

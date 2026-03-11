@@ -46,7 +46,7 @@ namespace doris {
 struct uint24_t;
 
 namespace segment_v2 {
-Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const vectorized::DataTypePtr& data_type,
+Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_type,
                            ZoneMap& zone_map_info) {
     zone_map_info.has_null = zone_map.has_null();
     zone_map_info.has_not_null = zone_map.has_not_null();
@@ -61,18 +61,16 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const vectorized::DataType
         if (zone_map.has_negative_inf()) {
             if (FieldType::OLAP_FIELD_TYPE_FLOAT == field_type) {
                 static auto constexpr float_neg_inf = -std::numeric_limits<float>::infinity();
-                zone_map_info.min_value =
-                        vectorized::Field::create_field<TYPE_FLOAT>(float_neg_inf);
+                zone_map_info.min_value = Field::create_field<TYPE_FLOAT>(float_neg_inf);
             } else if (FieldType::OLAP_FIELD_TYPE_DOUBLE == field_type) {
                 static auto constexpr double_neg_inf = -std::numeric_limits<double>::infinity();
-                zone_map_info.min_value =
-                        vectorized::Field::create_field<TYPE_DOUBLE>(double_neg_inf);
+                zone_map_info.min_value = Field::create_field<TYPE_DOUBLE>(double_neg_inf);
             } else {
                 return Status::InternalError("invalid zone map with negative Infinity");
             }
         } else {
             if (!zone_map_info.pass_all) {
-                vectorized::DataTypeSerDe::FormatOptions opt;
+                DataTypeSerDe::FormatOptions opt;
                 opt.ignore_scale = true;
                 RETURN_IF_ERROR(data_type->get_serde()->from_olap_string(
                         zone_map.min(), zone_map_info.min_value, opt));
@@ -82,28 +80,26 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const vectorized::DataType
         if (zone_map.has_nan()) {
             if (FieldType::OLAP_FIELD_TYPE_FLOAT == field_type) {
                 static auto constexpr float_nan = std::numeric_limits<float>::quiet_NaN();
-                zone_map_info.max_value = vectorized::Field::create_field<TYPE_FLOAT>(float_nan);
+                zone_map_info.max_value = Field::create_field<TYPE_FLOAT>(float_nan);
             } else if (FieldType::OLAP_FIELD_TYPE_DOUBLE == field_type) {
                 static auto constexpr double_nan = std::numeric_limits<double>::quiet_NaN();
-                zone_map_info.max_value = vectorized::Field::create_field<TYPE_DOUBLE>(double_nan);
+                zone_map_info.max_value = Field::create_field<TYPE_DOUBLE>(double_nan);
             } else {
                 return Status::InternalError("invalid zone map with NaN");
             }
         } else if (zone_map.has_positive_inf()) {
             if (FieldType::OLAP_FIELD_TYPE_FLOAT == field_type) {
                 static auto constexpr float_pos_inf = std::numeric_limits<float>::infinity();
-                zone_map_info.max_value =
-                        vectorized::Field::create_field<TYPE_FLOAT>(float_pos_inf);
+                zone_map_info.max_value = Field::create_field<TYPE_FLOAT>(float_pos_inf);
             } else if (FieldType::OLAP_FIELD_TYPE_DOUBLE == field_type) {
                 static auto constexpr double_pos_inf = std::numeric_limits<double>::infinity();
-                zone_map_info.max_value =
-                        vectorized::Field::create_field<TYPE_DOUBLE>(double_pos_inf);
+                zone_map_info.max_value = Field::create_field<TYPE_DOUBLE>(double_pos_inf);
             } else {
                 return Status::InternalError("invalid zone map with positive Infinity");
             }
         } else {
             if (!zone_map_info.pass_all) {
-                vectorized::DataTypeSerDe::FormatOptions opt;
+                DataTypeSerDe::FormatOptions opt;
                 opt.ignore_scale = true;
                 RETURN_IF_ERROR(data_type->get_serde()->from_olap_string(
                         zone_map.max(), zone_map_info.max_value, opt));
@@ -114,16 +110,16 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const vectorized::DataType
 }
 
 template <PrimitiveType Type>
-TypedZoneMapIndexWriter<Type>::TypedZoneMapIndexWriter(vectorized::DataTypePtr&& data_type)
+TypedZoneMapIndexWriter<Type>::TypedZoneMapIndexWriter(DataTypePtr&& data_type)
         : _data_type(std::move(data_type)) {
-    _page_zone_map.min_value = doris::vectorized::Field::create_field<Type>(
-            typename PrimitiveTypeTraits<Type>::CppType());
-    _page_zone_map.max_value = doris::vectorized::Field::create_field<Type>(
-            typename PrimitiveTypeTraits<Type>::CppType());
-    _segment_zone_map.min_value = doris::vectorized::Field::create_field<Type>(
-            typename PrimitiveTypeTraits<Type>::CppType());
-    _segment_zone_map.max_value = doris::vectorized::Field::create_field<Type>(
-            typename PrimitiveTypeTraits<Type>::CppType());
+    _page_zone_map.min_value =
+            doris::Field::create_field<Type>(typename PrimitiveTypeTraits<Type>::CppType());
+    _page_zone_map.max_value =
+            doris::Field::create_field<Type>(typename PrimitiveTypeTraits<Type>::CppType());
+    _segment_zone_map.min_value =
+            doris::Field::create_field<Type>(typename PrimitiveTypeTraits<Type>::CppType());
+    _segment_zone_map.max_value =
+            doris::Field::create_field<Type>(typename PrimitiveTypeTraits<Type>::CppType());
     _reset_zone_map(&_page_zone_map);
     _reset_zone_map(&_segment_zone_map);
 }
@@ -131,8 +127,8 @@ TypedZoneMapIndexWriter<Type>::TypedZoneMapIndexWriter(vectorized::DataTypePtr&&
 template <PrimitiveType Type>
 void TypedZoneMapIndexWriter<Type>::_update_page_zonemap(const ValType& min_value,
                                                          const ValType& max_value) {
-    auto min_field = doris::vectorized::Field::create_field_from_olap_value<Type>(min_value);
-    auto max_field = doris::vectorized::Field::create_field_from_olap_value<Type>(max_value);
+    auto min_field = doris::Field::create_field_from_olap_value<Type>(min_value);
+    auto max_field = doris::Field::create_field_from_olap_value<Type>(max_value);
     if (!_page_zone_map.has_not_null || min_field < _page_zone_map.min_value) {
         _page_zone_map.min_value = std::move(min_field);
     }
@@ -295,7 +291,7 @@ Status ZoneMapIndexReader::_load(bool use_page_cache, bool kept_in_memory,
         // The type of reader is FieldType::OLAP_FIELD_TYPE_BITMAP.
         // ColumnBitmap will be created when using FieldType::OLAP_FIELD_TYPE_BITMAP.
         // But what we need actually is ColumnString.
-        vectorized::MutableColumnPtr column = vectorized::ColumnString::create();
+        MutableColumnPtr column = ColumnString::create();
 
         RETURN_IF_ERROR(iter.seek_to_ordinal(i));
         size_t num_read = num_to_read;
@@ -341,7 +337,7 @@ ZoneMapIndexReader::~ZoneMapIndexReader() = default;
     M(TYPE_DECIMAL128I)          \
     M(TYPE_DECIMAL256)
 
-Status ZoneMapIndexWriter::create(vectorized::DataTypePtr data_type, Field* field,
+Status ZoneMapIndexWriter::create(DataTypePtr data_type, StorageField* field,
                                   std::unique_ptr<ZoneMapIndexWriter>& res) {
     switch (field->type()) {
 #define M(NAME)                                                             \

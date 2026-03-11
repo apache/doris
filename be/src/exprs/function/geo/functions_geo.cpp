@@ -39,7 +39,7 @@
 #include "exprs/function/geo/geo_types.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct StPoint {
     static constexpr auto NAME = "st_point";
@@ -949,4 +949,4 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StDistance>>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

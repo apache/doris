@@ -24,7 +24,7 @@
 #include "common/status.h"
 #include "util/threadpool.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class VOlapTableSink;
@@ -148,5 +148,5 @@ private:
     std::mutex _mutex;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

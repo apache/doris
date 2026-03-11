@@ -36,7 +36,7 @@
 #include "storage/segment/row_ranges.h"
 #include "util/timezone_utils.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class ParquetPredicate {
 private:
@@ -162,7 +162,7 @@ public:
         bool is_all_null;
         const FieldSchema* col_schema;
         const cctz::time_zone* ctz;
-        std::unique_ptr<vectorized::ParquetBlockSplitBloomFilter> bloom_filter;
+        std::unique_ptr<ParquetBlockSplitBloomFilter> bloom_filter;
         std::function<bool(ParquetPredicate::ColumnStat*, const int)>* get_stat_func = nullptr;
         std::function<bool(ParquetPredicate::ColumnStat*, const int)>* get_bloom_filter_func =
                 nullptr;
@@ -486,4 +486,4 @@ public:
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

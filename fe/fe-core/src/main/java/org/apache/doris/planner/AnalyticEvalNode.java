@@ -23,6 +23,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.AnalyticWindow;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -83,9 +84,10 @@ public class AnalyticEvalNode extends PlanNode {
         msg.analytic_node = new TAnalyticNode();
         msg.analytic_node.setIntermediateTupleId(outputTupleDesc.getId().asInt());
         msg.analytic_node.setOutputTupleId(outputTupleDesc.getId().asInt());
-        msg.analytic_node.setPartitionExprs(Expr.treesToThrift(partitionExprs));
-        msg.analytic_node.setOrderByExprs(Expr.treesToThrift(OrderByElement.getOrderByExprs(orderByElements)));
-        msg.analytic_node.setAnalyticFunctions(Expr.treesToThrift(analyticFnCalls));
+        msg.analytic_node.setPartitionExprs(ExprToThriftVisitor.treesToThrift(partitionExprs));
+        msg.analytic_node.setOrderByExprs(
+                ExprToThriftVisitor.treesToThrift(OrderByElement.getOrderByExprs(orderByElements)));
+        msg.analytic_node.setAnalyticFunctions(ExprToThriftVisitor.treesToThrift(analyticFnCalls));
         msg.analytic_node.setIsColocate(isColocate);
         // TODO: Window boundaries should have range_offset_predicate set
         msg.analytic_node.setWindow(analyticWindow.toThrift());

@@ -20,7 +20,7 @@
 #include "exec/connector/jni_connector.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 VJniFormatTransformer::VJniFormatTransformer(RuntimeState* state,
                                              const VExprContextSPtrs& output_vexpr_ctxs,
@@ -159,4 +159,4 @@ std::map<std::string, std::string> VJniFormatTransformer::get_statistics() {
     return result;
 }
 
-} // namespace doris::vectorized
+} // namespace doris

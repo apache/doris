@@ -22,7 +22,7 @@
 #include "common/status.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Status HudiReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
@@ -56,4 +56,4 @@ Status HudiParquetReader::init_reader(
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

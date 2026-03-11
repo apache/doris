@@ -21,7 +21,7 @@
 
 #include "core/block/block.h"
 #include "exec/operator/operator_helper.h"
-namespace doris::pipeline {
+namespace doris {
 
 TEST(EmptySetSourceOperatorTest, test) {
     OperatorContext ctx;
@@ -29,10 +29,10 @@ TEST(EmptySetSourceOperatorTest, test) {
     OperatorHelper::init_local_state(ctx, op);
 
     bool eos = false;
-    vectorized::Block block;
+    Block block;
     EXPECT_TRUE(op.get_block(&ctx.state, &block, &eos).ok());
     EXPECT_EQ(eos, true);
     EXPECT_EQ(block.empty(), true);
 }
 
-} // namespace doris::pipeline
+} // namespace doris

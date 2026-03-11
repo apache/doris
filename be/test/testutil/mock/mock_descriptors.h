@@ -37,7 +37,7 @@ public:
 class MockRowDescriptor : public RowDescriptor {
 public:
     MockRowDescriptor() = default;
-    MockRowDescriptor(std::vector<vectorized::DataTypePtr> types, ObjectPool* pool) {
+    MockRowDescriptor(std::vector<DataTypePtr> types, ObjectPool* pool) {
         std::vector<SlotDescriptor*> slots;
         for (auto type : types) {
             auto* slot = pool->add(new SlotDescriptor());
@@ -69,7 +69,7 @@ private:
 
 class MockDescriptorTbl : public DescriptorTbl {
 public:
-    MockDescriptorTbl(std::vector<vectorized::DataTypePtr> types, ObjectPool* pool) {
+    MockDescriptorTbl(std::vector<DataTypePtr> types, ObjectPool* pool) {
         std::vector<SlotDescriptor*> slots;
         for (auto type : types) {
             auto* slot = pool->add(new SlotDescriptor());

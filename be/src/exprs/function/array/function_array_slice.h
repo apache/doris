@@ -39,7 +39,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionArraySlice : public IFunction {
 public:
@@ -99,4 +99,4 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

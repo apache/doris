@@ -31,12 +31,10 @@ namespace doris {
 class RuntimeProfile;
 class RuntimeState;
 class SlotDescriptor;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 /**
  * The demo usage of JniReader, showing how to read data from java scanner.
@@ -65,4 +63,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

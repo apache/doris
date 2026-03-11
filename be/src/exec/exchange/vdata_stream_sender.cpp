@@ -51,7 +51,7 @@
 #include "storage/tablet_info.h"
 #include "util/proto_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Status Channel::init(RuntimeState* state) {
@@ -146,7 +146,7 @@ Status Channel::add_rows(Block* block, const uint32_t* data, const uint32_t offs
     return Status::OK();
 }
 
-std::shared_ptr<pipeline::Dependency> Channel::get_local_channel_dependency() {
+std::shared_ptr<Dependency> Channel::get_local_channel_dependency() {
     if (!_local_recvr) {
         return nullptr;
     }
@@ -223,7 +223,7 @@ Status Channel::send_local_block(Block* block, bool eos, bool can_be_moved) {
         return _receiver_status;
     }
     auto receiver_status = _recvr_status();
-    // _local_recvr depdend on pipeline::ExchangeLocalState* _parent to do some memory counter settings
+    // _local_recvr depdend on ExchangeLocalState* _parent to do some memory counter settings
     // but it only owns a raw pointer, so that the ExchangeLocalState object may be deconstructed.
     // Lock the fragment context to ensure the runtime state and other objects are not deconstructed
     TaskExecutionContextSPtr ctx_lock = nullptr;
@@ -288,7 +288,7 @@ Status Channel::close(RuntimeState* state) {
     }
 }
 
-BlockSerializer::BlockSerializer(pipeline::ExchangeSinkLocalState* parent, bool is_local)
+BlockSerializer::BlockSerializer(ExchangeSinkLocalState* parent, bool is_local)
         : _parent(parent), _is_local(is_local), _batch_size(parent->state()->batch_size()) {}
 
 Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t num_receivers,
@@ -358,4 +358,4 @@ Status BlockSerializer::serialize_block(const Block* src, PBlock* dest, size_t n
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

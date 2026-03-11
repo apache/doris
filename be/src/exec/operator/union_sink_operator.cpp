@@ -27,7 +27,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Status UnionSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
@@ -74,8 +74,8 @@ Status UnionSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
         // Create result_expr_ctx_lists_ from thrift exprs.
         auto& result_texpr_lists = tnode.union_node.result_expr_lists;
         auto& texprs = result_texpr_lists[_cur_child_id];
-        vectorized::VExprContextSPtrs ctxs;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(texprs, ctxs));
+        VExprContextSPtrs ctxs;
+        RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, ctxs));
         _child_expr = ctxs;
     }
     return Status::OK();
@@ -83,18 +83,18 @@ Status UnionSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status UnionSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<UnionSinkLocalState>::prepare(state));
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_expr, state, _child->row_desc()));
-    RETURN_IF_ERROR(vectorized::VExpr::check_expr_output_type(_child_expr, row_descriptor()));
+    RETURN_IF_ERROR(VExpr::prepare(_child_expr, state, _child->row_desc()));
+    RETURN_IF_ERROR(VExpr::check_expr_output_type(_child_expr, row_descriptor()));
     // open const expr lists.
-    RETURN_IF_ERROR(vectorized::VExpr::open(_const_expr, state));
+    RETURN_IF_ERROR(VExpr::open(_const_expr, state));
 
     // open result expr lists.
-    RETURN_IF_ERROR(vectorized::VExpr::open(_child_expr, state));
+    RETURN_IF_ERROR(VExpr::open(_child_expr, state));
 
     return Status::OK();
 }
 
-Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {
+Status UnionSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     if (local_state.low_memory_mode()) {
         set_low_memory_mode(state);
@@ -142,4 +142,4 @@ Status UnionSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

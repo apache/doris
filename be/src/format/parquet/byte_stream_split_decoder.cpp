@@ -21,7 +21,7 @@
 
 #include "util/byte_stream_split.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 Status ByteStreamSplitDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                              ColumnSelectVector& select_vector,
@@ -96,4 +96,4 @@ Status ByteStreamSplitDecoder::skip_values(size_t num_values) {
 }
 #include "common/compile_check_end.h"
 
-}; // namespace doris::vectorized
+}; // namespace doris

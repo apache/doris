@@ -222,7 +222,7 @@ Status BinaryPrefixPageDecoder::seek_at_or_after_value(const void* value, bool* 
     }
 }
 
-Status BinaryPrefixPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+Status BinaryPrefixPageDecoder::next_batch(size_t* n, MutableColumnPtr& dst) {
     DCHECK(_parsed);
     if (*n == 0 || _cur_pos >= _num_values) [[unlikely]] {
         *n = 0;

@@ -24,7 +24,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/virtual_slot_ref.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class ScoreRuntime {
@@ -83,4 +83,4 @@ private:
 using ScoreRuntimeSPtr = std::shared_ptr<ScoreRuntime>;
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

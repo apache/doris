@@ -27,7 +27,6 @@
 #include <vector>
 
 namespace doris {
-namespace vectorized {
 
 class VHiveUtils {
 private:
@@ -42,5 +41,4 @@ public:
 
     static std::string escape_path_name(const std::string& path);
 };
-} // namespace vectorized
 } // namespace doris

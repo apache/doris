@@ -35,7 +35,7 @@ namespace doris::segment_v2 {
  */
 AnnRangeSearchParams AnnRangeSearchRuntime::to_range_search_params() const {
     AnnRangeSearchParams params;
-    const auto* query = assert_cast<const vectorized::ColumnFloat32*>(query_value.get());
+    const auto* query = assert_cast<const ColumnFloat32*>(query_value.get());
     params.query_value = query->get_data().data();
     params.radius = static_cast<float>(radius);
     params.roaring = nullptr;

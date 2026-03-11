@@ -26,7 +26,6 @@
 #include "exec/scan/task_executor/tools/simulator/histogram.h"
 
 namespace doris {
-namespace vectorized {
 
 TaskSimulator::TaskSimulator(const std::string& config_file) : _config_file(config_file) {
     _start_time = std::chrono::high_resolution_clock::now();
@@ -552,7 +551,6 @@ std::string TaskSimulator::_format_stats(std::vector<int64_t>& list) {
     return oss.str();
 }
 
-} // namespace vectorized
 } // namespace doris
 
 int main(int argc, char** argv) {
@@ -562,7 +560,7 @@ int main(int argc, char** argv) {
     }
 
     std::string config_file = argv[1];
-    doris::vectorized::TaskSimulator simulator(config_file);
+    doris::TaskSimulator simulator(config_file);
 
     auto status = simulator.init();
     if (!status.ok()) {

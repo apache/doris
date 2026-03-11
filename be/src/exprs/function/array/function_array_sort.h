@@ -40,7 +40,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename Name, bool Positive>
 class FunctionArraySort : public IFunction {
@@ -118,4 +118,4 @@ private:
     };
 };
 
-} // namespace doris::vectorized
+} // namespace doris

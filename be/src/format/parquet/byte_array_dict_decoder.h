@@ -30,7 +30,7 @@
 #include "format/parquet/decoder.h"
 #include "format/parquet/parquet_common.h"
 
-namespace doris::vectorized {
+namespace doris {
 template <PrimitiveType T>
 class ColumnDecimal;
 template <typename T>
@@ -64,4 +64,4 @@ protected:
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -19,7 +19,7 @@
 
 #include "exec/operator/operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class AssertNumRowsLocalState final : public PipelineXLocalState<FakeSharedState> {
@@ -43,7 +43,7 @@ public:
     AssertNumRowsOperatorX() = default;
 #endif
 
-    Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status pull(RuntimeState* state, Block* block, bool* eos) override;
 
     [[nodiscard]] bool is_source() const override { return false; }
 
@@ -61,4 +61,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

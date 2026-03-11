@@ -26,7 +26,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 Status SpillWriter::open() {
     if (file_writer_) {
@@ -175,4 +175,4 @@ Status SpillWriter::_write_internal(const Block& block, size_t& written_bytes) {
     return status;
 }
 
-} // namespace doris::vectorized
+} // namespace doris

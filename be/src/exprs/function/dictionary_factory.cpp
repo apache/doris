@@ -22,7 +22,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 DictionaryFactory::DictionaryFactory()
         : _mem_tracker(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL,
@@ -61,4 +61,4 @@ void DictionaryFactory::get_dictionary_status(std::vector<TDictionaryStatus>& re
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

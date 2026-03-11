@@ -44,7 +44,7 @@ struct IOContext;
 
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 struct FieldSchema;
 template <typename T>
@@ -285,4 +285,4 @@ private:
 
 bool has_dict_page(const tparquet::ColumnMetaData& column);
 
-} // namespace doris::vectorized
+} // namespace doris
