@@ -647,6 +647,35 @@ public:
         return m0.empty() && m1.empty() && m2.empty() && m3.empty() && m4.empty() && ms.empty();
     }
 
+    /// Clear all elements but keep allocated buffers in each sub-map.
+    void clear() {
+        m0.clear_has_zero();
+        m1.clear();
+        m2.clear();
+        m3.clear();
+        m4.clear();
+        ms.clear();
+    }
+
+    /// Clear all elements and release allocated buffers.
+    void clear_and_shrink() {
+        m0.clear_has_zero();
+        m1.clear_and_shrink();
+        m2.clear_and_shrink();
+        m3.clear_and_shrink();
+        m4.clear_and_shrink();
+        ms.clear_and_shrink();
+    }
+
+
+    void reserve(size_t num_elements) {
+        this->m1.init_buf_size(num_elements / 5);
+        this->m2.init_buf_size(num_elements / 5);
+        this->m3.init_buf_size(num_elements / 5);
+        this->m4.init_buf_size(num_elements / 5);
+        this->ms.init_buf_size(num_elements / 5);
+    }
+
     size_t get_buffer_size_in_bytes() const {
         return m0.get_buffer_size_in_bytes() + m1.get_buffer_size_in_bytes() +
                m2.get_buffer_size_in_bytes() + m3.get_buffer_size_in_bytes() +

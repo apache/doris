@@ -217,6 +217,9 @@ public:
 
     bool empty() const { return _hash_map.empty(); }
 
+    /// Clear all elements but keep allocated capacity.
+    void clear() { _hash_map.clear(); }
+
     void clear_and_shrink() { _hash_map.clear(); }
 
     void reserve(size_t num_elem) { _hash_map.reserve(num_elem); }
