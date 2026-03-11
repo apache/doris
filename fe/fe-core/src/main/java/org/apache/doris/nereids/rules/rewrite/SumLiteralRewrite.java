@@ -234,7 +234,8 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
             return expr;
         }
         Expression inner = cast.child();
-        if (inner.getDataType().isIntegerLikeType() && cast.getDataType().isIntegerLikeType()) {
+        if (inner.getDataType().isIntegerLikeType() && cast.getDataType().isIntegerLikeType()
+                && inner.getDataType().width() <= cast.getDataType().width()) {
             return inner;
         }
         return expr;
