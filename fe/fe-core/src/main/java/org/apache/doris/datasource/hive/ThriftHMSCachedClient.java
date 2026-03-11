@@ -33,6 +33,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import org.apache.hadoop.hive.common.ValidReadTxnList;
 import org.apache.hadoop.hive.common.ValidReaderWriteIdList;
@@ -51,7 +52,6 @@ import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.DataOperationType;
 import org.apache.hadoop.hive.metastore.api.Database;
-import org.apache.hadoop.hive.metastore.api.DefaultConstraintsRequest;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.LockComponent;
 import org.apache.hadoop.hive.metastore.api.LockResponse;
@@ -75,7 +75,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.PriorityQueue;
@@ -351,24 +350,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     }
 
     public Map<String, String> getDefaultColumnValues(String dbName, String tblName) {
-        Map<String, String> res = new HashMap<>();
-        try (ThriftHMSClient client = getClient()) {
-            try {
-                DefaultConstraintsRequest req = new DefaultConstraintsRequest();
-                req.setDb_name(dbName);
-                req.setTbl_name(tblName);
-                List<SQLDefaultConstraint> dvcs = client.client.getDefaultConstraints(req);
-                for (SQLDefaultConstraint dvc : dvcs) {
-                    res.put(dvc.getColumn_name().toLowerCase(Locale.ROOT), dvc.getDefault_value());
-                }
-                return res;
-            } catch (Exception e) {
-                client.setThrowable(e);
-                throw e;
-            }
-        } catch (Exception e) {
-            throw new HMSClientException("failed to get table %s in db %s from hms client", e, tblName, dbName);
-        }
+        return Maps.newHashMap();
     }
 
     @Override
