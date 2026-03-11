@@ -68,11 +68,20 @@ public class ExternalCatalogDeadlockTest {
         refreshThread.setDaemon(true);
         refreshThread.start();
 
+        assertNoDeadlock(queryThread, refreshThread, backgroundFailure);
+    }
+
+    private static void assertNoDeadlock(Thread queryThread, Thread refreshThread,
+            AtomicReference<Throwable> backgroundFailure) throws Exception {
         long[] deadlockedThreads = waitForDeadlock(queryThread, refreshThread);
+        queryThread.join(TimeUnit.SECONDS.toMillis(5));
+        refreshThread.join(TimeUnit.SECONDS.toMillis(5));
         Assertions.assertNull(backgroundFailure.get(), "unexpected background failure: " + backgroundFailure.get());
         Assertions.assertNull(deadlockedThreads,
                 String.format("detected deadlock between threads %s and %s",
                         queryThread.getName(), refreshThread.getName()));
+        Assertions.assertFalse(queryThread.isAlive(), queryThread.getName() + " is still running");
+        Assertions.assertFalse(refreshThread.isAlive(), refreshThread.getName() + " is still running");
     }
 
     private static void awaitLatch(CountDownLatch latch) throws InterruptedException {
