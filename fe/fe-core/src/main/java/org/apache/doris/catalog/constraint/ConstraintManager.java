@@ -293,22 +293,47 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         writeLock();
         try {
             String prefix = catalogName + ".";
-            List<String> tablesToRemove = constraintsMap.keySet().stream()
-                    .filter(k -> k.startsWith(prefix))
-                    .collect(Collectors.toList());
-            for (String tableName : tablesToRemove) {
-                Map<String, Constraint> tableConstraints
-                        = constraintsMap.remove(tableName);
-                if (tableConstraints != null) {
-                    for (Constraint constraint : tableConstraints.values()) {
-                        cleanupConstraintReferencesOutsideCatalog(
-                                tableName, constraint, prefix);
-                    }
-                }
-            }
+            dropConstraintsByPrefix(prefix);
             LOG.info("Dropped all constraints for catalog {}", catalogName);
         } finally {
             writeUnlock();
+        }
+    }
+
+    /**
+     * Remove all constraints for tables in the given database.
+     * Called during DROP DATABASE to pre-clear all intra-database FK references
+     * before individual table drops, avoiding ordering-dependent FK check failures.
+     */
+    public void dropDatabaseConstraints(String catalogName, String dbName) {
+        writeLock();
+        try {
+            String prefix = catalogName + "." + dbName + ".";
+            dropConstraintsByPrefix(prefix);
+            LOG.info("Dropped all constraints for database {}.{}",
+                    catalogName, dbName);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /**
+     * Remove all constraints whose qualified table name starts with
+     * the given prefix, cleaning up cross-references outside the prefix.
+     */
+    private void dropConstraintsByPrefix(String prefix) {
+        List<String> tablesToRemove = constraintsMap.keySet().stream()
+                .filter(k -> k.startsWith(prefix))
+                .collect(Collectors.toList());
+        for (String tableName : tablesToRemove) {
+            Map<String, Constraint> tableConstraints
+                    = constraintsMap.remove(tableName);
+            if (tableConstraints != null) {
+                for (Constraint constraint : tableConstraints.values()) {
+                    cleanupConstraintReferencesOutsideCatalog(
+                            tableName, constraint, prefix);
+                }
+            }
         }
     }
 

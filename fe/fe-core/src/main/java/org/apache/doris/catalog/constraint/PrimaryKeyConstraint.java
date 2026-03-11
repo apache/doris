@@ -63,8 +63,10 @@ public class PrimaryKeyConstraint extends Constraint implements GsonPostProcessa
     }
 
     public void addForeignTable(TableNameInfo tni) {
-        foreignTableInfos.add(tni);
-        foreignTableNameStrs.add(tni.getCtl() + "." + tni.getDb() + "." + tni.getTbl());
+        String key = tni.getCtl() + "." + tni.getDb() + "." + tni.getTbl();
+        if (foreignTableNameStrs.add(key)) {
+            foreignTableInfos.add(tni);
+        }
     }
 
     /**

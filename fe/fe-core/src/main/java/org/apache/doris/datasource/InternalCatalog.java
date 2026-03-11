@@ -554,6 +554,11 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public void unprotectDropDb(Database db, boolean isForeDrop, boolean isReplay, long recycleTime)
             throws DdlException {
+        // Pre-drop all constraints for this database to avoid ordering-dependent FK check failures.
+        // Without this, if table B has an FK referencing table A's PK, and B is iterated before A,
+        // dropping A would fail because B's FK still exists.
+        Env.getCurrentEnv().getConstraintManager().dropDatabaseConstraints(
+                InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName());
         for (Table table : db.getTables()) {
             unprotectDropTable(db, table, isForeDrop, isReplay, recycleTime);
         }

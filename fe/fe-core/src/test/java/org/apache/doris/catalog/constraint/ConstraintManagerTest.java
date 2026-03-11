@@ -371,6 +371,42 @@ class ConstraintManagerTest {
         Assertions.assertNotNull(mgr.getConstraint(T1, "pk"));
     }
 
+    // ==================== dropDatabaseConstraints ====================
+
+    @Test
+    void dropDatabaseConstraintsRemovesAllInDatabase() {
+        mgr.addConstraint(T1, "pk1", newPk("pk1", "k1"), true);
+        mgr.addConstraint(T2, "pk2", newPk("pk2", "k1"), true);
+        // T3 is in same db
+        mgr.addConstraint(T3, "uk3", new UniqueConstraint("uk3", ImmutableSet.of("c1")), true);
+        // Table in different database
+        TableNameInfo otherDbTable = new TableNameInfo("ctl", "other_db", "t1");
+        mgr.addConstraint(otherDbTable, "pk_other", newPk("pk_other", "k1"), true);
+
+        mgr.dropDatabaseConstraints("ctl", "db");
+
+        Assertions.assertTrue(mgr.getConstraints(T1).isEmpty());
+        Assertions.assertTrue(mgr.getConstraints(T2).isEmpty());
+        Assertions.assertTrue(mgr.getConstraints(T3).isEmpty());
+        // Other database unaffected
+        Assertions.assertNotNull(mgr.getConstraint(otherDbTable, "pk_other"));
+    }
+
+    @Test
+    void dropDatabaseConstraintsCascadesFKsAcrossDatabase() {
+        // PK in db, FK in other_db referencing the PK
+        mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
+        TableNameInfo otherDbTable = new TableNameInfo("ctl", "other_db", "t1");
+        mgr.addConstraint(otherDbTable, "fk", newFk("fk", T1, "c1", "k1"), true);
+
+        mgr.dropDatabaseConstraints("ctl", "db");
+
+        Assertions.assertTrue(mgr.getConstraints(T1).isEmpty());
+        // FK in other_db should be cascade-dropped because the referenced PK was removed
+        Assertions.assertTrue(mgr.getConstraints(otherDbTable).isEmpty(),
+                "FK in other_db should be cascade-dropped when referenced PK's database is dropped");
+    }
+
     // ==================== renameTable ====================
 
     @Test
@@ -534,6 +570,22 @@ class ConstraintManagerTest {
 
         PrimaryKeyConstraint loadedPk = (PrimaryKeyConstraint) mgr.getConstraint(T1, "pk");
         Assertions.assertFalse(loadedPk.getForeignTableInfos().isEmpty());
+    }
+
+    @Test
+    void rebuildForeignKeyReferencesDoesNotDuplicateEntries() {
+        // PK on T1, FK on T2 referencing T1 — registered via addConstraint
+        mgr.addConstraint(T1, "pk", newPk("pk", "k1"), true);
+        mgr.addConstraint(T2, "fk", newFk("fk", T1, "c1", "k1"), true);
+
+        // addConstraint already registered T2 in PK's foreignTableInfos
+        PrimaryKeyConstraint pk = (PrimaryKeyConstraint) mgr.getConstraint(T1, "pk");
+        Assertions.assertEquals(1, pk.getForeignTableInfos().size());
+
+        // rebuild should NOT add duplicates
+        mgr.rebuildForeignKeyReferences();
+        Assertions.assertEquals(1, pk.getForeignTableInfos().size(),
+                "rebuildForeignKeyReferences should not duplicate entries");
     }
 
     // ==================== Serialization ====================
