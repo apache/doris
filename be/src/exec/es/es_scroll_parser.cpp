@@ -439,8 +439,12 @@ Status handle_value(const rapidjson::Value& col, PrimitiveType sub_type, bool pu
         return Status::OK();
     }
     if constexpr (T == TYPE_STRING || T == TYPE_CHAR || T == TYPE_VARCHAR) {
-        RETURN_ERROR_IF_COL_IS_ARRAY(col, sub_type, true);
-        if (!col.IsString()) {
+        // When ES mapping is keyword/text but actual data is an array,
+        // serialize the array to JSON string instead of throwing an error.
+        // This is valid in ES since any field can hold array values.
+        if (col.IsArray()) {
+            val = json_value_to_string(col);
+        } else if (!col.IsString()) {
             val = json_value_to_string(col);
         } else {
             val = col.GetString();
@@ -715,8 +719,12 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                     val = col[0].GetString();
                 }
             } else {
-                RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
-                if (!col.IsString()) {
+                // When ES mapping is keyword/text but actual data is an array,
+                // serialize the array to JSON string instead of throwing an error.
+                // This is valid in ES since any field can hold array values.
+                if (col.IsArray()) {
+                    val = json_value_to_string(col);
+                } else if (!col.IsString()) {
                     val = json_value_to_string(col);
                 } else {
                     val = col.GetString();

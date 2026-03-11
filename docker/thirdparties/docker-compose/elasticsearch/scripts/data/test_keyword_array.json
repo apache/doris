@@ -1,0 +1,44 @@
+{
+    "id": 1,
+    "name": "Alice",
+    "tags": [
+        "tag1",
+        "tag2",
+        "tag3"
+    ],
+    "description": [
+        "first line",
+        "second line"
+    ],
+    "emails": [
+        "alice@example.com",
+        "alice@work.com"
+    ],
+    "single_value": "hello"
+}
+{
+    "id": 2,
+    "name": "Bob",
+    "tags": "single_tag",
+    "description": "simple text",
+    "emails": [
+        "bob@example.com"
+    ],
+    "single_value": "world"
+}
+{
+    "id": 3,
+    "name": "Charlie",
+    "tags": [
+        "tag_a",
+        "tag_b"
+    ],
+    "description": [
+        "only line"
+    ],
+    "emails": "charlie@example.com",
+    "single_value": [
+        "val1",
+        "val2"
+    ]
+}
