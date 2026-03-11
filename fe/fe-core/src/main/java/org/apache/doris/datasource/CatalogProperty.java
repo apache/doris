@@ -18,7 +18,6 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
@@ -26,10 +25,8 @@ import com.aliyun.odps.table.utils.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.MapUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -288,26 +285,6 @@ public class CatalogProperty {
                                     hadoopProperties.put(key, value);
                                 }
                             });
-                        }
-                    }
-                    // Temporary compatibility: if the catalog uses HMS kerberos auth, expose it as canonical
-                    // hadoop.* kerberos properties so sys table JNI scanners can reuse the same identity.
-                    String hiveMetastoreAuthenticationType = properties.get("hive.metastore.authentication.type");
-                    String hiveMetastoreClientPrincipal = properties.get("hive.metastore.client.principal");
-                    String hiveMetastoreClientKeytab = properties.get("hive.metastore.client.keytab");
-                    if ("kerberos".equalsIgnoreCase(hiveMetastoreAuthenticationType)
-                            && StringUtils.isNotBlank(hiveMetastoreClientPrincipal)
-                            && StringUtils.isNotBlank(hiveMetastoreClientKeytab)) {
-                        hadoopProperties.put(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
-                                "kerberos");
-                        hadoopProperties.put(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
-                                hiveMetastoreClientPrincipal);
-                        hadoopProperties.put(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB,
-                                hiveMetastoreClientKeytab);
-                        if (StringUtils.isNotBlank(
-                                properties.get(AuthenticationConfig.HADOOP_SECURITY_AUTH_TO_LOCAL))) {
-                            hadoopProperties.put(AuthenticationConfig.HADOOP_SECURITY_AUTH_TO_LOCAL,
-                                    properties.get(AuthenticationConfig.HADOOP_SECURITY_AUTH_TO_LOCAL));
                         }
                     }
                 }

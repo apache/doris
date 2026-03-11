@@ -37,7 +37,9 @@ import org.apache.doris.thrift.TMetadataType;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.Split;
 
@@ -80,6 +82,7 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
 
         PaimonExternalCatalog paimonExternalCatalog = (PaimonExternalCatalog) dorisCatalog;
         this.hadoopProps = paimonExternalCatalog.getCatalogProperty().getHadoopProperties();
+        appendHMSKerberosProps(hadoopProps, paimonExternalCatalog);
         this.hadoopAuthenticator = paimonExternalCatalog.getExecutionAuthenticator();
 
         ExternalDatabase<? extends ExternalTable> database = paimonExternalCatalog.getDb(paimonTableName.getDb())
@@ -98,6 +101,31 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
                 "main", queryType);
         this.schema = PaimonUtil.parseSchema(paimonSysTable, paimonExternalCatalog.getEnableMappingVarbinary(),
                 paimonExternalCatalog.getEnableMappingTimestampTz());
+    }
+
+    private void appendHMSKerberosProps(Map<String, String> hadoopProperties,
+                                                 PaimonExternalCatalog paimonExternalCatalog) {
+        // Temporary compatibility: if the catalog uses HMS kerberos auth, expose it as canonical
+        // hadoop.* kerberos properties so sys table JNI scanners can reuse the same identity.
+        Map<String, String> properties = paimonExternalCatalog.getCatalogProperty().getProperties();
+        String hiveMetastoreAuthenticationType = properties.get("hive.metastore.authentication.type");
+        String hiveMetastoreClientPrincipal = properties.get("hive.metastore.client.principal");
+        String hiveMetastoreClientKeytab = properties.get("hive.metastore.client.keytab");
+        if ("kerberos".equalsIgnoreCase(hiveMetastoreAuthenticationType)
+                && StringUtils.isNotBlank(hiveMetastoreClientPrincipal)
+                && StringUtils.isNotBlank(hiveMetastoreClientKeytab)) {
+            hadoopProperties.put(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
+                    "kerberos");
+            hadoopProperties.put(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
+                    hiveMetastoreClientPrincipal);
+            hadoopProperties.put(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB,
+                    hiveMetastoreClientKeytab);
+            if (StringUtils.isNotBlank(
+                    properties.get(AuthenticationConfig.HADOOP_SECURITY_AUTH_TO_LOCAL))) {
+                hadoopProperties.put(AuthenticationConfig.HADOOP_SECURITY_AUTH_TO_LOCAL,
+                        properties.get(AuthenticationConfig.HADOOP_SECURITY_AUTH_TO_LOCAL));
+            }
+        }
     }
 
     public static PaimonTableValuedFunction create(Map<String, String> params) throws AnalysisException {
