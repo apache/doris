@@ -17,12 +17,12 @@
 
 #include "runtime/workload_group/workload_group_metrics.h"
 
+#include "common/metrics/doris_metrics.h"
+#include "common/metrics/metrics.h"
 #include "io/fs/local_file_reader.h"
-#include "olap/olap_common.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/io_throttle.h"
-#include "util/doris_metrics.h"
-#include "util/metrics.h"
+#include "storage/olap_common.h"
 
 namespace doris {
 

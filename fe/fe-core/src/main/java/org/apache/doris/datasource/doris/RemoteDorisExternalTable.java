@@ -42,6 +42,7 @@ import java.util.Optional;
 public class RemoteDorisExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(RemoteDorisExternalTable.class);
     private volatile List<Partition> partitions = Lists.newArrayList();
+    private volatile List<Partition> tempPartitions = Lists.newArrayList();
     private volatile long tableId = -1;
     private volatile boolean isSyncOlapTable = false;
     private volatile RemoteOlapTable remoteOlapTable = null;
@@ -70,14 +71,16 @@ public class RemoteDorisExternalTable extends ExternalTable {
                         lastException = null; // clear previous exception
 
                         List<Partition> cachedPartitions = Lists.newArrayList(partitions);
+                        List<Partition> cachedTempPartitions = Lists.newArrayList(tempPartitions);
                         RemoteOlapTable olapTable = ((RemoteDorisExternalCatalog) catalog).getFeServiceClient()
-                                .getOlapTable(dbName, remoteName, tableId, cachedPartitions);
+                                .getOlapTable(dbName, remoteName, tableId, cachedPartitions, cachedTempPartitions);
                         olapTable.setCatalog((RemoteDorisExternalCatalog) catalog);
                         olapTable.setDatabase((RemoteDorisExternalDatabase) db);
 
                         // Remove redundant nested synchronized block
                         tableId = olapTable.getId();
                         partitions = Lists.newArrayList(olapTable.getPartitions());
+                        tempPartitions = Lists.newArrayList(olapTable.getTempPartitions().getPartitions());
 
                         olapTable.setId(id); // change id in case of possible conflicts
                         olapTable.invalidateBackendsIfNeed();

@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/schema_scanner/schema_encryption_keys_scanner.h"
+#include "information_schema/schema_encryption_keys_scanner.h"
 
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 
-#include "vec/core/block.h"
+#include "core/block/block.h"
 
 namespace doris {
 
@@ -36,7 +36,7 @@ TEST_F(ScheamEncryptionKeysScannerTest, test_get_next_block_internal) {
     EncryptionKeyPB key;
     keys.push_back(key);
 
-    auto data_block = vectorized::Block::create_unique();
+    auto data_block = Block::create_unique();
     scanner._init_block(data_block.get());
 
     auto st = scanner._fill_block_impl(data_block.get());

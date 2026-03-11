@@ -203,6 +203,76 @@ public class Pattern<TYPE extends Plan>
         return true;
     }
 
+    /**
+     * Diagnostic version of matchPlanTree. Returns null if match succeeds,
+     * or a human-readable failure reason string if match fails.
+     *
+     * @param plan the plan to match against
+     * @param path the current path in the tree (e.g. "root/child[0]/child[1]")
+     * @return null if matched, or a diagnostic message describing where and why the match failed
+     */
+    public String matchPlanTreeDiagnostic(Plan plan, String path) {
+        if (!matchRoot(plan)) {
+            return path + ": expected node type " + planType + " but got " + plan.getType();
+        }
+        int childPatternNum = arity();
+        if (childPatternNum != plan.arity() && childPatternNum > 0 && child(childPatternNum - 1) != MULTI) {
+            return path + ": expected " + childPatternNum + " children but got " + plan.arity()
+                    + " on node " + plan.getType();
+        }
+        switch (patternType) {
+            case ANY:
+            case MULTI:
+                return matchPredicatesDiagnostic((TYPE) plan, path);
+            default:
+        }
+        if (this instanceof SubTreePattern) {
+            return matchPredicatesDiagnostic((TYPE) plan, path);
+        }
+        return matchChildrenAndSelfPredicatesDiagnostic(plan, childPatternNum, path);
+    }
+
+    private String matchChildrenAndSelfPredicatesDiagnostic(Plan plan, int childPatternNum, String path) {
+        List<Plan> childrenPlan = plan.children();
+        for (int i = 0; i < childrenPlan.size(); i++) {
+            Plan child = childrenPlan.get(i);
+            Pattern childPattern = child(Math.min(i, childPatternNum - 1));
+            String childPath = path + "/" + plan.getType() + ".child[" + i + "]";
+            String childResult = childPattern.matchPlanTreeDiagnostic(child, childPath);
+            if (childResult != null) {
+                return childResult;
+            }
+        }
+        return matchPredicatesDiagnostic((TYPE) plan, path);
+    }
+
+    /**
+     * Diagnostic version of matchPredicates. Returns null if all predicates pass,
+     * or a message describing which predicate failed.
+     */
+    public String matchPredicatesDiagnostic(TYPE root, String path) {
+        for (int i = 0; i < predicates.size(); i++) {
+            Predicate<TYPE> predicate = predicates.get(i);
+            try {
+                if (!predicate.test(root)) {
+                    String predicateDesc = (predicate instanceof DescribedPredicate)
+                            ? ((DescribedPredicate<TYPE>) predicate).getDescription()
+                            : "predicate #" + (i + 1);
+                    return path + " (" + root.getType() + "): " + predicateDesc
+                            + " failed. [predicate " + (i + 1) + "/" + predicates.size() + "]";
+                }
+            } catch (Throwable t) {
+                String predicateDesc = (predicate instanceof DescribedPredicate)
+                        ? ((DescribedPredicate<TYPE>) predicate).getDescription()
+                        : "predicate #" + (i + 1);
+                return path + " (" + root.getType() + "): " + predicateDesc
+                        + " threw " + t.getClass().getSimpleName() + ": " + t.getMessage()
+                        + " [predicate " + (i + 1) + "/" + predicates.size() + "]";
+            }
+        }
+        return null;
+    }
+
     @Override
     public Pattern<? extends Plan> withChildren(
             List<Pattern<? extends Plan>> children) {

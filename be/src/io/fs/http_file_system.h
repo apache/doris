@@ -25,11 +25,11 @@
 #include <vector>
 
 #include "common/status.h"
-#include "http/http_client.h"
-#include "http_file_reader.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/http_file_reader.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
+#include "service/http/http_client.h"
 
 namespace doris::io {
 class HttpFileSystem final : public RemoteFileSystem {

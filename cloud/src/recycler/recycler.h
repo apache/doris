@@ -138,6 +138,7 @@ struct RowsetDeleteTask {
     std::string recycle_rowset_key;       // Primary key marking "pending recycle"
     std::string non_versioned_rowset_key; // Legacy non-versioned rowset meta key
     std::string versioned_rowset_key;     // Versioned meta rowset key
+    Versionstamp versionstamp;
     std::string rowset_ref_count_key;
 };
 
@@ -192,6 +193,10 @@ public:
             g_bvar_recycler_instance_last_round_recycle_elpased_ts.put(
                     {instance_id, operation_type}, cost);
             g_bvar_recycler_instance_recycle_round.put({instance_id, operation_type}, 1);
+            g_bvar_recycler_instance_recycle_total_bytes_since_started.put(
+                    {instance_id, operation_type}, total_recycled_data_size.load());
+            g_bvar_recycler_instance_recycle_total_num_since_started.put(
+                    {instance_id, operation_type}, total_recycled_num.load());
             LOG(INFO) << "recycle instance: " << instance_id
                       << ", operation type: " << operation_type << ", cost: " << cost
                       << " ms, total recycled num: " << total_recycled_num.load()
@@ -222,12 +227,8 @@ public:
             } else {
                 g_bvar_recycler_instance_last_round_recycled_bytes.put(
                         {instance_id, operation_type}, total_recycled_data_size.load());
-                g_bvar_recycler_instance_recycle_total_bytes_since_started.put(
-                        {instance_id, operation_type}, total_recycled_data_size.load());
                 g_bvar_recycler_instance_last_round_recycled_num.put({instance_id, operation_type},
                                                                      total_recycled_num.load());
-                g_bvar_recycler_instance_recycle_total_num_since_started.put(
-                        {instance_id, operation_type}, total_recycled_num.load());
             }
         }
     }
@@ -243,6 +244,8 @@ public:
     SegmentRecyclerMetricsContext()
             : RecyclerMetricsContext("global_recycler", "recycle_segment") {}
 };
+
+struct OplogRecycleStats;
 
 class InstanceRecycler {
 public:
@@ -398,6 +401,8 @@ public:
 
     int scan_and_statistics_restore_jobs();
 
+    void scan_and_statistics_operation_logs();
+
     /**
      * Decode the key of a packed-file metadata record into the persisted object path.
      *
@@ -446,8 +451,17 @@ private:
     int delete_rowset_data(const std::map<std::string, doris::RowsetMetaCloudPB>& rowsets,
                            RowsetRecyclingState type, RecyclerMetricsContext& metrics_context);
 
-    // return 0 for success otherwise error
+    // Decrement packed file ref counts for rowset segments.
+    // Returns 0 for success, -1 for error.
     int decrement_packed_file_ref_counts(const doris::RowsetMetaCloudPB& rs_meta_pb);
+
+    // Decrement packed file ref count for delete bitmap if it's stored in packed file.
+    // Returns 0 for success, -1 for error.
+    // If delete bitmap is not stored in packed file, this function does nothing and returns 0.
+    // out_is_packed: if not null, will be set to true if delete bitmap is stored in packed file.
+    int decrement_delete_bitmap_packed_file_ref_counts(int64_t tablet_id,
+                                                       const std::string& rowset_id,
+                                                       bool* out_is_packed);
 
     int delete_packed_file_and_kv(const std::string& packed_file_path,
                                   const std::string& packed_key,
@@ -476,16 +490,13 @@ private:
     //
     // Both `operation_log` and `raw_keys` will be removed in the same transaction, to ensure atomicity.
     int recycle_operation_log(Versionstamp log_version, const std::vector<std::string>& raw_keys,
-                              OperationLogPB operation_log);
+                              OperationLogPB operation_log,
+                              OplogRecycleStats* oplog_stats = nullptr);
 
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
-    // Both recycle_rowset_key and non_versioned_rowset_key will be removed in the same transaction.
-    //
     // This function will decrease the rowset ref count and remove the rowset meta and data if the ref count is 1.
-    int recycle_rowset_meta_and_data(std::string_view recycle_rowset_key,
-                                     const RowsetMetaCloudPB& rowset_meta,
-                                     std::string_view non_versioned_rowset_key = "");
+    int recycle_rowset_meta_and_data(const RowsetDeleteTask& task);
 
     // Classify rowset task by ref_count, return 0 to add to batch delete, 1 if handled (ref>1), -1 on error
     int classify_rowset_task_by_ref_count(RowsetDeleteTask& task,
@@ -603,6 +614,24 @@ struct OperationLogReferenceInfo {
     bool referenced_by_instance = false;
     bool referenced_by_snapshot = false;
     Versionstamp referenced_snapshot_timestamp;
+};
+
+struct OplogRecycleStats {
+    // Total oplog count scanned per round
+    std::atomic<int64_t> total_num {0};
+    // Oplogs not recycled this round (per round, written to mBvarStatus)
+    std::atomic<int64_t> not_recycled_num {0};
+    // Recycle failures (per round, accumulated to mBvarIntAdder at end)
+    std::atomic<int64_t> failed_num {0};
+    // Per-oplog-type recycled counts (incremented after successful commit)
+    std::atomic<int64_t> recycled_commit_partition {0};
+    std::atomic<int64_t> recycled_drop_partition {0};
+    std::atomic<int64_t> recycled_commit_index {0};
+    std::atomic<int64_t> recycled_drop_index {0};
+    std::atomic<int64_t> recycled_update_tablet {0};
+    std::atomic<int64_t> recycled_compaction {0};
+    std::atomic<int64_t> recycled_schema_change {0};
+    std::atomic<int64_t> recycled_commit_txn {0};
 };
 
 // Helper class to check if operation logs can be recycled based on snapshots and versionstamps

@@ -135,11 +135,13 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
         // mock incremental into
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (name,age) VALUES ('Doris',18);"""
+            def xminResult = sql """SELECT xmin, xmax , * FROM ${pgSchema}.${table1} WHERE name = 'Doris'; """
+            log.info("xminResult: " + xminResult)
             sql """UPDATE ${pgDB}.${pgSchema}.${table1} SET age = 10 WHERE name = 'B1';"""
             sql """DELETE FROM ${pgDB}.${pgSchema}.${table1} WHERE name = 'A1';"""
         }
 
-        sleep(30000); // wait for cdc incremental data
+        sleep(60000); // wait for cdc incremental data
 
         // check incremental data
         qt_select_binlog_table1 """ SELECT * FROM ${table1} order by name asc """
@@ -156,9 +158,11 @@ suite("test_streaming_postgres_job", "p0,external,pg,external_docker,external_do
         // mock incremental into again
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (name,age) VALUES ('Apache',40);"""
+	    def xminResult1 = sql """SELECT xmin, xmax , * FROM ${pgSchema}.${table1} WHERE name = 'Apache'; """
+            log.info("xminResult1: " + xminResult1)
         }
 
-        sleep(30000); // wait for cdc incremental data
+        sleep(60000); // wait for cdc incremental data
 
         // check incremental data
         qt_select_next_binlog_table1 """ SELECT * FROM ${table1} order by name asc """

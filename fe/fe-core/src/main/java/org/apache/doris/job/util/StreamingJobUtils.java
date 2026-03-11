@@ -25,7 +25,10 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.SmallFileMgr;
+import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
@@ -33,6 +36,7 @@ import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -243,6 +247,32 @@ public class StreamingJobUtils {
         int index = lastSelectedBackendIndex;
         lastSelectedBackendIndex = (index >= Integer.MAX_VALUE - 1) ? 0 : index + 1;
         return index;
+    }
+
+    /**
+     * When enabling SSL, you need to convert FILE:ca.pem to FILE:ca.pem:md5.
+     */
+    public static Map<String, String> convertCertFile(long dbId, Map<String, String> sourceProperties)
+            throws JobException {
+        SmallFileMgr smallFileMgr = Env.getCurrentEnv().getSmallFileMgr();
+        Map<String, String> newProps = new HashMap<>(sourceProperties);
+        if (sourceProperties.containsKey(DataSourceConfigKeys.SSL_ROOTCERT)) {
+            String certFile = sourceProperties.get(DataSourceConfigKeys.SSL_ROOTCERT);
+            if (certFile.startsWith("FILE:")) {
+                String file = certFile.substring(certFile.indexOf(":") + 1);
+                try {
+                    SmallFile smallFile =
+                            smallFileMgr.getSmallFile(dbId, StreamingInsertJob.JOB_FILE_CATALOG, file, true);
+                    newProps.put(DataSourceConfigKeys.SSL_ROOTCERT, "FILE:" + smallFile.id + ":" + smallFile.md5);
+                } catch (DdlException ex) {
+                    throw new JobException("ssl root cert file not found: " + certFile, ex);
+                }
+            } else {
+                throw new JobException("ssl root cert is not in expected format, "
+                        + "should start with FILE:, got " + certFile);
+            }
+        }
+        return newProps;
     }
 
     public static List<CreateTableCommand> generateCreateTableCmds(String targetDb, DataSourceType sourceType,

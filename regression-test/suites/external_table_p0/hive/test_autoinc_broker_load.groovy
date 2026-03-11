@@ -16,7 +16,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_autoinc_broker_load", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_autoinc_broker_load", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {

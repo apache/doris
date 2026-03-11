@@ -22,6 +22,7 @@ import org.apache.doris.cdcclient.exception.CdcClientException;
 import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.cdcclient.source.reader.JdbcIncrementalSourceReader;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
+import org.apache.doris.cdcclient.utils.SmallFileMgr;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
@@ -79,6 +80,7 @@ import org.slf4j.LoggerFactory;
 public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     private static final Logger LOG = LoggerFactory.getLogger(PostgresSourceReader.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final Object SLOT_CREATION_LOCK = new Object();
 
     public PostgresSourceReader() {
         super();
@@ -88,8 +90,10 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     public void initialize(long jobId, DataSource dataSource, Map<String, String> config) {
         PostgresSourceConfig sourceConfig = generatePostgresConfig(config, jobId, 0);
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
-        LOG.info("Creating slot for job {}, user {}", jobId, sourceConfig.getUsername());
-        createSlotForGlobalStreamSplit(dialect);
+        synchronized (SLOT_CREATION_LOCK) {
+            LOG.info("Creating slot for job {}, user {}", jobId, sourceConfig.getUsername());
+            createSlotForGlobalStreamSplit(dialect);
+        }
         super.initialize(jobId, dataSource, config);
     }
 
@@ -158,16 +162,19 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
 
         String hostname = props.getProperty("PGHOST");
         String port = props.getProperty("PGPORT");
-        String database = props.getProperty("PGDBNAME");
+        String databaseFromUrl = props.getProperty("PGDBNAME");
         Preconditions.checkNotNull(hostname, "host is required");
         Preconditions.checkNotNull(port, "port is required");
-        Preconditions.checkNotNull(database, "database is required");
 
         configFactory.hostname(hostname);
         configFactory.port(Integer.parseInt(port));
         configFactory.username(cdcConfig.get(DataSourceConfigKeys.USER));
         configFactory.password(cdcConfig.get(DataSourceConfigKeys.PASSWORD));
-        configFactory.database(database);
+
+        String database = cdcConfig.get(DataSourceConfigKeys.DATABASE);
+        String finalDatabase = StringUtils.isNotEmpty(database) ? database : databaseFromUrl;
+        Preconditions.checkNotNull(finalDatabase, "database is required");
+        configFactory.database(finalDatabase);
 
         String schema = cdcConfig.get(DataSourceConfigKeys.SCHEMA);
         Preconditions.checkNotNull(schema, "schema is required");
@@ -212,12 +219,27 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         dbzProps.put("interval.handling.mode", "string");
         configFactory.debeziumProperties(dbzProps);
 
+        // setting ssl
+        if (cdcConfig.containsKey(DataSourceConfigKeys.SSL_MODE)) {
+            dbzProps.put("database.sslmode", cdcConfig.get(DataSourceConfigKeys.SSL_MODE));
+        }
+
+        if (cdcConfig.containsKey(DataSourceConfigKeys.SSL_ROOTCERT)) {
+            String fileName = cdcConfig.get(DataSourceConfigKeys.SSL_ROOTCERT);
+            String filePath = SmallFileMgr.getFilePath(fileName);
+            LOG.info("Using SSL root cert file path: {}", filePath);
+            dbzProps.put("database.sslrootcert", filePath);
+        }
+
         configFactory.serverTimeZone(
                 ConfigUtil.getPostgresServerTimeZoneFromProps(props).toString());
         configFactory.slotName(getSlotName(jobId));
         configFactory.decodingPluginName("pgoutput");
         configFactory.heartbeatInterval(
                 Duration.ofMillis(Constants.DEBEZIUM_HEARTBEAT_INTERVAL_MS));
+
+        // support scan partition table
+        configFactory.setIncludePartitionedTables(true);
 
         // subtaskId use pg create slot in snapshot phase, slotname is slot_name_subtaskId
         return configFactory.create(subtaskId);

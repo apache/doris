@@ -25,10 +25,10 @@
 #include <vector>
 
 #include "gtest/gtest_pred_impl.h"
-#include "olap/row_cursor.h"
-#include "olap/row_cursor_cell.h"
-#include "olap/tablet_schema.h"
-#include "olap/tablet_schema_helper.h"
+#include "storage/row_cursor.h"
+#include "storage/row_cursor_cell.h"
+#include "storage/tablet/tablet_schema.h"
+#include "storage/tablet/tablet_schema_helper.h"
 #include "util/debug_util.h"
 
 namespace doris {
@@ -52,7 +52,7 @@ TEST_F(KeyUtilTest, encode) {
     // test encoding with padding
     {
         RowCursor row;
-        static_cast<void>(row.init(tablet_schema, 2));
+        static_cast<void>(row._init(tablet_schema, 2));
 
         {
             // test padding

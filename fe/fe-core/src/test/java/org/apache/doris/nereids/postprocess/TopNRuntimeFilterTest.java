@@ -19,15 +19,25 @@ package org.apache.doris.nereids.postprocess;
 
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
+import org.apache.doris.nereids.processor.post.TopnFilterContext;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.Map;
 
 public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMatchSupported {
     @Override
@@ -77,5 +87,48 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                 (PhysicalTopN<? extends Plan>) plan.child(0).child(0).child(0);
         Assertions.assertTrue(localTopN.getSortPhase().isLocal());
         Assertions.assertFalse(checker.getCascadesContext().getTopnFilterContext().isTopnFilterSource(localTopN));
+    }
+
+    @Test
+    public void testProbeExprNullableThroughRightOuterJoin() {
+        // topn node push down filter value to scan node.
+        // the filter value is nullable.
+        // but c_name in scan node is not nullable. so we use
+        // substring(nullable(c_name), 1, 5) as probe expr on scan node
+        String sql = "select substring(c_name, 1, 5) "
+                + "from customer c right outer join lineorder l "
+                + "on c.c_custkey = l.lo_custkey "
+                + "order by substring(c_name, 1, 5) nulls last limit 3";
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .implement();
+        PhysicalPlan plan = checker.getPhysicalPlan();
+        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+
+        TopnFilterContext ctx = checker.getCascadesContext().getTopnFilterContext();
+        Assertions.assertFalse(ctx.getTopnFilters().isEmpty(), "topn filter should be created");
+
+        TopnFilter filter = ctx.getTopnFilters().stream()
+                .filter(f -> f.targets.values().stream().anyMatch(expr -> expr instanceof Substring))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("topn filter with substring probe not found"));
+
+        Map.Entry<PhysicalRelation, Expression> target = filter.targets.entrySet().stream()
+                .filter(entry -> entry.getValue() instanceof Substring)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("substring probe target not found"));
+        PhysicalRelation relation = target.getKey();
+        Expression probeExpr = target.getValue();
+
+        Slot cNameSlot = relation.getOutput().stream()
+                .filter(slot -> slot.getName().equalsIgnoreCase("c_name"))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("c_name slot not found"));
+
+        Expression expectedProbeExpr = new Substring(new Nullable(cNameSlot), new IntegerLiteral(1),
+                new IntegerLiteral(5));
+        Assertions.assertEquals(expectedProbeExpr, probeExpr);
     }
 }

@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/system_metrics.h"
+#include "common/metrics/system_metrics.h"
 
 #include <glog/logging.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include "common/metrics/metrics.h"
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/test_util.h"
-#include "util/metrics.h"
 
 namespace doris {
 

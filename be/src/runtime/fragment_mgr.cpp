@@ -58,35 +58,34 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "common/utils.h"
+#include "core/data_type/primitive_type.h"
+#include "exec/pipeline/pipeline_fragment_context.h"
+#include "exec/runtime_filter/runtime_filter_consumer.h"
+#include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "io/fs/stream_load_pipe.h"
-#include "pipeline/pipeline_fragment_context.h"
-#include "runtime/client_cache.h"
+#include "load/stream_load/new_load_stream_mgr.h"
+#include "load/stream_load/stream_load_context.h"
+#include "load/stream_load/stream_load_executor.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/frontend_info.h"
-#include "runtime/primitive_type.h"
 #include "runtime/query_context.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/runtime_state.h"
-#include "runtime/stream_load/new_load_stream_mgr.h"
-#include "runtime/stream_load/stream_load_context.h"
-#include "runtime/stream_load/stream_load_executor.h"
 #include "runtime/thread_context.h"
-#include "runtime/types.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
-#include "runtime_filter/runtime_filter_consumer.h"
-#include "runtime_filter/runtime_filter_mgr.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
+#include "util/client_cache.h"
 #include "util/debug_points.h"
 #include "util/debug_util.h"
-#include "util/doris_metrics.h"
 #include "util/network_util.h"
-#include "util/runtime_profile.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
@@ -340,6 +339,10 @@ void FragmentMgr::stop() {
     _thread_pool->shutdown();
     // Only me can delete
     _query_ctx_map.clear();
+    // in one BE's graceful shutdown, cancel_worker will get related running queries via _get_all_running_queries_from_fe and cancel them.
+    // so clearing here will not make RF consumer hang. if we dont do this, in ~FragmentMgr() there may be QueryContext in _query_ctx_map_delay_delete
+    // destructred and remove it from _query_ctx_map_delay_delete which is destructring. it's UB.
+    _query_ctx_map_delay_delete.clear();
     _pipeline_map.clear();
 }
 
@@ -352,7 +355,7 @@ std::string FragmentMgr::to_http_path(const std::string& file_name) {
 }
 
 Status FragmentMgr::trigger_pipeline_context_report(
-        const ReportStatusRequest req, std::shared_ptr<pipeline::PipelineFragmentContext>&& ctx) {
+        const ReportStatusRequest req, std::shared_ptr<PipelineFragmentContext>&& ctx) {
     return _thread_pool->submit_func([this, req, ctx]() {
         SCOPED_ATTACH_TASK(ctx->get_query_ctx()->query_mem_tracker());
         coordinator_callback(req);
@@ -545,6 +548,19 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                 params.__isset.iceberg_commit_datas = true;
                 params.iceberg_commit_datas.insert(params.iceberg_commit_datas.end(),
                                                    rs_icd.begin(), rs_icd.end());
+            }
+        }
+    }
+
+    if (auto mcd = req.runtime_state->mc_commit_datas(); !mcd.empty()) {
+        params.__isset.mc_commit_datas = true;
+        params.mc_commit_datas.insert(params.mc_commit_datas.end(), mcd.begin(), mcd.end());
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (auto rs_mcd = rs->mc_commit_datas(); !rs_mcd.empty()) {
+                params.__isset.mc_commit_datas = true;
+                params.mc_commit_datas.insert(params.mc_commit_datas.end(), rs_mcd.begin(),
+                                              rs_mcd.end());
             }
         }
     }
@@ -798,9 +814,8 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
         timespec now;
         clock_gettime(CLOCK_MONOTONIC, &now);
 
-        _pipeline_map.apply([&](phmap::flat_hash_map<
-                                    std::pair<TUniqueId, int>,
-                                    std::shared_ptr<pipeline::PipelineFragmentContext>>& map)
+        _pipeline_map.apply([&](phmap::flat_hash_map<std::pair<TUniqueId, int>,
+                                                     std::shared_ptr<PipelineFragmentContext>>& map)
                                     -> Status {
             std::set<TUniqueId> query_id_set;
             for (auto& it : map) {
@@ -863,12 +878,11 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     RETURN_IF_ERROR(_get_or_create_query_ctx(params, parent, query_source, query_ctx));
     SCOPED_ATTACH_TASK(query_ctx.get()->resource_ctx());
     int64_t duration_ns = 0;
-    std::shared_ptr<pipeline::PipelineFragmentContext> context =
-            std::make_shared<pipeline::PipelineFragmentContext>(
-                    query_ctx->query_id(), params, query_ctx, _exec_env, cb,
-                    [this](const ReportStatusRequest& req, auto&& ctx) {
-                        return this->trigger_pipeline_context_report(req, std::move(ctx));
-                    });
+    std::shared_ptr<PipelineFragmentContext> context = std::make_shared<PipelineFragmentContext>(
+            query_ctx->query_id(), params, query_ctx, _exec_env, cb,
+            [this](const ReportStatusRequest& req, auto&& ctx) {
+                return this->trigger_pipeline_context_report(req, std::move(ctx));
+            });
     {
         SCOPED_RAW_TIMER(&duration_ns);
         Status prepare_st = Status::OK();
@@ -961,11 +975,10 @@ void FragmentMgr::cancel_worker() {
             running_queries_on_all_fes.clear();
         }
 
-        std::vector<std::shared_ptr<pipeline::PipelineFragmentContext>> ctx;
+        std::vector<std::shared_ptr<PipelineFragmentContext>> ctx;
         _pipeline_map.apply(
                 [&](phmap::flat_hash_map<std::pair<TUniqueId, int>,
-                                         std::shared_ptr<pipeline::PipelineFragmentContext>>& map)
-                        -> Status {
+                                         std::shared_ptr<PipelineFragmentContext>>& map) -> Status {
                     ctx.reserve(ctx.size() + map.size());
                     for (auto& pipeline_itr : map) {
                         ctx.push_back(pipeline_itr.second);

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -72,6 +73,18 @@ public class WidthBucket extends ScalarFunction implements ExplicitlyCastableSig
     public WidthBucket withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 4);
         return new WidthBucket(getFunctionParams(children));
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (!child(3).isLiteral()) {
+            throw new AnalysisException("The fourth argument of WidthBucket must be a constant.");
+        }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkLegalityBeforeTypeCoercion();
     }
 
     @Override

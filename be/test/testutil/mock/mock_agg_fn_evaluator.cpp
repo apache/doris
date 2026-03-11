@@ -15,18 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "mock_agg_fn_evaluator.h"
+#include "testutil/mock/mock_agg_fn_evaluator.h"
 
 #include <gtest/gtest.h>
 
 #include "agent/be_exec_version_manager.h"
 #include "common/object_pool.h"
-#include "mock_slot_ref.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/exprs/vectorized_agg_fn.h"
-#include "vec/exprs/vexpr_context.h"
-namespace doris::vectorized {
+#include "core/data_type/data_type_number.h"
+#include "exprs/aggregate/aggregate_function_simple_factory.h"
+#include "exprs/vectorized_agg_fn.h"
+#include "exprs/vexpr_context.h"
+#include "testutil/mock/mock_slot_ref.h"
+namespace doris {
 
 AggFnEvaluator* create_mock_agg_fn_evaluator(ObjectPool& pool, bool is_merge, bool without_key) {
     auto* mock_agg_fn_evaluator = pool.add(new MockAggFnEvaluator(is_merge, without_key));
@@ -68,4 +68,4 @@ AggFnEvaluator* create_agg_fn(ObjectPool& pool, const std::string& agg_fn_name,
     return mock_agg_fn_evaluator;
 }
 
-} // namespace doris::vectorized
+} // namespace doris

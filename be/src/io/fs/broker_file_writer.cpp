@@ -30,8 +30,8 @@
 #include "common/logging.h"
 #include "io/fs/file_writer.h"
 #include "runtime/broker_mgr.h"
-#include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "util/client_cache.h"
 
 namespace doris::io {
 

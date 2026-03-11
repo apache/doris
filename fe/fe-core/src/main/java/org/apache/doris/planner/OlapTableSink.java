@@ -19,9 +19,12 @@ package org.apache.doris.planner;
 
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
@@ -427,9 +430,10 @@ public class OlapTableSink extends DataSink {
             if (whereClause != null) {
                 Expr expr = syncMvWhereClauses.getOrDefault(pair.getKey(), null);
                 if (expr == null) {
-                    throw new AnalysisException(String.format("%s is not analyzed", whereClause.toSqlWithoutTbl()));
+                    throw new AnalysisException(String.format("%s is not analyzed",
+                            whereClause.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE)));
                 }
-                indexSchema.setWhereClause(expr.treeToThrift());
+                indexSchema.setWhereClause(ExprToThriftVisitor.treeToThrift(expr));
             }
             indexSchema.setColumnsDesc(columnsDesc);
             indexSchema.setIndexesDesc(indexDesc);
@@ -535,7 +539,7 @@ public class OlapTableSink extends DataSink {
             if (exprSource.size() != partitionExprs.size()) {
                 throw new UserException(String.format("%s is not analyzed", exprSource));
             }
-            partitionParam.setPartitionFunctionExprs(Expr.treesToThrift(partitionExprs));
+            partitionParam.setPartitionFunctionExprs(ExprToThriftVisitor.treesToThrift(partitionExprs));
         }
 
         return partitionParam;
@@ -616,7 +620,7 @@ public class OlapTableSink extends DataSink {
                     if (exprSource.size() != partitionExprs.size()) {
                         throw new UserException(String.format("%s is not analyzed", exprSource));
                     }
-                    partitionParam.setPartitionFunctionExprs(Expr.treesToThrift(partitionExprs));
+                    partitionParam.setPartitionFunctionExprs(ExprToThriftVisitor.treesToThrift(partitionExprs));
                 }
 
                 partitionParam.setEnableAutomaticPartition(enableAutomaticPartition);
@@ -673,7 +677,8 @@ public class OlapTableSink extends DataSink {
             // set start keys. min value is a REAL value. should be legal.
             if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
                 for (int i = 0; i < partColNum; i++) {
-                    tPartition.addToStartKeys(range.lowerEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
+                    tPartition.addToStartKeys(ExprToThriftVisitor.treeToThrift(
+                            range.lowerEndpoint().getKeys().get(i)).getNodes().get(0));
                 }
             }
             // TODO: support real MaxLiteral in thrift.
@@ -681,7 +686,8 @@ public class OlapTableSink extends DataSink {
             // see VOlapTablePartition's ctor in tablet_info.h
             if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
                 for (int i = 0; i < partColNum; i++) {
-                    tPartition.addToEndKeys(range.upperEndpoint().getKeys().get(i).treeToThrift().getNodes().get(0));
+                    tPartition.addToEndKeys(ExprToThriftVisitor.treeToThrift(
+                            range.upperEndpoint().getKeys().get(i)).getNodes().get(0));
                 }
             }
         } else if (partitionItem instanceof ListPartitionItem) {
@@ -692,9 +698,10 @@ public class OlapTableSink extends DataSink {
                 for (int i = 0; i < partColNum; i++) {
                     LiteralExpr literalExpr = partitionKey.getKeys().get(i);
                     if (literalExpr.isNullLiteral()) {
-                        tExprNodes.add(NullLiteral.create(literalExpr.getType()).treeToThrift().getNodes().get(0));
+                        tExprNodes.add(ExprToThriftVisitor.treeToThrift(
+                                NullLiteral.create(literalExpr.getType())).getNodes().get(0));
                     } else {
-                        tExprNodes.add(literalExpr.treeToThrift().getNodes().get(0));
+                        tExprNodes.add(ExprToThriftVisitor.treeToThrift(literalExpr).getNodes().get(0));
                     }
                 }
                 tPartition.addToInKeys(tExprNodes);

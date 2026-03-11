@@ -134,7 +134,11 @@ optSpecBranch
     ;
 
 supportedDmlStatement
-    : explain? cte? INSERT (INTO | OVERWRITE TABLE)
+    : explain? cte? INSERT INTO tvfName=identifier
+        LEFT_PAREN tvfProperties=propertyItemList RIGHT_PAREN
+        (WITH LABEL labelName=identifier)?
+        query                                                          #insertIntoTVF
+    | explain? cte? INSERT (INTO | OVERWRITE TABLE)
         (tableName=multipartIdentifier (optSpecBranch)? | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
         partitionSpec?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
@@ -185,8 +189,8 @@ supportedCreateStatement
     : CREATE (EXTERNAL | TEMPORARY)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
         ((ctasCols=identifierList)? | (LEFT_PAREN columnDefs (COMMA indexDefs)? COMMA? RIGHT_PAREN))
         (ENGINE EQ engine=identifier)?
-        ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList
-        (CLUSTER BY clusterKeys=identifierList)?)?
+        ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList)?
+        (ORDER BY LEFT_PAREN sortItems+=sortItem (COMMA sortItems+=sortItem)* RIGHT_PAREN)?
         (COMMENT STRING_LITERAL)?
         (partition=partitionTable)?
         (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM)
@@ -204,6 +208,8 @@ supportedCreateStatement
         LIKE existedTable=multipartIdentifier
         (WITH ROLLUP (rollupNames=identifierList)?)?                      #createTableLike
     | CREATE ROLE (IF NOT EXISTS)? name=identifierOrText (COMMENT STRING_LITERAL)?    #createRole
+    | CREATE AUTHENTICATION INTEGRATION (IF NOT EXISTS)? integrationName=identifier
+        properties=propertyClause commentSpec?                                  #createAuthenticationIntegration
     | CREATE WORKLOAD GROUP (IF NOT EXISTS)?
         name=identifierOrText (FOR computeGroup=identifierOrText)? properties=propertyClause? #createWorkloadGroup
     | CREATE CATALOG (IF NOT EXISTS)? catalogName=identifier
@@ -288,6 +294,12 @@ supportedAlterStatement
         properties=propertyClause?                                                          #alterComputeGroup
     | ALTER CATALOG name=identifier SET PROPERTIES
         LEFT_PAREN propertyItemList RIGHT_PAREN                                             #alterCatalogProperties        
+    | ALTER AUTHENTICATION INTEGRATION integrationName=identifier
+        SET properties=propertyClause                                                       #alterAuthenticationIntegrationProperties
+    | ALTER AUTHENTICATION INTEGRATION integrationName=identifier
+        UNSET properties=propertyKeyClause                                                  #alterAuthenticationIntegrationUnsetProperties
+    | ALTER AUTHENTICATION INTEGRATION integrationName=identifier
+        SET COMMENT comment=STRING_LITERAL                                                   #alterAuthenticationIntegrationComment
     | ALTER WORKLOAD POLICY name=identifierOrText
         properties=propertyClause?                                                          #alterWorkloadPolicy
     | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?                       #alterSqlBlockRule
@@ -331,6 +343,7 @@ supportedDropStatement
     | DROP STORAGE POLICY (IF EXISTS)? name=identifier                          #dropStoragePolicy
     | DROP WORKLOAD GROUP (IF EXISTS)? name=identifierOrText (FOR computeGroup=identifierOrText)?                    #dropWorkloadGroup
     | DROP CATALOG (IF EXISTS)? name=identifier                                 #dropCatalog
+    | DROP AUTHENTICATION INTEGRATION (IF EXISTS)? name=identifier              #dropAuthenticationIntegration
     | DROP FILE name=STRING_LITERAL
         ((FROM | IN) database=identifier)? properties=propertyClause            #dropFile
     | DROP WORKLOAD POLICY (IF EXISTS)? name=identifierOrText                   #dropWorkloadPolicy
@@ -471,6 +484,8 @@ supportedShowStatement
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
+    | SHOW PYTHON VERSIONS                                                           #showPythonVersions
+    | SHOW PYTHON PACKAGES IN STRING_LITERAL                                         #showPythonPackages
     ;
 
 supportedLoadStatement
@@ -526,7 +541,7 @@ supportedOtherStatement
     ;
 
 warmUpSingleTableRef
-    : multipartIdentifier tableAlias?
+    : multipartIdentifier tableAlias
     ;
 
 lockTable
@@ -1450,6 +1465,10 @@ propertyClause
     : PROPERTIES LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN
     ;
 
+propertyKeyClause
+    : PROPERTIES LEFT_PAREN keys+=propertyKey (COMMA keys+=propertyKey)* RIGHT_PAREN
+    ;
+
 propertyItemList
     : properties+=propertyItem (COMMA properties+=propertyItem)*
     ;
@@ -1660,8 +1679,6 @@ primaryExpression
         (ORDER BY sortItem (COMMA sortItem)*)?
         (SEPARATOR sep=expression)? RIGHT_PAREN
         (OVER windowSpec)?                                                                     #groupConcat
-    | GET_FORMAT LEFT_PAREN
-        expression COMMA expression RIGHT_PAREN                                         #getFormatFunction
     | TRIM LEFT_PAREN
         ((BOTH | LEADING | TRAILING) expression? | expression) FROM expression RIGHT_PAREN     #trim
     | (SUBSTR | SUBSTRING | MID) LEFT_PAREN
@@ -1678,7 +1695,7 @@ primaryExpression
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
     | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
     | KEY (dbName=identifier DOT)? keyName=identifier                                          #encryptKey
-    | EXTRACT LEFT_PAREN field=identifier FROM (DATE | TIMESTAMP)?
+    | EXTRACT LEFT_PAREN field=unitIdentifier FROM (DATE | TIMESTAMP)?
       source=valueExpression RIGHT_PAREN                                                       #extract
     | primaryExpression COLLATE (identifier | STRING_LITERAL | DEFAULT)                        #collate
     ;
@@ -1795,8 +1812,10 @@ interval
     ;
 
 unitIdentifier
-	: YEAR | QUARTER | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND | DAY_SECOND | DAY_HOUR
-    | MINUTE_SECOND | SECOND_MICROSECOND
+	: YEAR | QUARTER | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND | MICROSECOND | YEAR_MONTH
+    | DAY_HOUR | DAY_MINUTE | DAY_SECOND | DAY_MICROSECOND | HOUR_MINUTE | HOUR_SECOND
+    | HOUR_MICROSECOND | MINUTE_SECOND | MINUTE_MICROSECOND | SECOND_MICROSECOND
+    | DAYOFWEEK | DAYOFYEAR | DOW | DOY
     ;
 
 dataTypeWithNullable
@@ -1949,6 +1968,7 @@ nonReserved
     | ARRAY
     | AT
     | AUTHORS
+    | AUTHENTICATION
     | AUTO_INCREMENT
     | BACKENDS
     | BACKUP
@@ -1980,7 +2000,6 @@ nonReserved
     | CHAIN
     | CIPHER
     | CHAR
-
     | CHARSET
     | CHECK
     | CLUSTER
@@ -2021,7 +2040,13 @@ nonReserved
     | DATEV1
     | DATEV2
     | DAY
+    | DAYOFWEEK
+    | DAYOFYEAR
     | DAYS
+    | DAY_HOUR
+    | DAY_MICROSECOND
+    | DAY_MINUTE
+    | DAY_SECOND
     | DECIMAL
     | DECIMALV2
     | DECIMALV3
@@ -2035,6 +2060,8 @@ nonReserved
     | DISTINCTPCSA
     | DO
     | DORIS_INTERNAL_TABLE_ID
+    | DOW
+    | DOY
     | DUAL
     | DYNAMIC
     | E
@@ -2065,7 +2092,6 @@ nonReserved
     | FRONTENDS
     | FUNCTION
     | GENERATED
-    | GET_FORMAT
     | GENERIC
     | GLOBAL
     | GRAPH
@@ -2084,11 +2110,15 @@ nonReserved
     | HOTSPOT
     | HOUR
     | HOURS
+    | HOUR_MICROSECOND
+    | HOUR_MINUTE
+    | HOUR_SECOND
     | HUB
     | IDENTIFIED
     | IGNORE
     | IMMEDIATE
     | INCREMENTAL
+    | INTEGRATION
     | INDEXES
     | INSERT
     | INVERTED
@@ -2140,6 +2170,8 @@ nonReserved
     | MIN
     | MINUTE
     | MINUTES
+    | MINUTE_MICROSECOND
+    | MINUTE_SECOND
     | MOD_ALT
     | MODIFY
     | MONTH
@@ -2171,6 +2203,7 @@ nonReserved
     | PASSWORD_LOCK_TIME
     | PASSWORD_REUSE
     | PARTITIONS
+    | PACKAGES
     | PATH
     | PAUSE
     | PERCENT
@@ -2190,6 +2223,7 @@ nonReserved
     | PROFILE
     | PROPERTIES
     | PROPERTY
+    | PYTHON
     | QUANTILE_STATE
 	| QUANTILE_UNION
 	| QUARTER
@@ -2233,6 +2267,8 @@ nonReserved
     | SCHEDULER
     | SCHEMA
     | SECOND
+    | SECOND_MICROSECOND
+    | MICROSECOND
     | SEPARATOR
     | SERIALIZABLE
     | SET_SESSION_VARIABLE
@@ -2294,6 +2330,7 @@ nonReserved
     | VAULTS
     | VERBOSE
     | VERSION
+    | VERSIONS
     | VIEW
     | VIEWS
     | WARM
@@ -2301,5 +2338,6 @@ nonReserved
     | WEEK
     | WORK
     | YEAR
+    | YEAR_MONTH
 //--DEFAULT-NON-RESERVED-END
     ;

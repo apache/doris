@@ -27,15 +27,18 @@ import org.apache.logging.log4j.Logger;
 public class CleanUDFCacheTask extends AgentTask {
     private static final Logger LOG = LogManager.getLogger(CleanUDFCacheTask.class);
     private String functionSignature;
+    private long functionId;
 
-    public CleanUDFCacheTask(long backendId, String signature) {
+    public CleanUDFCacheTask(long backendId, String signature, long functionId) {
         super(null, backendId, TTaskType.CLEAN_UDF_CACHE, -1, -1, -1, -1, -1, -1, -1);
         this.functionSignature = signature;
+        this.functionId = functionId;
     }
 
     public TCleanUDFCacheReq toThrift() {
         TCleanUDFCacheReq req = new TCleanUDFCacheReq();
         req.setFunctionSignature(this.functionSignature);
+        req.setFunctionId(this.functionId);
         return req;
     }
 }

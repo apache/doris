@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
-import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.foundation.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -47,25 +47,28 @@ public class COSProperties extends AbstractS3CompatibleProperties {
     @Setter
     @ConnectorProperty(names = {"cos.region", "s3.region", "AWS_REGION", "region", "REGION"},
             required = false,
+            isRegionField = true,
             description = "The region of COS.")
     protected String region = "";
 
     @Getter
-    @ConnectorProperty(names = {"cos.access_key", "s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY"},
+    @ConnectorProperty(names = {"cos.access_key", "s3.access_key", "s3.access-key-id", "AWS_ACCESS_KEY", "access_key",
+        "ACCESS_KEY"},
             required = false,
             sensitive = true,
             description = "The access key of COS.")
     protected String accessKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"cos.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
+    @ConnectorProperty(names = {"cos.secret_key", "s3.secret_key", "s3.secret-access-key", "AWS_SECRET_KEY",
+        "secret_key", "SECRET_KEY"},
             required = false,
             sensitive = true,
             description = "The secret key of COS.")
     protected String secretKey = "";
 
     @Getter
-    @ConnectorProperty(names = {"cos.session_token", "s3.session_token", "session_token"},
+    @ConnectorProperty(names = {"cos.session_token", "s3.session_token", "s3.session-token",  "session_token"},
             required = false,
             description = "The session token of COS.")
     protected String sessionToken = "";

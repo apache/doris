@@ -21,14 +21,10 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FormatOptions;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
+import org.apache.doris.foundation.format.FormatOptions;
 
 import java.nio.ByteBuffer;
 
@@ -89,14 +85,8 @@ public class NullLiteral extends LiteralExpr {
     }
 
     @Override
-    public String toSqlImpl() {
-        return getStringValue();
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return getStringValue();
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitNullLiteral(this, context);
     }
 
     @Override
@@ -138,10 +128,5 @@ public class NullLiteral extends LiteralExpr {
     @Override
     public ByteBuffer getHashValue(PrimitiveType type) {
         return INT_EXPR.getHashValue(PrimitiveType.INT);
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.NULL_LITERAL;
     }
 }

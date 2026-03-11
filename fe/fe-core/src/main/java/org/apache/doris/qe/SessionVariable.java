@@ -21,6 +21,7 @@ import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.VariableAnnotation;
@@ -29,6 +30,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
@@ -162,7 +164,13 @@ public class SessionVariable implements Serializable, Writable {
     public static final String BROKER_LOAD_BATCH_SIZE = "broker_load_batch_size";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String ENABLE_DISTINCT_STREAMING_AGGREGATION = "enable_distinct_streaming_aggregation";
+    public static final String ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH =
+            "enable_streaming_agg_hash_join_force_passthrough";
+    public static final String ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH =
+            "enable_distinct_streaming_agg_force_passthrough";
+    public static final String ENABLE_BROADCAST_JOIN_FORCE_PASSTHROUGH = "enable_broadcast_join_force_passthrough";
     public static final String DISABLE_COLOCATE_PLAN = "disable_colocate_plan";
+    public static final String COLOCATE_MAX_PARALLEL_NUM = "colocate_max_parallel_num";
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String PARALLEL_PIPELINE_TASK_NUM = "parallel_pipeline_task_num";
@@ -302,11 +310,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SHARED_SCAN = "enable_shared_scan";
 
+    public static final String ENABLE_LEFT_SEMI_DIRECT_RETURN_OPT = "enable_left_semi_direct_return_opt";
+
     public static final String IGNORE_STORAGE_DATA_DISTRIBUTION = "ignore_storage_data_distribution";
 
     public static final String USE_SERIAL_EXCHANGE = "use_serial_exchange";
 
     public static final String ENABLE_PARALLEL_SCAN = "enable_parallel_scan";
+    public static final String ENABLE_AGGREGATE_FUNCTION_NULL_V2 = "enable_aggregate_function_null_v2";
 
     public static final String ENABLE_NEW_SHUFFLE_HASH_METHOD = "enable_new_shuffle_hash_method";
 
@@ -374,6 +385,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HBO_ROW_MATCHING_THRESHOLD = "hbo_row_matching_threshold";
     public static final String HBO_SKEW_RATIO_THRESHOLD = "hbo_skew_ratio_threshold";
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
+    public static final String REQUIRED_GROUP_IDS = "required_group_ids";
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
     public static final String ENABLE_NEREIDS_DISTRIBUTE_PLANNER = "enable_nereids_distribute_planner";
@@ -730,6 +742,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
+    public static final String ENABLE_PAIMON_CPP_READER = "enable_paimon_cpp_reader";
+
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
     public static final String FETCH_ALL_FE_FOR_SYSTEM_TABLE = "fetch_all_fe_for_system_table";
@@ -784,11 +798,13 @@ public class SessionVariable implements Serializable, Writable {
     // enable variant flatten nested as session variable, default is false,
     // which means do not flatten nested when create table
     public static final String ENABLE_VARIANT_FLATTEN_NESTED = "enable_variant_flatten_nested";
+    public static final String ENABLE_VARIANT_SCHEMA_AUTO_CAST = "enable_variant_schema_auto_cast";
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String COMPUTE_GROUP = "compute_group";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
+    public static final String CLOUD_FORCE_SYNC_VERSION = "cloud_force_sync_version";
     public static final String CLOUD_PARTITION_VERSION_CACHE_TTL_MS =
             "cloud_partition_version_cache_ttl_ms";
     public static final String CLOUD_TABLE_VERSION_CACHE_TTL_MS =
@@ -842,6 +858,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
     public static final String AGG_SHUFFLE_USE_PARENT_KEY = "agg_shuffle_use_parent_key";
+    public static final String DECOMPOSE_REPEAT_SHUFFLE_INDEX_IN_MAX_GROUP
+            = "decompose_repeat_shuffle_index_in_max_group";
 
     public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
     @VariableMgr.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
@@ -935,6 +953,8 @@ public class SessionVariable implements Serializable, Writable {
             "default_variant_doc_materialization_min_rows";
 
     public static final String DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT = "default_variant_doc_hash_shard_count";
+
+    public static final String DEFAULT_VARIANT_ENABLE_NESTED_GROUP = "default_variant_enable_nested_group";
 
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
@@ -1249,6 +1269,15 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGGREGATION, fuzzy = true)
     public boolean enableDistinctStreamingAggregation = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH, fuzzy = true)
+    public boolean enableStreamingAggHashJoinForcePassthrough = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH, fuzzy = true)
+    public boolean enableDistinctStreamingAggForcePassthrough = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_BROADCAST_JOIN_FORCE_PASSTHROUGH, fuzzy = true)
+    public boolean enableBroadcastJoinForcePassthrough = false;
+
     @VariableMgr.VarAttr(name = DISABLE_COLOCATE_PLAN)
     public boolean disableColocatePlan = false;
 
@@ -1280,6 +1309,9 @@ public class SessionVariable implements Serializable, Writable {
                         setter = "setFragmentInstanceNum", varType = VariableAnnotation.DEPRECATED)
     public int parallelExecInstanceNum = 8;
 
+    @VariableMgr.VarAttr(name = COLOCATE_MAX_PARALLEL_NUM, needForward = true, fuzzy = false)
+    public int colocateMaxParallelNum = 128;
+
     @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true,
                         setter = "setPipelineTaskNum")
     public int parallelPipelineTaskNum = 0;
@@ -1288,13 +1320,14 @@ public class SessionVariable implements Serializable, Writable {
     public enum IgnoreSplitType {
         NONE,
         IGNORE_JNI,
-        IGNORE_NATIVE
+        IGNORE_NATIVE,
+        IGNORE_PAIMON_CPP
     }
 
     public static final String IGNORE_SPLIT_TYPE = "ignore_split_type";
     @VariableMgr.VarAttr(name = IGNORE_SPLIT_TYPE,
             checker = "checkIgnoreSplitType",
-            options = {"NONE", "IGNORE_JNI", "IGNORE_NATIVE"},
+            options = {"NONE", "IGNORE_JNI", "IGNORE_NATIVE", "IGNORE_PAIMON_CPP"},
             description = {"忽略指定类型的 split", "Ignore splits of the specified type"})
     public String ignoreSplitType = IgnoreSplitType.NONE.toString();
 
@@ -1394,6 +1427,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_CONDITION_CACHE)
     public boolean enableConditionCache = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_LEFT_SEMI_DIRECT_RETURN_OPT)
+    public boolean enableLeftSemiDirectReturnOpt = true;
+
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
     public boolean forwardToMaster = true;
 
@@ -1473,6 +1509,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_SCAN, fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
     private boolean enableParallelScan = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_AGGREGATE_FUNCTION_NULL_V2, fuzzy = true, needForward = true)
+    private boolean enableAggregateFunctionNullV2 = true;
 
     @VariableMgr.VarAttr(name = OPTIMIZE_INDEX_SCAN_PARALLELISM,
             needForward = true,
@@ -1817,6 +1856,12 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = NTH_OPTIMIZED_PLAN)
     private int nthOptimizedPlan = 1;
+
+    @VariableMgr.VarAttr(name = REQUIRED_GROUP_IDS,
+            description = {"指定优化器必须选择包含这些 Group ID 的物理计划（逗号分隔的整数列表）",
+                    "Force the optimizer to choose a physical plan containing these Group IDs "
+                    + "(comma-separated integer list)"})
+    public String requiredGroupIds = "";
 
     @VariableMgr.VarAttr(name = LIMIT_ROWS_FOR_SINGLE_INSTANCE,
             description = {"当一个 ScanNode 上没有过滤条件，且 limit 值小于这个阈值时，"
@@ -2208,6 +2253,38 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DPHYPER_LIMIT)
     public int dphyperLimit = 1000;
 
+    @VariableMgr.VarAttr(name = "eager_aggregation_mode", needForward = true,
+            description = {"0: 根据统计信息决定是使用eager aggregation，"
+                    + "1: 强制使用 eager aggregation，"
+                    + "-1: 禁止使用 eager aggregation",
+                    "0: Determine eager aggregation by statistics, "
+                            + "1: force eager aggregation, "
+                            + "-1: Prohibit eager aggregation "}
+    )
+    private int eagerAggregationMode = 0;
+
+    public static int getEagerAggregationMode() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().eagerAggregationMode;
+        } else {
+            return VariableMgr.getDefaultSessionVariable().eagerAggregationMode;
+        }
+    }
+
+    public void setEagerAggregationMode(int mode) {
+        this.eagerAggregationMode = mode;
+    }
+
+    @VariableMgr.VarAttr(name = "eager_aggregation_on_join", needForward = true)
+    public boolean eagerAggregationOnJoin = false;
+
+    public static boolean isEagerAggregationOnJoin() {
+        if (ConnectContext.get() != null) {
+            return ConnectContext.get().getSessionVariable().eagerAggregationOnJoin;
+        } else {
+            return VariableMgr.getDefaultSessionVariable().eagerAggregationOnJoin;
+        }
+    }
 
     @VariableMgr.VarAttr(
             name = ENABLE_PAGE_CACHE,
@@ -2436,7 +2513,7 @@ public class SessionVariable implements Serializable, Writable {
                     + "因为外表会存在表的 schema 中 char 或者 varchar 列的最大长度和底层 parquet 或者 orc 文件中的 schema 不一致"
                     + "的情况。此时开启改选项，会按照表的 schema 中的最大长度进行截断。",
                     "Whether to truncate char or varchar columns according to the table's schema. "
-                            + "The default is false.\n"
+                            + "The default is true.\n"
                     + "Because the maximum length of the char or varchar column in the schema of the table"
                             + " is inconsistent with the schema in the underlying parquet or orc file."
                     + " At this time, if the option is turned on, it will be truncated according to the maximum length"
@@ -2728,6 +2805,11 @@ public class SessionVariable implements Serializable, Writable {
             description = {"强制使用 jni 方式读取外表", "Force the use of jni mode to read external table"})
     private boolean forceJniScanner = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_PAIMON_CPP_READER,
+            fuzzy = true,
+            description = {"Paimon 非原生文件读取使用 paimon-cpp", "Use paimon-cpp for non-native Paimon reads"})
+    private boolean enablePaimonCppReader = false;
+
     @VariableMgr.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
             description = {"对外表启用 count(*) 下推优化", "enable count(*) pushdown optimization for external table"})
@@ -2741,12 +2823,25 @@ public class SessionVariable implements Serializable, Writable {
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
     public static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
+
+    public static final String ENABLE_MC_LIMIT_SPLIT_OPTIMIZATION = "enable_mc_limit_split_optimization";
     @VariableMgr.VarAttr(
             name = ENABLE_EXTERNAL_TABLE_BATCH_MODE,
             fuzzy = true,
             description = {"使能外表的 batch mode 功能", "Enable the batch mode function of the external table."},
             needForward = true)
     public boolean enableExternalTableBatchMode = true;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_MC_LIMIT_SPLIT_OPTIMIZATION,
+            fuzzy = true,
+            description = {"开启 MaxCompute 表 LIMIT 查询的 split 优化。当查询仅包含分区等值条件且带有 LIMIT 时，"
+                    + "使用 row_offset 策略减少 split 数量以加速查询。",
+                    "Enable split optimization for LIMIT queries on MaxCompute tables. "
+                    + "When the query contains only partition equality predicates with LIMIT, "
+                    + "use row_offset strategy to reduce split count for faster query execution."},
+            needForward = true)
+    public boolean enableMcLimitSplitOptimization = false;
 
     @VariableMgr.VarAttr(name = SKEW_REWRITE_AGG_BUCKET_NUM, needForward = true,
             description = {"bucketNum 参数控制 count(distinct) 倾斜优化的数据分布。决定不同值在 worker 间的分配方式，"
@@ -2852,6 +2947,33 @@ public class SessionVariable implements Serializable, Writable {
 
             }
             ids.add(res);
+        }
+        return ids;
+    }
+
+    public Set<Integer> getRequiredGroupIds() {
+        Set<Integer> ids = Sets.newLinkedHashSet();
+        if (requiredGroupIds.isEmpty()) {
+            return ImmutableSet.of();
+        }
+        for (String v : requiredGroupIds.split(",[\\s]*")) {
+            if (!v.isEmpty()) {
+                boolean isNumber = true;
+                for (int i = 0; i < v.length(); ++i) {
+                    char c = v.charAt(i);
+                    if (c < '0' || c > '9') {
+                        isNumber = false;
+                        break;
+                    }
+                }
+                if (isNumber) {
+                    try {
+                        ids.add(Integer.parseInt(v));
+                    } catch (Throwable t) {
+                        // ignore
+                    }
+                }
+            }
         }
         return ids;
     }
@@ -2967,9 +3089,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_EMPTY_PARTITION_PRUNE)
     public boolean disableEmptyPartitionPrune = false;
     @VariableMgr.VarAttr(name = CLOUD_PARTITION_VERSION_CACHE_TTL_MS)
-    public long cloudPartitionVersionCacheTtlMs = 0;
+    public long cloudPartitionVersionCacheTtlMs = Long.MAX_VALUE;
     @VariableMgr.VarAttr(name = CLOUD_TABLE_VERSION_CACHE_TTL_MS)
-    public long cloudTableVersionCacheTtlMs = 0;
+    public long cloudTableVersionCacheTtlMs = Long.MAX_VALUE;
+    @VariableMgr.VarAttr(name = CLOUD_FORCE_SYNC_VERSION)
+    public boolean cloudForceSyncVersion = false;
     // CLOUD_VARIABLES_END
 
     // fetch remote schema rpc timeout
@@ -3149,6 +3273,9 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean enablePhraseQuerySequentialOpt = true;
 
+    @VariableMgr.VarAttr(name = "enable_adjust_conjunct_order_by_cost", needForward = true)
+    public boolean enableAdjustConjunctOrderByCost = true;
+
     @VariableMgr.VarAttr(name = REQUIRE_SEQUENCE_IN_INSERT, needForward = true, description = {
             "该变量用于控制，使用了 sequence 列的 unique key 表，insert into 操作是否要求必须提供每一行的 sequence 列的值",
             "This variable controls whether the INSERT INTO operation on unique key tables with a sequence"
@@ -3287,6 +3414,18 @@ public class SessionVariable implements Serializable, Writable {
     public int defaultVariantMaxSubcolumnsCount = 2048;
 
     @VariableMgr.VarAttr(
+            name = ENABLE_VARIANT_SCHEMA_AUTO_CAST,
+            needForward = true,
+            affectQueryResultInExecution = true,
+            description = {
+                    "是否启用基于 schema template 的 variant 自动 cast，默认开启。",
+                    "Whether to enable schema-template-based auto cast for variant expressions. "
+                            + "The default is true."
+            }
+    )
+    public boolean enableVariantSchemaAutoCast = true;
+
+    @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
             needForward = true,
             fuzzy = true
@@ -3341,6 +3480,13 @@ public class SessionVariable implements Serializable, Writable {
     public int defaultVariantDocHashShardCount = 64;
 
     @VariableMgr.VarAttr(
+            name = DEFAULT_VARIANT_ENABLE_NESTED_GROUP,
+            needForward = true,
+            fuzzy = true
+    )
+    public boolean defaultVariantEnableNestedGroup = false;
+
+    @VariableMgr.VarAttr(
             name = "use_v3_storage_format",
             fuzzy = true,
             description = {
@@ -3348,6 +3494,9 @@ public class SessionVariable implements Serializable, Writable {
                     "Only takes effect when user does not explicitly specify storage_format."}
     )
     public boolean useV3StorageFormat = false;
+
+    @VariableMgr.VarAttr(name = DECOMPOSE_REPEAT_SHUFFLE_INDEX_IN_MAX_GROUP)
+    public int decomposeRepeatShuffleIndexInMaxGroup = -1;
 
     public static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
     @VariableMgr.VarAttr(name = IGNORE_ICEBERG_DANGLING_DELETE,
@@ -3361,6 +3510,7 @@ public class SessionVariable implements Serializable, Writable {
                             + "When set to false, COUNT(*) will scan data files "
                             + "to exclude the impact of dangling delete files."})
     public boolean ignoreIcebergDanglingDelete = false;
+
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -3377,6 +3527,9 @@ public class SessionVariable implements Serializable, Writable {
         this.useSerialExchange = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
+        this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
+        this.enableDistinctStreamingAggForcePassthrough = random.nextBoolean();
+        this.enableBroadcastJoinForcePassthrough = random.nextBoolean();
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         this.shortCircuitEvaluation = random.nextBoolean();
 
@@ -3531,6 +3684,7 @@ public class SessionVariable implements Serializable, Writable {
 
         // jni
         this.forceJniScanner = random.nextBoolean();
+        this.enablePaimonCppReader = random.nextBoolean();
 
         // statistics
         this.fetchHiveRowCountSync = random.nextBoolean();
@@ -4077,7 +4231,7 @@ public class SessionVariable implements Serializable, Writable {
         this.debugSkipFoldConstant = debugSkipFoldConstant;
     }
 
-    public int getParallelExecInstanceNum() {
+    public int getParallelExecInstanceNum(String clusterName) {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null && connectContext.getEnv() != null && connectContext.getEnv().getAuth() != null) {
             int userParallelExecInstanceNum = connectContext.getEnv().getAuth()
@@ -4086,12 +4240,41 @@ public class SessionVariable implements Serializable, Writable {
                 return userParallelExecInstanceNum;
             }
         }
+        String resolvedClusterName = clusterName;
+        if (Config.isCloudMode() && Strings.isNullOrEmpty(resolvedClusterName)) {
+            resolvedClusterName = resolveCloudClusterName(connectContext);
+        }
         if (parallelPipelineTaskNum == 0) {
-            int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
+            int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize(resolvedClusterName);
             int autoInstance = (size + 1) / 2;
             return Math.min(autoInstance, maxInstanceNum);
         } else {
             return parallelPipelineTaskNum;
+        }
+    }
+
+    public String resolveCloudClusterName() {
+        return resolveCloudClusterName(ConnectContext.get());
+    }
+
+    public String resolveCloudClusterName(ConnectContext connectContext) {
+        if (!Config.isCloudMode()) {
+            return "";
+        }
+        if (!Strings.isNullOrEmpty(cloudCluster)) {
+            return cloudCluster;
+        }
+        if (connectContext == null) {
+            return "";
+        }
+        try {
+            String clusterName = connectContext.getCloudCluster(false);
+            return clusterName == null ? "" : clusterName;
+        } catch (ComputeGroupException e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("failed to resolve cloud cluster for parallel instance num", e);
+            }
+            return "";
         }
     }
 
@@ -4662,9 +4845,15 @@ public class SessionVariable implements Serializable, Writable {
     /** canUseNereidsDistributePlanner */
     public static boolean canUseNereidsDistributePlanner() {
         ConnectContext connectContext = ConnectContext.get();
-        if (connectContext == null) {
+        if (connectContext != null) {
+            return canUseNereidsDistributePlanner(connectContext);
+        } else {
             return true;
         }
+    }
+
+    /** canUseNereidsDistributePlanner */
+    public static boolean canUseNereidsDistributePlanner(ConnectContext connectContext) {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         StatementContext statementContext = connectContext.getStatementContext();
         if (statementContext != null) {
@@ -5009,7 +5198,8 @@ public class SessionVariable implements Serializable, Writable {
         }
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnableLocalShuffle(enableLocalShuffle);
-        tResult.setParallelInstance(getParallelExecInstanceNum());
+        String clusterName = resolveCloudClusterName();
+        tResult.setParallelInstance(getParallelExecInstanceNum(clusterName));
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
@@ -5017,6 +5207,9 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
+        tResult.setEnableStreamingAggHashJoinForcePassthrough(enableStreamingAggHashJoinForcePassthrough);
+        tResult.setEnableDistinctStreamingAggForcePassthrough(enableDistinctStreamingAggForcePassthrough);
+        tResult.setEnableBroadcastJoinForcePassthrough(enableBroadcastJoinForcePassthrough);
         tResult.setPartitionTopnMaxPartitions(partitionTopNMaxPartitions);
         tResult.setPartitionTopnPrePartitionRows(partitionTopNPerPartitionRows);
         if (enableConditionCache) {
@@ -5085,6 +5278,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableParquetFilePageCache(enableParquetFilePageCache);
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
+        tResult.setEnablePaimonCppReader(enablePaimonCppReader);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
@@ -5102,6 +5296,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setInvertedIndexCompatibleRead(invertedIndexCompatibleRead);
         tResult.setCteMaxRecursionDepth(cteMaxRecursionDepth);
         tResult.setEnableParallelScan(enableParallelScan);
+        tResult.setEnableLeftSemiDirectReturnOpt(enableLeftSemiDirectReturnOpt);
+        tResult.setEnableAggregateFunctionNullV2(enableAggregateFunctionNullV2);
         tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
         tResult.setOptimizeIndexScanParallelism(optimizeIndexScanParallelism);
@@ -5178,6 +5374,7 @@ public class SessionVariable implements Serializable, Writable {
         } else {
             tResult.setFileCacheQueryLimitPercent(Config.file_cache_query_limit_max_percent);
         }
+        tResult.setEnableAdjustConjunctOrderByCost(enableAdjustConjunctOrderByCost);
 
         // Set Iceberg write target file size
         tResult.setIcebergWriteTargetFileSizeBytes(icebergWriteTargetFileSizeBytes);
@@ -5501,6 +5698,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableParallelScan;
     }
 
+    public boolean getEnableAggregateFunctionNullV2() {
+        return enableAggregateFunctionNullV2;
+    }
+
     public boolean enableParallelResultSink() {
         return enableParallelResultSink;
     }
@@ -5818,6 +6019,10 @@ public class SessionVariable implements Serializable, Writable {
         return forceJniScanner;
     }
 
+    public boolean isEnablePaimonCppReader() {
+        return enablePaimonCppReader;
+    }
+
     public String getIgnoreSplitType() {
         return ignoreSplitType;
     }
@@ -5826,7 +6031,8 @@ public class SessionVariable implements Serializable, Writable {
         try {
             IgnoreSplitType.valueOf(value);
         } catch (Exception e) {
-            throw new UnsupportedOperationException("We only support `NONE`, `IGNORE_JNI` and `IGNORE_NATIVE`");
+            throw new UnsupportedOperationException(
+                    "We only support `NONE`, `IGNORE_JNI`, `IGNORE_NATIVE` and `IGNORE_PAIMON_CPP`");
         }
     }
 
@@ -5836,6 +6042,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setForceJniScanner(boolean force) {
         forceJniScanner = force;
+    }
+
+    public void setEnablePaimonCppReader(boolean enable) {
+        enablePaimonCppReader = enable;
     }
 
     public boolean isEnableCountPushDownForExternalTable() {
@@ -5902,6 +6112,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableVariantFlattenNested() {
         return enableVariantFlattenNested;
+    }
+
+    public boolean isEnableVariantSchemaAutoCast() {
+        return enableVariantSchemaAutoCast;
     }
 
     public void setProfileLevel(String profileLevel) {
@@ -6012,6 +6226,10 @@ public class SessionVariable implements Serializable, Writable {
         return defaultVariantDocHashShardCount;
     }
 
+    public boolean getDefaultVariantEnableNestedGroup() {
+        return defaultVariantEnableNestedGroup;
+    }
+
     public void readAffectQueryResultVariables(BiConsumer<String, Object> variablesReader) {
         for (Field affectQueryResultField : affectQueryResultFields) {
             String name = affectQueryResultField.getName();
@@ -6043,6 +6261,13 @@ public class SessionVariable implements Serializable, Writable {
             return ConnectContext.get().getSessionVariable().feDebug;
         } else {
             return false;
+        }
+    }
+
+    public static void throwAnalysisExceptionWhenFeDebug(String msg) {
+        LOG.warn(msg);
+        if (isFeDebug()) {
+            throw new AnalysisException(msg);
         }
     }
 

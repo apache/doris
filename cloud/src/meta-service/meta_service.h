@@ -125,6 +125,10 @@ public:
                                 const GetCurrentMaxTxnRequest* request,
                                 GetCurrentMaxTxnResponse* response,
                                 ::google::protobuf::Closure* done) override;
+    void create_meta_sync_point(::google::protobuf::RpcController* controller,
+                                const CreateMetaSyncPointRequest* request,
+                                CreateMetaSyncPointResponse* response,
+                                ::google::protobuf::Closure* done) override;
 
     void begin_sub_txn(::google::protobuf::RpcController* controller,
                        const BeginSubTxnRequest* request, BeginSubTxnResponse* response,
@@ -420,6 +424,10 @@ public:
                         const CloneInstanceRequest* request, CloneInstanceResponse* response,
                         ::google::protobuf::Closure* done) override;
 
+    void compact_snapshot(::google::protobuf::RpcController* controller,
+                          const CompactSnapshotRequest* request, CompactSnapshotResponse* response,
+                          ::google::protobuf::Closure* done) override;
+
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
@@ -501,7 +509,8 @@ private:
             std::string_view instance_id, KVStats& stats);
 
     void commit_partition_internal(const PartitionRequest* request, const std::string& instance_id,
-                                   const std::vector<int64_t>& partition_ids, MetaServiceCode& code,
+                                   const std::vector<int64_t>& partition_ids,
+                                   PartitionResponse* response, MetaServiceCode& code,
                                    std::string& msg, KVStats& stats);
 
     // Wait for all pending transactions before returning, and bump up the version to the latest.
@@ -568,6 +577,13 @@ public:
                                 GetCurrentMaxTxnResponse* response,
                                 ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_current_max_txn_id, controller, request, response, done);
+    }
+
+    void create_meta_sync_point(::google::protobuf::RpcController* controller,
+                                const CreateMetaSyncPointRequest* request,
+                                CreateMetaSyncPointResponse* response,
+                                ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::create_meta_sync_point, controller, request, response, done);
     }
 
     void begin_sub_txn(::google::protobuf::RpcController* controller,
@@ -995,6 +1011,12 @@ public:
                         const CloneInstanceRequest* request, CloneInstanceResponse* response,
                         ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::clone_instance, controller, request, response, done);
+    }
+
+    void compact_snapshot(::google::protobuf::RpcController* controller,
+                          const CompactSnapshotRequest* request, CompactSnapshotResponse* response,
+                          ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::compact_snapshot, controller, request, response, done);
     }
 
 private:

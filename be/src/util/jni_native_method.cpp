@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "jni_native_method.h"
+#include "util/jni_native_method.h"
 
 #include <glog/logging.h>
 

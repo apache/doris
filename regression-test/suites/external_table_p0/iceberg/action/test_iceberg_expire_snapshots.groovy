@@ -22,7 +22,7 @@ import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
 import groovy.json.JsonSlurper
 
-suite("test_iceberg_expire_snapshots", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_expire_snapshots", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable iceberg test.")

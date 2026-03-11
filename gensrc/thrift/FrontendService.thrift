@@ -315,6 +315,8 @@ struct TReportExecStatusParams {
 
   31: optional list<TFragmentInstanceReport> fragment_instance_reports;
 
+  32: optional list<DataSinks.TMCCommitData> mc_commit_datas
+
   33: optional string first_error_msg
 }
 
@@ -400,6 +402,8 @@ struct TMasterOpRequest {
 
     // temporary table
     1002: optional string sessionId
+    // propagate client's CLIENT_DEPRECATE_EOF capability for proxy forwarding
+    1003: optional bool clientDeprecatedEOF
 }
 
 struct TColumnDefinition {
@@ -766,6 +770,19 @@ struct TFrontendPingFrontendRequest {
    1: required i32 clusterId
    2: required string token
    3: optional string deployMode
+}
+
+struct TCloudVersionInfo {
+   1: optional i64 tableId
+   2: optional i64 partitionId
+   3: optional i64 version
+   4: optional i64 versionUpdateTime
+}
+
+struct TFrontendSyncCloudVersionRequest {
+   1: optional i64 dbId
+   2: optional list<TCloudVersionInfo> tableVersionInfos
+   3: optional list<TCloudVersionInfo> partitionVersionInfos
 }
 
 struct TFrontendReportAliveSessionRequest {
@@ -1662,6 +1679,7 @@ struct TGetOlapTableMetaRequest {
     5: required i64 table_id
     6: optional i32 version // todo serialize according to the version
     7: optional list<TPartitionMeta> partitions // client owned partition meta
+    8: optional list<TPartitionMeta> temp_partitions // client owned partition meta
 }
 
 struct TGetOlapTableMetaResult {
@@ -1669,6 +1687,179 @@ struct TGetOlapTableMetaResult {
     2: required binary table_meta
     3: optional list<binary> updated_partitions
     4: optional list<i64> removed_partitions
+    5: optional list<binary> updated_temp_partitions
+    6: optional list<i64> removed_temp_partitions
+}
+
+// Remote transaction request and Result definitions for cross-cluster export.
+// These structs are used by beginRemoteTxn/commitRemoteTxn/abortRemoteTxn RPCs.
+struct TBeginRemoteTxnRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+    4: optional string catalog
+    5: optional string db
+    6: optional string tbl
+    7: optional string label
+    8: optional i64 timeout_ms
+}
+
+struct TBeginRemoteTxnResult {
+    1: optional Status.TStatus status
+    2: optional i64 txn_id
+    3: optional Types.TNetworkAddress master_address
+}
+
+struct TCommitRemoteTxnRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+    4: optional string catalog
+    5: optional string db
+    6: optional string tbl
+    7: optional i64 txn_id
+    8: optional list<Types.TTabletCommitInfo> commit_infos
+    9: optional i64 insert_visible_timeout_ms
+}
+
+struct TCommitRemoteTxnResult {
+    1: optional Status.TStatus status
+    2: optional bool txn_status
+    3: optional Types.TNetworkAddress master_address
+}
+
+struct TAbortRemoteTxnRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+    4: optional string catalog
+    5: optional string db
+    6: optional i64 txn_id
+    7: optional string reason
+    8: optional Types.TNetworkAddress master_address
+}
+
+struct TAbortRemoteTxnResult {
+    1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
+}
+
+struct TAddOrDropPartitionsRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+    4: optional string catalog
+    5: optional string db
+    6: optional string tbl
+    7: optional list<string> partition_names
+    8: optional list<string> temp_partition_names
+    9: optional bool is_drop
+    10: optional bool is_temp
+    11: optional bool is_force
+}
+
+struct TAddOrDropPartitionsResult {
+    1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
+}
+
+struct TReplacePartitionsRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+    4: optional string catalog
+    5: optional string db
+    6: optional string tbl
+    7: optional list<string> partition_names
+    8: optional list<string> temp_partition_names
+    9: optional bool is_force
+}
+
+struct TReplacePartitionsResult {
+    1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
+}
+
+struct TInsertOverwriteRegisterRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+    4: optional string catalog
+    5: optional string db
+    6: optional string tbl
+    7: optional i64 group_id
+    8: optional i64 task_id
+    9: optional list<string> partition_names
+}
+
+struct TInsertOverwriteRegisterResult {
+    1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
+    3: optional i64 task_id
+    4: optional i64 group_id
+}
+
+struct TInsertOverwriteTaskRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+    4: optional string catalog
+    5: optional string db
+    6: optional string tbl
+    7: optional i64 group_id
+    8: optional i64 task_id
+    9: optional bool is_success
+}
+
+struct TInsertOverwriteTaskResult {
+    1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
+}
+
+struct TInsertOverwriteRecordRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+    4: optional string catalog
+    5: optional string db
+    6: optional string tbl
+    7: optional bool is_add
+}
+
+struct TInsertOverwriteRecordResult {
+    1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
+}
+
+struct TRecordFinishedLoadJobRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+    4: optional string catalog
+    5: optional string db
+    6: optional string tbl
+    7: optional string label
+    8: optional i64 txn_id
+    9: optional i64 create_ts
+    10: optional string fail_msg
+    11: optional string first_err_msg
+    12: optional string tracking_url
+    13: optional i64 job_id
+}
+struct TRecordFinishedLoadJobResult {
+    1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
+}
+
+struct TMasterAddressRequest {
+    1: optional string user
+    2: optional string passwd
+    3: optional string token
+}
+
+struct TMasterAddressResult {
+    1: optional Status.TStatus status
+    2: optional Types.TNetworkAddress master_address
 }
 
 service FrontendService {
@@ -1700,6 +1891,12 @@ service FrontendService {
     TBeginTxnResult beginTxn(1: TBeginTxnRequest request)
     TCommitTxnResult commitTxn(1: TCommitTxnRequest request)
     TRollbackTxnResult rollbackTxn(1: TRollbackTxnRequest request)
+
+    // Remote transaction RPCs for cross-cluster export.
+    TBeginRemoteTxnResult beginRemoteTxn(1: TBeginRemoteTxnRequest request)
+    TCommitRemoteTxnResult commitRemoteTxn(1: TCommitRemoteTxnRequest request)
+    TAbortRemoteTxnResult abortRemoteTxn(1: TAbortRemoteTxnRequest request)
+
     TGetBinlogResult getBinlog(1: TGetBinlogRequest request)
     TGetSnapshotResult getSnapshot(1: TGetSnapshotRequest request)
     TRestoreSnapshotResult restoreSnapshot(1: TRestoreSnapshotRequest request)
@@ -1716,6 +1913,8 @@ service FrontendService {
     TFrontendReportAliveSessionResult getAliveSessions(1: TFrontendReportAliveSessionRequest request)
 
     TFrontendPingFrontendResult ping(1: TFrontendPingFrontendRequest request)
+
+    Status.TStatus syncCloudVersion(1: TFrontendSyncCloudVersionRequest request)
 
     TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
 
@@ -1774,4 +1973,15 @@ service FrontendService {
     TGetTableTDEInfoResult getTableTDEInfo(1: TGetTableTDEInfoRequest request)
 
     TGetOlapTableMetaResult getOlapTableMeta(1: TGetOlapTableMetaRequest request)
+
+    TMasterAddressResult getMasterAddress(1: TMasterAddressRequest request)
+
+    TAddOrDropPartitionsResult addOrDropPartitions(1: TAddOrDropPartitionsRequest request)
+    TReplacePartitionsResult replacePartitions(1: TReplacePartitionsRequest request)
+
+    TInsertOverwriteRegisterResult registerInsertOverwriteTask(1: TInsertOverwriteRegisterRequest request)
+    TInsertOverwriteTaskResult insertOverwriteTaskAction(1: TInsertOverwriteTaskRequest request)
+    TInsertOverwriteRecordResult addOrDropInsertOverwriteRecord(1: TInsertOverwriteRecordRequest request)
+
+    TRecordFinishedLoadJobResult recordFinishedLoadJobRequest(1: TRecordFinishedLoadJobRequest request)
 }

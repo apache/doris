@@ -21,14 +21,14 @@
 #include <type_traits>
 #include <vector>
 
-#include "runtime/define_primitive_type.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/core/block.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
+#include "core/block/block.h"
+#include "core/column/column_nullable.h"
+#include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/define_primitive_type.h"
 
-namespace doris::vectorized {
+namespace doris {
 struct ColumnHelper {
 public:
     template <typename DataType>
@@ -164,4 +164,4 @@ public:
         return ColumnWithTypeAndName(column, data_type, "column");
     }
 };
-} // namespace doris::vectorized
+} // namespace doris

@@ -29,13 +29,13 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "olap/olap_define.h"
-#include "pipeline/pipeline_tracing.h"
+#include "exec/pipeline/pipeline_tracing.h"
+#include "exec/spill/spill_stream_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/workload_group/workload_group.h"
-#include "vec/spill/spill_stream_manager.h"
+#include "storage/olap_define.h"
 
 namespace doris {
 
@@ -54,21 +54,20 @@ protected:
         std::vector<doris::StorePath> spill_paths;
         olap_res = doris::parse_conf_store_paths(path, &spill_paths);
         ASSERT_TRUE(olap_res.ok()) << olap_res.to_string();
-        std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>> spill_store_map;
+        std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> spill_store_map;
         for (const auto& spill_path : spill_paths) {
             spill_store_map.emplace(
                     spill_path.path,
-                    std::make_unique<vectorized::SpillDataDir>(
-                            spill_path.path, spill_path.capacity_bytes, spill_path.storage_medium));
+                    std::make_unique<SpillDataDir>(spill_path.path, spill_path.capacity_bytes,
+                                                   spill_path.storage_medium));
         }
 
         ExecEnv::GetInstance()->_runtime_query_statistics_mgr = new RuntimeQueryStatisticsMgr();
         ExecEnv::GetInstance()->_spill_stream_mgr =
-                new vectorized::SpillStreamManager(std::move(spill_store_map));
+                new SpillStreamManager(std::move(spill_store_map));
         auto st = ExecEnv::GetInstance()->_spill_stream_mgr->init();
         EXPECT_TRUE(st.ok()) << "init spill stream manager failed: " << st.to_string();
-        ExecEnv::GetInstance()->_pipeline_tracer_ctx =
-                std::make_unique<pipeline::PipelineTracerContext>();
+        ExecEnv::GetInstance()->_pipeline_tracer_ctx = std::make_unique<PipelineTracerContext>();
 
         config::spill_in_paused_queue_timeout_ms = 2000;
         doris::ExecEnv::GetInstance()->set_memtable_memory_limiter(new MemTableMemoryLimiter());

@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -70,8 +72,9 @@ public abstract class FileScanNode extends ExternalScanNode {
     // For display pushdown agg result
     protected long tableLevelRowCount = -1;
 
-    public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, boolean needCheckColumnPriv) {
-        super(id, desc, planNodeName, needCheckColumnPriv);
+    public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
+            ScanContext scanContext, boolean needCheckColumnPriv) {
+        super(id, desc, planNodeName, scanContext, needCheckColumnPriv);
         this.needCheckColumnPriv = needCheckColumnPriv;
     }
 
@@ -286,7 +289,7 @@ public abstract class FileScanNode extends ExternalScanNode {
                             DataType.fromCatalogType(slotDesc.getType()));
                     expr = ExpressionTranslator.translate(expression,
                             new PlanTranslatorContext(CascadesContext.initTempContext()));
-                    params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), expr.treeToThrift());
+                    params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), ExprToThriftVisitor.treeToThrift(expr));
                 } else {
                     params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), tExpr);
                 }

@@ -20,7 +20,9 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -359,7 +361,7 @@ public class Column implements GsonPostProcessable {
             ArrayList<VariantField> fields = ((VariantType) type).getPredefinedFields();
             for (VariantField field : fields) {
                 // set column name as pattern
-                Column c = new Column(field.pattern, field.getType());
+                Column c = new Column(field.getPattern(), field.getType());
                 c.setIsAllowNull(true);
                 c.setFieldPatternType(field.getPatternType());
                 column.addChildrenColumn(c);
@@ -411,7 +413,8 @@ public class Column implements GsonPostProcessable {
         if (defineExpr == null) {
             return name;
         } else {
-            return MaterializedIndexMeta.normalizeName(defineExpr.toSql());
+            return MaterializedIndexMeta.normalizeName(
+                    defineExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
         }
     }
 
@@ -659,6 +662,7 @@ public class Column implements GsonPostProcessable {
         tColumn.setVariantEnableDocMode(this.getVariantEnableDocMode());
         tColumn.setVariantDocMaterializationMinRows(this.getvariantDocMaterializationMinRows());
         tColumn.setVariantDocHashShardCount(this.getVariantDocShardCount());
+        tColumn.setVariantEnableNestedGroup(this.getVariantEnableNestedGroup());
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
@@ -886,6 +890,7 @@ public class Column implements GsonPostProcessable {
             builder.setVariantEnableDocMode(this.getVariantEnableDocMode());
             builder.setVariantDocMaterializationMinRows(this.getvariantDocMaterializationMinRows());
             builder.setVariantDocHashShardCount(this.getVariantDocShardCount());
+            builder.setVariantEnableNestedGroup(this.getVariantEnableNestedGroup());
             // variant may contain predefined structured fields
             addChildren(builder);
         }
@@ -976,6 +981,9 @@ public class Column implements GsonPostProcessable {
             }
             if (this.getVariantDocShardCount() != other.getVariantDocShardCount()) {
                 throw new DdlException("Can not change variant doc snapshot shard count");
+            }
+            if (this.getVariantEnableNestedGroup() != other.getVariantEnableNestedGroup()) {
+                throw new DdlException("Can not change variant enable nested group");
             }
             if (CollectionUtils.isNotEmpty(this.getChildren()) || CollectionUtils.isNotEmpty(other.getChildren())) {
                 throw new DdlException("Can not change variant schema templates");
@@ -1071,7 +1079,8 @@ public class Column implements GsonPostProcessable {
             sb.append(" ").append(aggregationType.toSql());
         }
         if (generatedColumnInfo != null) {
-            sb.append(" AS (").append(generatedColumnInfo.getExpr().toSql()).append(")");
+            sb.append(" AS (").append(generatedColumnInfo.getExpr()
+                    .accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append(")");
         }
         if (isAllowNull) {
             sb.append(" NULL");
@@ -1334,6 +1343,10 @@ public class Column implements GsonPostProcessable {
 
     public int getVariantDocShardCount() {
         return type.isVariantType() ? ((ScalarType) type).getVariantDocShardCount() : 128;
+    }
+
+    public boolean getVariantEnableNestedGroup() {
+        return type.isVariantType() ? ((ScalarType) type).getVariantEnableNestedGroup() : false;
     }
 
     public void setFieldPatternType(TPatternType type) {

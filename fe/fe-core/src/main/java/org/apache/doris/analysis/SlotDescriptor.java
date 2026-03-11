@@ -225,7 +225,7 @@ public class SlotDescriptor {
             tSlotDescriptor.setColumnPaths(subColPath);
         }
         if (virtualColumn != null) {
-            tSlotDescriptor.setVirtualColumnExpr(virtualColumn.treeToThrift());
+            tSlotDescriptor.setVirtualColumnExpr(ExprToThriftVisitor.treeToThrift(virtualColumn));
         }
         if (allAccessPaths != null) {
             tSlotDescriptor.setAllAccessPaths(allAccessPaths);
@@ -274,7 +274,9 @@ public class SlotDescriptor {
         return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId).add("col", caption)
                 .add("type", typeStr).add("nullable", getIsNullable())
                 .add("isAutoIncrement", isAutoInc).add("subColPath", subColPath)
-                .add("virtualColumn", virtualColumn == null ? null : virtualColumn.toSql()).toString();
+                .add("virtualColumn",
+                        virtualColumn == null ? null
+                                : virtualColumn.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).toString();
     }
 
     @Override
@@ -292,7 +294,9 @@ public class SlotDescriptor {
                 .append(", nullable=").append(isNullable)
                 .append(", isAutoIncrement=").append(isAutoInc)
                 .append(", subColPath=").append(subColPath)
-                .append(", virtualColumn=").append(virtualColumn == null ? null : virtualColumn.toSql())
+                .append(", virtualColumn=")
+                        .append(virtualColumn == null
+                                ? null : virtualColumn.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE))
                 .append("}")
                 .toString();
     }

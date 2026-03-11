@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/common/sort/sorter.h"
+#include "exec/sort/sorter.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 ///TODO: implement the Sorter interface
 struct MockSorter : public Sorter {
@@ -34,4 +34,4 @@ struct MockSorter : public Sorter {
     size_t data_size() const override { return 0; }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

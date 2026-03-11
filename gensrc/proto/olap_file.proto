@@ -390,6 +390,7 @@ message ColumnPB {
     optional int64 variant_doc_materialization_min_rows = 32;
     // Number of buckets used to store doc map in variant doc mode.
     optional int32 variant_doc_hash_shard_count = 33 [default = 64];
+    optional bool variant_enable_nested_group = 34 [default = false];
 }
 
 // Dictionary of Schema info, to reduce TabletSchemaCloudPB fdb kv size

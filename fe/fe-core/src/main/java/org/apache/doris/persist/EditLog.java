@@ -22,6 +22,7 @@ import org.apache.doris.alter.AlterJobV2.JobState;
 import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.alter.IndexChangeJob;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authentication.AuthenticationIntegrationMeta;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
@@ -41,6 +42,7 @@ import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.persist.CloudMetaSyncPoint;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.snapshot.SnapshotState;
 import org.apache.doris.common.Config;
@@ -124,13 +126,14 @@ import java.util.concurrent.atomic.AtomicLong;
 public class EditLog {
     public static final Logger LOG = LogManager.getLogger(EditLog.class);
 
-    // Helper class to hold log edit requests
-    private static class EditLogItem {
+    // Helper class to hold log edit requests.
+    // Public so that callers can enqueue inside a lock and await outside it.
+    public static class EditLogItem {
         static AtomicLong nextUid = new AtomicLong(0);
         final short op;
         final Writable writable;
         final Object lock = new Object();
-        boolean finished = false;
+        volatile boolean finished = false;
         long logId = -1;
         long uid = -1;
 
@@ -138,6 +141,24 @@ public class EditLog {
             this.op = op;
             this.writable = writable;
             uid = nextUid.getAndIncrement();
+        }
+
+        /**
+         * Wait for this edit log entry to be flushed to persistent storage.
+         * Returns the assigned log ID.
+         */
+        public long await() {
+            synchronized (lock) {
+                while (!finished) {
+                    try {
+                        lock.wait();
+                    } catch (InterruptedException e) {
+                        LOG.error("Fatal Error : write stream Exception");
+                        System.exit(-1);
+                    }
+                }
+            }
+            return logId;
         }
     }
 
@@ -1063,6 +1084,22 @@ public class EditLog {
                     env.getSqlBlockRuleMgr().replayDrop(log.getRuleNames());
                     break;
                 }
+                case OperationType.OP_CREATE_AUTHENTICATION_INTEGRATION: {
+                    AuthenticationIntegrationMeta log = (AuthenticationIntegrationMeta) journal.getData();
+                    env.getAuthenticationIntegrationMgr().replayCreateAuthenticationIntegration(log);
+                    break;
+                }
+                case OperationType.OP_ALTER_AUTHENTICATION_INTEGRATION: {
+                    AuthenticationIntegrationMeta log = (AuthenticationIntegrationMeta) journal.getData();
+                    env.getAuthenticationIntegrationMgr().replayAlterAuthenticationIntegration(log);
+                    break;
+                }
+                case OperationType.OP_DROP_AUTHENTICATION_INTEGRATION: {
+                    DropAuthenticationIntegrationOperationLog log =
+                            (DropAuthenticationIntegrationOperationLog) journal.getData();
+                    env.getAuthenticationIntegrationMgr().replayDropAuthenticationIntegration(log);
+                    break;
+                }
                 case OperationType.OP_MODIFY_TABLE_ENGINE: {
                     ModifyTableEngineOperationLog log = (ModifyTableEngineOperationLog) journal.getData();
                     env.getAlterInstance().replayProcessModifyEngine(log);
@@ -1405,6 +1442,11 @@ public class EditLog {
                     // TODO: implement
                     break;
                 }
+                case OperationType.OP_META_SYNC_POINT: {
+                    // CloudMetaSyncPoint info = (CloudMetaSyncPoint) journal.getData();
+                    // This log is only used to keep FE/MS cut point in journal timeline.
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}, log id: {}", opCode, logId, e);
@@ -1532,6 +1574,49 @@ public class EditLog {
         }
 
         return req.logId;
+    }
+
+    /**
+     * Submit an edit log entry to the batch queue without waiting for it to be flushed.
+     * The entry is enqueued in FIFO order, so calling this inside a write lock guarantees
+     * that edit log entries are ordered by lock acquisition order.
+     *
+     * <p>The caller MUST call {@link EditLogItem#await()} after releasing the lock to ensure
+     * the entry is persisted before proceeding.
+     *
+     * <p>If batch edit log is disabled, this falls back to a synchronous direct write
+     * and the returned item is already completed.
+     *
+     * @return an {@link EditLogItem} handle to await completion
+     */
+    public EditLogItem submitEdit(short op, Writable writable) {
+        if (this.getNumEditStreams() == 0) {
+            LOG.error("Fatal Error : no editLog stream", new Exception());
+            throw new Error("Fatal Error : no editLog stream");
+        }
+
+        EditLogItem req = new EditLogItem(op, writable);
+        if (Config.enable_batch_editlog && op != OperationType.OP_TIMESTAMP) {
+            while (true) {
+                try {
+                    logEditQueue.put(req);
+                    break;
+                } catch (InterruptedException e) {
+                    LOG.warn("Interrupted during put, will sleep and retry.");
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException ex) {
+                        LOG.warn("interrupted during sleep, will retry.", ex);
+                    }
+                }
+            }
+        } else {
+            // Non-batch mode: write directly (synchronous)
+            long logId = logEditDirectly(op, writable);
+            req.logId = logId;
+            req.finished = true;
+        }
+        return req;
     }
 
     private synchronized long logEditDirectly(short op, Writable writable) {
@@ -2250,6 +2335,18 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_SQL_BLOCK_RULE, new DropSqlBlockRuleOperationLog(ruleNames));
     }
 
+    public void logCreateAuthenticationIntegration(AuthenticationIntegrationMeta meta) {
+        logEdit(OperationType.OP_CREATE_AUTHENTICATION_INTEGRATION, meta);
+    }
+
+    public void logAlterAuthenticationIntegration(AuthenticationIntegrationMeta meta) {
+        logEdit(OperationType.OP_ALTER_AUTHENTICATION_INTEGRATION, meta);
+    }
+
+    public void logDropAuthenticationIntegration(DropAuthenticationIntegrationOperationLog log) {
+        logEdit(OperationType.OP_DROP_AUTHENTICATION_INTEGRATION, log);
+    }
+
     public void logModifyTableEngine(ModifyTableEngineOperationLog log) {
         logEdit(OperationType.OP_MODIFY_TABLE_ENGINE, log);
     }
@@ -2474,5 +2571,9 @@ public class EditLog {
 
     public long logBeginSnapshot(SnapshotState snapshotState) {
         return logEdit(OperationType.OP_BEGIN_SNAPSHOT, snapshotState);
+    }
+
+    public long logMetaSyncPoint(CloudMetaSyncPoint syncPoint) {
+        return logEdit(OperationType.OP_META_SYNC_POINT, syncPoint);
     }
 }

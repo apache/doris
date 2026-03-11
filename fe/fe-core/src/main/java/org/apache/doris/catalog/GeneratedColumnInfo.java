@@ -18,6 +18,8 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ToSqlParams;
 
 import com.google.gson.annotations.SerializedName;
 import jline.internal.Nullable;
@@ -53,7 +55,7 @@ public class GeneratedColumnInfo {
         if (exprSql != null) {
             this.exprSql = exprSql;
         } else {
-            this.exprSql = expr.toSqlWithoutTbl();
+            this.exprSql = expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
         }
         this.expr = expr;
         this.expandExprForLoad = expandExprForLoad;

@@ -16,28 +16,22 @@
 // under the License.
 
 suite("test_outfile_orc_max_file_size", "p2,external") {
-    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
+    String enabled = "true";
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         // open nereids
         sql """ set enable_nereids_planner=true """
         sql """ set enable_fallback_to_original_planner=false """
 
-        
-        String dfsNameservices=context.config.otherConfigs.get("dfsNameservices")
-        String dfsHaNamenodesHdfsCluster=context.config.otherConfigs.get("dfsHaNamenodesHdfsCluster")
-        String dfsNamenodeRpcAddress1=context.config.otherConfigs.get("dfsNamenodeRpcAddress1")
-        String dfsNamenodeRpcAddress2=context.config.otherConfigs.get("dfsNamenodeRpcAddress2")
-        String dfsNamenodeRpcAddress3=context.config.otherConfigs.get("dfsNamenodeRpcAddress3")
-        String dfsNameservicesPort=context.config.otherConfigs.get("dfsNameservicesPort")
-        String hadoopSecurityAuthentication =context.config.otherConfigs.get("hadoopSecurityAuthentication")
-        String hadoopKerberosKeytabPath =context.config.otherConfigs.get("hadoopKerberosKeytabPath")
-        String hadoopKerberosPrincipal =context.config.otherConfigs.get("hadoopKerberosPrincipal")
-        String hadoopSecurityAutoToLocal =context.config.otherConfigs.get("hadoopSecurityAutoToLocal")
+        String ak = getS3AK()
+        String sk = getS3SK()
+        String s3_endpoint = getS3Endpoint()
+        String region = getS3Region()
+        String bucket = context.config.otherConfigs.get("s3BucketName")
 
         // the path used to load data
-        def load_data_path = "/user/export_test/test_orc_max_file_size.orc"
+        def load_data_path = "export_test/test_orc_max_file_size.orc"
         // the path used to export data
-        def outFilePath = """/user/export_test/test_max_file_size/test_orc/exp_"""
+        def outFilePath = """${bucket}/export/test_max_file_size/test_orc/exp_"""
         
         def create_table = {table_name -> 
             sql """ DROP TABLE IF EXISTS ${table_name} """
@@ -69,42 +63,37 @@ suite("test_outfile_orc_max_file_size", "p2,external") {
         // load data
         sql """ 
                 insert into ${table_export_name}
-                select * from hdfs(
-                    "uri" = "hdfs://${dfsNameservices}${load_data_path}",
-                    "format" = "orc",
-                    "dfs.data.transfer.protection" = "integrity",
-                    'dfs.nameservices'="${dfsNameservices}",
-                    'dfs.ha.namenodes.hdfs-cluster'="${dfsHaNamenodesHdfsCluster}",
-                    'dfs.namenode.rpc-address.hdfs-cluster.nn1'="${dfsNamenodeRpcAddress1}:${dfsNameservicesPort}",
-                    'dfs.namenode.rpc-address.hdfs-cluster.nn2'="${dfsNamenodeRpcAddress2}:${dfsNameservicesPort}",
-                    'dfs.namenode.rpc-address.hdfs-cluster.nn3'="${dfsNamenodeRpcAddress3}:${dfsNameservicesPort}",
-                    'hadoop.security.authentication'="${hadoopSecurityAuthentication}",
-                    'hadoop.kerberos.keytab'="${hadoopKerberosKeytabPath}",   
-                    'hadoop.kerberos.principal'="${hadoopKerberosPrincipal}",
-                    'hadoop.security.auth_to_local' = "${hadoopSecurityAutoToLocal}",
-                    'dfs.client.failover.proxy.provider.hdfs-cluster'="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
-                );
+                select 
+                    number as user_id,
+                    date_add('2024-01-01', interval cast(rand() * 365 as int) day) as date,
+                    date_add('2024-01-01 00:00:00', interval cast(rand() * 365 * 24 * 3600 as int) second) as datetime,
+                    concat('City_', cast(cast(rand() * 100 as int) as string)) as city,
+                    cast(rand() * 80 + 18 as int) as age,
+                    cast(rand() * 2 as int) as sex,
+                    if(rand() > 0.5, true, false) as bool_col,
+                    cast(rand() * 1000000 as int) as int_col,
+                    cast(rand() * 10000000000 as bigint) as bigint_col,
+                    cast(rand() * 100000000000000 as largeint) as largeint_col,
+                    cast(rand() * 1000 as float) as float_col,
+                    rand() * 10000 as double_col,
+                    concat('char_', cast(cast(rand() * 10000 as int) as string)) as char_col,
+                    cast(rand() * 1000 as decimal(10, 2)) as decimal_col
+                from numbers("number" = "2000000");
             """
 
         def test_outfile_orc_success = {maxFileSize, isDelete, fileNumber, totalRows -> 
             def table = sql """
                 select * from ${table_export_name}
-                into outfile "hdfs://${dfsNameservices}${outFilePath}"
+                into outfile "s3://${outFilePath}"
                 FORMAT AS ORC
                 PROPERTIES(
                     "max_file_size" = "${maxFileSize}",
                     "delete_existing_files"="${isDelete}",
-                    "dfs.data.transfer.protection" = "integrity",
-                    'dfs.nameservices'="${dfsNameservices}",
-                    'dfs.ha.namenodes.hdfs-cluster'="${dfsHaNamenodesHdfsCluster}",
-                    'dfs.namenode.rpc-address.hdfs-cluster.nn1'="${dfsNamenodeRpcAddress1}:${dfsNameservicesPort}",
-                    'dfs.namenode.rpc-address.hdfs-cluster.nn2'="${dfsNamenodeRpcAddress2}:${dfsNameservicesPort}",
-                    'dfs.namenode.rpc-address.hdfs-cluster.nn3'="${dfsNamenodeRpcAddress3}:${dfsNameservicesPort}",
-                    'hadoop.security.authentication'="${hadoopSecurityAuthentication}",
-                    'hadoop.kerberos.keytab'="${hadoopKerberosKeytabPath}",   
-                    'hadoop.kerberos.principal'="${hadoopKerberosPrincipal}",
-                    'hadoop.security.auth_to_local' = "${hadoopSecurityAutoToLocal}",
-                    'dfs.client.failover.proxy.provider.hdfs-cluster'="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+                    "s3.endpoint" = "${s3_endpoint}",
+                    "s3.region" = "${region}",
+                    "s3.secret_key"="${sk}",
+                    "s3.access_key" = "${ak}",
+                    "provider" = "${getS3Provider()}"
                 );
             """
 
@@ -120,22 +109,16 @@ suite("test_outfile_orc_max_file_size", "p2,external") {
             test {
                 sql """
                     select * from ${table_export_name}
-                    into outfile "hdfs://${dfsNameservices}${outFilePath}"
+                    into outfile "s3://${outFilePath}"
                     FORMAT AS ORC
                     PROPERTIES(
                         "max_file_size" = "${maxFileSize}",
                         "delete_existing_files"="${isDelete}",
-                        "dfs.data.transfer.protection" = "integrity",
-                        'dfs.nameservices'="${dfsNameservices}",
-                        'dfs.ha.namenodes.hdfs-cluster'="${dfsHaNamenodesHdfsCluster}",
-                        'dfs.namenode.rpc-address.hdfs-cluster.nn1'="${dfsNamenodeRpcAddress1}:${dfsNameservicesPort}",
-                        'dfs.namenode.rpc-address.hdfs-cluster.nn2'="${dfsNamenodeRpcAddress2}:${dfsNameservicesPort}",
-                        'dfs.namenode.rpc-address.hdfs-cluster.nn3'="${dfsNamenodeRpcAddress3}:${dfsNameservicesPort}",
-                        'hadoop.security.authentication'="${hadoopSecurityAuthentication}",
-                        'hadoop.kerberos.keytab'="${hadoopKerberosKeytabPath}",   
-                        'hadoop.kerberos.principal'="${hadoopKerberosPrincipal}",
-                        'hadoop.security.auth_to_local' = "${hadoopSecurityAutoToLocal}",
-                        'dfs.client.failover.proxy.provider.hdfs-cluster'="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+                        "s3.endpoint" = "${s3_endpoint}",
+                        "s3.region" = "${region}",
+                        "s3.secret_key"="${sk}",
+                        "s3.access_key" = "${ak}",
+                        "provider" = "${getS3Provider()}"
                     );
                 """
 
@@ -151,10 +134,8 @@ suite("test_outfile_orc_max_file_size", "p2,external") {
 
         test_outfile_orc_fail('3MB', true)
         test_outfile_orc_fail('2.1GB', true)
-        test_outfile_orc_success('5MB', true, 3, 2000000)
-        test_outfile_orc_success('63MB', true, 3, 2000000)
-        test_outfile_orc_success('64MB', true, 3, 2000000)
-        test_outfile_orc_success('80MB', true, 2, 2000000)
+        test_outfile_orc_success('32MB', true, 2, 2000000)
+        test_outfile_orc_success('65MB', true, 1, 2000000)
     }
     
 }

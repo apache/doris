@@ -36,13 +36,13 @@
 #include <utility>
 
 #include "common/config.h"
-#include "exec/schema_scanner/schema_scanner_helper.h"
+#include "core/block/block.h"
+#include "information_schema/schema_scanner_helper.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "util/slice.h"
-#include "vec/core/block.h"
 
 namespace doris {
 class TUniqueId;
@@ -94,8 +94,13 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
             LOG_ERROR("").tag("file cache path", cache_base_path).tag("error", strerror(errno));
             return Status::IOError("{} statfs error {}", cache_base_path, strerror(errno));
         }
+#if defined(__APPLE__)
+        const auto block_size = stat.f_bsize;
+#else
+        const auto block_size = stat.f_frsize ? stat.f_frsize : stat.f_bsize;
+#endif
         size_t disk_capacity = static_cast<size_t>(static_cast<size_t>(stat.f_blocks) *
-                                                   static_cast<size_t>(stat.f_bsize));
+                                                   static_cast<size_t>(block_size));
         if (file_cache_settings.capacity == 0 || disk_capacity < file_cache_settings.capacity) {
             LOG_INFO(
                     "The cache {} config size {} is larger than disk size {} or zero, recalc "
@@ -288,8 +293,13 @@ std::string validate_capacity(const std::string& path, int64_t new_capacity,
         valid_capacity = 0; // caller will handle the error
         return ret;
     }
+#if defined(__APPLE__)
+    const auto block_size = stat.f_bsize;
+#else
+    const auto block_size = stat.f_frsize ? stat.f_frsize : stat.f_bsize;
+#endif
     size_t disk_capacity = static_cast<size_t>(static_cast<size_t>(stat.f_blocks) *
-                                               static_cast<size_t>(stat.f_bsize));
+                                               static_cast<size_t>(block_size));
     if (new_capacity == 0 || disk_capacity < new_capacity) {
         auto ret = fmt::format(
                 "The cache {} config size {} is larger than disk size {} or zero, recalc "
@@ -337,7 +347,7 @@ std::string FileCacheFactory::reset_capacity(const std::string& path, int64_t ne
     return "Unknown the cache path " + path;
 }
 
-void FileCacheFactory::get_cache_stats_block(vectorized::Block* block) {
+void FileCacheFactory::get_cache_stats_block(Block* block) {
     // std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
     TBackend be = BackendOptions::get_local_backend();
     int64_t be_id = be.id;

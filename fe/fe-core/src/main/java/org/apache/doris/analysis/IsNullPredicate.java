@@ -22,15 +22,13 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
+
+import java.util.Objects;
 
 public class IsNullPredicate extends Predicate {
     private static final String IS_NULL = "is_null_pred";
@@ -71,6 +69,11 @@ public class IsNullPredicate extends Predicate {
     }
 
     @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), isNotNull);
+    }
+
+    @Override
     public boolean equals(Object obj) {
         if (!super.equals(obj)) {
             return false;
@@ -79,23 +82,11 @@ public class IsNullPredicate extends Predicate {
     }
 
     @Override
-    public String toSqlImpl() {
-        return getChild(0).toSql() + (isNotNull ? " IS NOT NULL" : " IS NULL");
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + (isNotNull ? " IS NOT NULL"
-                : " IS NULL");
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitIsNullPredicate(this, context);
     }
 
     public boolean isSlotRefChildren() {
         return (children.get(0) instanceof SlotRef);
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.FUNCTION_CALL;
     }
 }

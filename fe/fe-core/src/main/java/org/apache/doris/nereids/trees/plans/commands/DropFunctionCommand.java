@@ -22,7 +22,9 @@ import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -71,6 +73,34 @@ public class DropFunctionCommand extends Command implements ForwardWithSync {
         }
         argsDef.analyze();
         FunctionSearchDesc function = new FunctionSearchDesc(functionName, argsDef.getArgTypes(), argsDef.isVariadic());
+
+        // Get function id before dropping, for cleaning cached library files in BE
+        long functionId = -1;
+        try {
+            Function fn = null;
+            if (SetType.GLOBAL.equals(setType)) {
+                fn = Env.getCurrentEnv().getGlobalFunctionMgr().getFunction(function);
+            } else {
+                String dbName = functionName.getDb();
+                if (dbName == null) {
+                    dbName = ctx.getDatabase();
+                    functionName.setDb(dbName);
+                }
+                Database db = Env.getCurrentInternalCatalog().getDbNullable(dbName);
+                if (db != null) {
+                    fn = db.getFunction(function);
+                }
+            }
+            if (fn != null) {
+                functionId = fn.getId();
+            } else {
+                LOG.warn("Function not found: {}, setType: {}", function.getName(), setType);
+            }
+        } catch (AnalysisException e) {
+            LOG.warn("Function not found when getting function id: {}, error: {}",
+                    function.getName(), e.getMessage());
+        }
+
         if (SetType.GLOBAL.equals(setType)) {
             Env.getCurrentEnv().getGlobalFunctionMgr().dropFunction(function, ifExists);
         } else {
@@ -90,9 +120,10 @@ public class DropFunctionCommand extends Command implements ForwardWithSync {
         String functionSignature = getSignatureString();
         AgentBatchTask batchTask = new AgentBatchTask();
         for (Backend backend : backendsInfo.values()) {
-            CleanUDFCacheTask cleanUDFCacheTask = new CleanUDFCacheTask(backend.getId(), functionSignature);
+            CleanUDFCacheTask cleanUDFCacheTask = new CleanUDFCacheTask(backend.getId(), functionSignature, functionId);
             batchTask.addTask(cleanUDFCacheTask);
-            LOG.info("clean udf cache in be {}, beId {}", backend.getHost(), backend.getId());
+            LOG.info("clean udf cache in be {}, beId {}, functionId {}",
+                    backend.getHost(), backend.getId(), functionId);
         }
         AgentTaskExecutor.submit(batchTask);
     }

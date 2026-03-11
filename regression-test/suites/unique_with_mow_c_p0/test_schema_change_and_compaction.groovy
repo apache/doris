@@ -68,7 +68,7 @@ suite("test_schema_change_and_compaction", "nonConcurrent") {
     sql """ DROP TABLE IF EXISTS ${tableName} force """
     sql """
         CREATE TABLE ${tableName} ( `k1` int(11), `k2` int(11), `v1` int(11), `v2` int(11) ) ENGINE=OLAP
-        unique KEY(`k1`, `k2`) cluster by(v1) DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+        unique KEY(`k1`, `k2`) ORDER BY(v1) DISTRIBUTED BY HASH(`k1`) BUCKETS 1
         PROPERTIES ( "replication_num" = "1" );
     """
     sql """ insert into ${tableName} values(10, 20, 30, 40); """

@@ -42,9 +42,11 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
+import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.doris.source.RemoteDorisScanNode;
 import org.apache.doris.datasource.es.EsExternalTable;
 import org.apache.doris.datasource.es.source.EsScanNode;
@@ -62,7 +64,6 @@ import org.apache.doris.datasource.lakesoul.source.LakeSoulScanNode;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.maxcompute.source.MaxComputeScanNode;
 import org.apache.doris.datasource.odbc.source.OdbcScanNode;
-import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.source.PaimonScanNode;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
@@ -87,7 +88,6 @@ import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.DistributionSpecStorageAny;
 import org.apache.doris.nereids.properties.DistributionSpecStorageGather;
 import org.apache.doris.nereids.properties.OrderKey;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
 import org.apache.doris.nereids.rules.rewrite.MergeLimits;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
@@ -147,6 +147,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeTVFScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
@@ -166,6 +167,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
@@ -201,6 +203,7 @@ import org.apache.doris.planner.IcebergTableSink;
 import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.MaterializationNode;
+import org.apache.doris.planner.MaxComputeTableSink;
 import org.apache.doris.planner.MultiCastDataSink;
 import org.apache.doris.planner.MultiCastPlanFragment;
 import org.apache.doris.planner.NestedLoopJoinNode;
@@ -211,6 +214,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RecursiveCteNode;
 import org.apache.doris.planner.RecursiveCteScanNode;
+import org.apache.doris.planner.RemoteOlapTableSink;
 import org.apache.doris.planner.RepeatNode;
 import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.planner.ResultSink;
@@ -219,6 +223,7 @@ import org.apache.doris.planner.SchemaScanNode;
 import org.apache.doris.planner.SelectNode;
 import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.SortNode;
+import org.apache.doris.planner.TVFTableSink;
 import org.apache.doris.planner.TableFunctionNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.qe.ConnectContext;
@@ -460,6 +465,23 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     @Override
+    public PlanFragment visitPhysicalTVFTableSink(PhysicalTVFTableSink<? extends Plan> tvfSink,
+            PlanTranslatorContext context) {
+        PlanFragment rootFragment = tvfSink.child().accept(this, context);
+        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+        TVFTableSink sink = new TVFTableSink(
+                rootFragment.getPlanRoot().getId(),
+                tvfSink.getTvfName(), tvfSink.getProperties(), tvfSink.getCols());
+        try {
+            sink.bindDataSink();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to bind TVF table sink: " + Util.getRootCauseMessage(e), e);
+        }
+        rootFragment.setSink(sink);
+        return rootFragment;
+    }
+
+    @Override
     public PlanFragment visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink,
             PlanTranslatorContext context) {
         PlanFragment planFragment = physicalResultSink.child().accept(this, context);
@@ -517,20 +539,29 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             syncMvWhereClauses.put(entry.getKey(), ExpressionTranslator.translate(entry.getValue(), context));
         }
         OlapTableSink sink;
-        // This statement is only used in the group_commit mode
-        if (context.getConnectContext().isGroupCommit()) {
-            sink = new GroupCommitBlockSink(olapTableSink.getTargetTable(), olapTuple,
-                    olapTableSink.getTargetTable().getPartitionIds(), olapTableSink.isSingleReplicaLoad(),
+        OlapTable targetTable = olapTableSink.getTargetTable();
+        if (targetTable instanceof RemoteOlapTable) {
+            if (context.getConnectContext().isGroupCommit()) {
+                throw new RuntimeException("remote olap table do not support group commit");
+            }
+            sink = new RemoteOlapTableSink(
+                    (RemoteOlapTable) targetTable,
+                    olapTuple,
+                    olapTableSink.getPartitionIds().isEmpty() ? null : olapTableSink.getPartitionIds(),
+                    olapTableSink.isSingleReplicaLoad(), partitionExprs, syncMvWhereClauses);
+        } else if (context.getConnectContext().isGroupCommit()) {
+            sink = new GroupCommitBlockSink(targetTable, olapTuple,
+                    targetTable.getPartitionIds(), olapTableSink.isSingleReplicaLoad(),
                     partitionExprs, syncMvWhereClauses,
                     context.getSessionVariable().getGroupCommit(),
                     ConnectContext.get().getSessionVariable().getEnableInsertStrict() ? 0
                             : ConnectContext.get().getSessionVariable().getInsertMaxFilterRatio());
         } else {
             sink = new OlapTableSink(
-                olapTableSink.getTargetTable(),
-                olapTuple,
-                olapTableSink.getPartitionIds().isEmpty() ? null : olapTableSink.getPartitionIds(),
-                olapTableSink.isSingleReplicaLoad(), partitionExprs, syncMvWhereClauses
+                    targetTable,
+                    olapTuple,
+                    olapTableSink.getPartitionIds().isEmpty() ? null : olapTableSink.getPartitionIds(),
+                    olapTableSink.isSingleReplicaLoad(), partitionExprs, syncMvWhereClauses
             );
         }
         sink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateCols);
@@ -557,7 +588,22 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                                                       PlanTranslatorContext context) {
         PlanFragment rootFragment = icebergTableSink.child().accept(this, context);
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+        List<Expr> outputExprs = Lists.newArrayList();
+        icebergTableSink.getOutput().stream().map(Slot::getExprId)
+                .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
         IcebergTableSink sink = new IcebergTableSink((IcebergExternalTable) icebergTableSink.getTargetTable());
+        rootFragment.setSink(sink);
+        sink.setOutputExprs(outputExprs);
+        return rootFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalMaxComputeTableSink(PhysicalMaxComputeTableSink<? extends Plan> mcTableSink,
+                                                          PlanTranslatorContext context) {
+        PlanFragment rootFragment = mcTableSink.child().accept(this, context);
+        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+        MaxComputeTableSink sink = new MaxComputeTableSink(
+                (MaxComputeExternalTable) mcTableSink.getTargetTable());
         rootFragment.setSink(sink);
         return rootFragment;
     }
@@ -631,10 +677,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
             switch (((HMSExternalTable) table).getDlaType()) {
                 case ICEBERG:
-                    scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv);
+                    scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
+                            context.getScanContext());
                     break;
                 case HIVE:
-                    scanNode = new HiveScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv, directoryLister);
+                    scanNode = new HiveScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv, directoryLister,
+                            context.getScanContext());
                     HiveScanNode hiveScanNode = (HiveScanNode) scanNode;
                     hiveScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
                     if (fileScan.getTableSample().isPresent()) {
@@ -653,18 +701,23 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     throw new RuntimeException("do not support DLA type " + ((HMSExternalTable) table).getDlaType());
             }
         } else if (table instanceof IcebergExternalTable) {
-            scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv);
-        } else if (table instanceof PaimonExternalTable) {
-            scanNode = new PaimonScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv);
+            scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
+                    context.getScanContext());
+        } else if (table.getType() == TableIf.TableType.PAIMON_EXTERNAL_TABLE) {
+            scanNode = new PaimonScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
+                    context.getScanContext());
         } else if (table instanceof TrinoConnectorExternalTable) {
-            scanNode = new TrinoConnectorScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv);
+            scanNode = new TrinoConnectorScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
+                    context.getScanContext());
         } else if (table instanceof MaxComputeExternalTable) {
             scanNode = new MaxComputeScanNode(context.nextPlanNodeId(), tupleDescriptor,
-                    fileScan.getSelectedPartitions(), false, sv);
+                    fileScan.getSelectedPartitions(), false, sv, context.getScanContext());
         } else if (table instanceof LakeSoulExternalTable) {
-            scanNode = new LakeSoulScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv);
+            scanNode = new LakeSoulScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
+                    context.getScanContext());
         } else if (table instanceof RemoteDorisExternalTable) {
-            scanNode = new RemoteDorisScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv);
+            scanNode = new RemoteDorisScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
+                    context.getScanContext());
         } else {
             throw new RuntimeException("do not support table type " + table.getType());
         }
@@ -703,7 +756,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TableIf table = esScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
         EsScanNode esScanNode = new EsScanNode(context.nextPlanNodeId(), tupleDescriptor,
-                table instanceof EsExternalTable);
+                table instanceof EsExternalTable, context.getScanContext());
         esScanNode.setNereidsId(esScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(esScan.getId(), esScanNode.getId());
         Utils.execWithUncheckedException(esScanNode::init);
@@ -748,7 +801,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PhysicalHudiScan hudiScan = (PhysicalHudiScan) fileScan;
         ScanNode scanNode = new HudiScanNode(context.nextPlanNodeId(), tupleDescriptor, false,
                 hudiScan.getScanParams(), hudiScan.getIncrementalRelation(), ConnectContext.get().getSessionVariable(),
-                directoryLister);
+                directoryLister, context.getScanContext());
         if (fileScan.getTableSnapshot().isPresent()) {
             ((FileQueryScanNode) scanNode).setQueryTableSnapshot(fileScan.getTableSnapshot().get());
         }
@@ -789,7 +842,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TableIf table = jdbcScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
         JdbcScanNode jdbcScanNode = new JdbcScanNode(context.nextPlanNodeId(), tupleDescriptor,
-                table instanceof JdbcExternalTable);
+                table instanceof JdbcExternalTable, context.getScanContext());
         jdbcScanNode.setNereidsId(jdbcScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(jdbcScan.getId(), jdbcScanNode.getId());
         Utils.execWithUncheckedException(jdbcScanNode::init);
@@ -808,7 +861,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TableIf table = odbcScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
         OdbcScanNode odbcScanNode = new OdbcScanNode(context.nextPlanNodeId(), tupleDescriptor,
-                (OdbcTable) table);
+                (OdbcTable) table, context.getScanContext());
         odbcScanNode.setNereidsId(odbcScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(odbcScan.getId(), odbcScanNode.getId());
         Utils.execWithUncheckedException(odbcScanNode::init);
@@ -849,7 +902,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             generateTupleDesc(olapScan.getBaseOutputs(), olapTable, context);
         }
 
-        OlapScanNode olapScanNode = new OlapScanNode(context.nextPlanNodeId(), tupleDescriptor, "OlapScanNode");
+        OlapScanNode olapScanNode = new OlapScanNode(context.nextPlanNodeId(), tupleDescriptor, "OlapScanNode",
+                context.getScanContext());
         olapScanNode.setNereidsId(olapScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(olapScan.getId(), olapScanNode.getId());
 
@@ -870,6 +924,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         if (olapScan.getScoreLimit().isPresent()) {
             olapScanNode.setScoreSortLimit(olapScan.getScoreLimit().get());
+        }
+        if (olapScan.getScoreRangeInfo().isPresent()) {
+            olapScanNode.setScoreRangeInfo(olapScan.getScoreRangeInfo().get());
         }
 
         // translate ann topn info
@@ -1030,12 +1087,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             scanNode = new BackendPartitionedSchemaScanNode(context.nextPlanNodeId(), table, tupleDescriptor,
                     schemaScan.getSchemaCatalog().orElse(null), schemaScan.getSchemaDatabase().orElse(null),
                     schemaScan.getSchemaTable().orElse(null),
-                    translateToExprs(schemaScan.getFrontendConjuncts(), context));
+                    translateToExprs(schemaScan.getFrontendConjuncts(), context), context.getScanContext());
         } else {
             scanNode = new SchemaScanNode(context.nextPlanNodeId(), tupleDescriptor,
                     schemaScan.getSchemaCatalog().orElse(null), schemaScan.getSchemaDatabase().orElse(null),
                     schemaScan.getSchemaTable().orElse(null), translateToExprs(schemaScan.getFrontendConjuncts(),
-                    context));
+                    context), context.getScanContext());
         }
         scanNode.setNereidsId(schemaScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(schemaScan.getId(), scanNode.getId());
@@ -1377,7 +1434,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 context.addExprIdSlotRefPair(consumerSlot.getExprId(), slotRef);
             }
         }
-        CTEScanNode cteScanNode = new CTEScanNode(tupleDescriptor);
+        CTEScanNode cteScanNode = new CTEScanNode(tupleDescriptor, context.getScanContext());
         translateRuntimeFilter(cteConsumer, cteScanNode, context);
         context.getCteScanNodeMap().put(multiCastFragment.getFragmentId(), cteScanNode);
 
@@ -2364,19 +2421,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // in pipeline engine, we use parallel scan by default, but it broke the rule of data distribution
         // we need turn of parallel scan to ensure to get correct result.
         // TODO: nereids forbid all parallel scan under PhysicalSetOperation temporary
-        if (!setOperation.getPhysicalProperties().equals(PhysicalProperties.ANY)
-                && findOlapScanNodesByPassExchangeNode(setOperationFragment.getPlanRoot())) {
+        if (findOlapScanNodesByPassExchangeNode(setOperationFragment.getPlanRoot())) {
             setOperationFragment.setHasColocatePlanNode(true);
             setOperationNode.setColocate(true);
         }
 
-        for (Plan child : setOperation.children()) {
-            PhysicalPlan childPhysicalPlan = (PhysicalPlan) child;
-            if (JoinUtils.isStorageBucketed(childPhysicalPlan.getPhysicalProperties())) {
-                setOperationNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
-                break;
-            }
-        }
+        // TODO: open comment when support `enable_local_shuffle_planner`
+        // for (Plan child : setOperation.children()) {
+        //     PhysicalPlan childPhysicalPlan = (PhysicalPlan) child;
+        //     if (JoinUtils.isStorageBucketed(childPhysicalPlan.getPhysicalProperties())) {
+        //         setOperationNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+        //         break;
+        //     }
+        // }
 
         return setOperationFragment;
     }
@@ -2578,7 +2635,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // cube and rollup already convert to grouping sets in LogicalPlanBuilder.withAggregate()
         GroupingInfo groupingInfo = new GroupingInfo(outputTuple, preRepeatExprs);
 
-        List<Set<Integer>> repeatSlotIdList = repeat.computeRepeatSlotIdList(getSlotIds(outputTuple));
+        List<Set<Integer>> repeatSlotIdList = repeat.computeRepeatSlotIdList(getSlotIds(outputTuple), outputSlots);
         Set<Integer> allSlotId = repeatSlotIdList.stream()
                 .flatMap(Set::stream)
                 .collect(ImmutableSet.toImmutableSet());

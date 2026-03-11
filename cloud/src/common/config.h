@@ -245,6 +245,10 @@ CONF_Int32(txn_store_retry_base_intervals_ms, "500");
 CONF_Bool(enable_retry_txn_conflict, "true");
 
 CONF_mBool(enable_s3_rate_limiter, "false");
+// Fault injection: randomly return rate limit error for PUT (delete) operations, for testing recycler.
+// s3_rate_limit_inject_probility is the probability (0-100) of injecting a rate limit error.
+CONF_mBool(enable_s3_rate_limit_inject, "false");
+CONF_mInt32(s3_rate_limit_inject_probility, "30");
 CONF_mInt64(s3_get_bucket_tokens, "1000000000000000000");
 CONF_Validator(s3_get_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
 
@@ -387,7 +391,7 @@ CONF_mString(ca_cert_file_paths,
              "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
              "/etc/ssl/ca-bundle.pem");
 
-CONF_Bool(enable_split_rowset_meta_pb, "false");
+CONF_Bool(enable_split_rowset_meta_pb, "true");
 CONF_Int32(split_rowset_meta_pb_size, "10000"); // split rowset meta pb size, default is 10K
 CONF_Bool(enable_split_tablet_schema_pb, "false");
 CONF_Int32(split_tablet_schema_pb_size, "10000"); // split tablet schema pb size, default is 10K

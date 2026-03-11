@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS warehouse (
     w_gmt_offset decimal(5,2)
 )
 UNIQUE KEY(w_warehouse_sk)
-CLUSTER BY(w_warehouse_id)
+ORDER BY(w_warehouse_id)
 DISTRIBUTED BY HASH(w_warehouse_sk) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"

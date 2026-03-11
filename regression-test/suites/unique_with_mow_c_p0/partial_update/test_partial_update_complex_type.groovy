@@ -40,7 +40,7 @@ suite("test_primary_key_partial_update_complex_type", "p0") {
                         `c_array` ARRAY<INT> NULL DEFAULT "[]",
                         `c_struct` STRUCT<a:INT, b:INT> NULL)
                         UNIQUE KEY(`id`)
-                        CLUSTER BY(c_varchar) 
+                        ORDER BY(c_varchar) 
                         DISTRIBUTED BY HASH(`id`) BUCKETS 1
                         PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
                         "store_row_column" = "${use_row_store}"); """

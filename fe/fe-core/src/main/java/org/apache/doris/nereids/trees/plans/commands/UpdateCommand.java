@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -224,9 +225,14 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, tableNameParts);
-        if (!ExpressionAnalyzer.sameTableName(tableAlias == null ? tableQualifier.get(2) : tableAlias, tableName)
+        String catalogName = tableQualifier.get(0);
+        int lctNames = Env.getLowerCaseTableNames(catalogName);
+        int lcdbNames = Env.getLowerCaseDatabaseNames(catalogName);
+        if (!ExpressionAnalyzer.sameTableName(
+                    tableAlias == null ? tableQualifier.get(2) : tableAlias, tableName, lctNames)
                 || (dbName != null
-                && !ExpressionAnalyzer.compareDbNameIgnoreClusterName(tableQualifier.get(1), dbName))) {
+                && !ExpressionAnalyzer.compareDbNameIgnoreClusterName(
+                        tableQualifier.get(1), dbName, lcdbNames))) {
             throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
         }
     }

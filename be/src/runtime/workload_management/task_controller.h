@@ -26,9 +26,7 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-namespace pipeline {
 class PipelineTask;
-} // namespace pipeline
 
 class ResourceContext;
 class TaskController {
@@ -64,7 +62,16 @@ public:
     virtual void finish_impl() {}
     int64_t start_time() const { return start_time_; }
     int64_t finish_time() const { return finish_time_; }
-    int64_t running_time() const { return finish_time() - start_time(); }
+    int64_t running_time() const {
+        if (start_time() == 0) {
+            return 0;
+        }
+        if (is_finished_) {
+            return finish_time() - start_time();
+        } else {
+            return MonotonicMillis() - start_time();
+        }
+    }
 
     /* cancel action
     */
@@ -107,7 +114,7 @@ public:
                                     bool* has_running_task) {};
     virtual size_t get_revocable_size() { return 0; };
     virtual Status revoke_memory() { return Status::OK(); };
-    virtual std::vector<pipeline::PipelineTask*> get_revocable_tasks() { return {}; };
+    virtual std::vector<PipelineTask*> get_revocable_tasks() { return {}; };
     void increase_revoking_tasks_count() { revoking_tasks_count_.fetch_add(1); }
     void decrease_revoking_tasks_count() { revoking_tasks_count_.fetch_sub(1); }
     int get_revoking_tasks_count() const { return revoking_tasks_count_.load(); }

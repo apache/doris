@@ -23,6 +23,7 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 
 import org.junit.Assert;
@@ -46,7 +47,7 @@ public class HiveScanNodeTest {
         Mockito.when(table.getCatalog()).thenReturn(catalog);
         Mockito.when(catalog.bindBrokerName()).thenReturn("");
         desc.setTable(table);
-        HiveScanNode node = new HiveScanNode(new PlanNodeId(0), desc, false, sv, null);
+        HiveScanNode node = new HiveScanNode(new PlanNodeId(0), desc, false, sv, null, ScanContext.EMPTY);
 
         HiveMetaStoreCache.FileCacheValue fileCacheValue = new HiveMetaStoreCache.FileCacheValue();
         HiveMetaStoreCache.HiveFileStatus status = new HiveMetaStoreCache.HiveFileStatus();
@@ -71,7 +72,7 @@ public class HiveScanNodeTest {
         Mockito.when(table.getCatalog()).thenReturn(catalog);
         Mockito.when(catalog.bindBrokerName()).thenReturn("");
         desc.setTable(table);
-        HiveScanNode node = new HiveScanNode(new PlanNodeId(0), desc, false, sv, null);
+        HiveScanNode node = new HiveScanNode(new PlanNodeId(0), desc, false, sv, null, ScanContext.EMPTY);
 
         HiveMetaStoreCache.FileCacheValue fileCacheValue = new HiveMetaStoreCache.FileCacheValue();
         HiveMetaStoreCache.HiveFileStatus status = new HiveMetaStoreCache.HiveFileStatus();

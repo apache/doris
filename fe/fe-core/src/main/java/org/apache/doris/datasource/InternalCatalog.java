@@ -83,6 +83,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr;
@@ -97,7 +98,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.ResultOr;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.lock.MonitoredReentrantLock;
@@ -111,8 +111,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.event.DropPartitionEvent;
-import org.apache.doris.info.PartitionNamesInfo;
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.foundation.type.ResultOr;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -137,6 +136,7 @@ import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Backend;
@@ -297,11 +297,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         return "Doris internal catalog";
     }
 
-    public TableNameInfo getTableNameByTableId(Long tableId) {
+    public List<String> getTableNameByTableId(long tableId) {
         for (Database db : fullNameToDb.values()) {
             Table table = db.getTableNullable(tableId);
             if (table != null) {
-                return new TableNameInfo(INTERNAL_CATALOG_NAME, db.getFullName(), table.getName());
+                return Lists.newArrayList(INTERNAL_CATALOG_NAME, db.getFullName(), table.getName());
             }
         }
         return null;
@@ -1780,7 +1780,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
                 if (!isCreateTable) {
                     afterCreatePartitions(db.getId(), olapTable.getId(), partitionIds, indexIds, isCreateTable,
-                            false /* isBatchCommit */);
+                            false /* isBatchCommit */, olapTable);
                 }
                 if (writeEditLog) {
                     Env.getCurrentEnv().getEditLog().logAddPartition(info);
@@ -2223,6 +2223,11 @@ public class InternalCatalog implements CatalogIf<Database> {
     public void afterCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
                                          boolean isCreateTable, boolean isBatchCommit)
             throws DdlException {
+        afterCreatePartitions(dbId, tableId, partitionIds, indexIds, isCreateTable, isBatchCommit, null);
+    }
+
+    public void afterCreatePartitions(long dbId, long tableId, List<Long> partitionIds, List<Long> indexIds,
+            boolean isCreateTable, boolean isBatchCommit, OlapTable olapTable) throws DdlException {
     }
 
     public void checkAvailableCapacity(Database db) throws DdlException {
@@ -2549,8 +2554,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.setStorageDictPageSize(storageDictPageSize);
 
         // check data sort properties
-        int keyColumnSize = CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames()) ? keysDesc.keysColumnSize() :
-                keysDesc.getClusterKeysColumnNames().size();
+        int keyColumnSize = CollectionUtils.isEmpty(keysDesc.getOrderByKeysColumnNames()) ? keysDesc.keysColumnSize() :
+                keysDesc.getOrderByKeysColumnNames().size();
         DataSortInfo dataSortInfo = PropertyAnalyzer.analyzeDataSortInfo(properties, keysType,
                 keyColumnSize, storageFormat);
         olapTable.setDataSortInfo(dataSortInfo);
@@ -2563,7 +2568,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 throw new DdlException(e.getMessage());
             }
             if (enableUniqueKeyMergeOnWrite && !enableLightSchemaChange && !CollectionUtils.isEmpty(
-                    keysDesc.getClusterKeysColumnNames())) {
+                    keysDesc.getOrderByKeysColumnNames())) {
                 throw new DdlException(
                     "Unique merge-on-write tables with cluster keys require light schema change to be enabled.");
             }
@@ -2928,14 +2933,14 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException(e.getMessage());
         }
         try {
-            int groupCommitIntervalMs = PropertyAnalyzer.analyzeGroupCommitIntervalMs(properties);
+            int groupCommitIntervalMs = PropertyAnalyzer.analyzeGroupCommitIntervalMs(properties, true);
             olapTable.setGroupCommitIntervalMs(groupCommitIntervalMs);
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
         }
 
         try {
-            int groupCommitDataBytes = PropertyAnalyzer.analyzeGroupCommitDataBytes(properties);
+            int groupCommitDataBytes = PropertyAnalyzer.analyzeGroupCommitDataBytes(properties, true);
             olapTable.setGroupCommitDataBytes(groupCommitDataBytes);
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
@@ -3003,9 +3008,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                         idGeneratorBuffer,
                         binlogConfigForTask,
                         partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified());
-                afterCreatePartitions(db.getId(), olapTable.getId(), olapTable.getPartitionIds(),
-                                olapTable.getIndexIdList(), true /* isCreateTable */, true /* isBatchCommit */);
                 olapTable.addPartition(partition);
+                afterCreatePartitions(db.getId(), olapTable.getId(), olapTable.getPartitionIds(),
+                        olapTable.getIndexIdList(), true /* isCreateTable */, true /* isBatchCommit */, olapTable);
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
                 try {
@@ -3098,7 +3103,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         .setStoragePolicy(partionStoragePolicy);
                 }
                 afterCreatePartitions(db.getId(), olapTable.getId(), olapTable.getPartitionIds(),
-                        olapTable.getIndexIdList(), true /* isCreateTable */, true /* isBatchCommit */);
+                        olapTable.getIndexIdList(), true /* isCreateTable */, true /* isBatchCommit */, olapTable);
             } else {
                 throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());
             }
@@ -3560,7 +3565,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             afterCreatePartitions(db.getId(), copiedTbl.getId(), newPartitionIds, indexIds, true /* isCreateTable */,
-                    false /* isBatchCommit */);
+                    false /* isBatchCommit */, olapTable);
 
         } catch (DdlException e) {
             // create partition failed, remove all newly created tablets
@@ -3742,6 +3747,12 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
+    @Override
+    /** 0=case-sensitive, 1=stored lowercase, 2=case-insensitive comparison */
+    public int getLowerCaseTableNames() {
+        return GlobalVariable.lowerCaseTableNames;
+    }
+
     public void replayAlterExternalTableSchema(String dbName, String tableName, List<Column> newSchema)
             throws MetaNotFoundException {
         Database db = (Database) getDbOrMetaException(dbName);
@@ -3856,5 +3867,10 @@ public class InternalCatalog implements CatalogIf<Database> {
             dbToDataSize.put(db.getFullName(), db.getUsedDataQuota());
         }
         return dbToDataSize;
+    }
+
+    @Override
+    public void onClose() {
+        Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(getId());
     }
 }

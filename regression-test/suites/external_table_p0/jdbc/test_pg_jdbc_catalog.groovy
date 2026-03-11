@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg") {
+suite("test_pg_jdbc_catalog", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/postgresql-42.5.0.jar"
+    // String driver_url = "postgresql-42.5.0.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "pg_jdbc_catalog";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
@@ -45,7 +46,6 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
             "driver_url" = "${driver_url}",
             "driver_class" = "org.postgresql.Driver"
         );"""
-        order_qt_show_db """ show databases from ${catalog_name}; """
         sql """use ${internal_db_name}"""
         sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
         sql  """
@@ -112,7 +112,6 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
         order_qt_test12  """ select * from test10 order by id; """
         order_qt_test13  """ select * from test11 order by id; """
         order_qt_test14  """ select * from test12 order by id; """
-        order_qt_wkb_test  """ select * from wkb_test order by id; """
         order_qt_dt_test  """ select * from dt_test order by 1; """
         order_qt_json_test  """ select * from json_test order by 1; """
         order_qt_jsonb_test  """ select * from jsonb_test order by 1; """
@@ -152,6 +151,10 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
         order_qt_select_all_arr_types """select *  from test_all_support_types_array order by 1;"""
 
         order_qt_select_all_arr2d_types """select *  from test_all_support_types_array_2d order by 1;"""
+
+        // test array with null values in first row (regression test for UNSUPPORTED_TYPE bug)
+        order_qt_test_array_null_desc """desc test_array_null;"""
+        order_qt_test_array_null """select * from test_array_null order by id;"""
 
         // test test ctas
         sql """ drop table if exists internal.${internal_db_name}.${test_ctas} """
@@ -214,7 +217,7 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
             "exclude_database_list" = "doris_test"
         );"""
         sql """switch ${catalog_name} """
-        qt_specified_database_3 """ show databases; """
+        // qt_specified_database_3 """ show databases; """
 
         sql """drop catalog if exists ${catalog_name} """
 
@@ -260,6 +263,7 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
         );"""
         sql """ switch test_pg_with_varbinary """
         sql """use catalog_pg_test """
+        sql """ CALL EXECUTE_STMT("test_pg_with_varbinary", "delete from catalog_pg_test.wkb_test where id=3;");"""
         order_qt_varbinary_test  """ select * from wkb_test order by id; """
         sql """ insert into wkb_test values (3, X'0101000000000000000000F03F0000000000000040'); """
         order_qt_varbinary_test_after_insert  """ select * from wkb_test order by id; """

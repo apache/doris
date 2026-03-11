@@ -27,8 +27,8 @@
 
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
-#include "olap/rowset/rowset_fwd.h"
-#include "olap/rowset/rowset_meta.h"
+#include "storage/rowset/rowset_fwd.h"
+#include "storage/rowset/rowset_meta.h"
 #include "util/s3_util.h"
 
 namespace doris {
@@ -168,6 +168,12 @@ public:
     Status get_snapshot_properties(SnapshotSwitchStatus& switch_status,
                                    int64_t& max_reserved_snapshots,
                                    int64_t& snapshot_interval_seconds);
+
+    // Get all cluster status for the instance
+    // Returns cluster_id -> (status, mtime_ms)
+    // If my_cluster_id is not null, also returns the requesting node's cluster_id
+    Status get_cluster_status(std::unordered_map<std::string, std::pair<int32_t, int64_t>>* result,
+                              std::string* my_cluster_id = nullptr);
 
 private:
     bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,

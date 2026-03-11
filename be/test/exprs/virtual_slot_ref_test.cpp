@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exprs/virtual_slot_ref.h"
+#include "exprs/virtual_slot_ref.h"
 
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Types_types.h>
@@ -25,12 +25,12 @@
 #include <string>
 
 #include "common/object_pool.h"
+#include "core/data_type/data_type_string.h"
+#include "exprs/vexpr_context.h"
 #include "runtime/descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
-#include "vec/data_types/data_type_string.h"
-#include "vec/exprs/vexpr_context.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class VirtualSlotRefTest : public testing::Test {
 public:
@@ -384,4 +384,4 @@ TEST_F(VirtualSlotRefTest, MemoryEstimate) {
     EXPECT_EQ(virtual_ref.estimate_memory(1000), 0); // Should return 0 as per implementation
 }
 
-} // namespace doris::vectorized
+} // namespace doris

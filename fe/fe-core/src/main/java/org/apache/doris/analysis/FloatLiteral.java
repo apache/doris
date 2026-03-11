@@ -18,15 +18,10 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
+import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.trees.expressions.literal.format.FractionalFormat;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TFloatLiteral;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -132,14 +127,8 @@ public class FloatLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String toSqlImpl() {
-        return getStringValue();
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return getStringValue();
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitFloatLiteral(this, context);
     }
 
     @Override
@@ -198,12 +187,6 @@ public class FloatLiteral extends NumericLiteralExpr {
     @Override
     public double getDoubleValue() {
         return value;
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.FLOAT_LITERAL;
-        msg.float_literal = new TFloatLiteral(value);
     }
 
     public double getValue() {

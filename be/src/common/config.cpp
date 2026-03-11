@@ -45,10 +45,10 @@
 #include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "olap/memtable_flush_executor.h"
-#include "olap/storage_engine.h"
+#include "load/memtable/memtable_flush_executor.h"
 #include "runtime/exec_env.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "storage/storage_engine.h"
 #include "util/cpu_info.h"
 #include "util/string_util.h"
 
@@ -1129,6 +1129,9 @@ DEFINE_String(python_venv_interpreter_paths, "");
 // max python processes in global shared pool, each version can have up to this many processes
 // 0 means use CPU core count as default, otherwise use the specified value
 DEFINE_mInt32(max_python_process_num, "0");
+// Memory limit in bytes for all Python UDF processes; warning is logged when exceeded
+// default is 10GB
+DEFINE_mInt64(python_udf_processes_memory_limit_bytes, "10737418240");
 
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
@@ -1148,6 +1151,12 @@ DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mInt32(variant_max_json_key_length, "255");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 DEFINE_mBool(enable_vertical_compact_variant_subcolumns, "true");
+DEFINE_mBool(enable_variant_doc_sparse_write_subcolumns, "true");
+// Maximum depth of nested arrays to track with NestedGroup
+// Reserved for future use when NestedGroup expansion moves to storage layer
+// Deeper arrays will be stored as JSONB
+DEFINE_mInt32(variant_nested_group_max_depth, "3");
+DEFINE_mBool(variant_nested_group_discard_scalar_on_conflict, "false");
 
 DEFINE_Validator(variant_max_json_key_length,
                  [](const int config) -> bool { return config > 0 && config <= 65535; });
@@ -1201,6 +1210,11 @@ DEFINE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio, "0.7");
 // if difference below this threshold, we consider cache's progressive upgrading (2.0->3.0) successful
 DEFINE_mDouble(file_cache_meta_store_vs_file_system_diff_num_threshold, "0.3");
 DEFINE_mDouble(file_cache_keep_schema_change_output_min_hit_ratio, "0.7");
+DEFINE_mDouble(file_cache_leak_fs_to_meta_ratio_threshold, "1.3");
+DEFINE_mInt64(file_cache_leak_scan_interval_seconds, "86400");
+DEFINE_mInt32(file_cache_leak_scan_batch_files, "2048");
+DEFINE_mInt32(file_cache_leak_scan_pause_ms, "500");
+DEFINE_mInt64(file_cache_leak_grace_seconds, "3600");
 
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
@@ -1463,6 +1477,7 @@ DEFINE_mInt32(max_s3_client_retry, "10");
 DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
 DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
 DEFINE_mBool(enable_s3_object_check_after_upload, "true");
+DEFINE_mInt32(aws_client_request_timeout_ms, "30000");
 
 DEFINE_mBool(enable_s3_rate_limiter, "false");
 DEFINE_mInt64(s3_get_bucket_tokens, "1000000000000000000");
@@ -1526,6 +1541,21 @@ DEFINE_mInt64(string_overflow_size, "4294967295"); // std::numic_limits<uint32_t
 DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_min_thread, "16");
 // The max thread num for BufferedReaderPrefetchThreadPool
 DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread, "64");
+
+DEFINE_mBool(enable_segment_prefetch_verbose_log, "false");
+// The thread num for SegmentPrefetchThreadPool
+DEFINE_Int64(segment_prefetch_thread_pool_thread_num_min, "32");
+DEFINE_Int64(segment_prefetch_thread_pool_thread_num_max, "2000");
+
+DEFINE_mInt32(segment_file_cache_consume_rowids_batch_size, "8000");
+// Enable segment file cache block prefetch for query
+DEFINE_mBool(enable_query_segment_file_cache_prefetch, "false");
+// Number of blocks to prefetch ahead in segment iterator for query
+DEFINE_mInt32(query_segment_file_cache_prefetch_block_size, "2");
+// Enable segment file cache block prefetch for compaction
+DEFINE_mBool(enable_compaction_segment_file_cache_prefetch, "false");
+// Number of blocks to prefetch ahead in segment iterator for compaction
+DEFINE_mInt32(compaction_segment_file_cache_prefetch_block_size, "2");
 // The min thread num for S3FileUploadThreadPool
 DEFINE_Int64(num_s3_file_upload_thread_pool_min_thread, "16");
 // The max thread num for S3FileUploadThreadPool
@@ -1677,6 +1707,12 @@ DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config)
     return config == "v1" || config == "v2";
 });
 
+// Concurrency stats dump configuration
+DEFINE_mBool(enable_concurrency_stats_dump, "false");
+DEFINE_mInt32(concurrency_stats_dump_interval_ms, "100");
+DEFINE_Validator(concurrency_stats_dump_interval_ms,
+                 [](const int32_t config) -> bool { return config >= 10; });
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
@@ -1692,6 +1728,8 @@ DEFINE_String(test_s3_prefix, "prefix");
 
 std::map<std::string, Register::Field>* Register::_s_field_map = nullptr;
 std::map<std::string, std::function<bool()>>* RegisterConfValidator::_s_field_validator = nullptr;
+std::map<std::string, RegisterConfUpdateCallback::CallbackFunc>*
+        RegisterConfUpdateCallback::_s_field_update_callback = nullptr;
 std::map<std::string, std::string>* full_conf_map = nullptr;
 
 std::mutex custom_conf_lock;
@@ -2050,6 +2088,13 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         if (PERSIST) {                                                                             \
             RETURN_IF_ERROR(persist_config(std::string((FIELD).name), VALUE));                     \
         }                                                                                          \
+        if (RegisterConfUpdateCallback::_s_field_update_callback != nullptr) {                     \
+            auto callback_it =                                                                     \
+                    RegisterConfUpdateCallback::_s_field_update_callback->find((FIELD).name);      \
+            if (callback_it != RegisterConfUpdateCallback::_s_field_update_callback->end()) {      \
+                callback_it->second(&old_value, &new_value);                                       \
+            }                                                                                      \
+        }                                                                                          \
         update_config(std::string((FIELD).name), VALUE);                                           \
         return Status::OK();                                                                       \
     }
@@ -2152,6 +2197,11 @@ Status set_fuzzy_configs() {
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =
             std::to_string(distribution2(*generator));
+
+    fuzzy_field_and_value["enable_query_segment_file_cache_prefetch"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["enable_compaction_segment_file_cache_prefetch"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
 
     // external
     if (config::fuzzy_test_type == "external") {

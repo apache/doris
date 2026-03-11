@@ -162,8 +162,8 @@ suite("test_tvf_error_data", "p0") {
                             "SECRET_KEY" = "${sk}",
                             "column_separator" = ",",
                             "format" = "csv",
-                            "enclose" = "'",
-                            "escape" = "\",
+                            "enclose" = "\\"",
+                            "escape" = "\\\\",
                             "region" = "${region}"
                             );
        """
