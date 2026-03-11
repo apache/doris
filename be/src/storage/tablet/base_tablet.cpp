@@ -468,7 +468,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
         std::vector<uint32_t> picked_segments;
         for (int j = num_segments - 1; j >= 0; j--) {
             if (_key_is_not_in_segment(key_without_seq, segments_key_bounds[j],
-                                      rs->rowset_meta()->is_segments_key_bounds_truncated())) {
+                                       rs->rowset_meta()->is_segments_key_bounds_truncated())) {
                 continue;
             }
             picked_segments.emplace_back(j);
