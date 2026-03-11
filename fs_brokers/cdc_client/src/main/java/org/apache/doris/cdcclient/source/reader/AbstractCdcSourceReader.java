@@ -119,7 +119,19 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
             }
             return OBJECT_MAPPER.writeValueAsString(result);
         } catch (Exception e) {
-            LOG.warn("Failed to serialize tableSchemas: {}", e.getMessage());
+            // Return null so the current batch is not failed — data keeps flowing and
+            // schema persistence will be retried on the next DDL or feHadNoSchema batch.
+            // For PostgreSQL this is safe: WAL records carry afterSchema so the next DML
+            // will re-trigger schema-change detection and self-heal.
+            // WARNING: for MySQL (schema change not yet implemented), returning null here
+            // is dangerous — MySQL binlog has no inline schema, so loading a stale
+            // pre-DDL schema from FE on the next task would cause column mismatches
+            // (flink-cdc#732). When MySQL schema change is implemented, this must throw
+            // instead of returning null to prevent committing the offset with a stale schema.
+            LOG.error(
+                    "Failed to serialize tableSchemas, schema will not be persisted to FE"
+                            + " in this cycle. Will retry on next DDL or batch.",
+                    e);
             return null;
         }
     }
