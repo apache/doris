@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.authenticate;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.ClassLoaderUtils;
 import org.apache.doris.mysql.MysqlAuthPacket;
 import org.apache.doris.mysql.MysqlChannel;
@@ -41,18 +42,24 @@ public class AuthenticatorManager {
 
     private static volatile Authenticator defaultAuthenticator = null;
     private static volatile Authenticator authTypeAuthenticator = null;
+    private static volatile String authTypeIdentifier = null;
 
     public AuthenticatorManager(String type) {
         LOG.info("Authenticate type: {}", type);
         defaultAuthenticator = new DefaultAuthenticator();
-        if (authTypeAuthenticator == null) {
+        if (authTypeAuthenticator == null || !type.equalsIgnoreCase(authTypeIdentifier)) {
             synchronized (AuthenticatorManager.class) {
-                if (authTypeAuthenticator == null) {
+                if (authTypeAuthenticator == null || !type.equalsIgnoreCase(authTypeIdentifier)) {
                     try {
                         authTypeAuthenticator = loadFactoriesByName(type);
+                        authTypeIdentifier = type;
                     } catch (Exception e) {
+                        if (!AuthenticateType.DEFAULT.name().equalsIgnoreCase(type)) {
+                            throw new IllegalStateException("Failed to load authenticator by name: " + type, e);
+                        }
                         LOG.warn("Failed to load authenticator by name: {}, using default authenticator", type, e);
                         authTypeAuthenticator = defaultAuthenticator;
+                        authTypeIdentifier = AuthenticateType.DEFAULT.name();
                     }
                 }
             }
@@ -96,13 +103,13 @@ public class AuthenticatorManager {
                                 MysqlSerializer serializer,
                                 MysqlAuthPacket authPacket,
                                 MysqlHandshakePacket handshakePacket) throws IOException {
-        Authenticator authenticator = chooseAuthenticator(userName);
+        String remoteIp = context.getMysqlChannel().getRemoteIp();
+        Authenticator authenticator = chooseAuthenticator(userName, remoteIp);
         Optional<Password> password = authenticator.getPasswordResolver()
                 .resolvePassword(context, channel, serializer, authPacket, handshakePacket);
         if (!password.isPresent()) {
             return false;
         }
-        String remoteIp = context.getMysqlChannel().getRemoteIp();
         AuthenticateRequest request = new AuthenticateRequest(userName, password.get(), remoteIp);
         AuthenticateResponse response = authenticator.authenticate(request);
         if (!response.isSuccess()) {
@@ -115,7 +122,11 @@ public class AuthenticatorManager {
         return true;
     }
 
-    private Authenticator chooseAuthenticator(String userName) {
+    Authenticator chooseAuthenticator(String userName, String remoteIp) {
+        if (AuthenticateType.INTEGRATION.name().equalsIgnoreCase(authTypeIdentifier)
+                && Env.getCurrentEnv().getAuth().doesUserExist(userName, remoteIp)) {
+            return defaultAuthenticator;
+        }
         return authTypeAuthenticator.canDeal(userName) ? authTypeAuthenticator : defaultAuthenticator;
     }
 }
