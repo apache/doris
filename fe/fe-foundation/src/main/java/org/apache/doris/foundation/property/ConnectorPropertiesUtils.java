@@ -15,13 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.property;
-
-import com.google.common.collect.Sets;
-import org.apache.commons.lang3.StringUtils;
+package org.apache.doris.foundation.property;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -72,7 +70,7 @@ public class ConnectorPropertiesUtils {
 
         for (Field field : supportedProps) {
             String matchedName = getMatchedPropertyName(field, props);
-            if (StringUtils.isNotBlank(matchedName) && StringUtils.isNotBlank(props.get(matchedName))) {
+            if (isNotBlank(matchedName) && isNotBlank(props.get(matchedName))) {
                 try {
                     Object rawValue = props.get(matchedName);
                     Object convertedValue = convertValue(rawValue, field.getType());
@@ -101,7 +99,7 @@ public class ConnectorPropertiesUtils {
             return null;
         }
         for (String name : annotation.names()) {
-            if (StringUtils.isNotBlank(props.get(name))) {
+            if (isNotBlank(props.get(name))) {
                 return name;
             }
         }
@@ -150,11 +148,11 @@ public class ConnectorPropertiesUtils {
     /**
      * Return the sensitive keys of the give properties
      *
-     * @param clazz
-     * @return
+     * @param clazz the class to inspect
+     * @return set of property name aliases marked as sensitive
      */
     public static Set<String> getSensitiveKeys(Class<?> clazz) {
-        Set<String> keys = Sets.newHashSet();
+        Set<String> keys = new HashSet<>();
         List<Field> supportedProps = getConnectorProperties(clazz);
         for (Field field : supportedProps) {
             ConnectorProperty anno = field.getAnnotation(ConnectorProperty.class);
@@ -166,5 +164,11 @@ public class ConnectorPropertiesUtils {
         }
         return keys;
     }
-}
 
+    /**
+     * Checks if a string is not null, not empty, and not whitespace-only.
+     */
+    private static boolean isNotBlank(String s) {
+        return s != null && !s.trim().isEmpty();
+    }
+}

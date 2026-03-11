@@ -20,7 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
+import org.apache.doris.foundation.format.FormatOptions;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;

@@ -21,7 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.FormatOptions;
+import org.apache.doris.foundation.format.FormatOptions;
 
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
