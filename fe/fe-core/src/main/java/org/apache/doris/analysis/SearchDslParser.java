@@ -15,11 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions.scalar;
-
-import org.apache.doris.nereids.search.SearchLexer;
-import org.apache.doris.nereids.search.SearchParser;
-import org.apache.doris.nereids.search.SearchParserBaseVisitor;
+package org.apache.doris.analysis;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;

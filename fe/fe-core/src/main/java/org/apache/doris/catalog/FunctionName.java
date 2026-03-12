@@ -18,9 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/FunctionName.java
 // and modified by Doris
 
-package org.apache.doris.analysis;
-
-import org.apache.doris.thrift.TFunctionName;
+package org.apache.doris.catalog;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -49,21 +47,12 @@ public class FunctionName {
         this.fn = fn.toLowerCase();
     }
 
-    public FunctionName(TFunctionName thriftName) {
-        db = thriftName.db_name.toLowerCase();
-        fn = thriftName.function_name.toLowerCase();
-    }
-
     // Same as FunctionName but for builtins and we'll leave the case
     // as is since we aren't matching by string.
     public static FunctionName createBuiltinName(String fn) {
         FunctionName name = new FunctionName(fn);
         name.fn = fn;
         return name;
-    }
-
-    public static FunctionName fromThrift(TFunctionName fnName) {
-        return new FunctionName(fnName.getDbName(), fnName.getFunctionName());
     }
 
     @Override
@@ -110,16 +99,9 @@ public class FunctionName {
         return db + "." + fn;
     }
 
-    public TFunctionName toThrift() {
-        TFunctionName name = new TFunctionName(fn);
-        name.setDbName(db);
-        name.setFunctionName(fn);
-        return name;
-    }
-
     @Override
     public int hashCode() {
-        return 31 * Objects.hashCode(db) + Objects.hashCode(fn);
+        return 31 * Objects.hashCode(db.toLowerCase()) + Objects.hashCode(fn.toLowerCase());
     }
 
     @Override

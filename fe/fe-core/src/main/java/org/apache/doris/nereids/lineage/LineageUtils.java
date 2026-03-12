@@ -21,8 +21,8 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
@@ -275,7 +275,7 @@ public final class LineageUtils {
             if (key == null) {
                 continue;
             }
-            if (PrintableMap.HIDDEN_KEY.contains(key) || PrintableMap.SENSITIVE_KEY.contains(key)) {
+            if (DatasourcePrintableMap.HIDDEN_KEY.contains(key) || DatasourcePrintableMap.SENSITIVE_KEY.contains(key)) {
                 continue;
             }
             if (catalog instanceof ExternalCatalog && ExternalCatalog.HIDDEN_PROPERTIES.contains(key)) {
