@@ -238,6 +238,128 @@ TEST_F(FilterRangesByCacheTest, LargeFirstRowOffset) {
 }
 
 // ============================================================
+// Tests for cache vector pre-allocation with +1 safety margin
+// when first_row is not aligned to granule boundary.
+// ============================================================
+
+class CachePreAllocTest : public testing::Test {};
+
+// When first_row is not aligned to granule boundary, pre-allocating
+// ceil(total_rows / GS) + 1 guarantees coverage of all granules.
+TEST_F(CachePreAllocTest, PlusOneCoversUnalignedFirstRow) {
+    // Simulates: Scanner reads RG2+RG3 of a file:
+    //   RG2: 5000 rows (row 20000~24999), RG3: 5000 rows (row 25000~29999)
+    //   first_assigned_row = 20000, total_rows = 10000
+    //
+    // Pre-allocation: ceil(10000 / 2048) + 1 = 5 + 1 = 6
+    // base_granule = 20000 / 2048 = 9
+    // last_granule = ceil(30000 / 2048) = 15
+    // needed = 15 - 9 = 6  <=  6 (pre-allocated)  → sufficient!
+    constexpr int64_t GS = ConditionCacheContext::GRANULE_SIZE; // 2048
+    int64_t first_assigned_row = 20000;
+    int64_t total_rows = 10000;
+
+    // Step 1: simulate pre-allocation with +1 (as FileScanner now does)
+    int64_t pre_alloc = (total_rows + GS - 1) / GS + 1; // ceil(10000/2048) + 1 = 6
+    EXPECT_EQ(pre_alloc, 6);
+    std::vector<bool> cache(pre_alloc, false);
+
+    // Step 2: compute base_granule (as set_condition_cache_context does)
+    int64_t base_granule = first_assigned_row / GS; // 9
+    EXPECT_EQ(base_granule, 9);
+
+    // Step 3: verify all granules are coverable
+    int64_t last_granule = (first_assigned_row + total_rows + GS - 1) / GS; // 15
+    int64_t needed = last_granule - base_granule;                           // 6
+    EXPECT_LE(static_cast<size_t>(needed), cache.size());
+
+    // Step 4: mark all granules as true and verify HIT keeps all rows
+    cache.assign(cache.size(), true);
+    RowRanges ranges;
+    ranges.add(RowRange(0, total_rows));
+    auto result =
+            RowGroupReader::filter_ranges_by_cache(ranges, cache, first_assigned_row, base_granule);
+    EXPECT_EQ(result.count(), total_rows);
+}
+
+// Verify the last granule (cache_idx = needed-1) is reachable after +1 allocation.
+TEST_F(CachePreAllocTest, LastGranuleIsReachable) {
+    constexpr int64_t GS = ConditionCacheContext::GRANULE_SIZE;
+    int64_t first_assigned_row = 20000;
+    int64_t total_rows = 10000;
+
+    int64_t pre_alloc = (total_rows + GS - 1) / GS + 1;
+    std::vector<bool> cache(pre_alloc, false);
+    int64_t base_granule = first_assigned_row / GS;
+
+    // Simulate marking from _mark_condition_cache_granules for a row
+    // in the last granule. E.g., global row 29000
+    int64_t global_row = 29000;
+    size_t granule = global_row / GS;          // 29000 / 2048 = 14
+    size_t cache_idx = granule - base_granule; // 14 - 9 = 5
+
+    // Without +1, cache.size() would be 5 and cache_idx=5 would be out of bounds
+    // With +1, cache.size() is 6 and cache_idx=5 is valid
+    EXPECT_LT(cache_idx, cache.size());
+    cache[cache_idx] = true;
+    EXPECT_TRUE(cache[cache_idx]);
+}
+
+// Verify +1 is sufficient for various misaligned first_row values.
+TEST_F(CachePreAllocTest, PlusOneSufficientForVariousMisalignments) {
+    constexpr int64_t GS = ConditionCacheContext::GRANULE_SIZE;
+
+    struct TestCase {
+        int64_t first_row;
+        int64_t total_rows;
+    };
+    std::vector<TestCase> cases = {
+            {.first_row = 20000, .total_rows = 10000},  // original example
+            {.first_row = 1024, .total_rows = 4096},    // small offset
+            {.first_row = 3000, .total_rows = 8000},    // another misalignment
+            {.first_row = 2047, .total_rows = 2049},    // just before boundary, spans 3 granules
+            {.first_row = 0, .total_rows = 10000},      // aligned (+1 is wasted but harmless)
+            {.first_row = 1, .total_rows = 2048},       // off-by-one at start
+            {.first_row = 100000, .total_rows = 10000}, // large offset (second row group)
+    };
+
+    for (auto& tc : cases) {
+        int64_t last_row = tc.first_row + tc.total_rows;
+        int64_t pre_alloc = (tc.total_rows + GS - 1) / GS + 1;
+        int64_t base_granule = tc.first_row / GS;
+        int64_t last_granule = (last_row + GS - 1) / GS;
+        int64_t needed = last_granule - base_granule;
+
+        EXPECT_LE(needed, pre_alloc)
+                << "first_row=" << tc.first_row << " total_rows=" << tc.total_rows;
+
+        // Verify HIT correctness
+        std::vector<bool> cache(pre_alloc, true);
+        RowRanges ranges;
+        ranges.add(RowRange(0, tc.total_rows));
+        auto result =
+                RowGroupReader::filter_ranges_by_cache(ranges, cache, tc.first_row, base_granule);
+        EXPECT_EQ(result.count(), tc.total_rows)
+                << "first_row=" << tc.first_row << " total_rows=" << tc.total_rows;
+    }
+}
+
+// Extra +1 element beyond actual data range doesn't cause incorrect filtering.
+TEST_F(CachePreAllocTest, ExtraElementDoesNotCauseIncorrectFiltering) {
+    // Aligned case: first_row=0, total_rows=4096 (exactly 2 granules)
+    // Pre-alloc = 2 + 1 = 3. The 3rd element (cache[2]) is beyond data range.
+    std::vector<bool> cache = {true, true, false}; // extra false at end
+
+    RowRanges ranges;
+    ranges.add(RowRange(0, 4096));
+    auto result = RowGroupReader::filter_ranges_by_cache(ranges, cache, 0, 0);
+
+    // The extra false granule covers rg-relative [4096, 6144) which doesn't
+    // overlap [0, 4096), so all rows should be kept.
+    EXPECT_EQ(result.count(), 4096);
+}
+
+// ============================================================
 // Mock / Testable reader classes
 // ============================================================
 

@@ -913,8 +913,10 @@ int64_t ParquetReader::get_total_rows() const {
 
 void ParquetReader::set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) {
     _condition_cache_ctx = std::move(ctx);
-    if (!_condition_cache_ctx || !_t_metadata || !_filter_groups) return;
-    // Find the first assigned row group to compute base_granule
+    if (!_condition_cache_ctx || !_t_metadata || !_filter_groups) {
+        return;
+    }
+    // Find the first assigned row group to compute base_granule.
     int64_t first_row = 0;
     for (const auto& rg : _t_metadata->row_groups) {
         if (!_is_misaligned_range_group(rg)) {

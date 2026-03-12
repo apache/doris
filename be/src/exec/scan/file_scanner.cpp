@@ -1784,13 +1784,18 @@ void FileScanner::_init_reader_condition_cache() {
         _condition_cache = handle.get_filter_result();
         COUNTER_UPDATE(_condition_cache_hit_counter, 1);
     } else {
-        // Allocate cache pre-sized to total number of granules
+        // Allocate cache pre-sized to total number of granules.
+        // We add +1 as a safety margin: when a file is split across multiple scanners
+        // and the first row of this scanner's range is not aligned to a granule boundary,
+        // the data may span one more granule than ceil(total_rows / GRANULE_SIZE).
+        // The extra element costs only 1 bit and never affects correctness (an extra
+        // false-granule beyond the actual data range won't overlap any real row range).
         _condition_cache = std::make_shared<std::vector<bool>>();
         int64_t total_rows = _cur_reader->get_total_rows();
         if (total_rows > 0) {
             size_t num_granules = (total_rows + ConditionCacheContext::GRANULE_SIZE - 1) /
                                   ConditionCacheContext::GRANULE_SIZE;
-            _condition_cache->resize(num_granules, false);
+            _condition_cache->resize(num_granules + 1, false);
         }
     }
 

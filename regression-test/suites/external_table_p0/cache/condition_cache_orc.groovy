@@ -245,7 +245,26 @@ suite("condition_cache_orc", "tvf,external,external_docker") {
     assertEquals("0", metrics["ConditionCacheFilteredRows"])
 
     uuid = UUID.randomUUID().toString()
+    sql "set enable_orc_lazy_materialization=true"
     qt_condition_cache_verify_hit0_1 """
+        SELECT id, name, age, score FROM (
+            SELECT id, name, age, score, "${uuid}" FROM ${largeTvf}
+            WHERE id > 2048 and age > 47 and score > 80
+        ) tmpa
+        ORDER BY 1, 2, 3, 4;
+    """
+    profileText = getProfileWithToken(uuid)
+    assertTrue(profileText.contains("Scanner"), "Profile does not contain Scanner")
+    assertTrue(profileText.contains("ConditionCacheFileHit"), "Profile does not contain ConditionCacheFileHit")
+    assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
+    metrics = extractProfileBlockMetrics(profileText, "Scanner")
+    logger.info("metrics = ${metrics}")
+    assertEquals("1", metrics["ConditionCacheFileHit"])
+    assertEquals("2.048K (2048)", metrics["ConditionCacheFilteredRows"])
+
+    uuid = UUID.randomUUID().toString()
+    sql "set enable_orc_lazy_materialization=false"
+    qt_condition_cache_verify_hit0_2 """
         SELECT id, name, age, score FROM (
             SELECT id, name, age, score, "${uuid}" FROM ${largeTvf}
             WHERE id > 2048 and age > 47 and score > 80
@@ -268,6 +287,7 @@ suite("condition_cache_orc", "tvf,external,external_docker") {
     """
 
     uuid = UUID.randomUUID().toString()
+    sql "set enable_orc_lazy_materialization=true"
     qt_condition_cache_verify_hit1_1 """
         SELECT id, name, age, score FROM (
             SELECT id, name, age, score, "${uuid}" FROM ${largeTvf}
@@ -282,18 +302,12 @@ suite("condition_cache_orc", "tvf,external,external_docker") {
     assertEquals("1", metrics["ConditionCacheFileHit"])
     assertEquals("4.096K (4096)", metrics["ConditionCacheFilteredRows"])
 
-    // small split size to force more splits
-    sql "set MAX_INITIAL_FILE_SPLIT_SIZE = 4 * 1024;"
-    qt_condition_cache_verify_hit2 """
-        SELECT id, name, age, score FROM ${largeTvf}
-        WHERE id > 4981
-        ORDER BY 1, 2, 3, 4;
-    """
     uuid = UUID.randomUUID().toString()
-    qt_condition_cache_verify_hit2_1 """
+    sql "set enable_orc_lazy_materialization=false"
+    qt_condition_cache_verify_hit1_2 """
         SELECT id, name, age, score FROM (
             SELECT id, name, age, score, "${uuid}" FROM ${largeTvf}
-            WHERE id > 4981
+            WHERE id > 4980
         ) tmpa
         ORDER BY 1, 2, 3, 4; """
     profileText = getProfileWithToken(uuid)
@@ -301,6 +315,10 @@ suite("condition_cache_orc", "tvf,external,external_docker") {
     assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
     metrics = extractProfileBlockMetrics(profileText, "Scanner")
     logger.info("metrics = ${metrics}")
+    assertEquals("1", metrics["ConditionCacheFileHit"])
+    assertEquals("4.096K (4096)", metrics["ConditionCacheFilteredRows"])
+
+    // small split size to force more splits
     /*
 |   0:VTVF_SCAN_NODE(52)                                                                                                                        |
 |      table: null.null.LocalTableValuedFunction                                                                                                |
@@ -314,6 +332,42 @@ suite("condition_cache_orc", "tvf,external,external_docker") {
 |          /tmp/test_condition_cache_orc/orc_large_6e4d2f6b6c524666-81f0d7ac43cf1110_0.orc start: 8192 length: 4490                             |
 |          dataFileNum=1, deleteFileNum=0, deleteSplitNum=0 
     */
+    sql "set MAX_INITIAL_FILE_SPLIT_SIZE = 4 * 1024;"
+    qt_condition_cache_verify_hit2 """
+        SELECT id, name, age, score FROM ${largeTvf}
+        WHERE id > 4981
+        ORDER BY 1, 2, 3, 4;
+    """
+
+    uuid = UUID.randomUUID().toString()
+    sql "set enable_orc_lazy_materialization=true"
+    qt_condition_cache_verify_hit2_1 """
+        SELECT id, name, age, score FROM (
+            SELECT id, name, age, score, "${uuid}" FROM ${largeTvf}
+            WHERE id > 4981
+        ) tmpa
+        ORDER BY 1, 2, 3, 4; """
+    profileText = getProfileWithToken(uuid)
+    assertTrue(profileText.contains("ConditionCacheFileHit"), "Profile does not contain ConditionCacheFileHit")
+    assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
+    metrics = extractProfileBlockMetrics(profileText, "Scanner")
+    logger.info("metrics = ${metrics}")
+    assertEquals("3", metrics["ConditionCacheFileHit"])
+    assertEquals("4.096K (4096)", metrics["ConditionCacheFilteredRows"])
+
+    uuid = UUID.randomUUID().toString()
+    sql "set enable_orc_lazy_materialization=false"
+    qt_condition_cache_verify_hit2_2 """
+        SELECT id, name, age, score FROM (
+            SELECT id, name, age, score, "${uuid}" FROM ${largeTvf}
+            WHERE id > 4981
+        ) tmpa
+        ORDER BY 1, 2, 3, 4; """
+    profileText = getProfileWithToken(uuid)
+    assertTrue(profileText.contains("ConditionCacheFileHit"), "Profile does not contain ConditionCacheFileHit")
+    assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
+    metrics = extractProfileBlockMetrics(profileText, "Scanner")
+    logger.info("metrics = ${metrics}")
     assertEquals("3", metrics["ConditionCacheFileHit"])
     assertEquals("4.096K (4096)", metrics["ConditionCacheFilteredRows"])
 
