@@ -2134,7 +2134,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.variantEnableFlattenNested(),
                             tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                             tbl.storageDictPageSize(),
-                            tbl.getColumnSeqMapping());
+                            tbl.getColumnSeqMapping(),
+                            tbl.getVerticalCompactionNumColumnsPerGroup());
 
                     task.setStorageFormat(tbl.getStorageFormat());
                     task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
@@ -2483,6 +2484,17 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException(e.getMessage());
         }
         olapTable.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionLevelThreshold);
+
+        // set vertical compaction num columns per group
+        int verticalCompactionNumColumnsPerGroup
+                = PropertyAnalyzer.VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP_DEFAULT_VALUE;
+        try {
+            verticalCompactionNumColumnsPerGroup = PropertyAnalyzer
+                .analyzeVerticalCompactionNumColumnsPerGroup(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.setVerticalCompactionNumColumnsPerGroup(verticalCompactionNumColumnsPerGroup);
 
         boolean variantEnableFlattenNested  = false;
         try {

@@ -245,6 +245,9 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
                 && !join.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
             return false;
         }
+        if (join.getJoinType().isAsofJoin()) {
+            return false;
+        }
         boolean pushed = false;
 
         if (ctx.builderNode instanceof PhysicalHashJoin) {

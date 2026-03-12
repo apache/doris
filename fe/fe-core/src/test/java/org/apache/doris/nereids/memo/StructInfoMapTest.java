@@ -173,6 +173,7 @@ class StructInfoMapTest extends SqlTestBase {
         };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
+        connectContext.getSessionVariable().materializedViewRewriteDurationThresholdMs = 1000000;
         dropMvByNereids("drop materialized view if exists mv1");
         createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
@@ -198,8 +199,8 @@ class StructInfoMapTest extends SqlTestBase {
         Multimap<Integer, Integer> commonTableIdToRelationIdMap
                 = c1.getStatementContext().getCommonTableIdToRelationIdMap();
         BitSet targetBitSet = new BitSet();
-        for (Integer relationId : commonTableIdToRelationIdMap.values()) {
-            targetBitSet.set(relationId);
+        for (Integer tableId : commonTableIdToRelationIdMap.keys()) {
+            targetBitSet.set(tableId);
         }
         c1.getMemo().incrementAndGetRefreshVersion(targetBitSet);
         int memoVersion = StructInfoMap.getMemoVersion(targetBitSet, c1.getMemo().getRefreshVersion());
@@ -241,6 +242,7 @@ class StructInfoMapTest extends SqlTestBase {
         };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
+        connectContext.getSessionVariable().materializedViewRewriteDurationThresholdMs = 1000000;
         dropMvByNereids("drop materialized view if exists mv1");
         createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
@@ -265,8 +267,8 @@ class StructInfoMapTest extends SqlTestBase {
         Multimap<Integer, Integer> commonTableIdToRelationIdMap
                 = c1.getStatementContext().getCommonTableIdToRelationIdMap();
         BitSet targetBitSet = new BitSet();
-        for (Integer relationId : commonTableIdToRelationIdMap.values()) {
-            targetBitSet.set(relationId);
+        for (Integer tableId : commonTableIdToRelationIdMap.keys()) {
+            targetBitSet.set(tableId);
         }
         c1.getMemo().incrementAndGetRefreshVersion(targetBitSet);
         int memoVersion = StructInfoMap.getMemoVersion(targetBitSet, c1.getMemo().getRefreshVersion());
@@ -282,7 +284,7 @@ class StructInfoMapTest extends SqlTestBase {
         System.out.println(structInfo.getOriginalPlan().treeString());
         BitSet bitSet = new BitSet();
         for (CatalogRelation relation : structInfo.getRelations()) {
-            bitSet.set(relation.getRelationId().asInt());
+            bitSet.set(c1.getStatementContext().getTableId(relation.getTable()).asInt());
         }
         Assertions.assertEquals(bitSet, mvMap);
         dropMvByNereids("drop materialized view mv1");

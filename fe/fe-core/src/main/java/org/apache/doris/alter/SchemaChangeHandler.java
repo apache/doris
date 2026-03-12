@@ -825,6 +825,11 @@ public class SchemaChangeHandler extends AlterHandler {
                         ColumnType.checkSupportSchemaChangeForComplexType(col.getType(), modColumn.getType(), true);
                         lightSchemaChange = olapTable.getEnableLightSchemaChange();
                     }
+                    // variant property-only change (e.g. variant_doc_materialization_min_rows)
+                    if (columnPos == null && col.getDataType() == PrimitiveType.VARIANT
+                            && modColumn.getDataType() == PrimitiveType.VARIANT) {
+                        lightSchemaChange = olapTable.getEnableLightSchemaChange();
+                    }
                     if (col.isClusterKey()) {
                         throw new DdlException("Can not modify cluster key column: " + col.getName());
                     }
@@ -2573,6 +2578,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 add(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
                 add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD);
                 add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD);
+                add(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
                 add(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
                 add(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM);
                 add(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
@@ -2664,7 +2670,14 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
 
+        int verticalCompactionNumColumnsPerGroup = -1; // < 0 means don't update
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP)) {
+            verticalCompactionNumColumnsPerGroup = Integer.parseInt(
+                    properties.get(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP));
+        }
+
         if (isInMemory < 0 && storagePolicyId < 0 && compactionPolicy == null && timeSeriesCompactionConfig.isEmpty()
+                && verticalCompactionNumColumnsPerGroup < 0
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
@@ -2713,7 +2726,7 @@ public class SchemaChangeHandler extends AlterHandler {
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), storagePolicyId, isInMemory,
                                     null, compactionPolicy, timeSeriesCompactionConfig, enableSingleCompaction, skip,
-                                    disableAutoCompaction);
+                                    disableAutoCompaction, verticalCompactionNumColumnsPerGroup);
         }
 
         olapTable.writeLockOrDdlException();
@@ -2761,8 +2774,8 @@ public class SchemaChangeHandler extends AlterHandler {
 
         for (String partitionName : partitionNames) {
             try {
-                updatePartitionProperties(db, olapTable.getName(), partitionName, storagePolicyId,
-                                                                            isInMemory, null, null, null, -1, -1, -1);
+                updatePartitionProperties(db, olapTable.getName(), partitionName,
+                        storagePolicyId, isInMemory, null, null, null, -1, -1, -1, -1);
             } catch (Exception e) {
                 String errMsg = "Failed to update partition[" + partitionName + "]'s 'in_memory' property. "
                         + "The reason is [" + e.getMessage() + "]";
@@ -2779,7 +2792,8 @@ public class SchemaChangeHandler extends AlterHandler {
                                           int isInMemory, BinlogConfig binlogConfig, String compactionPolicy,
                                           Map<String, Long> timeSeriesCompactionConfig,
                                           int enableSingleCompaction, int skipWriteIndexOnLoad,
-                                          int disableAutoCompaction) throws UserException {
+                                          int disableAutoCompaction,
+                                          int verticalCompactionNumColumnsPerGroup) throws UserException {
         // be id -> <tablet id,schemaHash>
         Map<Long, Set<Pair<Long, Integer>>> beIdToTabletIdWithHash = Maps.newHashMap();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
@@ -2813,7 +2827,7 @@ public class SchemaChangeHandler extends AlterHandler {
             UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(kv.getKey(), kv.getValue(), isInMemory,
                                             storagePolicyId, binlogConfig, countDownLatch, compactionPolicy,
                                             timeSeriesCompactionConfig, enableSingleCompaction, skipWriteIndexOnLoad,
-                                            disableAutoCompaction);
+                                            disableAutoCompaction, verticalCompactionNumColumnsPerGroup);
             batchTask.addTask(task);
         }
         if (!FeConstants.runningUnitTest) {
@@ -3696,7 +3710,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), -1, -1,
-                    newBinlogConfig, null, null, -1, -1, -1);
+                    newBinlogConfig, null, null, -1, -1, -1, -1);
         }
 
         olapTable.writeLockOrDdlException();

@@ -4014,6 +4014,14 @@ public class Env {
             sb.append(olapTable.getTimeSeriesCompactionLevelThreshold()).append("\"");
         }
 
+        // vertical compaction num columns per group
+        if (olapTable.getVerticalCompactionNumColumnsPerGroup()
+                != PropertyAnalyzer.VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP_DEFAULT_VALUE) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP)
+                    .append("\" = \"");
+            sb.append(olapTable.getVerticalCompactionNumColumnsPerGroup()).append("\"");
+        }
+
         // Storage Vault
         if (!Strings.isNullOrEmpty(olapTable.getStorageVaultId())) {
             sb.append(",\n\"").append(PropertyAnalyzer
@@ -6251,6 +6259,7 @@ public class Env {
                 .buildEnableTso()
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
                 .buildTimeSeriesCompactionLevelThreshold()
+                .buildVerticalCompactionNumColumnsPerGroup()
                 .buildTTLSeconds()
                 .buildAutoAnalyzeProperty()
                 .buildPartitionRetentionCount();
