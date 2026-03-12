@@ -29,6 +29,7 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.RecursiveCteScanNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SchemaScanNode;
 import org.apache.doris.thrift.TExplainLevel;
@@ -126,6 +127,10 @@ public class UnassignedJobBuilder {
                 unassignedJob = buildScanMetadataJob(
                         statementContext, planFragment, (SchemaScanNode) scanNode, scanWorkerSelector
                 );
+            } else if (scanNode instanceof RecursiveCteScanNode) {
+                unassignedJob = buildScanRecursiveCteJob(
+                        statementContext, planFragment, (RecursiveCteScanNode) scanNode, inputJobs, scanWorkerSelector
+                );
             } else {
                 // only scan external tables or cloud tables or table valued functions
                 // e,g. select * from numbers('number'='100')
@@ -194,6 +199,14 @@ public class UnassignedJobBuilder {
             StatementContext statementContext, PlanFragment fragment,
             SchemaScanNode schemaScanNode, ScanWorkerSelector scanWorkerSelector) {
         return new UnassignedScanMetadataJob(statementContext, fragment, schemaScanNode, scanWorkerSelector);
+    }
+
+    private UnassignedJob buildScanRecursiveCteJob(
+            StatementContext statementContext, PlanFragment fragment,
+            RecursiveCteScanNode recursiveCteScanNode,
+            ListMultimap<ExchangeNode, UnassignedJob> inputJobs, ScanWorkerSelector scanWorkerSelector) {
+        return new UnassignedRecursiveCteScanJob(statementContext, fragment, recursiveCteScanNode,
+                inputJobs, scanWorkerSelector);
     }
 
     private UnassignedJob buildScanRemoteTableJob(
