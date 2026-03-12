@@ -60,8 +60,8 @@ suite("test_hive_compress_type", "p0,external") {
         }
         explain {
             sql("select count(*) from test_compress_partitioned")
-            contains "inputSplitNum=${expectedSplitNumWithFileSplit}, totalFileSize=734675596, "
-                    + "scanRanges=${expectedSplitNumWithFileSplit}"
+            contains(("inputSplitNum=${expectedSplitNumWithFileSplit}, totalFileSize=734675596, "
+                    + "scanRanges=${expectedSplitNumWithFileSplit}"))
             contains "partition=8/8"
         }
 
