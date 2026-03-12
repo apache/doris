@@ -59,7 +59,7 @@ public class DataSourceConfigValidator {
                 // per-table config key must be exactly: table.<tableName>.<suffix>
                 // reject malformed keys like "table.exclude_columns" (missing tableName)
                 String[] parts = key.split("\\.", -1);
-                if (parts.length < 3 || parts[1].isEmpty()) {
+                if (parts.length != 3 || parts[1].isEmpty()) {
                     throw new IllegalArgumentException("Malformed per-table config key: '" + key
                             + "'. Expected format: table.<tableName>.<suffix>");
                 }
