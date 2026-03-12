@@ -330,11 +330,10 @@ public:
     LRUCache(LRUCacheType type, bool is_lru_k = DEFAULT_LRU_CACHE_IS_LRU_K);
     ~LRUCache();
 
-    // visits_lru_cache_key is the hash value of CacheKey.
-    // If there is a hash conflict, a cache entry may be inserted early
-    // and another cache entry with the same key hash may be inserted later.
-    // Otherwise, this does not affect the correctness of the cache.
-    using visits_lru_cache_key = uint32_t;
+    // visits_lru_cache_key is the full string of CacheKey to avoid hash collisions.
+    // Using only the 32-bit hash as key causes ~8% collision rate with ~27000 entries,
+    // leading to incorrect LRU-K promotion decisions and degraded cache hit ratio.
+    using visits_lru_cache_key = std::string;
     using visits_lru_cache_pair = std::pair<visits_lru_cache_key, size_t>;
 
     // Separate from constructor so caller can easily make an array of LRUCache
@@ -374,7 +373,7 @@ private:
     void _evict_from_lru_with_time(size_t total_size, LRUHandle** to_remove_head);
     void _evict_one_entry(LRUHandle* e);
     bool _check_element_count_limit();
-    bool _lru_k_insert_visits_list(size_t total_size, visits_lru_cache_key visits_key);
+    bool _lru_k_insert_visits_list(size_t total_size, const CacheKey& key);
 
 private:
     LRUCacheType _type;

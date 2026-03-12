@@ -327,7 +327,7 @@ Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
     // then move the key to beginning of the visits list.
     // key in visits list indicates that the key has been inserted once after the cache is full.
     if (e == nullptr && _is_lru_k) {
-        auto it = _visits_lru_cache_map.find(hash);
+        auto it = _visits_lru_cache_map.find(key.to_string());
         if (it != _visits_lru_cache_map.end()) {
             _visits_lru_cache_list.splice(_visits_lru_cache_list.begin(), _visits_lru_cache_list,
                                           it->second);
@@ -445,10 +445,11 @@ bool LRUCache::_check_element_count_limit() {
 // key is allowed to be inserted into cache this time (this will trigger cache evict),
 // and key is removed from the visits list.
 // 2. Return true. If key not in visits list, insert it into visits list.
-bool LRUCache::_lru_k_insert_visits_list(size_t total_size, visits_lru_cache_key visits_key) {
+bool LRUCache::_lru_k_insert_visits_list(size_t total_size, const CacheKey& key) {
     if (_usage + total_size > _capacity ||
         _check_element_count_limit()) { // this line no lock required
-        auto it = _visits_lru_cache_map.find(visits_key);
+        std::string key_str = key.to_string();
+        auto it = _visits_lru_cache_map.find(key_str);
         if (it != _visits_lru_cache_map.end()) {
             _visits_lru_cache_usage -= it->second->second;
             _visits_lru_cache_list.erase(it->second);
@@ -466,8 +467,8 @@ bool LRUCache::_lru_k_insert_visits_list(size_t total_size, visits_lru_cache_key
             // 1. If true, insert key at the beginning of _visits_lru_cache_list.
             // 2. If false, it means total_size > cache _capacity, preventing this insert.
             if (_visits_lru_cache_usage + total_size <= _capacity) {
-                _visits_lru_cache_list.emplace_front(visits_key, total_size);
-                _visits_lru_cache_map[visits_key] = _visits_lru_cache_list.begin();
+                _visits_lru_cache_list.emplace_front(key_str, total_size);
+                _visits_lru_cache_map[std::move(key_str)] = _visits_lru_cache_list.begin();
                 _visits_lru_cache_usage += total_size;
             }
             return true;
@@ -499,7 +500,7 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     {
         std::lock_guard l(_mutex);
 
-        if (_is_lru_k && _lru_k_insert_visits_list(e->total_size, hash)) {
+        if (_is_lru_k && _lru_k_insert_visits_list(e->total_size, key)) {
             return reinterpret_cast<Cache::Handle*>(e);
         }
 
@@ -567,6 +568,17 @@ void LRUCache::erase(const CacheKey& key, uint32_t hash) {
             // `entry->in_cache = false` and `_usage -= entry->total_size;` and `_unref(entry)` should appear together.
             // see the comment for old entry in `LRUCache::insert`.
             _usage -= e->total_size;
+        }
+        // Also remove from visits list if present. This handles the case where a key was
+        // erased (e.g., after compaction) before being promoted from visits list to cache,
+        // preventing stale entries from consuming visits list capacity.
+        if (_is_lru_k) {
+            auto it = _visits_lru_cache_map.find(key.to_string());
+            if (it != _visits_lru_cache_map.end()) {
+                _visits_lru_cache_usage -= it->second->second;
+                _visits_lru_cache_list.erase(it->second);
+                _visits_lru_cache_map.erase(it);
+            }
         }
     }
     // free handle out of mutex, when last_ref is true, e must not be nullptr
