@@ -109,7 +109,6 @@ TEST_F(StreamingAggOperatorTest, test1) {
             false));
     op->_pool = &pool;
     op->_needs_finalize = false;
-    op->_is_merge = false;
 
     EXPECT_TRUE(op->set_child(child_op));
 
@@ -166,7 +165,6 @@ TEST_F(StreamingAggOperatorTest, test2) {
             false));
     op->_pool = &pool;
     op->_needs_finalize = false;
-    op->_is_merge = false;
 
     EXPECT_TRUE(op->set_child(child_op));
 
@@ -243,7 +241,6 @@ TEST_F(StreamingAggOperatorTest, test3) {
             false));
     op->_pool = &pool;
     op->_needs_finalize = false;
-    op->_is_merge = false;
 
     EXPECT_TRUE(op->set_child(child_op));
 
@@ -323,7 +320,6 @@ TEST_F(StreamingAggOperatorTest, test4) {
                                       std::make_shared<DataTypeBitMap>(), false));
     op->_pool = &pool;
     op->_needs_finalize = false;
-    op->_is_merge = false;
 
     EXPECT_TRUE(op->set_child(child_op));
 
