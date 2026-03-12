@@ -60,10 +60,11 @@ public class AuthenticationIntegrationMgr implements Writable {
     }
 
     public void createAuthenticationIntegration(
-            String integrationName, boolean ifNotExists, Map<String, String> properties, String comment)
+            String integrationName, boolean ifNotExists, Map<String, String> properties, String comment,
+            String createUser)
             throws DdlException {
         AuthenticationIntegrationMeta meta =
-                AuthenticationIntegrationMeta.fromCreateSql(integrationName, properties, comment);
+                AuthenticationIntegrationMeta.fromCreateSql(integrationName, properties, comment, createUser);
         writeLock();
         try {
             if (nameToIntegration.containsKey(integrationName)) {
@@ -82,11 +83,11 @@ public class AuthenticationIntegrationMgr implements Writable {
     }
 
     public void alterAuthenticationIntegrationProperties(
-            String integrationName, Map<String, String> properties) throws DdlException {
+            String integrationName, Map<String, String> properties, String alterUser) throws DdlException {
         writeLock();
         try {
             AuthenticationIntegrationMeta current = getOrThrow(integrationName);
-            AuthenticationIntegrationMeta updated = current.withAlterProperties(properties);
+            AuthenticationIntegrationMeta updated = current.withAlterProperties(properties, alterUser);
             nameToIntegration.put(integrationName, updated);
             // TODO(authentication-integration): Re-enable edit log persistence
             // when authentication integration is fully integrated.
@@ -97,11 +98,11 @@ public class AuthenticationIntegrationMgr implements Writable {
     }
 
     public void alterAuthenticationIntegrationUnsetProperties(
-            String integrationName, Set<String> propertiesToUnset) throws DdlException {
+            String integrationName, Set<String> propertiesToUnset, String alterUser) throws DdlException {
         writeLock();
         try {
             AuthenticationIntegrationMeta current = getOrThrow(integrationName);
-            AuthenticationIntegrationMeta updated = current.withUnsetProperties(propertiesToUnset);
+            AuthenticationIntegrationMeta updated = current.withUnsetProperties(propertiesToUnset, alterUser);
             nameToIntegration.put(integrationName, updated);
             // TODO(authentication-integration): Re-enable edit log persistence
             // when authentication integration is fully integrated.
@@ -111,11 +112,12 @@ public class AuthenticationIntegrationMgr implements Writable {
         }
     }
 
-    public void alterAuthenticationIntegrationComment(String integrationName, String comment) throws DdlException {
+    public void alterAuthenticationIntegrationComment(String integrationName, String comment, String alterUser)
+            throws DdlException {
         writeLock();
         try {
             AuthenticationIntegrationMeta current = getOrThrow(integrationName);
-            AuthenticationIntegrationMeta updated = current.withComment(comment);
+            AuthenticationIntegrationMeta updated = current.withComment(comment, alterUser);
             nameToIntegration.put(integrationName, updated);
             // TODO(authentication-integration): Re-enable edit log persistence
             // when authentication integration is fully integrated.
