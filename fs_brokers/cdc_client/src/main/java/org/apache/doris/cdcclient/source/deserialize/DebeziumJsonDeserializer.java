@@ -99,15 +99,14 @@ public class DebeziumJsonDeserializer
             throws IOException {
         if (RecordUtils.isDataChangeRecord(record)) {
             LOG.trace("Process data change record: {}", record);
-            List<String> rows = deserializeDataChangeRecord(record, context);
+            List<String> rows = deserializeDataChangeRecord(record);
             return DeserializeResult.dml(rows);
         } else {
             return DeserializeResult.empty();
         }
     }
 
-    private List<String> deserializeDataChangeRecord(
-            SourceRecord record, Map<String, String> context) throws IOException {
+    private List<String> deserializeDataChangeRecord(SourceRecord record) throws IOException {
         List<String> rows = new ArrayList<>();
         String tableName = extractTableName(record);
         Set<String> excludeColumns = excludeColumnsCache.getOrDefault(tableName, Collections.emptySet());
