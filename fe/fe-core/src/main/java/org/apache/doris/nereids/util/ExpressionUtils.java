@@ -65,9 +65,6 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOut
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;

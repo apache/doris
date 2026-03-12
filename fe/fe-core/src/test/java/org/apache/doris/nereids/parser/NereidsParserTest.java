@@ -1519,7 +1519,7 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT id, COUNT(*) FROM test_table GROUP BY id"));
         Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT * FROM test_table ORDER BY id"));
     }
-    
+
     public void testUnnest() {
         String sql = "SELECT t.* FROM LATERAL unnest([1,2], ['hi','hello']) WITH ORDINALITY AS t(c1,c2);";
         parsePlan(sql).matches(logicalGenerate().when(plan -> plan.getGenerators().get(0) instanceof Unnest));
