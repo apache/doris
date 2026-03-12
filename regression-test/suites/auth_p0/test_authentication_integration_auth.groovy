@@ -35,7 +35,8 @@ suite("test_authentication_integration_auth", "p0,auth") {
              PROPERTIES (
                 'type'='ldap',
                 'ldap.server'='ldap://127.0.0.1:389',
-                'ldap.admin_password'='123456'
+                'ldap.admin_password'='123456',
+                'secret.endpoint'='secret_create_value'
             )
             COMMENT 'for regression test'
         """
@@ -60,7 +61,8 @@ suite("test_authentication_integration_auth", "p0,auth") {
             ALTER AUTHENTICATION INTEGRATION ${integrationName}
             SET PROPERTIES (
                 'ldap.server'='ldap://127.0.0.1:1389',
-                'ldap.admin_password'='abcdef'
+                'ldap.admin_password'='abcdef',
+                'secret.endpoint'='secret_alter_value'
             )
         """
 
@@ -86,7 +88,9 @@ suite("test_authentication_integration_auth", "p0,auth") {
         assertTrue(result[0][1] == "ldap")
         assertTrue(result[0][2].contains("\"ldap.server\" = \"ldap://127.0.0.1:1389\""))
         assertTrue(result[0][2].contains("\"ldap.admin_password\" = \"*XXX\""))
+        assertTrue(result[0][2].contains("\"secret.endpoint\" = \"*XXX\""))
         assertTrue(!result[0][2].contains("abcdef"))
+        assertTrue(!result[0][2].contains("secret_alter_value"))
         assertTrue(result[0][3] == "updated comment")
         assertTrue(result[0][4] != null && result[0][4].length() > 0)
         assertTrue(result[0][5] != null && result[0][5].length() > 0)

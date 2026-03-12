@@ -260,6 +260,7 @@ public class FrontendServiceImplTest {
         properties.put("type", "ldap");
         properties.put("server", "ldap://127.0.0.1:389");
         properties.put("bind_password", "plain_secret");
+        properties.put("secret.endpoint", "masked_by_prefix");
         Env.getCurrentEnv().getAuthenticationIntegrationMgr()
                 .createAuthenticationIntegration(
                         integrationName, false, properties, "ldap comment", connectContext.getQualifiedUser());
@@ -288,7 +289,10 @@ public class FrontendServiceImplTest {
             Assert.assertTrue(rowValues.get(2).contains("\"server\" = \"ldap://127.0.0.1:389\""));
             Assert.assertTrue(rowValues.get(2).contains(
                     "\"bind_password\" = \"" + DatasourcePrintableMap.PASSWORD_MASK + "\""));
+            Assert.assertTrue(rowValues.get(2).contains(
+                    "\"secret.endpoint\" = \"" + DatasourcePrintableMap.PASSWORD_MASK + "\""));
             Assert.assertFalse(rowValues.get(2).contains("plain_secret"));
+            Assert.assertFalse(rowValues.get(2).contains("masked_by_prefix"));
             Assert.assertEquals("ldap comment", rowValues.get(3));
             Assert.assertEquals(connectContext.getQualifiedUser(), rowValues.get(4));
             Assert.assertNotNull(rowValues.get(5));
