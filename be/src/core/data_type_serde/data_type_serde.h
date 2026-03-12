@@ -209,8 +209,23 @@ public:
         const cctz::time_zone* timezone = nullptr;
 
         /**
-         * Ignore scale when converting decimal to string, because decimal in zone map is stored in
-         * unscaled value.
+         * Controls how the `scale` parameter is passed to decimal parsing in from_olap_string().
+         *
+         * - true:  parse with scale=0 (treat the string as a raw unscaled integer).
+         *          Used for DecimalV3 (Decimal32/64/128I/256) whose zonemap stores the raw
+         *          internal integer. E.g., Decimal(9,2) value 123.45 is stored as "12345";
+         *          parsing with scale=0 yields internal int 12345, which is correct.
+         *
+         * - false: parse with the data type's actual scale.
+         *          Used for DecimalV2 whose zonemap stores a human-readable string with
+         *          decimal point via decimal12_t::to_string().
+         *          E.g., DecimalV2 value 123.456 is stored as "123.456000000";
+         *          parsing with scale=9 correctly restores the original value.
+         *
+         * Note: for DecimalV2, read_decimal_text_impl() currently hardcodes
+         * DecimalV2Value::SCALE=9 regardless of the passed-in scale, so the flag
+         * does not actually affect DecimalV2 parsing today. However, callers should
+         * still set it correctly for semantic clarity and future-proofing.
          */
         bool ignore_scale = false;
 

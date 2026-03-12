@@ -23,6 +23,12 @@
 
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type_serde/data_type_serde.h"
+#include "core/decimal12.h"
+#include "core/field.h"
+#include "core/types.h"
+#include "core/value/decimalv2_value.h"
+#include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_string.h"
 #include "gtest/gtest_pred_impl.h"
 #include "storage/olap_common.h"
@@ -580,6 +586,684 @@ TEST_F(OlapTypeTest, ser_deser_double) {
                 << ", expected double str: " << expected_str
                 << ", deser double value: " << fmt::format("{:.17g}", deser_float_value)
                 << ", diff_ratio: " << fmt::format("{:.17g}", diff_ratio);
+    }
+}
+
+// =============================================================================
+// Tests for to_olap_string / from_olap_string on DataTypeSerDe
+//
+// Background:
+//   ZoneMap index serializes min/max values via Field::to_string() (in olap/types.h)
+//   and deserializes via Field::from_string(). When migrating to DataTypeSerDe-based
+//   serialization, the equivalent pair is to_olap_string() / from_olap_string().
+//
+//   Key difference vs normal to_string/from_string:
+//     - DecimalV2: to_olap_string uses decimal12_t::to_string() which outputs
+//       "integer.fraction" with 9 zero-padded fractional digits (e.g. "123.456000000").
+//       from_olap_string parses this with the full scale (ignore_scale=false).
+//     - Decimal32/64/128I/256: to_olap_string outputs the RAW INTEGER string
+//       (the unscaled internal value). For example, Decimal(9,2) value 123.45 has
+//       internal integer 12345, so to_olap_string outputs "12345".
+//       from_olap_string with ignore_scale=true parses with scale=0 to avoid
+//       double-scaling.
+//     - Float/Double: to_olap_string uses CastToString::from_number, which outputs
+//       "NaN", "Infinity", "-Infinity" for special values. But from_olap_string uses
+//       fast_float::from_chars which REJECTS these strings. In practice, ZoneMap
+//       tracks NaN/Inf via boolean flags (has_nan, has_positive_inf, has_negative_inf),
+//       so the min/max values never contain NaN/Inf.
+//     - DateV1 (TYPE_DATE): to_olap_string outputs "YYYY-MM-DD".
+//     - DateTimeV1 (TYPE_DATETIME): to_olap_string outputs "YYYY-MM-DD HH:MM:SS".
+//     - DateV2: to_olap_string outputs "YYYY-MM-DD".
+//     - DateTimeV2: to_olap_string outputs "YYYY-MM-DD HH:MM:SS[.ffffff]".
+//       Microsecond part only appears when microsecond > 0 (default scale=-1).
+//       Note: the old ZoneMap code used hardcoded scale=6 (always 6 fractional digits),
+//       but the new to_olap_string omits trailing fractional zeros.
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// Decimal32: to_olap_string outputs RAW integer (unscaled value).
+//   Internal representation: value * 10^scale.
+//   E.g., Decimal(9,2) value 123.45 → internal int32 = 12345 → "12345".
+//   from_olap_string with ignore_scale=true reads "12345" as integer 12345.
+// ---------------------------------------------------------------------------
+TEST_F(OlapTypeTest, ser_deser_decimal32) {
+    // Create Decimal(9,2) data type (precision=9, scale=2)
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(
+            FieldType::OLAP_FIELD_TYPE_DECIMAL32, /*precision=*/9, /*scale=*/2);
+    auto serde = data_type_ptr->get_serde();
+    DataTypeSerDe::FormatOptions options;
+    options.ignore_scale = true; // ZoneMap path: storage string is unscaled integer
+
+    // Test cases: {internal_int32_value, expected_olap_string}
+    // actual_decimal_value = internal / 10^scale
+    std::vector<std::pair<int32_t, std::string>> test_cases = {
+            // 123.45 → internal=12345 → "12345"
+            {12345, "12345"},
+            // -1.00 → internal=-100 → "-100"
+            {-100, "-100"},
+            // 0.00 → internal=0 → "0"
+            {0, "0"},
+            // 999999999 → max for Decimal(9,2): 9999999.99
+            {999999999, "999999999"},
+            // -999999999 → min for Decimal(9,2): -9999999.99
+            {-999999999, "-999999999"},
+            // 1 → 0.01
+            {1, "1"},
+            // -1 → -0.01
+            {-1, "-1"},
+    };
+
+    for (const auto& [int_val, expected_str] : test_cases) {
+        Decimal32 dec(int_val);
+        auto field = Field::create_field<TYPE_DECIMAL32>(dec);
+        // Verify to_olap_string output matches expected raw integer string
+        auto result_str = serde->to_olap_string(field);
+        EXPECT_EQ(result_str, expected_str)
+                << "Decimal32 to_olap_string failed for internal value " << int_val;
+
+        // Verify round-trip: from_olap_string should restore the same internal value
+        Field restored_field;
+        auto status = serde->from_olap_string(result_str, restored_field, options);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+        auto restored_value = restored_field.get<TYPE_DECIMAL32>();
+        EXPECT_EQ(restored_value.value, int_val)
+                << "Decimal32 round-trip failed for string '" << result_str << "'";
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Decimal64: same pattern as Decimal32, but 64-bit integer.
+//   E.g., Decimal(18,4) value 12345.6789 → internal int64 = 123456789 → "123456789".
+// ---------------------------------------------------------------------------
+TEST_F(OlapTypeTest, ser_deser_decimal64) {
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(
+            FieldType::OLAP_FIELD_TYPE_DECIMAL64, /*precision=*/18, /*scale=*/4);
+    auto serde = data_type_ptr->get_serde();
+    DataTypeSerDe::FormatOptions options;
+    options.ignore_scale = true;
+
+    std::vector<std::pair<int64_t, std::string>> test_cases = {
+            // 12345.6789 → internal=123456789
+            {123456789L, "123456789"},
+            // 0 → "0"
+            {0L, "0"},
+            // -1 → -0.0001
+            {-1L, "-1"},
+            // Large value near max
+            {999999999999999999L, "999999999999999999"},
+            {-999999999999999999L, "-999999999999999999"},
+            // Small fractional: 0.0001
+            {1L, "1"},
+    };
+
+    for (const auto& [int_val, expected_str] : test_cases) {
+        Decimal64 dec(int_val);
+        auto field = Field::create_field<TYPE_DECIMAL64>(dec);
+        auto result_str = serde->to_olap_string(field);
+        EXPECT_EQ(result_str, expected_str)
+                << "Decimal64 to_olap_string failed for internal value " << int_val;
+
+        Field restored_field;
+        auto status = serde->from_olap_string(result_str, restored_field, options);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+        auto restored_value = restored_field.get<TYPE_DECIMAL64>();
+        EXPECT_EQ(restored_value.value, int_val)
+                << "Decimal64 round-trip failed for string '" << result_str << "'";
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Decimal128I: to_olap_string uses fmt::format("{}", int128_value).
+//   E.g., Decimal(38,6) value 123456789.123456 → internal int128 = 123456789123456.
+//   Output: "123456789123456".
+// ---------------------------------------------------------------------------
+TEST_F(OlapTypeTest, ser_deser_decimal128i) {
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(
+            FieldType::OLAP_FIELD_TYPE_DECIMAL128I, /*precision=*/38, /*scale=*/6);
+    auto serde = data_type_ptr->get_serde();
+    DataTypeSerDe::FormatOptions options;
+    options.ignore_scale = true;
+
+    // int128_t values and expected strings
+    struct TestCase {
+        int128_t int_val;
+        std::string expected_str;
+    };
+    std::vector<TestCase> test_cases = {
+            // 123456789.123456 → internal=123456789123456
+            {(int128_t)123456789123456LL, "123456789123456"},
+            // 0
+            {(int128_t)0, "0"},
+            // -1
+            {(int128_t)-1, "-1"},
+            // Positive large value exceeding int64 range
+            // 10^18 * 100 = 10^20
+            {(int128_t)1000000000000000000LL * 100, "100000000000000000000"},
+    };
+
+    for (const auto& tc : test_cases) {
+        Decimal128V3 dec(tc.int_val);
+        auto field = Field::create_field<TYPE_DECIMAL128I>(dec);
+        auto result_str = serde->to_olap_string(field);
+        EXPECT_EQ(result_str, tc.expected_str)
+                << "Decimal128I to_olap_string failed for expected '" << tc.expected_str << "'";
+
+        Field restored_field;
+        auto status = serde->from_olap_string(result_str, restored_field, options);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+        auto restored_value = restored_field.get<TYPE_DECIMAL128I>();
+        EXPECT_EQ(restored_value.value, tc.int_val)
+                << "Decimal128I round-trip failed for string '" << result_str << "'";
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Decimal256: to_olap_string uses wide::to_string(value).
+//   Same pattern: raw integer string from internal representation.
+// ---------------------------------------------------------------------------
+TEST_F(OlapTypeTest, ser_deser_decimal256) {
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(
+            FieldType::OLAP_FIELD_TYPE_DECIMAL256, /*precision=*/76, /*scale=*/10);
+    auto serde = data_type_ptr->get_serde();
+    DataTypeSerDe::FormatOptions options;
+    options.ignore_scale = true;
+
+    // Use int128_t-constructible values for simplicity
+    // (wide::Int256 can be constructed from int128_t)
+    struct TestCase {
+        wide::Int256 int_val;
+        std::string expected_str;
+    };
+    std::vector<TestCase> test_cases = {
+            // Simple positive
+            {wide::Int256(123456789LL), "123456789"},
+            // Zero
+            {wide::Int256(0), "0"},
+            // Negative
+            {wide::Int256(-99999LL), "-99999"},
+            // Large value: 10^20
+            {wide::Int256((int128_t)1000000000000000000LL * 100), "100000000000000000000"},
+    };
+
+    for (const auto& tc : test_cases) {
+        Decimal256 dec(tc.int_val);
+        auto field = Field::create_field<TYPE_DECIMAL256>(dec);
+        auto result_str = serde->to_olap_string(field);
+        EXPECT_EQ(result_str, tc.expected_str)
+                << "Decimal256 to_olap_string failed for expected '" << tc.expected_str << "'";
+
+        Field restored_field;
+        auto status = serde->from_olap_string(result_str, restored_field, options);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+        auto restored_value = restored_field.get<TYPE_DECIMAL256>();
+        EXPECT_EQ(restored_value.value, tc.int_val)
+                << "Decimal256 round-trip failed for string '" << result_str << "'";
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DecimalV2: to_olap_string uses decimal12_t(int_value, frac_value).to_string().
+//   decimal12_t::to_string() outputs "integer.fraction" with 9 zero-padded fractional
+//   digits. E.g., DecimalV2(123.456) → int_value=123, frac_value=456000000 →
+//   decimal12_t(123, 456000000).to_string() → "123.456000000".
+//
+//   from_olap_string with ignore_scale=FALSE parses this as a normal decimal string
+//   with the data type's scale (9). With ignore_scale=TRUE, scale would be 0 and the
+//   fractional part would be truncated — that is WRONG for DecimalV2.
+//
+//   Note: this is different from DecimalV3 where storage is raw integer.
+//   DecimalV2 storage string always contains a decimal point.
+// ---------------------------------------------------------------------------
+TEST_F(OlapTypeTest, ser_deser_decimalv2) {
+    auto data_type_ptr =
+            DataTypeFactory::instance().create_data_type(TYPE_DECIMALV2, /*is_nullable=*/false);
+    auto serde = data_type_ptr->get_serde();
+    DataTypeSerDe::FormatOptions options;
+    // DecimalV2 storage string has decimal point, so we must NOT ignore scale.
+    // ignore_scale=false means from_olap_string uses the full scale=9.
+    options.ignore_scale = false;
+
+    // Test cases: {DecimalV2Value, expected_to_olap_string}
+    // DecimalV2Value internally stores value * 10^9.
+    // decimal12_t::to_string format: "integer.fraction" with %09u for fraction.
+    struct TestCase {
+        DecimalV2Value value;
+        std::string expected_str;
+    };
+
+    std::vector<TestCase> test_cases = {
+            // 123.456 → int=123, frac=456000000 → "123.456000000"
+            {DecimalV2Value(123, 456000000), "123.456000000"},
+            // 0.0 → int=0, frac=0 → "0.000000000"
+            {DecimalV2Value(0, 0), "0.000000000"},
+            // -1.5 → int=-1, frac=-500000000 → "-1.500000000"
+            {DecimalV2Value(-1, -500000000), "-1.500000000"},
+            // Pure integer: 42.0 → "42.000000000"
+            {DecimalV2Value(42, 0), "42.000000000"},
+            // Tiny fraction: 0.000000001 → int=0, frac=1 → "0.000000001"
+            {DecimalV2Value(0, 1), "0.000000001"},
+            // Max fraction: 0.999999999 → int=0, frac=999999999 → "0.999999999"
+            {DecimalV2Value(0, 999999999), "0.999999999"},
+            // Large integer: 999999999999999999.0
+            {DecimalV2Value(999999999999999999LL, 0), "999999999999999999.000000000"},
+            // Negative with fraction
+            {DecimalV2Value(-123, -456000000), "-123.456000000"},
+    };
+
+    for (const auto& tc : test_cases) {
+        auto field = Field::create_field<TYPE_DECIMALV2>(tc.value);
+        auto result_str = serde->to_olap_string(field);
+        EXPECT_EQ(result_str, tc.expected_str) << "DecimalV2 to_olap_string failed";
+
+        // Round-trip: from_olap_string should restore the same value
+        Field restored_field;
+        auto status = serde->from_olap_string(result_str, restored_field, options);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+        auto restored_value = restored_field.get<TYPE_DECIMALV2>();
+        EXPECT_EQ(restored_value, tc.value)
+                << "DecimalV2 round-trip failed for string '" << result_str << "'"
+                << ", expected int_value=" << tc.value.int_value()
+                << ", frac_value=" << tc.value.frac_value()
+                << ", got int_value=" << restored_value.int_value()
+                << ", frac_value=" << restored_value.frac_value();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Float: to_olap_string / from_olap_string for normal values.
+//   to_olap_string uses CastToString::from_number which calls _fast_to_buffer.
+//   Format: fmt "{:.7g}" (digits10+1=7 significant digits).
+//   NaN/Inf are serialized as "NaN", "Infinity", "-Infinity" but from_olap_string
+//   (which uses fast_float::from_chars) CANNOT parse them back → returns error.
+//   In ZoneMap, NaN/Inf are tracked via boolean flags, not stored in min/max values.
+// ---------------------------------------------------------------------------
+TEST_F(OlapTypeTest, ser_deser_float_olap_string) {
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, false);
+    auto serde = data_type_ptr->get_serde();
+    DataTypeSerDe::FormatOptions options;
+
+    // Normal float values: to_olap_string → from_olap_string round-trip
+    std::vector<std::pair<float, std::string>> normal_cases = {
+            {0.0f, "0"},       {1.0f, "1"},
+            {-1.0f, "-1"},     {123.456f, "123.456"},
+            {0.001f, "0.001"}, {1234567.0f, "1234567"},
+            {1e-10f, "1e-10"}, {3.402823e+38f, "3.402823e+38"},
+    };
+
+    for (const auto& [val, expected_str] : normal_cases) {
+        auto field = Field::create_field<TYPE_FLOAT>(val);
+        auto result_str = serde->to_olap_string(field);
+        EXPECT_EQ(result_str, expected_str)
+                << "Float to_olap_string failed for " << fmt::format("{:.9g}", val);
+
+        // Round-trip
+        Field restored_field;
+        auto status = serde->from_olap_string(result_str, restored_field, options);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+        float restored_val = restored_field.get<TYPE_FLOAT>();
+        float diff = std::abs(restored_val - val);
+        EXPECT_TRUE(val == 0 ? restored_val == 0 : diff / std::abs(val) < 1e-6)
+                << "Float round-trip: expected " << val << ", got " << restored_val;
+    }
+
+    // Special values: to_olap_string produces strings, but from_olap_string FAILS
+    // This documents the intentional behavior: ZoneMap uses boolean flags for these.
+    {
+        // NaN → "NaN", but from_olap_string cannot parse "NaN"
+        auto field = Field::create_field<TYPE_FLOAT>(std::numeric_limits<float>::quiet_NaN());
+        EXPECT_EQ(serde->to_olap_string(field), "NaN");
+        Field restored_field;
+        auto status = serde->from_olap_string("NaN", restored_field, options);
+        EXPECT_FALSE(status.ok()) << "from_olap_string should reject 'NaN'";
+    }
+    {
+        // +Infinity → "Infinity"
+        auto field = Field::create_field<TYPE_FLOAT>(std::numeric_limits<float>::infinity());
+        EXPECT_EQ(serde->to_olap_string(field), "Infinity");
+        Field restored_field;
+        auto status = serde->from_olap_string("Infinity", restored_field, options);
+        EXPECT_FALSE(status.ok()) << "from_olap_string should reject 'Infinity'";
+    }
+    {
+        // -Infinity → "-Infinity"
+        auto field = Field::create_field<TYPE_FLOAT>(-std::numeric_limits<float>::infinity());
+        EXPECT_EQ(serde->to_olap_string(field), "-Infinity");
+        Field restored_field;
+        auto status = serde->from_olap_string("-Infinity", restored_field, options);
+        EXPECT_FALSE(status.ok()) << "from_olap_string should reject '-Infinity'";
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Double: same pattern as Float but with 16 significant digits.
+//   Format: fmt "{:.16g}" (digits10+1=16).
+//   NaN/Inf same behavior: to_olap_string works, from_olap_string rejects.
+// ---------------------------------------------------------------------------
+TEST_F(OlapTypeTest, ser_deser_double_olap_string) {
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
+    auto serde = data_type_ptr->get_serde();
+    DataTypeSerDe::FormatOptions options;
+
+    std::vector<std::pair<double, std::string>> normal_cases = {
+            {0.0, "0"},         {1.0, "1"},
+            {-1.0, "-1"},       {123.456789, "123.456789"},
+            {0.001, "0.001"},   {1234567890123456.0, "1234567890123456"},
+            {1e-100, "1e-100"}, {1.797693134862316e+308, "1.797693134862316e+308"},
+    };
+
+    for (const auto& [val, expected_str] : normal_cases) {
+        auto field = Field::create_field<TYPE_DOUBLE>(val);
+        auto result_str = serde->to_olap_string(field);
+        EXPECT_EQ(result_str, expected_str)
+                << "Double to_olap_string failed for " << fmt::format("{:.17g}", val);
+
+        // Round-trip
+        Field restored_field;
+        auto status = serde->from_olap_string(result_str, restored_field, options);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+        double restored_val = restored_field.get<TYPE_DOUBLE>();
+        double diff = std::abs(restored_val - val);
+        EXPECT_TRUE(val == 0 ? restored_val == 0 : diff / std::abs(val) < 1e-15)
+                << "Double round-trip: expected " << val << ", got " << restored_val;
+    }
+
+    // Special values
+    {
+        auto field = Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN());
+        EXPECT_EQ(serde->to_olap_string(field), "NaN");
+        Field restored_field;
+        EXPECT_FALSE(serde->from_olap_string("NaN", restored_field, options).ok());
+    }
+    {
+        auto field = Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::infinity());
+        EXPECT_EQ(serde->to_olap_string(field), "Infinity");
+        Field restored_field;
+        EXPECT_FALSE(serde->from_olap_string("Infinity", restored_field, options).ok());
+    }
+    {
+        auto field = Field::create_field<TYPE_DOUBLE>(-std::numeric_limits<double>::infinity());
+        EXPECT_EQ(serde->to_olap_string(field), "-Infinity");
+        Field restored_field;
+        EXPECT_FALSE(serde->from_olap_string("-Infinity", restored_field, options).ok());
+    }
+    {
+        // -0.0 → "-0"
+        auto field = Field::create_field<TYPE_DOUBLE>(-0.0);
+        EXPECT_EQ(serde->to_olap_string(field), "-0");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DateV1 (TYPE_DATE): to_olap_string outputs "YYYY-MM-DD".
+//   Internal representation: VecDateTimeValue, stored as uint24_t in OLAP.
+//   The old ZoneMap used VecDateTimeValue::to_string(buf) → "YYYY-MM-DD\0".
+//   from_olap_string uses CastToDateOrDatetime::from_string_non_strict_mode.
+// ---------------------------------------------------------------------------
+TEST_F(OlapTypeTest, ser_deser_datev1) {
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_DATE, false);
+    auto serde = data_type_ptr->get_serde();
+    DataTypeSerDe::FormatOptions options;
+
+    struct TestCase {
+        int year, month, day;
+        std::string expected_str;
+    };
+    std::vector<TestCase> test_cases = {
+            {2023, 1, 1, "2023-01-01"},   {2000, 12, 31, "2000-12-31"}, {1970, 1, 1, "1970-01-01"},
+            {9999, 12, 31, "9999-12-31"}, {1, 1, 1, "0001-01-01"},
+    };
+
+    for (const auto& tc : test_cases) {
+        VecDateTimeValue date_val;
+        date_val.unchecked_set_time(tc.year, tc.month, tc.day, 0, 0, 0);
+        date_val.set_type(TIME_DATE);
+
+        auto field = Field::create_field<TYPE_DATE>(date_val);
+        auto result_str = serde->to_olap_string(field);
+        EXPECT_EQ(result_str, tc.expected_str) << "DateV1 to_olap_string failed for " << tc.year
+                                               << "-" << tc.month << "-" << tc.day;
+
+        // Round-trip
+        Field restored_field;
+        auto status = serde->from_olap_string(result_str, restored_field, options);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+        auto restored_val = restored_field.get<TYPE_DATE>();
+        EXPECT_EQ(restored_val.year(), tc.year);
+        EXPECT_EQ(restored_val.month(), tc.month);
+        EXPECT_EQ(restored_val.day(), tc.day);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DateTimeV1 (TYPE_DATETIME): to_olap_string outputs "YYYY-MM-DD HH:MM:SS".
+//   Internal representation: VecDateTimeValue, stored as uint64_t in OLAP.
+//   The old ZoneMap used the format:
+//     YYYYMMDDHHMMSSxxxxxx → "YYYY-MM-DD HH:MM:SS".
+//   from_olap_string uses CastToDateOrDatetime::from_string_non_strict_mode<true>.
+// ---------------------------------------------------------------------------
+TEST_F(OlapTypeTest, ser_deser_datetimev1) {
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_DATETIME, false);
+    auto serde = data_type_ptr->get_serde();
+    DataTypeSerDe::FormatOptions options;
+
+    struct TestCase {
+        int year, month, day, hour, minute, second;
+        std::string expected_str;
+    };
+    std::vector<TestCase> test_cases = {
+            {2023, 6, 15, 14, 30, 59, "2023-06-15 14:30:59"},
+            {2000, 1, 1, 0, 0, 0, "2000-01-01 00:00:00"},
+            {1970, 1, 1, 0, 0, 0, "1970-01-01 00:00:00"},
+            {9999, 12, 31, 23, 59, 59, "9999-12-31 23:59:59"},
+    };
+
+    for (const auto& tc : test_cases) {
+        VecDateTimeValue dt_val;
+        dt_val.unchecked_set_time(tc.year, tc.month, tc.day, tc.hour, tc.minute, tc.second);
+        dt_val.set_type(TIME_DATETIME);
+
+        auto field = Field::create_field<TYPE_DATETIME>(dt_val);
+        auto result_str = serde->to_olap_string(field);
+        EXPECT_EQ(result_str, tc.expected_str)
+                << "DateTimeV1 to_olap_string failed for " << tc.expected_str;
+
+        // Round-trip
+        Field restored_field;
+        auto status = serde->from_olap_string(result_str, restored_field, options);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+        auto restored_val = restored_field.get<TYPE_DATETIME>();
+        EXPECT_EQ(restored_val.year(), tc.year);
+        EXPECT_EQ(restored_val.month(), tc.month);
+        EXPECT_EQ(restored_val.day(), tc.day);
+        EXPECT_EQ(restored_val.hour(), tc.hour);
+        EXPECT_EQ(restored_val.minute(), tc.minute);
+        EXPECT_EQ(restored_val.second(), tc.second);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DateV2 (TYPE_DATEV2): to_olap_string outputs "YYYY-MM-DD".
+//   Internal: DateV2Value<DateV2ValueType>, stored as uint32_t (bit-packed).
+//   Bit layout: year(16bits) << 9 | month(4bits) << 5 | day(5bits).
+//   from_olap_string uses strptime "%Y-%m-%d", then bit-packs the parsed date.
+// ---------------------------------------------------------------------------
+TEST_F(OlapTypeTest, ser_deser_datev2) {
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_DATEV2, false);
+    auto serde = data_type_ptr->get_serde();
+    DataTypeSerDe::FormatOptions options;
+
+    struct TestCase {
+        int year, month, day;
+        std::string expected_str;
+    };
+    std::vector<TestCase> test_cases = {
+            {2023, 1, 15, "2023-01-15"},  {2000, 12, 31, "2000-12-31"}, {1970, 1, 1, "1970-01-01"},
+            {9999, 12, 31, "9999-12-31"}, {1, 1, 1, "0001-01-01"},
+    };
+
+    for (const auto& tc : test_cases) {
+        DateV2Value<DateV2ValueType> date_val;
+        date_val.unchecked_set_time(tc.year, tc.month, tc.day, 0, 0, 0, 0);
+
+        auto field = Field::create_field<TYPE_DATEV2>(date_val);
+        auto result_str = serde->to_olap_string(field);
+        EXPECT_EQ(result_str, tc.expected_str)
+                << "DateV2 to_olap_string failed for " << tc.expected_str;
+
+        // Round-trip
+        Field restored_field;
+        auto status = serde->from_olap_string(result_str, restored_field, options);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+        auto restored_val = restored_field.get<TYPE_DATEV2>();
+        EXPECT_EQ(restored_val.year(), tc.year);
+        EXPECT_EQ(restored_val.month(), tc.month);
+        EXPECT_EQ(restored_val.day(), tc.day);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DateTimeV2 (TYPE_DATETIMEV2): to_olap_string outputs "YYYY-MM-DD HH:MM:SS[.ffffff]".
+//   Internal: DateV2Value<DateTimeV2ValueType>, stored as uint64_t (bit-packed).
+//   to_olap_string calls CastToString::from_datetimev2(value) with DEFAULT scale=-1.
+//   With scale=-1, the microsecond part is appended ONLY if microsecond > 0,
+//   and always with 6 digits when present.
+//
+//   Note: the old ZoneMap code in types.h used value.to_string(6) which ALWAYS
+//   outputs 6 fractional digits even when microsecond=0.
+//
+//   Multiple scale values are tested:
+//     scale=0: no fractional seconds (input microseconds are stored but to_olap_string
+//              still uses default scale=-1, so microseconds appear if non-zero)
+//     scale=3: millisecond precision
+//     scale=6: microsecond precision (full precision)
+//
+//   from_olap_string uses from_date_format_str("%Y-%m-%d %H:%i:%s.%f").
+// ---------------------------------------------------------------------------
+TEST_F(OlapTypeTest, ser_deser_datetimev2_no_microsecond) {
+    // Test with scale=0: no fractional seconds expected
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(
+            TYPE_DATETIMEV2, /*is_nullable=*/false, /*precision=*/0, /*scale=*/0);
+    auto serde = data_type_ptr->get_serde();
+    DataTypeSerDe::FormatOptions options;
+
+    struct TestCase {
+        int year, month, day, hour, minute, second;
+        uint32_t microsecond;
+        std::string expected_str;
+    };
+    std::vector<TestCase> test_cases = {
+            // No microseconds → no fractional part in output
+            {2023, 6, 15, 14, 30, 59, 0, "2023-06-15 14:30:59"},
+            {2000, 1, 1, 0, 0, 0, 0, "2000-01-01 00:00:00"},
+            {9999, 12, 31, 23, 59, 59, 0, "9999-12-31 23:59:59"},
+    };
+
+    for (const auto& tc : test_cases) {
+        DateV2Value<DateTimeV2ValueType> dt_val;
+        dt_val.unchecked_set_time(tc.year, tc.month, tc.day, tc.hour, tc.minute, tc.second,
+                                  tc.microsecond);
+        auto field = Field::create_field<TYPE_DATETIMEV2>(dt_val);
+        auto result_str = serde->to_olap_string(field);
+        EXPECT_EQ(result_str, tc.expected_str)
+                << "DateTimeV2(scale=0) to_olap_string failed for " << tc.expected_str;
+
+        // Round-trip
+        Field restored_field;
+        auto status = serde->from_olap_string(result_str, restored_field, options);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+        auto restored_val = restored_field.get<TYPE_DATETIMEV2>();
+        EXPECT_EQ(restored_val.year(), tc.year);
+        EXPECT_EQ(restored_val.month(), tc.month);
+        EXPECT_EQ(restored_val.day(), tc.day);
+        EXPECT_EQ(restored_val.hour(), tc.hour);
+        EXPECT_EQ(restored_val.minute(), tc.minute);
+        EXPECT_EQ(restored_val.second(), tc.second);
+    }
+}
+
+TEST_F(OlapTypeTest, ser_deser_datetimev2_with_microsecond) {
+    // Test with scale=6 (full microsecond precision)
+    // to_olap_string default scale=-1 will output microseconds when > 0
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(
+            TYPE_DATETIMEV2, /*is_nullable=*/false, /*precision=*/0, /*scale=*/6);
+    auto serde = data_type_ptr->get_serde();
+    DataTypeSerDe::FormatOptions options;
+
+    struct TestCase {
+        int year, month, day, hour, minute, second;
+        uint32_t microsecond;
+        std::string expected_str;
+    };
+    std::vector<TestCase> test_cases = {
+            // microsecond=123456 → ".123456"
+            {2023, 6, 15, 14, 30, 59, 123456, "2023-06-15 14:30:59.123456"},
+            // microsecond=1 → ".000001"
+            {2023, 1, 1, 0, 0, 0, 1, "2023-01-01 00:00:00.000001"},
+            // microsecond=999999 → ".999999"
+            {9999, 12, 31, 23, 59, 59, 999999, "9999-12-31 23:59:59.999999"},
+            // microsecond=100000 → ".100000"
+            {2023, 3, 15, 12, 0, 0, 100000, "2023-03-15 12:00:00.100000"},
+            // microsecond=0 → no fractional part (scale=-1 omits when microsecond=0)
+            {2023, 3, 15, 12, 0, 0, 0, "2023-03-15 12:00:00"},
+    };
+
+    for (const auto& tc : test_cases) {
+        DateV2Value<DateTimeV2ValueType> dt_val;
+        dt_val.unchecked_set_time(tc.year, tc.month, tc.day, tc.hour, tc.minute, tc.second,
+                                  tc.microsecond);
+        auto field = Field::create_field<TYPE_DATETIMEV2>(dt_val);
+        auto result_str = serde->to_olap_string(field);
+        EXPECT_EQ(result_str, tc.expected_str)
+                << "DateTimeV2(scale=6) to_olap_string failed for " << tc.expected_str;
+
+        // Round-trip
+        Field restored_field;
+        auto status = serde->from_olap_string(result_str, restored_field, options);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+        auto restored_val = restored_field.get<TYPE_DATETIMEV2>();
+        EXPECT_EQ(restored_val.year(), tc.year);
+        EXPECT_EQ(restored_val.month(), tc.month);
+        EXPECT_EQ(restored_val.day(), tc.day);
+        EXPECT_EQ(restored_val.hour(), tc.hour);
+        EXPECT_EQ(restored_val.minute(), tc.minute);
+        EXPECT_EQ(restored_val.second(), tc.second);
+        EXPECT_EQ(restored_val.microsecond(), tc.microsecond);
+    }
+}
+
+TEST_F(OlapTypeTest, ser_deser_datetimev2_scale3) {
+    // Test with scale=3 (millisecond precision)
+    // to_olap_string uses default scale=-1, so behavior is the same as scale=6
+    // for the output: microsecond part appears ONLY if > 0, always 6 digits.
+    // However, the data type has scale=3, meaning from_olap_string should still
+    // be able to parse back the full microsecond value stored in the field.
+    auto data_type_ptr = DataTypeFactory::instance().create_data_type(
+            TYPE_DATETIMEV2, /*is_nullable=*/false, /*precision=*/0, /*scale=*/3);
+    auto serde = data_type_ptr->get_serde();
+    DataTypeSerDe::FormatOptions options;
+
+    {
+        // 123000 microseconds (= 123 milliseconds)
+        // to_olap_string outputs full 6+digit microsecond: ".123000"
+        DateV2Value<DateTimeV2ValueType> dt_val;
+        dt_val.unchecked_set_time(2023, 6, 15, 14, 30, 59, 123000);
+        auto field = Field::create_field<TYPE_DATETIMEV2>(dt_val);
+        auto result_str = serde->to_olap_string(field);
+        EXPECT_EQ(result_str, "2023-06-15 14:30:59.123000")
+                << "DateTimeV2(scale=3) to_olap_string failed";
+
+        // Round-trip
+        Field restored_field;
+        auto status = serde->from_olap_string(result_str, restored_field, options);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+        auto restored_val = restored_field.get<TYPE_DATETIMEV2>();
+        EXPECT_EQ(restored_val.year(), 2023);
+        EXPECT_EQ(restored_val.month(), 6);
+        EXPECT_EQ(restored_val.day(), 15);
+        EXPECT_EQ(restored_val.hour(), 14);
+        EXPECT_EQ(restored_val.minute(), 30);
+        EXPECT_EQ(restored_val.second(), 59);
+        EXPECT_EQ(restored_val.microsecond(), 123000);
     }
 }
 } // namespace doris

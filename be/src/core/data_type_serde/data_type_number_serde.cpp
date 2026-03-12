@@ -749,6 +749,20 @@ Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+// Serializes a numeric value to its OLAP string representation for ZoneMap index storage.
+// This is the inverse of from_olap_string().
+//
+// Format by type:
+//   - BOOLEAN:  "0" or "1" (via snprintf "%d")
+//   - TINYINT/SMALLINT/INT/BIGINT: standard integer string, e.g. "42", "-100"
+//   - FLOAT:    fmt::format("{:.7g}", value), e.g. "3.14", "NaN", "Infinity"
+//   - DOUBLE:   fmt::format("{:.16g}", value), e.g. "3.141592653589793"
+//   - LARGEINT: fmt::format("{}", value), e.g. "170141183460469231731687303715884105727"
+//
+// Examples:
+//   to_olap_string(Field(Int32(12345)))    => "12345"
+//   to_olap_string(Field(Float32(3.14f)))  => "3.14"
+//   to_olap_string(Field(Float64(1e300)))  => "1e+300"
 template <PrimitiveType T>
 std::string DataTypeNumberSerDe<T>::to_olap_string(const Field& field) const {
     if constexpr (T == TYPE_BOOLEAN) {
@@ -769,6 +783,15 @@ std::string DataTypeNumberSerDe<T>::to_olap_string(const Field& field) const {
     }
 }
 
+// Deserializes a numeric value from its OLAP string representation (e.g. from ZoneMap protobuf).
+// This is the inverse of to_olap_string(). Uses try_parse_impl with non-strict mode.
+//
+// FormatOptions is unused for numeric types — the string format is always a standard number literal.
+//
+// Examples:
+//   from_olap_string("12345", field, ...)  => field = Int32(12345)
+//   from_olap_string("3.14", field, ...)   => field = Float32(3.14)
+//   from_olap_string("NaN", field, ...)     => field = Float64(NaN)
 template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::from_olap_string(const std::string& str, Field& field,
                                                 const FormatOptions& options) const {
