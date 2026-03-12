@@ -83,6 +83,14 @@ inline size_t round_up_to_power_of_two_or_zero(size_t n) {
   *  and zero initialize -1th element. It allows to use -1th element that will have value 0.
   * This gives performance benefits when converting an array of offsets to array of sizes.
   *
+  * If reserve 4096 bytes, used 512 bytes, pad_left = 16, pad_right = 15, the structure of PODArray is as follows:
+  *
+  *         16 bytes          512 bytes                 3553 bytes                            15 bytes
+  * pad_left ----- c_start -------------c_end ---------------------------- c_end_of_storage ------------- pad_right
+  *    ^                                                                                                       ^
+  *    |                                                                                                       |
+  *    +-------------------------------------- allocated_bytes (4096 bytes) -----------------------------------+
+  *
   * Some methods using allocator have TAllocatorParams variadic arguments.
   * These arguments will be passed to corresponding methods of TAllocator.
   * Example: pointer to Arena, that is used for allocations.
@@ -264,15 +272,6 @@ public:
 
     const char* raw_data() const { return c_start; }
 
-    template <typename... TAllocatorParams>
-    void push_back_raw(const char* ptr, TAllocatorParams&&... allocator_params) {
-        if (UNLIKELY(c_end == c_end_of_storage))
-            reserve_for_next_size(std::forward<TAllocatorParams>(allocator_params)...);
-
-        memcpy(c_end, ptr, ELEMENT_SIZE);
-        c_end += byte_size(1);
-    }
-
     void protect() {
 #ifndef NDEBUG
         protect_impl(PROT_READ);
@@ -308,6 +307,11 @@ template <typename T, size_t initial_bytes, typename TAllocator, size_t pad_righ
 class PODArray : public PODArrayBase<sizeof(T), initial_bytes, TAllocator, pad_right_, pad_left_> {
 protected:
     using Base = PODArrayBase<sizeof(T), initial_bytes, TAllocator, pad_right_, pad_left_>;
+
+    static_assert(std::is_trivially_destructible_v<T>,
+                  "PODArray can only be used with POD types or types with trivial destructor");
+    static_assert(std::is_trivially_copyable_v<T>,
+                  "PODArray can only be used with POD types or types with trivial copy");
 
     T* t_start() { return reinterpret_cast<T*>(this->c_start); }
     T* t_end() { return reinterpret_cast<T*>(this->c_end); }
