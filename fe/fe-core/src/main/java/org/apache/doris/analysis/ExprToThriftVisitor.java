@@ -19,12 +19,12 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.FunctionToThriftConverter;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBoolLiteral;
 import org.apache.doris.thrift.TCaseExpr;
@@ -113,7 +113,7 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
         msg.type = expr.getType().toThrift();
         msg.num_children = expr.getChildren().size();
         if (expr.getFn() != null) {
-            msg.setFn(expr.getFn().toThrift(
+            msg.setFn(FunctionToThriftConverter.toThrift(expr.getFn(),
                     expr.getType(), expr.collectChildReturnTypes(), expr.collectChildReturnNullables()));
             if (expr.getFn().hasVarArgs()) {
                 msg.setVarargStartIdx(expr.getFn().getNumArgs() - 1);

@@ -34,6 +34,8 @@ import java.util.Map;
 import java.util.Set;
 
 public class AuthenticationIntegrationMetaTest {
+    private static final String CREATE_USER = "creator";
+    private static final String ALTER_USER = "modifier";
 
     private static Map<String, String> map(String... kvs) {
         Map<String, String> result = new LinkedHashMap<>();
@@ -57,11 +59,16 @@ public class AuthenticationIntegrationMetaTest {
         properties.put("ldap.admin_dn", "cn=admin,dc=example,dc=com");
 
         AuthenticationIntegrationMeta meta =
-                AuthenticationIntegrationMeta.fromCreateSql("corp_ldap", properties, "ldap integration");
+                AuthenticationIntegrationMeta.fromCreateSql("corp_ldap", properties, "ldap integration", CREATE_USER);
 
         Assertions.assertEquals("corp_ldap", meta.getName());
         Assertions.assertEquals("ldap", meta.getType());
         Assertions.assertEquals("ldap integration", meta.getComment());
+        Assertions.assertEquals(CREATE_USER, meta.getCreateUser());
+        Assertions.assertEquals(CREATE_USER, meta.getAlterUser());
+        Assertions.assertTrue(meta.getCreateTime() > 0);
+        Assertions.assertEquals(meta.getCreateTime(), meta.getModifyTime());
+        Assertions.assertEquals(meta.getCreateTimeString(), meta.getModifyTimeString());
         Assertions.assertEquals(2, meta.getProperties().size());
         Assertions.assertEquals("ldap://127.0.0.1:389", meta.getProperties().get("ldap.server"));
         Assertions.assertFalse(meta.getProperties().containsKey("type"));
@@ -78,13 +85,13 @@ public class AuthenticationIntegrationMetaTest {
     @Test
     public void testFromCreateSqlRequireType() {
         Assertions.assertThrows(DdlException.class,
-                () -> AuthenticationIntegrationMeta.fromCreateSql("i1", null, null));
+                () -> AuthenticationIntegrationMeta.fromCreateSql("i1", null, null, CREATE_USER));
         Assertions.assertThrows(DdlException.class,
-                () -> AuthenticationIntegrationMeta.fromCreateSql("i1", Collections.emptyMap(), null));
+                () -> AuthenticationIntegrationMeta.fromCreateSql("i1", Collections.emptyMap(), null, CREATE_USER));
         Assertions.assertThrows(DdlException.class,
-                () -> AuthenticationIntegrationMeta.fromCreateSql("i1", map("k", "v"), null));
+                () -> AuthenticationIntegrationMeta.fromCreateSql("i1", map("k", "v"), null, CREATE_USER));
         Assertions.assertThrows(DdlException.class,
-                () -> AuthenticationIntegrationMeta.fromCreateSql("i1", map("type", ""), null));
+                () -> AuthenticationIntegrationMeta.fromCreateSql("i1", map("type", ""), null, CREATE_USER));
     }
 
     @Test
@@ -94,7 +101,7 @@ public class AuthenticationIntegrationMetaTest {
         properties.put("TYPE", "oidc");
 
         Assertions.assertThrows(DdlException.class,
-                () -> AuthenticationIntegrationMeta.fromCreateSql("i1", properties, null));
+                () -> AuthenticationIntegrationMeta.fromCreateSql("i1", properties, null, CREATE_USER));
     }
 
     @Test
@@ -104,21 +111,26 @@ public class AuthenticationIntegrationMetaTest {
                 map("type", "ldap",
                         "ldap.server", "ldap://old",
                         "ldap.base_dn", "dc=example,dc=com"),
-                "old comment");
+                "old comment",
+                CREATE_USER);
 
         AuthenticationIntegrationMeta altered = meta.withAlterProperties(map(
                 "ldap.server", "ldap://new",
-                "ldap.user_filter", "(uid={login})"));
+                "ldap.user_filter", "(uid={login})"), ALTER_USER);
 
         Assertions.assertEquals("ldap", altered.getType());
         Assertions.assertEquals("old comment", altered.getComment());
+        Assertions.assertEquals(CREATE_USER, altered.getCreateUser());
+        Assertions.assertEquals(ALTER_USER, altered.getAlterUser());
+        Assertions.assertEquals(meta.getCreateTime(), altered.getCreateTime());
+        Assertions.assertTrue(altered.getModifyTime() >= meta.getModifyTime());
         Assertions.assertEquals("ldap://new", altered.getProperties().get("ldap.server"));
         Assertions.assertEquals("(uid={login})", altered.getProperties().get("ldap.user_filter"));
 
         Assertions.assertThrows(DdlException.class,
-                () -> meta.withAlterProperties(Collections.emptyMap()));
+                () -> meta.withAlterProperties(Collections.emptyMap(), ALTER_USER));
         Assertions.assertThrows(DdlException.class,
-                () -> meta.withAlterProperties(map("TYPE", "oidc")));
+                () -> meta.withAlterProperties(map("TYPE", "oidc"), ALTER_USER));
     }
 
     @Test
@@ -128,17 +140,22 @@ public class AuthenticationIntegrationMetaTest {
                 map("type", "ldap",
                         "ldap.server", "ldap://old",
                         "ldap.base_dn", "dc=example,dc=com"),
-                "old comment");
+                "old comment",
+                CREATE_USER);
 
-        AuthenticationIntegrationMeta altered = meta.withUnsetProperties(set("ldap.base_dn"));
+        AuthenticationIntegrationMeta altered = meta.withUnsetProperties(set("ldap.base_dn"), ALTER_USER);
         Assertions.assertEquals("ldap", altered.getType());
+        Assertions.assertEquals(CREATE_USER, altered.getCreateUser());
+        Assertions.assertEquals(ALTER_USER, altered.getAlterUser());
+        Assertions.assertEquals(meta.getCreateTime(), altered.getCreateTime());
+        Assertions.assertTrue(altered.getModifyTime() >= meta.getModifyTime());
         Assertions.assertFalse(altered.getProperties().containsKey("ldap.base_dn"));
         Assertions.assertEquals("ldap://old", altered.getProperties().get("ldap.server"));
 
         Assertions.assertThrows(DdlException.class,
-                () -> meta.withUnsetProperties(Collections.emptySet()));
+                () -> meta.withUnsetProperties(Collections.emptySet(), ALTER_USER));
         Assertions.assertThrows(DdlException.class,
-                () -> meta.withUnsetProperties(set("TYPE")));
+                () -> meta.withUnsetProperties(set("TYPE"), ALTER_USER));
     }
 
     @Test
@@ -148,7 +165,8 @@ public class AuthenticationIntegrationMetaTest {
                 map("type", "ldap",
                         "ldap.server", "ldap://127.0.0.1:389",
                         "ldap.admin_password", "123456"),
-                "comment");
+                "comment",
+                CREATE_USER);
 
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         try (DataOutputStream dos = new DataOutputStream(bos)) {
@@ -164,5 +182,9 @@ public class AuthenticationIntegrationMetaTest {
         Assertions.assertEquals(meta.getType(), read.getType());
         Assertions.assertEquals(meta.getComment(), read.getComment());
         Assertions.assertEquals(meta.getProperties(), read.getProperties());
+        Assertions.assertEquals(meta.getCreateUser(), read.getCreateUser());
+        Assertions.assertEquals(meta.getCreateTime(), read.getCreateTime());
+        Assertions.assertEquals(meta.getAlterUser(), read.getAlterUser());
+        Assertions.assertEquals(meta.getModifyTime(), read.getModifyTime());
     }
 }

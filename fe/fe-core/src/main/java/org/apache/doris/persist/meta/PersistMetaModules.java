@@ -43,7 +43,8 @@ public class PersistMetaModules {
             "plugins", "deleteHandler", "sqlBlockRule", "policy",
             "globalFunction", "workloadGroups",
             "binlogs", "resourceGroups", "AnalysisMgrV2", "AsyncJobManager", "workloadSchedPolicy",
-            "insertOverwrite", "plsql", "dictionaryManager", "indexPolicy", "KeyManagerStore"
+            "insertOverwrite", "plsql", "dictionaryManager", "indexPolicy", "KeyManagerStore",
+            "constraintManager"
             // TODO: Re-enable "authenticationIntegrations" after persistence requirements are confirmed.
             // , "authenticationIntegrations"
     );

@@ -15,30 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis.invertedindex;
+package org.apache.doris.common;
 
-import com.google.common.base.Strings;
+import com.google.common.base.CaseFormat;
+import org.apache.commons.lang3.StringUtils;
 
-public final class InvertedIndexSqlGenerator {
-    private InvertedIndexSqlGenerator() {
-    }
-
+public class NameFormatUtils {
     /**
-     * Builds the SQL fragment for USING ANALYZER clause.
-     * Returns empty string if analyzer is null or empty.
-     * Otherwise returns " USING ANALYZER <analyzer>" with proper quoting.
+     * Normalize the name to lower underscore style, return default name if the name is empty.
      */
-    public static String buildAnalyzerSqlFragment(String analyzer) {
-        if (Strings.isNullOrEmpty(analyzer)) {
-            return "";
+    public static String normalizeName(String name, String defaultName) {
+        if (StringUtils.isEmpty(name)) {
+            return defaultName;
         }
-        String trimmed = analyzer.trim();
-        if (trimmed.isEmpty()) {
-            return "";
+        if (name.contains("$")) {
+            name = name.replace("$", "_");
         }
-        if (trimmed.matches("[A-Za-z_][A-Za-z0-9_]*")) {
-            return " USING ANALYZER " + trimmed;
-        }
-        return " USING ANALYZER '" + trimmed.replace("'", "''") + "'";
+        return CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, name);
     }
 }

@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cluster.ClusterNamespace;

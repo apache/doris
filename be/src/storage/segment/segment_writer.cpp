@@ -73,13 +73,13 @@
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "util/jsonb/serialize.h"
-#include "util/key_util.h"
 #include "util/simd/bits.h"
 namespace doris {
 namespace segment_v2 {
 #include "common/compile_check_begin.h"
 
 using namespace ErrorCode;
+using namespace KeyConsts;
 
 const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
@@ -890,15 +890,13 @@ std::string SegmentWriter::_encode_keys(const std::vector<IOlapColumnDataAccesso
     }
     return encoded_keys;
 }
-
-template <typename RowType>
-Status SegmentWriter::append_row(const RowType& row) {
+Status SegmentWriter::append_row(const RowCursor& row) {
     for (size_t cid = 0; cid < _column_writers.size(); ++cid) {
         auto cell = row.cell(cast_set<uint32_t>(cid));
         RETURN_IF_ERROR(_column_writers[cid]->append(cell));
     }
     std::string full_encoded_key;
-    encode_key<RowType, true>(&full_encoded_key, row, _num_sort_key_columns);
+    row.encode_key<true>(&full_encoded_key, _num_sort_key_columns);
     if (_tablet_schema->has_sequence_col()) {
         full_encoded_key.push_back(KEY_NORMAL_MARKER);
         auto cid = _tablet_schema->sequence_col_idx();
@@ -915,7 +913,7 @@ Status SegmentWriter::append_row(const RowType& row) {
         // At the beginning of one block, so add a short key index entry
         if ((_num_rows_written % _opts.num_rows_per_block) == 0) {
             std::string encoded_key;
-            encode_key(&encoded_key, row, _num_short_key_columns);
+            row.encode_key(&encoded_key, _num_short_key_columns);
             RETURN_IF_ERROR(_short_key_index_builder->add_item(encoded_key));
         }
         set_min_max_key(full_encoded_key);
@@ -923,8 +921,6 @@ Status SegmentWriter::append_row(const RowType& row) {
     ++_num_rows_written;
     return Status::OK();
 }
-
-template Status SegmentWriter::append_row(const RowCursor& row);
 
 // TODO(lingbin): Currently this function does not include the size of various indexes,
 // We should make this more precise.

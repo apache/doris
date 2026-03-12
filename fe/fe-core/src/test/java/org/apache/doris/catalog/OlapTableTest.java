@@ -19,13 +19,13 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
 import org.apache.doris.common.util.UnitTestUtil;
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
@@ -74,7 +74,7 @@ public class OlapTableTest {
             }
             OlapTable tbl = (OlapTable) table;
             tbl.setIndexes(Lists.newArrayList(new Index(0, "index", Lists.newArrayList("col"),
-                    IndexDefinition.IndexType.BITMAP, null, "xxxxxx")));
+                    IndexType.BITMAP, null, "xxxxxx")));
             System.out.println("orig table id: " + tbl.getId());
 
             FastByteArrayOutputStream byteArrayOutputStream = new FastByteArrayOutputStream();

@@ -22,6 +22,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.Type;
 
 import com.google.common.base.Preconditions;
@@ -67,7 +68,7 @@ public class BinaryPredicate extends Predicate {
         public Operator commutative() {
             switch (this) {
                 case EQ:
-                    return this;
+                case EQ_FOR_NULL:
                 case NE:
                     return this;
                 case LE:
@@ -77,9 +78,7 @@ public class BinaryPredicate extends Predicate {
                 case LT:
                     return GT;
                 case GT:
-                    return LE;
-                case EQ_FOR_NULL:
-                    return this;
+                    return LT;
                 default:
                     return null;
             }
@@ -89,7 +88,7 @@ public class BinaryPredicate extends Predicate {
     @SerializedName("op")
     private Operator op;
     // check if left is slot and right isnot slot.
-    private Boolean slotIsleft = null;
+    private Boolean slotIsLeft = null;
 
     // for restoring
     public BinaryPredicate() {
@@ -124,7 +123,7 @@ public class BinaryPredicate extends Predicate {
     protected BinaryPredicate(BinaryPredicate other) {
         super(other);
         op = other.op;
-        slotIsleft = other.slotIsleft;
+        slotIsLeft = other.slotIsLeft;
     }
 
     @Override
@@ -176,7 +175,7 @@ public class BinaryPredicate extends Predicate {
         }
 
         if (slotRef != null && slotRef.getSlotId() == id) {
-            slotIsleft = true;
+            slotIsLeft = true;
             return getChild(1);
         }
 
@@ -190,7 +189,7 @@ public class BinaryPredicate extends Predicate {
         }
 
         if (slotRef != null && slotRef.getSlotId() == id) {
-            slotIsleft = false;
+            slotIsLeft = false;
             return getChild(0);
         }
 
@@ -198,8 +197,8 @@ public class BinaryPredicate extends Predicate {
     }
 
     public boolean slotIsLeft() {
-        Preconditions.checkState(slotIsleft != null);
-        return slotIsleft;
+        Preconditions.checkState(slotIsLeft != null);
+        return slotIsLeft;
     }
 
     @Override
