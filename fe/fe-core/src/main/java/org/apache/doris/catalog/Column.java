@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
@@ -60,6 +59,8 @@ import java.util.Set;
 public class Column implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
     public static final String HIDDEN_COLUMN_PREFIX = "__DORIS_";
+    // all shadow indexes should have this prefix in name
+    public static final String SHADOW_NAME_PREFIX = "__doris_shadow_";
     // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";
@@ -816,8 +817,8 @@ public class Column implements GsonPostProcessable {
 
         // when doing schema change, some modified column has a prefix in name.
         // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
-        builder.setName(name.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)
-                ? name.substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length()) : name);
+        builder.setName(name.startsWith(SHADOW_NAME_PREFIX)
+                ? name.substring(SHADOW_NAME_PREFIX.length()) : name);
 
         builder.setUniqueId(uniqueId);
         builder.setType(this.getDataType().toThrift().name());
@@ -1008,8 +1009,8 @@ public class Column implements GsonPostProcessable {
     }
 
     public static String removeNamePrefix(String colName) {
-        if (colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
-            return colName.substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length());
+        if (colName.startsWith(SHADOW_NAME_PREFIX)) {
+            return colName.substring(SHADOW_NAME_PREFIX.length());
         }
         return colName;
     }
@@ -1018,11 +1019,11 @@ public class Column implements GsonPostProcessable {
         if (isShadowColumn(colName)) {
             return colName;
         }
-        return SchemaChangeHandler.SHADOW_NAME_PREFIX + colName;
+        return SHADOW_NAME_PREFIX + colName;
     }
 
     public static boolean isShadowColumn(String colName) {
-        return colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX);
+        return colName.startsWith(SHADOW_NAME_PREFIX);
     }
 
     public Expr getDefineExpr() {

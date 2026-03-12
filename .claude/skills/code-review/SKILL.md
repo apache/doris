@@ -12,6 +12,10 @@ Complete code review work to ensure code quality. Due to the length of content, 
 
 Use this when you need to review code, whether it's code you just completed or directly reviewing target code.
 
+## How to use me
+
+Since this article is long, you must read and respond to the content of part 1. The other specific details can be referred to as needed when reviewing the code modules (not required).
+
 ---
 
 ## Part 1: General Principles
@@ -27,15 +31,15 @@ Always focus on the following core invariants during review:
 
 ### 1.2 Review Principles
 
-- **Defensive Programming Prohibited**: Do not use `if(valid)` style defensive checks to mask logic errors. If logically A=true should imply B=true, write `if(A) { DORIS_CHECK(B); ... }`, never `if(A && B)`
 - **Follow Context Conventions**: When adding code, strictly follow patterns in adjacent code—same error handling, same interface call order, same lock acquisition patterns, unless a clearly correct and more reasonable approach is identified.
 - **Prioritize Reuse**: Before adding new functionality, search for similar implementations that can be reused or extended; after adding, ensure good abstraction for shared code.
 - **Code First**: When this SKILL conflicts with actual code behavior, defer to your understanding of actual code behavior and explain
 - **Performance First**: All obviously redundant operations should be optimized away, all obvious performance optimizations must be applied, and obvious anti-patterns must be eliminated.
+- **Evidence Speaks**: All issues with code itself (not memory or environment) must be clearly identified as either having problems or not. For any erroneous situation, if it cannot be confirmed locally, you must provide the specific path or logic where the error occurs. That is, if you believe that if A then B, you must specify a clear scenario where A occurs.
 
 ### 1.3 Critical Checkpoints (Self-Review and Review Priority)
 
-The following checkpoints must be **individually confirmed with conclusions** during self-review and review:
+The following checkpoints must be **individually confirmed with conclusions** during self-review and review. If the code is too long or too complex, you should delve into the code again as needed when analyzing specific issues, especially the entire logic chain where there are doubts:
 
 - What is the goal of the current task? Does the current code accomplish this goal? Is there a test that proves it?
 - Is this modification as small, clear, and focused as possible?
@@ -43,8 +47,9 @@ The following checkpoints must be **individually confirmed with conclusions** du
   - Which threads introduce concurrency, what are the critical variables? What locks protect them?
   - Are operations within locks as lightweight as possible? Are all heavy operations outside locks while maintaining concurrency safety?
   - If multiple locks exist, is the locking order consistent? Is there deadlock risk?
-- Is there special or non-intuitive lifecycle management? If yes:
+- Is there special or non-intuitive lifecycle management including static initialization order? If yes:
   - Understand the complete lifecycle and relationships of related variables. Are there circular references? When is each released? Can all lifecycles end normally?
+  - For cross-TU static/global variables: does the initializer of one static variable depend on another static variable defined in a different translation unit? If yes, the initialization order is undefined by the C++ standard (static initialization order fiasco). Use constexpr, inline variables in the same header, or lazy initialization to fix.
 - Are configuration items added?
   - Should the configuration allow dynamic changes, and does it actually allow them? If yes:
     - Can affected processes detect the change promptly without restart?
@@ -206,6 +211,13 @@ Vectorized columns (`IColumn`) use custom intrusive reference-counted Copy-on-Wr
 - [ ] Is `cache->release(handle)` called after using `Cache::Handle*`? Omission causes memory leaks
 - [ ] Do cache values inherit from `LRUCacheValueBase`? This base class automatically releases tracking bytes on destruction
 - [ ] Are new cache types registered with `CacheManager`? Unregistered caches don't participate in global GC
+
+#### 2.2.5 Static/Global Variable Initialization Order
+
+- [ ] Does the diff add or modify any `static` / global variable definition in a `.cpp` file? If the initializer references any static/global variable from another file (header or .cpp), this is a **SIOF** (static initialization order fiasco) — C++ does not define initialization order across translation units, so the dependency may be zero/garbage at the point of use.
+  - **Unsafe**: `const Foo Foo::X = Foo(Bar::Y.method());` in `foo.cpp`, where `Bar::Y` is `inline` in `bar.h` or defined in `bar.cpp` — different TU, order undefined
+  - **Safe**: `inline const Foo Foo::X = Foo(Bar::Y.method());` in `foo.h` where `bar.h` is included — same TU for every includer
+  - **Fix**: use `constexpr`, move to same header as `inline`, or use function-local static (Meyers' singleton)
 
 ### 2.3 Concurrency and Locks
 
@@ -753,6 +765,7 @@ MoW tables are one of the most complex data paths, require special attention dur
 | `op_not` const but modifies data | **MEDIUM** | `inverted_index_reader.h:170` | Modifies via shared_ptr bypassing const, callers assume immutable |
 | Schema change four-level lock order | **HIGH** | `schema_change.cpp:972-976` | base push→new push→base header→new header, out-of-order deadlock |
 | MOW schema change delete bitmap four steps | **CRITICAL** | `schema_change.cpp:1595-1657` | Step 3 must block publish, omission causes bitmap inconsistency |
+| Cross-TU static variable initialization dependency | **HIGH** | BE global | Static init order between TUs is undefined; initializer reading another TU's static gets zero/garbage |
 | `ExternalCatalog.isInitializing` dead code | **MEDIUM** | `ExternalCatalog.java:358` | Never set to true, reentrancy protection ineffective |
 | `lowerCaseToDatabaseName.clear()` race | **HIGH** | `ExternalCatalog.java:504` | Concurrent get returns null between clear and refill |
 | `resetToUninitialized()` sets fields to null | **HIGH** | `ExternalCatalog.java:581-590` | Concurrent queries encounter null fields midway causing NPE |
@@ -839,3 +852,7 @@ BE extensively uses bthread, following are easily overlooked bthread-specific co
 
 - [ ] **Lock-protected data**: Comment next to member variables `// protected by xxx_lock`
 - [ ] **TODO/FIXME**: Include author, date, brief description, e.g., `// TODO(zhaochangle, 2026-03-01): optimize this path`
+
+## Finally
+
+In general, the content mentioned in 1.3 Critical Checkpoints is what you must check and respond to item by item. Of course, your ultimate goal is still to discover bugs, so you can conduct any investigation on suspicious parts and provide conclusions.

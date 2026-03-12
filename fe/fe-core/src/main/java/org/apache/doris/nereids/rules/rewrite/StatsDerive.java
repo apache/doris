@@ -351,20 +351,29 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
 
     @Override
     public Statistics visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, DeriveContext context) {
+        // Fallback registration: ensure cteId -> producer mapping is always available
+        // even if some upstream rewrite path misses explicit registration.
+        ConnectContext.get().getStatementContext().setCteProducer(cteProducer.getCteId(), cteProducer);
         Statistics prodStats = cteProducer.child().accept(this, context);
         StatisticsBuilder builder = new StatisticsBuilder(prodStats);
         builder.setWidthInJoinCluster(1);
         Statistics stats = builder.build();
         cteProducer.setStatistics(stats);
-        ConnectContext.get().getStatementContext().setProducerStats(cteProducer.getCteId(), stats);
         return stats;
     }
 
     @Override
     public Statistics visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, DeriveContext context) {
         CTEId cteId = cteConsumer.getCteId();
-        Statistics prodStats = ConnectContext.get().getStatementContext().getProducerStatsByCteId(cteId);
-        Preconditions.checkArgument(prodStats != null, String.format("Stats for CTE: %s not found", cteId));
+        LogicalCTEProducer<? extends Plan> cteProducer = ConnectContext.get().getStatementContext()
+                .getCteProducerByCteId(cteId);
+        Preconditions.checkState(cteProducer != null,
+                String.format("CTE producer for CTE: %s not found", cteId));
+        Statistics prodStats = cteProducer.getStats();
+        if (prodStats == null || deepDerive) {
+            prodStats = cteProducer.accept(this, context);
+        }
+        Preconditions.checkState(prodStats != null, String.format("Stats for CTE: %s not found", cteId));
         Statistics consumerStats = new Statistics(prodStats.getRowCount(), 1, new HashMap<>());
         for (Slot slot : cteConsumer.getOutput()) {
             Slot prodSlot = cteConsumer.getProducerSlot(slot);

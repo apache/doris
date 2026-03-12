@@ -18,6 +18,7 @@
 package org.apache.doris.qe.runtime;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
@@ -760,7 +761,7 @@ public class ThriftPlansBuilder {
                 List<List<Expr>> materializedResultExprLists = recursiveCteNode.getMaterializedResultExprLists();
                 List<List<TExpr>> texprLists = new ArrayList<>(materializedResultExprLists.size());
                 for (List<Expr> exprList : materializedResultExprLists) {
-                    texprLists.add(Expr.treesToThrift(exprList));
+                    texprLists.add(ExprToThriftVisitor.treesToThrift(exprList));
                 }
                 // the recursive side's rf need to be reset
                 // determine which runtime filters on the recursive side must be reset

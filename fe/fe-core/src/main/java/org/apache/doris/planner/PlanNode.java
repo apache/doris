@@ -22,7 +22,9 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -34,6 +36,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
+import org.apache.doris.planner.normalize.ExprNormalizeVisitor;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TAccessPathType;
@@ -475,7 +478,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         msg.setNullableTuples(Collections.emptyList());
 
         for (Expr e : conjuncts) {
-            msg.addToConjuncts(e.treeToThrift());
+            msg.addToConjuncts(ExprToThriftVisitor.treeToThrift(e));
         }
 
         // Serialize any runtime filters
@@ -493,7 +496,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
             for (List<Expr> exprList : childrenDistributeExprLists) {
                 msg.addToDistributeExprLists(new ArrayList<>());
                 for (Expr expr : exprList) {
-                    msg.distribute_expr_lists.get(msg.distribute_expr_lists.size() - 1).add(expr.treeToThrift());
+                    msg.distribute_expr_lists.get(msg.distribute_expr_lists.size() - 1)
+                            .add(ExprToThriftVisitor.treeToThrift(expr));
                 }
             }
         }
@@ -505,7 +509,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         }
         if (projectList != null) {
             for (Expr expr : projectList) {
-                msg.addToProjections(expr.treeToThrift());
+                msg.addToProjections(ExprToThriftVisitor.treeToThrift(expr));
             }
         }
 
@@ -518,7 +522,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         if (!intermediateProjectListList.isEmpty()) {
             intermediateProjectListList.forEach(
                     projectList -> msg.addToIntermediateProjectionsList(
-                            projectList.stream().map(expr -> expr.treeToThrift()).collect(Collectors.toList())));
+                            projectList.stream().map(expr -> ExprToThriftVisitor.treeToThrift(expr))
+                                    .collect(Collectors.toList())));
         }
 
         if (this instanceof ExchangeNode) {
@@ -603,7 +608,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         for (Entry<SlotId, Expr> kv : project.entrySet()) {
             SlotId slotId = kv.getKey();
             Expr expr = kv.getValue();
-            TExpr thriftExpr = expr.normalize(normalizer);
+            TExpr thriftExpr = ExprNormalizeVisitor.normalize(expr, normalizer);
             sortByTExpr.add(Pair.of(slotId, thriftExpr));
         }
         sortByTExpr.sort(Comparator.comparing(Pair::value));
@@ -620,7 +625,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
     public static List<TExpr> normalizeExprs(Collection<? extends Expr> exprs, Normalizer normalizer) {
         List<TExpr> normalizedWithoutSort = Lists.newArrayListWithCapacity(exprs.size());
         for (Expr expr : exprs) {
-            normalizedWithoutSort.add(expr.normalize(normalizer));
+            normalizedWithoutSort.add(ExprNormalizeVisitor.normalize(expr, normalizer));
         }
         normalizedWithoutSort.sort(Comparator.naturalOrder());
         return normalizedWithoutSort;
@@ -739,6 +744,21 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         return projectList;
     }
 
+    public List<Expr> getPointQueryProjectList() {
+        if (CollectionUtils.isEmpty(projectList) || intermediateProjectListList.isEmpty()) {
+            return projectList;
+        }
+
+        List<Expr> flattenedProjectList = Expr.cloneList(projectList);
+        for (int i = intermediateProjectListList.size() - 1; i >= 0; --i) {
+            flattenedProjectList = Expr.cloneList(
+                    flattenedProjectList,
+                    createPointQueryProjectionSmap(intermediateOutputTupleDescList.get(i),
+                            intermediateProjectListList.get(i)));
+        }
+        return flattenedProjectList;
+    }
+
     public void setCardinalityAfterFilter(long cardinalityAfterFilter) {
         this.cardinalityAfterFilter = cardinalityAfterFilter;
     }
@@ -767,6 +787,20 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
 
     public void addIntermediateProjectList(List<Expr> exprs) {
         intermediateProjectListList.add(exprs);
+    }
+
+    private ExprSubstitutionMap createPointQueryProjectionSmap(
+            TupleDescriptor outputTupleDesc, List<Expr> projectionExprs) {
+        List<SlotDescriptor> outputSlots = outputTupleDesc.getSlots();
+        Preconditions.checkState(outputSlots.size() == projectionExprs.size(),
+                "point query projection slot size %s does not match expr size %s",
+                outputSlots.size(), projectionExprs.size());
+
+        ExprSubstitutionMap substitutionMap = new ExprSubstitutionMap();
+        for (int i = 0; i < outputSlots.size(); ++i) {
+            substitutionMap.put(new SlotRef(outputSlots.get(i)), projectionExprs.get(i));
+        }
+        return substitutionMap;
     }
 
     public <T extends PlanNode> List<T> collectInCurrentFragment(Predicate<PlanNode> predicate) {

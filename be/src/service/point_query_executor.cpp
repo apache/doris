@@ -55,7 +55,6 @@
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
 #include "util/jsonb/serialize.h"
-#include "util/key_util.h"
 #include "util/lru_cache.h"
 #include "util/simd/bits.h"
 #include "util/thrift_util.h"
@@ -402,8 +401,8 @@ Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
         RowCursor cursor;
         RETURN_IF_ERROR(cursor.init_scan_key(_tablet->tablet_schema(), olap_tuples[i].values()));
         RETURN_IF_ERROR(cursor.from_tuple(olap_tuples[i]));
-        encode_key_with_padding<RowCursor, true>(&_row_read_ctxs[i]._primary_key, cursor,
-                                                 _tablet->tablet_schema()->num_key_columns(), true);
+        cursor.encode_key_with_padding<true>(&_row_read_ctxs[i]._primary_key,
+                                             _tablet->tablet_schema()->num_key_columns(), true);
     }
     return Status::OK();
 }
