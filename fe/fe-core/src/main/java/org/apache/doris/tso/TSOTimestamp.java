@@ -32,14 +32,14 @@ import java.io.IOException;
  * TSOTimestamp represents a Timestamp Oracle timestamp with physical time and logical counter.
  *
  * TSO timestamp format (64 bits):
- * 63                                                     18 17           12 11              0
- * ┌─────────────────────────────────────────────────────────┬────────────────┬─────────────────────────┐
- * |              Physical Time (milliseconds, 46 bits)     │ Reserved 6 bits│ Logical Counter 12 bits │
- * └───────────────────────────────────────────────────────┴────────────────┴─────────────────────────┘
+ * 63                                                      18 17                                    0
+ * ┌─────────────────────────────────────────────────────────┬──────────────────────────────────────┐
+ * |              Physical Time (milliseconds, 46 bits)      │      Logical Counter 18 bits         │
+ * └─────────────────────────────────────────────────────────┴──────────────────────────────────────┘
  *
  * Example:
  * Physical time: 1625097600000 (milliseconds, 46 bits)
- * Logical counter: 123 (12 bits)
+ * Logical counter: 123 (18 bits)
  * Combined TSO: 123456789012345678
  */
 public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
@@ -50,22 +50,18 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
     private Long logicalCounter = 0L;
 
     // Bit width for each field
-    private static final int LOGICAL_BITS   = 12;  // Logical counter bits
-    private static final int RESERVED_BITS  = 6;   // Reserved bits
+    private static final int LOGICAL_BITS   = 18;  // Logical counter bits
     private static final int PHYSICAL_BITS  = 46;  // Physical time bits (milliseconds)
 
     // Starting bit offset for each field (relative to bit0)
-    private static final int RESERVED_SHIFT = LOGICAL_BITS;                  // 12
-    private static final int PHYSICAL_SHIFT = LOGICAL_BITS + RESERVED_BITS;  // 18
+    private static final int PHYSICAL_SHIFT = LOGICAL_BITS;  // 18
 
     // Masks for each field in 64-bit TSO
     private static final long LOGICAL_MASK  = ((1L << LOGICAL_BITS)  - 1L);
-    private static final long RESERVED_MASK = ((1L << RESERVED_BITS) - 1L) << RESERVED_SHIFT;
     private static final long PHYSICAL_MASK = ((1L << PHYSICAL_BITS) - 1L) << PHYSICAL_SHIFT;
 
     // Raw masks for bit operations
     private static final long RAW_LOGICAL_MASK  = (1L << LOGICAL_BITS)  - 1L;
-    private static final long RAW_RESERVED_MASK = (1L << RESERVED_BITS) - 1L;
     private static final long RAW_PHYSICAL_MASK = (1L << PHYSICAL_BITS) - 1L;
 
     // Maximum logical counter value
@@ -190,13 +186,11 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
     public static long composeTimestamp(long physicalTime, long logicalCounter) {
         // Prevent overflow by masking to appropriate bit widths
         long physical = physicalTime   & RAW_PHYSICAL_MASK; // Keep only 46 bits
-        long logical  = logicalCounter & RAW_LOGICAL_MASK;  // Keep only 12 bits
+        long logical  = logicalCounter & RAW_LOGICAL_MASK;  // Keep only 18 bits
 
-        long reserved = 0L;
 
-        // Bitwise assembly: High 46 bits physical time + Middle 6 bits reserved + Low 12 bits logical counter
+        // Bitwise assembly: High 46 bits physical time + Low 18 bits logical counter
         return (physical  << PHYSICAL_SHIFT)
-            | (reserved  << RESERVED_SHIFT)
             | (logical);
     }
 
