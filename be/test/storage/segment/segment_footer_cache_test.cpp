@@ -19,6 +19,7 @@
 
 #include <random>
 
+#include "core/field.h"
 #include "storage/cache/page_cache.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_writer.h"
@@ -33,7 +34,7 @@ TabletColumnPtr create_int_sequence_value(int32_t id, bool is_nullable = true,
 TabletSchemaSPtr create_schema(const std::vector<TabletColumnPtr>& columns,
                                KeysType keys_type = UNIQUE_KEYS);
 
-using Generator = std::function<void(size_t rid, int cid, RowCursorCell& cell)>;
+using Generator = std::function<void(size_t rid, int cid, Field& field)>;
 
 void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, size_t segment_id,
                    TabletSchemaSPtr query_schema, size_t nrows, Generator generator,
@@ -116,9 +117,8 @@ class SegmentFooterCacheTest : public ::testing::Test {
         for (size_t sid = 0; sid < num_segments; ++sid) {
             auto& segment = segments[sid];
             std::vector<int> row_data;
-            auto generator = [&](size_t rid, int cid, RowCursorCell& cell) {
-                cell.set_not_null();
-                *(int*)cell.mutable_cell_ptr() = data_map[{sid, rid}][cid];
+            auto generator = [&](size_t rid, int cid, Field& field) {
+                field = Field::create_field<TYPE_INT>(int32_t(data_map[{sid, rid}][cid]));
             };
             build_segment(opts, tablet_schema, sid, tablet_schema, datas[sid].size(), generator,
                           &segment, segment_footer_cache_test_segment_dir);

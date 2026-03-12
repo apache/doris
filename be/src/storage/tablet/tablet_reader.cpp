@@ -373,15 +373,10 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                     read_params.start_key[i].size(), scan_key_size);
         }
 
-        Status res = _keys_param.start_keys[i].init_scan_key(
-                _tablet_schema, read_params.start_key[i].values(), schema);
+        Status res =
+                _keys_param.start_keys[i].init(_tablet_schema, read_params.start_key[i], schema);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
-            return res;
-        }
-        res = _keys_param.start_keys[i].from_tuple(read_params.start_key[i]);
-        if (!res.ok()) {
-            LOG(WARNING) << "fail to init row cursor from Keys. res=" << res << "key_index=" << i;
             return res;
         }
     }
@@ -396,16 +391,9 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                     read_params.end_key[i].size(), scan_key_size);
         }
 
-        Status res = _keys_param.end_keys[i].init_scan_key(_tablet_schema,
-                                                           read_params.end_key[i].values(), schema);
+        Status res = _keys_param.end_keys[i].init(_tablet_schema, read_params.end_key[i], schema);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
-            return res;
-        }
-
-        res = _keys_param.end_keys[i].from_tuple(read_params.end_key[i]);
-        if (!res.ok()) {
-            LOG(WARNING) << "fail to init row cursor from Keys. res=" << res << " key_index=" << i;
             return res;
         }
     }

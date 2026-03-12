@@ -28,6 +28,7 @@
 #include <string>
 #include <vector>
 
+#include "core/field.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
@@ -37,6 +38,7 @@
 #include "storage/row_cursor.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_writer.h"
+#include "storage/segment/test_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
@@ -48,7 +50,7 @@ using namespace ErrorCode;
 static std::string kSegmentDir = "./ut_dir/delete_bitmap_calculator_test";
 static RowsetId rowset_id {0};
 
-using Generator = std::function<void(size_t rid, int cid, RowCursorCell& cell)>;
+using Generator = std::function<void(size_t rid, int cid, Field& field)>;
 
 TabletColumnPtr create_int_sequence_value(int32_t id, bool is_nullable = true,
                                           bool is_bf_column = false) {
@@ -75,19 +77,18 @@ void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, siz
     io::FileWriterPtr file_writer;
     Status st = fs->create_file(path, &file_writer);
     EXPECT_TRUE(st.ok()) << st.to_string();
-    SegmentWriter writer(file_writer.get(), segment_id, build_schema, nullptr, nullptr, opts,
-                         nullptr);
+    TestSegmentWriter writer(file_writer.get(), segment_id, build_schema, nullptr, nullptr, opts,
+                             nullptr);
     st = writer.init();
     EXPECT_TRUE(st.ok());
 
     RowCursor row;
-    auto olap_st = row._init(build_schema, build_schema->num_columns());
+    auto olap_st = row.init(build_schema, build_schema->num_columns());
     EXPECT_EQ(Status::OK(), olap_st);
 
     for (size_t rid = 0; rid < nrows; ++rid) {
         for (int cid = 0; cid < build_schema->num_columns(); ++cid) {
-            RowCursorCell cell = row.cell(cid);
-            generator(rid, cid, cell);
+            generator(rid, cid, row.mutable_field(cid));
         }
         EXPECT_TRUE(writer.append_row(row).ok());
     }
@@ -218,9 +219,8 @@ public:
         for (size_t sid = 0; sid < num_segments; ++sid) {
             auto& segment = segments[sid];
             std::vector<int> row_data;
-            auto generator = [&](size_t rid, int cid, RowCursorCell& cell) {
-                cell.set_not_null();
-                *(int*)cell.mutable_cell_ptr() = data_map[{sid, rid}][cid];
+            auto generator = [&](size_t rid, int cid, Field& field) {
+                field = Field::create_field<TYPE_INT>(int32_t(data_map[{sid, rid}][cid]));
             };
             build_segment(opts, tablet_schema, sid, tablet_schema, datas[sid].size(), generator,
                           &segment, kSegmentDir);

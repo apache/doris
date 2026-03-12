@@ -35,6 +35,8 @@
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type/primitive_type.h"
+#include "core/field.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
 #include "exec/common/variant_util.h"
@@ -57,7 +59,6 @@
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"
-#include "storage/row_cursor.h"                   // RowCursor // IWYU pragma: keep
 #include "storage/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "storage/rowset/segment_creator.h"
 #include "storage/segment/column_writer.h" // ColumnWriter
@@ -889,37 +890,6 @@ std::string SegmentWriter::_encode_keys(const std::vector<IOlapColumnDataAccesso
         ++cid;
     }
     return encoded_keys;
-}
-Status SegmentWriter::append_row(const RowCursor& row) {
-    for (size_t cid = 0; cid < _column_writers.size(); ++cid) {
-        auto cell = row.cell(cast_set<uint32_t>(cid));
-        RETURN_IF_ERROR(_column_writers[cid]->append(cell));
-    }
-    std::string full_encoded_key;
-    row.encode_key<true>(&full_encoded_key, _num_sort_key_columns);
-    if (_tablet_schema->has_sequence_col()) {
-        full_encoded_key.push_back(KEY_NORMAL_MARKER);
-        auto cid = _tablet_schema->sequence_col_idx();
-        auto cell = row.cell(cid);
-        row.schema()->column(cid)->full_encode_ascending(cell.cell_ptr(), &full_encoded_key);
-    }
-
-    if (_is_mow_with_cluster_key()) {
-        return Status::InternalError(
-                "SegmentWriter::append_row does not support mow tables with cluster key");
-    } else if (_is_mow()) {
-        RETURN_IF_ERROR(_primary_key_index_builder->add_item(full_encoded_key));
-    } else {
-        // At the beginning of one block, so add a short key index entry
-        if ((_num_rows_written % _opts.num_rows_per_block) == 0) {
-            std::string encoded_key;
-            row.encode_key(&encoded_key, _num_short_key_columns);
-            RETURN_IF_ERROR(_short_key_index_builder->add_item(encoded_key));
-        }
-        set_min_max_key(full_encoded_key);
-    }
-    ++_num_rows_written;
-    return Status::OK();
 }
 
 // TODO(lingbin): Currently this function does not include the size of various indexes,

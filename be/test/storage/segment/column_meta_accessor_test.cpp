@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 
+#include "core/field.h"
 #include "io/fs/local_file_system.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_writer.h"
@@ -94,7 +95,7 @@ Status read_footer_from_file(const io::FileReaderSPtr& fr, SegmentFooterPB* foot
 
 namespace doris {
 
-using Generator = std::function<void(size_t rid, int cid, RowCursorCell& cell)>;
+using Generator = std::function<void(size_t rid, int cid, Field& field)>;
 
 // Helper declarations are defined in tablet_schema_helper.{h,cpp} and
 // delete_bitmap_calculator_test.cpp.
@@ -630,10 +631,9 @@ TEST(ColumnMetaAccessorTest, FooterSizeWithManyColumnsExternalVsInline) {
     SegmentWriterOptions opts;
     opts.enable_unique_key_merge_on_write = false;
 
-    auto generator = [](size_t rid, int cid, RowCursorCell& cell) {
-        cell.set_not_null();
+    auto generator = [](size_t rid, int cid, Field& field) {
         // deterministic int payload: value = rid * 10 + cid
-        *reinterpret_cast<int*>(cell.mutable_cell_ptr()) = static_cast<int>(rid * 10 + cid);
+        field = Field::create_field<TYPE_INT>(int32_t(rid * 10 + cid));
     };
 
     // 3. Build inline segment (V2 footer, inline ColumnMetaPB).

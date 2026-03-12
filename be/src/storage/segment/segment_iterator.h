@@ -37,6 +37,8 @@
 #include "core/block/columns_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/primitive_type.h"
+#include "core/field.h"
 #include "exec/common/variant_util.h"
 #include "exprs/score_runtime.h"
 #include "exprs/vexpr_fwd.h"
@@ -50,7 +52,6 @@
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
 #include "storage/row_cursor.h"
-#include "storage/row_cursor_cell.h"
 #include "storage/schema.h"
 #include "storage/segment/common.h"
 #include "storage/segment/segment.h"
@@ -301,49 +302,12 @@ private:
 
     Status _construct_compound_expr_context();
 
-    // todo(wb) remove this method after RowCursor is removed
-    void NO_SANITIZE_UNDEFINED _convert_rowcursor_to_short_key(const RowCursor& key,
-                                                               size_t num_keys) {
-        if (_short_key.size() == 0) {
-            _short_key.resize(num_keys);
-            for (auto cid = 0; cid < num_keys; cid++) {
-                auto* field = key.schema()->column(cid);
-                _short_key[cid] = Schema::get_column_by_field(*field);
-            }
-        } else {
-            for (int i = 0; i < num_keys; i++) {
-                _short_key[i]->clear();
-            }
-        }
-
-        for (auto cid = 0; cid < num_keys; cid++) {
-            auto field = key.schema()->column(cid);
-            if (field == nullptr) {
-                break;
-            }
-            auto cell = key.cell(cid);
-            if (cell.is_null()) {
-                _short_key[cid]->insert_default();
-            } else {
-                if (field->type() == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
-                    field->type() == FieldType::OLAP_FIELD_TYPE_CHAR ||
-                    field->type() == FieldType::OLAP_FIELD_TYPE_STRING) {
-                    const Slice* slice = reinterpret_cast<const Slice*>(cell.cell_ptr());
-                    _short_key[cid]->insert_data(slice->data, slice->size);
-                } else {
-                    _short_key[cid]->insert_many_fix_len_data(
-                            reinterpret_cast<const char*>(cell.cell_ptr()), 1);
-                }
-            }
-        }
-    }
-
-    int _compare_short_key_with_seek_block(const std::vector<ColumnId>& col_ids) {
+    int _compare_short_key_with_seek_block(const RowCursor& key,
+                                           const std::vector<ColumnId>& col_ids) {
         for (auto cid : col_ids) {
-            // todo(wb) simd compare when memory layout in row
-            auto res = _short_key[cid]->compare_at(0, 0, *_seek_block[cid], -1);
-            if (res != 0) {
-                return res;
+            auto ord = key.field(cid) <=> (*_seek_block[cid])[0];
+            if (ord != std::strong_ordering::equal) {
+                return ord < 0 ? -1 : 1;
             }
         }
         return 0;
@@ -455,9 +419,6 @@ private:
     // used to binary search the rowid for a given key
     // only used in `_get_row_ranges_by_keys`
     MutableColumns _seek_block;
-
-    //todo(wb) remove this field after Rowcursor is removed
-    MutableColumns _short_key;
 
     io::FileReaderSPtr _file_reader;
 
