@@ -30,6 +30,7 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.persist.OperationType;
 
 import com.google.common.base.Strings;
@@ -185,6 +186,9 @@ public class RefreshManager {
             // this is a rename table op
             db.get().unregisterTable(log.getTableName());
             db.get().resetMetaCacheNames();
+            Env.getCurrentEnv().getConstraintManager().renameTable(
+                    new TableNameInfo(catalog.getName(), log.getDbName(), log.getTableName()),
+                    new TableNameInfo(catalog.getName(), log.getDbName(), log.getNewTableName()));
         } else {
             List<String> modifiedPartNames = log.getPartitionNames();
             List<String> newPartNames = log.getNewPartitionNames();
