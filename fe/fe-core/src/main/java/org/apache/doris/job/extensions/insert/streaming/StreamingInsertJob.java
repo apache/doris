@@ -1171,6 +1171,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     JdbcSourceOffsetProvider op = (JdbcSourceOffsetProvider) offsetProvider;
                     op.setHasMoreData(false);
                 }
+                if (offsetRequest.getTableSchemas() != null) {
+                    JdbcSourceOffsetProvider op = (JdbcSourceOffsetProvider) offsetProvider;
+                    op.setTableSchemas(offsetRequest.getTableSchemas());
+                }
                 persistOffsetProviderIfNeed();
                 log.info("Streaming multi table job {} task {} commit offset successfully, offset: {}",
                         getJobId(), offsetRequest.getTaskId(), offsetRequest.getOffset());

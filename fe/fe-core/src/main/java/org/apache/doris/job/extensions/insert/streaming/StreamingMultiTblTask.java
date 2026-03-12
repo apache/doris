@@ -195,6 +195,12 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         String feAddr = Env.getCurrentEnv().getMasterHost() + ":" + Env.getCurrentEnv().getMasterHttpPort();
         request.setFrontendAddress(feAddr);
         request.setMaxInterval(jobProperties.getMaxIntervalSecond());
+        if (offsetProvider instanceof JdbcSourceOffsetProvider) {
+            String schemas = ((JdbcSourceOffsetProvider) offsetProvider).getTableSchemas();
+            if (schemas != null) {
+                request.setTableSchemas(schemas);
+            }
+        }
         return request;
     }
 

@@ -86,6 +86,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     @SerializedName("bop")
     Map<String, String> binlogOffsetPersist;
 
+    @SerializedName("ts")
+    String tableSchemas;
+
     volatile boolean hasMoreData = true;
 
     public JdbcSourceOffsetProvider(Long jobId, DataSourceType sourceType, Map<String, String> sourceProperties) {
@@ -352,6 +355,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                     JdbcSourceOffsetProvider.class);
             this.binlogOffsetPersist = replayFromPersist.getBinlogOffsetPersist();
             this.chunkHighWatermarkMap = replayFromPersist.getChunkHighWatermarkMap();
+            this.tableSchemas = replayFromPersist.getTableSchemas();
             log.info("Replaying offset provider for job {}, binlogOffset size {}, chunkHighWatermark size {}",
                     getJobId(),
                     binlogOffsetPersist == null ? 0 : binlogOffsetPersist.size(),
