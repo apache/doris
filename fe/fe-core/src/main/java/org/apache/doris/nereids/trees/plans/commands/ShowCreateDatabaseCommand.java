@@ -25,7 +25,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -104,7 +104,7 @@ public class ShowCreateDatabaseCommand extends ShowCommand {
             sb.append("CREATE DATABASE `").append(ClusterNamespace.getNameFromFullName(databaseName)).append("`");
             if (db.getDbProperties().getProperties().size() > 0) {
                 sb.append("\nPROPERTIES (\n");
-                sb.append(new PrintableMap<>(db.getDbProperties().getProperties(), "=", true, true, false));
+                sb.append(new DatasourcePrintableMap<>(db.getDbProperties().getProperties(), "=", true, true, false));
                 sb.append("\n)");
             }
         }

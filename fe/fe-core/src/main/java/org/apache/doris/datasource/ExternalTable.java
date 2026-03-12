@@ -24,7 +24,6 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIndexes;
-import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
@@ -82,6 +81,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     // dbName is temporarily retained and will be deleted later. To use dbName, please use db.getFullName()
     @SerializedName(value = "dbName")
     protected String dbName;
+    @Deprecated
     @SerializedName(value = "ta")
     private final TableAttributes tableAttributes = new TableAttributes();
 
@@ -202,11 +202,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
             }
         }
         return null;
-    }
-
-    @Override
-    public Map<String, Constraint> getConstraintsMapUnsafe() {
-        return tableAttributes.getConstraintsMap();
     }
 
     @Override
@@ -511,6 +506,11 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return db.getRemoteName();
     }
 
+    /**
+     * @deprecated Use ConstraintManager for constraint access.
+     *             This method will be removed in a future version.
+     */
+    @Deprecated
     public TableAttributes getTableAttributes() {
         return tableAttributes;
     }

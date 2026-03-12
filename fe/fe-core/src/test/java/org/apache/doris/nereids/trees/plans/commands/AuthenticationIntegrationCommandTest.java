@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authentication.AuthenticationIntegrationMgr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -66,6 +67,7 @@ public class AuthenticationIntegrationCommandTest {
 
     @Test
     public void testCreateCommandRunAndDenied() throws Exception {
+        UserIdentity currentUser = UserIdentity.createAnalyzedUserIdentWithIp("admin", "%");
         CreateAuthenticationIntegrationCommand createCommand =
                 new CreateAuthenticationIntegrationCommand("corp_ldap", false,
                         map("type", "ldap", "ldap.server", "ldap://127.0.0.1:389"), "comment");
@@ -83,12 +85,16 @@ public class AuthenticationIntegrationCommandTest {
                 accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
 
+                connectContext.getQualifiedUser();
+                minTimes = 0;
+                result = currentUser.getQualifiedUser();
+
                 env.getAuthenticationIntegrationMgr();
                 minTimes = 0;
                 result = authenticationIntegrationMgr;
 
                 authenticationIntegrationMgr.createAuthenticationIntegration(
-                        anyString, anyBoolean, (Map<String, String>) any, anyString);
+                        anyString, anyBoolean, (Map<String, String>) any, anyString, anyString);
                 times = 1;
             }
         };
@@ -117,6 +123,7 @@ public class AuthenticationIntegrationCommandTest {
 
     @Test
     public void testAlterCommandRun() throws Exception {
+        UserIdentity currentUser = UserIdentity.createAnalyzedUserIdentWithIp("admin", "%");
         AlterAuthenticationIntegrationCommand setPropertiesCommand =
                 AlterAuthenticationIntegrationCommand.forSetProperties(
                         "corp_ldap", map("ldap.server", "ldap://127.0.0.1:1389"));
@@ -140,19 +147,23 @@ public class AuthenticationIntegrationCommandTest {
                 minTimes = 0;
                 result = true;
 
+                connectContext.getQualifiedUser();
+                minTimes = 0;
+                result = currentUser.getQualifiedUser();
+
                 env.getAuthenticationIntegrationMgr();
                 minTimes = 0;
                 result = authenticationIntegrationMgr;
 
                 authenticationIntegrationMgr.alterAuthenticationIntegrationProperties(
-                        anyString, (Map<String, String>) any);
+                        anyString, (Map<String, String>) any, anyString);
                 times = 1;
 
                 authenticationIntegrationMgr.alterAuthenticationIntegrationUnsetProperties(
-                        anyString, (Set<String>) any);
+                        anyString, (Set<String>) any, anyString);
                 times = 1;
 
-                authenticationIntegrationMgr.alterAuthenticationIntegrationComment(anyString, anyString);
+                authenticationIntegrationMgr.alterAuthenticationIntegrationComment(anyString, anyString, anyString);
                 times = 1;
             }
         };

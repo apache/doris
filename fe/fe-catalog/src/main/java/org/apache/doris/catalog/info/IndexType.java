@@ -15,18 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/key_util.h"
+package org.apache.doris.catalog.info;
 
-namespace doris {
-
-bool key_is_not_in_segment(Slice key, const KeyBoundsPB& segment_key_bounds,
-                           bool is_segments_key_bounds_truncated) {
-    Slice maybe_truncated_min_key {segment_key_bounds.min_key()};
-    Slice maybe_truncated_max_key {segment_key_bounds.max_key()};
-    bool res1 = Slice::lhs_is_strictly_less_than_rhs(key, false, maybe_truncated_min_key,
-                                                     is_segments_key_bounds_truncated);
-    bool res2 = Slice::lhs_is_strictly_less_than_rhs(maybe_truncated_max_key,
-                                                     is_segments_key_bounds_truncated, key, false);
-    return res1 || res2;
+/**
+ * IndexType
+ */
+public enum IndexType {
+    BITMAP,
+    INVERTED,
+    BLOOMFILTER,
+    NGRAM_BF,
+    ANN
 }
-} // namespace doris

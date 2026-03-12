@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -75,7 +74,7 @@ public class EncryptKeyName {
         if (db == null) {
             return keyName;
         }
-        return ClusterNamespace.getNameFromFullName(db) + "." + keyName;
+        return db + "." + keyName;
     }
 
     @Override
@@ -107,7 +106,7 @@ public class EncryptKeyName {
         StringBuilder sb = new StringBuilder();
         sb.append("KEY ");
         if (db != null) {
-            sb.append(ClusterNamespace.getNameFromFullName(db)).append(".");
+            sb.append(db).append(".");
         }
         sb.append(keyName);
         return sb.toString();

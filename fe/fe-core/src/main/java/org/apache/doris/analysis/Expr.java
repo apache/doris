@@ -24,9 +24,9 @@ import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.NameFormatUtils;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.foundation.format.FormatOptions;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
@@ -88,7 +88,8 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     // alias or is not slotRef
     public String getExprName() {
         if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(Utils.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPR_NAME));
+            this.exprName = Optional.of(
+                    NameFormatUtils.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPR_NAME));
         }
         return this.exprName.get();
     }

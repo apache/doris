@@ -55,6 +55,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -73,6 +74,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
@@ -86,7 +88,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition.IndexType;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReorderColumnsOp;
@@ -144,7 +145,7 @@ public class SchemaChangeHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeHandler.class);
 
     // all shadow indexes should have this prefix in name
-    public static final String SHADOW_NAME_PREFIX = "__doris_shadow_";
+    public static final String SHADOW_NAME_PREFIX = Column.SHADOW_NAME_PREFIX;
 
     public static final int MAX_ACTIVE_SCHEMA_CHANGE_JOB_V2_SIZE = 10;
 
@@ -407,6 +408,15 @@ public class SchemaChangeHandler extends AlterHandler {
             throws DdlException {
         String dropColName = dropColumnOp.getColName();
 
+        String constraintName = Env.getCurrentEnv().getConstraintManager()
+                .findConstraintWithColumn(new TableNameInfo(externalTable), dropColName);
+        if (constraintName != null) {
+            throw new DdlException(String.format(
+                    "Cannot drop column '%s' because it is used by constraint '%s'. "
+                            + "Drop the constraint first.",
+                    dropColName, constraintName));
+        }
+
         // find column in base index and remove it
         boolean found = false;
         Iterator<Column> baseIter = newSchema.iterator();
@@ -443,6 +453,16 @@ public class SchemaChangeHandler extends AlterHandler {
             throws DdlException {
 
         String dropColName = dropColumnOp.getColName();
+
+        String constraintName = Env.getCurrentEnv().getConstraintManager()
+                .findConstraintWithColumn(new TableNameInfo(olapTable), dropColName);
+        if (constraintName != null) {
+            throw new DdlException(String.format(
+                    "Cannot drop column '%s' because it is used by constraint '%s'. "
+                            + "Drop the constraint first.",
+                    dropColName, constraintName));
+        }
+
         String targetIndexName = dropColumnOp.getRollupName();
         checkIndexExists(olapTable, targetIndexName);
 
@@ -3016,7 +3036,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     Column column = olapTable.getColumn(columnName);
                     if (column != null && (column.getType().isStringType() || column.getType().isVariantType())) {
                         if (index.getIndexType() == IndexType.INVERTED) {
-                            String existingIdentity = index.getAnalyzerIdentity();
+                            String existingIdentity = InvertedIndexUtil.getAnalyzerIdentity(index);
                             String newIdentity = indexDef.getAnalyzerIdentity();
                             if (Objects.equals(existingIdentity, newIdentity)) {
                                 String analyzerDesc = "__default__".equals(newIdentity)

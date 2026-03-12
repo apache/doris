@@ -29,24 +29,17 @@ import org.apache.doris.datasource.property.storage.OSSHdfsProperties;
 import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
+import org.apache.doris.foundation.util.BasicPrintableMap;
 
 import com.google.common.collect.Sets;
 
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
-public class PrintableMap<K, V> {
-    private Map<K, V> map;
-    private String keyValueSeparator;
-    private boolean withQuotation;
-    private boolean wrap;
+public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
     private boolean hidePassword;
-    private String entryDelimiter = ",";
     private Set<String> additionalHiddenKeys = Sets.newHashSet();
 
     public static final Set<String> SENSITIVE_KEY;
@@ -76,29 +69,25 @@ public class PrintableMap<K, V> {
         HIDDEN_KEY.addAll(S3Properties.Env.FS_KEYS);
     }
 
-    public PrintableMap(Map<K, V> map, String keyValueSeparator,
+    public DatasourcePrintableMap(Map<K, V> map, String keyValueSeparator,
             boolean withQuotation, boolean wrap, String entryDelimiter) {
-        this.map = map;
-        this.keyValueSeparator = keyValueSeparator;
-        this.withQuotation = withQuotation;
-        this.wrap = wrap;
+        super(map, keyValueSeparator, withQuotation, wrap, entryDelimiter);
         this.hidePassword = false;
-        this.entryDelimiter = entryDelimiter;
     }
 
-    public PrintableMap(Map<K, V> map, String keyValueSeparator,
-                        boolean withQuotation, boolean wrap) {
+    public DatasourcePrintableMap(Map<K, V> map, String keyValueSeparator,
+            boolean withQuotation, boolean wrap) {
         this(map, keyValueSeparator, withQuotation, wrap, ",");
     }
 
-    public PrintableMap(Map<K, V> map, String keyValueSeparator,
+    public DatasourcePrintableMap(Map<K, V> map, String keyValueSeparator,
             boolean withQuotation, boolean wrap, boolean hidePassword) {
         this(map, keyValueSeparator, withQuotation, wrap);
         this.hidePassword = hidePassword;
     }
 
-    public PrintableMap(Map<K, V> map, String keyValueSeparator,
-                        boolean withQuotation, boolean wrap, boolean hidePassword, boolean sorted) {
+    public DatasourcePrintableMap(Map<K, V> map, String keyValueSeparator,
+            boolean withQuotation, boolean wrap, boolean hidePassword, boolean sorted) {
         this(sorted ? new TreeMap<>(map).descendingMap() : map, keyValueSeparator, withQuotation, wrap);
         this.hidePassword = hidePassword;
     }
@@ -108,61 +97,15 @@ public class PrintableMap<K, V> {
     }
 
     @Override
-    public String toString() {
-        if (map == null) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder();
-        Iterator<Map.Entry<K, V>> iter = showEntries().iterator();
-        while (iter.hasNext()) {
-            appendEntry(sb, iter.next());
-            if (iter.hasNext()) {
-                appendDelimiter(sb);
-            }
-        }
-        return sb.toString();
+    protected boolean shouldIncludeEntry(Map.Entry<K, V> entry) {
+        return !HIDDEN_KEY.contains(entry.getKey()) && !additionalHiddenKeys.contains(entry.getKey());
     }
 
-    private List<Map.Entry<K, V>> showEntries() {
-        Iterator<Map.Entry<K, V>> iter = map.entrySet().iterator();
-        List<Map.Entry<K, V>> entries = new ArrayList<>();
-        while (iter.hasNext()) {
-            Map.Entry<K, V> entry = iter.next();
-            if (!HIDDEN_KEY.contains(entry.getKey()) && !additionalHiddenKeys.contains(entry.getKey())) {
-                entries.add(entry);
-            }
-        }
-        return entries;
-    }
-
-    private void appendEntry(StringBuilder sb, Map.Entry<K, V> entry) {
-        if (withQuotation) {
-            sb.append("\"");
-        }
-        sb.append(entry.getKey());
-        if (withQuotation) {
-            sb.append("\"");
-        }
-        sb.append(" ").append(keyValueSeparator).append(" ");
-        if (withQuotation) {
-            sb.append("\"");
-        }
+    @Override
+    protected String formatValue(Map.Entry<K, V> entry) {
         if (hidePassword && SENSITIVE_KEY.contains(entry.getKey())) {
-            sb.append(PASSWORD_MASK);
-        } else {
-            sb.append(entry.getValue());
+            return PASSWORD_MASK;
         }
-        if (withQuotation) {
-            sb.append("\"");
-        }
-    }
-
-    private void appendDelimiter(StringBuilder sb) {
-        sb.append(entryDelimiter);
-        if (wrap) {
-            sb.append("\n");
-        } else {
-            sb.append(" ");
-        }
+        return super.formatValue(entry);
     }
 }
