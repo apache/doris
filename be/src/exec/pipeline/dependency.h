@@ -303,7 +303,7 @@ public:
     static int get_slot_column_id(const AggFnEvaluator* evaluator);
 
     AggregatedDataVariantsUPtr agg_data = nullptr;
-    std::unique_ptr<AggregateDataContainer> aggregate_data_container;
+
     std::vector<AggFnEvaluator*> aggregate_evaluators;
     // group by k1,k2
     VExprContextSPtrs probe_expr_ctxs;
