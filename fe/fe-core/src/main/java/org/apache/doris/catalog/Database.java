@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cloud.catalog.CloudEnv;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -246,8 +245,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     }
 
     public void setNameWithoutLock(String newName) {
-        // ClusterNamespace.getNameFromFullName should be removed in 3.0
-        this.fullQualifiedName = ClusterNamespace.getNameFromFullName(newName);
+        this.fullQualifiedName = newName;
         for (Table table : idToTable.values()) {
             table.setQualifiedDbName(fullQualifiedName);
         }

@@ -53,7 +53,6 @@ import org.apache.doris.cloud.proto.Cloud.ObjectFilePB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.storage.ObjectFile;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -1271,8 +1270,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         if (response.getStatus().getCode() == MetaServiceCode.STATE_ALREADY_EXISTED_FOR_USER
                 || response.getStatus().getCode() == MetaServiceCode.STAGE_NOT_FOUND) {
             Cloud.StagePB.Builder createStageBuilder = Cloud.StagePB.newBuilder();
-            createStageBuilder.addMysqlUserName(ClusterNamespace
-                    .getNameFromFullName(ConnectContext.get().getCurrentUserIdentity().getQualifiedUser()))
+            createStageBuilder.addMysqlUserName(ConnectContext.get().getCurrentUserIdentity().getQualifiedUser())
                 .setStageId(UUID.randomUUID().toString())
                 .setType(Cloud.StagePB.StageType.INTERNAL).addMysqlUserId(userId);
 
