@@ -62,7 +62,8 @@ Status SchemaAuthenticationIntegrationsScanner::_get_authentication_integrations
     }
     schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
     if (_param->common_param->frontend_conjuncts) {
-        schema_table_request_params.__set_frontend_conjuncts(*_param->common_param->frontend_conjuncts);
+        schema_table_request_params.__set_frontend_conjuncts(
+                *_param->common_param->frontend_conjuncts);
     }
 
     TFetchSchemaTableDataRequest request;
@@ -104,9 +105,9 @@ Status SchemaAuthenticationIntegrationsScanner::_get_authentication_integrations
     for (int i = 0; i < result_data.size(); i++) {
         TRow row = result_data[i];
         for (int j = 0; j < _s_tbls_columns.size(); j++) {
-            RETURN_IF_ERROR(insert_block_column(
-                    row.column_value[j], j, _authentication_integrations_block.get(),
-                    _s_tbls_columns[j].type));
+            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j,
+                                                _authentication_integrations_block.get(),
+                                                _s_tbls_columns[j].type));
         }
     }
     return Status::OK();
@@ -133,8 +134,8 @@ Status SchemaAuthenticationIntegrationsScanner::get_next_block_internal(Block* b
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
     MutableBlock mblock = MutableBlock::build_mutable_block(block);
-    RETURN_IF_ERROR(
-            mblock.add_rows(_authentication_integrations_block.get(), _row_idx, current_batch_rows));
+    RETURN_IF_ERROR(mblock.add_rows(_authentication_integrations_block.get(), _row_idx,
+                                    current_batch_rows));
     _row_idx += current_batch_rows;
 
     *eos = _row_idx == _total_rows;
