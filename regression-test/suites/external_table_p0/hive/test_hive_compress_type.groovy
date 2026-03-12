@@ -35,6 +35,42 @@ suite("test_hive_compress_type", "p0,external") {
         );"""
         sql """use `${catalog_name}`.`multi_catalog`"""
 
+        // table test_compress_partitioned has 6 partitions with different compressed file: plain, gzip, bzip2, deflate
+        sql """set file_split_size=0"""
+        // COUNT pushdown split behavior depends on:
+        // totalFileNum < parallel_fragment_exec_instance_num * backendNum
+        // test_compress_partitioned currently has 16 files.
+        def expectedSplitNum = 16
+        if (backendNum > 1) {
+            expectedSplitNum = (16 < parallelExecInstanceNum * backendNum) ? 28 : 16
+        }
+        explain {
+            sql("select count(*) from test_compress_partitioned")
+            contains "inputSplitNum=${expectedSplitNum}, totalFileSize=734675596, scanRanges=${expectedSplitNum}"
+            contains "partition=8/8"
+        }
+        qt_q21 """select count(*) from test_compress_partitioned where dt="gzip" or dt="mix""""
+        qt_q22 """select count(*) from test_compress_partitioned"""
+        order_qt_q23 """select * from test_compress_partitioned where watchid=4611870011201662970"""
+
+        sql """set file_split_size=8388608"""
+        def expectedSplitNumWithFileSplit = 16
+        if (backendNum > 1) {
+            expectedSplitNumWithFileSplit = (16 < parallelExecInstanceNum * backendNum) ? 82 : 16
+        }
+        explain {
+            sql("select count(*) from test_compress_partitioned")
+            contains "inputSplitNum=${expectedSplitNumWithFileSplit}, totalFileSize=734675596, "
+                    + "scanRanges=${expectedSplitNumWithFileSplit}"
+            contains "partition=8/8"
+        }
+
+        qt_q31 """select count(*) from test_compress_partitioned where dt="gzip" or dt="mix""""
+        qt_q32 """select count(*) from test_compress_partitioned"""
+        order_qt_q33 """select * from test_compress_partitioned where watchid=4611870011201662970"""
+        sql """set file_split_size=0"""
+
+
         order_qt_q42 """ select count(*) from parquet_lz4_compression ;       """
         order_qt_q43 """ select * from parquet_lz4_compression 
             order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
