@@ -19,13 +19,17 @@ import org.apache.doris.regression.suite.ClusterOptions
 
 suite("test_load", "docker") {
     def options = new ClusterOptions()
+    Random random = new Random()
+    def enablePackedFile = random.nextBoolean()
+    logger.info("enable_packed_file: ${enablePackedFile}")
     options.beConfigs += [
         'delete_bitmap_store_write_version=2',
         'delete_bitmap_store_read_version=2',
         'delete_bitmap_store_v2_max_bytes_in_fdb=-1',
         'enable_sync_tablet_delete_bitmap_by_cache=false',
         'enable_delete_bitmap_store_v2_check_correctness=true',
-        'enable_java_support=false'
+        'enable_java_support=false',
+        "enable_packed_file=${enablePackedFile}"
     ]
     options.setFeNum(1)
     options.setBeNum(1)
