@@ -296,8 +296,9 @@ private:
 
     bool _check_apply_by_inverted_index(std::shared_ptr<ColumnPredicate> pred);
 
-    void _output_index_result_column_for_expr(uint16_t* sel_rowid_idx, uint16_t select_size,
-                                              vectorized::Block* block);
+    void _output_index_result_column(const std::vector<vectorized::VExprContext*>& expr_ctxs,
+                                     uint16_t* sel_rowid_idx, uint16_t select_size,
+                                     vectorized::Block* block);
 
     bool _need_read_data(ColumnId cid);
     bool _prune_column(ColumnId cid, vectorized::MutableColumnPtr& column, bool fill_defaults,
