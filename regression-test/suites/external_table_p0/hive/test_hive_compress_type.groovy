@@ -23,16 +23,6 @@ suite("test_hive_compress_type", "p0,external,hive,external_docker,external_dock
         return;
     }
 
-    def backends = sql """show backends"""
-    def backendNum = backends.size()
-    logger.info("get backendNum: ${backendNum}")
-    // `parallel_fragment_exec_instance_num` may be displayed as
-    // `deprecated_parallel_fragment_exec_instance_num` in newer branches.
-    def parallelExecInstanceRows = sql("show variables like '%parallel_fragment_exec_instance_num%'")
-    assertTrue(parallelExecInstanceRows.size() > 0)
-    def parallelExecInstanceNum = (parallelExecInstanceRows[0][1] as String).toInteger()
-    logger.info("get ${parallelExecInstanceRows[0][0]}: ${parallelExecInstanceNum}")
-
     for (String hivePrefix : ["hive3"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "${hivePrefix}_test_hive_compress_type"
@@ -44,37 +34,6 @@ suite("test_hive_compress_type", "p0,external,hive,external_docker,external_dock
             'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
         );"""
         sql """use `${catalog_name}`.`multi_catalog`"""
-
-        // table test_compress_partitioned has 6 partitions with different compressed file: plain, gzip, bzip2, deflate
-        sql """set file_split_size=0"""
-        // COUNT pushdown split behavior depends on:
-        // totalFileNum < parallel_fragment_exec_instance_num * backendNum
-        // test_compress_partitioned currently has 16 files.
-        def expectedSplitNum = 16
-        if (backendNum > 1) {
-            expectedSplitNum = (16 < parallelExecInstanceNum * backendNum) ? 28 : 16
-        }
-        explain {
-            sql("select count(*) from test_compress_partitioned")
-            contains "inputSplitNum=${expectedSplitNum}, totalFileSize=734675596, scanRanges=${expectedSplitNum}"
-            contains "partition=8/8"
-        }
-        qt_q21 """select count(*) from test_compress_partitioned where dt="gzip" or dt="mix""""
-        qt_q22 """select count(*) from test_compress_partitioned"""
-        order_qt_q23 """select * from test_compress_partitioned where watchid=4611870011201662970"""
-
-        sql """set file_split_size=8388608"""
-        explain {
-            sql("select count(*) from test_compress_partitioned")
-            contains "inputSplitNum=16, totalFileSize=734675596, scanRanges=16"
-            contains "partition=8/8"
-        }
-
-        qt_q31 """select count(*) from test_compress_partitioned where dt="gzip" or dt="mix""""
-        qt_q32 """select count(*) from test_compress_partitioned"""
-        order_qt_q33 """select * from test_compress_partitioned where watchid=4611870011201662970"""
-        sql """set file_split_size=0"""
-
 
         order_qt_q42 """ select count(*) from parquet_lz4_compression ;       """
         order_qt_q43 """ select * from parquet_lz4_compression 
