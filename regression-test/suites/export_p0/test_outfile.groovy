@@ -44,10 +44,14 @@ suite("test_outfile") {
     assertEquals(response.msg, "success")
     def configJson = response.data.rows
     boolean enableOutfileToLocal = false
+    boolean enableDeleteExistingFiles = false
     for (Object conf: configJson) {
         assert conf instanceof Map
         if (((Map<String, String>) conf).get("Name").toLowerCase() == "enable_outfile_to_local") {
             enableOutfileToLocal = ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
+        }
+        if (((Map<String, String>) conf).get("Name").toLowerCase() == "enable_delete_existing_files") {
+            enableDeleteExistingFiles = ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
         }
     }
     if (!enableOutfileToLocal) {
@@ -231,6 +235,16 @@ suite("test_outfile") {
                 f.delete();
             }
             path.delete();
+        }
+    }
+
+    if (enableDeleteExistingFiles) {
+        test {
+            sql """
+                SELECT 1 INTO OUTFILE "file://${outFile}/test_outfile_delete_existing_files_${uuid}/"
+                PROPERTIES("delete_existing_files" = "true");
+            """
+            exception "Local file system does not support delete existing files"
         }
     }
 }

@@ -544,6 +544,9 @@ public class OutFileClause {
                         + " To enable this feature, you need to add `enable_delete_existing_files=true`"
                         + " in fe.conf");
             }
+            if (deleteExistingFiles && isLocalOutput) {
+                throw new AnalysisException("Local file system does not support delete existing files");
+            }
             copiedProps.remove(PROP_DELETE_EXISTING_FILES);
         }
 

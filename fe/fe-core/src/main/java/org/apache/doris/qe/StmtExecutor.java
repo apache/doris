@@ -1557,17 +1557,8 @@ public class StmtExecutor {
                 || outFileClause.getBrokerDesc().storageType() == StorageType.LOCAL) {
             return;
         }
-        String parentDir = extractParentDirectory(outFileClause.getFilePath());
-        BrokerUtil.deleteDirectoryWithFileSystem(parentDir, outFileClause.getBrokerDesc());
+        BrokerUtil.deleteParentDirectoryWithFileSystem(outFileClause.getFilePath(), outFileClause.getBrokerDesc());
         outFileClause.markDeleteExistingFilesHandledInFe();
-    }
-
-    private static String extractParentDirectory(String path) {
-        int lastSlash = path.lastIndexOf('/');
-        if (lastSlash >= 0) {
-            return path.substring(0, lastSlash + 1);
-        }
-        return path;
     }
 
     public static void syncLoadForTablets(List<List<Backend>> backendsList, List<Long> allTabletIds) {
