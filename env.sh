@@ -17,9 +17,13 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# check DORIS_HOME
-export LC_ALL=C
+# Explicitly set to prevent ccache misses caused by terminal differences
+export LANG=en_US.utf8
+export LC_ALL=en_US.utf8
+export LC_CTYPE=en_US.utf8
+export LC_MESSAGES=en_US.utf8
 
+# check DORIS_HOME
 if [[ -z "${DORIS_HOME}" ]]; then
     echo "Error: DORIS_HOME is not set"
     exit 1
@@ -353,10 +357,24 @@ if NINJA_VERSION="$(ninja --version 2>/dev/null)"; then
     BUILD_SYSTEM="ninja"
 fi
 
+# for worktree build, use ubsan_ignorelist.txt from main branch to avoid ccache miss.
+if [[ -z "${UBSAN_IGNORELIST}" ]]; then
+    export UBSAN_IGNORELIST="${DORIS_HOME}/conf/ubsan_ignorelist.txt"
+fi
+
 if CCACHE_VERSION="$(ccache --version 2>/dev/null)"; then
     echo "${CCACHE_VERSION}" | head -n 1
     # shellcheck disable=2034
-    CMAKE_USE_CCACHE="-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+    CMAKE_USE_CCACHE_CXX="-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+    CMAKE_USE_CCACHE_C="-DCMAKE_C_COMPILER_LAUNCHER=ccache"
+
+    export CCACHE_BASEDIR=${DORIS_HOME}
+    export CCACHE_NOHASHDIR=1
+    export CCACHE_COMPRESS=1
+    export CCACHE_IGNOREOPTIONS='-ffile-prefix-map=*' # we remap path in different repo to one. the item itself could be ignore.
+    # for debug. when debug enabled, will generate text fingerprint file *.ccache-input-text
+    # export CCACHE_LOGFILE=
+    # export CCACHE_DEBUG=1
 fi
 
 export GENERATOR
