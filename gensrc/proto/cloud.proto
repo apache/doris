@@ -663,6 +663,7 @@ message TabletMetaInfoPB { // For update tablet meta
     optional int64 time_series_compaction_level_threshold = 12;
     optional bool disable_auto_compaction = 13;
     optional bool enable_mow_light_delete = 14;
+    optional int32 vertical_compaction_num_columns_per_group = 15;
 }
 
 message TabletCompactionJobPB {
