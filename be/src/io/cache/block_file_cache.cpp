@@ -2428,6 +2428,20 @@ std::string BlockFileCache::clear_file_cache_directly() {
     _disposable_queue.clear(cache_lock);
     _ttl_queue.clear(cache_lock);
 
+    // Synchronously update cache metrics so that information_schema.file_cache_statistics
+    // reflects the cleared state immediately, without waiting for the next
+    // run_background_monitor cycle.
+    _cur_cache_size_metrics->set_value(0);
+    _cur_ttl_cache_size_metrics->set_value(0);
+    _cur_ttl_cache_lru_queue_cache_size_metrics->set_value(0);
+    _cur_ttl_cache_lru_queue_element_count_metrics->set_value(0);
+    _cur_normal_queue_cache_size_metrics->set_value(0);
+    _cur_normal_queue_element_count_metrics->set_value(0);
+    _cur_index_queue_cache_size_metrics->set_value(0);
+    _cur_index_queue_element_count_metrics->set_value(0);
+    _cur_disposable_queue_cache_size_metrics->set_value(0);
+    _cur_disposable_queue_element_count_metrics->set_value(0);
+
     clear_need_update_lru_blocks();
 
     ss << "finish clear_file_cache_directly"
