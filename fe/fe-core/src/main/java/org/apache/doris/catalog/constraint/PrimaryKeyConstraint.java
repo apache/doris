@@ -19,23 +19,35 @@ package org.apache.doris.catalog.constraint;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.gson.annotations.SerializedName;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-public class PrimaryKeyConstraint extends Constraint {
+public class PrimaryKeyConstraint extends Constraint implements GsonPostProcessable {
     @SerializedName(value = "cols")
     private final Set<String> columns;
 
     // record the foreign table which references the primary key
     @SerializedName(value = "ft")
     private final Set<TableIdentifier> foreignTables = new HashSet<>();
+
+    // qualified name strings kept for backward-compatible deserialization
+    @SerializedName(value = "ftn")
+    private final Set<String> foreignTableNameStrs = new HashSet<>();
+
+    @SerializedName(value = "ftni")
+    private final List<TableNameInfo> foreignTableInfos = new ArrayList<>();
 
     public PrimaryKeyConstraint(String name, Set<String> columns) {
         super(ConstraintType.PRIMARY_KEY, name);
@@ -50,10 +62,18 @@ public class PrimaryKeyConstraint extends Constraint {
         return columns.stream().map(table::getColumn).collect(ImmutableSet.toImmutableSet());
     }
 
-    public void addForeignTable(TableIf table) {
-        foreignTables.add(new TableIdentifier(table));
+    public void addForeignTable(TableNameInfo tni) {
+        String key = tni.getCtl() + "." + tni.getDb() + "." + tni.getTbl();
+        if (foreignTableNameStrs.add(key)) {
+            foreignTableInfos.add(tni);
+        }
     }
 
+    /**
+     * @deprecated Use {@link #getForeignTableInfos()} instead.
+     *     Returns empty for constraints created via the new ConstraintManager.
+     */
+    @Deprecated
     public List<TableIf> getForeignTables() {
         return foreignTables.stream()
                 .map(TableIdentifier::toTableIf)
@@ -62,6 +82,58 @@ public class PrimaryKeyConstraint extends Constraint {
 
     public void removeForeignTable(TableIdentifier tableIdentifier) {
         foreignTables.remove(tableIdentifier);
+    }
+
+    public void removeForeignTable(TableNameInfo tni) {
+        String key = tni.getCtl() + "." + tni.getDb() + "." + tni.getTbl();
+        foreignTableNameStrs.remove(key);
+        foreignTableInfos.removeIf(info ->
+                java.util.Objects.equals(info.getCtl(), tni.getCtl())
+                        && java.util.Objects.equals(info.getDb(), tni.getDb())
+                        && java.util.Objects.equals(info.getTbl(), tni.getTbl()));
+    }
+
+    public List<TableNameInfo> getForeignTableInfos() {
+        return Collections.unmodifiableList(foreignTableInfos);
+    }
+
+    public void renameForeignTable(TableNameInfo oldInfo, TableNameInfo newInfo) {
+        String oldKey = oldInfo.getCtl() + "." + oldInfo.getDb() + "." + oldInfo.getTbl();
+        if (foreignTableNameStrs.remove(oldKey)) {
+            String newKey = newInfo.getCtl() + "." + newInfo.getDb() + "." + newInfo.getTbl();
+            foreignTableNameStrs.add(newKey);
+        }
+        for (int i = 0; i < foreignTableInfos.size(); i++) {
+            TableNameInfo info = foreignTableInfos.get(i);
+            if (java.util.Objects.equals(info.getCtl(), oldInfo.getCtl())
+                    && java.util.Objects.equals(info.getDb(), oldInfo.getDb())
+                    && java.util.Objects.equals(info.getTbl(), oldInfo.getTbl())) {
+                foreignTableInfos.set(i, newInfo);
+                break;
+            }
+        }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        if (foreignTableInfos.isEmpty() && !foreignTableNameStrs.isEmpty()) {
+            for (String qualifiedName : foreignTableNameStrs) {
+                foreignTableInfos.add(new TableNameInfo(qualifiedName));
+            }
+        }
+        if (foreignTableInfos.isEmpty() && !foreignTables.isEmpty()) {
+            for (TableIdentifier tableIdentifier : foreignTables) {
+                try {
+                    String qualifiedName = tableIdentifier.toQualifiedName();
+                    if (qualifiedName != null) {
+                        foreignTableNameStrs.add(qualifiedName);
+                        foreignTableInfos.add(new TableNameInfo(qualifiedName));
+                    }
+                } catch (Exception ignored) {
+                    // skip entries that can no longer be resolved
+                }
+            }
+        }
     }
 
     @Override

@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TSearchFieldBinding;
@@ -276,7 +276,7 @@ public class SearchPredicateTest {
         indexProps.put("parser", "unicode");
         indexProps.put("lower_case", "true");
         Index invertedIndex = new Index(1L, "idx_text", Arrays.asList("data"),
-                org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition.IndexType.INVERTED, indexProps, "");
+                IndexType.INVERTED, indexProps, "");
 
         List<Index> fieldIndexes = Arrays.asList(invertedIndex);
 
@@ -369,7 +369,7 @@ public class SearchPredicateTest {
         indexProps.put("parser", "unicode");
         indexProps.put("lower_case", "true");
         Index variantIndex = new Index(1L, "idx_text", Arrays.asList("data"),
-                org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition.IndexType.INVERTED, indexProps, "");
+                IndexType.INVERTED, indexProps, "");
 
         List<Index> fieldIndexes = Arrays.asList(null, variantIndex);
 

@@ -19,12 +19,14 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.util.ToSqlContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.IntStream;
 
 /**
  * Visitor that produces the standard SQL string for any {@link Expr}.
@@ -295,7 +297,7 @@ public class ExprToSqlVisitor extends ExprVisitor<String, ToSqlParams> {
 
     @Override
     public String visitSearchPredicate(SearchPredicate expr, ToSqlParams context) {
-        if (!expr.isExplainVerboseContext()) {
+        if (!isExplainVerboseContext()) {
             return "search('" + expr.getDslString() + "')";
         }
 
@@ -309,7 +311,7 @@ public class ExprToSqlVisitor extends ExprVisitor<String, ToSqlParams> {
             }
         }
 
-        List<String> bindings = expr.buildFieldBindingExplainLines();
+        List<String> bindings = buildFieldBindingExplainLines(expr);
         if (!bindings.isEmpty()) {
             sb.append("\n|      field_bindings:");
             for (String binding : bindings) {
@@ -557,5 +559,40 @@ public class ExprToSqlVisitor extends ExprVisitor<String, ToSqlParams> {
         }
         output.append(" END");
         return output.toString();
+    }
+
+    private static boolean isExplainVerboseContext() {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            return false;
+        }
+        StmtExecutor executor = ctx.getExecutor();
+        if (executor == null || executor.getParsedStmt() == null
+                || executor.getParsedStmt().getExplainOptions() == null) {
+            return false;
+        }
+        return executor.getParsedStmt().getExplainOptions().isVerbose();
+    }
+
+    private static List<String> buildFieldBindingExplainLines(SearchPredicate expr) {
+        List<String> lines = new ArrayList<>();
+        if (expr.getQsPlan() == null || expr.getQsPlan().getFieldBindings() == null
+                || expr.getQsPlan().getFieldBindings().isEmpty()) {
+            return lines;
+        }
+        IntStream.range(0, expr.getQsPlan().getFieldBindings().size()).forEach(index -> {
+            SearchDslParser.QsFieldBinding binding = expr.getQsPlan().getFieldBindings().get(index);
+            String slotDesc = "<unbound>";
+            if (index < expr.getChildren().size() && expr.getChildren().get(index) instanceof SlotRef) {
+                SlotRef slotRef = (SlotRef) expr.getChildren().get(index);
+                slotDesc = slotRef.getSlotId() != null
+                        ? "slot=" + slotRef.getSlotId().asInt()
+                        : slotRef.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
+            } else if (index < expr.getChildren().size()) {
+                slotDesc = expr.getChildren().get(index).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
+            }
+            lines.add(binding.getFieldName() + " -> " + slotDesc);
+        });
+        return lines;
     }
 }

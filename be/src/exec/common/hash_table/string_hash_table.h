@@ -50,7 +50,9 @@ StringKey to_string_key(const doris::StringRef& key) {
 template <typename T>
 inline doris::StringRef ALWAYS_INLINE to_string_ref(const T& n) {
     assert(n != 0);
-    return {reinterpret_cast<const char*>(&n), sizeof(T) - (__builtin_clzll(n) >> 3)};
+    // __builtin_clzll counts leading zero bits in a 64-bit (8-byte) value,
+    // so we must use 8 here instead of sizeof(T) to get the correct byte count.
+    return {reinterpret_cast<const char*>(&n), static_cast<size_t>(8 - (__builtin_clzll(n) >> 3))};
 }
 inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey16& n) {
     assert(n.items[1] != 0);
@@ -415,7 +417,7 @@ protected:
             return static_cast<Derived&>(*this);
         }
 
-        auto& operator*() const {
+        auto& operator*() {
             switch (sub_table_index) {
             case 0: {
                 this->cell = *(container->m0.zero_value());
@@ -444,9 +446,13 @@ protected:
             }
             return cell;
         }
-        auto* operator->() const { return &(this->operator*()); }
+        auto* operator->() { return &(this->operator*()); }
 
-        auto get_ptr() const { return &(this->operator*()); }
+        auto get_ptr() { return &(this->operator*()); }
+
+        // Provide get_first()/get_second() at the iterator level, consistent with PHHashMap::iterator
+        auto& get_first() { return (**this).get_first(); }
+        auto& get_second() { return (**this).get_second(); }
 
         size_t get_hash() const {
             switch (sub_table_index) {

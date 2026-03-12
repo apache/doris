@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.common.NameFormatUtils;
 
 import java.util.Optional;
 
@@ -47,7 +47,7 @@ public class ColumnRefExpr extends Expr {
     @Override
     public String getExprName() {
         if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(Utils.normalizeName(getName(), DEFAULT_EXPR_NAME));
+            this.exprName = Optional.of(NameFormatUtils.normalizeName(getName(), DEFAULT_EXPR_NAME));
         }
         return this.exprName.get();
     }

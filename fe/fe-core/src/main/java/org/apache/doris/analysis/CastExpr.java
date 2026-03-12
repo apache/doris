@@ -31,6 +31,7 @@ public class CastExpr extends Expr {
     protected boolean isImplicit;
 
     // True if this cast does not change the type.
+    @SerializedName("noOp")
     protected boolean noOp = false;
 
     // only used restore from readFields.

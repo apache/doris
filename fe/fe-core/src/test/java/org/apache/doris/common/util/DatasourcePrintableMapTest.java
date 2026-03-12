@@ -24,7 +24,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
-public class PrintableMapTest {
+public class DatasourcePrintableMapTest {
 
     @Test
     public void testSensitiveKeysContainAliyunDLFProperties() {
@@ -32,23 +32,23 @@ public class PrintableMapTest {
         // These keys are added via ConnectorPropertiesUtils.getSensitiveKeys(AliyunDLFBaseProperties.class)
 
         // Verify sensitive keys from AliyunDLFBaseProperties
-        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("dlf.secret_key"));
-        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("dlf.catalog.accessKeySecret"));
-        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("dlf.session_token"));
-        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("dlf.catalog.sessionToken"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("dlf.secret_key"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("dlf.catalog.accessKeySecret"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("dlf.session_token"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("dlf.catalog.sessionToken"));
 
         // Verify other common sensitive keys
-        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("password"));
-        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("kerberos_keytab_content"));
-        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("bos_secret_accesskey"));
-        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("jdbc.password"));
-        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("elasticsearch.password"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("password"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("kerberos_keytab_content"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("bos_secret_accesskey"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("jdbc.password"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("elasticsearch.password"));
 
         // Verify cloud storage related sensitive keys (these are constants added in static initialization block)
-        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("s3.secret_key"));
-        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("AWS_SECRET_KEY"));
-        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("obs.secret_key"));
-        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("oss.secret_key"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("s3.secret_key"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("AWS_SECRET_KEY"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("obs.secret_key"));
+        Assertions.assertTrue(DatasourcePrintableMap.SENSITIVE_KEY.contains("oss.secret_key"));
     }
 
     @Test
@@ -57,7 +57,7 @@ public class PrintableMapTest {
         testMap.put("key1", "value1");
         testMap.put("key2", "value2");
 
-        PrintableMap<String, String> printableMap = new PrintableMap<>(testMap, "=", true, false);
+        DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(testMap, "=", true, false);
         String result = printableMap.toString();
 
         Assertions.assertTrue(result.contains("\"key1\" = \"value1\""));
@@ -70,7 +70,7 @@ public class PrintableMapTest {
         testMap.put("key1", "value1");
         testMap.put("key2", "value2");
 
-        PrintableMap<String, String> printableMap = new PrintableMap<>(testMap, ":", false, false, ";");
+        DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(testMap, ":", false, false, ";");
         String result = printableMap.toString();
 
         Assertions.assertTrue(result.contains("key1 : value1"));
@@ -85,12 +85,12 @@ public class PrintableMapTest {
         testMap.put("password", "secret123");
         testMap.put("dlf.secret_key", "dlf_secret");
 
-        PrintableMap<String, String> printableMap = new PrintableMap<>(testMap, "=", false, false, true);
+        DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(testMap, "=", false, false, true);
         String result = printableMap.toString();
 
         Assertions.assertTrue(result.contains("username = admin"));
-        Assertions.assertTrue(result.contains("password = " + PrintableMap.PASSWORD_MASK));
-        Assertions.assertTrue(result.contains("dlf.secret_key = " + PrintableMap.PASSWORD_MASK));
+        Assertions.assertTrue(result.contains("password = " + DatasourcePrintableMap.PASSWORD_MASK));
+        Assertions.assertTrue(result.contains("dlf.secret_key = " + DatasourcePrintableMap.PASSWORD_MASK));
     }
 
     @Test
@@ -100,7 +100,7 @@ public class PrintableMapTest {
         testMap.put("apple", "value1");
         testMap.put("banana", "value2");
 
-        PrintableMap<String, String> printableMap = new PrintableMap<>(testMap, "=", false, false, true, true);
+        DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(testMap, "=", false, false, true, true);
         String result = printableMap.toString();
 
         // Verify sorting (descending order)
@@ -117,7 +117,7 @@ public class PrintableMapTest {
         Map<String, String> testMap = new HashMap<>();
         testMap.put("key1", "value1");
 
-        PrintableMap<String, String> printableMap = new PrintableMap<>(testMap, "=", true, false);
+        DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(testMap, "=", true, false);
         String result = printableMap.toString();
 
         Assertions.assertEquals("\"key1\" = \"value1\"", result);
@@ -128,7 +128,7 @@ public class PrintableMapTest {
         Map<String, String> testMap = new HashMap<>();
         testMap.put("key1", "value1");
 
-        PrintableMap<String, String> printableMap = new PrintableMap<>(testMap, "=", false, false);
+        DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(testMap, "=", false, false);
         String result = printableMap.toString();
 
         Assertions.assertEquals("key1 = value1", result);
@@ -140,7 +140,7 @@ public class PrintableMapTest {
         testMap.put("key1", "value1");
         testMap.put("key2", "value2");
 
-        PrintableMap<String, String> printableMap = new PrintableMap<>(testMap, "=", false, true);
+        DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(testMap, "=", false, true);
         String result = printableMap.toString();
 
         Assertions.assertTrue(result.contains("\n"));
@@ -157,14 +157,14 @@ public class PrintableMapTest {
         testMap.put("s3.secret_key", "s3_secret_value");
         testMap.put("kerberos_keytab_content", "kerberos_content");
 
-        PrintableMap<String, String> printableMap = new PrintableMap<>(testMap, "=", false, false, true);
+        DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(testMap, "=", false, false, true);
         String result = printableMap.toString();
 
         Assertions.assertTrue(result.contains("normal_key = normal_value"));
-        Assertions.assertTrue(result.contains("password = " + PrintableMap.PASSWORD_MASK));
-        Assertions.assertTrue(result.contains("dlf.secret_key = " + PrintableMap.PASSWORD_MASK));
-        Assertions.assertTrue(result.contains("s3.secret_key = " + PrintableMap.PASSWORD_MASK));
-        Assertions.assertTrue(result.contains("kerberos_keytab_content = " + PrintableMap.PASSWORD_MASK));
+        Assertions.assertTrue(result.contains("password = " + DatasourcePrintableMap.PASSWORD_MASK));
+        Assertions.assertTrue(result.contains("dlf.secret_key = " + DatasourcePrintableMap.PASSWORD_MASK));
+        Assertions.assertTrue(result.contains("s3.secret_key = " + DatasourcePrintableMap.PASSWORD_MASK));
+        Assertions.assertTrue(result.contains("kerberos_keytab_content = " + DatasourcePrintableMap.PASSWORD_MASK));
     }
 
     @Test
@@ -174,12 +174,12 @@ public class PrintableMapTest {
         testMap.put("Password", "another_secret");
         testMap.put("password", "third_secret");
 
-        PrintableMap<String, String> printableMap = new PrintableMap<>(testMap, "=", false, false, true);
+        DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(testMap, "=", false, false, true);
         String result = printableMap.toString();
 
-        Assertions.assertTrue(result.contains("PASSWORD = " + PrintableMap.PASSWORD_MASK));
-        Assertions.assertTrue(result.contains("Password = " + PrintableMap.PASSWORD_MASK));
-        Assertions.assertTrue(result.contains("password = " + PrintableMap.PASSWORD_MASK));
+        Assertions.assertTrue(result.contains("PASSWORD = " + DatasourcePrintableMap.PASSWORD_MASK));
+        Assertions.assertTrue(result.contains("Password = " + DatasourcePrintableMap.PASSWORD_MASK));
+        Assertions.assertTrue(result.contains("password = " + DatasourcePrintableMap.PASSWORD_MASK));
     }
 
     @Test
@@ -189,7 +189,7 @@ public class PrintableMapTest {
         testMap.put("hidden_key", "hidden_value");
         testMap.put("another_hidden", "another_value");
 
-        PrintableMap<String, String> printableMap = new PrintableMap<>(testMap, "=", false, false);
+        DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(testMap, "=", false, false);
         Set<String> hiddenKeys = new java.util.HashSet<>();
         hiddenKeys.add("hidden_key");
         hiddenKeys.add("another_hidden");
@@ -204,7 +204,7 @@ public class PrintableMapTest {
 
     @Test
     public void testNullMap() {
-        PrintableMap<String, String> printableMap = new PrintableMap<>(null, "=", false, false);
+        DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(null, "=", false, false);
         String result = printableMap.toString();
 
         Assertions.assertEquals("", result);
@@ -213,7 +213,7 @@ public class PrintableMapTest {
     @Test
     public void testEmptyMap() {
         Map<String, String> testMap = new HashMap<>();
-        PrintableMap<String, String> printableMap = new PrintableMap<>(testMap, "=", false, false);
+        DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(testMap, "=", false, false);
         String result = printableMap.toString();
 
         Assertions.assertEquals("", result);
@@ -224,7 +224,7 @@ public class PrintableMapTest {
         Map<String, String> testMap = new HashMap<>();
         testMap.put("single_key", "single_value");
 
-        PrintableMap<String, String> printableMap = new PrintableMap<>(testMap, "=", false, false);
+        DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(testMap, "=", false, false);
         String result = printableMap.toString();
 
         Assertions.assertEquals("single_key = single_value", result);
@@ -237,7 +237,7 @@ public class PrintableMapTest {
         testMap.put("key2", "value2");
         testMap.put("key3", "value3");
 
-        PrintableMap<String, String> printableMap = new PrintableMap<>(testMap, "->", false, false, "|");
+        DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(testMap, "->", false, false, "|");
         String result = printableMap.toString();
 
         Assertions.assertTrue(result.contains("key1 -> value1"));
@@ -251,11 +251,11 @@ public class PrintableMapTest {
     public void testHiddenKeysFromS3AndGlue() {
         // Verify that HIDDEN_KEY contains S3 and Glue related keys
         // These keys are added in the static initialization block
-        Assertions.assertFalse(PrintableMap.HIDDEN_KEY.isEmpty());
+        Assertions.assertFalse(DatasourcePrintableMap.HIDDEN_KEY.isEmpty());
     }
 
     @Test
     public void testPasswordMaskConstant() {
-        Assertions.assertEquals("*XXX", PrintableMap.PASSWORD_MASK);
+        Assertions.assertEquals("*XXX", DatasourcePrintableMap.PASSWORD_MASK);
     }
 }
