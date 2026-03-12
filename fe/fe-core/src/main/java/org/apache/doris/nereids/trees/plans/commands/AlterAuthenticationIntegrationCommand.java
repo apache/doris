@@ -87,21 +87,22 @@ public class AlterAuthenticationIntegrationCommand extends AlterCommand implemen
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
+        String alterUser = Objects.requireNonNull(ctx.getQualifiedUser(), "qualifiedUser can not be null");
         switch (alterType) {
             case SET_PROPERTIES:
                 Env.getCurrentEnv().getAuthenticationIntegrationMgr()
-                        .alterAuthenticationIntegrationProperties(integrationName, properties);
+                        .alterAuthenticationIntegrationProperties(integrationName, properties, alterUser);
                 return;
             case UNSET_PROPERTIES:
                 Env.getCurrentEnv().getAuthenticationIntegrationMgr()
-                        .alterAuthenticationIntegrationUnsetProperties(integrationName, unsetProperties);
+                        .alterAuthenticationIntegrationUnsetProperties(integrationName, unsetProperties, alterUser);
                 return;
             case SET_COMMENT:
                 Env.getCurrentEnv().getAuthenticationIntegrationMgr()
-                        .alterAuthenticationIntegrationComment(integrationName, comment);
+                        .alterAuthenticationIntegrationComment(integrationName, comment, alterUser);
                 return;
             default:
                 throw new AnalysisException("Unsupported alter type for AUTHENTICATION INTEGRATION: " + alterType);
