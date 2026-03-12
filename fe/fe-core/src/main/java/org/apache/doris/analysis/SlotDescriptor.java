@@ -21,7 +21,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TColumnAccessPath;
 import org.apache.doris.thrift.TSlotDescriptor;
@@ -225,7 +224,7 @@ public class SlotDescriptor {
             tSlotDescriptor.setColumnPaths(subColPath);
         }
         if (virtualColumn != null) {
-            tSlotDescriptor.setVirtualColumnExpr(virtualColumn.treeToThrift());
+            tSlotDescriptor.setVirtualColumnExpr(ExprToThriftVisitor.treeToThrift(virtualColumn));
         }
         if (allAccessPaths != null) {
             tSlotDescriptor.setAllAccessPaths(allAccessPaths);
@@ -300,9 +299,4 @@ public class SlotDescriptor {
                 .append("}")
                 .toString();
     }
-
-    public boolean isScanSlot() {
-        return parent.getTable() instanceof OlapTable;
-    }
-
 }

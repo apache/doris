@@ -86,6 +86,10 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
+            <artifactId>fe-foundation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
             <artifactId>fe-common</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -102,6 +106,16 @@ under the License.
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-catalog</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-extension-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-extension-loader</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -786,6 +800,11 @@ under the License.
             <groupId>org.mockito</groupId>
             <artifactId>mockito-inline</artifactId>
             <scope>test</scope>
+        </dependency>
+        <!-- fastutil for memory-efficient primitive collections -->
+        <dependency>
+            <groupId>it.unimi.dsi</groupId>
+            <artifactId>fastutil-core</artifactId>
         </dependency>
     </dependencies>
     <repositories>

@@ -22,6 +22,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.thrift.TDataSink;
@@ -202,11 +203,11 @@ public class DataStreamSink extends DataSink {
         TDataStreamSink tStreamSink =
                 new TDataStreamSink(exchNodeId.asInt(), outputPartition.toThrift());
         for (Expr e : conjuncts) {
-            tStreamSink.addToConjuncts(e.treeToThrift());
+            tStreamSink.addToConjuncts(ExprToThriftVisitor.treeToThrift(e));
         }
         if (projections != null) {
             for (Expr expr : projections) {
-                tStreamSink.addToOutputExprs(expr.treeToThrift());
+                tStreamSink.addToOutputExprs(ExprToThriftVisitor.treeToThrift(expr));
             }
         }
         if (outputTupleDesc != null) {
@@ -234,7 +235,7 @@ public class DataStreamSink extends DataSink {
         }
         if (tabletSinkExprs != null) {
             for (Expr expr : tabletSinkExprs) {
-                tStreamSink.addToTabletSinkExprs(expr.treeToThrift());
+                tStreamSink.addToTabletSinkExprs(ExprToThriftVisitor.treeToThrift(expr));
             }
         }
         tStreamSink.setIsMerge(isMerge);

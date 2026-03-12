@@ -22,12 +22,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.planner.normalize.Normalizer;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
+import org.apache.doris.catalog.FunctionName;
+import org.apache.doris.common.NameFormatUtils;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
@@ -87,6 +83,18 @@ public class FunctionCallExpr extends Expr {
         return fnParams;
     }
 
+    public boolean isAnalyticFnCall() {
+        return isAnalyticFnCall;
+    }
+
+    public FunctionParams getAggFnParams() {
+        return aggFnParams;
+    }
+
+    public boolean isMergeAggFn() {
+        return isMergeAggFn;
+    }
+
     // only used restore from readFields.
     protected FunctionCallExpr() {
         super();
@@ -95,7 +103,8 @@ public class FunctionCallExpr extends Expr {
     @Override
     public String getExprName() {
         if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(Utils.normalizeName(this.getFnName().getFunction(), DEFAULT_EXPR_NAME));
+            this.exprName = Optional.of(
+                    NameFormatUtils.normalizeName(this.getFnName().getFunction(), DEFAULT_EXPR_NAME));
         }
         return this.exprName.get();
     }
@@ -203,25 +212,6 @@ public class FunctionCallExpr extends Expr {
         return fnParams.isDistinct();
     }
 
-    @Override
-    protected void toThrift(TExprNode msg) {
-        // TODO: we never serialize this to thrift if it's an aggregate function
-        // except in test cases that do it explicitly.
-        if (this.isAggregateFunction() || isAnalyticFnCall) {
-            msg.node_type = TExprNodeType.AGG_EXPR;
-            if (aggFnParams == null) {
-                aggFnParams = fnParams;
-            }
-            msg.setAggExpr(aggFnParams.createTAggregateExpr(isMergeAggFn));
-        } else {
-            msg.node_type = TExprNodeType.FUNCTION_CALL;
-        }
-
-        if (ConnectContext.get() != null) {
-            msg.setShortCircuitEvaluation(ConnectContext.get().getSessionVariable().isShortCircuitEvaluation());
-        }
-    }
-
     private static boolean match(String pattern, int pos, String value) {
         int length = value.length();
         int end = pattern.length();
@@ -290,17 +280,6 @@ public class FunctionCallExpr extends Expr {
     }
 
     @Override
-    protected void normalize(TExprNode msg, Normalizer normalizer) {
-        String functionName = fnName.getFunction().toUpperCase();
-        if (FunctionSet.nonDeterministicFunctions.contains(functionName)
-                || "NOW".equals(functionName)
-                || (FunctionSet.nonDeterministicTimeFunctions.contains(functionName) && children.isEmpty())) {
-            throw new IllegalStateException("Can not normalize non deterministic functions");
-        }
-        super.normalize(msg, normalizer);
-    }
-
-    @Override
     protected boolean isConstantImpl() {
         // TODO: we can't correctly determine const-ness before analyzing 'fn_'. We
         // should
@@ -333,7 +312,6 @@ public class FunctionCallExpr extends Expr {
     @Override
     public int hashCode() {
         int result = super.hashCode();
-        result = 31 * result + Objects.hashCode(opcode);
         result = 31 * result + Objects.hashCode(fnName);
         return result;
     }

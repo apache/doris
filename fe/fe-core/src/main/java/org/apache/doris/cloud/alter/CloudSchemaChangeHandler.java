@@ -113,6 +113,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 add(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
                 add(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
                 add(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
+                add(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
             }
         };
         List<String> notAllowedProps = properties.keySet().stream().filter(s -> !allowedProps.contains(s))
@@ -346,6 +347,18 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             param.type = UpdatePartitionMetaParam.TabletMetaType.ENABLE_MOW_LIGHT_DELETE;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
             // Do nothing.
+        } else if (properties.containsKey(
+                PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP)) {
+            int verticalCompactionNumColumnsPerGroup = Integer.parseInt(properties.get(
+                    PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP));
+            olapTable.readLock();
+            try {
+                partitions.addAll(olapTable.getPartitions());
+            } finally {
+                olapTable.readUnlock();
+            }
+            param.verticalCompactionNumColumnsPerGroup = verticalCompactionNumColumnsPerGroup;
+            param.type = UpdatePartitionMetaParam.TabletMetaType.VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP;
         } else {
             LOG.warn("invalid properties:{}", properties);
             throw new UserException("invalid properties");
@@ -381,6 +394,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             TIME_SERIES_COMPACTION_LEVEL_THRESHOLD,
             DISABLE_AUTO_COMPACTION,
             ENABLE_MOW_LIGHT_DELETE,
+            VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP,
         }
 
         TabletMetaType type;
@@ -397,6 +411,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         long timeSeriesCompactionLevelThreshold = 0;
         boolean disableAutoCompaction = false;
         boolean enableMowLightDelete = false;
+        int verticalCompactionNumColumnsPerGroup = 5;
     }
 
     public void updateCloudPartitionMeta(Database db,
@@ -476,6 +491,10 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                         infoBuilder.setEnableMowLightDelete(
                                 param.enableMowLightDelete
                         );
+                        break;
+                    case VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP:
+                        infoBuilder.setVerticalCompactionNumColumnsPerGroup(
+                                param.verticalCompactionNumColumnsPerGroup);
                         break;
                     default:
                         throw new UserException("Unknown TabletMetaType");

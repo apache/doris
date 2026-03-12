@@ -17,8 +17,6 @@
 
 package org.apache.doris.cluster;
 
-import org.apache.doris.mysql.privilege.Auth;
-
 import com.google.common.base.Strings;
 
 /**
@@ -52,19 +50,6 @@ public class ClusterNamespace {
             }
         }
         return delimiterNum >= 1;
-    }
-
-    private static String linkString(String cluster, String name) {
-        if (Strings.isNullOrEmpty(cluster) || Strings.isNullOrEmpty(name)) {
-            return null;
-        }
-        if (name.contains(CLUSTER_DELIMITER) || name.equalsIgnoreCase(Auth.ROOT_USER)
-                || name.equalsIgnoreCase(Auth.ADMIN_USER)) {
-            return name;
-        }
-        final StringBuilder sb = new StringBuilder(cluster);
-        sb.append(CLUSTER_DELIMITER).append(name);
-        return sb.toString();
     }
 
     private static String extract(String fullName, int index) {

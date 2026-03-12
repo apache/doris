@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
@@ -49,7 +50,6 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -311,7 +311,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 boolean hasInvertedIndexV1 = false;
                 if (table.getIndexes() != null) {
                     for (org.apache.doris.catalog.Index index : table.getIndexes()) {
-                        if (index.getIndexType() == IndexDefinition.IndexType.INVERTED) {
+                        if (index.getIndexType() == IndexType.INVERTED) {
                             if (table.getInvertedIndexFileStorageFormat()
                                     == org.apache.doris.thrift.TInvertedIndexFileStorageFormat.V1) {
                                 hasInvertedIndexV1 = true;
