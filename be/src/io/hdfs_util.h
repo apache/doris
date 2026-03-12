@@ -66,6 +66,10 @@ public:
     ~HdfsHandler() {
         // The ticket_cache will be automatically released when the last reference is gone
         // No need to explicitly cleanup kerberos ticket
+        if (hdfs_fs != nullptr) {
+            hdfsDisconnect(hdfs_fs);
+        }
+        hdfs_fs = nullptr;
     }
 
     void update_access_time() { last_access_time = std::time(nullptr); }

@@ -112,8 +112,8 @@ Status HdfsFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
 Status HdfsFileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader,
                                           const FileReaderOptions& opts) {
     CHECK_HDFS_HANDLER(_fs_handler);
-    *reader =
-            DORIS_TRY(HdfsFileReader::create(file, _fs_handler->hdfs_fs,  _hdfs_params.user, _fs_name, opts, _profile));
+    *reader = DORIS_TRY(
+            HdfsFileReader::create(file, _fs_handler, _hdfs_params.user, _fs_name, opts, _profile));
     return Status::OK();
 }
 

@@ -47,8 +47,8 @@ protected:
     // For testing purpose
     friend class HdfsMgrTest;
     size_t get_fs_handlers_size() const { return _fs_handlers.size(); }
-    bool has_fs_handler(uint64_t hash_code) const {
-        return _fs_handlers.find(hash_code) != _fs_handlers.end();
+    bool has_fs_handler(const std::string& cache_key) const {
+        return _fs_handlers.find(cache_key) != _fs_handlers.end();
     }
     void set_instance_timeout_seconds(int64_t timeout_seconds) {
         _instance_timeout_seconds = timeout_seconds;
@@ -56,7 +56,7 @@ protected:
     void set_cleanup_interval_seconds(int64_t interval_seconds) {
         _cleanup_interval_seconds = interval_seconds;
     }
-    uint64_t _hdfs_hash_code(const THdfsParams& hdfs_params, const std::string& fs_name);
+    std::string _hdfs_cache_key(const THdfsParams& hdfs_params, const std::string& fs_name);
 
     virtual Status _create_hdfs_fs_impl(const THdfsParams& hdfs_params, const std::string& fs_name,
                                         std::shared_ptr<HdfsHandler>* fs_handler);
@@ -79,7 +79,7 @@ private:
 
 private:
     std::mutex _mutex;
-    std::unordered_map<uint64_t, std::shared_ptr<HdfsHandler>> _fs_handlers;
+    std::unordered_map<std::string, std::shared_ptr<HdfsHandler>> _fs_handlers;
 
     std::atomic<bool> _should_stop_cleanup_thread;
     std::unique_ptr<std::thread> _cleanup_thread;

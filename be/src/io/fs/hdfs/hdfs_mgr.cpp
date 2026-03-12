@@ -30,8 +30,6 @@
 #include "io/hdfs_builder.h"
 #include "io/hdfs_util.h"
 #include "runtime/exec_env.h"
-#include "vec/common/string_ref.h"
-
 namespace doris::io {
 
 HdfsMgr::HdfsMgr() : _should_stop_cleanup_thread(false) {
@@ -71,7 +69,7 @@ void HdfsMgr::_cleanup_loop() {
             std::vector<std::shared_ptr<HdfsHandler>> handlers_to_cleanup;
             {
                 std::lock_guard<std::mutex> lock(_mutex);
-                std::vector<uint64_t> to_remove;
+                std::vector<std::string> to_remove;
 
                 // Find expired handlers
                 for (const auto& entry : _fs_handlers) {
@@ -82,7 +80,7 @@ void HdfsMgr::_cleanup_loop() {
                     //         (current_time - entry.second->create_time >=
                     //          entry.second->ticket_cache->get_ticket_lifetime_sec() / 2);
                     if (is_expired) {
-                        LOG(INFO) << "Found expired HDFS handler, hash_code=" << entry.first
+                        LOG(INFO) << "Found expired HDFS handler, cache_key=" << entry.first
                                   << ", last_access_time=" << entry.second->last_access_time
                                   << ", is_kerberos=" << entry.second->is_kerberos_auth
                                   << ", principal=" << entry.second->principal
@@ -95,8 +93,8 @@ void HdfsMgr::_cleanup_loop() {
                 }
 
                 // Remove expired handlers from map under lock
-                for (uint64_t hash_code : to_remove) {
-                    _fs_handlers.erase(hash_code);
+                for (const std::string& cache_key : to_remove) {
+                    _fs_handlers.erase(cache_key);
                 }
             }
 
@@ -134,14 +132,14 @@ Status HdfsMgr::get_or_create_fs(const THdfsParams& hdfs_params, const std::stri
                 "true.");
     }
 #endif
-    uint64_t hash_code = _hdfs_hash_code(hdfs_params, fs_name);
+    std::string cache_key = _hdfs_cache_key(hdfs_params, fs_name);
 
     // First check without lock
     {
         std::lock_guard<std::mutex> lock(_mutex);
-        auto it = _fs_handlers.find(hash_code);
+        auto it = _fs_handlers.find(cache_key);
         if (it != _fs_handlers.end()) {
-            LOG(INFO) << "Reuse existing HDFS handler, hash_code=" << hash_code
+            LOG(INFO) << "Reuse existing HDFS handler, cache_key=" << cache_key
                       << ", is_kerberos=" << it->second->is_kerberos_auth
                       << ", principal=" << it->second->principal << ", fs_name=" << fs_name;
             it->second->update_access_time();
@@ -151,7 +149,7 @@ Status HdfsMgr::get_or_create_fs(const THdfsParams& hdfs_params, const std::stri
     }
 
     // Create new hdfsFS handler outside the lock
-    LOG(INFO) << "Start to create new HDFS handler, hash_code=" << hash_code
+    LOG(INFO) << "Start to create new HDFS handler, cache_key=" << cache_key
               << ", fs_name=" << fs_name;
 
     std::shared_ptr<HdfsHandler> new_fs_handler;
@@ -160,10 +158,10 @@ Status HdfsMgr::get_or_create_fs(const THdfsParams& hdfs_params, const std::stri
     // Double check with lock before inserting
     {
         std::lock_guard<std::mutex> lock(_mutex);
-        auto it = _fs_handlers.find(hash_code);
+        auto it = _fs_handlers.find(cache_key);
         if (it != _fs_handlers.end()) {
             // Another thread has created the handler, use it instead
-            LOG(INFO) << "Another thread created HDFS handler, reuse it, hash_code=" << hash_code
+            LOG(INFO) << "Another thread created HDFS handler, reuse it, cache_key=" << cache_key
                       << ", is_kerberos=" << it->second->is_kerberos_auth
                       << ", principal=" << it->second->principal << ", fs_name=" << fs_name;
             it->second->update_access_time();
@@ -173,9 +171,9 @@ Status HdfsMgr::get_or_create_fs(const THdfsParams& hdfs_params, const std::stri
 
         // Store the new handler
         *fs_handler = new_fs_handler;
-        _fs_handlers[hash_code] = new_fs_handler;
+        _fs_handlers[cache_key] = new_fs_handler;
 
-        LOG(INFO) << "Finished create new HDFS handler, hash_code=" << hash_code
+        LOG(INFO) << "Finished create new HDFS handler, cache_key=" << cache_key
                   << ", is_kerberos=" << new_fs_handler->is_kerberos_auth
                   << ", principal=" << new_fs_handler->principal << ", fs_name=" << fs_name;
     }
@@ -234,36 +232,30 @@ Status HdfsMgr::_create_hdfs_fs(const THdfsParams& hdfs_params, const std::strin
     return st;
 }
 
-uint64_t HdfsMgr::_hdfs_hash_code(const THdfsParams& hdfs_params, const std::string& fs_name) {
-    uint64_t hash_code = 0;
+std::string HdfsMgr::_hdfs_cache_key(const THdfsParams& hdfs_params, const std::string& fs_name) {
+    std::string cache_key;
+
     // The specified fsname is used first.
     // If there is no specified fsname, the default fsname is used
     if (!fs_name.empty()) {
-        hash_code ^= crc32_hash(fs_name);
+        cache_key += fs_name;
     } else if (hdfs_params.__isset.fs_name) {
-        hash_code ^= crc32_hash(hdfs_params.fs_name);
+        cache_key += hdfs_params.fs_name;
     }
 
     if (hdfs_params.__isset.user) {
-        hash_code ^= crc32_hash(hdfs_params.user);
+        cache_key += hdfs_params.user;
     }
-    if (hdfs_params.__isset.hdfs_kerberos_principal) {
-        hash_code ^= crc32_hash(hdfs_params.hdfs_kerberos_principal);
-    }
-    if (hdfs_params.__isset.hdfs_kerberos_keytab) {
-        hash_code ^= crc32_hash(hdfs_params.hdfs_kerberos_keytab);
-    }
+
     if (hdfs_params.__isset.hdfs_conf) {
-        std::map<std::string, std::string> conf_map;
         for (const auto& conf : hdfs_params.hdfs_conf) {
-            conf_map[conf.key] = conf.value;
-        }
-        for (auto& conf : conf_map) {
-            hash_code ^= crc32_hash(conf.first);
-            hash_code ^= crc32_hash(conf.second);
+            if (conf.key == "BEE_USER" || conf.key == "BEE_SOURCE") {
+                cache_key += conf.value;
+            }
         }
     }
-    return hash_code;
+
+    return cache_key;
 }
 
 } // namespace doris::io
