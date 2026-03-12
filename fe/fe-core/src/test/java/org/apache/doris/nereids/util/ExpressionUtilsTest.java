@@ -41,7 +41,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
-import java.util.BitSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -226,7 +225,7 @@ public class ExpressionUtilsTest extends TestWithFeService {
         LogicalProject<LogicalOdbcScan> project = new LogicalProject<>(ImmutableList.of(a, bAlias),
                 new LogicalOdbcScan(new RelationId(0), olapTable, ImmutableList.of("test")));
         List<? extends Expression> expressions = ExpressionUtils.shuttleExpressionWithLineage(project.getOutput(),
-                project, new BitSet());
+                project);
         // should not loop, should break out loop
         Assertions.assertEquals(expressions, ImmutableList.of(a, bAlias.toSlot()));
     }
