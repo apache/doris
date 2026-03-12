@@ -21,20 +21,19 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 public class CloudTabletInvertedIndex extends TabletInvertedIndex {
     private static final Logger LOG = LogManager.getLogger(CloudTabletInvertedIndex.class);
 
     // tablet id -> replica
     // for cloud mode, no need to know the replica's backend
-    private Map<Long, Replica> replicaMetaMap = Maps.newHashMap();
+    private Long2ObjectOpenHashMap<Replica> replicaMetaMap = new Long2ObjectOpenHashMap<>();
 
     public CloudTabletInvertedIndex() {
         super();
