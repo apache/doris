@@ -187,7 +187,7 @@ Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_des
 
     _metric_type = segment_v2::string_to_metric(metric_name);
 
-    VLOG_DEBUG << "AnnTopNRuntime: {}" << this->debug_string();
+    VLOG_DEBUG << fmt::format("AnnTopNRuntime: {}", this->debug_string());
     return Status::OK();
 }
 
