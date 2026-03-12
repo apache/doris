@@ -181,7 +181,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         if (PaimonExternalCatalog.PAIMON_HMS.equals(getPaimonCatalogType())
                 || PaimonExternalCatalog.PAIMON_FILESYSTEM.equals(getPaimonCatalogType())
                 || PaimonExternalCatalog.PAIMON_DLF.equals(getPaimonCatalogType())
-                || PaimonExternalCatalog.PAIMON_REST.equals(getPaimonCatalogType())) {
+                || PaimonExternalCatalog.PAIMON_REST.equals(getPaimonCatalogType())
+                || PaimonExternalCatalog.PAIMON_JDBC.equals(getPaimonCatalogType())) {
             THiveTable tHiveTable = new THiveTable(dbName, name, new HashMap<>());
             TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE, schema.size(), 0,
                     getName(), dbName);
@@ -189,7 +190,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             return tTableDescriptor;
         } else {
             throw new IllegalArgumentException(
-                    "Currently only supports hms/dlf/rest/filesystem catalog, do not support :"
+                    "Currently only supports hms/dlf/rest/filesystem/jdbc catalog, do not support: "
                     + getPaimonCatalogType());
         }
     }
