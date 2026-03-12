@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -86,6 +87,7 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
         } finally {
             MetaLockUtils.writeUnlockTables(tables);
         }
+        MTMVUtil.clearDependentMtmvCaches(columnsAndTable.second);
     }
 
     private Pair<ImmutableList<String>, TableIf> extractColumnsAndTable(ConnectContext ctx, LogicalPlan plan) {

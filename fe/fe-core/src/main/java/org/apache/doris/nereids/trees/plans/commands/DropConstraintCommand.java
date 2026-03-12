@@ -21,6 +21,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -87,6 +88,7 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
         } finally {
             table.writeUnlock();
         }
+        MTMVUtil.clearDependentMtmvCaches(table);
     }
 
     private TableIf extractTable(ConnectContext ctx, LogicalPlan plan) {

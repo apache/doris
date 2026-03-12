@@ -447,6 +447,20 @@ public class MTMV extends OlapTable {
     }
 
     /**
+     * Clear cached plan and StructInfo so that the next query triggers
+     * a fresh rebuild via getOrGenerateCache.
+     */
+    public void clearCache() {
+        writeMvLock();
+        try {
+            this.cacheWithGuard = null;
+            this.cacheWithoutGuard = null;
+        } finally {
+            writeMvUnlock();
+        }
+    }
+
+    /**
      * generateMvPartitionDescs
      *
      * @return mvPartitionName ==> mvPartitionKeyDesc

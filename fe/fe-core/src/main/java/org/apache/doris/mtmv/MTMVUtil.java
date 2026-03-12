@@ -98,6 +98,24 @@ public class MTMVUtil {
         return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
     }
 
+    /**
+     * Clear cached plans for all MTMVs that depend on the given base table.
+     */
+    public static void clearDependentMtmvCaches(TableIf table) throws DdlException {
+        BaseTableInfo tableInfo = new BaseTableInfo(table);
+        try {
+            for (BaseTableInfo mtmvInfo
+                    : Env.getCurrentEnv().getMtmvService().getRelationManager()
+                            .getMtmvsByBaseTable(tableInfo)) {
+                MTMV mtmv = MTMVUtil.getMTMV(mtmvInfo);
+                mtmv.clearCache();
+            }
+        } catch (Exception e) {
+            throw new DdlException(String.format(
+                    "failed to clear dependent mtmv caches for base table %s", tableInfo), e);
+        }
+    }
+
     public static TableIf getTable(List<String> names) throws AnalysisException {
         if (names == null || names.size() != 3) {
             throw new AnalysisException("size of names need 3, but names is:" + names);
