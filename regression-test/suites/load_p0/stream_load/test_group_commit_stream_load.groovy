@@ -31,6 +31,22 @@ suite("test_group_commit_stream_load") {
         }
     }
 
+    def getTableRowCount = { tableName1, expectedRowCount ->
+        def retry = 0
+        def row = 0
+        while (retry < 30) {
+            sleep(2000)
+            def rowCount = sql "select count(*) from ${tableName1}"
+            logger.info("rowCount: " + rowCount + ", retry: " + retry)
+            row = rowCount[0][0]
+            if (row >= expectedRowCount) {
+                break
+            }
+            retry++
+        }
+        assertTrue(row >= expectedRowCount, "Expected at least ${expectedRowCount} rows, but got ${row}")
+    }
+
     def getAlterTableState = {
         waitForSchemaChangeDone {
             sql """ SHOW ALTER TABLE COLUMN WHERE tablename='${tableName}' ORDER BY createtime DESC LIMIT 1 """
@@ -342,4 +358,164 @@ suite("test_group_commit_stream_load") {
     }
     qt_read_json_by_line "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
 
+    // Test: stream load using table property group_commit_mode (async_mode)
+    // When HTTP header 'group_commit' is not set, should use table's group_commit_mode property
+    def tableNameAsync = "test_group_commit_stream_load_table_property_async"
+    try {
+        sql """ drop table if exists ${tableNameAsync}; """
+        
+        sql """
+        CREATE TABLE `${tableNameAsync}` (
+            `id` int(11) NOT NULL,
+            `name` varchar(100) NULL,
+            `score` int(11) NULL default "-1"
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`, `name`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "group_commit_interval_ms" = "200",
+            "group_commit_mode" = "async_mode"
+        );
+        """
+
+        // Verify SHOW CREATE TABLE contains group_commit_mode
+        def createStmt1 = sql """ SHOW CREATE TABLE ${tableNameAsync} """
+        logger.info("SHOW CREATE TABLE for async: " + createStmt1)
+        assertTrue(createStmt1.toString().contains('async_mode'), "Table should have async_mode")
+        
+        // Stream load WITHOUT setting group_commit header - should use table property
+        streamLoad {
+            table "${tableNameAsync}"
+            set 'column_separator', ','
+            // NOT setting 'group_commit' header - should use table property
+            set 'columns', 'id, name'
+            file "test_stream_load1.csv"
+            unset 'label'
+            time 10000
+            
+            check { result, exception, startTime, endTime ->
+                checkStreamLoadResult(exception, result, 2, 2, 0, 0)
+            }
+        }
+        // Check data is loaded
+        getTableRowCount(tableNameAsync, 2)
+
+        streamLoad {
+            table "${tableNameAsync}"
+            set 'column_separator', ','
+            // NOT setting 'group_commit' header - should use table property, but set partitions
+            set 'partitions', "${tableNameAsync}"
+            set 'columns', 'id, name'
+            file "test_stream_load1.csv"
+            time 10000
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result (header override): ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                def label = json.Label
+                assertTrue(!label.startsWith("group_commit"))
+            }
+        }
+    } finally {
+    }
+
+    // Test: stream load using table property group_commit_mode (sync_mode)
+    def tableNameSync = "test_group_commit_stream_load_table_property_sync"
+    try {
+        sql """ drop table if exists ${tableNameSync}; """
+        
+        sql """
+        CREATE TABLE `${tableNameSync}` (
+            `id` int(11) NOT NULL,
+            `name` varchar(100) NULL,
+            `score` int(11) NULL default "-1"
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`, `name`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "group_commit_interval_ms" = "200",
+            "group_commit_mode" = "sync_mode"
+        );
+        """
+        
+        // Verify SHOW CREATE TABLE contains group_commit_mode
+        def createStmt2 = sql """ SHOW CREATE TABLE ${tableNameSync} """
+        logger.info("SHOW CREATE TABLE for sync: " + createStmt2)
+        assertTrue(createStmt2.toString().contains('sync_mode'), "Table should have sync_mode")
+        
+        // Stream load WITHOUT setting group_commit header - should use table property (sync_mode)
+        streamLoad {
+            table "${tableNameSync}"
+            set 'column_separator', ','
+            // NOT setting 'group_commit' header - should use table property
+            set 'columns', 'id, name'
+            file "test_stream_load1.csv"
+            unset 'label'
+            time 10000
+            
+            check { result, exception, startTime, endTime ->
+                checkStreamLoadResult(exception, result, 2, 2, 0, 0)
+            }
+        }
+        
+        // Check data is loaded
+        def rowCount2 = sql "select count(*) from ${tableNameSync}"
+        logger.info("Row count for sync table: " + rowCount2)
+        assertTrue(rowCount2[0][0] > 0, "Data should be loaded")
+        
+    } finally {
+    }
+
+    // Test: stream load with header override table property
+    // Table has async_mode, but header sets off_mode
+    def tableNameOverride = "test_group_commit_stream_load_override"
+    try {
+        sql """ drop table if exists ${tableNameOverride}; """
+        
+        sql """
+        CREATE TABLE `${tableNameOverride}` (
+            `id` int(11) NOT NULL,
+            `name` varchar(100) NULL,
+            `score` int(11) NULL default "-1"
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`, `name`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "group_commit_interval_ms" = "200",
+            "group_commit_mode" = "async_mode"
+        );
+        """
+        
+        // Stream load with header setting group_commit=off_mode - should override table property
+        streamLoad {
+            table "${tableNameOverride}"
+            set 'column_separator', ','
+            set 'columns', 'id, name'
+            set 'group_commit', 'off_mode'  // Override table property
+            file "test_stream_load1.csv"
+            set 'label', 'test_override_' + System.currentTimeMillis()
+            time 10000
+            
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result (header override): ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                def label = json.Label
+                assertTrue(label.startsWith("test_override_"), "Label should start with test_override_")
+                // When off_mode, GroupCommit should be false or label should not start with group_commit_
+                // Note: GroupCommit field behavior may vary, but label should NOT be group_commit_ when off_mode
+            }
+        }
+    } finally {
+    }
 }

@@ -2967,6 +2967,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         try {
+            String groupCommitMode = PropertyAnalyzer.analyzeGroupCommitMode(properties, true);
+            olapTable.setGroupCommitMode(groupCommitMode);
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
+
+        try {
             TEncryptionAlgorithm tdeAlgorithm = PropertyAnalyzer.analyzeTDEAlgorithm(properties);
             olapTable.setEncryptionAlgorithm(tdeAlgorithm);
         } catch (Exception e) {

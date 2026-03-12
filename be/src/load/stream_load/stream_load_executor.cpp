@@ -189,6 +189,9 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     }
     request.__set_request_id(ctx->id.to_thrift());
     request.__set_backend_id(_exec_env->cluster_info()->backend_id);
+    if (ctx->group_commit_mode.empty()) {
+        request.__set_use_table_group_commit_mode(true);
+    }
 
     TLoadTxnBeginResult result;
     Status status;
@@ -216,6 +219,15 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
             ctx->existing_job_status = result.job_status;
         }
         return status;
+    }
+    if (ctx->group_commit_mode.empty()) {
+        auto table_group_commit_mode = result.table_group_commit_mode;
+        if (iequal(table_group_commit_mode, "async_mode") ||
+            iequal(table_group_commit_mode, "sync_mode")) {
+            ctx->group_commit = true;
+            ctx->group_commit_mode = table_group_commit_mode;
+            return Status::OK();
+        }
     }
     ctx->txn_id = result.txnId;
     if (result.__isset.db_id) {
