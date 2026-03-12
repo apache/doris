@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <roaring/roaring.hh>
+
 #include "storage/index/inverted/query_v2/boolean_query/occur.h"
 #include "storage/index/inverted/query_v2/scorer.h"
 #include "storage/index/inverted/query_v2/term_query/term_scorer.h"
@@ -85,6 +87,10 @@ private:
 
     template <typename CombinerT>
     ScorerPtr into_box_scorer(SpecializedScorer&& specialized, CombinerT combiner);
+
+    ScorerPtr build_exclude_opt(std::vector<ScorerPtr> must_not_scorers,
+                                const NullBitmapResolver* resolver,
+                                roaring::Roaring& exclude_null_out);
 
     std::vector<std::pair<Occur, WeightPtr>> _sub_weights;
     std::vector<std::string> _binding_keys;

@@ -18,9 +18,10 @@
 suite("test_search_not_null_bitmap", "p0") {
     // Regression test for DORIS-24681:
     // search('NOT field:value') was incorrectly including NULL rows because
-    // ExcludeScorer did not handle null bitmaps. The fix replaces ExcludeScorer
-    // with AndNotScorer which properly implements SQL three-valued logic:
-    // NOT(NULL) = NULL, so NULL rows are excluded from the result set.
+    // ExcludeScorer did not handle null bitmaps. The fix enhances ExcludeScorer
+    // with null bitmap awareness while keeping lazy seek-based exclusion.
+    // ExcludeScorer now implements SQL three-valued logic: NOT(NULL) = NULL,
+    // so NULL rows are excluded from the result set.
 
     def tableName = "search_not_null_bitmap"
 

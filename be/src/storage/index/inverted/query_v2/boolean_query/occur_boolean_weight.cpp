@@ -19,6 +19,7 @@
 
 #include "storage/index/inverted/query_v2/all_query/all_query.h"
 #include "storage/index/inverted/query_v2/disjunction_scorer.h"
+#include "storage/index/inverted/query_v2/exclude_scorer.h"
 #include "storage/index/inverted/query_v2/intersection.h"
 #include "storage/index/inverted/query_v2/intersection_scorer.h"
 #include "storage/index/inverted/query_v2/reqopt_scorer.h"
@@ -35,7 +36,10 @@ OccurBooleanWeight<ScoreCombinerPtrT>::OccurBooleanWeight(
           _minimum_number_should_match(minimum_number_should_match),
           _enable_scoring(enable_scoring),
           _score_combiner(std::move(score_combiner)) {
-    // Ensure binding_keys has the same size as sub_weights
+    DCHECK(_binding_keys.empty() || _binding_keys.size() == _sub_weights.size())
+            << "binding_keys size (" << _binding_keys.size() << ") must match sub_weights size ("
+            << _sub_weights.size() << ") when non-empty";
+    // Ensure binding_keys has the same size as sub_weights (pads with empty strings if needed).
     _binding_keys.resize(_sub_weights.size());
 }
 
@@ -237,17 +241,24 @@ SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::complex_scorer(
         return std::make_shared<EmptyScorer>();
     }
 
+    // Collect null bitmaps from MUST_NOT scorers (read from index, no iteration needed)
+    // and union the scorers into one for lazy exclusion.
+    roaring::Roaring exclude_null;
+    ScorerPtr exclude_opt =
+            build_exclude_opt(std::move(must_not_scorers), context.null_resolver, exclude_null);
+
     SpecializedScorer positive_opt =
             build_positive_opt(*should_opt, std::move(must_scorers), combiner, must_special_counts,
                                should_special_counts);
-    // Use null-bitmap-aware AndNotScorer instead of ExcludeScorer for MUST_NOT clauses.
-    // AndNotScorer correctly implements SQL three-valued logic: NOT(NULL) = NULL,
-    // so documents where the excluded field is NULL are placed in the null bitmap
+    // Use null-bitmap-aware ExcludeScorer for MUST_NOT clauses.
+    // ExcludeScorer keeps lazy TRUE exclusion via seek-based iteration and adds
+    // O(1) null bitmap checks so that NOT(NULL) = NULL (SQL three-valued logic).
+    // Documents where the excluded field is NULL are placed in the null bitmap
     // rather than being incorrectly included in the true result set.
-    if (!must_not_scorers.empty()) {
+    if (exclude_opt) {
         ScorerPtr positive_boxed = into_box_scorer(std::move(positive_opt), combiner);
-        return std::make_shared<AndNotScorer>(std::move(positive_boxed),
-                                              std::move(must_not_scorers), context.null_resolver);
+        return make_exclude(std::move(positive_boxed), std::move(exclude_opt),
+                            std::move(exclude_null), context.null_resolver);
     }
     return positive_opt;
 }
@@ -318,6 +329,30 @@ ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::into_box_scorer(SpecializedScor
                 }
             },
             std::move(specialized));
+}
+
+template <typename ScoreCombinerPtrT>
+ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::build_exclude_opt(
+        std::vector<ScorerPtr> must_not_scorers, const NullBitmapResolver* resolver,
+        roaring::Roaring& exclude_null_out) {
+    if (must_not_scorers.empty()) {
+        return nullptr;
+    }
+
+    // Collect null bitmaps before union (read from index, no iteration needed).
+    for (auto& s : must_not_scorers) {
+        if (resolver != nullptr && s && s->has_null_bitmap(resolver)) {
+            const auto* nb = s->get_null_bitmap(resolver);
+            if (nb != nullptr) {
+                exclude_null_out |= *nb;
+            }
+        }
+    }
+
+    // Union all MUST_NOT scorers into one for lazy seek-based exclusion.
+    auto do_nothing = std::make_shared<DoNothingCombiner>();
+    auto specialized = scorer_union(std::move(must_not_scorers), do_nothing);
+    return into_box_scorer(std::move(specialized), do_nothing);
 }
 
 template class OccurBooleanWeight<SumCombinerPtr>;
