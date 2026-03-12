@@ -15,20 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.property;
+#include "exprs/aggregate/aggregate_function_collect_impl.h"
 
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
+namespace doris {
+#include "common/compile_check_begin.h"
 
-@Retention(RetentionPolicy.RUNTIME)
-public @interface ConnectorProperty {
-    String[] names() default {};
-    String description() default "";
-
-    boolean required() default true;
-    boolean supported() default true;
-
-    boolean sensitive() default false;
-
-    boolean isRegionField() default false;
+AggregateFunctionPtr create_aggregate_function_collect_with_limit(
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
+        const AggregateFunctionAttr& attr) {
+    return create_aggregate_function_collect_impl<true>(name, argument_types, result_is_nullable,
+                                                        attr);
 }
+
+} // namespace doris

@@ -23,6 +23,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.ToSqlParams;
@@ -141,13 +142,14 @@ public class HashJoinNode extends JoinNodeBase {
         msg.hash_join_node.setIsBroadcastJoin(distrMode == DistributionMode.BROADCAST);
         msg.hash_join_node.setIsMark(isMarkJoin());
         for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
-            TEqJoinCondition eqJoinCondition = new TEqJoinCondition(eqJoinPredicate.getChild(0).treeToThrift(),
-                    eqJoinPredicate.getChild(1).treeToThrift());
-            eqJoinCondition.setOpcode(eqJoinPredicate.getOp().getOpcode());
+            TEqJoinCondition eqJoinCondition = new TEqJoinCondition(
+                    ExprToThriftVisitor.treeToThrift(eqJoinPredicate.getChild(0)),
+                    ExprToThriftVisitor.treeToThrift(eqJoinPredicate.getChild(1)));
+            eqJoinCondition.setOpcode(ExprToThriftVisitor.toThriftOpcode(eqJoinPredicate.getOp()));
             msg.hash_join_node.addToEqJoinConjuncts(eqJoinCondition);
         }
         for (Expr e : otherJoinConjuncts) {
-            msg.hash_join_node.addToOtherJoinConjuncts(e.treeToThrift());
+            msg.hash_join_node.addToOtherJoinConjuncts(ExprToThriftVisitor.treeToThrift(e));
         }
 
         if (markJoinConjuncts != null) {
@@ -160,13 +162,14 @@ public class HashJoinNode extends JoinNodeBase {
                     Preconditions.checkState(e instanceof BinaryPredicate,
                             "mark join conjunct must be BinaryPredicate");
                     TEqJoinCondition eqJoinCondition = new TEqJoinCondition(
-                            e.getChild(0).treeToThrift(), e.getChild(1).treeToThrift());
-                    eqJoinCondition.setOpcode(((BinaryPredicate) e).getOp().getOpcode());
+                            ExprToThriftVisitor.treeToThrift(e.getChild(0)),
+                            ExprToThriftVisitor.treeToThrift(e.getChild(1)));
+                    eqJoinCondition.setOpcode(ExprToThriftVisitor.toThriftOpcode(((BinaryPredicate) e).getOp()));
                     msg.hash_join_node.addToEqJoinConjuncts(eqJoinCondition);
                 }
             } else {
                 for (Expr e : markJoinConjuncts) {
-                    msg.hash_join_node.addToMarkJoinConjuncts(e.treeToThrift());
+                    msg.hash_join_node.addToMarkJoinConjuncts(ExprToThriftVisitor.treeToThrift(e));
                 }
             }
         }

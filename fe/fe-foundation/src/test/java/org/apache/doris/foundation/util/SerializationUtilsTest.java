@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
+package org.apache.doris.foundation.util;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -25,7 +25,6 @@ import java.util.HashMap;
 import java.util.Objects;
 
 public class SerializationUtilsTest {
-
 
     private final HashMap<String, Object> sampleMap = new HashMap<>();
     private final String sampleString = "sampleString";
@@ -38,12 +37,12 @@ public class SerializationUtilsTest {
 
     @Test
     public void testClone() {
-        final Object clonedObject = SerializationUtils.clone(sampleMap);
+        Object clonedObject = SerializationUtils.clone(sampleMap);
         Assertions.assertNotNull(clonedObject);
         Assertions.assertTrue(clonedObject instanceof HashMap<?, ?>);
         Assertions.assertNotSame(clonedObject, sampleMap);
 
-        final HashMap<?, ?> clonedMap = (HashMap<?, ?>) clonedObject;
+        HashMap<?, ?> clonedMap = (HashMap<?, ?>) clonedObject;
         Assertions.assertEquals(sampleString, clonedMap.get("KEY_ONE"));
         Assertions.assertNotSame(sampleString, clonedMap.get("KEY_ONE"));
         Assertions.assertEquals(sampleInteger, clonedMap.get("KEY_TWO"));
@@ -53,8 +52,7 @@ public class SerializationUtilsTest {
 
     @Test
     public void testCloneNull() {
-        final Object clonedObject = SerializationUtils.clone(null);
-        Assertions.assertNull(clonedObject);
+        Assertions.assertNull(SerializationUtils.clone(null));
     }
 
     @Test
@@ -68,6 +66,7 @@ public class SerializationUtilsTest {
 
     static class Parent implements Serializable {
         private static final long serialVersionUID = 1L;
+
         protected boolean status;
 
         Parent(boolean status) {

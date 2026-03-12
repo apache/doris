@@ -15,20 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
+#include "exprs/aggregate/aggregate_function_min_max_impl.h"
 
-import java.nio.ByteBuffer;
+namespace doris {
 
-public class ByteBufferUtil {
-    public static short getUnsignedByte(ByteBuffer buffer) {
-        return (short) (buffer.get() & 0xFF);
-    }
+// Explicit instantiation for AggregateFunctionMaxData
+template AggregateFunctionPtr create_aggregate_function_single_value<AggregateFunctionMaxData>(
+        const String&, const DataTypes&, const DataTypePtr&, const bool,
+        const AggregateFunctionAttr&);
 
-    public static int getUnsignedShort(ByteBuffer buffer) {
-        return buffer.getShort() & 0xFFFF;
-    }
-
-    public static long getUnsignedInt(ByteBuffer buffer) {
-        return buffer.getInt() & 0xFFFFFFFFL;
-    }
-}
+} // namespace doris

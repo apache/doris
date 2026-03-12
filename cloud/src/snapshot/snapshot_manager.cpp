@@ -117,6 +117,11 @@ void SnapshotManager::clone_instance(const CloneInstanceRequest& request,
     response->mutable_status()->set_msg("Not implemented");
 }
 
+std::pair<MetaServiceCode, std::string> SnapshotManager::compact_snapshot(
+        std::string_view instance_id) {
+    return {MetaServiceCode::UNDEFINED_ERR, "Not implemented"};
+}
+
 std::pair<MetaServiceCode, std::string> SnapshotManager::set_multi_version_status(
         std::string_view instance_id, MultiVersionStatus multi_version_status) {
     return {MetaServiceCode::UNDEFINED_ERR, "Not implemented"};

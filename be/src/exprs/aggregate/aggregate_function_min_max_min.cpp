@@ -15,24 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
+#include "exprs/aggregate/aggregate_function_min_max_impl.h"
 
-public class BitUtil {
+namespace doris {
 
-    // Returns the log2 of 'val'. 'val' must be > 0.
-    public static int log2Ceiling(long val) {
-        // Formula is based on the Long.numberOfLeadingZeros() javadoc comment.
-        return 64 - Long.numberOfLeadingZeros(val - 1);
-    }
+// Explicit instantiation for AggregateFunctionMinData
+template AggregateFunctionPtr create_aggregate_function_single_value<AggregateFunctionMinData>(
+        const String&, const DataTypes&, const DataTypePtr&, const bool,
+        const AggregateFunctionAttr&);
 
-    // Round up 'val' to the nearest power of two. 'val' must be > 0.
-    public static long roundUpToPowerOf2(long val) {
-        return 1L << log2Ceiling(val);
-    }
-
-    // Round up 'val' to the nearest multiple of a power-of-two 'factor'.
-    // 'val' must be > 0.
-    public static long roundUpToPowerOf2Factor(long val, long factor) {
-        return (val + (factor - 1)) & ~(factor - 1);
-    }
-}
+} // namespace doris

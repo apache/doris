@@ -20,8 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.thrift.TExprNode;
-
 import com.google.gson.annotations.SerializedName;
 
 /**
@@ -53,12 +51,6 @@ public class BetweenPredicate extends Predicate {
     }
 
     @Override
-    protected void toThrift(TExprNode msg) {
-        throw new IllegalStateException(
-                "BetweenPredicate needs to be rewritten into a CompoundPredicate.");
-    }
-
-    @Override
     public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
         return visitor.visitBetweenPredicate(this, context);
     }
@@ -70,12 +62,6 @@ public class BetweenPredicate extends Predicate {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
         if (!super.equals(o)) {
             return false;
         }
