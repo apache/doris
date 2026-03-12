@@ -222,7 +222,7 @@ struct ParseJsonbFromString {
     }
 };
 
-// create cresponding jsonb value with type to_type
+// create corresponding jsonb value with type to_type
 // use jsonb writer to create jsonb value
 WrapperType create_cast_to_jsonb_wrapper(const DataTypePtr& from_type, const DataTypeJsonb& to_type,
                                          bool string_as_jsonb_string) {
