@@ -30,6 +30,9 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TUniqueId;
 
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -48,7 +51,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -210,7 +212,7 @@ public class TransactionState implements Writable {
     // no need to persist it.
     private TUniqueId requestId;
     @SerializedName(value = "idToTableCommitInfos")
-    private Map<Long, TableCommitInfo> idToTableCommitInfos;
+    private Long2ObjectOpenHashMap<TableCommitInfo> idToTableCommitInfos;
     // coordinator is show who begin this txn (FE, or one of BE, etc...)
     @SerializedName(value = "txnCoordinator")
     private TxnCoordinator txnCoordinator;
@@ -230,12 +232,12 @@ public class TransactionState implements Writable {
     private String reason = "";
     // error replica ids
     @SerializedName(value = "errorReplicas")
-    private Set<Long> errorReplicas;
+    private LongOpenHashSet errorReplicas;
     // this latch will be counted down when txn status change to VISIBLE
     private CountDownLatch visibleLatch;
 
     // this state need not be serialized. the map key is backend_id
-    private Map<Long, List<PublishVersionTask>> publishVersionTasks;
+    private Long2ObjectOpenHashMap<List<PublishVersionTask>> publishVersionTasks;
     private boolean hasSendTask;
     private TransactionStatus preStatus = null;
 
@@ -280,13 +282,13 @@ public class TransactionState implements Writable {
     // which tables and rollups it loaded.
     // tbl id -> (index ids)
     @SerializedName(value = "loadedTblIndexes")
-    private Map<Long, Set<Long>> loadedTblIndexes = Maps.newHashMap();
+    private Long2ObjectOpenHashMap<Set<Long>> loadedTblIndexes = new Long2ObjectOpenHashMap<>();
 
     /**
      * the value is the num delta rows of all replicas in each tablet
      */
     @SerializedName(value = "deltaRows")
-    private final Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows = Maps.newHashMap();
+    private final Long2ObjectOpenHashMap<Map<Long, Long>> tableIdToTabletDeltaRows = new Long2ObjectOpenHashMap<>();
 
     private String errorLogUrl = null;
 
@@ -311,7 +313,7 @@ public class TransactionState implements Writable {
 
     private boolean isPartialUpdate = false;
     // table id -> schema info
-    private Map<Long, SchemaInfo> txnSchemas = new HashMap<>();
+    private Long2ObjectOpenHashMap<SchemaInfo> txnSchemas = new Long2ObjectOpenHashMap<>();
 
     @Getter
     @SerializedName(value = "sti")
@@ -321,14 +323,14 @@ public class TransactionState implements Writable {
     private Map<Long, TableCommitInfo> subTxnIdToTableCommitInfo = new TreeMap<>();
     @Getter
     @Setter
-    private Set<Long> involvedBackends = Sets.newHashSet();
+    private Set<Long> involvedBackends = new LongOpenHashSet();
 
     public TransactionState() {
         this.dbId = -1;
         this.tableIdList = Lists.newArrayList();
         this.transactionId = -1;
         this.label = "";
-        this.idToTableCommitInfos = Maps.newHashMap();
+        this.idToTableCommitInfos = new Long2ObjectOpenHashMap<>();
         // mocked, to avoid NPE
         this.txnCoordinator = new TxnCoordinator(TxnSourceType.FE, 0, "127.0.0.1", System.currentTimeMillis());
         this.transactionStatus = TransactionStatus.PREPARE;
@@ -338,8 +340,8 @@ public class TransactionState implements Writable {
         this.commitTime = -1;
         this.finishTime = -1;
         this.reason = "";
-        this.errorReplicas = Sets.newHashSet();
-        this.publishVersionTasks = Maps.newHashMap();
+        this.errorReplicas = new LongOpenHashSet();
+        this.publishVersionTasks = new Long2ObjectOpenHashMap<>();
         this.hasSendTask = false;
         this.visibleLatch = new CountDownLatch(1);
     }
@@ -351,7 +353,7 @@ public class TransactionState implements Writable {
         this.transactionId = transactionId;
         this.label = label;
         this.requestId = requestId;
-        this.idToTableCommitInfos = Maps.newHashMap();
+        this.idToTableCommitInfos = new Long2ObjectOpenHashMap<>();
         this.txnCoordinator = txnCoordinator;
         this.transactionStatus = TransactionStatus.PREPARE;
         this.sourceType = sourceType;
@@ -360,8 +362,8 @@ public class TransactionState implements Writable {
         this.commitTime = -1;
         this.finishTime = -1;
         this.reason = "";
-        this.errorReplicas = Sets.newHashSet();
-        this.publishVersionTasks = Maps.newHashMap();
+        this.errorReplicas = new LongOpenHashSet();
+        this.publishVersionTasks = new Long2ObjectOpenHashMap<>();
         this.hasSendTask = false;
         this.visibleLatch = new CountDownLatch(1);
         this.callbackId = callbackId;
@@ -389,7 +391,11 @@ public class TransactionState implements Writable {
     }
 
     public void setErrorReplicas(Set<Long> newErrorReplicas) {
-        this.errorReplicas = newErrorReplicas;
+        if (newErrorReplicas instanceof LongOpenHashSet) {
+            this.errorReplicas = (LongOpenHashSet) newErrorReplicas;
+        } else {
+            this.errorReplicas = new LongOpenHashSet(newErrorReplicas);
+        }
     }
 
     public void addPublishVersionTask(Long backendId, PublishVersionTask task) {
@@ -621,7 +627,7 @@ public class TransactionState implements Writable {
         this.reason = Strings.nullToEmpty(reason);
     }
 
-    public Set<Long> getErrorReplicas() {
+    public LongOpenHashSet getErrorReplicas() {
         return this.errorReplicas;
     }
 
@@ -690,7 +696,7 @@ public class TransactionState implements Writable {
     }
 
     public synchronized void addTableIndexes(OlapTable table) {
-        Set<Long> indexIds = loadedTblIndexes.computeIfAbsent(table.getId(), k -> Sets.newHashSet());
+        Set<Long> indexIds = loadedTblIndexes.computeIfAbsent(table.getId(), k -> new LongOpenHashSet());
         // always equal the index ids
         indexIds.clear();
         indexIds.addAll(table.getIndexIdToMeta().keySet());

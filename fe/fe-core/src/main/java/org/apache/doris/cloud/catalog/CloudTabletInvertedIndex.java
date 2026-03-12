@@ -20,6 +20,8 @@ package org.apache.doris.cloud.catalog;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -34,7 +36,7 @@ public class CloudTabletInvertedIndex extends TabletInvertedIndex {
 
     // tablet id -> replica
     // for cloud mode, no need to know the replica's backend
-    private Map<Long, Replica> replicaMetaMap = Maps.newHashMap();
+    private Long2ObjectOpenHashMap<Replica> replicaMetaMap = new Long2ObjectOpenHashMap<>();
 
     public CloudTabletInvertedIndex() {
         super();

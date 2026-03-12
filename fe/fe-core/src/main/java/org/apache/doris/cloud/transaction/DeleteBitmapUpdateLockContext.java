@@ -20,7 +20,8 @@ package org.apache.doris.cloud.transaction;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TabletMeta;
 
-import com.google.common.collect.Maps;
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
 import java.util.List;
 import java.util.Map;
@@ -28,27 +29,27 @@ import java.util.Set;
 
 public class DeleteBitmapUpdateLockContext {
     private long lockId;
-    private Map<Long, Long> baseCompactionCnts;
-    private Map<Long, Long> cumulativeCompactionCnts;
-    private Map<Long, Long> cumulativePoints;
-    private Map<Long, Long> tabletStates;
-    private Map<Long, Set<Long>> tableToPartitions;
-    private Map<Long, Partition> partitions;
-    private Map<Long, Map<Long, Set<Long>>> backendToPartitionTablets;
-    private Map<Long, List<Long>> tableToTabletList;
-    private Map<Long, TabletMeta> tabletToTabletMeta;
+    private Long2LongOpenHashMap baseCompactionCnts;
+    private Long2LongOpenHashMap cumulativeCompactionCnts;
+    private Long2LongOpenHashMap cumulativePoints;
+    private Long2LongOpenHashMap tabletStates;
+    private Long2ObjectOpenHashMap<Set<Long>> tableToPartitions;
+    private Long2ObjectOpenHashMap<Partition> partitions;
+    private Long2ObjectOpenHashMap<Map<Long, Set<Long>>> backendToPartitionTablets;
+    private Long2ObjectOpenHashMap<List<Long>> tableToTabletList;
+    private Long2ObjectOpenHashMap<TabletMeta> tabletToTabletMeta;
 
     public DeleteBitmapUpdateLockContext(long lockId) {
         this.lockId = lockId;
-        baseCompactionCnts = Maps.newHashMap();
-        cumulativeCompactionCnts = Maps.newHashMap();
-        cumulativePoints = Maps.newHashMap();
-        tabletStates = Maps.newHashMap();
-        tableToPartitions = Maps.newHashMap();
-        partitions = Maps.newHashMap();
-        backendToPartitionTablets = Maps.newHashMap();
-        tableToTabletList = Maps.newHashMap();
-        tabletToTabletMeta = Maps.newHashMap();
+        baseCompactionCnts = new Long2LongOpenHashMap();
+        cumulativeCompactionCnts = new Long2LongOpenHashMap();
+        cumulativePoints = new Long2LongOpenHashMap();
+        tabletStates = new Long2LongOpenHashMap();
+        tableToPartitions = new Long2ObjectOpenHashMap<>();
+        partitions = new Long2ObjectOpenHashMap<>();
+        backendToPartitionTablets = new Long2ObjectOpenHashMap<>();
+        tableToTabletList = new Long2ObjectOpenHashMap<>();
+        tabletToTabletMeta = new Long2ObjectOpenHashMap<>();
     }
 
     public long getLockId() {
