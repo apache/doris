@@ -18,7 +18,9 @@
 package org.apache.doris.datasource.property;
 
 import org.apache.doris.common.CatalogConfigFileUtils;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
+import org.apache.doris.foundation.property.ConnectorProperty;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;

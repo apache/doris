@@ -672,6 +672,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         if (partitionIds != null) {
             indexRequestBuilder.addAllPartitionIds(partitionIds);
         }
+        LOG.debug("committing materialized index for tableId: {}, partitionIds: {}, indexIds: {}",
+                tableId, partitionIds, indexIds);
         final Cloud.IndexRequest indexRequest = indexRequestBuilder.build();
 
         Cloud.IndexResponse response = null;

@@ -73,6 +73,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
@@ -407,6 +408,15 @@ public class SchemaChangeHandler extends AlterHandler {
             throws DdlException {
         String dropColName = dropColumnOp.getColName();
 
+        String constraintName = Env.getCurrentEnv().getConstraintManager()
+                .findConstraintWithColumn(new TableNameInfo(externalTable), dropColName);
+        if (constraintName != null) {
+            throw new DdlException(String.format(
+                    "Cannot drop column '%s' because it is used by constraint '%s'. "
+                            + "Drop the constraint first.",
+                    dropColName, constraintName));
+        }
+
         // find column in base index and remove it
         boolean found = false;
         Iterator<Column> baseIter = newSchema.iterator();
@@ -443,6 +453,16 @@ public class SchemaChangeHandler extends AlterHandler {
             throws DdlException {
 
         String dropColName = dropColumnOp.getColName();
+
+        String constraintName = Env.getCurrentEnv().getConstraintManager()
+                .findConstraintWithColumn(new TableNameInfo(olapTable), dropColName);
+        if (constraintName != null) {
+            throw new DdlException(String.format(
+                    "Cannot drop column '%s' because it is used by constraint '%s'. "
+                            + "Drop the constraint first.",
+                    dropColName, constraintName));
+        }
+
         String targetIndexName = dropColumnOp.getRollupName();
         checkIndexExists(olapTable, targetIndexName);
 

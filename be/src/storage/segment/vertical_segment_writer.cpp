@@ -79,12 +79,12 @@
 #include "util/faststring.h"
 #include "util/json/path_in_data.h"
 #include "util/jsonb/serialize.h"
-#include "util/key_util.h"
 namespace doris::segment_v2 {
 
 #include "common/compile_check_begin.h"
 
 using namespace ErrorCode;
+using namespace KeyConsts;
 
 static const char* k_segment_magic = "D0R1";
 static const uint32_t k_segment_magic_length = 4;
