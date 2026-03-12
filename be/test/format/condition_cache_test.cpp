@@ -373,7 +373,7 @@ public:
 };
 
 // Concrete IcebergTableReader (pure-virtual stubs filled in).
-// Exposes the protected _equality_delete_impl for testing.
+// Exposes the protected _equality_delete_impls for testing.
 class TestableIcebergReader : public IcebergTableReader {
 public:
     using IcebergTableReader::IcebergTableReader;
@@ -385,7 +385,7 @@ public:
         return nullptr;
     }
     void test_set_equality_delete(std::unique_ptr<EqualityDeleteBase> impl) {
-        _equality_delete_impl = std::move(impl);
+        _equality_delete_impls.push_back(std::move(impl));
     }
 };
 

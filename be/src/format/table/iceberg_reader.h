@@ -84,7 +84,7 @@ public:
     virtual void set_delete_rows() = 0;
 
     bool has_delete_operations() const override {
-        return _equality_delete_impl != nullptr || TableFormatReader::has_delete_operations();
+        return _equality_delete_impls.size() > 0 || TableFormatReader::has_delete_operations();
     }
 
     Status read_deletion_vector(const std::string& data_file_path,
