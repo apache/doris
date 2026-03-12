@@ -3740,8 +3740,8 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否启用TSO功能",
-            "Whether to enable TSO"})
-    public static boolean experimental_enable_feature_tso = false;
+            "Whether to enable TSO"}, varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_feature_tso = false;
 
     @ConfField(mutable = false, masterOnly = true, description = {
             "TSO服务的更新间隔，单位为毫秒。默认值为50，表示TSO服务每隔50毫秒执行一次时间戳更新检查。",

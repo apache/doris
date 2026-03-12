@@ -145,7 +145,7 @@ public class TSOServiceTest {
     }
 
     private static void invokeWriteTimestampToBdbJe(TSOService service, long timestamp) throws Exception {
-        Method m = TSOService.class.getDeclaredMethod("writeTimestampToBdbJe", long.class);
+        Method m = TSOService.class.getDeclaredMethod("writeTimestampToBDBJE", long.class);
         m.setAccessible(true);
         m.invoke(service, timestamp);
     }

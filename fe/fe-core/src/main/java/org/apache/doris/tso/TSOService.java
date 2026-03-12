@@ -81,7 +81,7 @@ public class TSOService extends MasterDaemon {
      */
     @Override
     protected void runAfterCatalogReady() {
-        if (!Config.experimental_enable_feature_tso) {
+        if (!Config.enable_feature_tso) {
             return;
         }
         boolean updated = false;

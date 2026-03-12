@@ -2898,7 +2898,7 @@ public class Env {
 
     // Persist TSO-related info into image for fast recovery
     public long saveTSO(CountingDataOutputStream dos, long checksum) throws IOException {
-        if (!Config.experimental_enable_feature_tso || !Config.enable_tso_checkpoint_module) {
+        if (!Config.enable_feature_tso || !Config.enable_tso_checkpoint_module) {
             return checksum;
         }
         TSOTimestamp tsoTimestamp = new TSOTimestamp(this.windowEndTSO.get(), 0);

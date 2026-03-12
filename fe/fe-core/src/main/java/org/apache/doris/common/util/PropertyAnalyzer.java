@@ -876,9 +876,9 @@ public class PropertyAnalyzer {
         }
         properties.remove(PROPERTIES_ENABLE_TSO);
         if (value.equalsIgnoreCase("true")) {
-            if (!Config.experimental_enable_feature_tso) {
+            if (!Config.enable_feature_tso) {
                 throw new AnalysisException(PROPERTIES_ENABLE_TSO
-                        + " can not be enabled when experimental_enable_feature_tso is disabled");
+                        + " can not be enabled when enable_feature_tso is disabled");
             }
             return true;
         } else if (value.equalsIgnoreCase("false")) {

@@ -599,9 +599,9 @@ public class DatabaseTransactionMgrTest {
 
     @Test
     public void testCommitTransactionSetsCommitTSOWhenEnableTso() throws Exception {
-        boolean originalEnableTsoFeature = Config.experimental_enable_feature_tso;
+        boolean originalEnableTsoFeature = Config.enable_feature_tso;
         try {
-            Config.experimental_enable_feature_tso = true;
+            Config.enable_feature_tso = true;
             FakeEnv.setEnv(masterEnv);
 
             OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
@@ -631,15 +631,15 @@ public class DatabaseTransactionMgrTest {
             Assert.assertNotNull(tableCommitInfo);
             Assert.assertEquals(expectedCommitTSO, tableCommitInfo.getCommitTSO());
         } finally {
-            Config.experimental_enable_feature_tso = originalEnableTsoFeature;
+            Config.enable_feature_tso = originalEnableTsoFeature;
         }
     }
 
     @Test
     public void testCommitTransactionCommitTSORemainsMinusOneWhenTableDisableTso() throws Exception {
-        boolean originalEnableTsoFeature = Config.experimental_enable_feature_tso;
+        boolean originalEnableTsoFeature = Config.enable_feature_tso;
         try {
-            Config.experimental_enable_feature_tso = true;
+            Config.enable_feature_tso = true;
             FakeEnv.setEnv(masterEnv);
 
             OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
@@ -668,15 +668,15 @@ public class DatabaseTransactionMgrTest {
             Assert.assertNotNull(tableCommitInfo);
             Assert.assertEquals(-1L, tableCommitInfo.getCommitTSO());
         } finally {
-            Config.experimental_enable_feature_tso = originalEnableTsoFeature;
+            Config.enable_feature_tso = originalEnableTsoFeature;
         }
     }
 
     @Test
     public void testCommitTransactionFallbackMinusOneWhenGetTSOInvalid() throws Exception {
-        boolean originalEnableTsoFeature = Config.experimental_enable_feature_tso;
+        boolean originalEnableTsoFeature = Config.enable_feature_tso;
         try {
-            Config.experimental_enable_feature_tso = true;
+            Config.enable_feature_tso = true;
             FakeEnv.setEnv(masterEnv);
 
             OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
@@ -705,7 +705,7 @@ public class DatabaseTransactionMgrTest {
             Assert.assertNotNull(tableCommitInfo);
             Assert.assertEquals(-1L, tableCommitInfo.getCommitTSO());
         } finally {
-            Config.experimental_enable_feature_tso = originalEnableTsoFeature;
+            Config.enable_feature_tso = originalEnableTsoFeature;
         }
     }
 

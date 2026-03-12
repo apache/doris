@@ -288,10 +288,10 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                                 + " should be set to true or false");
             }
             if (properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_TSO).equalsIgnoreCase("true")
-                    && !Config.experimental_enable_feature_tso) {
+                    && !Config.enable_feature_tso) {
                 throw new AnalysisException(
                         "Property " + PropertyAnalyzer.PROPERTIES_ENABLE_TSO
-                                + " can not be enabled when experimental_enable_feature_tso is disabled");
+                                + " can not be enabled when enable_feature_tso is disabled");
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;

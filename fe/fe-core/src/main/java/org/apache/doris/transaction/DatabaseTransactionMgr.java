@@ -1596,7 +1596,7 @@ public class DatabaseTransactionMgr {
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
-            if (Config.experimental_enable_feature_tso && table.enableTso()) {
+            if (Config.enable_feature_tso && table.enableTso()) {
                 tableCommitInfo.setCommitTSO(commitTSO);
             }
 
@@ -1661,7 +1661,7 @@ public class DatabaseTransactionMgr {
                 TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
                 tableCommitInfo.setVersion(tableNextVersion);
                 tableCommitInfo.setVersionTime(System.currentTimeMillis());
-                if (Config.experimental_enable_feature_tso && table.enableTso()) {
+                if (Config.enable_feature_tso && table.enableTso()) {
                     tableCommitInfo.setCommitTSO(commitTSO);
                 }
 
@@ -1719,7 +1719,7 @@ public class DatabaseTransactionMgr {
                         transactionState);
                 continue;
             }
-            if (Config.experimental_enable_feature_tso && table.enableTso()) {
+            if (Config.enable_feature_tso && table.enableTso()) {
                 tableCommitInfo.setCommitTSO(commitTSO);
             }
             Iterator<PartitionCommitInfo> partitionCommitInfoIterator
@@ -3077,7 +3077,7 @@ public class DatabaseTransactionMgr {
 
     private long getCommitTSO(TransactionState transactionState, Database db, Set<Long> tableIds) {
         long tso = -1L;
-        if (!Config.experimental_enable_feature_tso) {
+        if (!Config.enable_feature_tso) {
             return tso;
         }
         if (tableIds == null || tableIds.isEmpty()) {
