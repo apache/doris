@@ -65,6 +65,7 @@ public class JoinCommute extends OneExplorationRuleFactory {
                 // null aware mark join will be translated to null aware left semi/anti join
                 // we don't support null aware right semi/anti join, so should not commute
                 .whenNot(join -> JoinUtils.isNullAwareMarkJoin(join))
+                .whenNot(join -> join.getJoinType().isAsofJoin())
                 // commuting nest loop mark join or left anti mark join is not supported by be
                 .whenNot(join -> join.isMarkJoin() && (join.getHashJoinConjuncts().isEmpty()
                         || join.getJoinType().isLeftAntiJoin()))
@@ -74,8 +75,8 @@ public class JoinCommute extends OneExplorationRuleFactory {
                         && NestedLoopJoinNode.canParallelize(JoinType.toJoinOperator(join.getJoinType()))
                         && !NestedLoopJoinNode.canParallelize(JoinType.toJoinOperator(join.getJoinType().swap())))
                 .then(join -> {
-                    LogicalJoin<? extends Plan, ? extends Plan> newJoin = join.withTypeChildren(
-                            join.getJoinType().swap(), join.right(), join.left(), null);
+                    // Use swap() to properly handle ASOF JOIN MATCH_CONDITION commutation
+                    LogicalJoin<? extends Plan, ? extends Plan> newJoin = join.swap();
                     newJoin.getJoinReorderContext().copyFrom(join.getJoinReorderContext());
                     newJoin.getJoinReorderContext().setHasCommute(true);
                     if (swapType == SwapType.ZIG_ZAG && isNotBottomJoin(join)) {
