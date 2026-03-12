@@ -57,7 +57,7 @@
             #FIELD_NAME, []() -> bool { return validator_##FIELD_NAME(FIELD_NAME); });
 
 // DEFINE_ON_UPDATE macro is used to register a callback function that will be called
-// when the config field is updated at runtime.
+// when the config field is updated at a runtime.
 // The callback function signature is: void callback(T old_value, T new_value)
 // where T is the type of the config field.
 // Example:
