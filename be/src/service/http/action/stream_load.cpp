@@ -937,7 +937,8 @@ Status StreamLoadAction::_can_group_commit(HttpRequest* req, std::shared_ptr<Str
              iequal(req->header(HTTP_UNIQUE_KEY_UPDATE_MODE), "UPDATE_FLEXIBLE_COLUMNS"));
     if (!partial_columns && !partitions && !temp_partitions && !ctx->two_phase_commit &&
         !update_mode) {
-        if (!config::wait_internal_group_commit_finish && !ctx->label.empty()) {
+        if (!config::wait_internal_group_commit_finish && !group_commit_header.empty() &&
+            !ctx->label.empty()) {
             return Status::InvalidArgument("label and group_commit can't be set at the same time");
         }
         RETURN_IF_ERROR(_check_wal_space(group_commit_header, content_length));

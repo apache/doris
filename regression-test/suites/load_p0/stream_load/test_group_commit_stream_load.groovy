@@ -440,7 +440,7 @@ suite("test_group_commit_stream_load") {
         PROPERTIES (
             "replication_num" = "1",
             "group_commit_interval_ms" = "200",
-            "group_commit_mode" = "sync_mode"
+            "group_commit_mode" = "SYNC_MODE"
         );
         """
         

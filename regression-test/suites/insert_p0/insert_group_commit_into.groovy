@@ -537,14 +537,14 @@ suite("insert_group_commit_into") {
         assertTrue(createStmt.toString().contains('async_mode'), "SHOW CREATE TABLE should contain async_mode")
         
         // Test ALTER TABLE to change group_commit_mode
-        sql """ ALTER TABLE ${table}_mode SET ("group_commit_mode" = "sync_mode"); """
+        sql """ ALTER TABLE ${table}_mode SET ("group_commit_mode" = "SYNC_MODE"); """
         
         def createStmt2 = sql """ SHOW CREATE TABLE ${table}_mode """
         logger.info("SHOW CREATE TABLE result after alter: " + createStmt2)
-        assertTrue(createStmt2.toString().contains('sync_mode'), "SHOW CREATE TABLE should contain sync_mode after alter")
+        assertTrue(createStmt2.toString().contains('SYNC_MODE'), "SHOW CREATE TABLE should contain sync_mode after alter")
         
         // Test ALTER TABLE to change back to off_mode - should NOT show in SHOW CREATE TABLE
-        sql """ ALTER TABLE ${table}_mode SET ("group_commit_mode" = "off_mode"); """
+        sql """ ALTER TABLE ${table}_mode SET ("group_commit_mode" = "OFF_MODE"); """
         
         def createStmt3 = sql """ SHOW CREATE TABLE ${table}_mode """
         logger.info("SHOW CREATE TABLE result after alter to off_mode: " + createStmt3)

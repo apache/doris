@@ -220,7 +220,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
         }
         return status;
     }
-    if (ctx->group_commit_mode.empty()) {
+    if (ctx->group_commit_mode.empty() && result.__isset.table_group_commit_mode) {
         auto table_group_commit_mode = result.table_group_commit_mode;
         if (iequal(table_group_commit_mode, "async_mode") ||
             iequal(table_group_commit_mode, "sync_mode")) {
