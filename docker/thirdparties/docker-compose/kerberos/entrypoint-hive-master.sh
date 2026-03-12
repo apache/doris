@@ -90,7 +90,11 @@ hive  -f /usr/local/sql/create_kerberos_hive_table.sql
 if [[ ${enablePaimonHms} == "true" ]]; then
     echo "Creating Paimon HMS catalog and table"
     hadoop fs -put /tmp/paimon_data/* /user/hive/warehouse/
-    hive --hiveconf oss_bucket="${OSSBucket}" -f /usr/local/sql/create_paimon_hive_table.hql
+    # Render the OSS location directly to avoid passing oss_bucket as a Hive session conf.
+    paimon_hql=$(mktemp /tmp/create_paimon_hive_table.XXXXXX.hql)
+    sed "s|__OSS_BUCKET__|${OSSBucket}|g" /usr/local/sql/create_paimon_hive_table.hql > "${paimon_hql}"
+    hive -f "${paimon_hql}"
+    rm -f "${paimon_hql}"
 fi
 
 exec_success_hook
