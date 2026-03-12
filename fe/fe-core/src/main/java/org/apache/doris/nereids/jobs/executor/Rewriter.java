@@ -903,9 +903,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         rewriteJobs.addAll(jobs(topic("or expansion",
                                 custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE))));
                     }
-                    rewriteJobs.add(topic("repeat rewrite",
-                            custom(RuleType.DECOMPOSE_REPEAT, () -> DecomposeRepeatWithPreAggregation.INSTANCE)));
-
                     rewriteJobs.addAll(jobs(topic("split multi distinct",
                             custom(RuleType.DISTINCT_AGG_STRATEGY_SELECTOR,
                                     () -> DistinctAggStrategySelector.INSTANCE))));
