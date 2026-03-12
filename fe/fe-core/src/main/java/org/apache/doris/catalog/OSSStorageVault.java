@@ -17,10 +17,10 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.commons.lang3.StringUtils;
@@ -86,9 +86,9 @@ public class OSSStorageVault extends StorageVault {
     }
 
     public OSSStorageVault(String name, boolean ifNotExists,
-            boolean setAsDefault, CreateResourceStmt stmt) throws DdlException {
+            boolean setAsDefault, CreateResourceCommand command) throws DdlException {
         super(name, StorageVault.StorageVaultType.OSS, ifNotExists, setAsDefault);
-        resource = Resource.fromStmt(stmt);
+        resource = Resource.fromCommand(command);
     }
 
     @Override

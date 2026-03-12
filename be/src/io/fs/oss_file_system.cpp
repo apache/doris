@@ -24,6 +24,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <thread>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -569,8 +570,10 @@ Status OSSFileSystem::download_impl(const Path& remote_file, const Path& local_f
                                outcome.error().Code(), outcome.error().Message());
     }
 
-    // Use temp file + rename pattern to ensure atomicity and proper cleanup on failure
-    std::string temp_file_path = local_file.native() + ".tmp." + std::to_string(getpid());
+    // Use temp file + rename pattern to ensure atomicity and proper cleanup on failure.
+    std::string temp_file_path = local_file.native() + ".tmp." + std::to_string(getpid()) + "." +
+                                 std::to_string(std::hash<std::thread::id> {}(
+                                         std::this_thread::get_id()));
 
     // RAII wrapper to ensure temp file cleanup on failure
     struct TempFileGuard {

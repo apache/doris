@@ -155,10 +155,10 @@ public abstract class StorageVault {
                 vault = new S3StorageVault(name, ifNotExists, setAsDefault, resourceCommand);
                 break;
             case OSS:
-                CreateResourceStmt ossResourceStmt =
-                        new CreateResourceStmt(false, ifNotExists, name, stmt.getProperties());
-                ossResourceStmt.analyzeResourceType();
-                vault = new OSSStorageVault(name, ifNotExists, setAsDefault, ossResourceStmt);
+                CreateResourceInfo ossInfo = new CreateResourceInfo(false, ifNotExists, name, command.getProperties());
+                CreateResourceCommand ossCommand = new CreateResourceCommand(ossInfo);
+                ossCommand.getInfo().analyzeResourceType();
+                vault = new OSSStorageVault(name, ifNotExists, setAsDefault, ossCommand);
                 break;
             default:
                 throw new DdlException("Unknown StorageVault type: " + type);

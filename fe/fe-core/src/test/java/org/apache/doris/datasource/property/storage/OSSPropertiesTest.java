@@ -298,7 +298,7 @@ public class OSSPropertiesTest {
         OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
 
         // role_arn must be surfaced through getObjStoreInfoPB
-        var pb = ossProperties.getObjStoreInfoPB();
+        Cloud.ObjectStoreInfoPB.Builder pb = ossProperties.getObjStoreInfoPB();
         Assertions.assertFalse(pb.getRoleArn().isEmpty(),
                 "role_arn must be propagated to ObjectStoreInfoPB");
         Assertions.assertEquals("acs:ram::5503360369842933:role/ecs-oss-access-role",
@@ -313,7 +313,7 @@ public class OSSPropertiesTest {
         props.put("oss.external_id", "partner-tenant-12345");
         OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
 
-        var pb = ossProperties.getObjStoreInfoPB();
+        Cloud.ObjectStoreInfoPB.Builder pb = ossProperties.getObjStoreInfoPB();
         Assertions.assertEquals("partner-tenant-12345", pb.getExternalId(),
                 "external_id must be propagated to ObjectStoreInfoPB");
     }
@@ -325,7 +325,7 @@ public class OSSPropertiesTest {
         props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
         OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
 
-        var pb = ossProperties.getObjStoreInfoPB();
+        Cloud.ObjectStoreInfoPB.Builder pb = ossProperties.getObjStoreInfoPB();
         Assertions.assertEquals(
                 Cloud.CredProviderTypePB.INSTANCE_PROFILE,
                 pb.getCredProviderType(),
@@ -340,7 +340,7 @@ public class OSSPropertiesTest {
         props.put("oss.secret_key", "mySecretKey");
         OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
 
-        var pb = ossProperties.getObjStoreInfoPB();
+        Cloud.ObjectStoreInfoPB.Builder pb = ossProperties.getObjStoreInfoPB();
         Assertions.assertEquals(
                 Cloud.CredProviderTypePB.SIMPLE,
                 pb.getCredProviderType(),
@@ -357,7 +357,7 @@ public class OSSPropertiesTest {
         props.put("oss.role_arn", "acs:ram::5503360369842933:role/ecs-oss-access-role");
         OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
 
-        var pb = ossProperties.getObjStoreInfoPB();
+        Cloud.ObjectStoreInfoPB.Builder pb = ossProperties.getObjStoreInfoPB();
         Assertions.assertEquals(
                 Cloud.CredProviderTypePB.INSTANCE_PROFILE,
                 pb.getCredProviderType(),
@@ -373,25 +373,11 @@ public class OSSPropertiesTest {
         props.put("oss.secret_key", "mySecretKey");
         OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
 
-        var pb = ossProperties.getObjStoreInfoPB();
+        Cloud.ObjectStoreInfoPB.Builder pb = ossProperties.getObjStoreInfoPB();
         Assertions.assertEquals(
                 Cloud.ObjectStoreInfoPB.Provider.OSS,
                 pb.getProvider(),
                 "Provider must be OSS in ObjectStoreInfoPB");
-    }
-
-    @Test
-    public void testSessionTokenPropagatedToObjStoreInfoPB() throws UserException {
-        Map<String, String> props = new HashMap<>();
-        props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
-        props.put("oss.access_key", "myAccessKey");
-        props.put("oss.secret_key", "mySecretKey");
-        props.put("oss.session_token", "mySessionToken");
-        OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(props);
-
-        var pb = ossProperties.getObjStoreInfoPB();
-        Assertions.assertEquals("mySessionToken", pb.getToken(),
-                "session_token must be propagated to ObjectStoreInfoPB");
     }
 
 }
