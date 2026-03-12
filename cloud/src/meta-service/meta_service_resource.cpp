@@ -2547,7 +2547,7 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::alter_instance(
         LOG(WARNING) << msg << " err=" << err;
         return std::make_pair(code, msg);
     }
-    LOG(INFO) << "alter instance key=" << hex(key);
+    LOG(INFO) << "alter instance key=" << hex(key) << " instance_id=" << instance_id;
     InstanceInfoPB instance;
     if (!instance.ParseFromString(val)) {
         msg = "failed to parse InstanceInfoPB";

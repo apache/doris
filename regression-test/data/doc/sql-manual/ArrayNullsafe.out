@@ -8,7 +8,7 @@
 
 -- !sql_array_apply2 --
 []
-[null, null]
+[]
 []
 []
 \N

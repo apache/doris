@@ -29,6 +29,7 @@
 #include "storage/predicate/comparison_predicate.h"
 
 namespace doris {
+namespace {
 
 class MockLRUCachePolicy : public LRUCachePolicy {
 public:
@@ -102,6 +103,8 @@ private:
 
     std::shared_ptr<roaring::Roaring> _result_bitmap;
 };
+
+} // anonymous namespace
 
 class AcceptNullPredicateTest : public testing::Test {
 public:

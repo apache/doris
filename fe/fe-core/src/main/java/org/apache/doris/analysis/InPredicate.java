@@ -23,10 +23,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TExprOpcode;
-import org.apache.doris.thrift.TInPredicate;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
@@ -44,9 +40,12 @@ public class InPredicate extends Predicate {
     private static final String NOT_IN_ITERATE = "not_in_iterate";
     @SerializedName("ini")
     private boolean isNotIn;
+    @SerializedName("ac")
+    private boolean allConstant;
 
     private InPredicate() {
         // use for serde only
+        this.allConstant = false;
     }
 
     /** First child is the comparison expr for which we
@@ -57,6 +56,7 @@ public class InPredicate extends Predicate {
         children.add(compareExpr);
         children.addAll(inList);
         this.isNotIn = isNotIn;
+        this.allConstant = false;
     }
 
     /**
@@ -64,11 +64,9 @@ public class InPredicate extends Predicate {
      */
     public InPredicate(Expr compareExpr, List<Expr> inList, boolean isNotIn, boolean allConstant, boolean nullable) {
         this(compareExpr, inList, isNotIn);
+        this.allConstant = allConstant;
         type = Type.BOOLEAN;
-        if (allConstant) {
-            opcode = isNotIn ? TExprOpcode.FILTER_NOT_IN : TExprOpcode.FILTER_IN;
-        } else {
-            opcode = isNotIn ? TExprOpcode.FILTER_NEW_NOT_IN : TExprOpcode.FILTER_NEW_IN;
+        if (!allConstant) {
             fn = new Function(new FunctionName(isNotIn ? NOT_IN_ITERATE : IN_ITERATE),
                     Lists.newArrayList(getChild(0).getType(), getChild(1).getType()), Type.BOOLEAN,
                     true, true, NullableMode.DEPEND_ON_ARGUMENT);
@@ -79,6 +77,7 @@ public class InPredicate extends Predicate {
     protected InPredicate(InPredicate other) {
         super(other);
         isNotIn = other.isNotIn();
+        allConstant = other.allConstant;
     }
 
     public int getInElementNum() {
@@ -99,6 +98,10 @@ public class InPredicate extends Predicate {
         return isNotIn;
     }
 
+    public boolean getAllConstant() {
+        return allConstant;
+    }
+
     public boolean isLiteralChildren() {
         for (int i = 1; i < children.size(); ++i) {
             if (!(children.get(i) instanceof LiteralExpr)) {
@@ -106,13 +109,6 @@ public class InPredicate extends Predicate {
             }
         }
         return true;
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.in_predicate = new TInPredicate(isNotIn);
-        msg.node_type = TExprNodeType.IN_PRED;
-        msg.setOpcode(opcode);
     }
 
     @Override
