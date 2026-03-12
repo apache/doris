@@ -266,7 +266,7 @@ void Scanner::_collect_profile_before_close() {
     _state->update_num_rows_load_unselected(_counter.num_rows_unselected);
 }
 
-void Scanner::update_scan_cpu_timer() {
+void Scanner::_update_scan_cpu_timer() {
     int64_t cpu_time = _cpu_watch.elapsed_time();
     _scan_cpu_timer += cpu_time;
     if (_state && _state->get_query_ctx()) {

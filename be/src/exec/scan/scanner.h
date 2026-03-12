@@ -127,7 +127,31 @@ protected:
 
     Status _do_projections(Block* origin_block, Block* output_block);
 
+private:
+    // Call start_wait_worker_timer() when submit the scanner to the thread pool.
+    // And call update_wait_worker_timer() when it is actually being executed.
+    void _start_wait_worker_timer() {
+        _watch.reset();
+        _watch.start();
+    }
+
+    void _start_scan_cpu_timer() {
+        _cpu_watch.reset();
+        _cpu_watch.start();
+    }
+
+    void _update_wait_worker_timer() { _scanner_wait_worker_timer += _watch.elapsed_time(); }
+    void _update_scan_cpu_timer();
+
 public:
+    void resume() {
+        _update_wait_worker_timer();
+        _start_scan_cpu_timer();
+    }
+    void pause() {
+        _update_scan_cpu_timer();
+        _start_wait_worker_timer();
+    }
     int64_t get_time_cost_ns() const { return _per_scanner_timer; }
 
     int64_t projection_time() const { return _projection_timer; }
@@ -137,23 +161,7 @@ public:
 
     Status try_append_late_arrival_runtime_filter();
 
-    // Call start_wait_worker_timer() when submit the scanner to the thread pool.
-    // And call update_wait_worker_timer() when it is actually being executed.
-    void start_wait_worker_timer() {
-        _watch.reset();
-        _watch.start();
-    }
-
-    void start_scan_cpu_timer() {
-        _cpu_watch.reset();
-        _cpu_watch.start();
-    }
-
-    void update_wait_worker_timer() { _scanner_wait_worker_timer += _watch.elapsed_time(); }
-
     int64_t get_scanner_wait_worker_timer() const { return _scanner_wait_worker_timer; }
-
-    void update_scan_cpu_timer();
 
     // Some counters need to be updated realtime, for example, workload group policy need
     // scan bytes to cancel the query exceed limit.
