@@ -20,6 +20,7 @@ package org.apache.doris.cdcclient.source.deserialize;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
+import static io.debezium.connector.AbstractSourceInfo.TABLE_NAME_KEY;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
 import org.apache.flink.cdc.debezium.utils.TemporalConversions;
@@ -43,6 +44,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.apache.doris.cdcclient.common.Constants.DORIS_DELETE_SIGN;
 
@@ -93,27 +95,30 @@ public class DebeziumJsonDeserializer
             throws IOException {
         if (RecordUtils.isDataChangeRecord(record)) {
             LOG.trace("Process data change record: {}", record);
-            List<String> rows = deserializeDataChangeRecord(record);
+            List<String> rows = deserializeDataChangeRecord(record, context);
             return DeserializeResult.dml(rows);
         } else {
             return DeserializeResult.empty();
         }
     }
 
-    private List<String> deserializeDataChangeRecord(SourceRecord record) throws IOException {
+    private List<String> deserializeDataChangeRecord(
+            SourceRecord record, Map<String, String> context) throws IOException {
         List<String> rows = new ArrayList<>();
+        String tableName = extractTableName(record);
+        Set<String> excludeColumns = ConfigUtil.parseExcludeColumns(context, tableName);
         Envelope.Operation op = Envelope.operationFor(record);
         Struct value = (Struct) record.value();
         Schema valueSchema = record.valueSchema();
         if (Envelope.Operation.DELETE.equals(op)) {
-            String deleteRow = extractBeforeRow(value, valueSchema);
+            String deleteRow = extractBeforeRow(value, valueSchema, excludeColumns);
             if (StringUtils.isNotEmpty(deleteRow)) {
                 rows.add(deleteRow);
             }
         } else if (Envelope.Operation.READ.equals(op)
                 || Envelope.Operation.CREATE.equals(op)
                 || Envelope.Operation.UPDATE.equals(op)) {
-            String insertRow = extractAfterRow(value, valueSchema);
+            String insertRow = extractAfterRow(value, valueSchema, excludeColumns);
             if (StringUtils.isNotEmpty(insertRow)) {
                 rows.add(insertRow);
             }
@@ -121,7 +126,12 @@ public class DebeziumJsonDeserializer
         return rows;
     }
 
-    private String extractAfterRow(Struct value, Schema valueSchema)
+    private String extractTableName(SourceRecord record) {
+        Struct value = (Struct) record.value();
+        return value.getStruct(Envelope.FieldName.SOURCE).getString(TABLE_NAME_KEY);
+    }
+
+    private String extractAfterRow(Struct value, Schema valueSchema, Set<String> excludeColumns)
             throws JsonProcessingException {
         Map<String, Object> record = new HashMap<>();
         Struct after = value.getStruct(Envelope.FieldName.AFTER);
@@ -133,15 +143,19 @@ public class DebeziumJsonDeserializer
                 .fields()
                 .forEach(
                         field -> {
-                            Object valueConverted =
-                                    convert(field.schema(), after.getWithoutDefault(field.name()));
-                            record.put(field.name(), valueConverted);
+                            if (!excludeColumns.contains(field.name())) {
+                                Object valueConverted =
+                                        convert(
+                                                field.schema(),
+                                                after.getWithoutDefault(field.name()));
+                                record.put(field.name(), valueConverted);
+                            }
                         });
         record.put(DORIS_DELETE_SIGN, 0);
         return objectMapper.writeValueAsString(record);
     }
 
-    private String extractBeforeRow(Struct value, Schema valueSchema)
+    private String extractBeforeRow(Struct value, Schema valueSchema, Set<String> excludeColumns)
             throws JsonProcessingException {
         Map<String, Object> record = new HashMap<>();
         Struct before = value.getStruct(Envelope.FieldName.BEFORE);
@@ -153,9 +167,13 @@ public class DebeziumJsonDeserializer
                 .fields()
                 .forEach(
                         field -> {
-                            Object valueConverted =
-                                    convert(field.schema(), before.getWithoutDefault(field.name()));
-                            record.put(field.name(), valueConverted);
+                            if (!excludeColumns.contains(field.name())) {
+                                Object valueConverted =
+                                        convert(
+                                                field.schema(),
+                                                before.getWithoutDefault(field.name()));
+                                record.put(field.name(), valueConverted);
+                            }
                         });
         record.put(DORIS_DELETE_SIGN, 1);
         return objectMapper.writeValueAsString(record);

@@ -17,11 +17,17 @@
 
 package org.apache.doris.cdcclient.utils;
 
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
+
 import org.apache.commons.lang3.StringUtils;
 
 import java.time.ZoneId;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -114,6 +120,31 @@ public class ConfigUtil {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /**
+     * Parse the exclude-column set for a specific table from config.
+     *
+     * <p>Looks for key {@code "table.<tableName>.exclude_columns"} whose value is a comma-separated
+     * column list, e.g. {@code "secret,internal_note"}.
+     *
+     * @return lower-cased column name set; empty set when the key is absent
+     */
+    public static Set<String> parseExcludeColumns(Map<String, String> config, String tableName) {
+        String key =
+                DataSourceConfigKeys.TABLE
+                        + "."
+                        + tableName
+                        + "."
+                        + DataSourceConfigKeys.TABLE_EXCLUDE_COLUMNS_SUFFIX;
+        String value = config.get(key);
+        if (StringUtils.isEmpty(value)) {
+            return Collections.emptySet();
+        }
+        return Arrays.stream(value.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
     }
 
     public static Map<String, String> toStringMap(String json) {

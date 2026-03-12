@@ -18,6 +18,7 @@
 package org.apache.doris.cdcclient.source.deserialize;
 
 import org.apache.doris.cdcclient.common.Constants;
+import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.cdcclient.utils.SchemaChangeHelper;
 
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
@@ -33,6 +34,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -203,12 +205,34 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
         // Generate DDLs using accurate PG column types
         String db = context.get(Constants.DORIS_TARGET_DB);
         List<String> ddls = new ArrayList<>();
+        Set<String> excludedCols = ConfigUtil.parseExcludeColumns(context, tableId.table());
 
         for (String colName : pgDropped) {
+            if (excludedCols.contains(colName)) {
+                // The column is excluded from sync — skip DDL; updatedSchemas already
+                // reflects the drop since it is built from afterSchema.
+                LOG.info(
+                        "[SCHEMA-CHANGE] Table {}: dropped column '{}' is excluded from sync,"
+                                + " skipping DROP DDL",
+                        tableId.identifier(),
+                        colName);
+                continue;
+            }
             ddls.add(SchemaChangeHelper.buildDropColumnSql(db, tableId.table(), colName));
         }
 
         for (Column col : pgAdded) {
+            if (excludedCols.contains(col.name())) {
+                // The column is excluded from sync — Doris table does not have it,
+                // so skip the ADD DDL.
+                // case: An excluded column was dropped and then re-added.
+                LOG.info(
+                        "[SCHEMA-CHANGE] Table {}: added column '{}' is excluded from sync,"
+                                + " skipping ADD DDL",
+                        tableId.identifier(),
+                        col.name());
+                continue;
+            }
             String colType = SchemaChangeHelper.columnToDorisType(col);
             String nullable = col.isOptional() ? "" : " NOT NULL";
             // pgAdded only contains columns present in afterSchema, so field lookup is safe.

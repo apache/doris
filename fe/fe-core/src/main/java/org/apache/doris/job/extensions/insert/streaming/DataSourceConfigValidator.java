@@ -43,10 +43,27 @@ public class DataSourceConfigValidator {
             DataSourceConfigKeys.SSL_ROOTCERT
     );
 
+    // Known suffixes for per-table config keys (format: "table.<tableName>.<suffix>")
+    private static final Set<String> ALLOW_TABLE_LEVEL_SUFFIXES = Sets.newHashSet(
+            DataSourceConfigKeys.TABLE_EXCLUDE_COLUMNS_SUFFIX
+    );
+
+    private static final String TABLE_LEVEL_PREFIX = DataSourceConfigKeys.TABLE + ".";
+
     public static void validateSource(Map<String, String> input) throws IllegalArgumentException {
         for (Map.Entry<String, String> entry : input.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
+
+            if (key.startsWith(TABLE_LEVEL_PREFIX)) {
+                // per-table config key: table.<tableName>.<suffix>
+                int lastDot = key.lastIndexOf('.');
+                String suffix = key.substring(lastDot + 1);
+                if (!ALLOW_TABLE_LEVEL_SUFFIXES.contains(suffix)) {
+                    throw new IllegalArgumentException("Unknown per-table config key: '" + key + "'");
+                }
+                continue;
+            }
 
             if (!ALLOW_SOURCE_KEYS.contains(key)) {
                 throw new IllegalArgumentException("Unexpected key: '" + key + "'");
