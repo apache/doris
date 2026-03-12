@@ -66,6 +66,33 @@ suite("test_authentication_integration_auth", "p0,auth") {
 
         sql """ALTER AUTHENTICATION INTEGRATION ${integrationName} SET COMMENT 'updated comment'"""
 
+        def result = sql """
+            SELECT
+                NAME,
+                TYPE,
+                PROPERTIES,
+                COMMENT,
+                CREATE_USER,
+                CREATE_TIME,
+                ALTER_USER,
+                MODIFY_TIME
+            FROM information_schema.authentication_integrations
+            WHERE NAME = '${integrationName}'
+            ORDER BY NAME
+        """
+        assertTrue(result.size() == 1)
+        assertTrue(result[0].size() == 8)
+        assertTrue(result[0][0] == integrationName)
+        assertTrue(result[0][1] == "ldap")
+        assertTrue(result[0][2].contains("\"ldap.server\" = \"ldap://127.0.0.1:1389\""))
+        assertTrue(result[0][2].contains("\"ldap.admin_password\" = \"*XXX\""))
+        assertTrue(!result[0][2].contains("abcdef"))
+        assertTrue(result[0][3] == "updated comment")
+        assertTrue(result[0][4] != null && result[0][4].length() > 0)
+        assertTrue(result[0][5] != null && result[0][5].length() > 0)
+        assertTrue(result[0][6] != null && result[0][6].length() > 0)
+        assertTrue(result[0][7] != null && result[0][7].length() > 0)
+
         test {
             sql """DROP AUTHENTICATION INTEGRATION ${integrationName}_not_exist"""
             exception "does not exist"
