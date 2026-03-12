@@ -604,7 +604,7 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
 
     txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
-    LOG(INFO) << "put instance_key=" << hex(key);
+    LOG(INFO) << "put instance_key=" << hex(key) << " instance_id=" << instance_id;
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         msg = "failed to commit kv txn";
@@ -618,8 +618,8 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
 }
 
 /**
- * The current implementation is to add fe clusters through HTTP API, 
- * such as follower nodes `ABC` in the cluster, and then immediately drop follower node `A`, while fe is not yet pulled up, 
+ * The current implementation is to add fe clusters through HTTP API,
+ * such as follower nodes `ABC` in the cluster, and then immediately drop follower node `A`, while fe is not yet pulled up,
  * which may result in the formation of a multi master fe cluster
  * This function provides a simple protection mechanism that does not allow dropping the fe node within 5 minutes after adding it through the API(add_cluster/add_node).
  * If you bypass this protection and do the behavior described above, god bless you.
@@ -754,7 +754,7 @@ std::pair<MetaServiceCode, std::string> ResourceManager::drop_cluster(
 
     txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
-    LOG(INFO) << "put instance_key=" << hex(key);
+    LOG(INFO) << "put instance_key=" << hex(key) << " instance_id=" << instance_id;
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         msg = "failed to commit kv txn";
@@ -894,7 +894,7 @@ std::string ResourceManager::update_cluster(
 
     txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
-    LOG(INFO) << "put instanace_key=" << hex(key);
+    LOG(INFO) << "put instanace_key=" << hex(key) << " instance_id=" << instance_id;
     TxnErrorCode err_code = txn->commit();
     if (err_code != TxnErrorCode::TXN_OK) {
         msg = "failed to commit kv txn";
@@ -958,7 +958,7 @@ std::pair<TxnErrorCode, std::string> ResourceManager::get_instance(std::shared_p
     }
 
     TxnErrorCode err = txn->get(key, &val);
-    LOG(INFO) << "get instance_key=" << hex(key);
+    LOG(INFO) << "get instance_key=" << hex(key) << " instance_id=" << instance_id;
 
     if (err != TxnErrorCode::TXN_OK) {
         code = err;
@@ -969,7 +969,7 @@ std::pair<TxnErrorCode, std::string> ResourceManager::get_instance(std::shared_p
 
     if (inst_pb != nullptr && !inst_pb->ParseFromString(val)) {
         code = TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
-        msg = "failed to parse InstanceInfoPB";
+        msg = "failed to parse InstanceInfoPB, instance_id=" + instance_id;
         return ec;
     }
 
@@ -1364,7 +1364,7 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
 
     txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
-    LOG(INFO) << "put instance_key=" << hex(key);
+    LOG(INFO) << "put instance_key=" << hex(key) << " instance_id=" << instance_id;
     TxnErrorCode err_code = txn->commit();
     if (err_code != TxnErrorCode::TXN_OK) {
         msg = "failed to commit kv txn";
@@ -1443,6 +1443,11 @@ void ResourceManager::refresh_instance(const std::string& instance_id,
     }
 
     if (instance.has_source_instance_id() && !instance.source_instance_id().empty()) {
+        // Instances that have completed snapshot compact should not be in the map
+        if (instance.snapshot_compact_status() == SnapshotCompactStatus::SNAPSHOT_COMPACT_DONE) {
+            instance_source_snapshot_info_.erase(instance_id);
+            return;
+        }
         Versionstamp versionstamp;
         if (!SnapshotManager::parse_snapshot_versionstamp(instance.source_snapshot_id(),
                                                           &versionstamp)) {

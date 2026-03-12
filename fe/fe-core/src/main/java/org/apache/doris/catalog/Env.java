@@ -42,6 +42,8 @@ import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.constraint.Constraint;
+import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer;
 import org.apache.doris.clone.DynamicPartitionScheduler;
@@ -72,13 +74,13 @@ import org.apache.doris.common.publish.TopicPublisher;
 import org.apache.doris.common.publish.TopicPublisherThread;
 import org.apache.doris.common.publish.WorkloadGroupPublisher;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.NetUtils;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.TimeUtils;
@@ -90,6 +92,7 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalMetaIdMgr;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSourceManager;
 import org.apache.doris.datasource.es.EsExternalCatalog;
@@ -157,6 +160,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
+import org.apache.doris.nereids.lineage.LineageEventProcessor;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetPartitionVersionCommand;
@@ -537,6 +541,8 @@ public class Env {
 
     private BinlogManager binlogManager;
 
+    private ConstraintManager constraintManager;
+
     private BinlogGcer binlogGcer;
 
     private QueryCancelWorker queryCancelWorker;
@@ -584,6 +590,8 @@ public class Env {
     private StatisticsMetricCollector statisticsMetricCollector;
 
     private AgentTaskCleanupDaemon agentTaskCleanupDaemon;
+
+    private LineageEventProcessor lineageEventProcessor;
 
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
@@ -685,6 +693,10 @@ public class Env {
 
     public BinlogManager getBinlogManager() {
         return binlogManager;
+    }
+
+    public ConstraintManager getConstraintManager() {
+        return constraintManager;
     }
 
     public KeyManagerInterface getKeyManager() throws Exception {
@@ -807,6 +819,7 @@ public class Env {
 
         this.pluginMgr = new PluginMgr();
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
+        this.lineageEventProcessor = new LineageEventProcessor();
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
         this.indexPolicyMgr = new IndexPolicyMgr();
@@ -826,6 +839,7 @@ public class Env {
         this.queryStats = new QueryStats();
         this.hiveTransactionMgr = new HiveTransactionMgr();
         this.binlogManager = new BinlogManager();
+        this.constraintManager = new ConstraintManager();
         this.binlogGcer = new BinlogGcer();
         this.columnIdFlusher = new ColumnIdFlushDaemon();
         this.queryCancelWorker = new QueryCancelWorker(systemInfo);
@@ -967,6 +981,10 @@ public class Env {
 
     public AuditEventProcessor getAuditEventProcessor() {
         return auditEventProcessor;
+    }
+
+    public LineageEventProcessor getLineageEventProcessor() {
+        return lineageEventProcessor;
     }
 
     public ComputeGroupMgr getComputeGroupMgr() {
@@ -1170,6 +1188,7 @@ public class Env {
         // init plugin manager
         pluginMgr.init();
         auditEventProcessor.start();
+        lineageEventProcessor.start();
 
         cloneClusterSnapshot();
 
@@ -1187,6 +1206,7 @@ public class Env {
         // 3. Load image first and replay edits
         this.editLog = new EditLog(nodeName);
         loadImage(this.imageDir); // load image file
+        migrateConstraintsFromTables(); // migrate old table-based constraints
         editLog.open(); // open bdb env
         this.globalTransactionMgr.setEditLog(editLog);
         this.idGenerator.setEditLog(editLog);
@@ -2869,6 +2889,68 @@ public class Env {
         return checksum;
     }
 
+    public long saveConstraintManager(CountingDataOutputStream out, long checksum) throws IOException {
+        constraintManager.write(out);
+        LOG.info("finished save ConstraintManager to image");
+        return checksum;
+    }
+
+    public long loadConstraintManager(DataInputStream in, long checksum) throws IOException {
+        this.constraintManager = ConstraintManager.read(in);
+        LOG.info("finished replay ConstraintManager from image");
+        return checksum;
+    }
+
+    /**
+     * Migrate constraints from old table-based storage to ConstraintManager.
+     * Called after image loading to handle upgrade from old format.
+     */
+    @SuppressWarnings("unchecked")
+    public void migrateConstraintsFromTables() {
+        if (!constraintManager.isEmpty()) {
+            return;
+        }
+        int migratedCount = 0;
+        for (CatalogIf catalog : catalogMgr.getCopyOfCatalog()) {
+            for (Object dbObj : catalog.getAllDbs()) {
+                DatabaseIf db = (DatabaseIf) dbObj;
+                for (Object tableObj : db.getTables()) {
+                    TableIf table = (TableIf) tableObj;
+                    try {
+                        Map<String, Constraint> oldConstraints = null;
+                        if (table instanceof Table) {
+                            oldConstraints = ((Table) table)
+                                    .getTableAttributes().getConstraintsMap();
+                        } else if (table instanceof ExternalTable) {
+                            oldConstraints = ((ExternalTable) table)
+                                    .getTableAttributes().getConstraintsMap();
+                        } else {
+                            LOG.debug("Skipping constraint migration for "
+                                    + "unsupported table type: {} ({})",
+                                    table.getName(),
+                                    table.getClass().getSimpleName());
+                        }
+                        if (oldConstraints != null && !oldConstraints.isEmpty()) {
+                            String qualifiedName = table.getNameWithFullQualifiers();
+                            constraintManager.migrateFromTable(
+                                    new TableNameInfo(qualifiedName), oldConstraints);
+                            migratedCount += oldConstraints.size();
+                            oldConstraints.clear();
+                        }
+                    } catch (Exception e) {
+                        LOG.warn("Failed to migrate constraints for table {}",
+                                table.getName(), e);
+                    }
+                }
+            }
+        }
+        if (migratedCount > 0) {
+            LOG.info("Migrated {} constraints from old table-based storage "
+                    + "to ConstraintManager", migratedCount);
+            constraintManager.rebuildForeignKeyReferences();
+        }
+    }
+
     public void createLabelCleaner() {
         labelCleaner = new MasterDaemon("LoadLabelCleaner", Config.label_clean_interval_second * 1000L) {
             @Override
@@ -3904,6 +3986,14 @@ public class Env {
             sb.append(olapTable.getTimeSeriesCompactionLevelThreshold()).append("\"");
         }
 
+        // vertical compaction num columns per group
+        if (olapTable.getVerticalCompactionNumColumnsPerGroup()
+                != PropertyAnalyzer.VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP_DEFAULT_VALUE) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP)
+                    .append("\" = \"");
+            sb.append(olapTable.getVerticalCompactionNumColumnsPerGroup()).append("\"");
+        }
+
         // Storage Vault
         if (!Strings.isNullOrEmpty(olapTable.getStorageVaultId())) {
             sb.append(",\n\"").append(PropertyAnalyzer
@@ -4229,7 +4319,7 @@ public class Env {
             sb.append(")");
             if (!brokerTable.getBrokerProperties().isEmpty()) {
                 sb.append("\nBROKER PROPERTIES (\n");
-                sb.append(new PrintableMap<>(brokerTable.getBrokerProperties(), " = ", true, true,
+                sb.append(new DatasourcePrintableMap<>(brokerTable.getBrokerProperties(), " = ", true, true,
                         hidePassword).toString());
                 sb.append("\n)");
             }
@@ -4275,7 +4365,8 @@ public class Env {
             sb.append("\nPROPERTIES (\n");
             sb.append("\"database\" = \"").append(hiveTable.getHiveDb()).append("\",\n");
             sb.append("\"table\" = \"").append(hiveTable.getHiveTable()).append("\",\n");
-            sb.append(new PrintableMap<>(hiveTable.getHiveProperties(), " = ", true, true, hidePassword).toString());
+            sb.append(new DatasourcePrintableMap<>(hiveTable.getHiveProperties(),
+                    " = ", true, true, hidePassword).toString());
             sb.append("\n)");
         } else if (table.getType() == TableType.JDBC) {
             JdbcTable jdbcTable = (JdbcTable) table;
@@ -4647,7 +4738,7 @@ public class Env {
             sb.append(")");
             if (!brokerTable.getBrokerProperties().isEmpty()) {
                 sb.append("\nBROKER PROPERTIES (\n");
-                sb.append(new PrintableMap<>(brokerTable.getBrokerProperties(), " = ", true, true,
+                sb.append(new DatasourcePrintableMap<>(brokerTable.getBrokerProperties(), " = ", true, true,
                         hidePassword).toString());
                 sb.append("\n)");
             }
@@ -4693,7 +4784,8 @@ public class Env {
             sb.append("\nPROPERTIES (\n");
             sb.append("\"database\" = \"").append(hiveTable.getHiveDb()).append("\",\n");
             sb.append("\"table\" = \"").append(hiveTable.getHiveTable()).append("\",\n");
-            sb.append(new PrintableMap<>(hiveTable.getHiveProperties(), " = ", true, true, hidePassword).toString());
+            sb.append(new DatasourcePrintableMap<>(hiveTable.getHiveProperties(),
+                    " = ", true, true, hidePassword).toString());
             sb.append("\n)");
         } else if (table.getType() == TableType.JDBC) {
             JdbcTable jdbcTable = (JdbcTable) table;
@@ -4854,12 +4946,12 @@ public class Env {
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
-                                      Long recycleTime) {
+                                      Long recycleTime) throws DdlException {
         return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
     }
 
     public void replayDropTable(Database db, long tableId, boolean isForceDrop,
-                                Long recycleTime) throws MetaNotFoundException {
+                                Long recycleTime) throws MetaNotFoundException, DdlException {
         getInternalCatalog().replayDropTable(db, tableId, isForceDrop, recycleTime);
     }
 
@@ -5520,6 +5612,11 @@ public class Env {
                 TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), oldTableName,
                         newTableName);
                 editLog.logTableRename(tableInfo);
+                constraintManager.renameTable(
+                        new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
+                                db.getFullName(), oldTableName),
+                        new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
+                                db.getFullName(), newTableName));
                 LOG.info("rename table[{}] to {}", oldTableName, newTableName);
             } finally {
                 table.writeUnlock();
@@ -5551,6 +5648,11 @@ public class Env {
                 db.unregisterTable(tableName);
                 table.setName(newTableName);
                 db.registerTable(table);
+                constraintManager.renameTable(
+                        new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
+                                db.getFullName(), tableName),
+                        new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
+                                db.getFullName(), newTableName));
                 LOG.info("replay rename table[{}] to {}", tableName, newTableName);
             } finally {
                 table.writeUnlock();
@@ -6128,6 +6230,7 @@ public class Env {
                 .buildEnableSingleReplicaCompaction()
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
                 .buildTimeSeriesCompactionLevelThreshold()
+                .buildVerticalCompactionNumColumnsPerGroup()
                 .buildTTLSeconds()
                 .buildAutoAnalyzeProperty()
                 .buildPartitionRetentionCount();

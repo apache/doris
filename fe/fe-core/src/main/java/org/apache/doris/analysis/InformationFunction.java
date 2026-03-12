@@ -18,9 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TInfoFunc;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -61,12 +58,6 @@ public class InformationFunction extends Expr {
     @Override
     public Expr clone() {
         return new InformationFunction(this);
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.INFO_FUNC;
-        msg.info_func = new TInfoFunc(intValue, strValue);
     }
 
     @Override

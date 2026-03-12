@@ -290,4 +290,25 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 oneRowRelation);
         Assertions.assertEquals(expectFilter, result2.first);
     }
+
+    @Test
+    void testAsofJoinUnchange() {
+        String sql = "select pri.id1 from pri asof inner join foreign_not_null "
+                + "match_condition(cast(pri.id1 as datetime) > cast(foreign_not_null.id2 as datetime)) "
+                + "on pri.id1 = foreign_not_null.id2";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .anyMatches(logicalJoin())
+                .printlnTree();
+
+        sql = "select foreign_not_null.id2 from pri asof join foreign_not_null "
+                + "match_condition(cast(pri.id1 as datetime) > cast(foreign_not_null.id2 as datetime)) "
+                + "on pri.id1 = foreign_not_null.id2";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .anyMatches(logicalJoin())
+                .printlnTree();
+    }
 }

@@ -20,7 +20,7 @@ package org.apache.doris.utframe;
 import org.apache.doris.DorisFE;
 import org.apache.doris.DorisFE.StartupOptions;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -134,7 +134,7 @@ public class MockedFrontend {
         // use custom config to add or override default config
         finalFeConf.putAll(feConf);
 
-        PrintableMap<String, String> map = new PrintableMap<>(finalFeConf, "=", false, true, "");
+        DatasourcePrintableMap<String, String> map = new DatasourcePrintableMap<>(finalFeConf, "=", false, true, "");
         File confFile = new File(confDir + "fe.conf");
         if (!confFile.exists()) {
             confFile.createNewFile();

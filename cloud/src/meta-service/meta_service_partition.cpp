@@ -273,7 +273,6 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
             IndexIndexPB index_index_pb;
             index_index_pb.set_db_id(db_id);
             index_index_pb.set_table_id(table_id);
-            LOG(INFO) << index_index_pb.DebugString();
             std::string index_index_value;
             if (!index_index_pb.SerializeToString(&index_index_value)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
@@ -284,6 +283,11 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
             versioned_put(txn.get(), index_meta_key, "");
             txn->put(index_inverted_key, "");
             txn->put(index_index_key, index_index_value);
+            LOG_INFO("put versioned index keys")
+                    .tag("index_id", index_id)
+                    .tag("index_meta_key", hex(index_meta_key))
+                    .tag("index_index_key", hex(index_index_key))
+                    .tag("index_inverted_key", hex(index_inverted_key));
 
             commit_index_log.add_index_ids(index_id);
         }
@@ -313,8 +317,11 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
             txn->put(part_inverted_index_key, "");
             txn->put(part_index_key, part_index_value);
 
-            LOG(INFO) << "xxx put versioned partition index key=" << hex(part_index_key)
-                      << " partition_id=" << partition_id;
+            LOG_INFO("put versioned partition index key")
+                    .tag("partition_id", partition_id)
+                    .tag("part_meta_key", hex(part_meta_key))
+                    .tag("part_index_key", hex(part_index_key))
+                    .tag("part_inverted_index_key", hex(part_inverted_index_key));
 
             commit_index_log.add_partition_ids(partition_id);
         }
@@ -809,7 +816,6 @@ void MetaServiceImpl::commit_partition_internal(const PartitionRequest* request,
             PartitionIndexPB part_index_pb;
             part_index_pb.set_db_id(db_id);
             part_index_pb.set_table_id(table_id);
-            LOG(INFO) << part_index_pb.DebugString();
             std::string part_index_value;
             if (!part_index_pb.SerializeToString(&part_index_value)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
@@ -820,6 +826,11 @@ void MetaServiceImpl::commit_partition_internal(const PartitionRequest* request,
             versioned_put(txn.get(), part_meta_key, "");
             txn->put(part_inverted_index_key, "");
             txn->put(part_index_key, part_index_value);
+            LOG_INFO("put versioned partition index key")
+                    .tag("partition_id", part_id)
+                    .tag("part_meta_key", hex(part_meta_key))
+                    .tag("part_index_key", hex(part_index_key))
+                    .tag("part_inverted_index_key", hex(part_inverted_index_key));
 
             commit_partition_log.add_partition_ids(part_id);
         }

@@ -27,7 +27,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -723,7 +723,7 @@ public class Repository implements Writable, GsonPostProcessable {
         stmtBuilder.append("\nPROPERTIES\n(");
         Map<String, String> properties = new HashMap();
         properties.putAll(this.getRemoteFileSystem().getProperties());
-        stmtBuilder.append(new PrintableMap<>(properties, " = ", true, true, true));
+        stmtBuilder.append(new DatasourcePrintableMap<>(properties, " = ", true, true, true));
         stmtBuilder.append("\n)");
         return stmtBuilder.toString();
     }
