@@ -312,7 +312,8 @@ void MemTableMemoryLimiter::_refresh_mem_tracker() {
     g_memtable_write_memory.set_value(_queue_mem_usage);
     g_memtable_flush_memory.set_value(_flush_mem_usage);
     g_memtable_load_memory.set_value(_mem_usage);
-    VLOG_DEBUG << "refreshed mem_tracker, num writers: " << _writers.size();
+    VLOG_DEBUG << "refreshed mem_tracker, num writers: " << _writers.size()
+               << ", mem usage: " << _mem_usage;
     _mem_tracker->set_consumption(_mem_usage);
     if (!_hard_limit_reached()) {
         _hard_limit_end_cond.notify_all();
