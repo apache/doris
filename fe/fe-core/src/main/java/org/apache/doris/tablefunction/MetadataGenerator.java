@@ -18,6 +18,7 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authentication.AuthenticationIntegrationMeta;
 import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
@@ -49,6 +50,7 @@ import org.apache.doris.common.proc.PartitionsProcDir;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
@@ -128,7 +130,9 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
@@ -157,6 +161,8 @@ public class MetadataGenerator {
     private static final ImmutableMap<String, Integer> VIEW_DEPENDENCY_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> SQL_BLOCK_RULE_STATUS_COLUMN_TO_INDEX;
+
+    private static final ImmutableMap<String, Integer> AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX;
 
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
@@ -235,6 +241,15 @@ public class MetadataGenerator {
             sqlBlockRuleStatusBuilder.put(sqlBlockRuleStatusBuilderColList.get(i).getName().toLowerCase(), i);
         }
         SQL_BLOCK_RULE_STATUS_COLUMN_TO_INDEX = sqlBlockRuleStatusBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> authenticationIntegrationsBuilder = new ImmutableMap.Builder();
+        List<Column> authenticationIntegrationsColList = SchemaTable.TABLE_MAP.get("authentication_integrations")
+                .getFullSchema();
+        for (int i = 0; i < authenticationIntegrationsColList.size(); i++) {
+            authenticationIntegrationsBuilder.put(
+                    authenticationIntegrationsColList.get(i).getName().toLowerCase(), i);
+        }
+        AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX = authenticationIntegrationsBuilder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
@@ -348,6 +363,10 @@ public class MetadataGenerator {
             case SQL_BLOCK_RULE_STATUS:
                 result = sqlBlockRuleStatusMetadataResult(schemaTableParams);
                 columnIndex = SQL_BLOCK_RULE_STATUS_COLUMN_TO_INDEX;
+                break;
+            case AUTHENTICATION_INTEGRATIONS:
+                result = authenticationIntegrationsMetadataResult(schemaTableParams);
+                columnIndex = AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX;
                 break;
             default:
                 return errorResult("invalid schema table name.");
@@ -687,6 +706,83 @@ public class MetadataGenerator {
             dataBatch.add(trow);
         }
         return result;
+    }
+
+    private static TFetchSchemaTableDataResult authenticationIntegrationsMetadataResult(
+            TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        UserIdentity currentUserIdentity = UserIdentity.fromThrift(params.getCurrentUserIdent());
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUserIdentity, PrivPredicate.ADMIN)) {
+            return result;
+        }
+
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> nameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "NAME");
+        List<Expression> typeConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "TYPE");
+
+        for (AuthenticationIntegrationMeta meta : Env.getCurrentEnv().getAuthenticationIntegrationMgr()
+                .getAuthenticationIntegrations().values()) {
+            if (FrontendConjunctsUtils.isFiltered(nameConjuncts, "NAME", meta.getName())
+                    || FrontendConjunctsUtils.isFiltered(typeConjuncts, "TYPE", meta.getType())) {
+                continue;
+            }
+            TRow row = new TRow();
+            row.addToColumnValue(new TCell().setStringVal(meta.getName()));
+            row.addToColumnValue(new TCell().setStringVal(meta.getType()));
+            row.addToColumnValue(new TCell().setStringVal(maskAuthenticationProperties(meta.getProperties())));
+            if (meta.getComment() == null) {
+                row.addToColumnValue(new TCell());
+            } else {
+                row.addToColumnValue(new TCell().setStringVal(meta.getComment()));
+            }
+            row.addToColumnValue(new TCell().setStringVal(meta.getCreateUser()));
+            row.addToColumnValue(new TCell().setStringVal(meta.getCreateTimeString()));
+            row.addToColumnValue(new TCell().setStringVal(meta.getAlterUser()));
+            row.addToColumnValue(new TCell().setStringVal(meta.getModifyTimeString()));
+            dataBatch.add(row);
+        }
+        return result;
+    }
+
+    private static String maskAuthenticationProperties(Map<String, String> properties) {
+        Map<String, String> maskedProperties = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (shouldMaskAuthenticationProperty(entry.getKey())) {
+                maskedProperties.put(entry.getKey(), DatasourcePrintableMap.PASSWORD_MASK);
+            } else {
+                maskedProperties.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return new DatasourcePrintableMap<>(maskedProperties, "=", true, false).toString();
+    }
+
+    private static boolean shouldMaskAuthenticationProperty(String key) {
+        String lowerCaseKey = key.toLowerCase(Locale.ROOT);
+        return DatasourcePrintableMap.SENSITIVE_KEY.contains(key)
+                || lowerCaseKey.equals("password")
+                || lowerCaseKey.endsWith(".password")
+                || lowerCaseKey.endsWith("_password")
+                || lowerCaseKey.equals("secret")
+                || lowerCaseKey.endsWith(".secret")
+                || lowerCaseKey.endsWith("_secret")
+                || lowerCaseKey.endsWith(".secret_key")
+                || lowerCaseKey.endsWith("_secret_key")
+                || lowerCaseKey.endsWith(".token")
+                || lowerCaseKey.endsWith("_token")
+                || lowerCaseKey.endsWith(".credential")
+                || lowerCaseKey.endsWith("_credential")
+                || lowerCaseKey.endsWith(".keytab")
+                || lowerCaseKey.endsWith("_keytab")
+                || lowerCaseKey.endsWith("keytab_content");
     }
 
     private static TFetchSchemaTableDataResult viewDependencyMetadataResult(TSchemaTableRequestParams params) {
