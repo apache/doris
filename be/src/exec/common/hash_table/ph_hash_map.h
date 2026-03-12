@@ -188,6 +188,12 @@ public:
         for (auto& v : *this) func(v.get_second());
     }
 
+    /// Call func(const Key &, Mapped &) for each hash map element.
+    template <typename Func>
+    void for_each(Func&& func) {
+        for (auto& v : *this) func(v.get_first(), v.get_second());
+    }
+
     size_t get_buffer_size_in_bytes() const {
         const auto capacity = _hash_map.capacity();
         return capacity * sizeof(typename HashMapImpl::slot_type);
