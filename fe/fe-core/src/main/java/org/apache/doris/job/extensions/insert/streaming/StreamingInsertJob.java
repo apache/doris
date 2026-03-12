@@ -615,7 +615,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             //update metric
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_STREAMING_JOB_TASK_EXECUTE_COUNT.increase(1L);
-                MetricRepo.COUNTER_STREAMING_JOB_TASK_EXECUTE_TIME.increase(task.getFinishTimeMs() - task.getStartTimeMs());
+                MetricRepo.COUNTER_STREAMING_JOB_TASK_EXECUTE_TIME.increase(
+                        task.getFinishTimeMs() - task.getStartTimeMs());
             }
 
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
