@@ -89,8 +89,7 @@ public:
     // for vertical compaction
     Status init(const std::vector<uint32_t>& col_ids, bool has_key);
 
-    template <typename RowType>
-    Status append_row(const RowType& row);
+    Status append_row(const RowCursor& row);
 
     Status append_block(const Block* block, size_t row_pos, size_t num_rows);
     Status probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,

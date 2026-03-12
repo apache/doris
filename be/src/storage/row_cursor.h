@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 
+#include "common/consts.h"
 #include "common/status.h"
 #include "storage/olap_tuple.h"
 #include "storage/row_cursor_cell.h"
@@ -80,6 +81,63 @@ public:
     const StorageField* column_schema(uint32_t cid) const { return _schema->column(cid); }
 
     const Schema* schema() const { return _schema.get(); }
+
+    // Encode one row into binary according given num_keys.
+    // A cell will be encoded in the format of a marker and encoded content.
+    // When encoding row, if any cell isn't found in row, this function will
+    // fill a marker and return. If padding_minimal is true, KEY_MINIMAL_MARKER will
+    // be added, if padding_minimal is false, KEY_MAXIMAL_MARKER will be added.
+    // If all num_keys are found in row, no marker will be added.
+    template <bool is_mow = false>
+    void encode_key_with_padding(std::string* buf, size_t num_keys, bool padding_minimal) const {
+        for (uint32_t cid = 0; cid < num_keys; cid++) {
+            auto field = _schema->column(cid);
+            if (field == nullptr) {
+                if (padding_minimal) {
+                    buf->push_back(KeyConsts::KEY_MINIMAL_MARKER);
+                } else {
+                    if (is_mow) {
+                        buf->push_back(KeyConsts::KEY_NORMAL_NEXT_MARKER);
+                    } else {
+                        buf->push_back(KeyConsts::KEY_MAXIMAL_MARKER);
+                    }
+                }
+                break;
+            }
+
+            auto c = cell(cid);
+            if (c.is_null()) {
+                buf->push_back(KeyConsts::KEY_NULL_FIRST_MARKER);
+                continue;
+            }
+            buf->push_back(KeyConsts::KEY_NORMAL_MARKER);
+            if (is_mow) {
+                field->full_encode_ascending(c.cell_ptr(), buf);
+            } else {
+                field->encode_ascending(c.cell_ptr(), buf);
+            }
+        }
+    }
+
+    // Encode one row into binary according given num_keys.
+    // Client call this function must assure that row contains the first
+    // num_keys columns.
+    template <bool full_encode = false>
+    void encode_key(std::string* buf, size_t num_keys) const {
+        for (uint32_t cid = 0; cid < num_keys; cid++) {
+            auto c = cell(cid);
+            if (c.is_null()) {
+                buf->push_back(KeyConsts::KEY_NULL_FIRST_MARKER);
+                continue;
+            }
+            buf->push_back(KeyConsts::KEY_NORMAL_MARKER);
+            if (full_encode) {
+                _schema->column(cid)->full_encode_ascending(c.cell_ptr(), buf);
+            } else {
+                _schema->column(cid)->encode_ascending(c.cell_ptr(), buf);
+            }
+        }
+    }
 
 private:
     Status _init(TabletSchemaSPtr schema, uint32_t column_count);
