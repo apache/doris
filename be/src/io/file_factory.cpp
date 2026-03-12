@@ -235,9 +235,20 @@ Result<io::FileReaderSPtr> FileFactory::create_file_reader(
         }
         RETURN_IF_ERROR_RESULT(ExecEnv::GetInstance()->hdfs_mgr()->get_or_create_fs(
                 system_properties.hdfs_params, *fs_name, &handler));
+        std::string bee_user;
+        std::string bee_source;
+        if (system_properties.hdfs_params.__isset.hdfs_conf) {
+            for (const auto& conf : system_properties.hdfs_params.hdfs_conf) {
+                if (conf.key == "BEE_USER") {
+                    bee_user = conf.value;
+                } else if (conf.key == "BEE_SOURCE") {
+                    bee_source = conf.value;
+                }
+            }
+        }
         return io::HdfsFileReader::create(file_description.path, handler,
-                                          system_properties.hdfs_params.user, *fs_name,
-                                          reader_options, profile)
+                                          system_properties.hdfs_params.user, bee_user,
+                                          bee_source, *fs_name, reader_options, profile)
                 .and_then([&](auto&& reader) {
                     return io::create_cached_file_reader(std::move(reader), reader_options);
                 });

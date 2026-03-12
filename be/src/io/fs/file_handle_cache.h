@@ -40,14 +40,18 @@ class HdfsHandler;
 
 class FileHandleCacheKey {
 public:
-    FileHandleCacheKey(const std::string& user, const std::string& fname, int64_t mtime)
-        : user(user), fname(fname), mtime(mtime) {}
+    FileHandleCacheKey(const std::string& user, const std::string& fname, int64_t mtime,
+                       const std::string& bee_user = "", const std::string& bee_source = "")
+            : user(user), fname(fname), mtime(mtime), bee_user(bee_user), bee_source(bee_source) {}
     bool operator==(const FileHandleCacheKey& other) const {
-        return user == other.user && fname == other.fname && mtime == other.mtime;
+        return user == other.user && fname == other.fname && mtime == other.mtime &&
+               bee_user == other.bee_user && bee_source == other.bee_source;
     }
     std::string user;
     std::string fname;
     int64_t mtime;
+    std::string bee_user;
+    std::string bee_source;
 };
 }
 namespace std {
@@ -58,6 +62,8 @@ struct hash<doris::io::FileHandleCacheKey> {
         doris::HashUtil::hash_combine(seed, key.user);
         doris::HashUtil::hash_combine(seed, key.fname);
         doris::HashUtil::hash_combine(seed, key.mtime);
+        doris::HashUtil::hash_combine(seed, key.bee_user);
+        doris::HashUtil::hash_combine(seed, key.bee_source);
         return seed;
     }
 };
@@ -207,7 +213,8 @@ public:
     ///
     /// This obtains exclusive control over the returned file handle.
     Status get_file_handle(std::shared_ptr<HdfsHandler> fs_handler, const std::string& user,
-                           const std::string& fname, int64_t mtime, int64_t file_size,
+                           const std::string& fname, const std::string& bee_user,
+                           const std::string& bee_source, int64_t mtime, int64_t file_size,
                            bool require_new_handle, Accessor* accessor,
                            bool* cache_hit) WARN_UNUSED_RESULT;
 

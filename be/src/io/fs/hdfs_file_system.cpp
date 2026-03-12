@@ -45,6 +45,22 @@
 
 namespace doris::io {
 
+namespace {
+
+std::string get_hdfs_conf_value(const THdfsParams& hdfs_params, const char* key) {
+    if (!hdfs_params.__isset.hdfs_conf) {
+        return "";
+    }
+    for (const auto& conf : hdfs_params.hdfs_conf) {
+        if (conf.key == key) {
+            return conf.value;
+        }
+    }
+    return "";
+}
+
+}
+
 #ifndef CHECK_HDFS_HANDLER
 #define CHECK_HDFS_HANDLER(handler)                        \
     if (!handler) {                                        \
@@ -112,8 +128,10 @@ Status HdfsFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
 Status HdfsFileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader,
                                           const FileReaderOptions& opts) {
     CHECK_HDFS_HANDLER(_fs_handler);
-    *reader = DORIS_TRY(
-            HdfsFileReader::create(file, _fs_handler, _hdfs_params.user, _fs_name, opts, _profile));
+    const std::string bee_user = get_hdfs_conf_value(_hdfs_params, "BEE_USER");
+    const std::string bee_source = get_hdfs_conf_value(_hdfs_params, "BEE_SOURCE");
+    *reader = DORIS_TRY(HdfsFileReader::create(file, _fs_handler, _hdfs_params.user, bee_user,
+                                               bee_source, _fs_name, opts, _profile));
     return Status::OK();
 }
 

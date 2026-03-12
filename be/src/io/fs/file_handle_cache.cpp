@@ -159,7 +159,9 @@ Status FileHandleCache::init() {
 
 Status FileHandleCache::get_file_handle(std::shared_ptr<HdfsHandler> fs_handler,
                                         const std::string& user, const std::string& fname,
-                                        int64_t mtime, int64_t file_size, bool require_new_handle,
+                                        const std::string& bee_user,
+                                        const std::string& bee_source, int64_t mtime,
+                                        int64_t file_size, bool require_new_handle,
                                         FileHandleCache::Accessor* accessor, bool* cache_hit) {
     DCHECK_GE(mtime, 0);
     // Hash the key and get appropriate partition
@@ -167,7 +169,7 @@ Status FileHandleCache::get_file_handle(std::shared_ptr<HdfsHandler> fs_handler,
             HashUtil::hash(fname.data(), cast_set<int>(fname.size()), 0) % _cache_partitions.size();
     FileHandleCachePartition& p = _cache_partitions[index];
 
-    FileHandleCacheKey cache_key(user, fname, mtime);
+    FileHandleCacheKey cache_key(user, fname, mtime, bee_user, bee_source);
 
     // If this requires a new handle, skip to the creation codepath. Otherwise,
     // find an unused entry with the same mtime

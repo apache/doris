@@ -134,9 +134,8 @@ Status HdfsMgr::get_or_create_fs(const THdfsParams& hdfs_params, const std::stri
 #endif
     std::string cache_key = _hdfs_cache_key(hdfs_params, fs_name);
 
-    // First check without lock
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
+    std::unique_lock<std::mutex> lock(_mutex);
+    while (true) {
         auto it = _fs_handlers.find(cache_key);
         if (it != _fs_handlers.end()) {
             LOG(INFO) << "Reuse existing HDFS handler, cache_key=" << cache_key
@@ -146,39 +145,43 @@ Status HdfsMgr::get_or_create_fs(const THdfsParams& hdfs_params, const std::stri
             *fs_handler = it->second;
             return Status::OK();
         }
+
+        if (_creating_fs.find(cache_key) != _creating_fs.end()) {
+            _creation_cv.wait(lock);
+            continue;
+        }
+
+        _creating_fs.insert(cache_key);
+        break;
     }
 
-    // Create new hdfsFS handler outside the lock
+    lock.unlock();
+
     LOG(INFO) << "Start to create new HDFS handler, cache_key=" << cache_key
               << ", fs_name=" << fs_name;
 
     std::shared_ptr<HdfsHandler> new_fs_handler;
-    RETURN_IF_ERROR(_create_hdfs_fs(hdfs_params, fs_name, &new_fs_handler));
+    Status create_status = _create_hdfs_fs(hdfs_params, fs_name, &new_fs_handler);
 
-    // Double check with lock before inserting
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
+    lock.lock();
+    if (create_status.ok()) {
         auto it = _fs_handlers.find(cache_key);
         if (it != _fs_handlers.end()) {
-            // Another thread has created the handler, use it instead
-            LOG(INFO) << "Another thread created HDFS handler, reuse it, cache_key=" << cache_key
-                      << ", is_kerberos=" << it->second->is_kerberos_auth
-                      << ", principal=" << it->second->principal << ", fs_name=" << fs_name;
             it->second->update_access_time();
             *fs_handler = it->second;
-            return Status::OK();
+        } else {
+            *fs_handler = new_fs_handler;
+            _fs_handlers[cache_key] = new_fs_handler;
+
+            LOG(INFO) << "Finished create new HDFS handler, cache_key=" << cache_key
+                      << ", is_kerberos=" << new_fs_handler->is_kerberos_auth
+                      << ", principal=" << new_fs_handler->principal << ", fs_name=" << fs_name;
         }
-
-        // Store the new handler
-        *fs_handler = new_fs_handler;
-        _fs_handlers[cache_key] = new_fs_handler;
-
-        LOG(INFO) << "Finished create new HDFS handler, cache_key=" << cache_key
-                  << ", is_kerberos=" << new_fs_handler->is_kerberos_auth
-                  << ", principal=" << new_fs_handler->principal << ", fs_name=" << fs_name;
     }
 
-    return Status::OK();
+    _creating_fs.erase(cache_key);
+    _creation_cv.notify_all();
+    return create_status;
 }
 
 Status HdfsMgr::_create_hdfs_fs_impl(const THdfsParams& hdfs_params, const std::string& fs_name,
