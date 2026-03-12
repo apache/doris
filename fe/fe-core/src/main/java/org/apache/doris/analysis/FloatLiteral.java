@@ -20,8 +20,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FractionalFormat;
 import org.apache.doris.foundation.format.FormatOptions;
-import org.apache.doris.nereids.trees.expressions.literal.format.FractionalFormat;
 
 import com.google.gson.annotations.SerializedName;
 

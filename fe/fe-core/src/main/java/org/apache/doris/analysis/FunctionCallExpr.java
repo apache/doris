@@ -22,7 +22,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Function;
-import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.catalog.FunctionName;
+import org.apache.doris.common.NameFormatUtils;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
@@ -102,7 +103,8 @@ public class FunctionCallExpr extends Expr {
     @Override
     public String getExprName() {
         if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(Utils.normalizeName(this.getFnName().getFunction(), DEFAULT_EXPR_NAME));
+            this.exprName = Optional.of(
+                    NameFormatUtils.normalizeName(this.getFnName().getFunction(), DEFAULT_EXPR_NAME));
         }
         return this.exprName.get();
     }

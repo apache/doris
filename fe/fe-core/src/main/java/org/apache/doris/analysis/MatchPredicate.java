@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.Type;
 
@@ -75,8 +76,8 @@ public class MatchPredicate extends Predicate {
 
     private MatchPredicate() {
         // use for serde only
-        invertedIndexParser = InvertedIndexUtil.INVERTED_INDEX_PARSER_UNKNOWN;
-        invertedIndexParserMode = InvertedIndexUtil.INVERTED_INDEX_PARSER_FINE_GRANULARITY;
+        invertedIndexParser = InvertedIndexProperties.INVERTED_INDEX_PARSER_UNKNOWN;
+        invertedIndexParserMode = InvertedIndexProperties.INVERTED_INDEX_PARSER_FINE_GRANULARITY;
     }
 
     protected MatchPredicate(MatchPredicate other) {
@@ -114,10 +115,10 @@ public class MatchPredicate extends Predicate {
                 invertedIndex != null, this.invertedIndexParser);
 
         // Extract additional index properties for thrift serialization
-        this.invertedIndexParserMode = InvertedIndexUtil.getInvertedIndexParserMode(properties);
-        this.invertedIndexCharFilter = InvertedIndexUtil.getInvertedIndexCharFilter(properties);
-        this.invertedIndexParserLowercase = InvertedIndexUtil.getInvertedIndexParserLowercase(properties);
-        this.invertedIndexParserStopwords = InvertedIndexUtil.getInvertedIndexParserStopwords(properties);
+        this.invertedIndexParserMode = InvertedIndexProperties.getInvertedIndexParserMode(properties);
+        this.invertedIndexCharFilter = InvertedIndexProperties.getInvertedIndexCharFilter(properties);
+        this.invertedIndexParserLowercase = InvertedIndexProperties.getInvertedIndexParserLowercase(properties);
+        this.invertedIndexParserStopwords = InvertedIndexProperties.getInvertedIndexParserStopwords(properties);
 
         if (!Strings.isNullOrEmpty(analyzer)) {
             // Normalize to lowercase for case-insensitive matching
@@ -184,6 +185,6 @@ public class MatchPredicate extends Predicate {
     }
 
     String analyzerSqlFragment() {
-        return InvertedIndexUtil.buildAnalyzerSqlFragment(explicitAnalyzer);
+        return InvertedIndexProperties.buildAnalyzerSqlFragment(explicitAnalyzer);
     }
 }

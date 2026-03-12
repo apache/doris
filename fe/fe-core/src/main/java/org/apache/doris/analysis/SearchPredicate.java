@@ -17,17 +17,12 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.SearchDslParser.QsPlan;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser.QsPlan;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.StmtExecutor;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.stream.IntStream;
 
 /**
  * Translation layer predicate that generates TExprNodeType::SEARCH_EXPR
@@ -92,40 +87,6 @@ public class SearchPredicate extends Predicate {
     @Override
     public int hashCode() {
         return java.util.Objects.hash(super.hashCode(), dslString);
-    }
-
-    boolean isExplainVerboseContext() {
-        ConnectContext ctx = ConnectContext.get();
-        if (ctx == null) {
-            return false;
-        }
-        StmtExecutor executor = ctx.getExecutor();
-        if (executor == null || executor.getParsedStmt() == null
-                || executor.getParsedStmt().getExplainOptions() == null) {
-            return false;
-        }
-        return executor.getParsedStmt().getExplainOptions().isVerbose();
-    }
-
-    List<String> buildFieldBindingExplainLines() {
-        List<String> lines = new ArrayList<>();
-        if (qsPlan == null || qsPlan.getFieldBindings() == null || qsPlan.getFieldBindings().isEmpty()) {
-            return lines;
-        }
-        IntStream.range(0, qsPlan.getFieldBindings().size()).forEach(index -> {
-            SearchDslParser.QsFieldBinding binding = qsPlan.getFieldBindings().get(index);
-            String slotDesc = "<unbound>";
-            if (index < children.size() && children.get(index) instanceof SlotRef) {
-                SlotRef slotRef = (SlotRef) children.get(index);
-                slotDesc = slotRef.getSlotId() != null
-                        ? "slot=" + slotRef.getSlotId().asInt()
-                        : slotRef.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
-            } else if (index < children.size()) {
-                slotDesc = children.get(index).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
-            }
-            lines.add(binding.getFieldName() + " -> " + slotDesc);
-        });
-        return lines;
     }
 
     public String getDslString() {

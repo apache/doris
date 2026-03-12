@@ -28,8 +28,8 @@ import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.DynamicPartitionUtil;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
@@ -424,7 +424,7 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("PROPERTIES (");
-        sb.append(new PrintableMap<String, String>(properties, "=", true, false));
+        sb.append(new DatasourcePrintableMap<String, String>(properties, "=", true, false));
         sb.append(")");
 
         return sb.toString();

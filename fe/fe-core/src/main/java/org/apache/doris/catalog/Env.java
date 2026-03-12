@@ -74,13 +74,13 @@ import org.apache.doris.common.publish.TopicPublisher;
 import org.apache.doris.common.publish.TopicPublisherThread;
 import org.apache.doris.common.publish.WorkloadGroupPublisher;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.NetUtils;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.TimeUtils;
@@ -4339,7 +4339,7 @@ public class Env {
             sb.append(")");
             if (!brokerTable.getBrokerProperties().isEmpty()) {
                 sb.append("\nBROKER PROPERTIES (\n");
-                sb.append(new PrintableMap<>(brokerTable.getBrokerProperties(), " = ", true, true,
+                sb.append(new DatasourcePrintableMap<>(brokerTable.getBrokerProperties(), " = ", true, true,
                         hidePassword).toString());
                 sb.append("\n)");
             }
@@ -4385,7 +4385,8 @@ public class Env {
             sb.append("\nPROPERTIES (\n");
             sb.append("\"database\" = \"").append(hiveTable.getHiveDb()).append("\",\n");
             sb.append("\"table\" = \"").append(hiveTable.getHiveTable()).append("\",\n");
-            sb.append(new PrintableMap<>(hiveTable.getHiveProperties(), " = ", true, true, hidePassword).toString());
+            sb.append(new DatasourcePrintableMap<>(hiveTable.getHiveProperties(),
+                    " = ", true, true, hidePassword).toString());
             sb.append("\n)");
         } else if (table.getType() == TableType.JDBC) {
             JdbcTable jdbcTable = (JdbcTable) table;
@@ -4757,7 +4758,7 @@ public class Env {
             sb.append(")");
             if (!brokerTable.getBrokerProperties().isEmpty()) {
                 sb.append("\nBROKER PROPERTIES (\n");
-                sb.append(new PrintableMap<>(brokerTable.getBrokerProperties(), " = ", true, true,
+                sb.append(new DatasourcePrintableMap<>(brokerTable.getBrokerProperties(), " = ", true, true,
                         hidePassword).toString());
                 sb.append("\n)");
             }
@@ -4803,7 +4804,8 @@ public class Env {
             sb.append("\nPROPERTIES (\n");
             sb.append("\"database\" = \"").append(hiveTable.getHiveDb()).append("\",\n");
             sb.append("\"table\" = \"").append(hiveTable.getHiveTable()).append("\",\n");
-            sb.append(new PrintableMap<>(hiveTable.getHiveProperties(), " = ", true, true, hidePassword).toString());
+            sb.append(new DatasourcePrintableMap<>(hiveTable.getHiveProperties(),
+                    " = ", true, true, hidePassword).toString());
             sb.append("\n)");
         } else if (table.getType() == TableType.JDBC) {
             JdbcTable jdbcTable = (JdbcTable) table;
