@@ -55,6 +55,14 @@ public:
     // Manually trigger snapshot compact for an instance.
     virtual std::pair<MetaServiceCode, std::string> compact_snapshot(std::string_view instance_id);
 
+    // Decouple a cloned instance from its source snapshot.
+    //
+    // It removes the snapshot reference key in the source instance, and clears
+    // source_snapshot_id and source_instance_id from the cloned instance PB.
+    // The instance must have been created via clone_instance, and its snapshot_compact_status
+    // must be SNAPSHOT_COMPACT_DONE.
+    std::pair<MetaServiceCode, std::string> decouple_instance(std::string_view instance_id);
+
     virtual std::pair<MetaServiceCode, std::string> set_multi_version_status(
             std::string_view instance_id, MultiVersionStatus multi_version_status);
 
