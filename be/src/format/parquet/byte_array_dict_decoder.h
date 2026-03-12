@@ -54,7 +54,8 @@ public:
 
     Status read_dict_values_to_column(MutableColumnPtr& doris_column) override;
 
-    MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override;
+    Result<MutableColumnPtr> convert_dict_column_to_string_column(
+            const ColumnInt32* dict_column) override;
 
 protected:
     // For dictionary encoding

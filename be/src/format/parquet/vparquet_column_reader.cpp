@@ -510,7 +510,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::read_dict_values_to_colu
     return Status::OK();
 }
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
-MutableColumnPtr
+Result<MutableColumnPtr>
 ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::convert_dict_column_to_string_column(
         const ColumnInt32* dict_column) {
     return _chunk_reader->convert_dict_column_to_string_column(dict_column);

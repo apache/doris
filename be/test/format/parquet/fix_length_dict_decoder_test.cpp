@@ -488,8 +488,8 @@ TEST_F(FixLengthDictDecoderTest, test_convert_dict_column_to_string_column) {
     dict_column->insert(Field::create_field<TYPE_INT>(1));
 
     // Convert to string column
-    MutableColumnPtr string_column = _decoder.convert_dict_column_to_string_column(
-            assert_cast<ColumnInt32*>(dict_column.get()));
+    auto string_column = TEST_TRY(_decoder.convert_dict_column_to_string_column(
+            assert_cast<ColumnInt32*>(dict_column.get())));
 
     // Verify results
     ASSERT_EQ(string_column->size(), 4);
