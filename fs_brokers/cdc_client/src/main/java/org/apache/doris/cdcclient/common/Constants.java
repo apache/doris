@@ -23,4 +23,6 @@ public class Constants {
 
     // Debezium default properties
     public static final long DEBEZIUM_HEARTBEAT_INTERVAL_MS = 3000L;
+
+    public static final String DORIS_TARGET_DB = "doris_target_db";
 }
