@@ -17,21 +17,33 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
+import org.apache.doris.statistics.Statistics;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableMap;
 import mockit.Mock;
 import mockit.MockUp;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
 
 public class DistinctAggregateRewriterTest extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
@@ -42,6 +54,14 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
                 + "distributed by hash(a) properties('replication_num' = '1');");
         connectContext.setDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        new SessionVariableMockUp();
+    }
+
+    private static class SessionVariableMockUp extends MockUp<SessionVariable> {
+        @Mock
+        private int getParallelExecInstanceNum(String clusterName) {
+            return 24;
+        }
     }
 
     private void applyMock() {
@@ -198,5 +218,101 @@ public class DistinctAggregateRewriterTest extends TestWithFeService implements 
                                 && agg.getAggregateFunctions().stream().noneMatch(AggregateFunction::isDistinct)
                                 && agg.getAggregateFunctions().stream().anyMatch(f -> f instanceof MultiDistinctCount)
                         ));
+        connectContext.getSessionVariable().setAggPhase(0);
+    }
+
+    @Test
+    void testShouldUseMultiDistinctWithoutStatsSatisfyDistribution() throws Exception {
+        DistinctAggregateRewriter rewriter = DistinctAggregateRewriter.INSTANCE;
+        LogicalAggregate<? extends Plan> aggregate = getLogicalAggregate(
+                "select bb, count(distinct aa) from "
+                        + "(select a as aa, b as bb from test.distinct_agg_split_t where b > 1) t "
+                        + "group by bb"
+        );
+        Plan child = aggregate.child();
+        Map<org.apache.doris.nereids.trees.expressions.Expression, ColumnStatistic> colStats = new HashMap<>();
+        aggregate.getGroupByExpressions().forEach(expr ->
+                colStats.put(expr, unknownColumnStats()));
+        aggregate.getDistinctArguments().forEach(expr ->
+                colStats.put(expr, unknownColumnStats()));
+        ((AbstractPlan) child).setStatistics(new Statistics(10000, colStats));
+        aggregate.setStatistics(new Statistics(100, ImmutableMap.of()));
+
+        Assertions.assertFalse(rewriter.shouldUseMultiDistinct(aggregate));
+    }
+
+    @Test
+    void testShouldUseMultiDistinctWithStatsSelected() throws Exception {
+        DistinctAggregateRewriter rewriter = new DistinctAggregateRewriter();
+        LogicalAggregate<? extends Plan> aggregate = getLogicalAggregate(
+                "select b, count(distinct a) from test.distinct_agg_split_t group by b"
+        );
+        Plan child = aggregate.child();
+        Map<org.apache.doris.nereids.trees.expressions.Expression, ColumnStatistic> colStats = new HashMap<>();
+        aggregate.getGroupByExpressions().forEach(expr ->
+                colStats.put(expr, buildColumnStats(240, false)));
+        aggregate.getDistinctArguments().forEach(expr ->
+                colStats.put(expr, buildColumnStats(10000.0, false)));
+        ((AbstractPlan) child).setStatistics(new Statistics(100000, colStats));
+        aggregate.setStatistics(new Statistics(240, ImmutableMap.of()));
+
+        Assertions.assertTrue(rewriter.shouldUseMultiDistinct(aggregate));
+    }
+
+    @Test
+    void testShouldUseMultiDistinctWithStatsNotSelected() throws Exception {
+        DistinctAggregateRewriter rewriter = new DistinctAggregateRewriter();
+        LogicalAggregate<? extends Plan> aggregate = getLogicalAggregate(
+                "select b, count(distinct a) from test.distinct_agg_split_t group by b"
+        );
+        Plan child = aggregate.child();
+        Map<org.apache.doris.nereids.trees.expressions.Expression, ColumnStatistic> colStats = new HashMap<>();
+        aggregate.getGroupByExpressions().forEach(expr ->
+                colStats.put(expr, buildColumnStats(1000.0, false)));
+        aggregate.getDistinctArguments().forEach(expr ->
+                colStats.put(expr, buildColumnStats(10000.0, false)));
+        ((AbstractPlan) child).setStatistics(new Statistics(100000, colStats));
+        aggregate.setStatistics(new Statistics(1000.0, ImmutableMap.of()));
+
+        Assertions.assertFalse(rewriter.shouldUseMultiDistinct(aggregate));
+    }
+
+    private LogicalAggregate<? extends Plan> getLogicalAggregate(String sql) {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
+                .getPlan();
+        Optional<LogicalAggregate<? extends Plan>> aggregate = findAggregate(plan);
+        Assertions.assertTrue(aggregate.isPresent());
+        return aggregate.get();
+    }
+
+    private Optional<LogicalAggregate<? extends Plan>> findAggregate(Plan plan) {
+        if (plan instanceof LogicalAggregate) {
+            return Optional.of((LogicalAggregate<? extends Plan>) plan);
+        }
+        for (Plan child : plan.children()) {
+            Optional<LogicalAggregate<? extends Plan>> found = findAggregate(child);
+            if (found.isPresent()) {
+                return found;
+            }
+        }
+        return Optional.empty();
+    }
+
+    private ColumnStatistic unknownColumnStats() {
+        return buildColumnStats(0.0, true);
+    }
+
+    private ColumnStatistic buildColumnStats(double ndv, boolean isUnknown) {
+        return new ColumnStatisticBuilder(1)
+                .setNdv(ndv)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(0)
+                .setMaxValue(100)
+                .setIsUnknown(isUnknown)
+                .setUpdatedTime("")
+                .build();
     }
 }
