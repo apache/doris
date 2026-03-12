@@ -19,10 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TJsonLiteral;
+import org.apache.doris.foundation.format.FormatOptions;
 
 import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
@@ -85,12 +82,6 @@ public class JsonLiteral extends LiteralExpr {
     @Override
     public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
         return visitor.visitJsonLiteral(this, context);
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.JSON_LITERAL;
-        msg.json_literal = new TJsonLiteral(getUnescapedValue());
     }
 
     @Override

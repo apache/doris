@@ -17,6 +17,7 @@
 
 #include "exec/operator/hashjoin_probe_operator.h"
 
+#include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 
 #include <string>
@@ -66,6 +67,18 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     _non_equal_join_conjuncts_timer =
             ADD_TIMER(custom_profile(), "NonEqualJoinConjunctEvaluationTime");
     _init_probe_side_timer = ADD_TIMER(custom_profile(), "InitProbeSideTime");
+
+    // ASOF probe counters (only for ASOF join types)
+    if (is_asof_join(p._join_op) && state->enable_profile() && state->profile_level() >= 2) {
+        static constexpr auto SEARCH_HASH_TABLE_TIMER = "ProbeWhenSearchHashTableTime";
+        _asof_probe_expr_timer = ADD_CHILD_TIMER_WITH_LEVEL(custom_profile(), "AsofProbeExprTime",
+                                                            SEARCH_HASH_TABLE_TIMER, 2);
+        _asof_probe_hash_chain_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                custom_profile(), "AsofProbeHashChainTime", SEARCH_HASH_TABLE_TIMER, 2);
+        _asof_probe_search_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+                custom_profile(), "AsofProbeBinarySearchTime", SEARCH_HASH_TABLE_TIMER, 2);
+    }
+
     return Status::OK();
 }
 
@@ -75,6 +88,7 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(JoinProbeLocalState::open(state));
 
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
+
     Status res;
     std::visit(
             [&](auto&& join_op_variants, auto have_other_join_conjunct) {
@@ -507,6 +521,20 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
                           _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN);
     }
 
+    // For ASOF JOIN, extract the probe-side expression from match_condition field.
+    // match_condition is bound on input tuples, so child(0) references probe child's slots.
+    if (is_asof_join(_join_op)) {
+        DORIS_CHECK(tnode.hash_join_node.__isset.match_condition);
+        VExprContextSPtr full_conjunct;
+        RETURN_IF_ERROR(
+                VExpr::create_expr_tree(tnode.hash_join_node.match_condition, full_conjunct));
+        DORIS_CHECK(full_conjunct);
+        DORIS_CHECK(full_conjunct->root());
+        DORIS_CHECK(full_conjunct->root()->get_num_children() == 2);
+        auto left_child_expr = full_conjunct->root()->get_child(0);
+        _asof_probe_expr = std::make_shared<VExprContext>(left_child_expr);
+    }
+
     return Status::OK();
 }
 
@@ -546,6 +574,13 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));
+    // Prepare ASOF probe-side expression against probe child's row_desc directly.
+    if (is_asof_join(_join_op)) {
+        DORIS_CHECK(_asof_probe_expr);
+        RETURN_IF_ERROR(_asof_probe_expr->prepare(state, _child->row_desc()));
+        RETURN_IF_ERROR(_asof_probe_expr->open(state));
+    }
+
     DCHECK(_build_side_child != nullptr);
     // right table data types
     _right_table_data_types = VectorizedUtils::get_data_types(_build_side_child->row_desc());
@@ -611,11 +646,12 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
             continue;
         }
 
-        /// For outer join(left/right/full), the non-nullable columns may be converted to nullable.
+        /// For outer join(left/right/full/asof), the non-nullable columns may be converted to nullable.
         const auto accept_nullable_not_match =
                 _join_op == TJoinOp::FULL_OUTER_JOIN ||
-                (slot_on_left ? _join_op == TJoinOp::RIGHT_OUTER_JOIN
-                              : _join_op == TJoinOp::LEFT_OUTER_JOIN);
+                (slot_on_left ? (_join_op == TJoinOp::RIGHT_OUTER_JOIN)
+                              : (_join_op == TJoinOp::LEFT_OUTER_JOIN ||
+                                 _join_op == TJoinOp::ASOF_LEFT_OUTER_JOIN));
 
         if (accept_nullable_not_match) {
             auto data_type_non_nullable = remove_nullable(data_type);

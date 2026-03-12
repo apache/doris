@@ -20,9 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
+import org.apache.doris.foundation.format.FormatOptions;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -47,7 +45,6 @@ public class ArrayLiteral extends LiteralExpr {
     protected ArrayLiteral(ArrayLiteral other) {
         super(other);
     }
-
 
     @Override
     public boolean isMinValue() {
@@ -87,12 +84,6 @@ public class ArrayLiteral extends LiteralExpr {
         });
         --options.level;
         return "[" + StringUtils.join(list, options.getCollectionDelim()) + "]";
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.ARRAY_LITERAL;
-        msg.setChildType(((ArrayType) type).getItemType().getPrimitiveType().toThrift());
     }
 
     @Override

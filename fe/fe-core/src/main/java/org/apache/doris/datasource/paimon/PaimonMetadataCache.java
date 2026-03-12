@@ -105,7 +105,8 @@ public class PaimonMetadataCache {
             PaimonSnapshot latestSnapshot = loadLatestSnapshot(paimonTable, nameMapping);
             List<Column> partitionColumns = getPaimonSchemaCacheValue(nameMapping,
                     latestSnapshot.getSchemaId()).getPartitionColumns();
-            PaimonPartitionInfo partitionInfo = loadPartitionInfo(nameMapping, partitionColumns);
+            boolean legacyPartitionName = PaimonUtil.isLegacyPartitionName(paimonTable);
+            PaimonPartitionInfo partitionInfo = loadPartitionInfo(nameMapping, partitionColumns, legacyPartitionName);
             return new PaimonSnapshotCacheValue(partitionInfo, latestSnapshot);
         } catch (Exception e) {
             throw new CacheException("failed to load paimon snapshot %s.%s.%s: %s",
@@ -132,7 +133,8 @@ public class PaimonMetadataCache {
         return (PaimonSchemaCacheValue) schemaCacheValue.get();
     }
 
-    private PaimonPartitionInfo loadPartitionInfo(NameMapping nameMapping, List<Column> partitionColumns)
+    private PaimonPartitionInfo loadPartitionInfo(NameMapping nameMapping, List<Column> partitionColumns,
+            boolean legacyPartitionName)
             throws AnalysisException {
         if (CollectionUtils.isEmpty(partitionColumns)) {
             return PaimonPartitionInfo.EMPTY;
@@ -140,7 +142,7 @@ public class PaimonMetadataCache {
         PaimonExternalCatalog externalCatalog = (PaimonExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(nameMapping.getCtlId());
         List<Partition> paimonPartitions = externalCatalog.getPaimonPartitions(nameMapping);
-        return PaimonUtil.generatePartitionInfo(partitionColumns, paimonPartitions);
+        return PaimonUtil.generatePartitionInfo(partitionColumns, paimonPartitions, legacyPartitionName);
     }
 
     private PaimonSnapshot loadLatestSnapshot(Table paimonTable, NameMapping nameMapping) {

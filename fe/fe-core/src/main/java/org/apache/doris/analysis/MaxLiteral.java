@@ -17,8 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.FormatOptions;
-import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.foundation.format.FormatOptions;
 
 public final class MaxLiteral extends LiteralExpr {
 
@@ -44,11 +43,6 @@ public final class MaxLiteral extends LiteralExpr {
             return 0;
         }
         return 1;
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        // TODO: complete this type
     }
 
     @Override

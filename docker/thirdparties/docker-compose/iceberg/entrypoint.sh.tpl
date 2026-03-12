@@ -64,6 +64,14 @@ ls /mnt/scripts/create_preinstalled_scripts/iceberg_scala/*.scala | xargs -n 1 -
     echo "Script: {} executed in $EXECUTION_TIME seconds"
 '
 
+
+START_TIME3=$(date +%s)
+find /mnt/scripts/create_preinstalled_scripts/iceberg_load -name '*.sql' | sed 's|^|source |' | sed 's|$|;|'> iceberg_load_total.sql
+spark-sql --master spark://doris--spark-iceberg:7077 --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions -f iceberg_load_total.sql 
+END_TIME3=$(date +%s)
+EXECUTION_TIME3=$((END_TIME3 - START_TIME3))
+echo "Script iceberg load total: {} executed in $EXECUTION_TIME3 seconds"
+
 touch /mnt/SUCCESS;
 
 tail -f /dev/null

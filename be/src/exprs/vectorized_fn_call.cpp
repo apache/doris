@@ -201,7 +201,11 @@ void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionSta
 }
 
 Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
-    DCHECK_GE(get_num_children(), 1);
+    if (get_num_children() < 1) {
+        // score() and similar 0-children virtual column functions don't need
+        // inverted index evaluation; return OK to skip gracefully.
+        return Status::OK();
+    }
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 

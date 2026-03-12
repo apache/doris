@@ -24,7 +24,6 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.EncryptKeyName;
-import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.ResourceDesc;
@@ -47,6 +46,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BuiltinAggregateFunctions;
 import org.apache.doris.catalog.BuiltinTableGeneratingFunctions;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.ScalarType;
@@ -530,6 +530,7 @@ import org.apache.doris.nereids.trees.expressions.Default;
 import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.DereferenceExpression;
 import org.apache.doris.nereids.trees.expressions.Divide;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -4458,6 +4459,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private LogicalPlan withJoinRelations(LogicalPlan input, RelationContext ctx) {
         LogicalPlan last = input;
         for (JoinRelationContext join : ctx.joinRelation()) {
+            boolean isAsofJoin = false;
             JoinType joinType;
             if (join.joinType().CROSS() != null) {
                 joinType = JoinType.CROSS_JOIN;
@@ -4475,6 +4477,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 } else {
                     joinType = JoinType.RIGHT_ANTI_JOIN;
                 }
+            } else if (join.joinType().ASOF() != null) {
+                joinType = join.joinType().INNER() != null
+                        ? JoinType.ASOF_LEFT_INNER_JOIN : JoinType.ASOF_LEFT_OUTER_JOIN;
+                isAsofJoin = true;
             } else if (join.joinType().LEFT() != null) {
                 joinType = JoinType.LEFT_OUTER_JOIN;
             } else if (join.joinType().RIGHT() != null) {
@@ -4485,6 +4491,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 joinType = JoinType.INNER_JOIN;
             } else {
                 joinType = JoinType.CROSS_JOIN;
+            }
+            Expression matchCondition = null;
+            if (join.matchCondition() != null) {
+                if (!isAsofJoin) {
+                    throw new ParseException("only ASOF JOIN support MATCH_CONDITION", join);
+                }
+                matchCondition = typedVisit(join.matchCondition().valueExpression());
+                if (!(matchCondition instanceof LessThan
+                        || matchCondition instanceof LessThanEqual
+                        || matchCondition instanceof GreaterThan
+                        || matchCondition instanceof GreaterThanEqual)) {
+                    throw new ParseException("ASOF JOIN's MATCH_CONDITION must be <, <=, >, >=", join);
+                }
+            } else {
+                if (isAsofJoin) {
+                    throw new ParseException("ASOF JOIN must specify MATCH_CONDITION", join);
+                }
             }
             DistributeHint distributeHint = new DistributeHint(DistributeType.NONE);
             if (join.distributeType() != null) {
@@ -4506,11 +4529,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             .collect(ImmutableList.toImmutableList());
                 }
             } else {
+                if (isAsofJoin) {
+                    throw new ParseException("ASOF JOIN must have on or using clause", join);
+                }
                 // keep same with original planner, allow cross/inner join
                 if (!joinType.isInnerOrCrossJoin()) {
                     throw new ParseException("on mustn't be empty except for cross/inner join", join);
                 }
             }
+
             if (ids == null) {
                 LogicalPlan right = plan(join.relationPrimary());
                 if (right instanceof LogicalGenerate
@@ -4551,17 +4578,36 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                 join);
                     }
                 } else {
-                    last = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION,
-                            condition.map(ExpressionUtils::extractConjunction)
-                                    .orElse(ExpressionUtils.EMPTY_CONDITION),
-                            distributeHint,
-                            Optional.empty(),
-                            last,
-                            right, null);
+                    if (isAsofJoin) {
+                        if (!condition.isPresent()) {
+                            throw new ParseException("ASOF JOIN can't be used without ON clause", join);
+                        }
+                        List<Expression> conjuncts = ExpressionUtils.extractConjunction(condition.get());
+                        for (Expression expression : conjuncts) {
+                            if (!(expression instanceof EqualPredicate)) {
+                                throw new ParseException("ASOF JOIN's ON clause must be one or more EQUAL(=) conjuncts",
+                                        join);
+                            }
+                        }
+                        last = new LogicalJoin<>(joinType, conjuncts,
+                                ImmutableList.of(matchCondition),
+                                distributeHint,
+                                Optional.empty(),
+                                last,
+                                plan(join.relationPrimary()), null);
+                    } else {
+                        last = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION,
+                                condition.map(ExpressionUtils::extractConjunction)
+                                        .orElse(ExpressionUtils.EMPTY_CONDITION),
+                                distributeHint,
+                                Optional.empty(),
+                                last,
+                                plan(join.relationPrimary()), null);
+                    }
                 }
             } else {
-                last = new LogicalUsingJoin<>(joinType, last, plan(join.relationPrimary()), ids, distributeHint);
-
+                last = new LogicalUsingJoin<>(joinType, last, plan(join.relationPrimary()), ids,
+                        matchCondition != null ? Optional.of(matchCondition) : Optional.empty(), distributeHint);
             }
             if (distributeHint.distributeType != DistributeType.NONE
                     && ConnectContext.get().getStatementContext() != null

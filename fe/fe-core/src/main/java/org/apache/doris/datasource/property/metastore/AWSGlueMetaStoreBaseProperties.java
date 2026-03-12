@@ -17,9 +17,9 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
-import org.apache.doris.datasource.property.ConnectorProperty;
-import org.apache.doris.datasource.property.ParamRules;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
+import org.apache.doris.foundation.property.ConnectorProperty;
+import org.apache.doris.foundation.property.ParamRules;
 
 import com.google.common.base.Strings;
 import lombok.Getter;

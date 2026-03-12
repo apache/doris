@@ -19,10 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TIPv6Literal;
+import org.apache.doris.foundation.format.FormatOptions;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -83,12 +80,6 @@ public class IPv6Literal extends LiteralExpr {
     }
 
     @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.IPV6_LITERAL;
-        msg.ipv6_literal = new TIPv6Literal(this.value);
-    }
-
-    @Override
     public Expr clone() {
         return new IPv6Literal(this);
     }
@@ -106,6 +97,10 @@ public class IPv6Literal extends LiteralExpr {
     @Override
     public String getStringValue() {
         return this.value;
+    }
+
+    public String getValue() {
+        return value;
     }
 
     @Override
