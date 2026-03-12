@@ -492,8 +492,8 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         }
         LogicalCTEProducer<LogicalAggregate<Plan>> producer =
                 new LogicalCTEProducer<>(ctx.statementContext.getNextCTEId(), preAggClone);
+        ctx.statementContext.setCteProducer(producer.getCteId(), producer);
         ctx.cteProducerList.add(producer);
-        producer.accept(new StatsDerive(false), new DeriveContext());
         return producer;
     }
 

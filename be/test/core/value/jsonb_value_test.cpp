@@ -28,14 +28,21 @@ namespace doris {
 TEST(JsonBinaryValueTest, TestValidation) {
     JsonBinaryValue json_val;
 
-    // single value not wrapped as an arrar or object is invalid
-    std::vector<string> invalid_strs = {"", "1", "null", "false", "abc"};
+    // Empty string and non-JSON text should fail to parse
+    std::vector<string> invalid_strs = {"", "abc"};
     for (size_t i = 0; i < invalid_strs.size(); i++) {
         auto status = json_val.from_json_string(invalid_strs[i].c_str(), invalid_strs[i].size());
-        EXPECT_TRUE(status.ok());
+        EXPECT_FALSE(status.ok()) << "Should fail for: [" << invalid_strs[i] << "]";
     }
 
-    // valid enums
+    // Scalar JSON values (number, null, boolean) are valid JSON and should parse OK
+    std::vector<string> scalar_strs = {"1", "null", "false"};
+    for (size_t i = 0; i < scalar_strs.size(); i++) {
+        auto status = json_val.from_json_string(scalar_strs[i].c_str(), scalar_strs[i].size());
+        EXPECT_TRUE(status.ok()) << "Should succeed for: [" << scalar_strs[i] << "]";
+    }
+
+    // valid arrays and objects
     std::vector<string> valid_strs;
     valid_strs.push_back("[false]");
     valid_strs.push_back("[-123]");
@@ -45,7 +52,7 @@ TEST(JsonBinaryValueTest, TestValidation) {
     valid_strs.push_back("[123, {\"key1\": null, \"key2\": [\"val1\", \"val2\"]}]");
     for (size_t i = 0; i < valid_strs.size(); i++) {
         auto status = json_val.from_json_string(valid_strs[i].c_str(), valid_strs[i].size());
-        EXPECT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok()) << "Should succeed for: [" << valid_strs[i] << "]";
     }
 }
 } // namespace doris

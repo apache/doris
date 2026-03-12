@@ -21,12 +21,6 @@ import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
@@ -98,11 +92,6 @@ public class TimestampArithmeticExpr extends Expr {
                 Lists.newArrayList(e1.getType(), e2.getType()), dataType,
                 false, true, NullableMode.DEPEND_ON_ARGUMENT);
         this.nullable = nullable;
-        try {
-            opcode = getOpCode();
-        } catch (AnalysisException e) {
-            throw new RuntimeException(e);
-        }
     }
 
     protected TimestampArithmeticExpr(TimestampArithmeticExpr other) {
@@ -117,12 +106,6 @@ public class TimestampArithmeticExpr extends Expr {
     @Override
     public Expr clone() {
         return new TimestampArithmeticExpr(this);
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.COMPUTE_FUNCTION_CALL;
-        msg.setOpcode(opcode);
     }
 
     public String getFuncName() {
@@ -143,65 +126,6 @@ public class TimestampArithmeticExpr extends Expr {
 
     public TimeUnit getTimeUnit() {
         return timeUnit;
-    }
-
-    private TExprOpcode getOpCode() throws AnalysisException {
-        // Select appropriate opcode based on op and timeUnit.
-        switch (timeUnit) {
-            case YEAR: {
-                if (op == Operator.ADD) {
-                    return TExprOpcode.TIMESTAMP_YEARS_ADD;
-                } else {
-                    return TExprOpcode.TIMESTAMP_YEARS_SUB;
-                }
-            }
-            case MONTH: {
-                if (op == Operator.ADD) {
-                    return TExprOpcode.TIMESTAMP_MONTHS_ADD;
-                } else {
-                    return TExprOpcode.TIMESTAMP_MONTHS_SUB;
-                }
-            }
-            case WEEK: {
-                if (op == Operator.ADD) {
-                    return TExprOpcode.TIMESTAMP_WEEKS_ADD;
-                } else {
-                    return TExprOpcode.TIMESTAMP_WEEKS_SUB;
-                }
-            }
-            case DAY: {
-                if (op == Operator.ADD) {
-                    return TExprOpcode.TIMESTAMP_DAYS_ADD;
-                } else {
-                    return TExprOpcode.TIMESTAMP_DAYS_SUB;
-                }
-            }
-            case HOUR: {
-                if (op == Operator.ADD) {
-                    return TExprOpcode.TIMESTAMP_HOURS_ADD;
-                } else {
-                    return TExprOpcode.TIMESTAMP_HOURS_SUB;
-                }
-            }
-            case MINUTE: {
-                if (op == Operator.ADD) {
-                    return TExprOpcode.TIMESTAMP_MINUTES_ADD;
-                } else {
-                    return TExprOpcode.TIMESTAMP_MINUTES_SUB;
-                }
-            }
-            case SECOND: {
-                if (op == Operator.ADD) {
-                    return TExprOpcode.TIMESTAMP_SECONDS_ADD;
-                } else {
-                    return TExprOpcode.TIMESTAMP_SECONDS_SUB;
-                }
-            }
-            default: {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TIMEUNIT, timeUnit);
-            }
-        }
-        return null;
     }
 
     @Override

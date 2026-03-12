@@ -23,10 +23,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
-import org.apache.doris.thrift.TBoolLiteral;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
+import org.apache.doris.foundation.format.FormatOptions;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -111,7 +108,6 @@ public class BoolLiteral extends LiteralExpr {
         return value ? "1" : "0";
     }
 
-
     @Override
     public String getStringValueForQuery(FormatOptions options) {
         if (options.level > 0) {
@@ -139,12 +135,6 @@ public class BoolLiteral extends LiteralExpr {
     @Override
     public double getDoubleValue() {
         return value ? 1.0 : 0.0;
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.BOOL_LITERAL;
-        msg.bool_literal = new TBoolLiteral(value);
     }
 
     @Override
