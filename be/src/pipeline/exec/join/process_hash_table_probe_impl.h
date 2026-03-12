@@ -80,6 +80,9 @@ ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinProbeLocalState
           _build_side_output_timer(parent->_build_side_output_timer),
           _probe_side_output_timer(parent->_probe_side_output_timer),
           _finish_probe_phase_timer(parent->_finish_probe_phase_timer),
+          _asof_probe_expr_timer(parent->_asof_probe_expr_timer),
+          _asof_probe_hash_chain_timer(parent->_asof_probe_hash_chain_timer),
+          _asof_probe_search_timer(parent->_asof_probe_search_timer),
           _right_col_idx(_parent_operator->_right_col_idx),
           _right_col_len(_parent_operator->_right_table_data_types.size()) {
     constexpr int CALCULATE_ALL_MATCH_ONE_THRESHOLD = 2;
@@ -120,10 +123,14 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(vectorized::Mut
         }
     }
 
+    // For ASOF JOIN optimized path, skip lazy materialization check since we already found best match
+    constexpr bool is_asof_join = is_asof_join_op_v<JoinOpType>;
     for (int i = 0; i < _right_col_len && i + _right_col_idx < mcol.size(); i++) {
         const auto& column = *_build_block->safe_get_by_position(i).column;
-        if (_right_output_slot_flags[i] &&
-            !_parent_operator->is_lazy_materialized_column(i + (int)_right_col_idx)) {
+        bool should_output = _right_output_slot_flags[i] &&
+                             (is_asof_join || !_parent_operator->is_lazy_materialized_column(
+                                                      i + (int)_right_col_idx));
+        if (should_output) {
             if (!build_index_has_zero && _build_column_has_null[i]) {
                 assert_cast<vectorized::ColumnNullable*>(mcol[i + _right_col_idx].get())
                         ->insert_indices_from_not_has_null(column, _build_indexs.get_data().data(),
@@ -165,7 +172,11 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(vectorized::Mut
             }
         }
 
-        if (_left_output_slot_flags[i] && !_parent_operator->is_lazy_materialized_column(i)) {
+        // For ASOF JOIN optimized path, skip lazy materialization check
+        constexpr bool is_asof_join = is_asof_join_op_v<JoinOpType>;
+        bool should_output = _left_output_slot_flags[i] &&
+                             (is_asof_join || !_parent_operator->is_lazy_materialized_column(i));
+        if (should_output) {
             auto& column = probe_block.get_by_position(i).column;
             insert_with_indexs(mcol[i], column, _probe_indexs.get_data(), all_match_one);
         } else {
@@ -208,6 +219,248 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
     return typename HashTableType::State(_parent->_probe_columns);
 }
 
+// ASOF JOIN optimized: two-phase probe with prefetch and compile-time dispatch.
+// Phase 1: Batch hash chain walk — resolve all probe rows to matching build rows.
+// Phase 2: Batch binary search — find ASOF best match for each resolved row.
+// This separation improves cache locality since phase 2 accesses AsofIndexGroup
+// data sequentially without interleaving hash chain walks.
+template <int JoinOpType>
+template <typename HashTableType>
+uint32_t ProcessHashTableProbe<JoinOpType>::
+        _find_batch_asof_optimized( // NOLINT(readability-function-cognitive-complexity)
+                HashTableType& hash_table_ctx, const uint8_t* null_map, uint32_t probe_rows) {
+    auto* shared_state = _parent->_shared_state;
+    constexpr bool is_outer_join = is_asof_outer_join_op_v<JoinOpType>;
+    auto& probe_index = _parent->_probe_index;
+
+    // asof_index_groups only populated by build_asof_index when build block has real data
+    if (std::holds_alternative<std::monostate>(shared_state->asof_index_groups)) {
+        if constexpr (is_outer_join) {
+            uint32_t matched_cnt = 0;
+            for (; probe_index < probe_rows && matched_cnt < _batch_size; ++probe_index) {
+                _probe_indexs.get_element(matched_cnt) = probe_index;
+                _build_indexs.get_element(matched_cnt) = 0;
+                matched_cnt++;
+            }
+            return matched_cnt;
+        }
+        probe_index = probe_rows;
+        return 0;
+    }
+
+    // Get ASOF probe expression from operator and execute on probe block.
+    auto& asof_probe_expr = _parent_operator->_asof_probe_expr;
+    DORIS_CHECK(asof_probe_expr);
+
+    auto& probe_block = _parent->_probe_block;
+    int probe_col_idx = -1;
+    {
+        SCOPED_TIMER(_asof_probe_expr_timer);
+        auto st = asof_probe_expr->execute(&probe_block, &probe_col_idx);
+        DORIS_CHECK(st.ok());
+    }
+    DORIS_CHECK(probe_col_idx >= 0 && probe_col_idx < static_cast<int>(probe_block.columns()));
+    auto probe_col_ptr =
+            probe_block.get_by_position(probe_col_idx).column->convert_to_full_column_if_const();
+
+    // Remove nullable wrapper for comparison - keep original for null check
+    vectorized::ColumnPtr probe_col_for_compare = probe_col_ptr;
+    const uint8_t* asof_probe_null_map = nullptr;
+    if (probe_col_ptr->is_nullable()) {
+        const auto* nullable_probe_col =
+                assert_cast<const vectorized::ColumnNullable*>(probe_col_ptr.get());
+        asof_probe_null_map = nullable_probe_col->get_null_map_data().data();
+        probe_col_for_compare = nullable_probe_col->get_nested_column_ptr();
+    }
+    const auto* probe_col = probe_col_for_compare.get();
+
+    bool is_greater = shared_state->asof_inequality_is_greater;
+    bool is_strict = shared_state->asof_inequality_is_strict;
+
+    // Two-phase probe with compile-time dispatched binary search
+    [[maybe_unused]] auto probe_with_index = [&](const auto& asof_groups,
+                                                 const auto* typed_probe_col) -> uint32_t {
+        using IntType =
+                typename std::remove_reference_t<decltype(asof_groups)>::value_type::int_type;
+        const auto& probe_data = typed_probe_col->get_data();
+
+        const auto& next_arr = hash_table_ctx.hash_table->get_next();
+        const auto* build_keys = hash_table_ctx.hash_table->get_build_keys();
+        const auto* bucket_row_to_group = shared_state->asof_build_row_to_bucket.data();
+
+        // Determine the batch range: [probe_index, batch_end)
+        uint32_t batch_end = std::min(probe_rows, probe_index + static_cast<uint32_t>(_batch_size));
+        uint32_t batch_start = probe_index;
+        uint32_t batch_count = batch_end - batch_start;
+
+        // Temporary arrays for two-phase processing.
+        // resolved_group_ids[i]: resolved ASOF group id + 1 for probe row (batch_start+i),
+        //                        0 means no match or NULL probe key.
+        // We use stack allocation for small batches, heap for large.
+        constexpr uint32_t STACK_LIMIT = 4096;
+        uint32_t stack_buf[STACK_LIMIT];
+        IntType stack_probe_value_buf[STACK_LIMIT];
+        std::unique_ptr<uint32_t[]> heap_buf;
+        std::unique_ptr<IntType[]> heap_probe_value_buf;
+        uint32_t* resolved_group_ids;
+        IntType* probe_values;
+        if (batch_count <= STACK_LIMIT) {
+            resolved_group_ids = stack_buf;
+            probe_values = stack_probe_value_buf;
+        } else {
+            heap_buf = std::make_unique<uint32_t[]>(batch_count);
+            heap_probe_value_buf = std::make_unique<IntType[]>(batch_count);
+            resolved_group_ids = heap_buf.get();
+            probe_values = heap_probe_value_buf.get();
+        }
+
+        // ============================================================
+        // Phase 1: Batch hash chain walk
+        // ============================================================
+        {
+            SCOPED_TIMER(_asof_probe_hash_chain_timer);
+            constexpr int PREFETCH_AHEAD = 4;
+
+            for (uint32_t i = 0; i < batch_count; ++i) {
+                uint32_t pi = batch_start + i;
+
+                // Prefetch: look ahead at the first[] entry for a future probe row.
+                if (i + PREFETCH_AHEAD < batch_count) {
+                    uint32_t future_pi = batch_start + i + PREFETCH_AHEAD;
+                    uint32_t future_bucket = hash_table_ctx.bucket_nums[future_pi];
+                    __builtin_prefetch(&next_arr[future_bucket], 0, 1);
+                }
+
+                // Skip NULL probe keys
+                if ((null_map && null_map[pi]) ||
+                    (asof_probe_null_map && asof_probe_null_map[pi])) {
+                    resolved_group_ids[i] = 0;
+                    continue;
+                }
+
+                // Walk hash chain
+                uint32_t row = hash_table_ctx.bucket_nums[pi];
+                uint32_t match = 0;
+                while (row != 0) {
+                    DORIS_CHECK(row < next_arr.size());
+                    if (build_keys[row] == hash_table_ctx.keys[pi]) {
+                        match = row;
+                        break;
+                    }
+                    row = next_arr[row];
+                }
+                if (match == 0) {
+                    resolved_group_ids[i] = 0;
+                    continue;
+                }
+
+                DORIS_CHECK(match < shared_state->asof_build_row_to_bucket.size());
+                uint32_t group_id = bucket_row_to_group[match];
+                DORIS_CHECK(group_id < asof_groups.size());
+                resolved_group_ids[i] = group_id + 1;
+                probe_values[i] = static_cast<IntType>(probe_data[pi].to_date_int_val());
+            }
+        }
+
+        // ============================================================
+        // Phase 2: Batch binary search with compile-time dispatch
+        // ============================================================
+        // Dispatch is_greater/is_strict at compile time to eliminate branches in the hot loop.
+        auto do_binary_search = [&]<bool IsGreater, bool IsStrict>() -> uint32_t {
+            SCOPED_TIMER(_asof_probe_search_timer);
+            constexpr int PREFETCH_AHEAD = 4;
+            uint32_t cnt = 0;
+
+            for (uint32_t i = 0; i < batch_count; ++i) {
+                uint32_t pi = batch_start + i;
+                uint32_t encoded_group_id = resolved_group_ids[i];
+
+                if (encoded_group_id == 0) {
+                    if constexpr (is_outer_join) {
+                        _probe_indexs.get_element(cnt) = pi;
+                        _build_indexs.get_element(cnt) = 0;
+                        cnt++;
+                    }
+                    continue;
+                }
+                uint32_t group_id = encoded_group_id - 1;
+
+                // Prefetch the ASOF value array of a future group
+                if (i + PREFETCH_AHEAD < batch_count) {
+                    uint32_t future_group_id = resolved_group_ids[i + PREFETCH_AHEAD];
+                    if (future_group_id != 0) {
+                        uint32_t future_gid = future_group_id - 1;
+                        __builtin_prefetch(asof_groups[future_gid].values_data(), 0, 1);
+                    }
+                }
+
+                uint32_t best_build_row =
+                        asof_groups[group_id].template find_best_match<IsGreater, IsStrict>(
+                                probe_values[i]);
+
+                if (best_build_row != 0) {
+                    _probe_indexs.get_element(cnt) = pi;
+                    _build_indexs.get_element(cnt) = best_build_row;
+                    cnt++;
+                } else if constexpr (is_outer_join) {
+                    _probe_indexs.get_element(cnt) = pi;
+                    _build_indexs.get_element(cnt) = 0;
+                    cnt++;
+                }
+            }
+            return cnt;
+        };
+
+        // 4-way compile-time dispatch on (is_greater, is_strict)
+        uint32_t cnt;
+        if (is_greater) {
+            if (is_strict) {
+                cnt = do_binary_search.template operator()<true, true>();
+            } else {
+                cnt = do_binary_search.template operator()<true, false>();
+            }
+        } else {
+            if (is_strict) {
+                cnt = do_binary_search.template operator()<false, true>();
+            } else {
+                cnt = do_binary_search.template operator()<false, false>();
+            }
+        }
+
+        // Advance probe_index past the entire batch
+        probe_index = batch_end;
+        return cnt;
+    };
+
+    // Dispatch on AsofIndexVariant to get the correct integer type,
+    // then cast probe column to the matching concrete type
+    uint32_t matched_cnt = std::visit(
+            vectorized::Overload {
+                    [](std::monostate&) -> uint32_t {
+                        throw Exception(ErrorCode::INTERNAL_ERROR,
+                                        "AsofIndexVariant should not be monostate here");
+                    },
+                    [&](std::vector<AsofIndexGroup<uint32_t>>& groups) -> uint32_t {
+                        // DateV2
+                        return probe_with_index(
+                                groups, assert_cast<const vectorized::ColumnDateV2*>(probe_col));
+                    },
+                    [&](std::vector<AsofIndexGroup<uint64_t>>& groups) -> uint32_t {
+                        // DateTimeV2 or TimestampTZ
+                        if (const auto* c =
+                                    vectorized::check_and_get_column<vectorized::ColumnDateTimeV2>(
+                                            probe_col)) {
+                            return probe_with_index(groups, c);
+                        }
+                        return probe_with_index(
+                                groups,
+                                assert_cast<const vectorized::ColumnTimeStampTz*>(probe_col));
+                    }},
+            shared_state->asof_index_groups);
+
+    return matched_cnt;
+}
+
 template <int JoinOpType>
 template <typename HashTableType>
 void ProcessHashTableProbe<JoinOpType>::process_direct_return(
@@ -245,9 +498,15 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
     auto& mcol = mutable_block.mutable_columns();
 
     uint32_t current_offset = 0;
-    if ((JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-         JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
-        _have_other_join_conjunct) {
+
+    // ASOF JOIN: always use optimized path with O(log K) binary search
+    constexpr bool is_asof_join = is_asof_join_op_v<JoinOpType>;
+    if constexpr (is_asof_join) {
+        SCOPED_TIMER(_search_hashtable_timer);
+        current_offset = _find_batch_asof_optimized(hash_table_ctx, null_map, probe_rows);
+    } else if ((JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
+               _have_other_join_conjunct) {
         SCOPED_TIMER(_search_hashtable_timer);
 
         /// If `_build_index_for_null_probe_key` is not zero, it means we are in progress of handling probe null key.
@@ -312,6 +571,11 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
     output_block->swap(mutable_block.to_block());
     DCHECK_EQ(current_offset, output_block->rows());
     COUNTER_UPDATE(_parent->_intermediate_rows_counter, current_offset);
+
+    // For ASOF JOIN, skip conjuncts filtering since we already found best match
+    if constexpr (is_asof_join) {
+        return Status::OK();
+    }
 
     if (is_mark_join) {
         bool ignore_null_map =
@@ -723,6 +987,7 @@ Status ProcessHashTableProbe<JoinOpType>::finish_probing(HashTableType& hash_tab
                                                          bool is_mark_join) {
     SCOPED_TIMER(_finish_probe_phase_timer);
     auto& mcol = mutable_block.mutable_columns();
+
     if (is_mark_join) {
         std::unique_ptr<vectorized::ColumnFilterHelper> mark_column =
                 std::make_unique<vectorized::ColumnFilterHelper>(*mcol[mcol.size() - 1]);
@@ -738,7 +1003,8 @@ Status ProcessHashTableProbe<JoinOpType>::finish_probing(HashTableType& hash_tab
     if (block_size) {
         if (mcol.size() < _right_col_len + _right_col_idx) {
             return Status::InternalError(
-                    "output block invalid, mcol.size()={}, _right_col_len={}, _right_col_idx={}",
+                    "output block invalid, mcol.size()={}, _right_col_len={}, "
+                    "_right_col_idx={}",
                     mcol.size(), _right_col_len, _right_col_idx);
         }
         for (size_t j = 0; j < _right_col_len; ++j) {

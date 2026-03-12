@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -429,6 +430,33 @@ class ConstantPropagationTest {
         Assertions.assertEquals(JoinType.INNER_JOIN, rewrittenJoin1.getJoinType());
         Assertions.assertEquals(expectHashConjuncts1, rewrittenJoin1.getHashJoinConjuncts());
         Assertions.assertEquals(expectOtherConjuncts1, rewrittenJoin1.getOtherJoinConjuncts());
+    }
+
+    @Test
+    void testAsofJoinDisableConstantPropagation() {
+        Set<Expression> conjunctions1 = ImmutableSet.of(
+                new EqualTo(studentId, new IntegerLiteral(1))
+        );
+        Set<Expression> conjunctions2 = ImmutableSet.of(
+                new EqualTo(scoreCid, new IntegerLiteral(2))
+        );
+        LogicalFilter left = new LogicalFilter<>(conjunctions1, student);
+        LogicalFilter right = new LogicalFilter<>(conjunctions2, score);
+
+        List<Expression> hashConjuncts = ImmutableList.of(
+                new EqualTo(studentId, scoreSid)
+        );
+        List<Expression> otherConjuncts = ImmutableList.of(
+                new GreaterThan(studentId, studentAge)
+        );
+
+        LogicalJoin asofJoin = new LogicalJoin<>(JoinType.ASOF_LEFT_INNER_JOIN, hashConjuncts, otherConjuncts, left, right, null);
+        LogicalJoin rewrittenAsofJoin = (LogicalJoin) executor.rewriteRoot(asofJoin, jobContext);
+
+        // For ASOF join, constant propagation should be disabled and no rewrite should happen.
+        Assertions.assertEquals(JoinType.ASOF_LEFT_INNER_JOIN, rewrittenAsofJoin.getJoinType());
+        Assertions.assertEquals(hashConjuncts, rewrittenAsofJoin.getHashJoinConjuncts());
+        Assertions.assertEquals(otherConjuncts, rewrittenAsofJoin.getOtherJoinConjuncts());
     }
 
     private void assertRewrite(String expression, String expected) {
