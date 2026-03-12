@@ -568,6 +568,17 @@ void LRUCache::erase(const CacheKey& key, uint32_t hash) {
             // see the comment for old entry in `LRUCache::insert`.
             _usage -= e->total_size;
         }
+        // Also remove from visits list if present. This handles the case where a key was
+        // erased (e.g., after compaction) before being promoted from visits list to cache,
+        // preventing stale entries from consuming visits list capacity.
+        if (_is_lru_k) {
+            auto it = _visits_lru_cache_map.find(key.to_string());
+            if (it != _visits_lru_cache_map.end()) {
+                _visits_lru_cache_usage -= it->second->second;
+                _visits_lru_cache_list.erase(it->second);
+                _visits_lru_cache_map.erase(it);
+            }
+        }
     }
     // free handle out of mutex, when last_ref is true, e must not be nullptr
     if (last_ref) {
