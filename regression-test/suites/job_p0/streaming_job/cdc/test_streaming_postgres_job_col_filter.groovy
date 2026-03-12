@@ -134,7 +134,7 @@ suite("test_streaming_postgres_job_col_filter", "p0,external,pg,external_docker,
         try {
             Awaitility.await().atMost(300, SECONDS).pollInterval(1, SECONDS).until({
                 def cnt = sql """select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING'"""
-                cnt.size() == 1 && '2' <= cnt.get(0).get(0)
+                cnt.size() == 1 && cnt.get(0).get(0).toLong() >= 2
             })
         } catch (Exception ex) {
             def showJob  = sql """select * from jobs("type"="insert") where Name='${jobName}'"""

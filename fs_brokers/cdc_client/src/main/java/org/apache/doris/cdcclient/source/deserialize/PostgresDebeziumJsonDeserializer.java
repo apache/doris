@@ -18,7 +18,6 @@
 package org.apache.doris.cdcclient.source.deserialize;
 
 import org.apache.doris.cdcclient.common.Constants;
-import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.cdcclient.utils.SchemaChangeHelper;
 
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
@@ -205,7 +204,7 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
         // Generate DDLs using accurate PG column types
         String db = context.get(Constants.DORIS_TARGET_DB);
         List<String> ddls = new ArrayList<>();
-        Set<String> excludedCols = ConfigUtil.parseExcludeColumns(context, tableId.table());
+        Set<String> excludedCols = excludeColumnsCache.getOrDefault(tableId.table(), Collections.emptySet());
 
         for (String colName : pgDropped) {
             if (excludedCols.contains(colName)) {

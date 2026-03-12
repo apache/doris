@@ -83,7 +83,7 @@ public class DebeziumJsonDeserializer
     @Setter private ZoneId serverTimeZone = ZoneId.systemDefault();
     @Getter @Setter protected Map<TableId, TableChanges.TableChange> tableSchemas;
     // Parsed exclude-column sets per table, populated once in init() from config
-    private Map<String, Set<String>> excludeColumnsCache = new HashMap<>();
+    protected Map<String, Set<String>> excludeColumnsCache = new HashMap<>();
 
     public DebeziumJsonDeserializer() {}
 
