@@ -1618,7 +1618,8 @@ bool CloudTablet::is_rowset_warmed_up(const RowsetId& rowset_id) const {
         // and cached locally in 1MB blocks, so the problem self-heals through subsequent queries.
         g_rowset_warmup_state_missing_count << 1;
         LOG_EVERY_N(WARNING, 100) << fmt::format(
-                "rowset warmup state missing, considering it as warmed up. tablet_id={}, rowset_id={}",
+                "rowset warmup state missing, considering it as warmed up. tablet_id={}, "
+                "rowset_id={}",
                 tablet_id(), rowset_id.to_string());
         return true;
     }
