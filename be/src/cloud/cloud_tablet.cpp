@@ -1634,6 +1634,14 @@ void CloudTablet::add_warmed_up_rowset(const RowsetId& rowset_id) {
             .start_tp = std::chrono::steady_clock::now()};
 }
 
+void CloudTablet::add_not_warmed_up_rowset(const RowsetId& rowset_id) {
+    _rowset_warm_up_states[rowset_id] = {
+            .state = {.trigger_source = WarmUpTriggerSource::SYNC_ROWSET,
+                      .progress = WarmUpProgress::DOING},
+            .num_segments = 1,
+            .start_tp = std::chrono::steady_clock::now()};
+}
+
 bool CloudTablet::_check_rowset_should_be_visible_but_not_warmed_up(
         const RowsetMetaSharedPtr& rs_meta, int64_t path_max_version,
         std::chrono::system_clock::time_point freshness_limit_tp) const {
