@@ -474,7 +474,6 @@ TEST_F(LocalFileSystemTest, TestEqualOrSubPath) {
     EXPECT_TRUE(io::LocalFileSystem::equal_or_sub_path("/data/store/./snapshot",
                                                        "/data/store/snapshot/dir/../dir"));
     EXPECT_FALSE(io::LocalFileSystem::equal_or_sub_path("/data/store1", "/data/store11/snapshot"));
-    EXPECT_FALSE(io::LocalFileSystem::equal_or_sub_path("/data/store/snapshot",
-                                                        "/data/store"));
+    EXPECT_FALSE(io::LocalFileSystem::equal_or_sub_path("/data/store/snapshot", "/data/store"));
 }
 } // namespace doris
