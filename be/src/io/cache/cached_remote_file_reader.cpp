@@ -530,8 +530,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                 }
             }
             if (!st || block_state != FileBlock::State::DOWNLOADED) {
-                if (block_state == FileBlock::State::DOWNLOADED &&
-                    st.is<ErrorCode::NOT_FOUND>()) {
+                if (block_state == FileBlock::State::DOWNLOADED && st.is<ErrorCode::NOT_FOUND>()) {
                     need_self_heal = true;
                     g_read_cache_self_heal_on_not_found << 1;
                     LOG_EVERY_N(WARNING, 100)
