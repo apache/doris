@@ -95,6 +95,7 @@ public class MCTransaction implements Transaction {
             TableWriteSessionBuilder builder = new TableWriteSessionBuilder()
                     .identifier(tableId)
                     .withSettings(catalog.getSettings())
+                    .withMaxFieldSize(catalog.getMaxFieldSize())
                     .withArrowOptions(ArrowOptions.newBuilder()
                             .withDatetimeUnit(TimestampUnit.MILLI)
                             .withTimestampUnit(TimestampUnit.MILLI)

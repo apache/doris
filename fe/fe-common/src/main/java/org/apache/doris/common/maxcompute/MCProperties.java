@@ -57,6 +57,9 @@ public class MCProperties {
     public static final String DEFAULT_READ_TIMEOUT = "120"; // 120s
     public static final String DEFAULT_RETRY_COUNT = "4"; // 4 times
 
+    public static final String MAX_FIELD_SIZE = "mc.max_field_size_bytes";
+    public static final String DEFAULT_MAX_FIELD_SIZE = "8388608"; // 8 * 1024 * 1024 = 8MB
+
     //withCrossPartition(true):
     //      Very friendly to scenarios where there are many partitions but each partition is very small.
     //withCrossPartition(false):
