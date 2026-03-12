@@ -503,7 +503,7 @@ void process_submap_emplace(Submap& submap, const uint32_t* indices, size_t coun
                 continue;
             }
         }
-        const auto& origin = agg_method.keys[row];
+        auto origin = agg_method.keys[row];
         auto converted_key = convert_key_for_submap<GroupIdx>(origin);
         typename Submap::LookupResult result;
         if constexpr (GroupIdx == 0 || GroupIdx == 5) {
@@ -547,7 +547,7 @@ void process_submap_emplace_void(Submap& submap, const uint32_t* indices, size_t
                 continue;
             }
         }
-        const auto& origin = agg_method.keys[row];
+        auto origin = agg_method.keys[row];
         auto converted_key = convert_key_for_submap<GroupIdx>(origin);
         typename Submap::LookupResult result;
         if constexpr (GroupIdx == 0 || GroupIdx == 5) {
