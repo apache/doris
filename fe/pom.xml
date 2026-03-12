@@ -232,11 +232,6 @@ under the License.
                 <artifactId>os-maven-plugin</artifactId>
                 <version>1.7.0</version>
             </extension>
-            <extension>
-                <groupId>org.apache.maven.extensions</groupId>
-                <artifactId>maven-build-cache-extension</artifactId>
-                <version>1.2.2</version>
-            </extension>
         </extensions>
     </build>
     <modules>
@@ -433,6 +428,26 @@ under the License.
         <mockito.version>4.11.0</mockito.version>
     </properties>
     <profiles>
+        <!-- maven-build-cache-extension is excluded from m2e/IDE environment because
+             it requires MavenExecutionRequest.getMultiModuleProjectDirectory() which
+             m2e does not set, causing NullPointerException during project import. -->
+        <profile>
+            <id>build-cache</id>
+            <activation>
+                <property>
+                    <name>!m2e.version</name>
+                </property>
+            </activation>
+            <build>
+                <extensions>
+                    <extension>
+                        <groupId>org.apache.maven.extensions</groupId>
+                        <artifactId>maven-build-cache-extension</artifactId>
+                        <version>1.2.2</version>
+                    </extension>
+                </extensions>
+            </build>
+        </profile>
         <profile>
             <id>general-env</id>
             <activation>
