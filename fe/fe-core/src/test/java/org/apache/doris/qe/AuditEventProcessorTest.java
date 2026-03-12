@@ -53,6 +53,7 @@ public class AuditEventProcessorTest {
     public void testAuditEvent() {
         AuditEvent event = new AuditEvent.AuditEventBuilder().setEventType(EventType.AFTER_QUERY)
                 .setTimestamp(System.currentTimeMillis())
+                .setSessionId("sessionId")
                 .setClientIp("127.0.0.1")
                 .setUser("user1")
                 .setDb("db1")
@@ -82,6 +83,7 @@ public class AuditEventProcessorTest {
             for (int i = 0; i < 10000; i++) {
                 AuditEvent event = new AuditEvent.AuditEventBuilder().setEventType(EventType.AFTER_QUERY)
                         .setTimestamp(System.currentTimeMillis())
+                        .setSessionId("sessionId")
                         .setClientIp("127.0.0.1")
                         .setUser("user1")
                         .setDb("db1")
@@ -108,6 +110,7 @@ public class AuditEventProcessorTest {
         for (int i = 0; i < 10000; i++) {
             AuditEvent event = new AuditEvent.AuditEventBuilder().setEventType(EventType.AFTER_QUERY)
                     .setTimestamp(System.currentTimeMillis())
+                    .setSessionId("sessionId")
                     .setClientIp("127.0.0.1")
                     .setUser("user1")
                     .setDb("db1")
