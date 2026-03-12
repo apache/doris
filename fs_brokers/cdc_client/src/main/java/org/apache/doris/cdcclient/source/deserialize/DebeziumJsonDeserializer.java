@@ -39,6 +39,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -81,6 +82,8 @@ public class DebeziumJsonDeserializer
     private static ObjectMapper objectMapper = new ObjectMapper();
     @Setter private ZoneId serverTimeZone = ZoneId.systemDefault();
     @Getter @Setter protected Map<TableId, TableChanges.TableChange> tableSchemas;
+    // Parsed exclude-column sets per table, populated once in init() from config
+    private Map<String, Set<String>> excludeColumnsCache = new HashMap<>();
 
     public DebeziumJsonDeserializer() {}
 
@@ -88,6 +91,7 @@ public class DebeziumJsonDeserializer
     public void init(Map<String, String> props) {
         this.serverTimeZone =
                 ConfigUtil.getServerTimeZoneFromJdbcUrl(props.get(DataSourceConfigKeys.JDBC_URL));
+        excludeColumnsCache = ConfigUtil.parseAllExcludeColumns(props);
     }
 
     @Override
@@ -106,7 +110,7 @@ public class DebeziumJsonDeserializer
             SourceRecord record, Map<String, String> context) throws IOException {
         List<String> rows = new ArrayList<>();
         String tableName = extractTableName(record);
-        Set<String> excludeColumns = ConfigUtil.parseExcludeColumns(context, tableName);
+        Set<String> excludeColumns = excludeColumnsCache.getOrDefault(tableName, Collections.emptySet());
         Envelope.Operation op = Envelope.operationFor(record);
         Struct value = (Struct) record.value();
         Schema valueSchema = record.valueSchema();

@@ -56,9 +56,14 @@ public class DataSourceConfigValidator {
             String value = entry.getValue();
 
             if (key.startsWith(TABLE_LEVEL_PREFIX)) {
-                // per-table config key: table.<tableName>.<suffix>
-                int lastDot = key.lastIndexOf('.');
-                String suffix = key.substring(lastDot + 1);
+                // per-table config key must be exactly: table.<tableName>.<suffix>
+                // reject malformed keys like "table.exclude_columns" (missing tableName)
+                String[] parts = key.split("\\.", -1);
+                if (parts.length < 3 || parts[1].isEmpty()) {
+                    throw new IllegalArgumentException("Malformed per-table config key: '" + key
+                            + "'. Expected format: table.<tableName>.<suffix>");
+                }
+                String suffix = parts[parts.length - 1];
                 if (!ALLOW_TABLE_LEVEL_SUFFIXES.contains(suffix)) {
                     throw new IllegalArgumentException("Unknown per-table config key: '" + key + "'");
                 }
