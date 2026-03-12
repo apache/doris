@@ -60,6 +60,9 @@ public class MCProperties {
     public static final String MAX_FIELD_SIZE = "mc.max_field_size_bytes";
     public static final String DEFAULT_MAX_FIELD_SIZE = "8388608"; // 8 * 1024 * 1024 = 8MB
 
+    public static final String MAX_WRITE_BATCH_ROWS = "mc.max_write_batch_rows";
+    public static final String DEFAULT_MAX_WRITE_BATCH_ROWS = "4096";
+
     //withCrossPartition(true):
     //      Very friendly to scenarios where there are many partitions but each partition is very small.
     //withCrossPartition(false):
