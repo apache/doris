@@ -138,6 +138,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
     public static boolean audit_log_enable_compress = false;
 
+    @ConfField(description = {"启用的数据血缘插件列表，需要填写 LineagePlugin.name() 返回的名称，",
+            "Active lineage plugins, need to fill in the name returned by LineagePlugin.name()"})
+    public static String[] activate_lineage_plugin = {};
+
     @ConfField(description = {"是否使用文件记录日志。当使用 --console 启动 FE 时，全部日志同时写入到标准输出和文件。"
             + "如果关闭这个选项，不再使用文件记录日志。",
             "Whether to use file to record log. When starting FE with --console, "
@@ -3603,6 +3607,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int audit_event_log_queue_size = 250000;
 
+    @ConfField(description = {"血缘事件队列最大长度，超过长度事件会被舍弃",
+            "Max size of lineage event queue， events will be discarded when exceeded"})
+    public static int lineage_event_queue_size = 50000;
+
     @ConfField(mutable = true, description = {
             "streamload 导入使用的转发策略，可选值为 public-private/public/private/direct/random-be/空",
             "streamload route policy, available options are "
@@ -3922,8 +3930,15 @@ public class Config extends ConfigBase {
             "agent tasks health check interval, default is five minutes, no health check when less than or equal to 0"
     })
     public static long agent_task_health_check_intervals_ms = 5 * 60 * 1000L; // 5 min
-    @ConfField(description = {"是否跳过 catalog 层级的鉴权",
-            "Whether to skip catalog level privilege check"})
+    @ConfField(description = {
+            "是否在 catalog 级权限检查中跳过 FE 内部的 catalog 权限校验。仅对配置了自定义 access controller 的外部 "
+                    + "catalog 的 SHOW/SELECT 生效；内部 catalog、未配置自定义 access controller 的 catalog，"
+                    + "以及 CREATE/LOAD/ALTER 等其他权限仍按默认逻辑校验",
+            "Whether to skip the FE internal catalog privilege check in catalog-level privilege validation. "
+                    + "This only applies to SHOW/SELECT on external catalogs with a custom access controller. "
+                    + "Internal catalogs, catalogs without a custom access controller, and other privileges such "
+                    + "as CREATE/LOAD/ALTER are still validated by the default logic"
+    })
     public static boolean skip_catalog_priv_check = false;
 
     @ConfField(mutable = true, description = {

@@ -20,11 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TTypeDesc;
-import org.apache.doris.thrift.TTypeNode;
+import org.apache.doris.foundation.format.FormatOptions;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -107,16 +103,6 @@ public class StructLiteral extends LiteralExpr {
             list.add(child.getStringValueInComplexTypeForQuery(options));
         }
         return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.STRUCT_LITERAL;
-        ((StructType) type).getFields().forEach(v -> msg.setChildType(v.getType().getPrimitiveType().toThrift()));
-        TTypeDesc container = new TTypeDesc();
-        container.setTypes(new ArrayList<TTypeNode>());
-        type.toThrift(container);
-        msg.setType(container);
     }
 
     @Override

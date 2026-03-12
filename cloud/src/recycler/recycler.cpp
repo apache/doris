@@ -819,19 +819,36 @@ int InstanceRecycler::recycle_deleted_instance() {
                      << "s, instance_id=" << instance_id_;
     };
 
-    // Step 1: Recycle versioned rowsets in recycle space (already marked for deletion)
+    // Step 1: Recycle tmp rowsets (contains ref count but txn is not committed)
+    auto recycle_tmp_rowsets_with_mark_delete_enabled = [&]() -> int {
+        int res = recycle_tmp_rowsets();
+        if (res == 0 && config::enable_mark_delete_rowset_before_recycle) {
+            // If mark_delete_rowset_before_recycle is enabled, we will mark delete rowsets before recycling them,
+            // so we need to recycle tmp rowsets again to make sure all rowsets in recycle space are marked for
+            // deletion, otherwise we may meet some corner cases that some rowsets are not marked for deletion
+            // and cannot be recycled.
+            res = recycle_tmp_rowsets();
+        }
+        return res;
+    };
+    if (recycle_tmp_rowsets_with_mark_delete_enabled() != 0) {
+        LOG_WARNING("failed to recycle tmp rowsets").tag("instance_id", instance_id_);
+        return -1;
+    }
+
+    // Step 2: Recycle versioned rowsets in recycle space (already marked for deletion)
     if (recycle_versioned_rowsets() != 0) {
         LOG_WARNING("failed to recycle versioned rowsets").tag("instance_id", instance_id_);
         return -1;
     }
 
-    // Step 2: Recycle operation logs (can recycle logs not referenced by snapshots)
+    // Step 3: Recycle operation logs (can recycle logs not referenced by snapshots)
     if (recycle_operation_logs() != 0) {
         LOG_WARNING("failed to recycle operation logs").tag("instance_id", instance_id_);
         return -1;
     }
 
-    // Step 3: Check if there are still cluster snapshots
+    // Step 4: Check if there are still cluster snapshots
     bool has_snapshots = false;
     if (has_cluster_snapshots(&has_snapshots) != 0) {
         LOG(WARNING) << "check instance cluster snapshots failed, instance_id=" << instance_id_;
@@ -3563,6 +3580,18 @@ int InstanceRecycler::delete_rowset_data(
             }
         }
 
+        int64_t num_segments = rs.num_segments();
+        // Check num_segments before accessor lookup, because empty rowsets
+        // (e.g. base compaction output of empty rowsets) may have no resource_id
+        // set. Skipping them early avoids a spurious "no such resource id" error
+        // that marks the entire batch as failed and prevents txn_remove from
+        // cleaning up recycle KV keys.
+        if (num_segments <= 0) {
+            metrics_context.total_recycled_num++;
+            metrics_context.total_recycled_data_size += rs.total_disk_size();
+            continue;
+        }
+
         auto it = accessor_map_.find(rs.resource_id());
         // possible if the accessor is not initilized correctly
         if (it == accessor_map_.end()) [[unlikely]] {
@@ -3583,12 +3612,6 @@ int InstanceRecycler::delete_rowset_data(
                 .tag("merge_index_size", rs.packed_slice_locations_size());
         if (decrement_packed_file_ref_counts(rs) != 0) {
             ret = -1;
-            continue;
-        }
-        int64_t num_segments = rs.num_segments();
-        if (num_segments <= 0) {
-            metrics_context.total_recycled_num++;
-            metrics_context.total_recycled_data_size += rs.total_disk_size();
             continue;
         }
 

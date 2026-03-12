@@ -107,7 +107,7 @@ public class SearchPredicateTest {
         SearchPredicate predicate = new SearchPredicate(dsl, plan, children, true);
 
         TExprNode thriftNode = new TExprNode();
-        predicate.toThrift(thriftNode);
+        predicate.accept(ExprToThriftVisitor.INSTANCE, thriftNode);
 
         Assertions.assertEquals(TExprNodeType.SEARCH_EXPR, thriftNode.node_type);
         Assertions.assertNotNull(thriftNode.search_param);
@@ -140,7 +140,7 @@ public class SearchPredicateTest {
         SearchPredicate predicate = new SearchPredicate(dsl, plan, children, true);
 
         TExprNode thriftNode = new TExprNode();
-        predicate.toThrift(thriftNode);
+        predicate.accept(ExprToThriftVisitor.INSTANCE, thriftNode);
 
         TSearchParam param = thriftNode.search_param;
         Assertions.assertEquals(dsl, param.original_dsl);
@@ -219,7 +219,7 @@ public class SearchPredicateTest {
         SearchPredicate predicate = new SearchPredicate(dsl, plan, children, true);
 
         TExprNode thriftNode = new TExprNode();
-        predicate.toThrift(thriftNode);
+        predicate.accept(ExprToThriftVisitor.INSTANCE, thriftNode);
 
         TSearchParam param = thriftNode.search_param;
         Assertions.assertEquals(dsl, param.original_dsl);
@@ -251,7 +251,7 @@ public class SearchPredicateTest {
         Assertions.assertEquals(0, predicate.getChildren().size());
 
         TExprNode thriftNode = new TExprNode();
-        predicate.toThrift(thriftNode);
+        predicate.accept(ExprToThriftVisitor.INSTANCE, thriftNode);
 
         Assertions.assertNotNull(thriftNode.search_param);
         Assertions.assertEquals(dsl, thriftNode.search_param.original_dsl);
@@ -283,7 +283,7 @@ public class SearchPredicateTest {
         SearchPredicate predicate = new SearchPredicate(dsl, plan, children, fieldIndexes, true);
 
         TExprNode thriftNode = new TExprNode();
-        predicate.toThrift(thriftNode);
+        predicate.accept(ExprToThriftVisitor.INSTANCE, thriftNode);
 
         TSearchParam param = thriftNode.search_param;
         Assertions.assertNotNull(param);
@@ -314,7 +314,7 @@ public class SearchPredicateTest {
         SearchPredicate predicate = new SearchPredicate(dsl, plan, children, fieldIndexes, true);
 
         TExprNode thriftNode = new TExprNode();
-        predicate.toThrift(thriftNode);
+        predicate.accept(ExprToThriftVisitor.INSTANCE, thriftNode);
 
         TSearchParam param = thriftNode.search_param;
         TSearchFieldBinding binding = param.field_bindings.get(0);
@@ -335,7 +335,7 @@ public class SearchPredicateTest {
         SearchPredicate predicate = new SearchPredicate(dsl, plan, children, true);
 
         TExprNode thriftNode = new TExprNode();
-        predicate.toThrift(thriftNode);
+        predicate.accept(ExprToThriftVisitor.INSTANCE, thriftNode);
 
         TSearchParam param = thriftNode.search_param;
         TSearchFieldBinding binding = param.field_bindings.get(0);
@@ -376,7 +376,7 @@ public class SearchPredicateTest {
         SearchPredicate predicate = new SearchPredicate(dsl, plan, children, fieldIndexes, true);
 
         TExprNode thriftNode = new TExprNode();
-        predicate.toThrift(thriftNode);
+        predicate.accept(ExprToThriftVisitor.INSTANCE, thriftNode);
 
         TSearchParam param = thriftNode.search_param;
         Assertions.assertEquals(2, param.field_bindings.size());

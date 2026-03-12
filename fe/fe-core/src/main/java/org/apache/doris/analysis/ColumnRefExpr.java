@@ -18,9 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.thrift.TColumnRef;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
 
 import java.util.Optional;
 
@@ -43,6 +40,10 @@ public class ColumnRefExpr extends Expr {
         return columnName;
     }
 
+    public int getColumnId() {
+        return columnId;
+    }
+
     @Override
     public String getExprName() {
         if (!this.exprName.isPresent()) {
@@ -62,15 +63,6 @@ public class ColumnRefExpr extends Expr {
     @Override
     public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
         return visitor.visitColumnRefExpr(this, context);
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.COLUMN_REF;
-        TColumnRef columnRef = new TColumnRef();
-        columnRef.setColumnId(columnId);
-        columnRef.setColumnName(columnName);
-        msg.column_ref = columnRef;
     }
 
     @Override

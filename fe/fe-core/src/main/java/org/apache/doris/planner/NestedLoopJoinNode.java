@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -83,11 +84,11 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         msg.nested_loop_join_node = new TNestedLoopJoinNode();
         msg.nested_loop_join_node.join_op = joinOp.toThrift();
         for (Expr conjunct : joinConjuncts) {
-            msg.nested_loop_join_node.addToJoinConjuncts(conjunct.treeToThrift());
+            msg.nested_loop_join_node.addToJoinConjuncts(ExprToThriftVisitor.treeToThrift(conjunct));
         }
         if (markJoinConjuncts != null) {
             for (Expr conjunct : markJoinConjuncts) {
-                msg.nested_loop_join_node.addToMarkJoinConjuncts(conjunct.treeToThrift());
+                msg.nested_loop_join_node.addToMarkJoinConjuncts(ExprToThriftVisitor.treeToThrift(conjunct));
             }
         }
 
