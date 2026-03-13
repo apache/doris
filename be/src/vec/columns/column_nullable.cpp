@@ -275,7 +275,7 @@ size_t ColumnNullable::serialize_impl(char* pos, const size_t row) const {
 }
 
 void ColumnNullable::serialize_vec(StringRef* keys, size_t num_rows) const {
-    const bool has_null = simd::contain_byte(get_null_map_data().data(), num_rows, 1);
+    const bool has_null = simd::contain_one(get_null_map_data().data(), num_rows);
     if (has_null) {
         for (size_t i = 0; i < num_rows; ++i) {
             keys[i].size += serialize_impl(const_cast<char*>(keys[i].data + keys[i].size), i);
@@ -620,11 +620,11 @@ void ColumnNullable::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
 }
 
 bool ColumnNullable::only_null() const {
-    return !simd::contain_byte(get_null_map_data().data(), size(), 0);
+    return !simd::contain_zero(get_null_map_data().data(), size());
 }
 
 bool ColumnNullable::has_null(size_t begin, size_t end) const {
-    return simd::contain_byte(get_null_map_data().data() + begin, end - begin, 1);
+    return simd::contain_one(get_null_map_data().data() + begin, end - begin);
 }
 
 bool ColumnNullable::has_null() const {
