@@ -38,8 +38,8 @@ namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 void AnnIndexReader::update_result(const IndexSearchResult& search_result,
                                    std::vector<float>& distance, roaring::Roaring& roaring) {
-    DORIS_CHECK(search_result.distances != nullptr);
-    DORIS_CHECK(search_result.roaring != nullptr);
+    DCHECK(search_result.distances != nullptr);
+    DCHECK(search_result.roaring != nullptr);
     size_t limit = search_result.roaring->cardinality();
     // Use search result to update distance and row_id
     distance.resize(limit);
