@@ -57,19 +57,13 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------hashAgg[GLOBAL]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------hashAgg[LOCAL]
---------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------PhysicalDistribute[DistributionSpecExecutionAny]
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------hashAgg[GLOBAL]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------hashAgg[LOCAL]
---------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------PhysicalDistribute[DistributionSpecExecutionAny]
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !should_use_multi_distinct_with_group_by --
 PhysicalResultSink
