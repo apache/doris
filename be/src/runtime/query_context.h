@@ -107,6 +107,12 @@ public:
         return _query_watcher.elapsed_time_seconds(now) > _timeout_second;
     }
 
+    bool is_single_backend_query() const { return _is_single_backend_query; }
+
+    void set_single_backend_query(bool is_single_backend_query) {
+        _is_single_backend_query = is_single_backend_query;
+    }
+
     int64_t get_remaining_query_time_seconds() const {
         timespec now;
         clock_gettime(CLOCK_MONOTONIC, &now);
@@ -373,6 +379,8 @@ private:
     std::mutex _error_url_lock;
     std::string _load_error_url;
     std::string _first_error_msg;
+
+    bool _is_single_backend_query = false;
 
     // file cache context holders
     std::vector<io::BlockFileCache::QueryFileCacheContextHolderPtr> _query_context_holders;
