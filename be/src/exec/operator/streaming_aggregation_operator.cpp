@@ -31,13 +31,23 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "exprs/vslot_ref.h"
+#include "pipeline/exec/operator.h"
+#include "util/cpu_info.h"
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/exprs/vectorized_agg_fn.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
-namespace doris {
+namespace doris::pipeline {
+
+using StreamingHtMinReductionEntry = doris::CpuInfo::StreamingHtMinReductionEntry;
+static const std::vector<StreamingHtMinReductionEntry>& STREAMING_HT_MIN_REDUCTION =
+        doris::CpuInfo::get_streaming_ht_min_reduction();
+static const size_t STREAMING_HT_MIN_REDUCTION_SIZE = STREAMING_HT_MIN_REDUCTION.size();
 
 StreamingAggLocalState::StreamingAggLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent),
@@ -1128,4 +1138,4 @@ bool StreamingAggOperatorX::need_more_input_data(RuntimeState* state) const {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris
+} // namespace doris::pipeline
