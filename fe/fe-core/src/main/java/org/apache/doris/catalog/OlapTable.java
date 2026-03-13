@@ -2735,6 +2735,21 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
     }
 
+    public void setVerticalCompactionNumColumnsPerGroup(int verticalCompactionNumColumnsPerGroup) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(
+                PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP,
+                Integer.valueOf(verticalCompactionNumColumnsPerGroup).toString());
+        tableProperty.buildVerticalCompactionNumColumnsPerGroup();
+    }
+
+    public int getVerticalCompactionNumColumnsPerGroup() {
+        if (tableProperty != null) {
+            return tableProperty.verticalCompactionNumColumnsPerGroup();
+        }
+        return PropertyAnalyzer.VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP_DEFAULT_VALUE;
+    }
+
     public int getIndexSchemaVersion(long indexId) {
         MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
         return indexMeta.getSchemaVersion();

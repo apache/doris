@@ -178,7 +178,7 @@ public:
                 ->read_dict_values_to_column(doris_column);
     }
 
-    MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) {
+    Result<MutableColumnPtr> convert_dict_column_to_string_column(const ColumnInt32* dict_column) {
         return _decoders[static_cast<int>(tparquet::Encoding::RLE_DICTIONARY)]
                 ->convert_dict_column_to_string_column(dict_column);
     }

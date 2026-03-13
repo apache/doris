@@ -561,10 +561,9 @@ void AggSinkLocalState::_emplace_into_hash_table(AggregateDataPtr* places,
                              };
 
                              SCOPED_TIMER(_hash_table_emplace_timer);
-                             for (size_t i = 0; i < num_rows; ++i) {
-                                 places[i] = *agg_method.lazy_emplace(state, i, creator,
-                                                                      creator_for_null_key);
-                             }
+                             lazy_emplace_batch(
+                                     agg_method, state, num_rows, creator, creator_for_null_key,
+                                     [&](uint32_t row, auto& mapped) { places[row] = mapped; });
 
                              COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                          }},
@@ -644,10 +643,10 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(AggregateDataPtr* places,
                               };
 
                               SCOPED_TIMER(_hash_table_emplace_timer);
-                              for (i = 0; i < num_rows; ++i) {
-                                  places[i] = *agg_method.lazy_emplace(state, i, creator,
-                                                                       creator_for_null_key);
-                              }
+                              lazy_emplace_batch(
+                                      agg_method, state, num_rows, creator, creator_for_null_key,
+                                      [&](uint32_t row) { i = row; },
+                                      [&](uint32_t row, auto& mapped) { places[row] = mapped; });
                               COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                               return true;
                           }
@@ -669,15 +668,14 @@ void AggSinkLocalState::_find_in_hash_table(AggregateDataPtr* places, ColumnRawP
                              agg_method.init_serialized_keys(key_columns, num_rows);
 
                              /// For all rows.
-                             for (size_t i = 0; i < num_rows; ++i) {
-                                 auto find_result = agg_method.find(state, i);
-
-                                 if (find_result.is_found()) {
-                                     places[i] = find_result.get_mapped();
-                                 } else {
-                                     places[i] = nullptr;
-                                 }
-                             }
+                             find_batch(agg_method, state, num_rows,
+                                        [&](uint32_t row, auto& find_result) {
+                                            if (find_result.is_found()) {
+                                                places[row] = find_result.get_mapped();
+                                            } else {
+                                                places[row] = nullptr;
+                                            }
+                                        });
                          }},
                _agg_data->method_variant);
 }

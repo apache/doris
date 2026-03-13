@@ -247,6 +247,23 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP)) {
+            int numColumnsPerGroup;
+            String numColumnsPerGroupStr = properties
+                    .get(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
+            try {
+                numColumnsPerGroup = Integer.parseInt(numColumnsPerGroupStr);
+                if (numColumnsPerGroup < 1 || numColumnsPerGroup > 50) {
+                    throw new AnalysisException(
+                            "vertical_compaction_num_columns_per_group must be between 1 and 50: "
+                                    + numColumnsPerGroupStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid vertical_compaction_num_columns_per_group format: "
+                        + numColumnsPerGroupStr);
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
             if (properties.get(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).equalsIgnoreCase("true")) {
                 throw new AnalysisException(

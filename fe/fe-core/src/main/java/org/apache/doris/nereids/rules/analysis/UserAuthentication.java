@@ -22,7 +22,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -64,7 +63,7 @@ public class UserAuthentication {
         if (db == null) {
             return;
         }
-        String dbName = ClusterNamespace.getNameFromFullName(db.getFullName());
+        String dbName = db.getFullName();
 
         // Special handling: cluster snapshot related tables in information_schema
         // require privilege based on configuration

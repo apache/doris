@@ -22,7 +22,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
@@ -444,7 +443,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 throw new AnalysisException("No catalog found with name " + catalogName);
             }
             StringBuilder sb = new StringBuilder();
-            sb.append("\nCREATE CATALOG `").append(ClusterNamespace.getNameFromFullName(catalogName))
+            sb.append("\nCREATE CATALOG `").append(catalogName)
                     .append("`");
             if (!Strings.isNullOrEmpty(catalog.getComment())) {
                 sb.append("\nCOMMENT \"").append(catalog.getComment()).append("\"\n");
@@ -459,7 +458,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 sb.append("\n);");
             }
 
-            rows.add(Lists.newArrayList(ClusterNamespace.getNameFromFullName(catalogName), sb.toString()));
+            rows.add(Lists.newArrayList(catalogName, sb.toString()));
         } finally {
             readUnlock();
         }

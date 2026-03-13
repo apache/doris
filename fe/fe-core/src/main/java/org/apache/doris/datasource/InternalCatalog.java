@@ -88,7 +88,6 @@ import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr;
 import org.apache.doris.cluster.Cluster;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -256,8 +255,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (StringUtils.isEmpty(dbName)) {
             return null;
         }
-        // ATTN: this should be removed in v3.0
-        dbName = ClusterNamespace.getNameFromFullName(dbName);
         if (fullNameToDb.containsKey(dbName)) {
             return fullNameToDb.get(dbName);
         } else {
@@ -2130,7 +2127,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.variantEnableFlattenNested(),
                             tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                             tbl.storageDictPageSize(),
-                            tbl.getColumnSeqMapping());
+                            tbl.getColumnSeqMapping(),
+                            tbl.getVerticalCompactionNumColumnsPerGroup());
 
                     task.setStorageFormat(tbl.getStorageFormat());
                     task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
@@ -2479,6 +2477,17 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException(e.getMessage());
         }
         olapTable.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionLevelThreshold);
+
+        // set vertical compaction num columns per group
+        int verticalCompactionNumColumnsPerGroup
+                = PropertyAnalyzer.VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP_DEFAULT_VALUE;
+        try {
+            verticalCompactionNumColumnsPerGroup = PropertyAnalyzer
+                .analyzeVerticalCompactionNumColumnsPerGroup(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.setVerticalCompactionNumColumnsPerGroup(verticalCompactionNumColumnsPerGroup);
 
         boolean variantEnableFlattenNested  = false;
         try {
@@ -3120,7 +3129,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             db.writeLockOrDdlException();
             try {
                 // db name not changed
-                if (!db.getName().equals(ClusterNamespace.getNameFromFullName(createTableInfo.getDbName()))) {
+                if (!db.getName().equals(createTableInfo.getDbName())) {
                     throw new DdlException("Database name renamed, please check the database name");
                 }
                 // register table, write create table edit log
