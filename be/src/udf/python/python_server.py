@@ -820,7 +820,7 @@ class ModuleUDFLoader(UDFLoader):
     # we need to ensure that imports with the same module name 
     # do not interfere with each other across different threads,
     # even if they come from different file paths.
-    _import_locks: Dict[str, threading.RLock] = {}
+    _import_locks: Dict[str, threading.Lock] = {}
     _import_locks_lock = threading.Lock()
 
     # Key for _module_cache: (location, module_name) tuple to avoid conflicts between different locations
@@ -828,7 +828,7 @@ class ModuleUDFLoader(UDFLoader):
     _module_cache_lock = threading.Lock()
 
     @classmethod
-    def _get_import_lock(cls, module_name: str) -> threading.RLock:
+    def _get_import_lock(cls, module_name: str) -> threading.Lock:
         """
         Get or create a reentrant lock for the given module name.
 
@@ -846,7 +846,7 @@ class ModuleUDFLoader(UDFLoader):
         with cls._import_locks_lock:
             # Double-check: another thread might have created it while we waited
             if cache_key not in cls._import_locks:
-                cls._import_locks[cache_key] = threading.RLock()
+                cls._import_locks[cache_key] = threading.Lock()
             return cls._import_locks[cache_key]
 
     def load(self) -> AdaptivePythonUDF:
