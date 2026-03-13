@@ -49,10 +49,10 @@ suite("test_mysql_jdbc_catalog_write_transaction", "p0,external") {
     // We use UUID to ensure our test data doesn't conflict with other tests.
 
     // ========== Test 1: INSERT without transaction (default behavior) ==========
-    // By default, enable_odbc_transaction is false, so autoCommit stays true
+    // By default, enable_odbc_transcation is false, so autoCommit stays true
     // and each statement auto-commits. This should work regardless of Bug 1.
     String uuid1 = UUID.randomUUID().toString();
-    sql """ set enable_odbc_transaction = false """
+    sql """ set enable_odbc_transcation = false """
     sql """ insert into ${test_table} values ('${uuid1}', 'no_txn_test', 100) """
 
     // Read back — should be visible (auto-committed)
@@ -60,12 +60,12 @@ suite("test_mysql_jdbc_catalog_write_transaction", "p0,external") {
 
     // ========== Test 2: INSERT with transaction enabled ==========
     // This is the critical test for Bug 1.
-    // enable_odbc_transaction = true => JdbcJniWriter sets autoCommit=false
+    // enable_odbc_transcation = true => JdbcJniWriter sets autoCommit=false
     // and the writer must explicitly call conn.commit() before close().
     // Without the Bug 1 fix, the JDBC driver will rollback on close() and
     // the data will be silently lost.
     String uuid2 = UUID.randomUUID().toString();
-    sql """ set enable_odbc_transaction = true """
+    sql """ set enable_odbc_transcation = true """
     sql """ insert into ${test_table} values ('${uuid2}', 'txn_test_1', 200) """
 
     // Read back — data should be visible if commit() was called
@@ -74,7 +74,7 @@ suite("test_mysql_jdbc_catalog_write_transaction", "p0,external") {
     // ========== Test 3: Multi-row INSERT with transaction ==========
     // All rows should be committed atomically
     String uuid3 = UUID.randomUUID().toString();
-    sql """ set enable_odbc_transaction = true """
+    sql """ set enable_odbc_transcation = true """
     sql """ insert into ${test_table} values
         ('${uuid3}', 'txn_batch_1', 301),
         ('${uuid3}', 'txn_batch_2', 302),
@@ -85,7 +85,7 @@ suite("test_mysql_jdbc_catalog_write_transaction", "p0,external") {
 
     // ========== Test 4: INSERT INTO SELECT with transaction ==========
     String uuid4 = UUID.randomUUID().toString();
-    sql """ set enable_odbc_transaction = true """
+    sql """ set enable_odbc_transcation = true """
     sql """ insert into ${test_table} values ('${uuid4}', 'txn_src', 401) """
     sql """ insert into ${test_table} select '${uuid4}', concat(name, '_copy'), age + 1 from ${test_table} where id = '${uuid4}' """
 
@@ -97,7 +97,7 @@ suite("test_mysql_jdbc_catalog_write_transaction", "p0,external") {
     assertTrue(result[0][0] == 3, "Expected 3 rows for uuid3 but got ${result[0][0]} — transaction may not have been committed")
 
     // clean
-    sql """ set enable_odbc_transaction = false """
+    sql """ set enable_odbc_transcation = false """
     sql """switch internal"""
     sql """drop catalog if exists ${catalog_name} """
 }
