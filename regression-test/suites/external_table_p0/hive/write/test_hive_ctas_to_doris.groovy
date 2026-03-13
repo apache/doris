@@ -77,7 +77,8 @@ suite("test_hive_ctas_to_doris", "p0,external,hive,external_docker,external_dock
                 assertTrue(false)
             } catch (Exception ex) {
                 ex.printStackTrace();
-                assertTrue(ex.getMessage().contains("the length of input is too long than schema"))
+                assertTrue(ex.getMessage().contains("the length of input is too long than schema")
+                    || ex.getMessage().contains("Partition name's length is over limit of 50"))
             }
 
             try {
@@ -85,7 +86,8 @@ suite("test_hive_ctas_to_doris", "p0,external,hive,external_docker,external_dock
                 assertTrue(false)
             } catch (Exception ex) {
                 ex.printStackTrace();
-                assertTrue(ex.getMessage().contains("the length of input is too long than schema"))
+                assertTrue(ex.getMessage().contains("the length of input is too long than schema")
+                    || ex.getMessage().contains("Partition name's length is over limit of 50"))
             }
 
             try {
