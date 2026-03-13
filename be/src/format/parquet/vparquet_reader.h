@@ -171,6 +171,9 @@ public:
         _row_id_column_iterator_pair = iterator_pair;
     }
 
+    void set_iceberg_rowid_params(const std::string& file_path, int32_t partition_spec_id,
+                                  const std::string& partition_data_json, int row_id_column_pos);
+
     bool count_read_rows() override { return true; }
 
     void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override;
@@ -363,6 +366,7 @@ private:
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
     bool _filter_groups = true;
+    RowGroupReader::IcebergRowIdParams _iceberg_rowid_params;
 
     std::set<uint64_t> _column_ids;
     std::set<uint64_t> _filter_column_ids;
