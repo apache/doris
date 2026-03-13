@@ -531,35 +531,47 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         if (StringUtils.isEmpty(dbName)) {
             // we will change arithmetic function like add(), subtract(), bitnot()
             // to the corresponding objects rather than BoundFunction.
-            if (ArithmeticFunctionBinder.INSTANCE.isBinaryArithmetic(unboundFunction.getName())) {
-                Expression ret = ArithmeticFunctionBinder.INSTANCE.bindBinaryArithmetic(
-                        unboundFunction.getName(), unboundFunction.children());
-                if (ret instanceof Divide) {
-                    return TypeCoercionUtils.processDivide((Divide) ret);
-                } else if (ret instanceof IntegralDivide) {
-                    return TypeCoercionUtils.processIntegralDivide((IntegralDivide) ret);
-                } else if ((ret instanceof BinaryArithmetic)) {
-                    return TypeCoercionUtils.processBinaryArithmetic((BinaryArithmetic) ret);
-                } else if (ret instanceof BitNot) {
-                    return TypeCoercionUtils.processBitNot((BitNot) ret);
-                } else {
-                    return ret;
+            try {
+                if (ArithmeticFunctionBinder.INSTANCE.isBinaryArithmetic(unboundFunction.getName())) {
+                    Expression ret = ArithmeticFunctionBinder.INSTANCE.bindBinaryArithmetic(
+                            unboundFunction.getName(), unboundFunction.children());
+                    if (ret instanceof Divide) {
+                        return TypeCoercionUtils.processDivide((Divide) ret);
+                    } else if (ret instanceof IntegralDivide) {
+                        return TypeCoercionUtils.processIntegralDivide((IntegralDivide) ret);
+                    } else if ((ret instanceof BinaryArithmetic)) {
+                        return TypeCoercionUtils.processBinaryArithmetic((BinaryArithmetic) ret);
+                    } else if (ret instanceof BitNot) {
+                        return TypeCoercionUtils.processBitNot((BitNot) ret);
+                    } else {
+                        return ret;
+                    }
                 }
-            }
-            if (GetFormatFunctionBinder.isGetFormatFunction(unboundFunction.getName())) {
-                Expression ret = GetFormatFunctionBinder.INSTANCE.bind(unboundFunction);
-                if (ret instanceof BoundFunction) {
-                    return TypeCoercionUtils.processBoundFunction((BoundFunction) ret);
-                } else {
-                    return ret;
+                if (GetFormatFunctionBinder.isGetFormatFunction(unboundFunction.getName())) {
+                    Expression ret = GetFormatFunctionBinder.INSTANCE.bind(unboundFunction);
+                    if (ret instanceof BoundFunction) {
+                        return TypeCoercionUtils.processBoundFunction((BoundFunction) ret);
+                    } else {
+                        return ret;
+                    }
                 }
-            }
-            if (DatetimeFunctionBinder.isDatetimeFunction(unboundFunction.getName())) {
-                Expression ret = DatetimeFunctionBinder.INSTANCE.bind(unboundFunction);
-                if (ret instanceof BoundFunction) {
-                    return TypeCoercionUtils.processBoundFunction((BoundFunction) ret);
-                } else {
-                    return ret;
+                if (DatetimeFunctionBinder.isDatetimeFunction(unboundFunction.getName())) {
+                    Expression ret = DatetimeFunctionBinder.INSTANCE.bind(unboundFunction);
+                    if (ret instanceof BoundFunction) {
+                        return TypeCoercionUtils.processBoundFunction((BoundFunction) ret);
+                    } else {
+                        return ret;
+                    }
+                }
+            } catch (AnalysisException e) {
+                // If `prefer_udf_over_builtin` is enabled, we ignore the AnalysisException                                                                                                                    │
+                // when special built-in function binding fails. This allows the analyzer to                                                                                                                   │
+                // fall back to the function registry, permitting users to override these                                                                                                                      │
+                // built-in functions with their own UDFs.
+                boolean preferUdfOverBuiltin = ConnectContext.get() == null ? false
+                        : ConnectContext.get().getSessionVariable().preferUdfOverBuiltin;
+                if (!preferUdfOverBuiltin) {
+                    throw e;
                 }
             }
         }
