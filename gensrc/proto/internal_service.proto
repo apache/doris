@@ -771,6 +771,7 @@ message PJdbcTestConnectionRequest {
     optional bytes jdbc_table = 1;
     optional int32 jdbc_table_type = 2;
     optional string query_str = 3;
+    optional string token = 4;
 }
 
 message PJdbcTestConnectionResult {
@@ -1231,4 +1232,3 @@ service PBackendService {
     rpc fetch_peer_data(PFetchPeerDataRequest) returns (PFetchPeerDataResponse);
     rpc request_cdc_client(PRequestCdcClientRequest) returns (PRequestCdcClientResult);
 };
-

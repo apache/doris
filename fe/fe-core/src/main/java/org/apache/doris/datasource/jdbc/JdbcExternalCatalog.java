@@ -431,6 +431,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             PJdbcTestConnectionRequest request = InternalService.PJdbcTestConnectionRequest.newBuilder()
                     .setJdbcTable(ByteString.copyFrom(new TSerializer().serialize(testTable.toThrift())))
                     .setJdbcTableType(testTable.getJdbcTableType().getValue())
+                    .setToken(Env.getCurrentEnv().getToken())
                     .setQueryStr(testClient.getTestQuery()).build();
             InternalService.PJdbcTestConnectionResult result = null;
             Future<PJdbcTestConnectionResult> future = BackendServiceProxy.getInstance()
