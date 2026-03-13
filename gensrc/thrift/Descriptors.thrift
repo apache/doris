@@ -215,6 +215,7 @@ enum TSchemaTableType {
     SCH_FILE_CACHE_INFO = 65;
     SCH_DATABASE_PROPERTIES = 66;
     SCH_AUTHENTICATION_INTEGRATIONS = 67;
+    SCH_STREAMS = 68;
 }
 
 enum THdfsCompression {

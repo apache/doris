@@ -287,6 +287,12 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("saveConstraintManager",
                         CountingDataOutputStream.class, long.class);
                 break;
+            case "StreamManager":
+                metaPersistMethod.readMethod =
+                        Env.class.getDeclaredMethod("loadStreamManager", DataInputStream.class, long.class);
+                metaPersistMethod.writeMethod =
+                        Env.class.getDeclaredMethod("saveStreamManager", CountingDataOutputStream.class, long.class);
+                break;
             default:
                 break;
         }

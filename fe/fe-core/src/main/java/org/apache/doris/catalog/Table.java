@@ -475,7 +475,9 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
             if (column.isKey()) {
                 keys.add(column);
             }
-            this.nameToColumn.put(column.getName(), column);
+            if (nameToColumn != null) {
+                this.nameToColumn.put(column.getName(), column);
+            }
         }
         if (keys.size() > 1) {
             keys.forEach(key -> key.setCompoundKey(true));

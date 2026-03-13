@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.InternalDatabaseUtil;
@@ -32,49 +33,30 @@ import org.apache.doris.qe.StmtExecutor;
 import com.google.common.base.Strings;
 
 /**
- * drop table command
+ * DropStreamCommand
  */
-public class DropTableCommand extends Command implements ForwardWithSync {
-
+public class DropStreamCommand extends Command implements ForwardWithSync {
     private boolean ifExists;
-    private boolean mustTemporary;
     private final TableNameInfo tableName;
-    private final boolean isView;
     private boolean forceDrop;
-    private boolean isMaterializedView;
 
-    /**
-     * constructor.
-     */
-    public DropTableCommand(boolean ifExists, boolean mustTemporary, TableNameInfo tableName, boolean forceDrop) {
-        super(PlanType.DROP_TABLE_COMMAND);
+    public DropStreamCommand(boolean ifExists, TableNameInfo tableName, boolean forceDrop) {
+        super(PlanType.DROP_STREAM_COMMAND);
         this.ifExists = ifExists;
-        this.mustTemporary = mustTemporary;
         this.tableName = tableName;
-        this.isView = false;
         this.forceDrop = forceDrop;
-    }
-
-    /**
-     * constructor.
-     */
-    public DropTableCommand(boolean ifExists, boolean mustTemporary,
-            TableNameInfo tableName, boolean isView, boolean forceDrop) {
-        super(PlanType.DROP_TABLE_COMMAND);
-        this.ifExists = ifExists;
-        this.mustTemporary = mustTemporary;
-        this.tableName = tableName;
-        this.isView = isView;
-        this.forceDrop = forceDrop;
-    }
-
-    @Override
-    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitDropTableCommand(this, context);
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        validate(ctx);
+        Env.getCurrentEnv().dropStream(tableName.getCtl(), tableName.getDb(), tableName.getTbl(), ifExists, forceDrop);
+    }
+
+    /**
+     * validate
+     */
+    public void validate(ConnectContext ctx) throws AnalysisException {
         if (Strings.isNullOrEmpty(tableName.getDb())) {
             tableName.setDb(ctx.getDatabase());
         }
@@ -83,19 +65,26 @@ public class DropTableCommand extends Command implements ForwardWithSync {
         // check access
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(),
-                tableName.getTbl(), PrivPredicate.DROP)) {
+                        tableName.getTbl(), PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
         }
-        Env.getCurrentEnv().dropTable(tableName.getCtl(), tableName.getDb(), tableName.getTbl(), isView,
-                isMaterializedView, false, ifExists, mustTemporary, forceDrop);
     }
 
-    public void setMaterializedView(boolean materializedView) {
-        isMaterializedView = materializedView;
+    @Override
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitDropStreamCommand(this, context);
     }
 
     @Override
     public StmtType stmtType() {
         return StmtType.DROP;
+    }
+
+    public boolean isIfExists() {
+        return ifExists;
+    }
+
+    public TableNameInfo getTableName() {
+        return tableName;
     }
 }

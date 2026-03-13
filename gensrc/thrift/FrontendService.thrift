@@ -871,6 +871,7 @@ enum TSchemaTableName {
   SQL_BLOCK_RULE_STATUS = 12,
   DATABASE_PROPERTIES = 13,
   AUTHENTICATION_INTEGRATIONS = 14,
+  STREAMS = 15,
 }
 
 struct TMetadataTableRequestParams {

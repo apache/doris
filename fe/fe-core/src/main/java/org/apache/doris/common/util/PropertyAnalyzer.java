@@ -32,6 +32,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.stream.BaseStream;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -293,6 +294,10 @@ public class PropertyAnalyzer {
 
     // number of buckets when using doc snapshot serialization
     public static final String PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT = "variant_doc_hash_shard_count";
+
+    // stream properties
+    public static final String PROPERTIES_STREAM_TYPE = "type";
+    public static final String PROPERTIES_STREAM_SHOW_INITIAL_ROWS = "show_initial_rows";
 
     public enum RewriteType {
         PUT,      // always put property
@@ -2308,5 +2313,20 @@ public class PropertyAnalyzer {
             throw new AnalysisException(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP
                     + " must be a valid integer");
         }
+    }
+
+    public static BaseStream.StreamConsumeType analyzeStreamType(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties != null && properties.containsKey(PROPERTIES_STREAM_TYPE)) {
+            String value = properties.get(PROPERTIES_STREAM_TYPE);
+            BaseStream.StreamConsumeType type = BaseStream.StreamConsumeType.getType(value);
+            if (type.equals(BaseStream.StreamConsumeType.UNKNOWN)) {
+                throw new AnalysisException("not supported " + PropertyAnalyzer.PROPERTIES_STREAM_TYPE
+                        +  ": " + value);
+            }
+            properties.remove(PROPERTIES_STREAM_TYPE);
+            return type;
+        }
+        return BaseStream.StreamConsumeType.DEFAULT;
     }
 }
