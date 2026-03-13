@@ -312,6 +312,8 @@ struct TIcebergFileDesc {
     6: optional string original_file_path;
     // Deprecated
     7: optional i64 row_count;
+    8: optional i32 partition_spec_id;
+    9: optional string partition_data_json;
 }
 
 struct TPaimonDeletionFileDesc {

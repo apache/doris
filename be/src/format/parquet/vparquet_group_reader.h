@@ -27,14 +27,17 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/block/block.h"
 #include "core/column/column.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/parquet/parquet_common.h"
 #include "format/parquet/vparquet_column_reader.h"
 #include "format/table/table_format_reader.h"
+#include "format/table/table_schema_change_helper.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "storage/id_manager.h"
-#include "storage/utils.h"
+#include "storage/segment/common.h"
+#include "vparquet_column_reader.h"
 
 namespace cctz {
 class time_zone;
@@ -66,7 +69,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 // TODO: we need to determine it by test.
 
-class RowGroupReader : public ProfileCollector {
+class RowGroupReader : public ProfileCollector, public RowPositionProvider {
 public:
     std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr;
     static const std::vector<int64_t> NO_DELETE;
@@ -83,11 +86,6 @@ public:
     struct LazyReadContext {
         // all conjuncts: in sql, join runtime filter, topn runtime filter.
         VExprContextSPtrs conjuncts;
-
-        // ParquetReader::set_fill_columns(xxx, xxx) will set these two members
-        std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-                fill_partition_columns;
-        std::unordered_map<std::string, VExprContextSPtr> fill_missing_columns;
 
         phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>
                 slot_id_to_predicates;
@@ -114,6 +112,15 @@ public:
         std::unordered_map<std::string, VExprContextSPtr> missing_columns;
         // should turn off filtering by page index, lazy read and dict filter if having complex type
         bool has_complex_type = false;
+
+        // ColumnProcessor path: column name lists for each category.
+        // Predicate phase: columns involved in predicate filtering.
+        std::vector<std::string> predicate_partition_col_names;
+        std::vector<std::string> predicate_missing_col_names;
+        std::vector<std::string> predicate_synthesized_col_names;
+        // Remaining phase: columns filled after lazy reads.
+        std::vector<std::string> partition_col_names;
+        std::vector<std::string> missing_col_names;
     };
 
     /**
@@ -187,6 +194,13 @@ public:
         _row_id_column_iterator_pair = iterator_pair;
     }
 
+    void set_table_format_reader(TableFormatReader* reader) { _table_format_reader = reader; }
+
+    // RowPositionProvider interface
+    const std::vector<rowid_t>& current_batch_row_positions() const override {
+        return _current_batch_row_ids;
+    }
+
     void set_current_row_group_idx(RowGroupIndex row_group_idx) {
         _current_row_group_idx = row_group_idx;
     }
@@ -215,13 +229,7 @@ private:
     Status _rebuild_filter_map(FilterMap& filter_map,
                                DorisUniqueBufferPtr<uint8_t>& filter_map_data,
                                size_t pre_read_rows) const;
-    Status _fill_partition_columns(
-            Block* block, size_t rows,
-            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                    partition_columns);
-    Status _fill_missing_columns(
-            Block* block, size_t rows,
-            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
+
     Status _build_pos_delete_filter(size_t read_rows);
     Status _filter_block(Block* block, int column_to_keep,
                          const std::vector<uint32_t>& columns_to_filter);
@@ -279,6 +287,7 @@ private:
     std::vector<rowid_t> _current_batch_row_ids;
 
     std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
+    TableFormatReader* _table_format_reader = nullptr;
 };
 #include "common/compile_check_end.h"
 

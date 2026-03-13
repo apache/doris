@@ -36,6 +36,7 @@
 #include "format/parquet/vparquet_column_reader.h"
 #include "format/parquet/vparquet_group_reader.h"
 #include "format/table/table_format_reader.h"
+#include "format/table/table_schema_change_helper.h"
 #include "io/file_factory.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader.h"
@@ -68,7 +69,7 @@ class VExprContext;
 
 namespace doris {
 #include "common/compile_check_begin.h"
-class ParquetReader : public GenericReader {
+class ParquetReader : public TableFormatReader {
     ENABLE_FACTORY_CREATOR(ParquetReader);
 
 public:
@@ -122,7 +123,21 @@ public:
     void set_file_reader(io::FileReaderSPtr file_reader);
 #endif
 
+    // Template method: calls on_before_init_columns → _do_init_reader → on_after_init
     Status init_reader(
+            const std::vector<ColumnDescriptor>& column_descs,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+            const VExprContextSPtrs& conjuncts,
+            phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
+                    slot_id_to_predicates,
+            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
+            const std::unordered_map<std::string, int>* colname_to_slot_id,
+            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
+            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
+
+    // Low-level init_reader — used by standalone reader instances (tvf, load, push_handler,
+    // Iceberg delete file readers) that don't go through subclass hooks.
+    Status _do_init_reader(
             const std::vector<std::string>& all_column_names,
             std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
             const VExprContextSPtrs& conjuncts,
@@ -134,9 +149,10 @@ public:
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
             std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr =
                     TableSchemaChangeHelper::ConstNode::get_instance(),
-            bool filter_groups = true, const std::set<uint64_t>& column_ids = {},
+            const std::set<uint64_t>& column_ids = {},
             const std::set<uint64_t>& filter_column_ids = {});
 
+    // Template method: calls on_before_read_block → _do_get_next_block → on_after_read_block
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
     Status close() override;
@@ -171,10 +187,45 @@ public:
         _row_id_column_iterator_pair = iterator_pair;
     }
 
+    /// Access current batch row positions (delegates to RowGroupReader).
+    /// Used by IcebergReaderMixin to build $row_id column.
+    const std::vector<segment_v2::rowid_t>& current_batch_row_positions() const {
+        return _current_group_reader->current_batch_row_positions();
+    }
+
     bool count_read_rows() override { return true; }
+
+    /// Disable row-group range filtering (needed when reading delete files
+    /// whose TFileRangeDesc has size=-1).
+    void set_filter_groups(bool v) { _filter_groups = v; }
 
 protected:
     void _collect_profile_before_close() override;
+
+    // Called before core init. Override to customize column selection,
+    // schema mapping (table_info_node), and column_ids.
+    // Parquet subclasses can also set _filter_groups = false to disable.
+    Status on_before_init_columns(const std::vector<ColumnDescriptor>& column_descs,
+                                  std::vector<std::string>& column_names,
+                                  std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
+                                  std::set<uint64_t>& column_ids,
+                                  std::set<uint64_t>& filter_column_ids) override;
+
+    // Internal get_next_block implementation (the actual reading logic)
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof);
+
+    // Protected accessors so CRTP mixin subclasses can reach private members
+    io::IOContext* get_io_ctx() const { return _io_ctx; }
+    std::unordered_map<std::string, uint32_t>*& col_name_to_block_idx_ref() {
+        return _col_name_to_block_idx;
+    }
+    RuntimeProfile* get_profile() const { return _profile; }
+    RuntimeState* get_state() const { return _state; }
+    const TFileScanRangeParams& get_scan_params() const { return _scan_params; }
+    const TFileRangeDesc& get_scan_range() const { return _scan_range; }
+    const TupleDescriptor* get_tuple_descriptor() const { return _tuple_descriptor; }
+    const RowDescriptor* get_row_descriptor() const { return _row_descriptor; }
+    const FileMetaData* get_file_metadata() const { return _file_metadata; }
 
 private:
     struct ParquetProfile {
@@ -273,9 +324,6 @@ private:
     bool _exists_in_file(const std::string& expr_name) const;
     bool _type_matches(const int cid) const;
 
-    RuntimeProfile* _profile = nullptr;
-    const TFileScanRangeParams& _scan_params;
-    const TFileRangeDesc& _scan_range;
     io::FileSystemProperties _system_properties;
     io::FileDescription _file_description;
 
@@ -288,7 +336,6 @@ private:
     // after _file_reader. Otherwise, there may be heap-use-after-free bug.
     ObjLRUCache::CacheHandle _meta_cache_handle;
     std::unique_ptr<FileMetaData> _file_metadata_ptr;
-    const FileMetaData* _file_metadata = nullptr;
     const tparquet::FileMetaData* _t_metadata = nullptr;
 
     // _tracing_file_reader wraps _file_reader.
@@ -317,10 +364,10 @@ private:
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;
 
-    // Used for column lazy read.
-    RowGroupReader::LazyReadContext _lazy_read_ctx;
-
     // parquet file reader object
+    RuntimeProfile* _profile = nullptr;
+    const TFileScanRangeParams& _scan_params;
+    const TFileRangeDesc& _scan_range;
     size_t _batch_size;
     int64_t _range_start_offset;
     int64_t _range_size;
@@ -339,11 +386,14 @@ private:
     io::IOContext* _io_ctx = nullptr;
     std::shared_ptr<io::IOContext> _io_ctx_holder;
     RuntimeState* _state = nullptr;
+    const TupleDescriptor* _tuple_descriptor = nullptr;
+    const RowDescriptor* _row_descriptor = nullptr;
+    const FileMetaData* _file_metadata = nullptr;
+    // Pointer to external column name to block index mapping (from FileScanner)
+    std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
     bool _enable_lazy_mat = true;
     bool _enable_filter_by_min_max = true;
     bool _enable_filter_by_bloom_filter = true;
-    const TupleDescriptor* _tuple_descriptor = nullptr;
-    const RowDescriptor* _row_descriptor = nullptr;
     const std::unordered_map<std::string, int>* _colname_to_slot_id = nullptr;
     const VExprContextSPtrs* _not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
@@ -351,12 +401,16 @@ private:
 
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
+
+protected:
+    // Used for column lazy read. Protected so Iceberg/Paimon subclasses can
+    // register synthesized columns in on_before_init_columns.
+    RowGroupReader::LazyReadContext _lazy_read_ctx;
     bool _filter_groups = true;
 
+private:
     std::set<uint64_t> _column_ids;
     std::set<uint64_t> _filter_column_ids;
-
-    std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 
     std::vector<std::unique_ptr<MutilColumnBlockPredicate>> _push_down_predicates;
     Arena _arena;

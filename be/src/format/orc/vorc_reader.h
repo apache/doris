@@ -43,7 +43,8 @@
 #include "format/format_common.h"
 #include "format/generic_reader.h"
 #include "format/table/table_format_reader.h"
-#include "format/table/transactional_hive_reader.h"
+#include "format/table/table_schema_change_helper.h"
+#include "format/table/transactional_hive_common.h"
 #include "io/file_factory.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
@@ -54,7 +55,6 @@
 #include "orc/Vector.hh"
 #include "orc/sargs/Literal.hh"
 #include "runtime/runtime_profile.h"
-#include "storage/olap_common.h"
 
 namespace doris {
 class RuntimeState;
@@ -114,9 +114,12 @@ struct LazyReadContext {
     // Record the number of rows filled in filter phase for lazy materialization
     // This is used to check if a column was already processed in filter phase
     size_t filter_phase_rows = 0;
+
+    // ColumnProcessor path: synthesized column names.
+    std::vector<std::string> synthesized_col_names;
 };
 
-class OrcReader : public GenericReader {
+class OrcReader : public TableFormatReader, public RowPositionProvider {
     ENABLE_FACTORY_CREATOR(OrcReader);
 
 public:
@@ -160,12 +163,23 @@ public:
               FileMetaCache* meta_cache = nullptr, bool enable_lazy_mat = true);
 
     ~OrcReader() override = default;
-    //If you want to read the file by index instead of column name, set hive_use_column_names to false.
+
+    // Template method: calls on_before_init_columns → _do_init_reader → on_after_init
     Status init_reader(
+            const std::vector<ColumnDescriptor>& column_descs,
+            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
+            const RowDescriptor* row_descriptor,
+            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
+            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
+
+    // Low-level init_reader — used by standalone reader instances (tvf, load, push_handler,
+    // Iceberg delete file readers) that don't go through subclass hooks.
+    Status _do_init_reader(
             const std::vector<std::string>* column_names,
             std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-            const VExprContextSPtrs& conjuncts, bool is_acid,
-            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
+            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
+            const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
             std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr =
@@ -173,12 +187,13 @@ public:
             const std::set<uint64_t>& column_ids = {},
             const std::set<uint64_t>& filter_column_ids = {});
 
+    // Template method: calls on_before_read_block → _do_get_next_block → on_after_read_block
+    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
             const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
-
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
     int64_t size() const;
 
@@ -194,9 +209,7 @@ public:
         _position_delete_ordered_rowids = delete_rows;
     }
 
-    void set_delete_rows(const TransactionalHiveReader::AcidRowIDSet* delete_rows) {
-        _delete_rows = delete_rows;
-    }
+    void set_delete_rows(const AcidRowIDSet* delete_rows) { _delete_rows = delete_rows; }
 
     Status filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size, void* arg);
 
@@ -230,8 +243,37 @@ public:
 
     bool count_read_rows() override { return true; }
 
+    // RowPositionProvider implementation
+    const std::vector<rowid_t>& current_batch_row_positions() const override {
+        return _current_batch_row_positions;
+    }
+
 protected:
     void _collect_profile_before_close() override;
+
+    // Called before core init. Override to customize column selection,
+    // schema mapping (table_info_node), and column_ids.
+    // ORC subclasses can also set _is_acid = true to enable ACID mode.
+    Status on_before_init_columns(const std::vector<ColumnDescriptor>& column_descs,
+                                  std::vector<std::string>& column_names,
+                                  std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
+                                  std::set<uint64_t>& column_ids,
+                                  std::set<uint64_t>& filter_column_ids) override;
+
+    // Internal get_next_block implementation (the actual reading logic)
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof);
+
+    // Protected accessors so CRTP mixin subclasses can reach private members
+    io::IOContext* get_io_ctx() const { return _io_ctx; }
+    std::unordered_map<std::string, uint32_t>*& col_name_to_block_idx_ref() {
+        return _col_name_to_block_idx;
+    }
+    RuntimeProfile* get_profile() const { return _profile; }
+    RuntimeState* get_state() const { return _state; }
+    const TFileScanRangeParams& get_scan_params() const { return _scan_params; }
+    const TFileRangeDesc& get_scan_range() const { return _scan_range; }
+    const TupleDescriptor* get_tuple_descriptor() const { return _tuple_descriptor; }
+    const RowDescriptor* get_row_descriptor() const { return _row_descriptor; }
 
 private:
     struct OrcProfile {
@@ -325,19 +367,12 @@ private:
                                 std::unique_ptr<orc::SearchArgumentBuilder>& builder);
     bool _init_search_argument(const VExprSPtrs& exprs);
 
-    void _execute_filter_position_delete_rowids(IColumn::Filter& filter);
+    void _execute_filter_position_delete_rowids(IColumn::Filter& filter, int64_t start_row);
     void _fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
                          orc::ColumnVectorBatch* batch, int idx);
 
     void _build_delete_row_filter(const Block* block, size_t rows);
     Status _get_next_block_impl(Block* block, size_t* read_rows, bool* eof);
-    Status _fill_partition_columns(
-            Block* block, uint64_t rows,
-            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                    partition_columns);
-    Status _fill_missing_columns(
-            Block* block, uint64_t rows,
-            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
     void _init_system_properties();
     void _init_file_description();
 
@@ -634,7 +669,7 @@ private:
         return true;
     }
 
-    Status _fill_row_id_columns(Block* block);
+    Status _fill_row_id_columns(Block* block, int64_t start_row);
 
     bool _seek_to_read_one_line() {
         if (_read_by_rows) {
@@ -705,20 +740,25 @@ private:
 
     io::IOContext* _io_ctx = nullptr;
     std::shared_ptr<io::IOContext> _io_ctx_holder;
+    const TupleDescriptor* _tuple_descriptor = nullptr;
+    const RowDescriptor* _row_descriptor = nullptr;
     bool _enable_lazy_mat = true;
     bool _enable_filter_by_min_max = true;
 
     std::vector<DecimalScaleParams> _decimal_scale_params;
     size_t _decimal_scale_params_index;
 
+protected:
     bool _is_acid = false;
-    std::unique_ptr<IColumn::Filter> _filter;
+    // Protected so Iceberg subclasses can register synthesized columns
+    // in on_before_init_columns.
     LazyReadContext _lazy_read_ctx;
-    const TransactionalHiveReader::AcidRowIDSet* _delete_rows = nullptr;
+
+private:
+    std::unique_ptr<IColumn::Filter> _filter;
+    const AcidRowIDSet* _delete_rows = nullptr;
     std::unique_ptr<IColumn::Filter> _delete_rows_filter_ptr;
 
-    const TupleDescriptor* _tuple_descriptor = nullptr;
-    const RowDescriptor* _row_descriptor = nullptr;
     VExprContextSPtrs _not_single_slot_filter_conjuncts;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
     VExprContextSPtrs _dict_filter_conjuncts;
@@ -747,6 +787,8 @@ private:
 
     std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>
             _row_id_column_iterator_pair = {nullptr, -1};
+
+    std::vector<rowid_t> _current_batch_row_positions;
 
     // Through this node, you can find the file column based on the table column.
     std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr =
