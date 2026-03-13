@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "common/status.h"
 #include "format/generic_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/iceberg_reader.h"
@@ -381,8 +382,9 @@ public:
     Status _read_position_delete_file(const TFileRangeDesc*, DeleteFile*) override {
         return Status::OK();
     }
-    std::unique_ptr<GenericReader> _create_equality_reader(const TFileRangeDesc&) override {
-        return nullptr;
+    Status _process_equality_delete(
+            const std::vector<TIcebergDeleteFileDesc>& delete_files) override {
+        return Status::OK();
     }
     void test_set_equality_delete(std::unique_ptr<EqualityDeleteBase> impl) {
         _equality_delete_impls.push_back(std::move(impl));
@@ -392,9 +394,12 @@ public:
 // Minimal EqualityDeleteBase (only needs to be non-null for the check).
 class MockEqualityDelete : public EqualityDeleteBase {
 public:
-    MockEqualityDelete() : EqualityDeleteBase(nullptr) {}
+    MockEqualityDelete() : EqualityDeleteBase(nullptr, {}) {}
     Status _build_set() override { return Status::OK(); }
-    Status filter_data_block(Block*, const std::unordered_map<std::string, uint32_t>*) override {
+    Status filter_data_block(Block* data_block,
+                             const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+                             const std::unordered_map<int, std::string>& id_to_block_column_name,
+                             IColumn::Filter& filter) override {
         return Status::OK();
     }
 };
