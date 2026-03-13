@@ -66,13 +66,24 @@ struct StreamingHtMinReductionEntry {
 // of the machine that we're running on.
 static constexpr StreamingHtMinReductionEntry STREAMING_HT_MIN_REDUCTION[] = {
         // Expand up to L2 cache always.
-        {0, 0.0},
+        {.min_ht_mem = 0, .streaming_ht_min_reduction = 0.0},
         // Expand into L3 cache if we look like we're getting some reduction.
         // At present, The L2 cache is generally 1024k or more
-        {1024 * 1024, 1.1},
+        {.min_ht_mem = 256 * 1024, .streaming_ht_min_reduction = 1.1},
         // Expand into main memory if we're getting a significant reduction.
         // The L3 cache is generally 16MB or more
-        {16 * 1024 * 1024, 2.0},
+        {.min_ht_mem = 16 * 1024 * 1024, .streaming_ht_min_reduction = 2.0},
+};
+
+static constexpr StreamingHtMinReductionEntry SINGLE_BE_STREAMING_HT_MIN_REDUCTION[] = {
+        // Expand up to L2 cache always.
+        {.min_ht_mem = 0, .streaming_ht_min_reduction = 0.0},
+        // Expand into L3 cache if we look like we're getting some reduction.
+        // At present, The L2 cache is generally 1024k or more
+        {.min_ht_mem = 256 * 1024, .streaming_ht_min_reduction = 5.0},
+        // Expand into main memory if we're getting a significant reduction.
+        // The L3 cache is generally 16MB or more
+        {.min_ht_mem = 16 * 1024 * 1024, .streaming_ht_min_reduction = 10.0},
 };
 
 static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
@@ -80,6 +91,7 @@ static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
 
 StreamingAggLocalState::StreamingAggLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent),
+          _is_single_backend(state->get_query_ctx()->is_single_backend_query()),
           _agg_data(std::make_unique<AggregatedDataVariants>()),
           _child_block(vectorized::Block::create_unique()),
           _pre_aggregated_block(vectorized::Block::create_unique()) {}
@@ -240,10 +252,14 @@ bool StreamingAggLocalState::_should_expand_preagg_hash_tables() {
                             return true;
                         }
 
+                        const auto* reduction = _is_single_backend
+                                                        ? SINGLE_BE_STREAMING_HT_MIN_REDUCTION
+                                                        : STREAMING_HT_MIN_REDUCTION;
+
                         // Find the appropriate reduction factor in our table for the current hash table sizes.
                         int cache_level = 0;
                         while (cache_level + 1 < STREAMING_HT_MIN_REDUCTION_SIZE &&
-                               ht_mem >= STREAMING_HT_MIN_REDUCTION[cache_level + 1].min_ht_mem) {
+                               ht_mem >= reduction[cache_level + 1].min_ht_mem) {
                             ++cache_level;
                         }
 
@@ -272,8 +288,7 @@ bool StreamingAggLocalState::_should_expand_preagg_hash_tables() {
                         //  double estimated_reduction = aggregated_input_rows >= expected_input_rows
                         //      ? current_reduction
                         //      : 1 + (expected_input_rows / aggregated_input_rows) * (current_reduction - 1);
-                        double min_reduction =
-                                STREAMING_HT_MIN_REDUCTION[cache_level].streaming_ht_min_reduction;
+                        double min_reduction = reduction[cache_level].streaming_ht_min_reduction;
 
                         //  COUNTER_SET(preagg_estimated_reduction_, estimated_reduction);
                         //    COUNTER_SET(preagg_streaming_ht_min_reduction_, min_reduction);
@@ -316,23 +331,22 @@ bool StreamingAggLocalState::_should_not_do_pre_agg(size_t rows) {
     const auto spill_streaming_agg_mem_limit = p._spill_streaming_agg_mem_limit;
     const bool used_too_much_memory =
             spill_streaming_agg_mem_limit > 0 && _memory_usage() > spill_streaming_agg_mem_limit;
-    std::visit(
-            vectorized::Overload {
-                    [&](std::monostate& arg) {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                    },
-                    [&](auto& agg_method) {
-                        auto& hash_tbl = *agg_method.hash_table;
-                        /// If too much memory is used during the pre-aggregation stage,
-                        /// it is better to output the data directly without performing further aggregation.
-                        // do not try to do agg, just init and serialize directly return the out_block
-                        if (used_too_much_memory || (hash_tbl.add_elem_size_overflow(rows) &&
-                                                     !_should_expand_preagg_hash_tables())) {
-                            SCOPED_TIMER(_streaming_agg_timer);
-                            ret_flag = true;
-                        }
-                    }},
-            _agg_data->method_variant);
+    std::visit(vectorized::Overload {
+                       [&](std::monostate& arg) {
+                           throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                       },
+                       [&](auto& agg_method) {
+                           auto& hash_tbl = *agg_method.hash_table;
+                           /// If too much memory is used during the pre-aggregation stage,
+                           /// it is better to output the data directly without performing further aggregation.
+                           // do not try to do agg, just init and serialize directly return the out_block
+                           if (used_too_much_memory || (hash_tbl.add_elem_size_overflow(rows) &&
+                                                        !_should_expand_preagg_hash_tables())) {
+                               SCOPED_TIMER(_streaming_agg_timer);
+                               ret_flag = true;
+                           }
+                       }},
+               _agg_data->method_variant);
 
     return ret_flag;
 }
@@ -599,10 +613,9 @@ void StreamingAggLocalState::_emplace_into_hash_table(vectorized::AggregateDataP
                            };
 
                            SCOPED_TIMER(_hash_table_emplace_timer);
-                           for (size_t i = 0; i < num_rows; ++i) {
-                               places[i] = *agg_method.lazy_emplace(state, i, creator,
-                                                                    creator_for_null_key);
-                           }
+                           vectorized::lazy_emplace_batch(
+                                   agg_method, state, num_rows, creator, creator_for_null_key,
+                                   [&](uint32_t row, auto& mapped) { places[row] = mapped; });
 
                            COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                        }},

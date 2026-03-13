@@ -72,6 +72,7 @@ private:
     bool _should_expand_hash_table = true;
     bool _stop_emplace_flag = false;
     const int batch_size;
+    bool _is_single_backend = false;
     std::unique_ptr<DistinctDataVariants> _agg_data = nullptr;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;

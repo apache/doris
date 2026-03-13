@@ -53,6 +53,17 @@ static constexpr StreamingHtMinReductionEntry STREAMING_HT_MIN_REDUCTION[] = {
         {.min_ht_mem = 16 * 1024 * 1024, .streaming_ht_min_reduction = 2.0},
 };
 
+static constexpr StreamingHtMinReductionEntry SINGLE_BE_STREAMING_HT_MIN_REDUCTION[] = {
+        // Expand up to L2 cache always.
+        {.min_ht_mem = 0, .streaming_ht_min_reduction = 0.0},
+        // Expand into L3 cache if we look like we're getting some reduction.
+        // At present, The L2 cache is generally 1024k or more
+        {.min_ht_mem = 256 * 1024, .streaming_ht_min_reduction = 5.0},
+        // Expand into main memory if we're getting a significant reduction.
+        // The L3 cache is generally 16MB or more
+        {.min_ht_mem = 16 * 1024 * 1024, .streaming_ht_min_reduction = 10.0},
+};
+
 static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
         sizeof(STREAMING_HT_MIN_REDUCTION) / sizeof(STREAMING_HT_MIN_REDUCTION[0]);
 
@@ -60,6 +71,7 @@ DistinctStreamingAggLocalState::DistinctStreamingAggLocalState(RuntimeState* sta
                                                                OperatorXBase* parent)
         : PipelineXLocalState<FakeSharedState>(state, parent),
           batch_size(state->batch_size()),
+          _is_single_backend(state->get_query_ctx()->is_single_backend_query()),
           _agg_data(std::make_unique<DistinctDataVariants>()),
           _child_block(vectorized::Block::create_unique()),
           _aggregated_block(vectorized::Block::create_unique()) {}
@@ -113,10 +125,14 @@ bool DistinctStreamingAggLocalState::_should_expand_preagg_hash_tables() {
                             return true;
                         }
 
+                        const auto* reduction = _is_single_backend
+                                                        ? SINGLE_BE_STREAMING_HT_MIN_REDUCTION
+                                                        : STREAMING_HT_MIN_REDUCTION;
+
                         // Find the appropriate reduction factor in our table for the current hash table sizes.
                         int cache_level = 0;
                         while (cache_level + 1 < STREAMING_HT_MIN_REDUCTION_SIZE &&
-                               ht_mem >= STREAMING_HT_MIN_REDUCTION[cache_level + 1].min_ht_mem) {
+                               ht_mem >= reduction[cache_level + 1].min_ht_mem) {
                             ++cache_level;
                         }
 
@@ -145,8 +161,7 @@ bool DistinctStreamingAggLocalState::_should_expand_preagg_hash_tables() {
                         //  double estimated_reduction = aggregated_input_rows >= expected_input_rows
                         //      ? current_reduction
                         //      : 1 + (expected_input_rows / aggregated_input_rows) * (current_reduction - 1);
-                        double min_reduction =
-                                STREAMING_HT_MIN_REDUCTION[cache_level].streaming_ht_min_reduction;
+                        double min_reduction = reduction[cache_level].streaming_ht_min_reduction;
 
                         //  COUNTER_SET(preagg_estimated_reduction_, estimated_reduction);
                         //    COUNTER_SET(preagg_streaming_ht_min_reduction_, min_reduction);
@@ -310,9 +325,9 @@ void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
                         auto creator_for_null_key = [&]() { distinct_row.push_back(row); };
 
                         SCOPED_TIMER(_hash_table_emplace_timer);
-                        for (; row < num_rows; ++row) {
-                            agg_method.lazy_emplace(state, row, creator, creator_for_null_key);
-                        }
+                        vectorized::lazy_emplace_batch_void(agg_method, state, num_rows, creator,
+                                                            creator_for_null_key,
+                                                            [&](uint32_t r) { row = r; });
 
                         COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                     }},

@@ -575,10 +575,9 @@ void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* p
                            };
 
                            SCOPED_TIMER(_hash_table_emplace_timer);
-                           for (size_t i = 0; i < num_rows; ++i) {
-                               places[i] = *agg_method.lazy_emplace(state, i, creator,
-                                                                    creator_for_null_key);
-                           }
+                           vectorized::lazy_emplace_batch(
+                                   agg_method, state, num_rows, creator, creator_for_null_key,
+                                   [&](uint32_t row, auto& mapped) { places[row] = mapped; });
 
                            COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                        }},
@@ -660,10 +659,10 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                             };
 
                             SCOPED_TIMER(_hash_table_emplace_timer);
-                            for (i = 0; i < num_rows; ++i) {
-                                places[i] = *agg_method.lazy_emplace(state, i, creator,
-                                                                     creator_for_null_key);
-                            }
+                            vectorized::lazy_emplace_batch(
+                                    agg_method, state, num_rows, creator, creator_for_null_key,
+                                    [&](uint32_t row) { i = row; },
+                                    [&](uint32_t row, auto& mapped) { places[row] = mapped; });
                             COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                             return true;
                         }
@@ -675,27 +674,26 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
 void AggSinkLocalState::_find_in_hash_table(vectorized::AggregateDataPtr* places,
                                             vectorized::ColumnRawPtrs& key_columns,
                                             uint32_t num_rows) {
-    std::visit(vectorized::Overload {[&](std::monostate& arg) -> void {
-                                         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                                                "uninited hash table");
-                                     },
-                                     [&](auto& agg_method) -> void {
-                                         using HashMethodType = std::decay_t<decltype(agg_method)>;
-                                         using AggState = typename HashMethodType::State;
-                                         AggState state(key_columns);
-                                         agg_method.init_serialized_keys(key_columns, num_rows);
+    std::visit(vectorized::Overload {
+                       [&](std::monostate& arg) -> void {
+                           throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                       },
+                       [&](auto& agg_method) -> void {
+                           using HashMethodType = std::decay_t<decltype(agg_method)>;
+                           using AggState = typename HashMethodType::State;
+                           AggState state(key_columns);
+                           agg_method.init_serialized_keys(key_columns, num_rows);
 
-                                         /// For all rows.
-                                         for (size_t i = 0; i < num_rows; ++i) {
-                                             auto find_result = agg_method.find(state, i);
-
-                                             if (find_result.is_found()) {
-                                                 places[i] = find_result.get_mapped();
-                                             } else {
-                                                 places[i] = nullptr;
-                                             }
-                                         }
-                                     }},
+                           /// For all rows.
+                           vectorized::find_batch(agg_method, state, num_rows,
+                                                  [&](uint32_t row, auto& find_result) {
+                                                      if (find_result.is_found()) {
+                                                          places[row] = find_result.get_mapped();
+                                                      } else {
+                                                          places[row] = nullptr;
+                                                      }
+                                                  });
+                       }},
                _agg_data->method_variant);
 }
 

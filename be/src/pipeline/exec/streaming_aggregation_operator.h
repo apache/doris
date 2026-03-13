@@ -87,6 +87,7 @@ private:
     RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;
     RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
 
+    bool _is_single_backend = false;
     bool _should_expand_hash_table = true;
     int64_t _cur_num_rows_returned = 0;
     vectorized::Arena _agg_arena_pool;
