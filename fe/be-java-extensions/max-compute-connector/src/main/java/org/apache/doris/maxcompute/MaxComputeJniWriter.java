@@ -26,6 +26,7 @@ import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsType;
 import com.aliyun.odps.table.configuration.ArrowOptions;
 import com.aliyun.odps.table.configuration.ArrowOptions.TimestampUnit;
+import com.aliyun.odps.table.configuration.CompressionCodec;
 import com.aliyun.odps.table.configuration.RestOptions;
 import com.aliyun.odps.table.configuration.WriterOptions;
 import com.aliyun.odps.table.enviroment.Credentials;
@@ -192,6 +193,7 @@ public class MaxComputeJniWriter extends JniWriter {
             // Create Arrow writer for this block
             WriterOptions writerOptions = WriterOptions.newBuilder()
                     .withSettings(settings)
+                    .withCompressionCodec(CompressionCodec.ZSTD)
                     .build();
             batchWriter = writeSession.createArrowWriter(blockId,
                     WriterAttemptId.of(0), writerOptions);
