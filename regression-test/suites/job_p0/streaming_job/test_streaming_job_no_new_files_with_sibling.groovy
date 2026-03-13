@@ -76,7 +76,7 @@ suite("test_streaming_job_no_new_files_with_sibling") {
                 {
                     def res = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                     log.info("SucceedTaskCount: " + res)
-                    res.size() == 1 && res.get(0).get(0) >= 1
+                    res.size() == 1 && '1' <= res.get(0).get(0)
                 }
         )
 
@@ -90,7 +90,7 @@ suite("test_streaming_job_no_new_files_with_sibling") {
             from jobs("type"="insert") where Name = '${jobName}'
         """
         log.info("jobStatus: " + jobStatus)
-        assert jobStatus.get(0).get(2) == 0 : "Expected no failed tasks, but got: " + jobStatus
+        assert jobStatus.get(0).get(2) == '0' : "Expected no failed tasks, but got: " + jobStatus
         assert jobStatus.get(0).get(0) != "STOPPED" : "Job should not be stopped, status: " + jobStatus
 
         qt_select """ SELECT * FROM ${tableName} order by c1 """
