@@ -17,9 +17,9 @@
 
 package org.apache.doris.datasource.property.storage;
 
-import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
