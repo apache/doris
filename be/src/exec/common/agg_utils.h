@@ -77,8 +77,17 @@ struct AggregatedDataVariants
                               DataWithNullKey> {
     AggregatedDataWithoutKey without_key = nullptr;
 
+    bool is_fixed_key = true;
+
     void init(const std::vector<DataTypePtr>& data_types, HashKeyType type) {
         bool nullable = data_types.size() == 1 && data_types[0]->is_nullable();
+
+        if (type == HashKeyType::without_key || type == HashKeyType::EMPTY ||
+            type == HashKeyType::serialized || type == HashKeyType::string_key) {
+            is_fixed_key = false;
+        } else {
+            is_fixed_key = true;
+        }
 
         switch (type) {
         case HashKeyType::without_key:
