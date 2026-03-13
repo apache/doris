@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.commands.load;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -233,7 +232,7 @@ public class MysqlDataDescription {
         sb.append("DATA ").append(isClientLocal() ? "LOCAL " : "");
         sb.append("INFILE '").append(filePaths.get(0)).append("'");
         sb.append(" INTO TABLE ");
-        sb.append(ClusterNamespace.getNameFromFullName(dbName) + "." + tableName);
+        sb.append(dbName + "." + tableName);
         sb.append(" ");
         sb.append(partitionNamesInfo.toSql());
 

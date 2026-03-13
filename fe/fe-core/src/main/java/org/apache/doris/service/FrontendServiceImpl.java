@@ -49,7 +49,6 @@ import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.CaseSensibility;
@@ -1185,7 +1184,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private UserIdentity checkPasswordAndPrivs(String user, String passwd, String db, List<String> tables,
             String clientIp, PrivPredicate predicate) throws AuthenticationException {
 
-        final String fullUserName = ClusterNamespace.getNameFromFullName(user);
+        final String fullUserName = user;
         final String fullDbName = db;
         List<UserIdentity> currentUser = Lists.newArrayList();
         Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser);
@@ -1217,7 +1216,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private void checkPassword(String user, String passwd, String clientIp)
             throws AuthenticationException {
-        final String fullUserName = ClusterNamespace.getNameFromFullName(user);
+        final String fullUserName = user;
         List<UserIdentity> currentUser = Lists.newArrayList();
         Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser);
         Preconditions.checkState(currentUser.size() == 1);
@@ -2276,7 +2275,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     throw new AuthenticationException("Invalid token: " + request.getToken());
                 }
             } else {
-                final String fullUserName = ClusterNamespace.getNameFromFullName(request.getUser());
+                final String fullUserName = request.getUser();
                 List<UserIdentity> currentUser = Lists.newArrayList();
                 Env.getCurrentEnv().getAuth()
                         .checkPlainPassword(fullUserName, clientAddr, request.getPasswd(), currentUser);
@@ -2471,7 +2470,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     throw new AuthenticationException("Invalid token: " + request.getToken());
                 }
             } else {
-                final String fullUserName = ClusterNamespace.getNameFromFullName(request.getUser());
+                final String fullUserName = request.getUser();
                 List<UserIdentity> currentUser = Lists.newArrayList();
                 Env.getCurrentEnv().getAuth()
                         .checkPlainPassword(fullUserName, clientAddr, request.getPasswd(), currentUser);
@@ -2552,7 +2551,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     throw new AuthenticationException("Invalid token: " + request.getToken());
                 }
             } else {
-                final String fullUserName = ClusterNamespace.getNameFromFullName(request.getUser());
+                final String fullUserName = request.getUser();
                 List<UserIdentity> currentUser = Lists.newArrayList();
                 Env.getCurrentEnv().getAuth()
                         .checkPlainPassword(fullUserName, clientAddr, request.getPasswd(), currentUser);
@@ -3225,7 +3224,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
         // check account and password
-        final String fullUserName = ClusterNamespace.getNameFromFullName(request.getUser());
+        final String fullUserName = request.getUser();
         List<UserIdentity> currentUser = Lists.newArrayList();
         try {
             Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, request.getUserIp(), request.getPasswd(),
@@ -3949,7 +3948,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         LOG.debug("restore snapshot info, restoreCommand: {}", restoreCommand);
         try {
             ConnectContext ctx = new ConnectContext();
-            String fullUserName = ClusterNamespace.getNameFromFullName(request.getUser());
+            String fullUserName = request.getUser();
             ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(fullUserName, "%"));
             ctx.setThreadLocalInfo();
             restoreCommand.validate(ctx);

@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
@@ -127,7 +126,7 @@ public class StreamLoadHandler {
         }
 
         ctx.setRemoteIP(request.isSetAuthCode() ? clientAddr : request.getUserIp());
-        String userName = ClusterNamespace.getNameFromFullName(request.getUser());
+        String userName = request.getUser();
         if (!request.isSetToken() && !request.isSetAuthCode() && !Strings.isNullOrEmpty(userName)) {
             List<UserIdentity> currentUser = Lists.newArrayList();
             try {
