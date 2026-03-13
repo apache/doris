@@ -2977,6 +2977,7 @@ public class PreMaterializedViewRewriterTest extends SqlTestBase {
 
     private CascadesContext initOriginal(String sql) {
         CascadesContext cascadesContext = createCascadesContext(sql, connectContext);
+        connectContext.setThreadLocalInfo();
         PlanChecker.from(cascadesContext).analyze().rewrite();
         return cascadesContext;
     }

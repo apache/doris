@@ -171,6 +171,10 @@ public class Alias extends NamedExpression implements UnaryExpression {
         return new Alias(exprId, children, name, qualifier, nameFromChild);
     }
 
+    public Alias withExprId(ExprId exprId) {
+        return new Alias(exprId, children, name, qualifier, nameFromChild);
+    }
+
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitAlias(this, context);
     }
