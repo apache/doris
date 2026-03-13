@@ -329,7 +329,7 @@ else
         BUILD_META_TOOL='ON'
         BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
         BUILD_INDEX_TOOL='ON'
-	BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
+	    BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
         BUILD_HIVE_UDF=1
         BUILD_BE_JAVA_EXTENSIONS=1
         BUILD_BE_CDC_CLIENT=1
@@ -582,6 +582,8 @@ fi
 FE_MODULES=''
 modules=("")
 if [[ "${BUILD_FE}" -eq 1 ]]; then
+    modules+=("fe-extension-spi")
+    modules+=("fe-extension-loader")
     modules+=("fe-core")
     if [[ "${WITH_TDE_DIR}" != "" ]]; then
         modules+=("fe-${WITH_TDE_DIR}")
@@ -667,7 +669,9 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
         -DBUILD_TASK_EXECUTOR_SIMULATOR="${BUILD_TASK_EXECUTOR_SIMULATOR}" \
         -DBUILD_FILE_CACHE_LRU_TOOL="${BUILD_FILE_CACHE_LRU_TOOL}" \
-        ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
+        ${CMAKE_USE_CCACHE_CXX:+${CMAKE_USE_CCACHE_CXX}} \
+        ${CMAKE_USE_CCACHE_C:+${CMAKE_USE_CCACHE_C}} \
+        -DUBSAN_IGNORELIST="${UBSAN_IGNORELIST}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
         -DBUILD_FILE_CACHE_MICROBENCH_TOOL="${BUILD_FILE_CACHE_MICROBENCH_TOOL}" \

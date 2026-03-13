@@ -20,11 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TTypeDesc;
-import org.apache.doris.thrift.TTypeNode;
+import org.apache.doris.foundation.format.FormatOptions;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -32,7 +28,6 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-
 
 // INSERT INTO table_map VALUES ({'key1':1, 'key2':10, 'k3':100}), ({'key1':2,'key2':20}), ({'key1':3,'key2':30});
 // MapLiteral is one row-based literal
@@ -104,15 +99,6 @@ public class MapLiteral extends LiteralExpr {
     @Override
     public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
         return visitor.visitMapLiteral(this, context);
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.MAP_LITERAL;
-        TTypeDesc container = new TTypeDesc();
-        container.setTypes(new ArrayList<TTypeNode>());
-        type.toThrift(container);
-        msg.setType(container);
     }
 
     @Override

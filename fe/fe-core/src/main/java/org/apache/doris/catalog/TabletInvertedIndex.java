@@ -28,10 +28,10 @@ import org.apache.doris.thrift.TTabletMetaInfo;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ListMultimap;
-import com.google.common.collect.Maps;
 import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Table;
 import com.google.common.collect.TreeMultimap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -60,7 +60,7 @@ public abstract class TabletInvertedIndex {
     private StampedLock lock = new StampedLock();
 
     // tablet id -> tablet meta
-    protected Map<Long, TabletMeta> tabletMetaMap = Maps.newHashMap();
+    protected Long2ObjectOpenHashMap<TabletMeta> tabletMetaMap = new Long2ObjectOpenHashMap<>();
 
     public TabletInvertedIndex() {
     }

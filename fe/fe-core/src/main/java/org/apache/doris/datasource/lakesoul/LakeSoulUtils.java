@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.lakesoul;
 
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
@@ -33,7 +34,6 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ColumnRange;
-import org.apache.doris.thrift.TExprOpcode;
 
 import com.dmetasoul.lakesoul.lakesoul.io.substrait.SubstraitUtil;
 import com.dmetasoul.lakesoul.meta.entity.PartitionInfo;
@@ -352,7 +352,6 @@ public class LakeSoulUtils {
     }
 
     private static Expression convertBinaryExpr(Expr dorisExpr, Schema tableSchema) throws IOException {
-        TExprOpcode opcode = dorisExpr.getOpcode();
         // Make sure the col slot is always first
         SlotRef slotRef = convertDorisExprToSlotRef(dorisExpr.getChild(0));
         LiteralExpr literalExpr = convertDorisExprToLiteralExpr(dorisExpr.getChild(1));
@@ -368,7 +367,9 @@ public class LakeSoulUtils {
         );
         Object value = extractDorisLiteral(type, literalExpr);
         if (value == null) {
-            if (opcode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
+            if (dorisExpr instanceof BinaryPredicate
+                    && ((BinaryPredicate) dorisExpr).getOp() == BinaryPredicate.Operator.EQ_FOR_NULL
+                    && literalExpr instanceof NullLiteral) {
                 return SubstraitUtil.makeUnary(
                         fieldRef,
                         DefaultExtensionCatalog.FUNCTIONS_COMPARISON,
@@ -385,49 +386,50 @@ public class LakeSoulUtils {
 
         String namespace;
         String func;
-        switch (opcode) {
-            case EQ:
+        if (dorisExpr instanceof BinaryPredicate) {
+            BinaryPredicate.Operator op = ((BinaryPredicate) dorisExpr).getOp();
+            switch (op) {
+                case EQ:
+                    namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
+                    func = "equal:any_any";
+                    break;
+                case EQ_FOR_NULL:
+                    namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
+                    func = "is_null:any";
+                    break;
+                case NE:
+                    namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
+                    func = "not_equal:any_any";
+                    break;
+                case GE:
+                    namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
+                    func = "gte:any_any";
+                    break;
+                case GT:
+                    namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
+                    func = "gt:any_any";
+                    break;
+                case LE:
+                    namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
+                    func = "lte:any_any";
+                    break;
+                case LT:
+                    namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
+                    func = "lt:any_any";
+                    break;
+                default:
+                    return null;
+            }
+        } else if (dorisExpr instanceof IsNullPredicate) {
+            if (((IsNullPredicate) dorisExpr).isNotNull()) {
                 namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
-                func = "equal:any_any";
-                break;
-            case EQ_FOR_NULL:
+                func = "is_not_null:any";
+            } else {
                 namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
                 func = "is_null:any";
-                break;
-            case NE:
-                namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
-                func = "not_equal:any_any";
-                break;
-            case GE:
-                namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
-                func = "gte:any_any";
-                break;
-            case GT:
-                namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
-                func = "gt:any_any";
-                break;
-            case LE:
-                namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
-                func = "lte:any_any";
-                break;
-            case LT:
-                namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
-                func = "lt:any_any";
-                break;
-            case INVALID_OPCODE:
-                if (dorisExpr instanceof IsNullPredicate) {
-                    if (((IsNullPredicate) dorisExpr).isNotNull()) {
-                        namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
-                        func = "is_not_null:any";
-                    } else {
-                        namespace = DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
-                        func = "is_null:any";
-                    }
-                    break;
-                }
-                return null;
-            default:
-                return null;
+            }
+        } else {
+            return null;
         }
         return SubstraitUtil.makeBinary(fieldRef, literal, namespace, func, TypeCreator.NULLABLE.BOOLEAN);
     }

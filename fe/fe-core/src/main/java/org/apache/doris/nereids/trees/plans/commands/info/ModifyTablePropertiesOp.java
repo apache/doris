@@ -27,8 +27,8 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.DynamicPartitionUtil;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
@@ -247,6 +247,23 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP)) {
+            int numColumnsPerGroup;
+            String numColumnsPerGroupStr = properties
+                    .get(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
+            try {
+                numColumnsPerGroup = Integer.parseInt(numColumnsPerGroupStr);
+                if (numColumnsPerGroup < 1 || numColumnsPerGroup > 50) {
+                    throw new AnalysisException(
+                            "vertical_compaction_num_columns_per_group must be between 1 and 50: "
+                                    + numColumnsPerGroupStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid vertical_compaction_num_columns_per_group format: "
+                        + numColumnsPerGroupStr);
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
             if (properties.get(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).equalsIgnoreCase("true")) {
                 throw new AnalysisException(
@@ -407,7 +424,7 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("PROPERTIES (");
-        sb.append(new PrintableMap<String, String>(properties, "=", true, false));
+        sb.append(new DatasourcePrintableMap<String, String>(properties, "=", true, false));
         sb.append(")");
 
         return sb.toString();

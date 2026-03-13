@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.NameFormatUtils;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
@@ -24,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 
@@ -122,7 +122,7 @@ public class AggregateExpression extends Expression implements UnaryExpression {
     @Override
     public String getExpressionName() {
         if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(Utils.normalizeName(function.getName(), DEFAULT_EXPRESSION_NAME));
+            this.exprName = Optional.of(NameFormatUtils.normalizeName(function.getName(), DEFAULT_EXPRESSION_NAME));
         }
         return this.exprName.get();
     }

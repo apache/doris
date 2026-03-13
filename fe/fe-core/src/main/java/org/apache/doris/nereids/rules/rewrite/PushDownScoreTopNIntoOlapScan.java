@@ -189,7 +189,7 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
         // All conditions met, perform the push down.
         // This is the core action: push score() as a virtual column and also push the
         // topN info.
-        Plan newScan = scan.withVirtualColumnsAndTopN(ImmutableList.of(scoreAlias),
+        Plan newScan = scan.appendVirtualColumnsAndTopN(ImmutableList.of(scoreAlias),
                 ImmutableList.of(), Optional.empty(),
                 topN.getOrderKeys(), Optional.of(topN.getLimit() + topN.getOffset()),
                 scoreRangeInfo);

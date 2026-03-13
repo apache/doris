@@ -1395,6 +1395,14 @@ Status CloudTablet::sync_meta() {
         _tablet_meta->mutable_tablet_schema()->set_disable_auto_compaction(
                 new_disable_auto_compaction);
     }
+    // Sync vertical_compaction_num_columns_per_group
+    auto new_vertical_compaction_num_columns_per_group =
+            tablet_meta->vertical_compaction_num_columns_per_group();
+    if (_tablet_meta->vertical_compaction_num_columns_per_group() !=
+        new_vertical_compaction_num_columns_per_group) {
+        _tablet_meta->set_vertical_compaction_num_columns_per_group(
+                new_vertical_compaction_num_columns_per_group);
+    }
 
     return Status::OK();
 }

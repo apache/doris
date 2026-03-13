@@ -55,4 +55,20 @@ public class EliminateConstHashJoinConditionTest extends SqlTestBase {
                 );
     }
 
+    @Test
+    void testNotEliminateAsofJoin() {
+        CascadesContext c1 = createCascadesContext(
+                "select * from T1 asof inner join T2 match_condition(cast(T1.score as datetime) "
+                        + "> cast(T2.score as datetime)) on T1.id = T2.id where T1.id = 1",
+                connectContext
+        );
+        PlanChecker.from(c1)
+                .analyze()
+                .rewrite()
+                .matches(
+                        logicalJoin().when(join ->
+                                !join.getHashJoinConjuncts().isEmpty())
+                );
+    }
+
 }
