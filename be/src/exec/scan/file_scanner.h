@@ -231,6 +231,8 @@ private:
 
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
+    bool _need_iceberg_rowid_column = false;
+    int _iceberg_rowid_column_pos = -1;
     int64_t _last_bytes_read_from_local = 0;
     int64_t _last_bytes_read_from_remote = 0;
 

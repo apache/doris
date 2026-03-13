@@ -42,6 +42,8 @@
 #include "exec/operator/hashjoin_build_sink.h"
 #include "exec/operator/hashjoin_probe_operator.h"
 #include "exec/operator/hive_table_sink_operator.h"
+#include "exec/operator/iceberg_delete_sink_operator.h"
+#include "exec/operator/iceberg_merge_sink_operator.h"
 #include "exec/operator/iceberg_table_sink_operator.h"
 #include "exec/operator/jdbc_scan_operator.h"
 #include "exec/operator/jdbc_table_sink_operator.h"
@@ -813,6 +815,8 @@ DECLARE_OPERATOR(HiveTableSinkLocalState)
 DECLARE_OPERATOR(TVFTableSinkLocalState)
 DECLARE_OPERATOR(IcebergTableSinkLocalState)
 DECLARE_OPERATOR(SpillIcebergTableSinkLocalState)
+DECLARE_OPERATOR(IcebergDeleteSinkLocalState)
+DECLARE_OPERATOR(IcebergMergeSinkLocalState)
 DECLARE_OPERATOR(MCTableSinkLocalState)
 DECLARE_OPERATOR(AnalyticSinkLocalState)
 DECLARE_OPERATOR(BlackholeSinkLocalState)
@@ -933,6 +937,8 @@ template class AsyncWriterSink<doris::VTabletWriterV2, OlapTableSinkV2OperatorX>
 template class AsyncWriterSink<doris::VHiveTableWriter, HiveTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VIcebergTableWriter, IcebergTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VIcebergTableWriter, SpillIcebergTableSinkOperatorX>;
+template class AsyncWriterSink<doris::VIcebergDeleteSink, IcebergDeleteSinkOperatorX>;
+template class AsyncWriterSink<doris::VIcebergMergeSink, IcebergMergeSinkOperatorX>;
 template class AsyncWriterSink<doris::VMCTableWriter, MCTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VTVFTableWriter, TVFTableSinkOperatorX>;
 
