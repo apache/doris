@@ -21,13 +21,18 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <limits>
 #include <memory>
 #include <random>
 #include <string>
+#include <thread>
 #include <vector>
 
+#include "common/config.h"
+#include "common/metrics/doris_metrics.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/ann/faiss_ann_index.h"
@@ -231,6 +236,63 @@ TEST_F(VectorSearchTest, UpdateRoaring) {
         EXPECT_EQ(roaring_bitmap.contains(labels[i]), true)
                 << "Label " << labels[i] << " not found";
     }
+}
+
+TEST_F(VectorSearchTest, OmpThreadBudgetNeverExceedsLimit) {
+    constexpr int kWorkers = 4;
+    constexpr int kDim = 64;
+    constexpr int kNumVectors = 20000;
+
+    const auto old_omp_threads_limit = config::omp_threads_limit;
+    config::omp_threads_limit = 1;
+
+    auto* budget_metric = DorisMetrics::instance()->ann_index_build_index_threads;
+    std::atomic<bool> start {false};
+    std::atomic<int> finished {0};
+    std::vector<std::thread> workers;
+    workers.reserve(kWorkers);
+
+    for (int worker_id = 0; worker_id < kWorkers; ++worker_id) {
+        workers.emplace_back([&start, &finished, worker_id]() {
+            auto index = std::make_unique<FaissVectorIndex>();
+            FaissBuildParameter params;
+            params.dim = kDim;
+            params.max_degree = 32;
+            params.index_type = FaissBuildParameter::IndexType::HNSW;
+            index->build(params);
+
+            std::vector<float> vectors(static_cast<size_t>(kNumVectors) * kDim,
+                                       static_cast<float>(worker_id + 1));
+            while (!start.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+
+            auto st = index->add(kNumVectors, vectors.data());
+            EXPECT_TRUE(st.ok()) << st.to_string();
+            finished.fetch_add(1, std::memory_order_acq_rel);
+        });
+    }
+
+    start.store(true, std::memory_order_release);
+
+    int64_t observed_peak = 0;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    while (finished.load(std::memory_order_acquire) < kWorkers &&
+           std::chrono::steady_clock::now() < deadline) {
+        observed_peak = std::max<int64_t>(observed_peak, budget_metric->value());
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    for (auto& worker : workers) {
+        worker.join();
+    }
+
+    observed_peak = std::max<int64_t>(observed_peak, budget_metric->value());
+    EXPECT_EQ(finished.load(std::memory_order_acquire), kWorkers);
+    EXPECT_LE(observed_peak, 1);
+    EXPECT_EQ(budget_metric->value(), 0);
+
+    config::omp_threads_limit = old_omp_threads_limit;
 }
 
 TEST_F(VectorSearchTest, CompareResultWithNativeFaiss1) {
