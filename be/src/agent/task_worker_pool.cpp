@@ -1808,6 +1808,9 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
                     .tag("signature", req.signature)
                     .tag("tablet_id", create_tablet_req.tablet_id);
         } else {
+            // This is not a normal path, a possible case is that DataDir::health_check()
+            // encounters an IO_ERROR, causing get_tablet() to return nullptr even though
+            // the create_tablet succeeded.
             status = Status::NotFound("failed to get tablet, reason={}", error_msg);
             DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
             LOG_WARNING("created tablet is missing before finishing create task, reason={}",
