@@ -24,6 +24,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -185,9 +186,32 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         this.exceptAsteriskOutputs = exceptAsteriskOutputs;
     }
 
+    /**
+     * Swap the children of this join. For ASOF JOIN, the MATCH_CONDITION (in otherJoinConjuncts) must be commuted
+     * when swapping join children. E.g., "A.ts >= B.ts" becomes "B.ts <= A.ts"
+     * This is because BE assumes MATCH_CONDITION has probe column on left and build column on right
+     */
     public LogicalJoin<? extends Plan, ? extends Plan> swap() {
-        return withTypeChildren(getJoinType().swap(),
-                right(), left(), null);
+        JoinType swappedType = getJoinType().swap();
+        List<Expression> swappedOtherConjuncts = otherJoinConjuncts;
+
+        // For ASOF JOIN, the MATCH_CONDITION (in otherJoinConjuncts) must be commuted
+        // when swapping join children. E.g., "A.ts >= B.ts" becomes "B.ts <= A.ts"
+        // This is because BE assumes MATCH_CONDITION has probe column on left and build column on right
+        if (getJoinType().isAsofJoin() && !otherJoinConjuncts.isEmpty()) {
+            swappedOtherConjuncts = otherJoinConjuncts.stream()
+                    .map(expr -> {
+                        if (expr instanceof ComparisonPredicate) {
+                            return ((ComparisonPredicate) expr).commute();
+                        }
+                        return expr;
+                    })
+                    .collect(ImmutableList.toImmutableList());
+        }
+
+        return new LogicalJoin<>(swappedType, hashJoinConjuncts, swappedOtherConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, exceptAsteriskOutputs,
+                Optional.empty(), Optional.empty(), ImmutableList.of(right(), left()), null);
     }
 
     public List<Expression> getOtherJoinConjuncts() {
@@ -508,6 +532,14 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 Optional.empty(), Optional.empty(), ImmutableList.of(left, right), otherJoinReorderContext);
     }
 
+    public LogicalJoin<Plan, Plan> withTypeChildrenAndOtherConjuncts(JoinType joinType, Plan left, Plan right,
+            List<Expression> otherJoinConjuncts,
+            JoinReorderContext otherJoinReorderContext) {
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, exceptAsteriskOutputs,
+                Optional.empty(), Optional.empty(), ImmutableList.of(left, right), otherJoinReorderContext);
+    }
+
     public LogicalJoin<Plan, Plan> withDistributeHintChildren(DistributeHint hint, Plan left, Plan right) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, exceptAsteriskOutputs,
@@ -549,7 +581,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         // this function is only used by EliminateJoinByFK rule, and EliminateJoinByFK is disabled for mark join
         // so markJoinConjuncts is not processed now
         // TODO: Use fd in the future
-        if (!joinType.isInnerJoin() && !joinType.isSemiJoin()) {
+        if (!joinType.isInnerJoin() && !joinType.isSemiJoin() && !joinType.isAsofInnerJoin()) {
             return ImmutableEqualSet.empty();
         }
         ImmutableEqualSet.Builder<Slot> builder = new ImmutableEqualSet.Builder<>();
@@ -582,9 +614,9 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             // TODO disable function dependence calculation for mark join, but need re-think this in future.
             return;
         }
-        if (joinType.isLeftSemiOrAntiJoin()) {
+        if (joinType.isLeftSemiOrAntiJoin() || joinType.isAsofLeftJoin()) {
             builder.addUniqueSlot(left().getLogicalProperties().getTrait());
-        } else if (joinType.isRightSemiOrAntiJoin()) {
+        } else if (joinType.isRightSemiOrAntiJoin() || joinType.isAsofRightJoin()) {
             builder.addUniqueSlot(right().getLogicalProperties().getTrait());
         }
         // if there is non-equal join conditions, don't propagate unique
@@ -627,6 +659,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         }
         switch (joinType) {
             case INNER_JOIN:
+            case ASOF_LEFT_INNER_JOIN:
+            case ASOF_RIGHT_INNER_JOIN:
             case CROSS_JOIN:
                 builder.addUniformSlot(left().getLogicalProperties().getTrait());
                 builder.addUniformSlot(right().getLogicalProperties().getTrait());
@@ -641,10 +675,12 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 builder.addUniformSlot(right().getLogicalProperties().getTrait());
                 break;
             case LEFT_OUTER_JOIN:
+            case ASOF_LEFT_OUTER_JOIN:
                 builder.addUniformSlot(left().getLogicalProperties().getTrait());
                 builder.addUniformSlotForOuterJoinNullableSide(right().getLogicalProperties().getTrait());
                 break;
             case RIGHT_OUTER_JOIN:
+            case ASOF_RIGHT_OUTER_JOIN:
                 builder.addUniformSlot(right().getLogicalProperties().getTrait());
                 builder.addUniformSlotForOuterJoinNullableSide(left().getLogicalProperties().getTrait());
                 break;
@@ -665,7 +701,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         if (!joinType.isRightSemiOrAntiJoin()) {
             builder.addEqualSet(left().getLogicalProperties().getTrait());
         }
-        if (joinType.isInnerJoin()) {
+        if (joinType.isInnerJoin() || joinType.isAsofInnerJoin()) {
             for (Expression expression : getHashJoinConjuncts()) {
                 Optional<Pair<Slot, Slot>> equalSlot = ExpressionUtils.extractEqualSlot(expression);
                 equalSlot.ifPresent(slotSlotPair -> builder.addEqualPair(slotSlotPair.first, slotSlotPair.second));
