@@ -416,14 +416,18 @@ struct TQueryOptions {
   // Target file size in bytes for Iceberg write operations
   // Default 0 means use config::iceberg_sink_max_file_size
   178: optional i64 iceberg_write_target_file_size_bytes = 0;
+  179: optional bool enable_parquet_filter_by_bloom_filter = true;
   180: optional i32 max_file_scanners_concurrency = 0;
   181: optional i32 min_file_scanners_concurrency = 0;
-
   182: optional i32 ivf_nprobe = 1;
-
-  179: optional bool enable_parquet_filter_by_bloom_filter = true;
+  
+  // Enable hybrid sorting: dynamically selects between PdqSort and TimSort based on 
+  // runtime profiling to choose the most efficient algorithm for the data pattern
+  183: optional bool enable_use_hybrid_sort = false;
+  184: optional i32 cte_max_recursion_depth;
 
   195: optional bool enable_left_semi_direct_return_opt;
+
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
@@ -672,6 +676,7 @@ struct TPipelineFragmentParams {
   // Used by 2.1
   44: optional list<i32> topn_filter_source_node_ids
   45: optional map<string, TAIResource> ai_resources
+  46: optional bool need_notify_close
 
   // For cloud
   1000: optional bool is_mow_table;

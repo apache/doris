@@ -42,6 +42,8 @@ public enum StatisticalType {
     OLAP_SCAN_NODE,
     PARTITION_TOPN_NODE,
     REPEAT_NODE,
+    REC_CTE_NODE,
+    REC_CTE_SCAN_NODE,
     SELECT_NODE,
     SET_OPERATION_NODE,
     SCHEMA_SCAN_NODE,
