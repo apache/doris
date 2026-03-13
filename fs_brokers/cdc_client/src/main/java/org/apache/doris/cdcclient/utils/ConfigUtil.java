@@ -169,7 +169,6 @@ public class ConfigUtil {
         return result;
     }
 
-
     public static Map<String, String> toStringMap(String json) {
         if (!isJson(json)) {
             return null;

@@ -20,7 +20,6 @@ package org.apache.doris.cdcclient.source.deserialize;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
-import static io.debezium.connector.AbstractSourceInfo.TABLE_NAME_KEY;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
 import org.apache.flink.cdc.debezium.utils.TemporalConversions;
@@ -47,6 +46,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static io.debezium.connector.AbstractSourceInfo.TABLE_NAME_KEY;
 import static org.apache.doris.cdcclient.common.Constants.DORIS_DELETE_SIGN;
 
 import com.esri.core.geometry.ogc.OGCGeometry;
@@ -109,7 +109,8 @@ public class DebeziumJsonDeserializer
     private List<String> deserializeDataChangeRecord(SourceRecord record) throws IOException {
         List<String> rows = new ArrayList<>();
         String tableName = extractTableName(record);
-        Set<String> excludeColumns = excludeColumnsCache.getOrDefault(tableName, Collections.emptySet());
+        Set<String> excludeColumns =
+                excludeColumnsCache.getOrDefault(tableName, Collections.emptySet());
         Envelope.Operation op = Envelope.operationFor(record);
         Struct value = (Struct) record.value();
         Schema valueSchema = record.valueSchema();

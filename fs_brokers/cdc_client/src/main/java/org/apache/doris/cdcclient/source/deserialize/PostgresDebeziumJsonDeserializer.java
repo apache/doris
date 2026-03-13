@@ -204,7 +204,8 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
         // Generate DDLs using accurate PG column types
         String db = context.get(Constants.DORIS_TARGET_DB);
         List<String> ddls = new ArrayList<>();
-        Set<String> excludedCols = excludeColumnsCache.getOrDefault(tableId.table(), Collections.emptySet());
+        Set<String> excludedCols =
+                excludeColumnsCache.getOrDefault(tableId.table(), Collections.emptySet());
 
         for (String colName : pgDropped) {
             if (excludedCols.contains(colName)) {
