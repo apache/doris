@@ -225,6 +225,14 @@ preload_jars+=("java-udf")
 export DORIS_CLASSPATH=
 if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     # add hadoop libs
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs"/*.jar; do
+        [[ -e "${f}" ]] || continue
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+    done
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs/lib"/*.jar; do
+        [[ -e "${f}" ]] || continue
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+    done
     for f in "${DORIS_HOME}/lib/hadoop_hdfs/common"/*.jar; do
         DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
@@ -237,6 +245,17 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs/lib"/*.jar; do
         DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
+elif [[ -d "${DORIS_HOME}/lib/java_extensions/hadoop-deps" ]]; then
+    for f in "${DORIS_HOME}/lib/java_extensions/hadoop-deps"/*.jar; do
+        [[ -e "${f}" ]] || continue
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+    done
+    if [[ -d "${DORIS_HOME}/lib/java_extensions/hadoop-deps/lib" ]]; then
+        for f in "${DORIS_HOME}/lib/java_extensions/hadoop-deps/lib"/*.jar; do
+            [[ -e "${f}" ]] || continue
+            DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+        done
+    fi
 fi
 
 DORIS_PRELOAD_JAR=

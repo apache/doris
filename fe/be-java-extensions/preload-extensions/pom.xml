@@ -94,6 +94,20 @@ under the License.
             <artifactId>hadoop-common</artifactId>
             <!-- Must be provided, we use hadoop_libs in BE's 3rd party instead -->
             <scope>provided</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-reload4j</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>ch.qos.reload4j</groupId>
+                    <artifactId>reload4j</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.apache.hadoop</groupId>
@@ -141,6 +155,10 @@ under the License.
                     <groupId>org.json</groupId>
                     <artifactId>json</artifactId>
                 </exclusion>
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
         <dependency>
@@ -161,6 +179,10 @@ under the License.
                 <exclusion>
                     <groupId>org.json</groupId>
                     <artifactId>json</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
@@ -198,6 +220,12 @@ under the License.
             <groupId>software.amazon.s3tables</groupId>
             <artifactId>s3-tables-catalog-for-iceberg</artifactId>
             <version>${s3tables.catalog.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <!-- AWS SDK Core -->
         <dependency>
