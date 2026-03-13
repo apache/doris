@@ -18,16 +18,24 @@
 package org.apache.doris.mysql.authenticate;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.ClassLoaderUtils;
 import org.apache.doris.mysql.MysqlAuthPacket;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.authenticate.integration.AuthenticationIntegrationAuthenticator;
+import org.apache.doris.mysql.authenticate.ldap.LdapAuthenticator;
+import org.apache.doris.mysql.authenticate.password.ClearPassword;
 import org.apache.doris.mysql.authenticate.password.Password;
+import org.apache.doris.mysql.authenticate.plugin.AuthenticationPluginAuthenticator;
 import org.apache.doris.plugin.PropertiesUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,19 +53,22 @@ public class AuthenticatorManager {
     private static volatile String authTypeIdentifier = null;
 
     public AuthenticatorManager(String type) {
-        LOG.info("Authenticate type: {}", type);
+        String normalizedType = normalizeAuthTypeIdentifier(type);
+        LOG.info("Authenticate type: {}", normalizedType);
         defaultAuthenticator = new DefaultAuthenticator();
-        if (authTypeAuthenticator == null || !type.equalsIgnoreCase(authTypeIdentifier)) {
+        if (authTypeAuthenticator == null || !normalizedType.equalsIgnoreCase(authTypeIdentifier)) {
             synchronized (AuthenticatorManager.class) {
-                if (authTypeAuthenticator == null || !type.equalsIgnoreCase(authTypeIdentifier)) {
+                if (authTypeAuthenticator == null || !normalizedType.equalsIgnoreCase(authTypeIdentifier)) {
                     try {
-                        authTypeAuthenticator = loadFactoriesByName(type);
-                        authTypeIdentifier = type;
+                        authTypeAuthenticator = loadFactoriesByName(normalizedType);
+                        authTypeIdentifier = normalizedType;
                     } catch (Exception e) {
-                        if (!AuthenticateType.DEFAULT.name().equalsIgnoreCase(type)) {
-                            throw new IllegalStateException("Failed to load authenticator by name: " + type, e);
+                        if (!AuthenticateType.DEFAULT.name().equalsIgnoreCase(normalizedType)) {
+                            throw new IllegalStateException("Failed to load authenticator by name: "
+                                    + normalizedType, e);
                         }
-                        LOG.warn("Failed to load authenticator by name: {}, using default authenticator", type, e);
+                        LOG.warn("Failed to load authenticator by name: {}, using default authenticator",
+                                normalizedType, e);
                         authTypeAuthenticator = defaultAuthenticator;
                         authTypeIdentifier = AuthenticateType.DEFAULT.name();
                     }
@@ -66,8 +77,29 @@ public class AuthenticatorManager {
         }
     }
 
+    private String normalizeAuthTypeIdentifier(String type) {
+        if (type == null) {
+            return AuthenticateType.DEFAULT.name();
+        }
+        if ("password".equalsIgnoreCase(type) || AuthenticateType.DEFAULT.name().equalsIgnoreCase(type)) {
+            return AuthenticateType.DEFAULT.name();
+        }
+        if (AuthenticateType.LDAP.name().equalsIgnoreCase(type)) {
+            return AuthenticateType.LDAP.name();
+        }
+        return type.toLowerCase();
+    }
+
 
     private Authenticator loadFactoriesByName(String identifier) throws Exception {
+        Authenticator authenticator = loadLegacyFactoryByName(identifier);
+        if (authenticator != null) {
+            return authenticator;
+        }
+        return loadPluginFactoryByName(identifier);
+    }
+
+    private Authenticator loadLegacyFactoryByName(String identifier) throws Exception {
         ServiceLoader<AuthenticatorFactory> loader = ServiceLoader.load(AuthenticatorFactory.class);
         for (AuthenticatorFactory factory : loader) {
             LOG.info("Found Authenticator Plugin Factory: {}", factory.factoryIdentifier());
@@ -77,14 +109,12 @@ public class AuthenticatorManager {
             }
         }
         return loadCustomerFactories(identifier);
-
     }
 
     private Authenticator loadCustomerFactories(String identifier) throws Exception {
         List<AuthenticatorFactory> factories = ClassLoaderUtils.loadServicesFromDirectory(AuthenticatorFactory.class);
         if (factories.isEmpty()) {
-            LOG.info("No customer authenticator found, using default authenticator");
-            return defaultAuthenticator;
+            return null;
         }
         for (AuthenticatorFactory factory : factories) {
             LOG.info("Found Customer Authenticator Plugin Factory: {}", factory.factoryIdentifier());
@@ -93,8 +123,12 @@ public class AuthenticatorManager {
                 return factory.create(properties);
             }
         }
+        return null;
+    }
 
-        throw new RuntimeException("No AuthenticatorFactory found for identifier: " + identifier);
+    private Authenticator loadPluginFactoryByName(String identifier) throws Exception {
+        Properties properties = PropertiesUtils.loadAuthenticationConfigFile();
+        return new AuthenticationPluginAuthenticator(identifier, properties);
     }
 
     public boolean authenticate(ConnectContext context,
@@ -104,29 +138,196 @@ public class AuthenticatorManager {
                                 MysqlAuthPacket authPacket,
                                 MysqlHandshakePacket handshakePacket) throws IOException {
         String remoteIp = context.getMysqlChannel().getRemoteIp();
-        Authenticator authenticator = chooseAuthenticator(userName, remoteIp);
-        Optional<Password> password = authenticator.getPasswordResolver()
+        Authenticator primaryAuthenticator = chooseAuthenticator(userName, remoteIp);
+        Optional<Password> password = primaryAuthenticator.getPasswordResolver()
                 .resolvePassword(context, channel, serializer, authPacket, handshakePacket);
         if (!password.isPresent()) {
             return false;
         }
-        AuthenticateRequest request = new AuthenticateRequest(userName, password.get(), remoteIp);
-        AuthenticateResponse response = authenticator.authenticate(request);
-        if (!response.isSuccess()) {
-            MysqlProto.sendResponsePacket(context);
+        AuthenticateResponse primaryResponse =
+                primaryAuthenticator.authenticate(new AuthenticateRequest(userName, password.get(), remoteIp));
+        if (primaryResponse.isSuccess()) {
+            applyAuthenticateResponse(context, remoteIp, primaryResponse);
+            return true;
+        }
+
+        Optional<AuthenticateResponse> jitChainResponse = tryJitUserAuthenticationChainFallback(context, userName,
+                remoteIp, channel, serializer, authPacket, handshakePacket, password.get());
+        if (jitChainResponse.isPresent()) {
+            AuthenticateResponse response = jitChainResponse.get();
+            if (response.isSuccess()) {
+                context.getState().setOk();
+                applyAuthenticateResponse(context, remoteIp, response);
+                return true;
+            }
+            ensureAuthenticationErrorReported(context, userName, remoteIp, password.get());
+            if (context.getState().getStateType() == QueryState.MysqlStateType.ERR) {
+                MysqlProto.sendResponsePacket(context);
+            }
             return false;
         }
-        context.setCurrentUserIdentity(response.getUserIdentity());
-        context.setRemoteIP(remoteIp);
-        context.setIsTempUser(response.isTemp());
-        return true;
+
+        AuthenticateResponse chainResponse = tryAuthenticationChainFallback(context, userName, remoteIp,
+                channel, serializer, authPacket, handshakePacket, primaryAuthenticator, password.get());
+        if (chainResponse != null && chainResponse.isSuccess()) {
+            context.getState().setOk();
+            applyAuthenticateResponse(context, remoteIp, chainResponse);
+            return true;
+        }
+
+        ensureAuthenticationErrorReported(context, userName, remoteIp, password.get());
+        if (context.getState().getStateType() == QueryState.MysqlStateType.ERR) {
+            MysqlProto.sendResponsePacket(context);
+        }
+        return false;
     }
 
     Authenticator chooseAuthenticator(String userName, String remoteIp) {
-        if (AuthenticateType.INTEGRATION.name().equalsIgnoreCase(authTypeIdentifier)
-                && Env.getCurrentEnv().getAuth().doesUserExist(userName, remoteIp)) {
-            return defaultAuthenticator;
-        }
         return authTypeAuthenticator.canDeal(userName) ? authTypeAuthenticator : defaultAuthenticator;
+    }
+
+    Authenticator getAuthenticationChainAuthenticator() {
+        return new AuthenticationIntegrationAuthenticator(Config.authentication_chain, "authentication_chain");
+    }
+
+    Optional<AuthenticateResponse> tryJitUserAuthenticationChainFallback(ConnectContext context,
+            String userName,
+            String remoteIp,
+            MysqlChannel channel,
+            MysqlSerializer serializer,
+            MysqlAuthPacket authPacket,
+            MysqlHandshakePacket handshakePacket,
+            Password primaryPassword) throws IOException {
+        if (!shouldTryJitUserAuthenticationChain(userName, remoteIp)) {
+            return Optional.empty();
+        }
+
+        Authenticator chainAuthenticator;
+        try {
+            chainAuthenticator = getAuthenticationChainAuthenticator();
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to initialize JIT authentication_chain authenticator: {}", e.getMessage(), e);
+            return Optional.of(AuthenticateResponse.failedResponse);
+        }
+        if (!chainAuthenticator.canDeal(userName)) {
+            return Optional.of(AuthenticateResponse.failedResponse);
+        }
+
+        Password chainPassword = primaryPassword;
+        if (!(chainPassword instanceof ClearPassword)) {
+            Optional<Password> fallbackPassword = chainAuthenticator.getPasswordResolver()
+                    .resolvePassword(context, channel, serializer, authPacket, handshakePacket);
+            if (!fallbackPassword.isPresent()) {
+                return Optional.of(AuthenticateResponse.failedResponse);
+            }
+            chainPassword = fallbackPassword.get();
+        }
+
+        LOG.info("Try JIT authentication_chain fallback for user '{}'", userName);
+        return Optional.of(chainAuthenticator.authenticate(new AuthenticateRequest(userName, chainPassword, remoteIp)));
+    }
+
+    private void applyAuthenticateResponse(ConnectContext context, String remoteIp, AuthenticateResponse response) {
+        context.setCurrentUserIdentity(response.getUserIdentity());
+        context.setRemoteIP(remoteIp);
+        context.setIsTempUser(response.isTemp());
+    }
+
+    private AuthenticateResponse tryAuthenticationChainFallback(ConnectContext context,
+            String userName,
+            String remoteIp,
+            MysqlChannel channel,
+            MysqlSerializer serializer,
+            MysqlAuthPacket authPacket,
+            MysqlHandshakePacket handshakePacket,
+            Authenticator primaryAuthenticator,
+            Password primaryPassword) throws IOException {
+        if (!shouldTryAuthenticationChain(primaryAuthenticator, userName, remoteIp)) {
+            return null;
+        }
+
+        Authenticator chainAuthenticator;
+        try {
+            chainAuthenticator = getAuthenticationChainAuthenticator();
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to initialize authentication_chain fallback authenticator: {}", e.getMessage(), e);
+            return null;
+        }
+        if (!chainAuthenticator.canDeal(userName)) {
+            return null;
+        }
+
+        Password chainPassword = primaryPassword;
+        if (!(chainPassword instanceof ClearPassword)) {
+            Optional<Password> fallbackPassword = chainAuthenticator.getPasswordResolver()
+                    .resolvePassword(context, channel, serializer, authPacket, handshakePacket);
+            if (!fallbackPassword.isPresent()) {
+                return null;
+            }
+            chainPassword = fallbackPassword.get();
+        }
+
+        LOG.info("Try authentication_chain fallback for user '{}' with policy '{}'",
+                userName, Config.authentication_chain_fallback_policy);
+        return chainAuthenticator.authenticate(new AuthenticateRequest(userName, chainPassword, remoteIp));
+    }
+
+    private boolean shouldTryJitUserAuthenticationChain(String userName, String remoteIp) {
+        if (!Config.enable_jit_user_authentication_chain) {
+            return false;
+        }
+        if (AuthenticationIntegrationAuthenticator.parseAuthenticationChain(Config.authentication_chain).isEmpty()) {
+            return false;
+        }
+        return !Env.getCurrentEnv().getAuth().doesUserExist(userName, remoteIp);
+    }
+
+    private boolean shouldTryAuthenticationChain(Authenticator primaryAuthenticator, String userName, String remoteIp) {
+        if (!Config.enable_authentication_chain) {
+            return false;
+        }
+        if (AuthenticationIntegrationAuthenticator.parseAuthenticationChain(Config.authentication_chain).isEmpty()) {
+            return false;
+        }
+
+        AuthenticationChainFallbackPolicy policy =
+                AuthenticationChainFallbackPolicy.fromConfig(Config.authentication_chain_fallback_policy);
+        switch (policy) {
+            case ANY_FAILURE:
+                return true;
+            case USER_NOT_FOUND:
+                return isPrimaryUserNotFound(primaryAuthenticator, userName, remoteIp);
+            case DISABLED:
+            default:
+                return false;
+        }
+    }
+
+    private boolean isPrimaryUserNotFound(Authenticator primaryAuthenticator, String userName, String remoteIp) {
+        if (primaryAuthenticator instanceof LdapAuthenticator
+                || AuthenticateType.LDAP.name().equalsIgnoreCase(authTypeIdentifier)) {
+            return !Env.getCurrentEnv().getAuth().getLdapManager().doesUserExist(userName);
+        }
+        return !Env.getCurrentEnv().getAuth().doesUserExist(userName, remoteIp);
+    }
+
+    private void ensureAuthenticationErrorReported(ConnectContext context, String userName, String remoteIp,
+            Password password) {
+        if (context.getState().getStateType() == QueryState.MysqlStateType.ERR) {
+            return;
+        }
+        context.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR,
+                ErrorCode.ERR_ACCESS_DENIED_ERROR.formatErrorMsg(userName, remoteIp,
+                        hasPassword(password) ? "YES" : "NO"));
+    }
+
+    private boolean hasPassword(Password password) {
+        if (password == null) {
+            return false;
+        }
+        if (password instanceof ClearPassword) {
+            return !Strings.isNullOrEmpty(((ClearPassword) password).getPassword());
+        }
+        return true;
     }
 }

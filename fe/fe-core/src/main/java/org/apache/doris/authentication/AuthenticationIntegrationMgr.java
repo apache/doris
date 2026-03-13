@@ -17,6 +17,7 @@
 
 package org.apache.doris.authentication;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -65,6 +66,7 @@ public class AuthenticationIntegrationMgr implements Writable {
             throws DdlException {
         AuthenticationIntegrationMeta meta =
                 AuthenticationIntegrationMeta.fromCreateSql(integrationName, properties, comment, createUser);
+        AuthenticationIntegrationRuntime.PreparedAuthenticationIntegration prepared = null;
         writeLock();
         try {
             if (nameToIntegration.containsKey(integrationName)) {
@@ -73,10 +75,16 @@ public class AuthenticationIntegrationMgr implements Writable {
                 }
                 throw new DdlException("Authentication integration " + integrationName + " already exists");
             }
+            try {
+                prepared = Env.getCurrentEnv().getAuthenticationIntegrationRuntime()
+                        .prepareAuthenticationIntegration(meta);
+            } catch (AuthenticationException e) {
+                throw new DdlException(e.getMessage(), e);
+            }
             nameToIntegration.put(integrationName, meta);
-            // TODO(authentication-integration): Re-enable edit log persistence
-            // when authentication integration is fully integrated.
-            // Env.getCurrentEnv().getEditLog().logCreateAuthenticationIntegration(meta);
+            Env.getCurrentEnv().getEditLog().logCreateAuthenticationIntegration(meta);
+            Env.getCurrentEnv().getAuthenticationIntegrationRuntime()
+                    .activatePreparedAuthenticationIntegration(prepared);
         } finally {
             writeUnlock();
         }
@@ -84,14 +92,21 @@ public class AuthenticationIntegrationMgr implements Writable {
 
     public void alterAuthenticationIntegrationProperties(
             String integrationName, Map<String, String> properties, String alterUser) throws DdlException {
+        AuthenticationIntegrationRuntime.PreparedAuthenticationIntegration prepared = null;
         writeLock();
         try {
             AuthenticationIntegrationMeta current = getOrThrow(integrationName);
             AuthenticationIntegrationMeta updated = current.withAlterProperties(properties, alterUser);
+            try {
+                prepared = Env.getCurrentEnv().getAuthenticationIntegrationRuntime()
+                        .prepareAuthenticationIntegration(updated);
+            } catch (AuthenticationException e) {
+                throw new DdlException(e.getMessage(), e);
+            }
             nameToIntegration.put(integrationName, updated);
-            // TODO(authentication-integration): Re-enable edit log persistence
-            // when authentication integration is fully integrated.
-            // Env.getCurrentEnv().getEditLog().logAlterAuthenticationIntegration(updated);
+            Env.getCurrentEnv().getEditLog().logAlterAuthenticationIntegration(updated);
+            Env.getCurrentEnv().getAuthenticationIntegrationRuntime()
+                    .activatePreparedAuthenticationIntegration(prepared);
         } finally {
             writeUnlock();
         }
@@ -99,14 +114,21 @@ public class AuthenticationIntegrationMgr implements Writable {
 
     public void alterAuthenticationIntegrationUnsetProperties(
             String integrationName, Set<String> propertiesToUnset, String alterUser) throws DdlException {
+        AuthenticationIntegrationRuntime.PreparedAuthenticationIntegration prepared = null;
         writeLock();
         try {
             AuthenticationIntegrationMeta current = getOrThrow(integrationName);
             AuthenticationIntegrationMeta updated = current.withUnsetProperties(propertiesToUnset, alterUser);
+            try {
+                prepared = Env.getCurrentEnv().getAuthenticationIntegrationRuntime()
+                        .prepareAuthenticationIntegration(updated);
+            } catch (AuthenticationException e) {
+                throw new DdlException(e.getMessage(), e);
+            }
             nameToIntegration.put(integrationName, updated);
-            // TODO(authentication-integration): Re-enable edit log persistence
-            // when authentication integration is fully integrated.
-            // Env.getCurrentEnv().getEditLog().logAlterAuthenticationIntegration(updated);
+            Env.getCurrentEnv().getEditLog().logAlterAuthenticationIntegration(updated);
+            Env.getCurrentEnv().getAuthenticationIntegrationRuntime()
+                    .activatePreparedAuthenticationIntegration(prepared);
         } finally {
             writeUnlock();
         }
@@ -119,9 +141,7 @@ public class AuthenticationIntegrationMgr implements Writable {
             AuthenticationIntegrationMeta current = getOrThrow(integrationName);
             AuthenticationIntegrationMeta updated = current.withComment(comment, alterUser);
             nameToIntegration.put(integrationName, updated);
-            // TODO(authentication-integration): Re-enable edit log persistence
-            // when authentication integration is fully integrated.
-            // Env.getCurrentEnv().getEditLog().logAlterAuthenticationIntegration(updated);
+            Env.getCurrentEnv().getEditLog().logAlterAuthenticationIntegration(updated);
         } finally {
             writeUnlock();
         }
@@ -130,17 +150,18 @@ public class AuthenticationIntegrationMgr implements Writable {
     public void dropAuthenticationIntegration(String integrationName, boolean ifExists) throws DdlException {
         writeLock();
         try {
-            if (!nameToIntegration.containsKey(integrationName)) {
+            AuthenticationIntegrationMeta current = nameToIntegration.get(integrationName);
+            if (current == null) {
                 if (ifExists) {
                     return;
                 }
                 throw new DdlException("Authentication integration " + integrationName + " does not exist");
             }
             nameToIntegration.remove(integrationName);
-            // TODO(authentication-integration): Re-enable edit log persistence
-            // when authentication integration is fully integrated.
-            // Env.getCurrentEnv().getEditLog().logDropAuthenticationIntegration(
-            //         new DropAuthenticationIntegrationOperationLog(integrationName));
+            Env.getCurrentEnv().getEditLog().logDropAuthenticationIntegration(
+                    new DropAuthenticationIntegrationOperationLog(integrationName));
+            Env.getCurrentEnv().getAuthenticationIntegrationRuntime()
+                    .removeAuthenticationIntegration(integrationName);
         } finally {
             writeUnlock();
         }
@@ -170,6 +191,15 @@ public class AuthenticationIntegrationMgr implements Writable {
             nameToIntegration.remove(log.getIntegrationName());
         } finally {
             writeUnlock();
+        }
+    }
+
+    public AuthenticationIntegrationMeta getAuthenticationIntegration(String integrationName) {
+        readLock();
+        try {
+            return nameToIntegration.get(integrationName);
+        } finally {
+            readUnlock();
         }
     }
 

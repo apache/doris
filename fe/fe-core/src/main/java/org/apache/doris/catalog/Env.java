@@ -30,6 +30,7 @@ import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.authentication.AuthenticationIntegrationMgr;
+import org.apache.doris.authentication.AuthenticationIntegrationRuntime;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
@@ -382,6 +383,7 @@ public class Env {
     private GroupCommitManager groupCommitManager;
     private SqlBlockRuleMgr sqlBlockRuleMgr;
     private AuthenticationIntegrationMgr authenticationIntegrationMgr;
+    private AuthenticationIntegrationRuntime authenticationIntegrationRuntime;
     private ExportMgr exportMgr;
     private Alter alter;
     private ConsistencyChecker consistencyChecker;
@@ -719,6 +721,7 @@ public class Env {
         this.groupCommitManager = new GroupCommitManager();
         this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
         this.authenticationIntegrationMgr = new AuthenticationIntegrationMgr();
+        this.authenticationIntegrationRuntime = new AuthenticationIntegrationRuntime();
         this.exportMgr = new ExportMgr();
         this.alter = new Alter();
         this.consistencyChecker = new ConsistencyChecker();
@@ -2511,13 +2514,10 @@ public class Env {
     }
 
     public long loadAuthenticationIntegrations(DataInputStream in, long checksum) throws IOException {
-        // TODO(authentication-integration): Re-enable image persistence
-        // when authentication integration is fully integrated.
-        // Consume persisted bytes to keep image stream alignment,
-        // but do not restore into in-memory state for now.
-        AuthenticationIntegrationMgr.read(in);
-        authenticationIntegrationMgr = new AuthenticationIntegrationMgr();
-        LOG.info("skip replay authentication integrations from image temporarily");
+        authenticationIntegrationMgr = AuthenticationIntegrationMgr.read(in);
+        authenticationIntegrationRuntime.rebuildAuthenticationIntegrations(
+                authenticationIntegrationMgr.getAuthenticationIntegrations());
+        LOG.info("finished replay authentication integrations from image");
         return checksum;
     }
 
@@ -2834,10 +2834,7 @@ public class Env {
     }
 
     public long saveAuthenticationIntegrations(CountingDataOutputStream out, long checksum) throws IOException {
-        // TODO(authentication-integration): Re-enable image persistence
-        // when authentication integration is fully integrated.
-        // Persist an empty manager temporarily.
-        new AuthenticationIntegrationMgr().write(out);
+        authenticationIntegrationMgr.write(out);
         return checksum;
     }
 
@@ -5272,6 +5269,10 @@ public class Env {
 
     public AuthenticationIntegrationMgr getAuthenticationIntegrationMgr() {
         return authenticationIntegrationMgr;
+    }
+
+    public AuthenticationIntegrationRuntime getAuthenticationIntegrationRuntime() {
+        return authenticationIntegrationRuntime;
     }
 
     public RoutineLoadTaskScheduler getRoutineLoadTaskScheduler() {
