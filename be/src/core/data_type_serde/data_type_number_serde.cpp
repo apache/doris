@@ -27,6 +27,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/packed_int128.h"
 #include "core/types.h"
 #include "core/value/timestamptz_value.h"
 #include "exprs/function/cast/cast_to_basic_number_common.h"
