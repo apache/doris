@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 #include "util/jdbc_utils.h"
 
 #include <filesystem>
