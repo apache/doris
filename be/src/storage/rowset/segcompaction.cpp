@@ -34,6 +34,7 @@
 
 #include "absl/strings/substitute.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/logging.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -281,8 +282,15 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
 
     std::vector<std::vector<uint32_t>> column_groups;
     std::vector<uint32_t> key_group_cluster_key_idxes;
-    Merger::vertical_split_columns(*ctx.tablet_schema, &column_groups,
-                                   &key_group_cluster_key_idxes);
+    // If BE config vertical_compaction_num_columns_per_group has been modified from
+    // its default value (5), use the BE config; otherwise use the tablet meta value.
+    constexpr int32_t default_num_columns_per_group = 5;
+    int32_t num_columns_per_group =
+            config::vertical_compaction_num_columns_per_group != default_num_columns_per_group
+                    ? config::vertical_compaction_num_columns_per_group
+                    : tablet->tablet_meta()->vertical_compaction_num_columns_per_group();
+    Merger::vertical_split_columns(*ctx.tablet_schema, &column_groups, &key_group_cluster_key_idxes,
+                                   num_columns_per_group);
     RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
                                      ReaderType::READER_SEGMENT_COMPACTION);
 
