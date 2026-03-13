@@ -28,7 +28,7 @@
 #include "core/data_type/primitive_type.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // ==================== ColumnNullConstView Tests ====================
 
@@ -932,4 +932,4 @@ TEST(ShortCircuitUtilTest, ColumnNullConstViewScalar_const_nullable_column) {
     EXPECT_TRUE(view.is_const);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

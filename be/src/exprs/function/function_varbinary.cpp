@@ -39,7 +39,7 @@
 #include "exprs/function/string_hex_util.h"
 #include "util/url_coding.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class FunctionToBinary : public IFunction {
@@ -262,4 +262,4 @@ void register_function_binary(SimpleFunctionFactory& factory) {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

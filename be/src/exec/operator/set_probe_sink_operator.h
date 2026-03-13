@@ -26,13 +26,9 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-namespace vectorized {
 class Block;
 template <class HashTableContext, bool is_intersected>
 struct HashTableProbe;
-} // namespace vectorized
-
-namespace pipeline {
 
 template <bool is_intersect>
 class SetProbeSinkOperatorX;
@@ -54,15 +50,15 @@ public:
 private:
     friend class SetProbeSinkOperatorX<is_intersect>;
     template <class HashTableContext, bool is_intersected>
-    friend struct vectorized::HashTableProbe;
+    friend struct HashTableProbe;
 
     int64_t _estimate_memory_usage = 0;
 
     //record insert column id during probe
     std::vector<uint16_t> _probe_column_inserted_id;
-    vectorized::ColumnRawPtrs _probe_columns;
+    ColumnRawPtrs _probe_columns;
     // every child has its result expr list
-    vectorized::VExprContextSPtrs _child_exprs;
+    VExprContextSPtrs _child_exprs;
 
     RuntimeProfile::Counter* _extract_probe_data_timer = nullptr;
     RuntimeProfile::Counter* _probe_timer = nullptr;
@@ -106,7 +102,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
@@ -125,18 +121,16 @@ public:
 
 private:
     void _finalize_probe(SetProbeSinkLocalState<is_intersect>& local_state);
-    Status _extract_probe_column(SetProbeSinkLocalState<is_intersect>& local_state,
-                                 vectorized::Block& block, vectorized::ColumnRawPtrs& raw_ptrs,
-                                 int child_id);
+    Status _extract_probe_column(SetProbeSinkLocalState<is_intersect>& local_state, Block& block,
+                                 ColumnRawPtrs& raw_ptrs, int child_id);
     void _refresh_hash_table(SetProbeSinkLocalState<is_intersect>& local_state);
     const int _cur_child_id;
     // every child has its result expr list
-    vectorized::VExprContextSPtrs _child_exprs;
+    VExprContextSPtrs _child_exprs;
     const bool _is_colocate;
     std::vector<TExpr> _partition_exprs;
     using OperatorBase::_child;
 };
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

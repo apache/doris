@@ -39,9 +39,7 @@ namespace doris {
 class Schema;
 class ColumnPredicate;
 
-namespace vectorized {
 struct IteratorRowRef;
-};
 
 namespace segment_v2 {
 struct SubstreamIterator;
@@ -124,9 +122,9 @@ public:
     // columns for orderby keys
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     io::IOContext io_ctx;
-    vectorized::VExpr* remaining_vconjunct_root = nullptr;
-    std::vector<vectorized::VExprSPtr> remaining_conjunct_roots;
-    vectorized::VExprContextSPtrs common_expr_ctxs_push_down;
+    VExpr* remaining_vconjunct_root = nullptr;
+    std::vector<VExprSPtr> remaining_conjunct_roots;
+    VExprContextSPtrs common_expr_ctxs_push_down;
     const std::set<int32_t>* output_columns = nullptr;
     // runtime state
     RuntimeState* runtime_state = nullptr;
@@ -134,24 +132,24 @@ public:
     Version version;
     int64_t tablet_id = 0;
     // slots that cast may be eliminated in storage layer
-    std::map<std::string, vectorized::DataTypePtr> target_cast_type_for_variants;
+    std::map<std::string, DataTypePtr> target_cast_type_for_variants;
     RowRanges row_ranges;
     size_t topn_limit = 0;
 
-    std::map<ColumnId, vectorized::VExprContextSPtr> virtual_column_exprs;
+    std::map<ColumnId, VExprContextSPtr> virtual_column_exprs;
     std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;
     std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
-    std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
+    std::map<size_t, DataTypePtr> vir_col_idx_to_type;
 
     std::map<int32_t, TColumnAccessPaths> all_access_paths;
     std::map<int32_t, TColumnAccessPaths> predicate_access_paths;
 
-    std::shared_ptr<vectorized::ScoreRuntime> score_runtime;
+    std::shared_ptr<ScoreRuntime> score_runtime;
     CollectionStatisticsPtr collection_statistics;
 
     // Cache for sparse column data to avoid redundant reads
     // col_unique_id -> cached column_ptr
-    std::unordered_map<int32_t, vectorized::ColumnPtr> sparse_column_cache;
+    std::unordered_map<int32_t, ColumnPtr> sparse_column_cache;
 
     uint64_t condition_cache_digest = 0;
 };
@@ -164,7 +162,7 @@ struct CompactionSampleInfo {
 };
 
 struct BlockWithSameBit {
-    vectorized::Block* block;
+    Block* block;
     std::vector<bool>& same_bit;
 
     bool empty() const { return block->rows() == 0; }
@@ -196,7 +194,7 @@ public:
     // into input batch with Status::OK() returned
     // If there is no data to read, will return Status::EndOfFile.
     // If other error happens, other error code will be returned.
-    virtual Status next_batch(vectorized::Block* block) {
+    virtual Status next_batch(Block* block) {
         return Status::InternalError("should not reach here, current class: " +
                                      demangle(typeid(*this).name()));
     }
@@ -206,16 +204,16 @@ public:
                                      demangle(typeid(*this).name()));
     }
 
-    virtual Status next_batch(vectorized::BlockView* block_view) {
+    virtual Status next_batch(BlockView* block_view) {
         return Status::InternalError("should not reach here, current class: " +
                                      demangle(typeid(*this).name()));
     }
 
-    virtual Status next_row(vectorized::IteratorRowRef* ref) {
+    virtual Status next_row(IteratorRowRef* ref) {
         return Status::InternalError("should not reach here, current class: " +
                                      demangle(typeid(*this).name()));
     }
-    virtual Status unique_key_next_row(vectorized::IteratorRowRef* ref) {
+    virtual Status unique_key_next_row(IteratorRowRef* ref) {
         return Status::InternalError("should not reach here, current class: " +
                                      demangle(typeid(*this).name()));
     }

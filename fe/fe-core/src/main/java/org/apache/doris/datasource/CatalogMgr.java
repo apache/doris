@@ -22,7 +22,6 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
@@ -35,7 +34,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -127,6 +126,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (catalog != null) {
             Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(catalogId);
             catalog.onClose();
+            Env.getCurrentEnv().getConstraintManager().dropCatalogConstraints(catalog.getName());
             nameToCatalog.remove(catalog.getName());
             if (ConnectContext.get() != null) {
                 ConnectContext.get().removeLastDBOfCatalog(catalog.getName());
@@ -421,11 +421,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         Map<String, String> sortedMap = new TreeMap<>();
         catalog.getProperties().forEach(
                 (key, value) -> {
-                    if (PrintableMap.HIDDEN_KEY.contains(key)) {
+                    if (DatasourcePrintableMap.HIDDEN_KEY.contains(key)) {
                         return;
                     }
-                    if (PrintableMap.SENSITIVE_KEY.contains(key)) {
-                        sortedMap.put(key, PrintableMap.PASSWORD_MASK);
+                    if (DatasourcePrintableMap.SENSITIVE_KEY.contains(key)) {
+                        sortedMap.put(key, DatasourcePrintableMap.PASSWORD_MASK);
                     } else {
                         sortedMap.put(key, value);
                     }
@@ -443,21 +443,22 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 throw new AnalysisException("No catalog found with name " + catalogName);
             }
             StringBuilder sb = new StringBuilder();
-            sb.append("\nCREATE CATALOG `").append(ClusterNamespace.getNameFromFullName(catalogName))
+            sb.append("\nCREATE CATALOG `").append(catalogName)
                     .append("`");
             if (!Strings.isNullOrEmpty(catalog.getComment())) {
                 sb.append("\nCOMMENT \"").append(catalog.getComment()).append("\"\n");
             }
             if (catalog.getProperties().size() > 0) {
                 sb.append(" PROPERTIES (\n");
-                PrintableMap<String, String> printableMap = new PrintableMap<>(catalog.getProperties(), "=", true, true,
-                        true, true);
+                DatasourcePrintableMap<String, String> printableMap =
+                        new DatasourcePrintableMap<>(catalog.getProperties(), "=", true, true,
+                                true, true);
                 printableMap.setAdditionalHiddenKeys(ExternalCatalog.HIDDEN_PROPERTIES);
                 sb.append(printableMap);
                 sb.append("\n);");
             }
 
-            rows.add(Lists.newArrayList(ClusterNamespace.getNameFromFullName(catalogName), sb.toString()));
+            rows.add(Lists.newArrayList(catalogName, sb.toString()));
         } finally {
             readUnlock();
         }

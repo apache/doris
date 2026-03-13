@@ -38,7 +38,7 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
                         + "distributed by hash(id) buckets 10\n"
                         + "properties('replication_num' = '1');"
         );
-        connectContext.setDatabase("default_cluster:eliminate_group_by");
+        connectContext.setDatabase("eliminate_group_by");
     }
 
     @Test

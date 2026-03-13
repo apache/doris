@@ -37,7 +37,7 @@
 #include "util/json/simd_json_parser.h"
 #include "util/jsonb_writer.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename Element>
 Field getValueAsField(const Element& element) {
@@ -167,4 +167,4 @@ private:
     ParserImpl parser;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

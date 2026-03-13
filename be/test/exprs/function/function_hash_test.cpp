@@ -31,7 +31,7 @@
 #include "testutil/any_type.h"
 #include "util/hash/murmur_hash3.h"
 
-namespace doris::vectorized {
+namespace doris {
 using namespace ut_type;
 
 TEST(HashFunctionTest, murmur_hash_3_test) {
@@ -284,4 +284,4 @@ TEST(HashFunctionTest, murmur_hash3_helper_functions_test) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

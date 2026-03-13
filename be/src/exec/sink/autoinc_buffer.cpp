@@ -30,7 +30,7 @@
 #include "util/debug_points.h"
 #include "util/thrift_rpc_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 AutoIncIDBuffer::AutoIncIDBuffer(int64_t db_id, int64_t table_id, int64_t column_id)
@@ -187,4 +187,4 @@ Status AutoIncIDBuffer::_launch_async_fetch_task(size_t length) {
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

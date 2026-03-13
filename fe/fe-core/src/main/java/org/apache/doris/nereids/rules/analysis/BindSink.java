@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.ColumnDef.DefaultValue;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -490,7 +492,8 @@ public class BindSink implements AnalysisRuleFactory {
             try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx.connectContext,
                     column.getSessionVariables())) {
                 GeneratedColumnInfo info = column.getGeneratedColumnInfo();
-                Expression parsedExpression = new NereidsParser().parseExpression(info.getExpr().toSqlWithoutTbl());
+                Expression parsedExpression = new NereidsParser().parseExpression(
+                        info.getExpr().accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
                 Expression boundExpression = new CustomExpressionAnalyzer(boundSink, ctx.cascadesContext,
                         columnToReplaced)
                         .analyze(parsedExpression);
@@ -519,7 +522,7 @@ public class BindSink implements AnalysisRuleFactory {
             try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx.connectContext,
                     column.getSessionVariables())) {
                 Expression parsedExpression = expressionParser.parseExpression(
-                        column.getDefineExpr().toSqlWithoutTbl());
+                        column.getDefineExpr().accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
                 // the boundSlotExpression is an expression whose slots are bound but function
                 // may not be bound, we have to bind it again.
                 // for example: to_bitmap.
@@ -536,7 +539,8 @@ public class BindSink implements AnalysisRuleFactory {
                 }
                 boundExpression = TypeCoercionUtils.castIfNotSameType(boundExpression,
                         DataType.fromCatalogType(column.getType()));
-                Alias output = new Alias(boundExpression, column.getDefineExpr().toSqlWithoutTbl());
+                Alias output = new Alias(boundExpression, column.getDefineExpr().accept(
+                        ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
                 columnToOutput.put(column.getName(), output);
                 columnToReplaced.put(column.getName(), output.toSlot());
                 replaceMap.put(output.toSlot(), output.child());
@@ -1163,7 +1167,8 @@ public class BindSink implements AnalysisRuleFactory {
 
         public List<Expression> createPartitionExprList() {
             return olapTable.getPartitionInfo().getPartitionExprs().stream()
-                    .map(expr -> analyze(expr.toSql())).collect(Collectors.toList());
+                    .map(expr -> analyze(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)))
+                    .collect(Collectors.toList());
         }
 
         public Map<Long, Expression> createSyncMvWhereClause() {
@@ -1175,7 +1180,8 @@ public class BindSink implements AnalysisRuleFactory {
                     if (entry.getKey() == baseIndexId || entry.getValue().getWhereClause() == null) {
                         continue;
                     }
-                    Expression predicate = analyze(entry.getValue().getWhereClause().toSqlWithoutTbl());
+                    Expression predicate = analyze(entry.getValue().getWhereClause().accept(
+                            ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
                     predicate = predicate.accept(new AddSessionVarGuardRewriter(
                             entry.getValue().getSessionVariables()), Boolean.FALSE);
                     mvWhereClauses.put(entry.getKey(), predicate);

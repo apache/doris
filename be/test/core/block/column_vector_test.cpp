@@ -25,7 +25,7 @@
 
 #include "gtest/gtest_pred_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(VColumnVectorTest, insert_date_column) {
     auto column = ColumnInt64::create();
@@ -38,4 +38,4 @@ TEST(VColumnVectorTest, insert_date_column) {
     ASSERT_EQ(column->size(), rows);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

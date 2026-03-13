@@ -21,7 +21,6 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.NetUtils;
@@ -301,10 +300,8 @@ public class BaseController {
             int index = authString.indexOf(":");
             authInfo.fullUserName = authString.substring(0, index);
             final String[] elements = authInfo.fullUserName.split("@");
-            if (elements != null && elements.length < 2) {
-                authInfo.fullUserName = ClusterNamespace.getNameFromFullName(authInfo.fullUserName);
-            } else if (elements != null && elements.length == 2) {
-                authInfo.fullUserName = ClusterNamespace.getNameFromFullName(elements[0]);
+            if (elements != null && elements.length == 2) {
+                authInfo.fullUserName = elements[0];
             }
             authInfo.password = authString.substring(index + 1);
             authInfo.remoteIp = request.getRemoteAddr();

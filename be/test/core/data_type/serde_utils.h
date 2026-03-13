@@ -25,7 +25,7 @@
 #include <random>
 #include <type_traits>
 
-namespace doris::vectorized {
+namespace doris {
 static constexpr const char END_SYMBOL = '\0';
 
 static void rtrim(std::string& s) {
@@ -50,4 +50,4 @@ static std::mt19937 random_generator(random());
     // return substring with specified length
     return str.substr(0, length);
 }
-} // namespace doris::vectorized
+} // namespace doris

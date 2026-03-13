@@ -17,9 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
+import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -35,12 +39,10 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Comparator;
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -65,26 +67,28 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         Pair<ImmutableList<String>, TableIf> columnsAndTable = extractColumnsAndTable(ctx, constraint.toProject());
-        List<TableIf> tables = Lists.newArrayList(columnsAndTable.second);
-        Pair<ImmutableList<String>, TableIf> referencedColumnsAndTable = null;
+        TableIf table = columnsAndTable.second;
+        TableNameInfo tableNameInfo = new TableNameInfo(table);
+        ImmutableList<String> columns = columnsAndTable.first;
+
         if (constraint.isForeignKey()) {
-            referencedColumnsAndTable = extractColumnsAndTable(ctx, constraint.toReferenceProject());
-            tables.add(referencedColumnsAndTable.second);
-        }
-        tables.sort((Comparator.comparing(TableIf::getId)));
-        MetaLockUtils.writeLockTables(tables);
-        try {
-            if (constraint.isForeignKey()) {
-                Preconditions.checkState(referencedColumnsAndTable != null);
-                columnsAndTable.second.addForeignConstraint(name, columnsAndTable.first,
-                        referencedColumnsAndTable.second, referencedColumnsAndTable.first, false);
-            } else if (constraint.isPrimaryKey()) {
-                columnsAndTable.second.addPrimaryKeyConstraint(name, columnsAndTable.first, false);
-            } else if (constraint.isUnique()) {
-                columnsAndTable.second.addUniqueConstraint(name, columnsAndTable.first, false);
-            }
-        } finally {
-            MetaLockUtils.writeUnlockTables(tables);
+            Pair<ImmutableList<String>, TableIf> refColumnsAndTable
+                    = extractColumnsAndTable(ctx, constraint.toReferenceProject());
+            TableNameInfo refTableInfo = new TableNameInfo(refColumnsAndTable.second);
+            ForeignKeyConstraint fkConstraint = new ForeignKeyConstraint(
+                    name, columns, refTableInfo, refColumnsAndTable.first);
+            Env.getCurrentEnv().getConstraintManager().addConstraint(
+                    tableNameInfo, name, fkConstraint, false);
+        } else if (constraint.isPrimaryKey()) {
+            PrimaryKeyConstraint pkConstraint = new PrimaryKeyConstraint(
+                    name, ImmutableSet.copyOf(columns));
+            Env.getCurrentEnv().getConstraintManager().addConstraint(
+                    tableNameInfo, name, pkConstraint, false);
+        } else if (constraint.isUnique()) {
+            UniqueConstraint uniqueConstraint = new UniqueConstraint(
+                    name, ImmutableSet.copyOf(columns));
+            Env.getCurrentEnv().getConstraintManager().addConstraint(
+                    tableNameInfo, name, uniqueConstraint, false);
         }
     }
 

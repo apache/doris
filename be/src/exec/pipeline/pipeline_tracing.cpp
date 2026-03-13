@@ -33,7 +33,7 @@
 #include "io/fs/local_file_writer.h"
 #include "util/time.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 void PipelineTracerContext::record(ScheduleRecord record) {
     if (_dump_type == RecordType::None) [[unlikely]] {
@@ -178,4 +178,4 @@ void PipelineTracerContext::_dump_timeslice() {
 
     _id_to_workload_group.clear();
 }
-} // namespace doris::pipeline
+} // namespace doris

@@ -23,7 +23,6 @@
 #include <unordered_set>
 
 namespace doris {
-namespace vectorized {
 
 MultilevelSplitQueue::MultilevelSplitQueue(double level_time_multiplier)
         : _level_time_multiplier(level_time_multiplier), _level_waiting_splits() {
@@ -227,5 +226,4 @@ void MultilevelSplitQueue::clear() {
     }
 }
 
-} // namespace vectorized
 } // namespace doris

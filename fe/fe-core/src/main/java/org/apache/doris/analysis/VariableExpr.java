@@ -17,15 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.thrift.TBoolLiteral;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TFloatLiteral;
-import org.apache.doris.thrift.TIntLiteral;
-import org.apache.doris.thrift.TStringLiteral;
-
 import java.math.BigDecimal;
 import java.util.Objects;
 
@@ -85,6 +76,22 @@ public class VariableExpr extends Expr {
         return isNull;
     }
 
+    public boolean getBoolValue() {
+        return boolValue;
+    }
+
+    public long getIntValue() {
+        return intValue;
+    }
+
+    public double getFloatValue() {
+        return floatValue;
+    }
+
+    public String getStrValue() {
+        return strValue;
+    }
+
     public void setBoolValue(boolean value) {
         this.boolValue = value;
         this.literalExpr = new BoolLiteral(value);
@@ -120,68 +127,23 @@ public class VariableExpr extends Expr {
     }
 
     @Override
-    protected void toThrift(TExprNode msg) {
-        switch (type.getPrimitiveType()) {
-            case BOOLEAN:
-                msg.node_type = TExprNodeType.BOOL_LITERAL;
-                msg.bool_literal = new TBoolLiteral(boolValue);
-                break;
-            case TINYINT:
-            case SMALLINT:
-            case INT:
-            case BIGINT:
-                msg.node_type = TExprNodeType.INT_LITERAL;
-                msg.int_literal = new TIntLiteral(intValue);
-                break;
-            case FLOAT:
-            case DOUBLE:
-                msg.node_type = TExprNodeType.FLOAT_LITERAL;
-                msg.float_literal = new TFloatLiteral(floatValue);
-                break;
-            default:
-                if (strValue == null) {
-                    msg.node_type = TExprNodeType.NULL_LITERAL;
-                } else {
-                    msg.node_type = TExprNodeType.STRING_LITERAL;
-                    msg.string_literal = new TStringLiteral(strValue);
-                }
-        }
-    }
-
-    @Override
-    public String toSqlImpl() {
-        StringBuilder sb = new StringBuilder();
-        if (setType == SetType.USER) {
-            sb.append("@");
-        } else {
-            sb.append("@@");
-            if (setType == SetType.GLOBAL) {
-                sb.append("GLOBAL.");
-            }
-        }
-        sb.append(name);
-        return sb.toString();
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        StringBuilder sb = new StringBuilder();
-        if (setType == SetType.USER) {
-            sb.append("@");
-        } else {
-            sb.append("@@");
-            if (setType == SetType.GLOBAL) {
-                sb.append("GLOBAL.");
-            }
-        }
-        sb.append(name);
-        return sb.toString();
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitVariableExpr(this, context);
     }
 
     @Override
     public String toString() {
-        return toSql();
+        StringBuilder sb = new StringBuilder();
+        if (getSetType() == SetType.USER) {
+            sb.append("@");
+        } else {
+            sb.append("@@");
+            if (getSetType() == SetType.GLOBAL) {
+                sb.append("GLOBAL.");
+            }
+        }
+        sb.append(getName());
+        return sb.toString();
     }
 
     @Override

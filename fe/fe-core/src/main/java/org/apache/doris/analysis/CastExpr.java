@@ -20,17 +20,10 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.FormatOptions;
-import org.apache.doris.thrift.TExpr;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TExprOpcode;
+import org.apache.doris.foundation.format.FormatOptions;
 
 import com.google.gson.annotations.SerializedName;
-
 
 public class CastExpr extends Expr {
     // True if this is a "pre-analyzed" implicit cast.
@@ -38,6 +31,7 @@ public class CastExpr extends Expr {
     protected boolean isImplicit;
 
     // True if this cast does not change the type.
+    @SerializedName("noOp")
     protected boolean noOp = false;
 
     // only used restore from readFields.
@@ -46,7 +40,6 @@ public class CastExpr extends Expr {
     }
 
     public CastExpr(Type targetType, Expr e, boolean nullable) {
-        opcode = TExprOpcode.CAST;
         type = targetType;
         isImplicit = true;
         children.add(e);
@@ -73,42 +66,14 @@ public class CastExpr extends Expr {
         noOp = other.noOp;
     }
 
-    private static String getFnName(Type targetType) {
-        return "castTo" + targetType.getPrimitiveType().toString();
-    }
-
     @Override
     public Expr clone() {
         return new CastExpr(this);
     }
 
     @Override
-    public String toSqlImpl() {
-        return "CAST(" + getChild(0).toSql() + " AS " + type.toSql() + ")";
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType, TableIf table) {
-        if (needExternalSql) {
-            return getChild(0).toSql(disableTableName, needExternalSql, tableType, table);
-        }
-        return "CAST(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " AS "
-                + type.toSql() + ")";
-    }
-
-    @Override
-    protected void treeToThriftHelper(TExpr container) {
-        if (noOp) {
-            getChild(0).treeToThriftHelper(container);
-            return;
-        }
-        super.treeToThriftHelper(container);
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.CAST_EXPR;
-        msg.setOpcode(opcode);
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitCastExpr(this, context);
     }
 
     public boolean isImplicit() {
@@ -119,6 +84,10 @@ public class CastExpr extends Expr {
         isImplicit = implicit;
     }
 
+    public boolean isNoOp() {
+        return noOp;
+    }
+
     @Override
     public int hashCode() {
         return super.hashCode();
@@ -126,11 +95,7 @@ public class CastExpr extends Expr {
 
     @Override
     public boolean equals(Object obj) {
-        if (!super.equals(obj)) {
-            return false;
-        }
-        CastExpr expr = (CastExpr) obj;
-        return this.opcode == expr.opcode;
+        return super.equals(obj);
     }
 
     public boolean canHashPartition() {

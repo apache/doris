@@ -21,7 +21,7 @@
 #include "core/data_type/data_type_string.h"
 #include "exprs/function/function.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename Function, bool WithReturn = false>
 class FunctionAlwaysNotNullable : public IFunction {
@@ -112,4 +112,4 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

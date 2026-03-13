@@ -35,7 +35,7 @@
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // array_cum_sum([1, 2, 3, 4, 5]) -> [1, 3, 6, 10, 15]
 // array_cum_sum([1, NULL, 3, NULL, 5]) -> [1, NULL, 4, NULL, 9]
@@ -331,4 +331,4 @@ void register_function_array_cum_sum(SimpleFunctionFactory& factory) {
     factory.register_array_agg_function("array_cum_sum", creator);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

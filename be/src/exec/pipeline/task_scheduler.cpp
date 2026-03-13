@@ -48,7 +48,7 @@
 #include "util/time.h"
 #include "util/uid_util.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 TaskScheduler::~TaskScheduler() {
     stop();
@@ -207,4 +207,4 @@ void HybridTaskScheduler::stop() {
     _simple_scheduler.stop();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

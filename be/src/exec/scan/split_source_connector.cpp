@@ -20,7 +20,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 using apache::thrift::transport::TTransportException;
 
@@ -83,4 +83,4 @@ Status RemoteSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* rang
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

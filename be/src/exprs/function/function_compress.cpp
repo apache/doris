@@ -49,7 +49,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 static constexpr int COMPRESS_STR_LENGTH = 4;
 
@@ -208,4 +208,4 @@ void register_function_compress(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionUncompress>();
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

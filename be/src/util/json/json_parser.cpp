@@ -33,7 +33,7 @@
 #include "util/json/path_in_data.h"
 #include "util/json/simd_json_parser.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <typename ParserImpl>
@@ -386,4 +386,4 @@ StringRef JSONDataParser<ParserImpl>::getNameOfNested(const PathInData::Parts& p
 #include "common/compile_check_end.h"
 
 template class JSONDataParser<SimdJSONParser>;
-} // namespace doris::vectorized
+} // namespace doris

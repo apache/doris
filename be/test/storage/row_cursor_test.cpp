@@ -21,8 +21,11 @@
 
 #include "common/object_pool.h"
 #include "core/packed_int128.h"
+#include "storage/row_cursor_cell.h"
 #include "storage/schema.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/tablet/tablet_schema_helper.h"
+#include "util/debug_util.h"
 
 namespace doris {
 
@@ -258,13 +261,13 @@ void set_tablet_schema_for_cmp_and_aggregate(TabletSchemaSPtr tablet_schema) {
 
 class TestRowCursor : public testing::Test {
 public:
-    TestRowCursor() { _arena.reset(new vectorized::Arena()); }
+    TestRowCursor() { _arena.reset(new Arena()); }
 
     virtual void SetUp() {}
 
     virtual void TearDown() {}
 
-    std::unique_ptr<vectorized::Arena> _arena;
+    std::unique_ptr<Arena> _arena;
 };
 
 TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
@@ -287,6 +290,68 @@ TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
     OlapTuple tuple1(scan_keys);
     res = row.from_tuple(tuple1);
     EXPECT_EQ(res, Status::OK());
+}
+
+TEST_F(TestRowCursor, encode_key) {
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->_cols.push_back(create_int_key(0));
+    tablet_schema->_cols.push_back(create_int_key(1));
+    tablet_schema->_cols.push_back(create_int_key(2));
+    tablet_schema->_cols.push_back(create_int_value(3));
+    tablet_schema->_num_columns = 4;
+    tablet_schema->_num_key_columns = 3;
+    tablet_schema->_num_short_key_columns = 3;
+
+    // test encoding with padding
+    {
+        RowCursor row;
+        static_cast<void>(row._init(tablet_schema, 2));
+
+        {
+            // test padding
+            {
+                auto cell = row.cell(0);
+                cell.set_is_null(false);
+                *(int*)cell.mutable_cell_ptr() = 12345;
+            }
+            {
+                auto cell = row.cell(1);
+                cell.set_is_null(false);
+                *(int*)cell.mutable_cell_ptr() = 54321;
+            }
+            std::string buf;
+            row.encode_key_with_padding(&buf, 3, true);
+            // should be \x02\x80\x00\x30\x39\x02\x80\x00\xD4\x31\x00
+            EXPECT_STREQ("0280003039028000D43100", hexdump(buf.c_str(), buf.size()).c_str());
+        }
+        // test with null
+        {
+            {
+                auto cell = row.cell(0);
+                cell.set_is_null(false);
+                *(int*)cell.mutable_cell_ptr() = 54321;
+            }
+            {
+                auto cell = row.cell(1);
+                cell.set_is_null(true);
+                *(int*)cell.mutable_cell_ptr() = 54321;
+            }
+
+            {
+                std::string buf;
+                row.encode_key_with_padding(&buf, 3, false);
+                // should be \x02\x80\x00\xD4\x31\x01\xff
+                EXPECT_STREQ("028000D43101FF", hexdump(buf.c_str(), buf.size()).c_str());
+            }
+            // encode key
+            {
+                std::string buf;
+                row.encode_key(&buf, 2);
+                // should be \x02\x80\x00\xD4\x31\x01
+                EXPECT_STREQ("028000D43101", hexdump(buf.c_str(), buf.size()).c_str());
+            }
+        }
+    }
 }
 
 } // namespace doris

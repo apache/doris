@@ -20,7 +20,7 @@
 
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 bool read_date_text_impl(VecDateTimeValue& x, const StringRef& buf) {
     auto ans = x.from_date_str(buf.data, buf.size);
     x.cast_to_date();
@@ -52,4 +52,4 @@ bool read_datetime_v2_text_impl(DateV2Value<DateTimeV2ValueType>& x, const Strin
     return x.from_date_str(buf.data, buf.size, local_time_zone, scale, config::allow_zero_date);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

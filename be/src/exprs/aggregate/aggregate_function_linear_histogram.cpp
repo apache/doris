@@ -19,7 +19,7 @@
 
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 const std::string AggregateFunctionLinearHistogramConsts::NAME = "linear_histogram";
@@ -53,4 +53,4 @@ void register_aggregate_function_linear_histogram(AggregateFunctionSimpleFactory
                                    create_aggregate_function_linear_histogram);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

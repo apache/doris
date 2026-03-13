@@ -24,7 +24,7 @@
 #include "util/bit_util.h"
 #include "util/memcpy_inlined.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <tparquet::Type::type type>
@@ -81,7 +81,7 @@ public:
                           ColumnSelectVector& select_vector, bool is_dict_filter) {
         size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
         if (doris_column->is_column_dictionary() &&
-            assert_cast<ColumnDictI32&>(*doris_column).dict_size() == 0) {
+            assert_cast<ColumnDictI32&>(*doris_column).dict_size() == 0 && !_dict_items.empty()) {
             std::vector<StringRef> dict_items;
 
             char* dict_item_address = (char*)_dict.get();
@@ -211,8 +211,17 @@ protected:
         return Status::OK();
     }
 
-    MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override {
+    Result<MutableColumnPtr> convert_dict_column_to_string_column(
+            const ColumnInt32* dict_column) override {
         auto res = ColumnString::create();
+        if (_dict_items.empty()) {
+            if (dict_column->size() > 0) {
+                LOG(ERROR) << "Attempt to convert dict column with empty dictionary, column size: "
+                           << dict_column->size();
+                return ResultError(Status::IOError("empty dictionary"));
+            }
+            return res;
+        }
         std::vector<StringRef> dict_values;
         dict_values.reserve(dict_column->size());
         const auto& data = dict_column->get_data();
@@ -229,4 +238,4 @@ protected:
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

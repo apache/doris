@@ -48,9 +48,7 @@ class RowsetWriter;
 struct FlushStatistic;
 class WorkloadGroup;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 // Writer for a particular (load, index, tablet).
 // This class is NOT thread-safe, external synchronization is required.
@@ -64,7 +62,7 @@ public:
                 std::shared_ptr<PartialUpdateInfo> partial_update_info,
                 std::shared_ptr<WorkloadGroup> wg_sptr, bool unique_key_mow = false);
 
-    Status write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs);
+    Status write(const Block* block, const DorisVector<uint32_t>& row_idxs);
 
     // flush the last memtable to flush queue, must call it before close_wait()
     Status close();

@@ -34,7 +34,7 @@
 #include "core/types.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 static const size_t TEST_COUNT = 2;
 
@@ -222,4 +222,4 @@ TEST(CompressedMaterializationTest, abnormal_test) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

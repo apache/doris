@@ -61,7 +61,7 @@ struct OlapTableIndexSchema {
     int32_t schema_hash;
     std::vector<TabletColumn*> columns;
     std::vector<TabletIndex*> indexes;
-    vectorized::VExprContextSPtr where_clause;
+    VExprContextSPtr where_clause;
 
     void to_protobuf(POlapTableIndexSchema* pindex) const;
 };
@@ -152,9 +152,8 @@ using OlapTableIndexTablets = TOlapTableIndexTablets;
 //     2: required list<i64> tablets
 // }
 
-using BlockRow = std::pair<vectorized::Block*, int32_t>;
-using BlockRowWithIndicator =
-        std::tuple<vectorized::Block*, int32_t, bool>; // [block, row, is_transformed]
+using BlockRow = std::pair<Block*, int32_t>;
+using BlockRowWithIndicator = std::tuple<Block*, int32_t, bool>; // [block, row, is_transformed]
 
 struct VOlapTablePartition {
     int64_t id = 0;
@@ -169,7 +168,7 @@ struct VOlapTablePartition {
     int total_replica_num = 0;
     int load_required_replica_num = 0;
 
-    VOlapTablePartition(vectorized::Block* partition_block)
+    VOlapTablePartition(Block* partition_block)
             // the default value of partition bound is -1.
             : start_key {partition_block, -1}, end_key {partition_block, -1} {}
 };
@@ -205,7 +204,7 @@ public:
     int64_t version() const { return _t_param.version; }
 
     // return true if we found this block_row in partition
-    ALWAYS_INLINE bool find_partition(vectorized::Block* block, int row,
+    ALWAYS_INLINE bool find_partition(Block* block, int row,
                                       VOlapTablePartition*& partition) const {
         auto it = _is_in_partition ? _partitions_map->find(std::tuple {block, row, true})
                                    : _partitions_map->upper_bound(std::tuple {block, row, true});
@@ -226,16 +225,15 @@ public:
     }
 
     ALWAYS_INLINE void find_tablets(
-            vectorized::Block* block, const std::vector<uint32_t>& indexes,
+            Block* block, const std::vector<uint32_t>& indexes,
             const std::vector<VOlapTablePartition*>& partitions,
             std::vector<uint32_t>& tablet_indexes /*result*/,
             /*TODO: check if flat hash map will be better*/
             std::map<VOlapTablePartition*, int64_t>* partition_tablets_buffer = nullptr) const {
-        std::function<uint32_t(vectorized::Block*, uint32_t, const VOlapTablePartition&)>
-                compute_function;
+        std::function<uint32_t(Block*, uint32_t, const VOlapTablePartition&)> compute_function;
         if (!_distributed_slot_locs.empty()) {
             //TODO: refactor by saving the hash values. then we can calculate in columnwise.
-            compute_function = [this](vectorized::Block* block, uint32_t row,
+            compute_function = [this](Block* block, uint32_t row,
                                       const VOlapTablePartition& partition) -> uint32_t {
                 uint32_t hash_val = 0;
                 for (unsigned short _distributed_slot_loc : _distributed_slot_locs) {
@@ -253,7 +251,7 @@ public:
                 return cast_set<uint32_t>(hash_val % partition.num_buckets);
             };
         } else { // random distribution
-            compute_function = [](vectorized::Block* block, uint32_t row,
+            compute_function = [](Block* block, uint32_t row,
                                   const VOlapTablePartition& partition) -> uint32_t {
                 if (partition.load_tablet_idx == -1) {
                     // for compatible with old version, just do random
@@ -300,8 +298,8 @@ public:
     Status replace_partitions(std::vector<int64_t>& old_partition_ids,
                               const std::vector<TOlapTablePartition>& new_partitions);
 
-    vectorized::VExprContextSPtrs get_part_func_ctx() { return _part_func_ctx; }
-    vectorized::VExprSPtrs get_partition_function() { return _partition_function; }
+    VExprContextSPtrs get_part_func_ctx() { return _part_func_ctx; }
+    VExprSPtrs get_partition_function() { return _partition_function; }
 
     // which will affect _partition_block
     Status generate_partition_from(const TOlapTablePartition& t_part,
@@ -327,7 +325,7 @@ private:
     std::vector<uint16_t> _distributed_slot_locs;
 
     ObjectPool _obj_pool;
-    vectorized::Block _partition_block;
+    Block _partition_block;
     std::unique_ptr<MemTracker> _mem_tracker;
     std::vector<VOlapTablePartition*> _partitions;
     // For all partition value rows saved in this map, indicator is false. whenever we use a value to find in it, the param is true.
@@ -343,8 +341,8 @@ private:
     VOlapTablePartition* _default_partition = nullptr;
 
     bool _is_auto_partition = false;
-    vectorized::VExprContextSPtrs _part_func_ctx = {nullptr};
-    vectorized::VExprSPtrs _partition_function = {nullptr};
+    VExprContextSPtrs _part_func_ctx = {nullptr};
+    VExprSPtrs _partition_function = {nullptr};
     TPartitionType::type _part_type; // support list or range
     // "insert overwrite partition(*)", detect which partitions by BE
     bool _is_auto_detect_overwrite = false;

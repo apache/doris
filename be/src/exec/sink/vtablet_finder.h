@@ -26,7 +26,7 @@
 #include "storage/tablet_info.h"
 #include "util/bitmap.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class OlapTabletFinder {
@@ -43,7 +43,7 @@ public:
     OlapTabletFinder(VOlapTablePartitionParam* vpartition, FindTabletMode mode)
             : _vpartition(vpartition), _find_tablet_mode(mode), _filter_bitmap(1024) {};
 
-    Status find_tablets(RuntimeState* state, vectorized::Block* block, int rows,
+    Status find_tablets(RuntimeState* state, Block* block, int rows,
                         std::vector<VOlapTablePartition*>& partitions,
                         std::vector<uint32_t>& tablet_index, std::vector<bool>& skip,
                         std::vector<uint32_t>* miss_rows = nullptr);
@@ -55,7 +55,7 @@ public:
     bool is_single_tablet() { return _partition_to_tablet_map.size() == 1; }
 
     // all partitions for multi find-processes of its relative writer.
-    const vectorized::flat_hash_set<int64_t>& partition_ids() { return _partition_ids; }
+    const flat_hash_set<int64_t>& partition_ids() { return _partition_ids; }
 
     int64_t num_filtered_rows() const { return _num_filtered_rows; }
 
@@ -69,12 +69,12 @@ private:
     VOlapTablePartitionParam* _vpartition = nullptr;
     FindTabletMode _find_tablet_mode;
     std::map<VOlapTablePartition*, int64_t> _partition_to_tablet_map;
-    vectorized::flat_hash_set<int64_t> _partition_ids;
+    flat_hash_set<int64_t> _partition_ids;
 
     int64_t _num_filtered_rows = 0;
     int64_t _num_immutable_partition_filtered_rows = 0;
     Bitmap _filter_bitmap;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

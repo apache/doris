@@ -27,7 +27,7 @@
 #include "exec/exchange/vdata_stream_recvr.h"
 #include "gmock/gmock.h"
 #include "io/fs/local_file_system.h"
-#include "load/group_commit/wal/wal_reader.h"
+#include "load/group_commit/wal/wal_file_reader.h"
 #include "load/group_commit/wal/wal_writer.h"
 #include "runtime/exec_env.h"
 #include "service/brpc.h"
@@ -60,7 +60,7 @@ std::string WalReaderWriterTest::_s_test_data_path = "./log/wal_reader_writer_te
 size_t block_rows = 1024;
 
 void covert_block_to_pb(
-        const vectorized::Block& block, PBlock* pblock,
+        const Block& block, PBlock* pblock,
         segment_v2::CompressionTypePB compression_type = segment_v2::CompressionTypePB::SNAPPY) {
     size_t uncompressed_bytes = 0;
     size_t compressed_bytes = 0;
@@ -72,20 +72,19 @@ void covert_block_to_pb(
     EXPECT_TRUE(uncompressed_bytes >= compressed_bytes);
     EXPECT_EQ(compressed_bytes, pblock->column_values().size());
 
-    const vectorized::ColumnWithTypeAndName& type_and_name =
-            block.get_columns_with_type_and_name()[0];
+    const ColumnWithTypeAndName& type_and_name = block.get_columns_with_type_and_name()[0];
     EXPECT_EQ(type_and_name.name, pblock->column_metas()[0].name());
 }
 
 void generate_block(PBlock& pblock, int row_index) {
-    auto vec = vectorized::ColumnInt32::create();
+    auto vec = ColumnInt32::create();
     auto& data = vec->get_data();
     for (int i = 0; i < block_rows; ++i) {
         data.push_back(i + row_index);
     }
-    vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt32>());
-    vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, "test_int");
-    vectorized::Block block({type_and_name});
+    DataTypePtr data_type(std::make_shared<DataTypeInt32>());
+    ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, "test_int");
+    Block block({type_and_name});
     covert_block_to_pb(block, &pblock, segment_v2::CompressionTypePB::SNAPPY);
 }
 
@@ -121,7 +120,7 @@ TEST_F(WalReaderWriterTest, TestWriteAndRead1) {
     }
     static_cast<void>(wal_writer.finalize());
     // read block
-    auto wal_reader = WalReader(file_name);
+    auto wal_reader = WalFileReader(file_name);
     static_cast<void>(wal_reader.init());
     auto block_count = 0;
     while (true) {
@@ -133,7 +132,7 @@ TEST_F(WalReaderWriterTest, TestWriteAndRead1) {
         } else if (st.is<ErrorCode::END_OF_FILE>()) {
             break;
         }
-        vectorized::Block block;
+        Block block;
         size_t uncompress_size = 0;
         int64_t uncompressed_time = 0;
         EXPECT_TRUE(block.deserialize(pblock, &uncompress_size, &uncompressed_time).ok());

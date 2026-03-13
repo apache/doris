@@ -30,12 +30,10 @@ namespace doris {
 namespace io {
 struct IOContext;
 } // namespace io
-namespace vectorized {
 class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 TransactionalHiveReader::TransactionalHiveReader(std::unique_ptr<GenericReader> file_format_reader,
                                                  RuntimeProfile* profile, RuntimeState* state,
@@ -265,4 +263,4 @@ Status TransactionalHiveReader::init_row_filters() {
     return Status::OK();
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

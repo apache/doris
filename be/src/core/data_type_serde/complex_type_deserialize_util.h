@@ -18,7 +18,7 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/string_ref.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct ComplexTypeDeserializeUtil {
     // SplitResult is used to store the result of splitting a string by a delimiter.
@@ -103,4 +103,4 @@ struct ComplexTypeDeserializeUtil {
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

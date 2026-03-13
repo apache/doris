@@ -26,12 +26,10 @@
 namespace doris {
 class RuntimeProfile;
 class RuntimeState;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 const std::string HudiJniReader::HOODIE_CONF_PREFIX = "hoodie.";
 const std::string HudiJniReader::HADOOP_CONF_PREFIX = "hadoop_conf.";
@@ -80,4 +78,4 @@ Status HudiJniReader::init_reader() {
     return _jni_connector->open(_state, _profile);
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

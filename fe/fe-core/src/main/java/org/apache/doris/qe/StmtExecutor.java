@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.Queriable;
@@ -25,6 +26,7 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -44,7 +46,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.QueryTimeoutException;
 import org.apache.doris.common.Status;
@@ -62,6 +63,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
+import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -282,7 +284,8 @@ public class StmtExecutor {
             }
             if (!expr.isLiteralOrCastExpr()) {
                 throw new UserException(
-                        "do not support non-literal expr in transactional insert operation: " + expr.toSql());
+                        "do not support non-literal expr in transactional insert operation: "
+                                + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
             row.addColBuilder().setValue(expr.getStringValueForStreamLoad(options));
         }
@@ -336,7 +339,9 @@ public class StmtExecutor {
         builder.instancesNumPerBe(
                 beToInstancesNum.entrySet().stream().map(entry -> entry.getKey() + ":" + entry.getValue())
                         .collect(Collectors.joining(",")));
-        builder.parallelFragmentExecInstance(String.valueOf(context.sessionVariable.getParallelExecInstanceNum()));
+        String clusterName = context.sessionVariable.resolveCloudClusterName(context);
+        builder.parallelFragmentExecInstance(
+                String.valueOf(context.sessionVariable.getParallelExecInstanceNum(clusterName)));
         builder.traceId(context.getSessionVariable().getTraceId());
         builder.isNereids(context.getState().isNereids() ? "Yes" : "No");
         try {

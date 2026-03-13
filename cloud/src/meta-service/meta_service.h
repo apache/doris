@@ -424,6 +424,10 @@ public:
                         const CloneInstanceRequest* request, CloneInstanceResponse* response,
                         ::google::protobuf::Closure* done) override;
 
+    void compact_snapshot(::google::protobuf::RpcController* controller,
+                          const CompactSnapshotRequest* request, CompactSnapshotResponse* response,
+                          ::google::protobuf::Closure* done) override;
+
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
@@ -1007,6 +1011,12 @@ public:
                         const CloneInstanceRequest* request, CloneInstanceResponse* response,
                         ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::clone_instance, controller, request, response, done);
+    }
+
+    void compact_snapshot(::google::protobuf::RpcController* controller,
+                          const CompactSnapshotRequest* request, CompactSnapshotResponse* response,
+                          ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::compact_snapshot, controller, request, response, done);
     }
 
 private:

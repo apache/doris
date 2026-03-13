@@ -22,10 +22,10 @@ import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
-import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
+import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.thrift.TCredProviderType;
 import org.apache.doris.thrift.TS3StorageParam;
 

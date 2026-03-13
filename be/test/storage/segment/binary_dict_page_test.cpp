@@ -238,13 +238,13 @@ public:
         EXPECT_EQ(slices.size(), page_decoder.count());
 
         // Check values using MutableColumnPtr
-        vectorized::MutableColumnPtr column = vectorized::ColumnString::create();
+        MutableColumnPtr column = ColumnString::create();
         size_t size = slices.size();
         status = page_decoder.next_batch(&size, column);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(slices.size(), size);
 
-        auto* string_column = assert_cast<vectorized::ColumnString*>(column.get());
+        auto* string_column = assert_cast<ColumnString*>(column.get());
         // Verify all values match
         for (size_t i = 0; i < slices.size(); ++i) {
             EXPECT_EQ(slices[i].to_string(), string_column->get_data_at(i).to_string())
@@ -256,12 +256,12 @@ public:
             size_t seek_pos = slices.size() / 2;
             status = page_decoder.seek_to_position_in_page(seek_pos);
             EXPECT_TRUE(status.ok());
-            column = vectorized::ColumnString::create();
+            column = ColumnString::create();
             size = slices.size() - seek_pos;
             status = page_decoder.next_batch(&size, column);
             EXPECT_TRUE(status.ok());
             EXPECT_EQ(slices.size() - seek_pos, size);
-            string_column = assert_cast<vectorized::ColumnString*>(column.get());
+            string_column = assert_cast<ColumnString*>(column.get());
             for (size_t i = 0; i < size; ++i) {
                 EXPECT_EQ(slices[seek_pos + i].to_string(),
                           string_column->get_data_at(i).to_string())
@@ -279,7 +279,7 @@ public:
             rowids.push_back(static_cast<rowid_t>(slices.size() - 1)); // Last
 
             ordinal_t page_first_ordinal = 0;
-            column = vectorized::ColumnString::create();
+            column = ColumnString::create();
             size_t num_to_read = rowids.size();
             status = page_decoder.read_by_rowids(rowids.data(), page_first_ordinal, &num_to_read,
                                                  column);
@@ -287,7 +287,7 @@ public:
             EXPECT_EQ(rowids.size(), num_to_read);
 
             // Verify values at specific rowids
-            string_column = assert_cast<vectorized::ColumnString*>(column.get());
+            string_column = assert_cast<ColumnString*>(column.get());
             for (size_t i = 0; i < rowids.size(); ++i) {
                 EXPECT_EQ(slices[rowids[i]].to_string(), string_column->get_data_at(i).to_string())
                         << "Mismatch at rowid " << rowids[i] << " (index " << i << ")";
@@ -411,14 +411,14 @@ public:
 
                 // Read all values from this page sequentially
                 size_t page_entry_count = page_start_ids[page_idx + 1] - page_start_ids[page_idx];
-                vectorized::MutableColumnPtr column = vectorized::ColumnString::create();
+                MutableColumnPtr column = ColumnString::create();
                 size_t num_to_read = page_entry_count;
                 status = page_decoder.next_batch(&num_to_read, column);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(page_entry_count, num_to_read);
 
                 // Verify all values
-                auto* string_column = assert_cast<vectorized::ColumnString*>(column.get());
+                auto* string_column = assert_cast<ColumnString*>(column.get());
                 for (size_t i = 0; i < page_entry_count; ++i) {
                     std::string expect = contents[current_entry + i].to_string();
                     std::string actual = string_column->get_data_at(i).to_string();
@@ -430,14 +430,14 @@ public:
                 // Plain encoded page (fallback) - no need to set dict decoder
                 // Read all values from this page sequentially
                 size_t page_entry_count = page_start_ids[page_idx + 1] - page_start_ids[page_idx];
-                vectorized::MutableColumnPtr column = vectorized::ColumnString::create();
+                MutableColumnPtr column = ColumnString::create();
                 size_t num_to_read = page_entry_count;
                 status = page_decoder.next_batch(&num_to_read, column);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(page_entry_count, num_to_read);
 
                 // Verify all values
-                auto* string_column = assert_cast<vectorized::ColumnString*>(column.get());
+                auto* string_column = assert_cast<ColumnString*>(column.get());
                 for (size_t i = 0; i < page_entry_count; ++i) {
                     std::string expect = contents[current_entry + i].to_string();
                     std::string actual = string_column->get_data_at(i).to_string();
@@ -486,14 +486,14 @@ public:
             EXPECT_TRUE(status.ok()) << "Failed to seek in page " << page_idx;
 
             // Read from seek position
-            vectorized::MutableColumnPtr column = vectorized::ColumnString::create();
+            MutableColumnPtr column = ColumnString::create();
             size_t num_to_read = page_entry_count - seek_pos;
             status = page_decoder.next_batch(&num_to_read, column);
             EXPECT_TRUE(status.ok()) << "Failed to read after seek in page " << page_idx;
             EXPECT_EQ(page_entry_count - seek_pos, num_to_read);
 
             // Verify values
-            auto* string_column = assert_cast<vectorized::ColumnString*>(column.get());
+            auto* string_column = assert_cast<ColumnString*>(column.get());
             for (size_t i = 0; i < num_to_read; ++i) {
                 std::string expect = contents[page_start_ids[page_idx] + seek_pos + i].to_string();
                 std::string actual = string_column->get_data_at(i).to_string();
@@ -540,7 +540,7 @@ public:
             rowids.push_back(page_first_ordinal + page_entry_count / 2); // Half
             rowids.push_back(page_first_ordinal + page_entry_count - 1); // Last in page
 
-            vectorized::MutableColumnPtr column = vectorized::ColumnString::create();
+            MutableColumnPtr column = ColumnString::create();
             size_t num_to_read = rowids.size();
             status = page_decoder.read_by_rowids(rowids.data(), page_first_ordinal, &num_to_read,
                                                  column);
@@ -552,7 +552,7 @@ public:
                     << ", is_dict_encoding: " << page_decoder.is_dict_encoding();
 
             // Verify values
-            auto* string_column = assert_cast<vectorized::ColumnString*>(column.get());
+            auto* string_column = assert_cast<ColumnString*>(column.get());
             for (size_t i = 0; i < rowids.size(); ++i) {
                 // rowids are global, so we use them directly to index into contents
                 std::string expect = contents[rowids[i]].to_string();

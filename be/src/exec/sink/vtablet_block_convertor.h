@@ -34,7 +34,7 @@
 #include "runtime/descriptors.h"
 #include "util/bitmap.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class OlapTableBlockConvertor {
@@ -42,9 +42,9 @@ public:
     OlapTableBlockConvertor(TupleDescriptor* output_tuple_desc)
             : _output_tuple_desc(output_tuple_desc) {}
 
-    Status validate_and_convert_block(RuntimeState* state, vectorized::Block* input_block,
-                                      std::shared_ptr<vectorized::Block>& block,
-                                      vectorized::VExprContextSPtrs output_vexpr_ctxs, size_t rows,
+    Status validate_and_convert_block(RuntimeState* state, Block* input_block,
+                                      std::shared_ptr<Block>& block,
+                                      VExprContextSPtrs output_vexpr_ctxs, size_t rows,
                                       bool& has_filtered_rows);
 
     const char* filter_map() const { return _filter_map.data(); }
@@ -66,35 +66,32 @@ private:
     template <typename DecimalType, bool IsMin>
     DecimalType _get_decimalv3_min_or_max(const DataTypePtr& type);
 
-    Status _validate_column(RuntimeState* state, vectorized::Block* block, const DataTypePtr& type,
-                            vectorized::ColumnPtr column, size_t slot_index,
-                            fmt::memory_buffer& error_prefix, const size_t row_count,
-                            vectorized::IColumn::Permutation* rows = nullptr) {
+    Status _validate_column(RuntimeState* state, Block* block, const DataTypePtr& type,
+                            ColumnPtr column, size_t slot_index, fmt::memory_buffer& error_prefix,
+                            const size_t row_count, IColumn::Permutation* rows = nullptr) {
         RETURN_IF_CATCH_EXCEPTION({
             return _internal_validate_column(state, block, type, column, slot_index, error_prefix,
                                              row_count, rows);
         });
     }
 
-    Status _internal_validate_column(RuntimeState* state, vectorized::Block* block,
-                                     const DataTypePtr& type, vectorized::ColumnPtr column,
-                                     size_t slot_index, fmt::memory_buffer& error_prefix,
-                                     const size_t row_count,
-                                     vectorized::IColumn::Permutation* rows = nullptr);
+    Status _internal_validate_column(RuntimeState* state, Block* block, const DataTypePtr& type,
+                                     ColumnPtr column, size_t slot_index,
+                                     fmt::memory_buffer& error_prefix, const size_t row_count,
+                                     IColumn::Permutation* rows = nullptr);
 
     // make input data valid for OLAP table
     // return number of invalid/filtered rows.
     // invalid row number is set in Bitmap
-    Status _validate_data(RuntimeState* state, vectorized::Block* block, const size_t rows,
-                          int& filtered_rows);
+    Status _validate_data(RuntimeState* state, Block* block, const size_t rows, int& filtered_rows);
 
     // some output column of output expr may have different nullable property with dest slot desc
     // so here need to do the convert operation
-    void _convert_to_dest_desc_block(vectorized::Block* block);
+    void _convert_to_dest_desc_block(Block* block);
 
-    Status _fill_auto_inc_cols(vectorized::Block* block, size_t rows);
+    Status _fill_auto_inc_cols(Block* block, size_t rows);
 
-    Status _partial_update_fill_auto_inc_cols(vectorized::Block* block, size_t rows);
+    Status _partial_update_fill_auto_inc_cols(Block* block, size_t rows);
 
     TupleDescriptor* _output_tuple_desc = nullptr;
 
@@ -122,5 +119,5 @@ private:
     bool _is_partial_update_and_auto_inc = false;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

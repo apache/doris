@@ -70,13 +70,13 @@
 #include "storage/olap_common.h"
 #include "storage/tablet/tablet_schema.h"
 
-namespace doris::vectorized {
+namespace doris {
 
-void fill_block_with_array_int(vectorized::Block& block) {
-    auto off_column = vectorized::ColumnOffset64::create();
-    auto data_column = vectorized::ColumnInt32::create();
+static void fill_block_with_array_int(Block& block) {
+    auto off_column = ColumnOffset64::create();
+    auto data_column = ColumnInt32::create();
     // init column array with [[1,2,3],[],[4],[5,6]]
-    std::vector<vectorized::ColumnArray::Offset64> offs = {0, 3, 3, 4, 6};
+    std::vector<ColumnArray::Offset64> offs = {0, 3, 3, 4, 6};
     std::vector<int32_t> vals = {1, 2, 3, 4, 5, 6};
     for (size_t i = 1; i < offs.size(); ++i) {
         off_column->insert_data((const char*)(&offs[i]), 0);
@@ -85,20 +85,18 @@ void fill_block_with_array_int(vectorized::Block& block) {
         data_column->insert_data((const char*)(&v), 0);
     }
 
-    auto column_array_ptr =
-            vectorized::ColumnArray::create(std::move(data_column), std::move(off_column));
-    vectorized::DataTypePtr nested_type(std::make_shared<vectorized::DataTypeInt32>());
-    vectorized::DataTypePtr array_type(std::make_shared<vectorized::DataTypeArray>(nested_type));
-    vectorized::ColumnWithTypeAndName test_array_int(std::move(column_array_ptr), array_type,
-                                                     "test_array_int");
+    auto column_array_ptr = ColumnArray::create(std::move(data_column), std::move(off_column));
+    DataTypePtr nested_type(std::make_shared<DataTypeInt32>());
+    DataTypePtr array_type(std::make_shared<DataTypeArray>(nested_type));
+    ColumnWithTypeAndName test_array_int(std::move(column_array_ptr), array_type, "test_array_int");
     block.insert(test_array_int);
 }
 
-void fill_block_with_array_string(vectorized::Block& block) {
-    auto off_column = vectorized::ColumnOffset64::create();
-    auto data_column = vectorized::ColumnString::create();
+static void fill_block_with_array_string(Block& block) {
+    auto off_column = ColumnOffset64::create();
+    auto data_column = ColumnString::create();
     // init column array with [["abc","de"],["fg"],[], [""]];
-    std::vector<vectorized::ColumnArray::Offset64> offs = {0, 2, 3, 3, 4};
+    std::vector<ColumnArray::Offset64> offs = {0, 2, 3, 3, 4};
     std::vector<std::string> vals = {"abc", "de", "fg", ""};
     for (size_t i = 1; i < offs.size(); ++i) {
         off_column->insert_data((const char*)(&offs[i]), 0);
@@ -107,12 +105,11 @@ void fill_block_with_array_string(vectorized::Block& block) {
         data_column->insert_data(v.data(), v.size());
     }
 
-    auto column_array_ptr =
-            vectorized::ColumnArray::create(std::move(data_column), std::move(off_column));
-    vectorized::DataTypePtr nested_type(std::make_shared<vectorized::DataTypeString>());
-    vectorized::DataTypePtr array_type(std::make_shared<vectorized::DataTypeArray>(nested_type));
-    vectorized::ColumnWithTypeAndName test_array_string(std::move(column_array_ptr), array_type,
-                                                        "test_array_string");
+    auto column_array_ptr = ColumnArray::create(std::move(data_column), std::move(off_column));
+    DataTypePtr nested_type(std::make_shared<DataTypeString>());
+    DataTypePtr array_type(std::make_shared<DataTypeArray>(nested_type));
+    ColumnWithTypeAndName test_array_string(std::move(column_array_ptr), array_type,
+                                            "test_array_string");
     block.insert(test_array_string);
 }
 
@@ -129,7 +126,7 @@ TEST(BlockSerializeTest, Array) {
     schema.append_column(c1);
     schema.append_column(c2);
     // array int and array string
-    vectorized::Block block;
+    Block block;
     fill_block_with_array_int(block);
     fill_block_with_array_string(block);
     MutableColumnPtr col = ColumnString::create();
@@ -144,8 +141,8 @@ TEST(BlockSerializeTest, Array) {
     tslot1.__set_colName("k1");
     tslot1.nullIndicatorBit = -1;
     tslot1.nullIndicatorByte = 0;
-    DataTypePtr type_desc = std::make_shared<vectorized::DataTypeArray>(
-            vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, true));
+    DataTypePtr type_desc = std::make_shared<DataTypeArray>(
+            DataTypeFactory::instance().create_data_type(TYPE_INT, true));
     tslot1.__set_slotType(type_desc->to_thrift());
     tslot1.__set_col_unique_id(1);
     SlotDescriptor* slot = new SlotDescriptor(tslot1);
@@ -156,8 +153,8 @@ TEST(BlockSerializeTest, Array) {
     tslot2.__set_colName("k2");
     tslot2.nullIndicatorBit = -1;
     tslot2.nullIndicatorByte = 0;
-    DataTypePtr type_desc2 = std::make_shared<vectorized::DataTypeArray>(
-            vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, true));
+    DataTypePtr type_desc2 = std::make_shared<DataTypeArray>(
+            DataTypeFactory::instance().create_data_type(TYPE_STRING, true));
     tslot2.__set_slotType(type_desc2->to_thrift());
     tslot2.__set_col_unique_id(2);
     SlotDescriptor* slot2 = new SlotDescriptor(tslot2);
@@ -217,8 +214,8 @@ TEST(BlockSerializeTest, Map) {
     map_column->reserve(2);
     map_column->insert(Field::create_field<TYPE_MAP>(m1));
     map_column->insert(Field::create_field<TYPE_MAP>(m2));
-    vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, "test_map");
-    vectorized::Block block;
+    ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, "test_map");
+    Block block;
     block.insert(type_and_name);
 
     MutableColumnPtr col = ColumnString::create();
@@ -236,10 +233,9 @@ TEST(BlockSerializeTest, Map) {
     tslot.nullIndicatorByte = 0;
     DataTypes sub_types;
     sub_types.reserve(2);
-    sub_types.push_back(
-            vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, true));
-    sub_types.push_back(vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, true));
-    DataTypePtr type_desc = std::make_shared<vectorized::DataTypeMap>(sub_types[0], sub_types[1]);
+    sub_types.push_back(DataTypeFactory::instance().create_data_type(TYPE_STRING, true));
+    sub_types.push_back(DataTypeFactory::instance().create_data_type(TYPE_INT, true));
+    DataTypePtr type_desc = std::make_shared<DataTypeMap>(sub_types[0], sub_types[1]);
     tslot.__set_col_unique_id(1);
     tslot.__set_slotType(type_desc->to_thrift());
     SlotDescriptor* slot = new SlotDescriptor(tslot);
@@ -286,7 +282,7 @@ TEST(BlockSerializeTest, Struct) {
     struct_col.set_unique_id(1);
     struct_col.set_type(FieldType::OLAP_FIELD_TYPE_STRUCT);
     schema.append_column(struct_col);
-    vectorized::Block block;
+    Block block;
     {
         DataTypePtr s = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
         DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
@@ -303,8 +299,7 @@ TEST(BlockSerializeTest, Struct) {
         struct_column->reserve(2);
         struct_column->insert(Field::create_field<TYPE_STRUCT>(t1));
         struct_column->insert(Field::create_field<TYPE_STRUCT>(t2));
-        vectorized::ColumnWithTypeAndName type_and_name(struct_column->get_ptr(), st,
-                                                        "test_struct");
+        ColumnWithTypeAndName type_and_name(struct_column->get_ptr(), st, "test_struct");
         block.insert(type_and_name);
     }
 
@@ -325,14 +320,11 @@ TEST(BlockSerializeTest, Struct) {
     Strings names;
     sub_types.reserve(3);
     names.reserve(3);
-    sub_types.push_back(
-            vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, true));
+    sub_types.push_back(DataTypeFactory::instance().create_data_type(TYPE_STRING, true));
     names.push_back("name");
-    sub_types.push_back(
-            vectorized::DataTypeFactory::instance().create_data_type(TYPE_LARGEINT, true));
+    sub_types.push_back(DataTypeFactory::instance().create_data_type(TYPE_LARGEINT, true));
     names.push_back("age");
-    sub_types.push_back(
-            vectorized::DataTypeFactory::instance().create_data_type(TYPE_BOOLEAN, true));
+    sub_types.push_back(DataTypeFactory::instance().create_data_type(TYPE_BOOLEAN, true));
     names.push_back("is");
     DataTypePtr type_desc = std::make_shared<DataTypeStruct>(sub_types, names);
     tslot.__set_col_unique_id(1);
@@ -361,7 +353,7 @@ TEST(BlockSerializeTest, Struct) {
 }
 
 TEST(BlockSerializeTest, JsonbBlock) {
-    vectorized::Block block;
+    Block block;
     TabletSchema schema;
     std::vector<std::tuple<std::string, FieldType, int, PrimitiveType>> cols {
             {"k1", FieldType::OLAP_FIELD_TYPE_INT, 1, TYPE_INT},
@@ -382,46 +374,44 @@ TEST(BlockSerializeTest, JsonbBlock) {
     }
     // int
     {
-        auto vec = vectorized::ColumnInt32::create();
+        auto vec = ColumnInt32::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
         }
-        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt32>());
-        vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, "test_int");
+        DataTypePtr data_type(std::make_shared<DataTypeInt32>());
+        ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, "test_int");
         block.insert(type_and_name);
     }
     // string
     {
-        auto strcol = vectorized::ColumnString::create();
+        auto strcol = ColumnString::create();
         for (int i = 0; i < 1024; ++i) {
             std::string is = std::to_string(i);
             strcol->insert_data(is.c_str(), is.size());
         }
-        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
-        vectorized::ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type,
-                                                        "test_string");
+        DataTypePtr data_type(std::make_shared<DataTypeString>());
+        ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type, "test_string");
         block.insert(type_and_name);
     }
     // decimal
     {
-        vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
+        DataTypePtr decimal_data_type(doris::create_decimal(27, 9, true));
         auto decimal_column = decimal_data_type->create_column();
-        auto& data = ((vectorized::ColumnDecimal128V2*)decimal_column.get())->get_data();
+        auto& data = ((ColumnDecimal128V2*)decimal_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
             data.push_back(value);
         }
-        vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
-                                                        decimal_data_type, "test_decimal");
+        ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(), decimal_data_type,
+                                            "test_decimal");
         block.insert(type_and_name);
     }
     // bitmap
     {
-        vectorized::DataTypePtr bitmap_data_type(std::make_shared<vectorized::DataTypeBitMap>());
+        DataTypePtr bitmap_data_type(std::make_shared<DataTypeBitMap>());
         auto bitmap_column = bitmap_data_type->create_column();
-        std::vector<BitmapValue>& container =
-                ((vectorized::ColumnBitmap*)bitmap_column.get())->get_data();
+        std::vector<BitmapValue>& container = ((ColumnBitmap*)bitmap_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             BitmapValue bv;
             for (int j = 0; j <= i; ++j) {
@@ -429,73 +419,69 @@ TEST(BlockSerializeTest, JsonbBlock) {
             }
             container.push_back(bv);
         }
-        vectorized::ColumnWithTypeAndName type_and_name(bitmap_column->get_ptr(), bitmap_data_type,
-                                                        "test_bitmap");
+        ColumnWithTypeAndName type_and_name(bitmap_column->get_ptr(), bitmap_data_type,
+                                            "test_bitmap");
         block.insert(type_and_name);
     }
     // hll
     {
-        vectorized::DataTypePtr hll_data_type(std::make_shared<vectorized::DataTypeHLL>());
+        DataTypePtr hll_data_type(std::make_shared<DataTypeHLL>());
         auto hll_column = hll_data_type->create_column();
-        std::vector<HyperLogLog>& container =
-                ((vectorized::ColumnHLL*)hll_column.get())->get_data();
+        std::vector<HyperLogLog>& container = ((ColumnHLL*)hll_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             HyperLogLog hll;
             hll.update(i);
             container.push_back(hll);
         }
-        vectorized::ColumnWithTypeAndName type_and_name(hll_column->get_ptr(), hll_data_type,
-                                                        "test_hll");
+        ColumnWithTypeAndName type_and_name(hll_column->get_ptr(), hll_data_type, "test_hll");
 
         block.insert(type_and_name);
     }
     // nullable string
     {
-        vectorized::DataTypePtr string_data_type(std::make_shared<vectorized::DataTypeString>());
-        vectorized::DataTypePtr nullable_data_type(
-                std::make_shared<vectorized::DataTypeNullable>(string_data_type));
+        DataTypePtr string_data_type(std::make_shared<DataTypeString>());
+        DataTypePtr nullable_data_type(std::make_shared<DataTypeNullable>(string_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
-        vectorized::ColumnWithTypeAndName type_and_name(nullable_column->get_ptr(),
-                                                        nullable_data_type, "test_nullable");
+        ((ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
+        ColumnWithTypeAndName type_and_name(nullable_column->get_ptr(), nullable_data_type,
+                                            "test_nullable");
         block.insert(type_and_name);
     }
     // nullable decimal
     {
-        vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
-        vectorized::DataTypePtr nullable_data_type(
-                std::make_shared<vectorized::DataTypeNullable>(decimal_data_type));
+        DataTypePtr decimal_data_type(doris::create_decimal(27, 9, true));
+        DataTypePtr nullable_data_type(std::make_shared<DataTypeNullable>(decimal_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
-        vectorized::ColumnWithTypeAndName type_and_name(
-                nullable_column->get_ptr(), nullable_data_type, "test_nullable_decimal");
+        ((ColumnNullable*)nullable_column.get())->insert_many_defaults(1024);
+        ColumnWithTypeAndName type_and_name(nullable_column->get_ptr(), nullable_data_type,
+                                            "test_nullable_decimal");
         block.insert(type_and_name);
     }
     // int with 1024 batch size
     {
-        auto column_vector_int32 = vectorized::ColumnInt32::create();
-        auto column_nullable_vector = vectorized::make_nullable(std::move(column_vector_int32));
+        auto column_vector_int32 = ColumnInt32::create();
+        auto column_nullable_vector = make_nullable(std::move(column_vector_int32));
         auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
         for (int i = 0; i < 1024; i++) {
             mutable_nullable_vector->insert(Field::create_field<TYPE_INT>(i));
         }
-        auto data_type = vectorized::make_nullable(std::make_shared<vectorized::DataTypeInt32>());
-        vectorized::ColumnWithTypeAndName type_and_name(mutable_nullable_vector->get_ptr(),
-                                                        data_type, "test_nullable_int32");
+        auto data_type = make_nullable(std::make_shared<DataTypeInt32>());
+        ColumnWithTypeAndName type_and_name(mutable_nullable_vector->get_ptr(), data_type,
+                                            "test_nullable_int32");
         block.insert(type_and_name);
     }
     // fill with datev2
     {
-        auto column_vector_date_v2 = vectorized::ColumnDateV2::create();
+        auto column_vector_date_v2 = ColumnDateV2::create();
         auto& date_v2_data = column_vector_date_v2->get_data();
         for (int i = 0; i < 1024; ++i) {
             DateV2Value<DateV2ValueType> value;
             value.unchecked_set_time(2022, 6, 6, 0, 0, 0, 0);
-            date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
+            date_v2_data.push_back(*reinterpret_cast<UInt32*>(&value));
         }
-        vectorized::DataTypePtr date_v2_type(std::make_shared<vectorized::DataTypeDateV2>());
-        vectorized::ColumnWithTypeAndName test_date_v2(column_vector_date_v2->get_ptr(),
-                                                       date_v2_type, "test_datev2");
+        DataTypePtr date_v2_type(std::make_shared<DataTypeDateV2>());
+        ColumnWithTypeAndName test_date_v2(column_vector_date_v2->get_ptr(), date_v2_type,
+                                           "test_datev2");
         block.insert(test_date_v2);
     }
     MutableColumnPtr col = ColumnString::create();
@@ -509,12 +495,11 @@ TEST(BlockSerializeTest, JsonbBlock) {
         TSlotDescriptor tslot;
         tslot.__set_colName(std::get<0>(t));
         if (std::get<3>(t) == TYPE_DECIMAL128I) {
-            auto type_desc = vectorized::DataTypeFactory::instance().create_data_type(
-                    std::get<3>(t), false, 27, 9);
+            auto type_desc =
+                    DataTypeFactory::instance().create_data_type(std::get<3>(t), false, 27, 9);
             tslot.__set_slotType(type_desc->to_thrift());
         } else {
-            auto type_desc =
-                    vectorized::DataTypeFactory::instance().create_data_type(std::get<3>(t), false);
+            auto type_desc = DataTypeFactory::instance().create_data_type(std::get<3>(t), false);
             tslot.__set_slotType(type_desc->to_thrift());
         }
         tslot.__set_col_unique_id(std::get<2>(t));
@@ -536,4 +521,4 @@ TEST(BlockSerializeTest, JsonbBlock) {
     std::cout << new_block.dump_data() << std::endl;
     EXPECT_EQ(block.dump_data(), new_block.dump_data());
 }
-} // namespace doris::vectorized
+} // namespace doris

@@ -40,7 +40,7 @@ namespace doris {
 class MemTrackerLimiter;
 }
 class DictionaryFactory;
-namespace doris::vectorized {
+namespace doris {
 /*
  * Dictionary implementation in Doris that provides key-value mapping functionality
  * Currently only supports in-memory dictionary storage
@@ -208,4 +208,4 @@ protected:
 
 using DictionaryPtr = std::shared_ptr<IDictionary>;
 
-} // namespace doris::vectorized
+} // namespace doris

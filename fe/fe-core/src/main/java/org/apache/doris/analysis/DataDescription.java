@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -509,7 +508,7 @@ public class DataDescription {
         for (Expr columnExpr : columnMappingList) {
             if (!(columnExpr instanceof BinaryPredicate)) {
                 throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
-                        + "Expr: " + columnExpr.toSql());
+                        + "Expr: " + columnExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
             BinaryPredicate predicate = (BinaryPredicate) columnExpr;
             if (predicate.getOp() != Operator.EQ) {
@@ -522,7 +521,8 @@ public class DataDescription {
                 child0 = predicate.getChild(0);
             } else if (!(child0 instanceof SlotRef)) {
                 throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
-                        + "The mapping column error. column: " + child0.toSql());
+                        + "The mapping column error. column: "
+                        + child0.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
             String column = ((SlotRef) child0).getColumnName();
             if (!columnMappingNames.add(column)) {
@@ -533,7 +533,7 @@ public class DataDescription {
             if (isHadoopLoad && !(child1 instanceof FunctionCallExpr)) {
                 throw new AnalysisException(
                         "Hadoop load only supports the designated function. " + "The error mapping function is:"
-                                + child1.toSql());
+                                + child1.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
             // Must clone the expr, because in routine load, the expr will be analyzed for each task.
             Expr cloned = child1.clone();
@@ -590,7 +590,8 @@ public class DataDescription {
             } else {
                 if (isHadoopLoad) {
                     // hadoop function only support slot, string and null parameters
-                    throw new AnalysisException("Mapping function args error, arg: " + paramExpr.toSql());
+                    throw new AnalysisException("Mapping function args error, arg: "
+                            + paramExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
                 }
             }
         }
@@ -751,7 +752,7 @@ public class DataDescription {
             sb.append(" NEGATIVE");
         }
         sb.append(" INTO TABLE ");
-        sb.append(isMysqlLoad ? ClusterNamespace.getNameFromFullName(dbName) + "." + tableName : tableName);
+        sb.append(isMysqlLoad ? dbName + "." + tableName : tableName);
         if (partitionNamesInfo != null) {
             sb.append(" ");
             sb.append(partitionNamesInfo.toSql());
@@ -784,15 +785,15 @@ public class DataDescription {
             Joiner.on(", ").appendTo(sb, Lists.transform(columnMappingList, new Function<Expr, Object>() {
                 @Override
                 public Object apply(Expr expr) {
-                    return expr.toSql();
+                    return expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
                 }
             })).append(")");
         }
         if (whereExpr != null) {
-            sb.append(" WHERE ").append(whereExpr.toSql());
+            sb.append(" WHERE ").append(whereExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
         }
         if (deleteCondition != null && mergeType == LoadTask.MergeType.MERGE) {
-            sb.append(" DELETE ON ").append(deleteCondition.toSql());
+            sb.append(" DELETE ON ").append(deleteCondition.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
         }
         return sb.toString();
     }

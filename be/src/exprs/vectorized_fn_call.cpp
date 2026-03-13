@@ -70,7 +70,7 @@ class RuntimeState;
 class TExprNode;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 const std::string AGG_STATE_SUFFIX = "_state";
@@ -201,7 +201,11 @@ void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionSta
 }
 
 Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
-    DCHECK_GE(get_num_children(), 1);
+    if (get_num_children() < 1) {
+        // score() and similar 0-children virtual column functions don't need
+        // inverted index evaluation; return OK to skip gracefully.
+        return Status::OK();
+    }
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
@@ -696,4 +700,4 @@ double VectorizedFnCall::execute_cost() const {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -28,7 +28,7 @@
 #include "format/table/table_format_reader.h"
 #include "orc/Type.hh"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 void HiveOrcNestedColumnUtils::extract_nested_column_ids(
@@ -165,4 +165,4 @@ void HiveOrcNestedColumnUtils::extract_nested_column_ids(
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -53,7 +53,7 @@ std::atomic<bool> show_addresses = true;
 // void writePointerHex(const void* ptr, std::stringstream& buf) {
 //     buf.write("0x", 2);
 //     char hex_str[2 * sizeof(ptr)];
-//     doris::vectorized::write_hex_uint_lowercase(reinterpret_cast<uintptr_t>(ptr), hex_str);
+//     doris::write_hex_uint_lowercase(reinterpret_cast<uintptr_t>(ptr), hex_str);
 //     buf.write(hex_str, 2 * sizeof(ptr));
 // }
 // #endif

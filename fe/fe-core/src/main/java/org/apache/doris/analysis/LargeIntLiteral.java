@@ -18,13 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TLargeIntLiteral;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -171,20 +166,8 @@ public class LargeIntLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String toSqlImpl() {
-        return getStringValue();
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return getStringValue();
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.LARGE_INT_LITERAL;
-        msg.large_int_literal = new TLargeIntLiteral(value.toString());
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitLargeIntLiteral(this, context);
     }
 
     @Override

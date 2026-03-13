@@ -21,7 +21,7 @@
 #include "exec/operator/operator.h"
 #include "exec/runtime_filter/runtime_filter_producer_helper.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 class HashJoinBuildSinkOperatorX;
 
@@ -37,7 +37,10 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status terminate(RuntimeState* state) override;
-    Status process_build_block(RuntimeState* state, vectorized::Block& block);
+    Status process_build_block(RuntimeState* state, Block& block);
+
+    // Build ASOF JOIN pre-sorted index for O(log K) lookup
+    Status build_asof_index(Block& block);
 
     void init_short_circuit_for_probe();
 
@@ -50,24 +53,21 @@ public:
     [[nodiscard]] MOCK_FUNCTION size_t get_reserve_mem_size(RuntimeState* state, bool eos);
 
 protected:
-    Status _hash_table_init(RuntimeState* state, const vectorized::ColumnRawPtrs& raw_ptrs);
-    void _set_build_side_has_external_nullmap(vectorized::Block& block,
-                                              const std::vector<int>& res_col_ids);
-    Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
+    Status _hash_table_init(RuntimeState* state, const ColumnRawPtrs& raw_ptrs);
+    void _set_build_side_has_external_nullmap(Block& block, const std::vector<int>& res_col_ids);
+    Status _do_evaluate(Block& block, VExprContextSPtrs& exprs,
                         RuntimeProfile::Counter& expr_call_timer, std::vector<int>& res_col_ids);
-    std::vector<uint16_t> _convert_block_to_null(vectorized::Block& block);
-    Status _extract_join_column(vectorized::Block& block,
-                                vectorized::ColumnUInt8::MutablePtr& null_map,
-                                vectorized::ColumnRawPtrs& raw_ptrs,
-                                const std::vector<int>& res_col_ids);
+    std::vector<uint16_t> _convert_block_to_null(Block& block);
+    Status _extract_join_column(Block& block, ColumnUInt8::MutablePtr& null_map,
+                                ColumnRawPtrs& raw_ptrs, const std::vector<int>& res_col_ids);
     friend class HashJoinBuildSinkOperatorX;
     friend class PartitionedHashJoinSinkLocalState;
     template <class HashTableContext>
     friend struct ProcessHashTableBuild;
 
     // build expr
-    vectorized::VExprContextSPtrs _build_expr_ctxs;
-    std::vector<vectorized::ColumnPtr> _key_columns_holder;
+    VExprContextSPtrs _build_expr_ctxs;
+    std::vector<ColumnPtr> _key_columns_holder;
 
     bool _should_build_hash_table = true;
 
@@ -75,7 +75,7 @@ protected:
     size_t _build_side_rows = 0;
     int _task_idx;
 
-    vectorized::MutableBlock _build_side_mutable_block;
+    MutableBlock _build_side_mutable_block;
     std::shared_ptr<RuntimeFilterProducerHelper> _runtime_filter_producer_helper;
 
     /*
@@ -96,6 +96,12 @@ protected:
     RuntimeProfile::Counter* _build_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::Counter* _build_arena_memory_usage = nullptr;
+
+    // ASOF index build counters
+    RuntimeProfile::Counter* _asof_index_total_timer = nullptr;
+    RuntimeProfile::Counter* _asof_index_expr_timer = nullptr;
+    RuntimeProfile::Counter* _asof_index_sort_timer = nullptr;
+    RuntimeProfile::Counter* _asof_index_group_timer = nullptr;
 };
 
 class HashJoinBuildSinkOperatorX MOCK_REMOVE(final)
@@ -112,7 +118,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
@@ -167,7 +173,7 @@ private:
 
     const TJoinDistributionType::type _join_distribution;
     // build expr
-    vectorized::VExprContextSPtrs _build_expr_ctxs;
+    VExprContextSPtrs _build_expr_ctxs;
     // mark the build hash table whether it needs to store null value
     std::vector<bool> _serialize_null_into_key;
 
@@ -184,16 +190,21 @@ private:
     // need to finalize variant column to speed up the join op
     bool _need_finalize_variant_column = false;
 
+    // ASOF JOIN: build-side expression extracted from MATCH_CONDITION's right child
+    // Prepared against build child's row_desc directly (no intermediate tuple needed)
+    VExprContextSPtr _asof_build_side_expr;
+    TExprOpcode::type _asof_opcode = TExprOpcode::INVALID_OPCODE;
+
     bool _use_shared_hash_table = false;
     std::atomic<bool> _signaled = false;
     std::mutex _mutex;
-    std::vector<std::shared_ptr<pipeline::Dependency>> _finish_dependencies;
+    std::vector<std::shared_ptr<Dependency>> _finish_dependencies;
     std::map<int, std::shared_ptr<RuntimeFilterWrapper>> _runtime_filters;
 };
 
 template <class HashTableContext>
 struct ProcessHashTableBuild {
-    ProcessHashTableBuild(uint32_t rows, vectorized::ColumnRawPtrs& build_raw_ptrs,
+    ProcessHashTableBuild(uint32_t rows, ColumnRawPtrs& build_raw_ptrs,
                           HashJoinBuildSinkLocalState* parent, int batch_size, RuntimeState* state)
             : _rows(rows),
               _build_raw_ptrs(build_raw_ptrs),
@@ -202,8 +213,7 @@ struct ProcessHashTableBuild {
               _state(state) {}
 
     template <int JoinOpType, bool short_circuit_for_null, bool with_other_conjuncts>
-    Status run(HashTableContext& hash_table_ctx, vectorized::ConstNullMapPtr null_map,
-               bool* has_null_key) {
+    Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key) {
         if (null_map) {
             // first row is mocked and is null
             if (simd::contain_one(null_map->data() + 1, _rows - 1)) {
@@ -258,11 +268,11 @@ struct ProcessHashTableBuild {
 
 private:
     const uint32_t _rows;
-    vectorized::ColumnRawPtrs& _build_raw_ptrs;
+    ColumnRawPtrs& _build_raw_ptrs;
     HashJoinBuildSinkLocalState* _parent = nullptr;
     int _batch_size;
     RuntimeState* _state = nullptr;
 };
 
-} // namespace doris::pipeline
+} // namespace doris
 #include "common/compile_check_end.h"

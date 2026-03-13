@@ -26,7 +26,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "runtime/descriptors.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 AvroJNIReader::AvroJNIReader(RuntimeState* state, RuntimeProfile* profile,
@@ -178,4 +178,4 @@ DataTypePtr AvroJNIReader::convert_to_doris_type(const rapidjson::Value& column_
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

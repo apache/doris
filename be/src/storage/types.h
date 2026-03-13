@@ -74,7 +74,7 @@ public:
     virtual ~TypeInfo() = default;
     virtual int cmp(const void* left, const void* right) const = 0;
 
-    virtual void deep_copy(void* dest, const void* src, vectorized::Arena& arena) const = 0;
+    virtual void deep_copy(void* dest, const void* src, Arena& arena) const = 0;
 
     virtual void direct_copy(void* dest, const void* src) const = 0;
 
@@ -93,7 +93,7 @@ class ScalarTypeInfo : public TypeInfo {
 public:
     int cmp(const void* left, const void* right) const override { return _cmp(left, right); }
 
-    void deep_copy(void* dest, const void* src, vectorized::Arena& arena) const override {
+    void deep_copy(void* dest, const void* src, Arena& arena) const override {
         _deep_copy(dest, src, arena);
     }
 
@@ -124,7 +124,7 @@ public:
 private:
     int (*_cmp)(const void* left, const void* right);
 
-    void (*_deep_copy)(void* dest, const void* src, vectorized::Arena& arena);
+    void (*_deep_copy)(void* dest, const void* src, Arena& arena);
     void (*_direct_copy)(void* dest, const void* src);
 
     Status (*_from_string)(void* buf, const std::string& scan_key, const int precision,
@@ -190,7 +190,7 @@ public:
         }
     }
 
-    void deep_copy(void* dest, const void* src, vectorized::Arena& arena) const override {
+    void deep_copy(void* dest, const void* src, Arena& arena) const override {
         auto dest_value = reinterpret_cast<CollectionValue*>(dest);
         auto src_value = reinterpret_cast<const CollectionValue*>(src);
 
@@ -331,9 +331,7 @@ public:
         }
     }
 
-    void deep_copy(void* dest, const void* src, vectorized::Arena& arena) const override {
-        DCHECK(false);
-    }
+    void deep_copy(void* dest, const void* src, Arena& arena) const override { DCHECK(false); }
 
     void direct_copy(void* dest, const void* src) const override { CHECK(false); }
 
@@ -418,7 +416,7 @@ public:
         }
     }
 
-    void deep_copy(void* dest, const void* src, vectorized::Arena& arena) const override {
+    void deep_copy(void* dest, const void* src, Arena& arena) const override {
         auto dest_value = reinterpret_cast<StructValue*>(dest);
         auto src_value = reinterpret_cast<const StructValue*>(src);
 
@@ -736,7 +734,7 @@ struct BaseFieldTypeTraits : public CppTypeTraits<field_type> {
         }
     }
 
-    static inline void deep_copy(void* dest, const void* src, vectorized::Arena& arena) {
+    static inline void deep_copy(void* dest, const void* src, Arena& arena) {
         memcpy(dest, src, sizeof(CppType));
     }
 
@@ -833,7 +831,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT>
 
     // GCC7.3 will generate movaps instruction, which will lead to SEGV when buf is
     // not aligned to 16 byte
-    static void deep_copy(void* dest, const void* src, vectorized::Arena& arena) {
+    static void deep_copy(void* dest, const void* src, Arena& arena) {
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
     static void direct_copy(void* dest, const void* src) {
@@ -1133,11 +1131,10 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>
         : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ> {
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
-        vectorized::CastParameters params;
+        CastParameters params;
         TimestampTzValue value;
         auto tz = cctz::utc_time_zone();
-        if (!vectorized::CastToTimstampTz::from_string(StringRef(scan_key), value, params, &tz,
-                                                       6)) {
+        if (!CastToTimstampTz::from_string(StringRef(scan_key), value, params, &tz, 6)) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>("parse timestamptz error, value: {}",
                                                               scan_key);
         }
@@ -1189,7 +1186,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR>
         return Status::OK();
     }
 
-    static void deep_copy(void* dest, const void* src, vectorized::Arena& arena) {
+    static void deep_copy(void* dest, const void* src, Arena& arena) {
         auto l_slice = reinterpret_cast<Slice*>(dest);
         auto r_slice = reinterpret_cast<const Slice*>(src);
         l_slice->data = arena.alloc(r_slice->size);

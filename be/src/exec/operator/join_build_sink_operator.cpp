@@ -22,7 +22,7 @@
 #include "exec/operator/operator.h"
 #include "exec/operator/partitioned_hash_join_sink_operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 template <typename SharedStateArg, typename Derived>
 Status JoinBuildSinkLocalState<SharedStateArg, Derived>::init(RuntimeState* state,
@@ -49,7 +49,8 @@ JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool,
                                       !tnode.hash_join_node.other_join_conjuncts.empty()) ||
                                      tnode.hash_join_node.__isset.vother_join_conjunct)),
           _match_all_probe(_join_op == TJoinOp::LEFT_OUTER_JOIN ||
-                           _join_op == TJoinOp::FULL_OUTER_JOIN),
+                           _join_op == TJoinOp::FULL_OUTER_JOIN ||
+                           _join_op == TJoinOp::ASOF_LEFT_OUTER_JOIN),
           _match_all_build(_join_op == TJoinOp::RIGHT_OUTER_JOIN ||
                            _join_op == TJoinOp::FULL_OUTER_JOIN),
           _build_unique(!_have_other_join_conjunct &&
@@ -96,7 +97,9 @@ JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool,
     M(RIGHT_SEMI_JOIN)               \
     M(RIGHT_ANTI_JOIN)               \
     M(NULL_AWARE_LEFT_ANTI_JOIN)     \
-    M(NULL_AWARE_LEFT_SEMI_JOIN)
+    M(NULL_AWARE_LEFT_SEMI_JOIN)     \
+    M(ASOF_LEFT_INNER_JOIN)          \
+    M(ASOF_LEFT_OUTER_JOIN)
 
 template <typename LocalStateType>
 void JoinBuildSinkOperatorX<LocalStateType>::_init_join_op() {
@@ -122,4 +125,4 @@ template class JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState>;
 template class JoinBuildSinkLocalState<PartitionedHashJoinSharedState,
                                        PartitionedHashJoinSinkLocalState>;
 
-} // namespace doris::pipeline
+} // namespace doris

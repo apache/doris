@@ -27,7 +27,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
@@ -102,4 +102,4 @@ void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFact
     factory.register_distinct_function_combinator(creator, DISTINCT_FUNCTION_PREFIX);
     factory.register_distinct_function_combinator(creator, DISTINCT_FUNCTION_PREFIX, true);
 }
-} // namespace doris::vectorized
+} // namespace doris

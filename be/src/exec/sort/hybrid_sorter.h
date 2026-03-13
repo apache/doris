@@ -31,7 +31,7 @@
 
 #include "common/compiler_util.h"
 #include "common/logging.h"
-namespace doris::vectorized {
+namespace doris {
 
 // HybridSorter samples during runtime and selects an appropriate sort algorithm.
 // It compares PdqSort and TimSort performance dynamically and chooses the most efficient one
@@ -202,4 +202,4 @@ private:
     const bool _enable_use_hybrid_sort; // Flag to enable/disable hybrid sorting
 };
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -18,13 +18,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
+import org.apache.doris.foundation.format.FormatOptions;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -50,7 +46,6 @@ public class ArrayLiteral extends LiteralExpr {
         super(other);
     }
 
-
     @Override
     public boolean isMinValue() {
         return false;
@@ -69,20 +64,8 @@ public class ArrayLiteral extends LiteralExpr {
     }
 
     @Override
-    protected String toSqlImpl() {
-        List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.toSqlImpl()));
-
-        return "[" + StringUtils.join(list, ", ") + "]";
-    }
-
-    @Override
-    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.toSqlImpl(disableTableName, needExternalSql, tableType, table)));
-
-        return "[" + StringUtils.join(list, ", ") + "]";
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitArrayLiteral(this, context);
     }
 
     @Override
@@ -101,12 +84,6 @@ public class ArrayLiteral extends LiteralExpr {
         });
         --options.level;
         return "[" + StringUtils.join(list, options.getCollectionDelim()) + "]";
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.ARRAY_LITERAL;
-        msg.setChildType(((ArrayType) type).getItemType().getPrimitiveType().toThrift());
     }
 
     @Override

@@ -29,7 +29,6 @@
 #include "exec/scan/task_executor/tools/simulator/simulation_task.h"
 
 namespace doris {
-namespace vectorized {
 
 SimulationSplit::SimulationSplit(SimulationTask* task, std::chrono::nanoseconds scheduled_time)
         : _task(task), _scheduled_time(scheduled_time) {}
@@ -177,5 +176,4 @@ SharedListenableFuture<Void> IntermediateSplit::get_process_result() {
     return _future;
 }
 
-} // namespace vectorized
 } // namespace doris

@@ -22,14 +22,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.planner.normalize.Normalizer;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
+import org.apache.doris.catalog.FunctionName;
+import org.apache.doris.common.NameFormatUtils;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
@@ -89,6 +83,18 @@ public class FunctionCallExpr extends Expr {
         return fnParams;
     }
 
+    public boolean isAnalyticFnCall() {
+        return isAnalyticFnCall;
+    }
+
+    public FunctionParams getAggFnParams() {
+        return aggFnParams;
+    }
+
+    public boolean isMergeAggFn() {
+        return isMergeAggFn;
+    }
+
     // only used restore from readFields.
     protected FunctionCallExpr() {
         super();
@@ -97,7 +103,8 @@ public class FunctionCallExpr extends Expr {
     @Override
     public String getExprName() {
         if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(Utils.normalizeName(this.getFnName().getFunction(), DEFAULT_EXPR_NAME));
+            this.exprName = Optional.of(
+                    NameFormatUtils.normalizeName(this.getFnName().getFunction(), DEFAULT_EXPR_NAME));
         }
         return this.exprName.get();
     }
@@ -180,237 +187,8 @@ public class FunctionCallExpr extends Expr {
                 && fnParams.isStar() == o.fnParams.isStar();
     }
 
-    private String paramsToSql() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("(");
-
-        if (fnParams.isStar()) {
-            sb.append("*");
-        }
-        if (fnParams.isDistinct()) {
-            sb.append("DISTINCT ");
-        }
-        int len = children.size();
-
-        if (fnName.getFunction().equalsIgnoreCase("char")) {
-            for (int i = 1; i < len; ++i) {
-                sb.append(children.get(i).toSql());
-                if (i < len - 1) {
-                    sb.append(", ");
-                }
-            }
-            sb.append(" using ");
-            String encodeType = children.get(0).toSql();
-            if (encodeType.charAt(0) == '\'') {
-                encodeType = encodeType.substring(1, encodeType.length());
-            }
-            if (encodeType.charAt(encodeType.length() - 1) == '\'') {
-                encodeType = encodeType.substring(0, encodeType.length() - 1);
-            }
-            sb.append(encodeType).append(")");
-            return sb.toString();
-        }
-
-        // XXX_diff are used by nereids only
-        if (fnName.getFunction().equalsIgnoreCase("years_diff") || fnName.getFunction().equalsIgnoreCase("months_diff")
-                || fnName.getFunction().equalsIgnoreCase("days_diff")
-                || fnName.getFunction().equalsIgnoreCase("hours_diff")
-                || fnName.getFunction().equalsIgnoreCase("minutes_diff")
-                || fnName.getFunction().equalsIgnoreCase("seconds_diff")
-                || fnName.getFunction().equalsIgnoreCase("milliseconds_diff")
-                || fnName.getFunction().equalsIgnoreCase("microseconds_diff")) {
-            sb.append(children.get(0).toSql()).append(", ");
-            sb.append(children.get(1).toSql()).append(")");
-            return sb.toString();
-        }
-        // used by nereids END
-
-        for (int i = 0; i < len; ++i) {
-            if (i != 0) {
-                if (fnName.getFunction().equalsIgnoreCase("group_concat")
-                        && orderByElements.size() > 0 && i == len - orderByElements.size()) {
-                    sb.append(" ");
-                } else {
-                    sb.append(", ");
-                }
-            }
-            if (ConnectContext.get() != null && ConnectContext.get().getState().isQuery() && i == 1
-                    && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
-                            || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
-                            || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
-                            || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
-                sb.append("\'***\'");
-                continue;
-            } else if (orderByElements.size() > 0 && i == len - orderByElements.size()) {
-                sb.append("ORDER BY ");
-            }
-            sb.append(children.get(i).toSql());
-            if (orderByElements.size() > 0 && i >= len - orderByElements.size()) {
-                if (orderByElements.get(i - len + orderByElements.size()).getIsAsc()) {
-                    sb.append(" ASC");
-                } else {
-                    sb.append(" DESC");
-                }
-            }
-        }
-        sb.append(")");
-        return sb.toString();
-    }
-
-    private String paramsToSql(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("(");
-
-        if (fnParams.isStar()) {
-            sb.append("*");
-        }
-        if (fnParams.isDistinct()) {
-            sb.append("DISTINCT ");
-        }
-        int len = children.size();
-
-        if (fnName.getFunction().equalsIgnoreCase("char")) {
-            for (int i = 1; i < len; ++i) {
-                sb.append(children.get(i).toSql(disableTableName, needExternalSql, tableType, table));
-                if (i < len - 1) {
-                    sb.append(", ");
-                }
-            }
-            sb.append(" using ");
-            String encodeType = children.get(0).toSql(disableTableName, needExternalSql, tableType, table);
-            if (encodeType.charAt(0) == '\'') {
-                encodeType = encodeType.substring(1, encodeType.length());
-            }
-            if (encodeType.charAt(encodeType.length() - 1) == '\'') {
-                encodeType = encodeType.substring(0, encodeType.length() - 1);
-            }
-            sb.append(encodeType).append(")");
-            return sb.toString();
-        }
-
-        // XXX_diff are used by nereids only
-        if (fnName.getFunction().equalsIgnoreCase("years_diff") || fnName.getFunction().equalsIgnoreCase("months_diff")
-                || fnName.getFunction().equalsIgnoreCase("days_diff")
-                || fnName.getFunction().equalsIgnoreCase("hours_diff")
-                || fnName.getFunction().equalsIgnoreCase("minutes_diff")
-                || fnName.getFunction().equalsIgnoreCase("seconds_diff")
-                || fnName.getFunction().equalsIgnoreCase("milliseconds_diff")
-                || fnName.getFunction().equalsIgnoreCase("microseconds_diff")) {
-            sb.append(children.get(0).toSql(disableTableName, needExternalSql, tableType, table)).append(", ");
-            sb.append(children.get(1).toSql(disableTableName, needExternalSql, tableType, table)).append(")");
-            return sb.toString();
-        }
-
-        for (int i = 0; i < len; ++i) {
-            if (i != 0) {
-                if (fnName.getFunction().equalsIgnoreCase("group_concat")
-                        && orderByElements.size() > 0 && i == len - orderByElements.size()) {
-                    sb.append(" ");
-                } else {
-                    sb.append(", ");
-                }
-            }
-            if (ConnectContext.get() != null && ConnectContext.get().getState().isQuery() && i == 1
-                    && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
-                    || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
-                    || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
-                    || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
-                sb.append("\'***\'");
-                continue;
-            } else if (orderByElements.size() > 0 && i == len - orderByElements.size()) {
-                sb.append("ORDER BY ");
-            }
-            sb.append(children.get(i).toSql(disableTableName, needExternalSql, tableType, table));
-            if (orderByElements.size() > 0 && i >= len - orderByElements.size()) {
-                if (orderByElements.get(i - len + orderByElements.size()).getIsAsc()) {
-                    sb.append(" ASC");
-                } else {
-                    sb.append(" DESC");
-                }
-            }
-        }
-        sb.append(")");
-        return sb.toString();
-    }
-
-    @Override
-    public String toSqlImpl() {
-        StringBuilder sb = new StringBuilder();
-
-        // when function is like or regexp, the expr generated sql should be like this
-        // eg: child1 like child2
-        if (fnName.getFunction().equalsIgnoreCase("like")
-                || fnName.getFunction().equalsIgnoreCase("regexp")) {
-            sb.append(children.get(0).toSql());
-            sb.append(" ");
-            sb.append(this.fnName);
-            sb.append(" ");
-            sb.append(children.get(1).toSql());
-        } else if (fnName.getFunction().equalsIgnoreCase("encryptkeyref")) {
-            sb.append("key ");
-            for (int i = 0; i < children.size(); i++) {
-                String str = ((StringLiteral) children.get(i)).getValue();
-                if (str.isEmpty()) {
-                    continue;
-                }
-                sb.append(str);
-                sb.append(".");
-            }
-            sb.deleteCharAt(sb.length() - 1);
-        } else {
-            sb.append(this.fnName);
-            sb.append(paramsToSql());
-            if (fnName.getFunction().equalsIgnoreCase("json_quote")
-                    || fnName.getFunction().equalsIgnoreCase("json_array")
-                    || fnName.getFunction().equalsIgnoreCase("json_object")
-                    || fnName.getFunction().equalsIgnoreCase("json_insert")
-                    || fnName.getFunction().equalsIgnoreCase("json_replace")
-                    || fnName.getFunction().equalsIgnoreCase("json_set")) {
-                return forJSON(sb.toString());
-            }
-        }
-        return sb.toString();
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        StringBuilder sb = new StringBuilder();
-
-        // when function is like or regexp, the expr generated sql should be like this
-        // eg: child1 like child2
-        if (fnName.getFunction().equalsIgnoreCase("like")
-                || fnName.getFunction().equalsIgnoreCase("regexp")) {
-            sb.append(children.get(0).toSql(disableTableName, needExternalSql, tableType, table));
-            sb.append(" ");
-            sb.append(this.fnName);
-            sb.append(" ");
-            sb.append(children.get(1).toSql(disableTableName, needExternalSql, tableType, table));
-        } else if (fnName.getFunction().equalsIgnoreCase("encryptkeyref")) {
-            sb.append("key ");
-            for (int i = 0; i < children.size(); i++) {
-                String str = ((StringLiteral) children.get(i)).getValue();
-                if (str.isEmpty()) {
-                    continue;
-                }
-                sb.append(str);
-                sb.append(".");
-            }
-            sb.deleteCharAt(sb.length() - 1);
-        } else {
-            sb.append(this.fnName);
-            sb.append(paramsToSql(disableTableName, needExternalSql, tableType, table));
-            if (fnName.getFunction().equalsIgnoreCase("json_quote")
-                    || fnName.getFunction().equalsIgnoreCase("json_array")
-                    || fnName.getFunction().equalsIgnoreCase("json_object")
-                    || fnName.getFunction().equalsIgnoreCase("json_insert")
-                    || fnName.getFunction().equalsIgnoreCase("json_replace")
-                    || fnName.getFunction().equalsIgnoreCase("json_set")) {
-                return forJSON(sb.toString());
-            }
-        }
-        return sb.toString();
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitFunctionCallExpr(this, context);
     }
 
     @Override
@@ -432,25 +210,6 @@ public class FunctionCallExpr extends Expr {
     public boolean isDistinct() {
         Preconditions.checkState(isAggregateFunction());
         return fnParams.isDistinct();
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        // TODO: we never serialize this to thrift if it's an aggregate function
-        // except in test cases that do it explicitly.
-        if (this.isAggregateFunction() || isAnalyticFnCall) {
-            msg.node_type = TExprNodeType.AGG_EXPR;
-            if (aggFnParams == null) {
-                aggFnParams = fnParams;
-            }
-            msg.setAggExpr(aggFnParams.createTAggregateExpr(isMergeAggFn));
-        } else {
-            msg.node_type = TExprNodeType.FUNCTION_CALL;
-        }
-
-        if (ConnectContext.get() != null) {
-            msg.setShortCircuitEvaluation(ConnectContext.get().getSessionVariable().isShortCircuitEvaluation());
-        }
     }
 
     private static boolean match(String pattern, int pos, String value) {
@@ -521,17 +280,6 @@ public class FunctionCallExpr extends Expr {
     }
 
     @Override
-    protected void normalize(TExprNode msg, Normalizer normalizer) {
-        String functionName = fnName.getFunction().toUpperCase();
-        if (FunctionSet.nonDeterministicFunctions.contains(functionName)
-                || "NOW".equals(functionName)
-                || (FunctionSet.nonDeterministicTimeFunctions.contains(functionName) && children.isEmpty())) {
-            throw new IllegalStateException("Can not normalize non deterministic functions");
-        }
-        super.normalize(msg, normalizer);
-    }
-
-    @Override
     protected boolean isConstantImpl() {
         // TODO: we can't correctly determine const-ness before analyzing 'fn_'. We
         // should
@@ -564,7 +312,6 @@ public class FunctionCallExpr extends Expr {
     @Override
     public int hashCode() {
         int result = super.hashCode();
-        result = 31 * result + Objects.hashCode(opcode);
         result = 31 * result + Objects.hashCode(fnName);
         return result;
     }

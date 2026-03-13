@@ -22,7 +22,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 using AggregateFuncSem = AggregateFunctionSem<AggregateFunctionSemData>;
@@ -38,4 +38,4 @@ void register_aggregate_function_sem(AggregateFunctionSimpleFactory& factory) {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

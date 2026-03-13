@@ -19,7 +19,7 @@
 
 #include "exprs/function/ai/ai_functions.h"
 
-namespace doris::vectorized {
+namespace doris {
 class FunctionAISentiment : public AIFunction<FunctionAISentiment> {
 public:
     static constexpr auto name = "ai_sentiment";
@@ -43,4 +43,4 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionAISentiment>(); }
 };
 
-}; // namespace doris::vectorized
+}; // namespace doris

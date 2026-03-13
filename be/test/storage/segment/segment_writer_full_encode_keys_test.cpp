@@ -25,12 +25,11 @@
 #include "storage/key_coder.h"
 #include "storage/olap_common.h"
 #include "storage/segment/segment_writer.h"
-#include "util/key_util.h"
 #include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {
-using namespace doris::vectorized;
+using namespace doris;
 
 auto create_string_accessor(const std::vector<std::string>& str) {
     ColumnString::MutablePtr column = ColumnString::create();
@@ -83,8 +82,8 @@ TEST(SegmentWriterFullEncodeKeysTest, TestSegmentWriterKeyEncoding) {
     auto int_accessor = create_int_accessor({0x05050505, 0x05050505});
     auto str_accessor0 = create_string_accessor({"a", "a\x01"});
     auto str_accessor1 = create_string_accessor({"bb", "cc"});
-    std::vector<vectorized::IOlapColumnDataAccessor*> key_columns = {
-            int_accessor.get(), str_accessor0.get(), str_accessor1.get()};
+    std::vector<IOlapColumnDataAccessor*> key_columns = {int_accessor.get(), str_accessor0.get(),
+                                                         str_accessor1.get()};
     auto int_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_INT);
     auto str_coder = get_key_coder(FieldType::OLAP_FIELD_TYPE_VARCHAR);
     std::vector<const KeyCoder*> key_coders = {int_coder, str_coder, str_coder};

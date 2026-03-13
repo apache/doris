@@ -34,6 +34,7 @@
 
 #include "absl/strings/substitute.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/logging.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -85,9 +86,9 @@ void SegcompactionWorker::init_mem_tracker(const RowsetWriterContext& rowset_wri
 Status SegcompactionWorker::_get_segcompaction_reader(
         SegCompactionCandidatesSharedPtr segments, TabletSharedPtr tablet,
         std::shared_ptr<Schema> schema, OlapReaderStatistics* stat,
-        vectorized::RowSourcesBuffer& row_sources_buf, bool is_key,
-        std::vector<uint32_t>& return_columns, std::vector<uint32_t>& key_group_cluster_key_idxes,
-        std::unique_ptr<vectorized::VerticalBlockReader>* reader) {
+        RowSourcesBuffer& row_sources_buf, bool is_key, std::vector<uint32_t>& return_columns,
+        std::vector<uint32_t>& key_group_cluster_key_idxes,
+        std::unique_ptr<VerticalBlockReader>* reader) {
     const auto& ctx = _writer->_context;
     bool record_rowids = need_convert_delete_bitmap() && is_key;
     StorageReadOptions read_options;
@@ -124,7 +125,7 @@ Status SegcompactionWorker::_get_segcompaction_reader(
         _rowid_conversion->reset_segment_map(segment_rows);
     }
 
-    *reader = std::make_unique<vectorized::VerticalBlockReader>(&row_sources_buf);
+    *reader = std::make_unique<VerticalBlockReader>(&row_sources_buf);
 
     TabletReader::ReaderParams reader_params;
     reader_params.is_segcompaction = true;
@@ -281,10 +282,17 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
 
     std::vector<std::vector<uint32_t>> column_groups;
     std::vector<uint32_t> key_group_cluster_key_idxes;
-    Merger::vertical_split_columns(*ctx.tablet_schema, &column_groups,
-                                   &key_group_cluster_key_idxes);
-    vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
-                                                 ReaderType::READER_SEGMENT_COMPACTION);
+    // If BE config vertical_compaction_num_columns_per_group has been modified from
+    // its default value (5), use the BE config; otherwise use the tablet meta value.
+    constexpr int32_t default_num_columns_per_group = 5;
+    int32_t num_columns_per_group =
+            config::vertical_compaction_num_columns_per_group != default_num_columns_per_group
+                    ? config::vertical_compaction_num_columns_per_group
+                    : tablet->tablet_meta()->vertical_compaction_num_columns_per_group();
+    Merger::vertical_split_columns(*ctx.tablet_schema, &column_groups, &key_group_cluster_key_idxes,
+                                   num_columns_per_group);
+    RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
+                                     ReaderType::READER_SEGMENT_COMPACTION);
 
     KeyBoundsPB key_bounds;
     Merger::Statistics key_merger_stats;
@@ -299,7 +307,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
         RETURN_IF_ERROR(writer->init(column_ids, is_key));
         auto schema = std::make_shared<Schema>(ctx.tablet_schema->columns(), column_ids);
         OlapReaderStatistics reader_stats;
-        std::unique_ptr<vectorized::VerticalBlockReader> reader;
+        std::unique_ptr<VerticalBlockReader> reader;
         auto s =
                 _get_segcompaction_reader(segments, tablet, schema, &reader_stats, row_sources_buf,
                                           is_key, column_ids, key_group_cluster_key_idxes, &reader);

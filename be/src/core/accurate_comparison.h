@@ -24,7 +24,7 @@
 #include "core/data_type/primitive_type.h"
 #include "core/string_ref.h"
 #include "core/types.h"
-namespace doris::vectorized {
+namespace doris {
 
 template <PrimitiveType PT>
 struct CompareType {
@@ -393,4 +393,4 @@ struct GreaterOrEqualsOp<TYPE_TIMESTAMPTZ> {
     static UInt8 apply(const TimestampTzValue& a, const TimestampTzValue& b) { return a >= b; }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

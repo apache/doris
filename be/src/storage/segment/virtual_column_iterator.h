@@ -33,29 +33,29 @@ public:
     VirtualColumnIterator();
     ~VirtualColumnIterator() override = default;
 
-    MOCK_FUNCTION void prepare_materialization(vectorized::IColumn::Ptr column,
+    MOCK_FUNCTION void prepare_materialization(IColumn::Ptr column,
                                                std::unique_ptr<std::vector<uint64_t>> labels);
 
     Status init(const ColumnIteratorOptions& opts) override;
 
     Status seek_to_ordinal(ordinal_t ord_idx) override;
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override;
+                          MutableColumnPtr& dst) override;
 
     ordinal_t get_current_ordinal() const override { return 0; }
 
 #ifdef BE_TEST
-    vectorized::IColumn::Ptr get_materialized_column() const { return _materialized_column_ptr; }
+    IColumn::Ptr get_materialized_column() const { return _materialized_column_ptr; }
     const std::unordered_map<size_t, size_t>& get_row_id_to_idx() const { return _row_id_to_idx; }
 #endif
 private:
-    vectorized::IColumn::Ptr _materialized_column_ptr;
+    IColumn::Ptr _materialized_column_ptr;
     // segment rowid to index in column.
     std::unordered_map<size_t, size_t> _row_id_to_idx;
-    doris::vectorized::IColumn::Filter _filter;
+    doris::IColumn::Filter _filter;
     size_t _size = 0;
     size_t _max_ordinal = 0;
     ordinal_t _current_ordinal = 0;

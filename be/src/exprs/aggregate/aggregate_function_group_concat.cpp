@@ -22,7 +22,7 @@
 
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 const std::string AggregateFunctionGroupConcatImplStr::separator = ",";
@@ -50,4 +50,4 @@ AggregateFunctionPtr create_aggregate_function_group_concat(const std::string& n
 void register_aggregate_function_group_concat(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("group_concat", create_aggregate_function_group_concat);
 }
-} // namespace doris::vectorized
+} // namespace doris

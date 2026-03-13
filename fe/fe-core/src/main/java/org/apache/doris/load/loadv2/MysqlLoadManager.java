@@ -19,11 +19,12 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.LoadException;
@@ -170,7 +171,7 @@ public class MysqlLoadManager {
             throws IOException, UserException {
         LoadJobRowResult loadResult = new LoadJobRowResult();
         List<String> filePaths = dataDesc.getFilePaths();
-        String database = ClusterNamespace.getNameFromFullName(dataDesc.getDbName());
+        String database = dataDesc.getDbName();
         String table = dataDesc.getTableName();
         int oldTimeout = context.getExecTimeoutS();
         int newTimeOut = extractTimeOut(dataDesc);
@@ -237,7 +238,7 @@ public class MysqlLoadManager {
                                                                String loadId) throws IOException, UserException {
         LoadJobRowResult loadResult = new LoadJobRowResult();
         List<String> filePaths = dataDesc.getFilePaths();
-        String database = ClusterNamespace.getNameFromFullName(dataDesc.getDbName());
+        String database = dataDesc.getDbName();
         String table = dataDesc.getTableName();
         int oldTimeout = context.getExecTimeoutS();
         int newTimeOut = extractTimeOut(dataDesc);
@@ -394,7 +395,7 @@ public class MysqlLoadManager {
                 fieldString.append(",");
                 List<String> mappings = new ArrayList<>();
                 for (Expr expr : desc.getColumnMappingList()) {
-                    mappings.add(expr.toSql().replaceAll("`", ""));
+                    mappings.add(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE).replaceAll("`", ""));
                 }
                 fieldString.append(Joiner.on(",").join(mappings));
             }

@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SlotRef;
@@ -31,6 +30,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -1182,7 +1182,6 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             SlotRef slotRef = new SlotRef(slotReference.getDataType().toCatalogDataType(), slotReference.nullable());
             slotRef.setLabel(slotReference.getName());
             slotRef.setCol(slotReference.getName());
-            slotRef.disableTableName();
             return slotRef;
         }
 

@@ -83,12 +83,12 @@ Status SchemaViewDependencyScanner::_get_view_dependency_block_from_fe() {
     }
     std::vector<TRow> result_data = result.data_batch;
 
-    _view_dependency_block = vectorized::Block::create_unique();
+    _view_dependency_block = Block::create_unique();
     for (int i = 0; i < _s_view_dependency_columns.size(); ++i) {
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+        auto data_type = DataTypeFactory::instance().create_data_type(
                 _s_view_dependency_columns[i].type, true);
-        _view_dependency_block->insert(vectorized::ColumnWithTypeAndName(
-                data_type->create_column(), data_type, _s_view_dependency_columns[i].name));
+        _view_dependency_block->insert(ColumnWithTypeAndName(data_type->create_column(), data_type,
+                                                             _s_view_dependency_columns[i].name));
     }
 
     _view_dependency_block->reserve(_block_rows_limit);
@@ -111,7 +111,7 @@ Status SchemaViewDependencyScanner::_get_view_dependency_block_from_fe() {
     return Status::OK();
 }
 
-Status SchemaViewDependencyScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaViewDependencyScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -131,7 +131,7 @@ Status SchemaViewDependencyScanner::get_next_block_internal(vectorized::Block* b
     }
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
-    vectorized::MutableBlock mblock = vectorized::MutableBlock::build_mutable_block(block);
+    MutableBlock mblock = MutableBlock::build_mutable_block(block);
     RETURN_IF_ERROR(mblock.add_rows(_view_dependency_block.get(), _row_idx, current_batch_rows));
     _row_idx += current_batch_rows;
 

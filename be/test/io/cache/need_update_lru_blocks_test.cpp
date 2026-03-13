@@ -27,7 +27,7 @@ namespace {
 
 FileBlockSPtr create_block(int idx) {
     FileCacheKey key;
-    key.hash = UInt128Wrapper(vectorized::UInt128(static_cast<uint64_t>(idx + 1)));
+    key.hash = UInt128Wrapper(UInt128(static_cast<uint64_t>(idx + 1)));
     key.offset = static_cast<size_t>(idx * 16);
     key.meta.expiration_time = 0;
     key.meta.type = FileCacheType::NORMAL;

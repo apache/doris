@@ -36,8 +36,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-namespace pipeline {
-
 Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
@@ -73,8 +71,8 @@ Status UnionSourceLocalState::open(RuntimeState* state) {
     // Const exprs materialized by this node. These exprs don't refer to any children.
     // Only materialized by the first fragment instance to avoid duplication.
     if (state->per_fragment_instance_idx() == 0) {
-        auto clone_expr_list = [&](vectorized::VExprContextSPtrs& cur_expr_list,
-                                   vectorized::VExprContextSPtrs& other_expr_list) {
+        auto clone_expr_list = [&](VExprContextSPtrs& cur_expr_list,
+                                   VExprContextSPtrs& other_expr_list) {
             cur_expr_list.resize(other_expr_list.size());
             for (int i = 0; i < cur_expr_list.size(); i++) {
                 RETURN_IF_ERROR(other_expr_list[i]->clone(state, cur_expr_list[i]));
@@ -103,7 +101,7 @@ std::string UnionSourceLocalState::debug_string(int indentation_level) const {
     return fmt::to_string(debug_string_buffer);
 }
 
-Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
+Status UnionSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     Defer set_eos {[&]() {
         // the eos check of union operator is complex, need check all logical if you want modify
@@ -129,7 +127,7 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
         }
         local_state._need_read_for_const_expr = has_more_const(state);
     } else if (_child_size != 0) {
-        std::unique_ptr<vectorized::Block> output_block;
+        std::unique_ptr<Block> output_block;
         int child_idx = 0;
         RETURN_IF_ERROR(local_state._shared_state->data_queue.get_block_from_queue(&output_block,
                                                                                    &child_idx));
@@ -144,7 +142,7 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
     return Status::OK();
 }
 
-Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Block* block) {
+Status UnionSourceOperatorX::get_next_const(RuntimeState* state, Block* block) {
     DCHECK_EQ(state->per_fragment_instance_idx(), 0);
     auto& local_state = state->get_local_state(operator_id())->cast<UnionSourceLocalState>();
     DCHECK_LT(local_state._const_expr_list_idx, _const_expr_lists.size());
@@ -152,10 +150,9 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
     SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
 
     auto& _const_expr_list_idx = local_state._const_expr_list_idx;
-    vectorized::MutableBlock mblock =
-            vectorized::VectorizedUtils::build_mutable_mem_reuse_block(block, row_descriptor());
+    MutableBlock mblock = VectorizedUtils::build_mutable_mem_reuse_block(block, row_descriptor());
 
-    vectorized::ColumnsWithTypeAndName tmp_block_columns;
+    ColumnsWithTypeAndName tmp_block_columns;
     for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() < state->batch_size();
          ++_const_expr_list_idx) {
         int const_expr_lists_size = cast_set<int>(_const_expr_lists[_const_expr_list_idx].size());
@@ -170,7 +167,7 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
             RETURN_IF_ERROR(_const_expr_lists[_const_expr_list_idx][i]->execute_const_expr(
                     tmp_block_columns[i]));
         }
-        vectorized::Block tmp_block(tmp_block_columns);
+        Block tmp_block(tmp_block_columns);
         if (tmp_block.columns() != mblock.columns()) {
             return Status::InternalError(
                     "[UnionNode]columns count of const expr block not matched ({} vs {})",
@@ -186,8 +183,7 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
     // the const expr will be in output expr cause the union node return a empty block. so here we
     // need add one row to make sure the union node exec const expr return at least one row
     if (block->rows() == 0) {
-        block->insert({vectorized::ColumnUInt8::create(1),
-                       std::make_shared<vectorized::DataTypeUInt8>(), ""});
+        block->insert({ColumnUInt8::create(1), std::make_shared<DataTypeUInt8>(), ""});
     }
     return Status::OK();
 }
@@ -204,6 +200,5 @@ Status UnionSourceLocalState::close(RuntimeState* state) {
     return Base::close(state);
 }
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

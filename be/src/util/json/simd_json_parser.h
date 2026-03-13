@@ -25,7 +25,7 @@
 
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 #include "common/compile_check_begin.h"
 
@@ -181,4 +181,4 @@ inline ALWAYS_INLINE SimdJSONParser::Object SimdJSONParser::Element::getObject()
 
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

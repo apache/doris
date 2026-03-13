@@ -19,12 +19,9 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
-import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.foundation.format.FormatOptions;
 
 import com.google.common.base.Preconditions;
 
@@ -53,11 +50,6 @@ public class PlaceHolderExpr extends LiteralExpr {
     public static PlaceHolderExpr create(String value, Type type) throws AnalysisException {
         Preconditions.checkArgument(!type.equals(Type.INVALID));
         return new PlaceHolderExpr(LiteralExpr.create(value, type));
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        lExpr.toThrift(msg);
     }
 
     /*
@@ -123,20 +115,8 @@ public class PlaceHolderExpr extends LiteralExpr {
     }
 
     @Override
-    public String toSqlImpl() {
-        if (this.lExpr == null) {
-            return "?";
-        }
-        return "_placeholder_(" + this.lExpr.toSqlImpl() + ")";
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        if (this.lExpr == null) {
-            return "?";
-        }
-        return "_placeholder_(" + this.lExpr.toSqlImpl(disableTableName, needExternalSql, tableType, table) + ")";
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitPlaceHolderExpr(this, context);
     }
 
     @Override

@@ -35,7 +35,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-namespace vectorized {
 class Block;
 
 class GetResultBatchCtx {
@@ -104,7 +103,6 @@ private:
 
     const bool _is_binary_format;
 };
-} // namespace vectorized
 } // namespace doris
 
 #include "common/compile_check_end.h"

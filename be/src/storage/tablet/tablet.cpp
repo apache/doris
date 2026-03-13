@@ -132,9 +132,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class TupleDescriptor;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 using namespace ErrorCode;
 using namespace std::chrono_literals;

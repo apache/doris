@@ -35,13 +35,11 @@ class RowDescriptor;
 class RuntimeProfile;
 class RuntimeState;
 
-namespace vectorized {
 class Block;
 class VSortExecExprs;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 struct SortCursorCmp {
 public:
@@ -126,4 +124,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris
