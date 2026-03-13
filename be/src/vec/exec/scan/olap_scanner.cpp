@@ -642,6 +642,11 @@ Status OlapScanner::close(RuntimeState* state) {
 }
 
 void OlapScanner::update_realtime_counters() {
+    if (!_has_prepared) {
+        // Counter update need prepare successfully, or it maybe core. For example, olap scanner
+        // will open tablet reader during prepare, if not prepare successfully, tablet reader == nullptr.
+        return;
+    }
     pipeline::OlapScanLocalState* local_state =
             static_cast<pipeline::OlapScanLocalState*>(_local_state);
     const OlapReaderStatistics& stats = _tablet_reader->stats();

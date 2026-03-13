@@ -153,14 +153,19 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         Thread::set_thread_nice_value();
     }
 #endif
+
+    // we set and get counter according below order, to make sure the counter is updated before get_block, and the time of get_block is recorded in the counter.
+    // 1. update_wait_worker_timer to make sure the time of waiting for worker thread is recorded in the timer
+    // 2. start_scan_cpu_timer to make sure the cpu timer include the time of open and get_block, which is the real cpu time of scanner
+    // 3. update_scan_cpu_timer when defer, to make sure the cpu timer include the time of open and get_block, which is the real cpu time of scanner
+    // 4. start_wait_worker_timer when defer, to make sure the time of waiting for worker thread is recorded in the timer
+
     MonotonicStopWatch max_run_time_watch;
     max_run_time_watch.start();
     scanner->update_wait_worker_timer();
     scanner->start_scan_cpu_timer();
 
-    // Counter update need prepare successfully, or it maybe core. For example, olap scanner
-    // will open tablet reader during prepare, if not prepare successfully, tablet reader == nullptr.
-    bool need_update_profile = scanner->has_prepared();
+    bool need_update_profile = true;
     auto update_scanner_profile = [&]() {
         if (need_update_profile) {
             scanner->update_scan_cpu_timer();
@@ -168,13 +173,16 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             need_update_profile = false;
         }
     };
-    Defer defer_scanner([&] {
-        // WorkloadGroup Policy will check cputime realtime, so that should update the counter
-        // as soon as possible, could not update it on close.
-        update_scanner_profile();
-    });
+
     Status status = Status::OK();
     bool eos = false;
+    Defer defer_scanner([&] {
+        if (status.ok() && !eos) {
+            // if status is not ok, it means the scanner is failed, and the counter may be not updated correctly, so no need to update counter again. if eos is true, it means the scanner is finished successfully, and the counter is updated correctly, so no need to update counter again.
+            scanner->start_wait_worker_timer();
+        }
+    });
+
     ASSIGN_STATUS_IF_CATCH_EXCEPTION(
             RuntimeState* state = ctx->state(); DCHECK(nullptr != state);
             // scanner->open may alloc plenty amount of memory(read blocks of data),
