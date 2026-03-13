@@ -166,7 +166,7 @@ message RowsetMetaPB {
     optional bool is_recycled = 1013; // for recycler mark rowset as recycled
     optional string job_id = 1014;
 
-    optional int64 commit_tso = 1015 [default = -1]; // commit tso
+    optional int64 commit_tso = 1015 [default = -1];
 }
 
 message SchemaDictKeyList {
@@ -272,6 +272,8 @@ message RowsetMetaCloudPB {
 
     optional bool is_recycled = 112;
     optional string job_id = 113;
+    optional int64 commit_tso = 114 [default = -1];
+
 }
 
 message SegmentStatisticsPB {

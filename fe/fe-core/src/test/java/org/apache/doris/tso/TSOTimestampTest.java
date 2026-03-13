@@ -62,14 +62,14 @@ public class TSOTimestampTest {
     public void testBitWidthLimitations() {
         // Test that values are properly masked to fit in their respective bit widths
         long largePhysicalTime = (1L << 46) + 1000L; // Larger than 46 bits
-        long largeLogicalCounter = (1L << 12) + 50L;  // Larger than 12 bits
+        long largeLogicalCounter = (1L << 18) + 50L;  // Larger than 18 bits
 
         TSOTimestamp timestamp = new TSOTimestamp(largePhysicalTime, largeLogicalCounter);
         long composed = timestamp.composeTimestamp();
 
         // Values should be masked to fit in their respective bit widths
         Assert.assertEquals(largePhysicalTime & ((1L << 46) - 1), TSOTimestamp.extractPhysicalTime(composed));
-        Assert.assertEquals(largeLogicalCounter & ((1L << 12) - 1), TSOTimestamp.extractLogicalCounter(composed));
+        Assert.assertEquals(largeLogicalCounter & ((1L << 18) - 1), TSOTimestamp.extractLogicalCounter(composed));
     }
 
     @Test
@@ -149,6 +149,6 @@ public class TSOTimestampTest {
     @Test
     public void testMaxLogicalCounter() {
         // Test the maximum logical counter value
-        Assert.assertEquals((1L << 12) - 1, TSOTimestamp.MAX_LOGICAL_COUNTER);
+        Assert.assertEquals((1L << 18) - 1, TSOTimestamp.MAX_LOGICAL_COUNTER);
     }
 }

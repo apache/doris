@@ -140,8 +140,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_TYPE = "type";
     // This is common prefix for function column
     public static final String PROPERTIES_FUNCTION_COLUMN = "function_column";
-    public static final String PROPERTIES_SEQUENCE_TYP
-      E = "sequence_type";
+    public static final String PROPERTIES_SEQUENCE_TYPE = "sequence_type";
     public static final String PROPERTIES_SEQUENCE_COL = "sequence_col";
 
     public static final String PROPERTIES_SEQUENCE_MAPPING = "sequence_mapping";
@@ -883,7 +882,7 @@ public class PropertyAnalyzer {
         if (value.equalsIgnoreCase("true")) {
             if (!Config.enable_feature_tso) {
                 throw new AnalysisException(PROPERTIES_ENABLE_TSO
-                        + " can not be enabled when enable_feature_tso is disabled");
+                        + " can not be enabled when experimental_enable_feature_tso is disabled");
             }
             return true;
         } else if (value.equalsIgnoreCase("false")) {
