@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.InternalCatalog;
@@ -358,7 +357,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitDatabase(Database database, ExpressionRewriteContext context) {
-        String res = ClusterNamespace.getNameFromFullName(context.cascadesContext.getConnectContext().getDatabase());
+        String res = context.cascadesContext.getConnectContext().getDatabase();
         return new VarcharLiteral(res);
     }
 

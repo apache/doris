@@ -651,7 +651,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     fi
 
     echo "-- Make program: ${MAKE_PROGRAM}"
-    echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
+    echo "-- Use ccache: ${CMAKE_USE_CCACHE_CXX} and ${CMAKE_USE_CCACHE_C}"
     echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
     echo "-- Build fs benchmark tool: ${BUILD_FS_BENCHMARK}"
     echo "-- Build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}"
