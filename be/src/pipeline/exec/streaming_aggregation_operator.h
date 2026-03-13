@@ -266,14 +266,13 @@ private:
     std::vector<size_t> _make_nullable_keys;
     bool _have_conjuncts;
     RowDescriptor _agg_fn_output_row_descriptor;
-<<<<<<< HEAD
     // For sort limit
     bool _do_sort_limit = false;
     int64_t _sort_limit = -1;
     std::vector<int> _order_directions;
     std::vector<int> _null_directions;
 
-    const std::vector<TExpr> _partition_exprs;
+    std::vector<TExpr> _partition_exprs;
 };
 
 } // namespace pipeline
