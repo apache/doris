@@ -156,6 +156,7 @@ import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
 import org.apache.doris.nereids.rules.rewrite.RewriteSearchToSlots;
+import org.apache.doris.nereids.rules.rewrite.RewriteSimpleAggToConstantRule;
 import org.apache.doris.nereids.rules.rewrite.SaltJoin;
 import org.apache.doris.nereids.rules.rewrite.SetPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.SimplifyEncodeDecode;
@@ -283,6 +284,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             topDown(
                                     new NormalizeAggregate(),
                                     new CountLiteralRewrite(),
+                                    new RewriteSimpleAggToConstantRule(),
                                     new NormalizeSort()
                             ),
 
@@ -519,6 +521,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topDown(
                         new NormalizeAggregate(),
                         new CountLiteralRewrite(),
+                        new RewriteSimpleAggToConstantRule(),
                         new NormalizeSort()
                 ),
 
