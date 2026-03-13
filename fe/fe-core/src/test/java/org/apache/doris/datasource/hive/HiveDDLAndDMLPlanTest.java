@@ -83,6 +83,7 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
     private List<FieldSchema> checkedHiveCols;
 
     private final Set<String> createdDbs = new HashSet<>();
+
     private final Set<Table> createdTables = new HashSet<>();
 
     @Override

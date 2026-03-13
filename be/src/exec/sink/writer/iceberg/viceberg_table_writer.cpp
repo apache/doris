@@ -45,6 +45,7 @@ VIcebergTableWriter::VIcebergTableWriter(const TDataSink& t_sink,
 
 Status VIcebergTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
+    _operator_profile = profile;
 
     // Get target file size from query options
     // If value is 0 or not set, use config::iceberg_sink_max_file_size
@@ -188,7 +189,18 @@ Status VIcebergTableWriter::write(RuntimeState* state, Block& block) {
     RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_vec_output_expr_ctxs, block,
                                                                        &output_block, false));
     materialize_block_inplace(output_block);
+    return _write_prepared_block(output_block);
+}
 
+Status VIcebergTableWriter::write_prepared_block(Block& block) {
+    SCOPED_RAW_TIMER(&_send_data_ns);
+    if (block.rows() == 0) {
+        return Status::OK();
+    }
+    return _write_prepared_block(block);
+}
+
+Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
     std::unordered_map<std::shared_ptr<IPartitionWriterBase>, IColumn::Filter> writer_positions;
     _row_count += output_block.rows();
 

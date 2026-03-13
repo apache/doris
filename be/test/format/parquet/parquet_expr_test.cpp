@@ -280,9 +280,9 @@ public:
         p_reader->set_file_reader(local_file_reader);
         colname_to_slot_id.emplace("int64_col", 2);
         phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-        static_cast<void>(p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp,
-                                                tuple_desc, nullptr, &colname_to_slot_id, nullptr,
-                                                nullptr));
+        static_cast<void>(p_reader->_do_init_reader(column_names, &col_name_to_block_idx, {}, tmp,
+                                                    tuple_desc, nullptr, &colname_to_slot_id,
+                                                    nullptr, nullptr));
 
         size_t meta_size;
         static_cast<void>(parse_thrift_footer(p_reader->_file_reader, &doris_file_metadata,
