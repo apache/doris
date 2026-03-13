@@ -12,4 +12,4 @@ USE ali_db;
 
 CREATE EXTERNAL TABLE external_test_table
     STORED BY 'org.apache.paimon.hive.PaimonStorageHandler'
-LOCATION 'oss://${hiveconf:oss_bucket}/regression/paimon_warehouse/ali_db.db/hive_test_table';
+LOCATION 'oss://__OSS_BUCKET__/regression/paimon_warehouse/ali_db.db/hive_test_table';
