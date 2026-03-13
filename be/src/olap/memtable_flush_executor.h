@@ -163,10 +163,13 @@ public:
 
     ThreadPool* flush_pool() { return _flush_pool.get(); }
 
+    void update_memtable_flush_threads();
+
 private:
     std::unique_ptr<ThreadPool> _flush_pool;
     std::unique_ptr<ThreadPool> _high_prio_flush_pool;
     std::atomic<int> _flushing_task_count = 0;
+    int _num_disk = 0;
 };
 
 } // namespace doris
