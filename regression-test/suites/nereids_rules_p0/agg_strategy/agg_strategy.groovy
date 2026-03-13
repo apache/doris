@@ -21,6 +21,7 @@ suite("agg_strategy") {
     sql "set global enable_auto_analyze=false"
     sql "set runtime_filter_mode=OFF"
     sql "set be_number_for_test=1;"
+    sql "set parallel_pipeline_task_num=1;"
 
     for (int i = 0; i < 2; i++) {
         if (i == 0) {
