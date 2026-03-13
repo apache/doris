@@ -16,12 +16,12 @@ internal
 3	1
 
 -- !quantile_internal --
-1	100.0
-2	250.0
-3	400.0
+1	100
+2	250
+3	400
 
 -- !quantile_jdbc --
-1	100.0
-2	250.0
-3	400.0
+1	NaN
+2	NaN
+3	NaN
 

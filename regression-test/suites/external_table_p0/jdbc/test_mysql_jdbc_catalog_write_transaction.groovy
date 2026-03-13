@@ -21,6 +21,7 @@ suite("test_mysql_jdbc_catalog_write_transaction", "p0,external") {
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
+    // String driver_url = "mysql-connector-j-8.4.0.jar"
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         return;
     }

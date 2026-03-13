@@ -314,8 +314,8 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
         return create_bitmap_wrapper(context, from_type,
                                      static_cast<const DataTypeBitMap&>(*to_type));
     case PrimitiveType::TYPE_QUANTILE_STATE:
-        return create_quantile_state_wrapper(
-                context, from_type, static_cast<const DataTypeQuantileState&>(*to_type));
+        return create_quantile_state_wrapper(context, from_type,
+                                             static_cast<const DataTypeQuantileState&>(*to_type));
     case PrimitiveType::TYPE_JSONB:
         return create_cast_to_jsonb_wrapper(from_type, static_cast<const DataTypeJsonb&>(*to_type),
                                             context ? context->string_as_jsonb_string() : false);

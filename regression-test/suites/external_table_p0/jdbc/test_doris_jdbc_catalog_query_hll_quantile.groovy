@@ -24,6 +24,7 @@ suite("test_doris_jdbc_catalog_query_hll_quantile", "p0,external") {
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
+    // String driver_url = "mysql-connector-j-8.4.0.jar"
 
     String catalog_name = "doris_jdbc_catalog_query_hll_quantile";
     String internal_db_name = "regression_test_jdbc_catalog_p0_query_hll_quantile";
