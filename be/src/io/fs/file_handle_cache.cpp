@@ -47,13 +47,14 @@ HdfsFileHandle::~HdfsFileHandle() {
     _hdfs_file = nullptr;
 }
 
-Status HdfsFileHandle::init(int64_t file_size) {
+Status HdfsFileHandle::init(int64_t file_size, const hdfsAuditContext* audit_context) {
     hdfsFS fs = _fs_handler ? _fs_handler->hdfs_fs : nullptr;
     if (fs == nullptr) {
         return Status::IOError("HdfsFileHandle: hdfs fs handler is null");
     }
 
-    _hdfs_file = hdfsOpenFile(fs, _fname.c_str(), O_RDONLY, 0, 0, 0);
+    _hdfs_file = hdfsOpenFileWithAuditContext(fs, _fname.c_str(), O_RDONLY, 0, 0, 0,
+                                              audit_context);
     if (_hdfs_file == nullptr) {
         std::string _err_msg = hdfs_error();
         // invoker maybe just skip Status.NotFound and continue
@@ -66,7 +67,8 @@ Status HdfsFileHandle::init(int64_t file_size) {
 
     _file_size = file_size;
     if (_file_size <= 0) {
-        hdfsFileInfo* file_info = hdfsGetPathInfo(fs, _fname.c_str());
+        hdfsFileInfo* file_info =
+                hdfsGetPathInfoWithAuditContext(fs, _fname.c_str(), audit_context);
         if (file_info == nullptr) {
             return Status::InternalError("failed to get file size of {}: {}", _fname, hdfs_error());
         }
@@ -162,7 +164,8 @@ Status FileHandleCache::get_file_handle(std::shared_ptr<HdfsHandler> fs_handler,
                                         const std::string& bee_user,
                                         const std::string& bee_source, int64_t mtime,
                                         int64_t file_size, bool require_new_handle,
-                                        FileHandleCache::Accessor* accessor, bool* cache_hit) {
+                                        FileHandleCache::Accessor* accessor, bool* cache_hit,
+                                        const hdfsAuditContext* audit_context) {
     DCHECK_GE(mtime, 0);
     // Hash the key and get appropriate partition
     int index =
@@ -191,7 +194,7 @@ Status FileHandleCache::get_file_handle(std::shared_ptr<HdfsHandler> fs_handler,
     auto accessor_tmp = p.cache.emplace_and_get(cache_key, std::move(fs_handler), fname, mtime);
 
     // Opening a file handle requires talking to the NameNode so it can take some time.
-    Status status = accessor_tmp.get()->init(file_size);
+    Status status = accessor_tmp.get()->init(file_size, audit_context);
     if (UNLIKELY(!status.ok())) {
         // Removing the handler from the cache after failed initialization.
         accessor_tmp.destroy();

@@ -46,6 +46,7 @@ public:
     static Result<FileReaderSPtr> create(Path path, std::shared_ptr<HdfsHandler> fs_handler,
                                          const std::string& user, const std::string& bee_user,
                                          const std::string& bee_source,
+                                         const hdfsAuditContext* audit_context,
                                          const std::string& fs_name,
                                          const FileReaderOptions& opts,
                                          RuntimeProfile* profile);

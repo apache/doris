@@ -25,6 +25,7 @@
 #include <chrono> // IWYU pragma: keep
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/config.h"
@@ -90,6 +91,8 @@ private:
     std::string _fs_name;
     std::shared_ptr<HdfsHandler> _fs_handler = nullptr;
     RuntimeProfile* _profile = nullptr;
+    hdfsAuditContext _audit_context = {nullptr, nullptr, nullptr};
+    std::unordered_map<std::string, std::string> _audit_context_strings;
 };
 } // namespace io
 } // namespace doris

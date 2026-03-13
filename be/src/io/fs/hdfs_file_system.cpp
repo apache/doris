@@ -101,6 +101,22 @@ HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, std::string fs_na
     if (_fs_name.empty()) {
         _fs_name = hdfs_params.fs_name;
     }
+
+    const std::string business_id = get_hdfs_conf_value(_hdfs_params, "BEE_BUSINESSID");
+    const std::string bee_user = get_hdfs_conf_value(_hdfs_params, "BEE_USER");
+    const std::string bee_source = get_hdfs_conf_value(_hdfs_params, "BEE_SOURCE");
+    if (!business_id.empty()) {
+        _audit_context_strings["businessId"] = business_id;
+        _audit_context.businessId = _audit_context_strings["businessId"].c_str();
+    }
+    if (!bee_user.empty()) {
+        _audit_context_strings["erp"] = bee_user;
+        _audit_context.erp = _audit_context_strings["erp"].c_str();
+    }
+    if (!bee_source.empty()) {
+        _audit_context_strings["source"] = bee_source;
+        _audit_context.source = _audit_context_strings["source"].c_str();
+    }
 }
 
 HdfsFileSystem::~HdfsFileSystem() = default;
@@ -131,7 +147,8 @@ Status HdfsFileSystem::open_file_internal(const Path& file, FileReaderSPtr* read
     const std::string bee_user = get_hdfs_conf_value(_hdfs_params, "BEE_USER");
     const std::string bee_source = get_hdfs_conf_value(_hdfs_params, "BEE_SOURCE");
     *reader = DORIS_TRY(HdfsFileReader::create(file, _fs_handler, _hdfs_params.user, bee_user,
-                                               bee_source, _fs_name, opts, _profile));
+                                               bee_source, &_audit_context, _fs_name, opts,
+                                               _profile));
     return Status::OK();
 }
 
@@ -178,7 +195,9 @@ Status HdfsFileSystem::delete_internal(const Path& path, int is_recursive) {
 Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
     CHECK_HDFS_HANDLER(_fs_handler);
     Path real_path = convert_path(path, _fs_name);
-    int is_exists = hdfsExists(_fs_handler->hdfs_fs, real_path.string().c_str());
+    int is_exists =
+            hdfsExistsWithAuditContext(_fs_handler->hdfs_fs, real_path.string().c_str(),
+                                       &_audit_context);
 #ifdef USE_HADOOP_HDFS
     // when calling hdfsExists() and return non-zero code,
     // if errno is ENOENT, which means the file does not exist.
@@ -201,7 +220,8 @@ Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
 Status HdfsFileSystem::file_size_impl(const Path& path, int64_t* file_size) const {
     CHECK_HDFS_HANDLER(_fs_handler);
     Path real_path = convert_path(path, _fs_name);
-    hdfsFileInfo* file_info = hdfsGetPathInfo(_fs_handler->hdfs_fs, real_path.string().c_str());
+    hdfsFileInfo* file_info = hdfsGetPathInfoWithAuditContext(
+            _fs_handler->hdfs_fs, real_path.string().c_str(), &_audit_context);
     if (file_info == nullptr) {
         return Status::IOError("failed to get file size of {}: {}", path.native(), hdfs_error());
     }
@@ -220,8 +240,8 @@ Status HdfsFileSystem::list_impl(const Path& path, bool only_file, std::vector<F
     CHECK_HDFS_HANDLER(_fs_handler);
     Path real_path = convert_path(path, _fs_name);
     int numEntries = 0;
-    hdfsFileInfo* hdfs_file_info =
-            hdfsListDirectory(_fs_handler->hdfs_fs, real_path.c_str(), &numEntries);
+    hdfsFileInfo* hdfs_file_info = hdfsListDirectoryWithAuditContext(
+            _fs_handler->hdfs_fs, real_path.c_str(), &numEntries, &_audit_context);
     if (hdfs_file_info == nullptr) {
         return Status::IOError("failed to list files/directors {}: {}", path.native(),
                                hdfs_error());

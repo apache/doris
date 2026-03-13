@@ -58,6 +58,44 @@ namespace doris {
 
 constexpr std::string_view RANDOM_CACHE_BASE_PATH = "random";
 
+namespace {
+
+std::string get_hdfs_conf_value(const THdfsParams& hdfs_params, const char* key) {
+    if (!hdfs_params.__isset.hdfs_conf) {
+        return "";
+    }
+    for (const auto& conf : hdfs_params.hdfs_conf) {
+        if (conf.key == key) {
+            return conf.value;
+        }
+    }
+    return "";
+}
+
+struct HdfsAuditContextHolder {
+    hdfsAuditContext context {nullptr, nullptr, nullptr};
+    std::string business_id;
+    std::string erp;
+    std::string source;
+
+    explicit HdfsAuditContextHolder(const THdfsParams& hdfs_params)
+            : business_id(get_hdfs_conf_value(hdfs_params, "BEE_BUSINESSID")),
+              erp(get_hdfs_conf_value(hdfs_params, "BEE_USER")),
+              source(get_hdfs_conf_value(hdfs_params, "BEE_SOURCE")) {
+        if (!business_id.empty()) {
+            context.businessId = business_id.c_str();
+        }
+        if (!erp.empty()) {
+            context.erp = erp.c_str();
+        }
+        if (!source.empty()) {
+            context.source = source.c_str();
+        }
+    }
+};
+
+}
+
 io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state,
                                                       const io::FileDescription& fd) {
     io::FileReaderOptions opts {
@@ -246,9 +284,11 @@ Result<io::FileReaderSPtr> FileFactory::create_file_reader(
                 }
             }
         }
+        HdfsAuditContextHolder audit_context(system_properties.hdfs_params);
         return io::HdfsFileReader::create(file_description.path, handler,
                                           system_properties.hdfs_params.user, bee_user,
-                                          bee_source, *fs_name, reader_options, profile)
+                                          bee_source, &audit_context.context, *fs_name,
+                                          reader_options, profile)
                 .and_then([&](auto&& reader) {
                     return io::create_cached_file_reader(std::move(reader), reader_options);
                 });

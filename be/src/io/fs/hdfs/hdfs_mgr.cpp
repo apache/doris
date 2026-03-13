@@ -250,14 +250,6 @@ std::string HdfsMgr::_hdfs_cache_key(const THdfsParams& hdfs_params, const std::
         cache_key += hdfs_params.user;
     }
 
-    if (hdfs_params.__isset.hdfs_conf) {
-        for (const auto& conf : hdfs_params.hdfs_conf) {
-            if (conf.key == "BEE_USER" || conf.key == "BEE_SOURCE") {
-                cache_key += conf.value;
-            }
-        }
-    }
-
     return cache_key;
 }
 

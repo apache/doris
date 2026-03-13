@@ -213,6 +213,10 @@ Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_
                 hdfsBuilderSetUserToken(builder->get(), conf.value.c_str());
                 continue;
             }
+            if (conf.key == "BEE_BUSINESSID" || conf.key == "BEE_USER" ||
+                conf.key == "BEE_SOURCE") {
+                continue;
+            }
             builder->set_hdfs_conf(conf.key, conf.value);
             LOG(INFO) << "set hdfs config key: " << conf.key << ", value: " << conf.value;
             if (strcmp(conf.key.c_str(), "hadoop.security.authentication") == 0) {

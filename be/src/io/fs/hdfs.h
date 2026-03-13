@@ -21,4 +21,36 @@
 #include <hadoop_hdfs/hdfs.h> // IWYU pragma: export
 #else
 #include <hdfs/hdfs.h> // IWYU pragma: export
+
+struct hdfsAuditContext {
+    const char* businessId;
+    const char* erp;
+    const char* source;
+};
+
+static inline hdfsFile hdfsOpenFileWithAuditContext(hdfsFS fs, const char* path, int flags,
+                                                    int bufferSize, short replication,
+                                                    tSize blocksize,
+                                                    const hdfsAuditContext* audit_context) {
+    (void)audit_context;
+    return hdfsOpenFile(fs, path, flags, bufferSize, replication, blocksize);
+}
+
+static inline hdfsFileInfo* hdfsGetPathInfoWithAuditContext(hdfsFS fs, const char* path,
+                                                            const hdfsAuditContext* audit_context) {
+    (void)audit_context;
+    return hdfsGetPathInfo(fs, path);
+}
+
+static inline int hdfsExistsWithAuditContext(hdfsFS fs, const char* path,
+                                             const hdfsAuditContext* audit_context) {
+    (void)audit_context;
+    return hdfsExists(fs, path);
+}
+
+static inline hdfsFileInfo* hdfsListDirectoryWithAuditContext(
+        hdfsFS fs, const char* path, int* num_entries, const hdfsAuditContext* audit_context) {
+    (void)audit_context;
+    return hdfsListDirectory(fs, path, num_entries);
+}
 #endif
