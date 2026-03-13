@@ -72,7 +72,6 @@ private:
     bool _should_expand_hash_table = true;
     bool _stop_emplace_flag = false;
     const int batch_size;
-    bool _is_single_backend = false;
     std::unique_ptr<DistinctDataVariants> _agg_data = nullptr;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
@@ -88,6 +87,7 @@ private:
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
+    bool _is_single_backend = false;
 };
 
 class DistinctStreamingAggOperatorX final
