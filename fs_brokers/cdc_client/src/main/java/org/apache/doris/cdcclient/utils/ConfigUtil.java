@@ -17,9 +17,12 @@
 
 package org.apache.doris.cdcclient.utils;
 
+import org.apache.doris.job.cdc.DataSourceConfigKeys;
+
 import org.apache.commons.lang3.StringUtils;
 
 import java.time.ZoneId;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 
@@ -131,7 +134,8 @@ public class ConfigUtil {
             String key = entry.getKey();
             if (key.startsWith(prefix) && key.endsWith(suffix)) {
                 String srcTable = key.substring(prefix.length(), key.length() - suffix.length());
-                String dstTable = entry.getValue().trim();
+                String rawValue = entry.getValue();
+                String dstTable = rawValue != null ? rawValue.trim() : "";
                 if (!srcTable.isEmpty() && !dstTable.isEmpty()) {
                     result.put(srcTable, dstTable);
                 }
