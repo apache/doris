@@ -105,6 +105,7 @@ public class Optimizer {
     }
 
     private void dpHypOptimize() {
+        Plan oldRewrittenPlan = cascadesContext.getRewritePlan();
         Group root = cascadesContext.getMemo().getRoot();
         // Due to EnsureProjectOnTopJoin, root group can't be Join Group, so DPHyp doesn't change the root group
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
@@ -143,6 +144,8 @@ public class Optimizer {
         cascadesContext.setRewritePlan(rewritten);
         // init memo
         cascadesContext.toMemo();
+        cascadesContext.setRewritePlan(oldRewrittenPlan);
+
         // stats derive
         cascadesContext.getMemo().getRoot().getLogicalExpressions().forEach(groupExpression -> cascadesContext.pushJob(
                 new DeriveStatsJob(groupExpression, cascadesContext.getCurrentJobContext())));
