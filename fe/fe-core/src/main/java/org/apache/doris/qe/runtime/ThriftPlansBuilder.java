@@ -90,6 +90,11 @@ public class ThriftPlansBuilder {
 
         List<PipelineDistributedPlan> distributedPlans = coordinatorContext.distributedPlans;
 
+        // Determine whether this query is assigned to a single backend and propagate it to
+        // TQueryOptions so that BE can apply more appropriate optimization strategies (e.g.
+        // streaming aggregation hash table thresholds).
+        coordinatorContext.queryOptions.setSingleBackendQuery(coordinatorContext.isSingleBackendQuery.get());
+
         // we should set runtime predicate first, then we can use heap sort and to thrift
         setRuntimePredicateIfNeed(coordinatorContext.scanNodes);
 
