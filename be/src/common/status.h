@@ -757,6 +757,14 @@ using ResultError = unexpected<Status>;
         std::forward<T>(res).value();                                                           \
     })
 
+// core in Debug mode, exception in Release mode.
+#define DORIS_CHECK(stmt)                                                                \
+    do {                                                                                 \
+        if (!static_cast<bool>(stmt)) [[unlikely]] {                                     \
+            throw Exception(Status::FatalError(fmt::format("Check failed: {}", #stmt))); \
+        }                                                                                \
+    } while (false)
+
 } // namespace doris
 
 // specify formatter for Status
