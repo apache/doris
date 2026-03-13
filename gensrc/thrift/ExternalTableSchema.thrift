@@ -49,6 +49,7 @@ struct TField {
     3: optional string name,          // Field name
     4: optional Types.TColumnType type,  // Corresponding Doris column type
     5: optional TNestedField nestedField  // Nested field definition (for array, struct, or map types)     
+    6: optional list<string> name_mapping // iceberg : schema.name-mapping.default, for missing column id.
 }
 
 

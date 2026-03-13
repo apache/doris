@@ -1245,6 +1245,9 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
                     }
                 }
             }
+        } else if (tablet_meta_info.has_vertical_compaction_num_columns_per_group()) {
+            tablet_meta.set_vertical_compaction_num_columns_per_group(
+                    tablet_meta_info.vertical_compaction_num_columns_per_group());
         }
         int64_t table_id = tablet_meta.table_id();
         int64_t index_id = tablet_meta.index_id();

@@ -38,7 +38,6 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -58,6 +57,8 @@ import io.debezium.data.VariableScaleDecimal;
 import io.debezium.data.geometry.Geography;
 import io.debezium.data.geometry.Geometry;
 import io.debezium.data.geometry.Point;
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.TableChanges;
 import io.debezium.time.MicroTime;
 import io.debezium.time.MicroTimestamp;
 import io.debezium.time.NanoTime;
@@ -65,17 +66,19 @@ import io.debezium.time.NanoTimestamp;
 import io.debezium.time.Time;
 import io.debezium.time.Timestamp;
 import io.debezium.time.ZonedTimestamp;
+import lombok.Getter;
 import lombok.Setter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** SourceRecord ==> [{},{}] */
+/** SourceRecord ==> DeserializeResult */
 public class DebeziumJsonDeserializer
-        implements SourceRecordDeserializer<SourceRecord, List<String>> {
+        implements SourceRecordDeserializer<SourceRecord, DeserializeResult> {
     private static final long serialVersionUID = 1L;
     private static final Logger LOG = LoggerFactory.getLogger(DebeziumJsonDeserializer.class);
     private static ObjectMapper objectMapper = new ObjectMapper();
     @Setter private ZoneId serverTimeZone = ZoneId.systemDefault();
+    @Getter @Setter protected Map<TableId, TableChanges.TableChange> tableSchemas;
 
     public DebeziumJsonDeserializer() {}
 
@@ -86,15 +89,14 @@ public class DebeziumJsonDeserializer
     }
 
     @Override
-    public List<String> deserialize(Map<String, String> context, SourceRecord record)
+    public DeserializeResult deserialize(Map<String, String> context, SourceRecord record)
             throws IOException {
         if (RecordUtils.isDataChangeRecord(record)) {
             LOG.trace("Process data change record: {}", record);
-            return deserializeDataChangeRecord(record);
-        } else if (RecordUtils.isSchemaChangeEvent(record)) {
-            return Collections.emptyList();
+            List<String> rows = deserializeDataChangeRecord(record);
+            return DeserializeResult.dml(rows);
         } else {
-            return Collections.emptyList();
+            return DeserializeResult.empty();
         }
     }
 

@@ -29,7 +29,6 @@ import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
 import org.apache.doris.catalog.info.DropBranchInfo;
 import org.apache.doris.catalog.info.DropTagInfo;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -58,6 +57,7 @@ import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.DropDbInfo;
@@ -696,25 +696,24 @@ public abstract class ExternalCatalog
             LOG.warn("failed to get db {} in catalog {}", dbName, name, e);
             return null;
         }
-        String realDbName = ClusterNamespace.getNameFromFullName(dbName);
 
         // information_schema db name is case-insensitive.
         // So, we first convert it to standard database name.
-        if (realDbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
-            realDbName = InfoSchemaDb.DATABASE_NAME;
-        } else if (realDbName.equalsIgnoreCase(MysqlDb.DATABASE_NAME)) {
-            realDbName = MysqlDb.DATABASE_NAME;
+        if (dbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
+            dbName = InfoSchemaDb.DATABASE_NAME;
+        } else if (dbName.equalsIgnoreCase(MysqlDb.DATABASE_NAME)) {
+            dbName = MysqlDb.DATABASE_NAME;
         } else {
             // Apply case-insensitive lookup for non-system databases
-            String localDbName = getLocalDatabaseName(realDbName, false);
+            String localDbName = getLocalDatabaseName(dbName, false);
             if (localDbName != null) {
-                realDbName = localDbName;
+                dbName = localDbName;
             }
         }
 
         // must use full qualified name to generate id.
         // otherwise, if 2 catalogs have the same db name, the id will be the same.
-        return metaCache.getMetaObj(realDbName, Util.genIdByName(name, realDbName)).orElse(null);
+        return metaCache.getMetaObj(dbName, Util.genIdByName(name, dbName)).orElse(null);
     }
 
     @Nullable
@@ -1056,6 +1055,9 @@ public abstract class ExternalCatalog
         }
         try {
             metadataOps.renameTable(dbName, oldTableName, newTableName);
+            Env.getCurrentEnv().getConstraintManager().renameTable(
+                    new TableNameInfo(getName(), dbName, oldTableName),
+                    new TableNameInfo(getName(), dbName, newTableName));
             Env.getCurrentEnv().getEditLog()
                     .logRefreshExternalTable(
                             ExternalObjectLog.createForRenameTable(getId(), dbName, oldTableName, newTableName));

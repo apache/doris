@@ -25,7 +25,6 @@
 #include "storage/key_coder.h"
 #include "storage/olap_common.h"
 #include "storage/segment/segment_writer.h"
-#include "util/key_util.h"
 #include "util/slice.h"
 
 namespace doris {

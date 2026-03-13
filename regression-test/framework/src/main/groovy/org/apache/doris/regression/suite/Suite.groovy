@@ -111,6 +111,7 @@ class Suite implements GroovyInterceptable {
 
     private AmazonS3 s3Client = null
     private FileSystem fs = null
+    private String sparkIcebergContainerNameCache = null
 
     Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
@@ -1603,6 +1604,10 @@ class Suite implements GroovyInterceptable {
      * Uses 'docker ps --filter name=spark-iceberg' to find the container.
      */
     private String getSparkIcebergContainerName() {
+        if (!Strings.isNullOrEmpty(sparkIcebergContainerNameCache)) {
+            return sparkIcebergContainerNameCache
+        }
+
         try {
             // Use docker ps with filter to find containers with 'spark-iceberg' in the name
             String command = "docker ps --filter name=spark-iceberg --format {{.Names}}"
@@ -1614,6 +1619,7 @@ class Suite implements GroovyInterceptable {
                 // Get the first matching container
                 String containerName = output.split('\n')[0].trim()
                 if (containerName) {
+                    sparkIcebergContainerNameCache = containerName
                     logger.info("Found spark-iceberg container: ${containerName}".toString())
                     return containerName
                 }
@@ -1666,6 +1672,7 @@ class Suite implements GroovyInterceptable {
     /**
      * Execute multiple Spark SQL statements on the spark-iceberg container.
      * Statements are separated by semicolons.
+     * All statements are executed in one spark-sql process to reduce startup overhead.
      * 
      * Usage:
      *   spark_iceberg_multi '''
@@ -1675,17 +1682,14 @@ class Suite implements GroovyInterceptable {
      *   '''
      */
     List<String> spark_iceberg_multi(String sqlStatements, int timeoutSeconds = 300) {
-        // Split by semicolon and execute each statement
         def statements = sqlStatements.split(';').collect { it.trim() }.findAll { it }
-        def results = []
 
-        for (stmt in statements) {
-            if (stmt) {
-                results << spark_iceberg(stmt, timeoutSeconds)
-            }
+        if (statements.isEmpty()) {
+            return []
         }
 
-        return results
+        String combinedSql = statements.collect { "${it};" }.join(" ")
+        return [spark_iceberg(combinedSql, timeoutSeconds)]
     }
 
     /**

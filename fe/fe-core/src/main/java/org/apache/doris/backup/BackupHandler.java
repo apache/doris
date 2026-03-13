@@ -29,7 +29,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.cloud.backup.CloudRestoreJob;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -566,7 +565,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
         // Create a backup job
         BackupJob backupJob = new BackupJob(command.getLabel(), db.getId(),
-                ClusterNamespace.getNameFromFullName(db.getFullName()),
+                db.getFullName(),
                 tableRefInfoList, command.getTimeoutMs(), command.getContent(), env, repoId, commitSeq);
         // write log
         env.getEditLog().logBackupJob(backupJob);

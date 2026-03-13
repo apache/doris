@@ -29,6 +29,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
@@ -57,7 +58,6 @@ import org.apache.doris.mtmv.MTMVVersionSnapshot;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -422,7 +422,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
      * @param indexType The index type to check for
      * @return true if the table has at least one index of the specified type, false otherwise
      */
-    public boolean hasIndexOfType(IndexDefinition.IndexType indexType) {
+    public boolean hasIndexOfType(IndexType indexType) {
         if (indexes == null) {
             return false;
         }
@@ -2735,6 +2735,21 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return PropertyAnalyzer.TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE;
     }
 
+    public void setVerticalCompactionNumColumnsPerGroup(int verticalCompactionNumColumnsPerGroup) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(
+                PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP,
+                Integer.valueOf(verticalCompactionNumColumnsPerGroup).toString());
+        tableProperty.buildVerticalCompactionNumColumnsPerGroup();
+    }
+
+    public int getVerticalCompactionNumColumnsPerGroup() {
+        if (tableProperty != null) {
+            return tableProperty.verticalCompactionNumColumnsPerGroup();
+        }
+        return PropertyAnalyzer.VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP_DEFAULT_VALUE;
+    }
+
     public int getIndexSchemaVersion(long indexId) {
         MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
         return indexMeta.getSchemaVersion();
@@ -3738,7 +3753,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public boolean isShadowIndex(long indexId) {
         String indexName = getIndexNameById(indexId);
-        if (indexName != null && indexName.startsWith(org.apache.doris.alter.SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+        if (indexName != null && indexName.startsWith(Column.SHADOW_NAME_PREFIX)) {
             return true;
         } else {
             return false;
@@ -3777,7 +3792,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public Index getInvertedIndex(Column column, List<String> subPath, String analyzer) {
         List<Index> invertedIndexes = new ArrayList<>();
         for (Index index : indexes.getIndexes()) {
-            if (index.getIndexType() == IndexDefinition.IndexType.INVERTED) {
+            if (index.getIndexType() == IndexType.INVERTED) {
                 List<String> columns = index.getColumns();
                 if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))) {
                     invertedIndexes.add(index);
@@ -3817,7 +3832,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
         List<Index> invertedIndexesWithFieldPattern = new ArrayList<>();
         for (Index index : indexes.getIndexes()) {
-            if (index.getIndexType() == IndexDefinition.IndexType.INVERTED) {
+            if (index.getIndexType() == IndexType.INVERTED) {
                 List<String> columns = index.getColumns();
                 if (columns != null && !columns.isEmpty() && column.getName().equals(columns.get(0))
                                         && fieldPattern.equals(index.getInvertedIndexFieldPattern())) {
