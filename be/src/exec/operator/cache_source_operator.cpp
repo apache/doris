@@ -37,9 +37,6 @@ Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
             ->data_queue.set_source_dependency(_shared_state->source_deps.front());
     const auto& scan_ranges = info.scan_ranges;
     bool hit_cache = false;
-    if (scan_ranges.size() > 1) {
-        return Status::InternalError("CacheSourceOperator only support one scan range, plan error");
-    }
 
     const auto& cache_param = _parent->cast<CacheSourceOperatorX>()._cache_param;
     // 1. init the slot orders
@@ -59,8 +56,20 @@ Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
     // 2. build cache key by digest_tablet_id
     RETURN_IF_ERROR(QueryCache::build_cache_key(scan_ranges, cache_param, &_cache_key, &_version));
-    custom_profile()->add_info_string(
-            "CacheTabletId", std::to_string(scan_ranges[0].scan_range.palo_scan_range.tablet_id));
+    std::vector<int64_t> cache_tablet_ids;
+    cache_tablet_ids.reserve(scan_ranges.size());
+    for (const auto& scan_range : scan_ranges) {
+        cache_tablet_ids.push_back(scan_range.scan_range.palo_scan_range.tablet_id);
+    }
+    std::sort(cache_tablet_ids.begin(), cache_tablet_ids.end());
+    std::string tablet_ids_str;
+    for (size_t i = 0; i < cache_tablet_ids.size(); ++i) {
+        tablet_ids_str += std::to_string(cache_tablet_ids[i]);
+        if (i < cache_tablet_ids.size() - 1) {
+            tablet_ids_str += ",";
+        }
+    }
+    custom_profile()->add_info_string("CacheTabletId", tablet_ids_str);
 
     // 3. lookup the cache and find proper slot order
     hit_cache = _global_cache->lookup(_cache_key, _version, &_query_cache_handle);

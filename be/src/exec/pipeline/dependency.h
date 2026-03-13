@@ -626,6 +626,18 @@ struct HashJoinSharedState : public JoinSharedState {
     // local filter will always be applied, and in filter could guarantee precise filtering
     // ATTN: we should disable always_true logic for in filter when we set this flag
     bool left_semi_direct_return = false;
+
+    // ASOF JOIN specific fields
+    // Whether the inequality is >= or > (true) vs <= or < (false)
+    bool asof_inequality_is_greater = true;
+    // Whether the inequality is strict (> or <) vs non-strict (>= or <=)
+    bool asof_inequality_is_strict = false;
+
+    // ASOF JOIN pre-sorted index with inline values for O(log K) branchless lookup
+    // Typed AsofIndexGroups stored in a variant (uint32_t for DateV2, uint64_t for DateTimeV2/TimestampTZ)
+    AsofIndexVariant asof_index_groups;
+    // build_row_index -> bucket_id for O(1) reverse lookup
+    std::vector<uint32_t> asof_build_row_to_bucket;
 };
 
 struct PartitionedHashJoinSharedState

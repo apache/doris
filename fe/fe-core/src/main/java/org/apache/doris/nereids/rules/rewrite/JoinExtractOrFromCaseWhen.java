@@ -82,6 +82,9 @@ public class JoinExtractOrFromCaseWhen implements RewriteRuleFactory {
     }
 
     private boolean needRewrite(LogicalJoin<Plan, Plan> join) {
+        if (join.getJoinType().isAsofJoin()) {
+            return false;
+        }
         if (PushDownJoinOtherCondition.needRewrite(join) || OrExpansion.INSTANCE.needRewriteJoin(join)) {
             Set<Slot> leftSlots = join.left().getOutputSet();
             Set<Slot> rightSlots = join.right().getOutputSet();
