@@ -21,10 +21,34 @@
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
+void collect_single_scorer(const WeightPtr& weight, const QueryExecutionContext& context,
+                           const std::string& binding_key,
+                           const std::shared_ptr<roaring::Roaring>& roaring,
+                           const CollectionSimilarityPtr& similarity, bool enable_scoring) {
+    auto scorer = weight->scorer(context, binding_key);
+    if (!scorer) {
+        return;
+    }
+
+    uint32_t doc = scorer->doc();
+    while (doc != TERMINATED) {
+        roaring->add(doc);
+        if (enable_scoring && similarity) {
+            similarity->collect(doc, scorer->score());
+        }
+        doc = scorer->advance();
+    }
+}
+
 void collect_multi_segment_doc_set(const WeightPtr& weight, const QueryExecutionContext& context,
                                    const std::string& binding_key,
                                    const std::shared_ptr<roaring::Roaring>& roaring,
                                    const CollectionSimilarityPtr& similarity, bool enable_scoring) {
+    if (context.readers.empty()) {
+        collect_single_scorer(weight, context, binding_key, roaring, similarity, enable_scoring);
+        return;
+    }
+
     for_each_index_segment(context, binding_key,
                            [&](const QueryExecutionContext& seg_ctx, uint32_t doc_base) {
                                auto scorer = weight->scorer(seg_ctx, binding_key);
