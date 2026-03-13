@@ -60,6 +60,7 @@ import org.apache.doris.nereids.rules.rewrite.ConvertOuterJoinToAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
+import org.apache.doris.nereids.rules.rewrite.DecomposeRepeatWithPreAggregation;
 import org.apache.doris.nereids.rules.rewrite.DecoupleEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
 import org.apache.doris.nereids.rules.rewrite.DistinctAggStrategySelector;
@@ -880,7 +881,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ImmutableSet.of(LogicalCTEAnchor.class),
                 () -> {
                     List<RewriteJob> rewriteJobs = Lists.newArrayListWithExpectedSize(300);
-
                     rewriteJobs.addAll(jobs(
                             topic("cte inline and pull up all cte anchor",
                                     custom(RuleType.PULL_UP_CTE_ANCHOR, PullUpCteAnchor::new),
@@ -908,7 +908,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     rewriteJobs.addAll(jobs(topic("split multi distinct",
                             custom(RuleType.DISTINCT_AGG_STRATEGY_SELECTOR,
                                     () -> DistinctAggStrategySelector.INSTANCE))));
-
+                    rewriteJobs.addAll(jobs(topic("decompse repeat",
+                            custom(RuleType.DECOMPOSE_REPEAT, () -> DecomposeRepeatWithPreAggregation.INSTANCE))));
                     // Rewrite search function before VariantSubPathPruning
                     // so that ElementAt expressions from search can be processed
                     rewriteJobs.addAll(jobs(

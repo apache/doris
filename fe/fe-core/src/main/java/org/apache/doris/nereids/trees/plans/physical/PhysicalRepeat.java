@@ -39,6 +39,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 /**
  * PhysicalRepeat.
@@ -117,7 +118,7 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     @Override
     public List<Slot> computeOutput() {
-        return outputExpressions.stream()
+        return Stream.concat(outputExpressions.stream(), Stream.of(groupingId))
                 .map(NamedExpression::toSlot)
                 .collect(ImmutableList.toImmutableList());
     }
