@@ -23,6 +23,7 @@
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_decimal.h"
+#include "core/column/column_varbinary.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_number.h"
 #include "core/string_ref.h"
@@ -105,19 +106,22 @@ struct AggregateFunctionEntropySingleNumericData
     using Base = AggregateFunctionEntropyData<typename PrimitiveTypeTraits<T>::CppType>;
 
     void add(const IColumn** columns, size_t /* columns_num */, size_t row_num, Arena&) {
-        const auto& vec = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                      TypeCheckOnRelease::DISABLE>(*columns[0])
-                                  .get_data();
-        Base::add(vec[row_num]);
+        const auto& col = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                      TypeCheckOnRelease::DISABLE>(*columns[0]);
+        auto key = col.get_data()[row_num];
+        Base::add(key);
     }
 };
 
+template <PrimitiveType T>
 struct AggregateFunctionEntropySingleStringData
         : public AggregateFunctionEntropyData<UInt128, UInt128TrivialHash> {
     using Base = AggregateFunctionEntropyData<UInt128, UInt128TrivialHash>;
 
     void add(const IColumn** columns, size_t /* columns_num */, size_t row_num, Arena&) {
-        auto key = columns[0]->get_data_at(row_num);
+        const auto& col = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                      TypeCheckOnRelease::DISABLE>(*columns[0]);
+        auto key = col.get_data_at(row_num);
         auto hash_value = XXH_INLINE_XXH128(key.data, key.size, 0);
         Base::add(UInt128 {hash_value.high64, hash_value.low64});
     }
@@ -141,7 +145,7 @@ struct AggregateFunctionEntropyGenericData
 };
 
 template <typename Data>
-class AggregateFunctionEntropy
+class AggregateFunctionEntropy final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionEntropy<Data>>,
           VarargsExpression,
           NullableAggregateFunction {

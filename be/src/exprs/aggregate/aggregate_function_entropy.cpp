@@ -33,23 +33,23 @@ AggregateFunctionPtr create_aggregate_function_entropy(const std::string& name,
                                                        const bool result_is_nullable,
                                                        const AggregateFunctionAttr& attr) {
     if (argument_types.size() == 1) {
-        auto res = creator_with_type_list<
+        auto creator_numeric = creator_with_type_list<
                 TYPE_BOOLEAN, TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT,
                 TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DECIMAL256, TYPE_DECIMALV2,
                 TYPE_FLOAT, TYPE_DOUBLE, TYPE_DATE, TYPE_DATETIME, TYPE_DATEV2, TYPE_DATETIMEV2,
                 TYPE_TIME, TYPE_TIMEV2, TYPE_TIMESTAMPTZ, TYPE_IPV4, TYPE_IPV6>::
                 create<AggregateFunctionEntropy, AggregateFunctionEntropySingleNumericData>(
                         argument_types, result_is_nullable, attr);
-        if (res) {
-            return res;
+        if (creator_numeric) {
+            return creator_numeric;
         }
 
-        auto type = argument_types[0]->get_primitive_type();
-        if (is_string_type(type) || is_varbinary(type) || type == TYPE_JSONB) {
-            res = creator_without_type::create<
-                    AggregateFunctionEntropy<AggregateFunctionEntropySingleStringData>>(
-                    argument_types, result_is_nullable, attr);
-            return res;
+        auto creator_string = creator_with_type_list<TYPE_STRING, TYPE_VARCHAR, TYPE_CHAR,
+                                                     TYPE_VARBINARY, TYPE_JSONB>::
+                create<AggregateFunctionEntropy, AggregateFunctionEntropySingleStringData>(
+                        argument_types, result_is_nullable, attr);
+        if (creator_string) {
+            return creator_string;
         }
     }
 
