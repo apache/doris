@@ -23,7 +23,7 @@ generate_bulk_request() {
     local data_file=$4
     local output_file=$5
 
-    // clear output file
+    # clear output file
     echo "" > "$output_file"
 
     local id=1
