@@ -34,6 +34,7 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "runtime/exec_env.h"
+#include "runtime/aws_msk_iam_auth.h"
 #include "runtime/small_file_mgr.h"
 #include "service/backend_options.h"
 #include "util/blocking_queue.hpp"
@@ -99,6 +100,15 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
     }
 
     for (auto& item : ctx->kafka_info->properties) {
+        _custom_properties.emplace(item.first, item.second);
+
+        // AWS properties (aws.*) are Doris-specific for MSK IAM authentication
+        // and should not be passed to librdkafka
+        if (starts_with(item.second, "AWS:")) {
+            LOG(INFO) << "Skipping AWS property for librdkafka: " << item.first;
+            continue;
+        }
+
         if (starts_with(item.second, "FILE:")) {
             // file property should has format: FILE:file_id:md5
             std::vector<std::string> parts =
@@ -118,13 +128,12 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
         } else {
             RETURN_IF_ERROR(set_conf(item.first, item.second));
         }
-        _custom_properties.emplace(item.first, item.second);
     }
 
     // if not specified group id, generate a random one.
     // ATTN: In the new version, we have set a group.id on the FE side for jobs that have not set a groupid,
     // but in order to ensure compatibility, we still do a check here.
-    if (_custom_properties.find(PROP_GROUP_ID) == _custom_properties.end()) {
+    if (!_custom_properties.contains(PROP_GROUP_ID)) {
         std::stringstream ss;
         ss << BackendOptions::get_localhost() << "_";
         std::string group_id = ss.str() + UniqueId::gen_uid().to_string();
@@ -138,6 +147,18 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
         ss << "PAUSE: failed to set 'event_cb'";
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
+    }
+
+    // Set up AWS MSK IAM authentication if configured
+    _aws_msk_oauth_callback = AwsMskIamOAuthCallback::create_from_properties(
+        _custom_properties, ctx->kafka_info->brokers);
+    if (_aws_msk_oauth_callback) {
+        if (conf->set("oauthbearer_token_refresh_cb", _aws_msk_oauth_callback.get(), errstr) !=
+            RdKafka::Conf::CONF_OK) {
+            LOG(WARNING) << "PAUSE: failed to set OAuth callback: " << errstr;
+            return Status::InternalError("PAUSE: failed to set OAuth callback: " + errstr);
+        }
+        LOG(INFO) << "AWS MSK IAM authentication enabled successfully";
     }
 
     // create consumer
@@ -315,6 +336,20 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
 }
 
 Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids) {
+    if (_aws_msk_oauth_callback) {
+        // Trigger OAuth token refresh by polling the event loop
+        // librdkafka's OAUTHBEARER callback is only triggered through consume()/poll()
+        // Without this, metadata() will fail because broker is waiting for OAuth token
+        LOG(INFO) << "Polling to trigger OAuth token refresh before metadata request";
+        int max_poll_attempts = 10; // 10 × 500ms = 5 seconds max
+        for (int i = 0; i < max_poll_attempts; i++) {
+            RdKafka::Message* msg = _k_consumer->consume(500);
+            if (msg) {
+                delete msg; // We don't expect messages before partition assignment
+            }
+        }
+    }
+
     // create topic conf
     RdKafka::Conf* tconf = RdKafka::Conf::create(RdKafka::Conf::CONF_TOPIC);
     Defer delete_conf {[tconf]() { delete tconf; }};
