@@ -97,11 +97,15 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     block->swap(dst_block);
     *read_rows = block->rows();
     VLOG_DEBUG << "read block rows:" << *read_rows;
+
+    if (*read_rows > 0) {
+        RETURN_IF_ERROR(fill_remaining_columns(block, *read_rows));
+    }
+
     return Status::OK();
 }
 
-Status WalReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                              std::unordered_set<std::string>* missing_cols) {
+Status WalReader::_get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     std::string col_ids;
     RETURN_IF_ERROR(_wal_reader->read_header(_version, col_ids));
     std::vector<std::string> column_id_vector =

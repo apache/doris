@@ -216,12 +216,14 @@ Status NativeReader::get_next_block(Block* block, size_t* read_rows, bool* eof) 
         _eof = true;
     }
 
+    if (*read_rows > 0) {
+        RETURN_IF_ERROR(fill_remaining_columns(block, *read_rows));
+    }
+
     return Status::OK();
 }
 
-Status NativeReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                                 std::unordered_set<std::string>* missing_cols) {
-    missing_cols->clear();
+Status NativeReader::_get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     RETURN_IF_ERROR(init_reader());
 
     if (!_schema_inited) {

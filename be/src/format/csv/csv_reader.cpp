@@ -394,11 +394,14 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     *eof = (rows == 0);
     *read_rows = rows;
 
+    if (rows > 0 && _push_down_agg_type != TPushAggOp::type::COUNT) {
+        RETURN_IF_ERROR(fill_remaining_columns(block, rows));
+    }
+
     return Status::OK();
 }
 
-Status CsvReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                              std::unordered_set<std::string>* missing_cols) {
+Status CsvReader::_get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
     }

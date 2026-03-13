@@ -241,6 +241,21 @@ Status FullSorter::append_block(Block* block) {
         const auto& data = _state->unsorted_block()->get_columns_with_type_and_name();
         const auto& arrival_data = block->get_columns_with_type_and_name();
         auto sz = block->rows();
+        // Debug: dump all column sizes when any column has a size mismatch
+        for (int check_i = 0; check_i < (int)arrival_data.size(); ++check_i) {
+            if (arrival_data[check_i].column->size() != sz &&
+                !is_column_const(*arrival_data[check_i].column)) {
+                std::stringstream ss;
+                ss << "FullSorter::append_block col size mismatch detected! sz=" << sz;
+                for (int j = 0; j < (int)arrival_data.size(); ++j) {
+                    ss << " col[" << j << "](name=" << arrival_data[j].name
+                       << ",type=" << arrival_data[j].type->get_name()
+                       << ")=" << arrival_data[j].column->size();
+                }
+                LOG(WARNING) << ss.str();
+                break;
+            }
+        }
         for (int i = 0; i < data.size(); ++i) {
             DCHECK(data[i].type->equals(*(arrival_data[i].type)))
                     << " type1: " << data[i].type->get_name()

@@ -144,7 +144,7 @@ function copy_common_files() {
     cp -r -p "${DORIS_HOME}/dist/licenses" "$1/"
 }
 
-. "${DORIS_HOME}/thirdparty/juicefs-helpers.sh"
+. "${DORIS_HOME}/docker/thirdparties/juicefs-helpers.sh"
 
 find_juicefs_hadoop_jar() {
     juicefs_find_hadoop_jar_by_globs \

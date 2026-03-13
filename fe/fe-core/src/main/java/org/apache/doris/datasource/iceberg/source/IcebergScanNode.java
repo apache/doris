@@ -53,6 +53,7 @@ import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
+import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -272,6 +273,12 @@ public class IcebergScanNode extends FileQueryScanNode {
         TIcebergFileDesc fileDesc = new TIcebergFileDesc();
         fileDesc.setFormatVersion(formatVersion);
         fileDesc.setOriginalFilePath(icebergSplit.getOriginalPath());
+        if (icebergSplit.getPartitionSpecId() != null) {
+            fileDesc.setPartitionSpecId(icebergSplit.getPartitionSpecId());
+        }
+        if (icebergSplit.getPartitionDataJson() != null) {
+            fileDesc.setPartitionDataJson(icebergSplit.getPartitionDataJson());
+        }
         if (formatVersion < MIN_DELETE_FILE_SUPPORT_VERSION) {
             fileDesc.setContent(FileContent.DATA.id());
         } else {
@@ -774,14 +781,17 @@ public class IcebergScanNode extends FileQueryScanNode {
         split.setTableFormatType(TableFormatType.ICEBERG);
         split.setTargetSplitSize(targetSplitSize);
         if (isPartitionedTable) {
+            int specId = fileScanTask.file().specId();
+            PartitionSpec partitionSpec = icebergTable.specs().get(specId);
+            Preconditions.checkNotNull(partitionSpec, "Partition spec with specId %s not found for table %s",
+                    specId, icebergTable.name());
             PartitionData partitionData = (PartitionData) fileScanTask.file().partition();
+            if (partitionData != null) {
+                split.setPartitionSpecId(specId);
+                split.setPartitionDataJson(IcebergUtils.getPartitionDataJson(
+                        partitionData, partitionSpec, sessionVariable.getTimeZone()));
+            }
             if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
-                // Get specId and corresponding PartitionSpec to handle partition evolution
-                int specId = fileScanTask.file().specId();
-                PartitionSpec partitionSpec = icebergTable.specs().get(specId);
-
-                Preconditions.checkNotNull(partitionSpec, "Partition spec with specId %s not found for table %s",
-                        specId, icebergTable.name());
                 Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
                         partitionData, k -> {
                             return IcebergUtils.getPartitionInfoMap(partitionData, partitionSpec,
@@ -948,6 +958,14 @@ public class IcebergScanNode extends FileQueryScanNode {
             throw new DdlException(String.format("Unsupported format name: %s for iceberg table.", icebergFormat));
         }
         return type;
+    }
+
+    @Override
+    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
+        if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getColumn().getName())) {
+            return TColumnCategory.SYNTHESIZED;
+        }
+        return super.classifyColumn(slot, partitionKeys);
     }
 
     @Override

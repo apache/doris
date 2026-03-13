@@ -95,11 +95,16 @@ Status RemoteDorisReader::get_next_block(Block* block, size_t* read_rows, bool* 
     }
 
     *read_rows += num_rows;
+
+    if (*read_rows > 0) {
+        RETURN_IF_ERROR(fill_remaining_columns(block, *read_rows));
+    }
+
     return Status::OK();
 }
 
-Status RemoteDorisReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                                      std::unordered_set<std::string>* missing_cols) {
+Status RemoteDorisReader::_get_columns_impl(
+        std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
     }
