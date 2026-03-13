@@ -313,6 +313,10 @@ inline constexpr size_t write_clear_range_approximate_size(size_t begin_size, si
 
 } // anonymous namespace
 
+std::string_view KNOB_LOAD_BALANCE_ZONE_ID_LOCALITY_ENABLED =
+        "load_balance_zone_id_locality_enabled=1";
+std::string_view KNOB_LOAD_BALANCE_DC_ID_LOCALITY_ENABLED = "load_balance_dc_id_locality_enabled=1";
+
 // Ref https://apple.github.io/foundationdb/api-error-codes.html#developer-guide-error-codes.
 constexpr fdb_error_t FDB_ERROR_CODE_TIMED_OUT = 1004;
 constexpr fdb_error_t FDB_ERROR_CODE_TXN_TOO_OLD = 1007;
@@ -406,6 +410,33 @@ int Network::init() {
         LOG(INFO) << "set fdb external client directory: " << config::fdb_external_client_directory;
     }
 
+    if (config::enable_fdb_locality_load_balance) {
+        if (!config::fdb_zone_id.empty()) {
+            err = fdb_network_set_option(
+                    FDB_NET_OPTION_KNOB,
+                    (const uint8_t*)KNOB_LOAD_BALANCE_ZONE_ID_LOCALITY_ENABLED.data(),
+                    KNOB_LOAD_BALANCE_ZONE_ID_LOCALITY_ENABLED.size());
+            if (err) {
+                LOG(WARNING) << "failed to set fdb load balance zone id locality enabled, err: "
+                             << fdb_get_error(err);
+                return 1;
+            }
+            LOG(INFO) << "set fdb load balance zone id locality enabled";
+        }
+        if (!config::fdb_dc_id.empty()) {
+            err = fdb_network_set_option(
+                    FDB_NET_OPTION_KNOB,
+                    (const uint8_t*)KNOB_LOAD_BALANCE_DC_ID_LOCALITY_ENABLED.data(),
+                    KNOB_LOAD_BALANCE_DC_ID_LOCALITY_ENABLED.size());
+            if (err) {
+                LOG(WARNING) << "failed to set fdb load balance dc id locality enabled, err: "
+                             << fdb_get_error(err);
+                return 1;
+            }
+            LOG(INFO) << "set fdb load balance dc id locality enabled";
+        }
+    }
+
     // ATTN: Network can be configured only once,
     //       even if fdb_stop_network() is called successfully
     err = fdb_setup_network(); // Must be called only once before any
@@ -457,12 +488,36 @@ void Network::stop() {
 // =============================================================================
 
 int Database::init() {
-    // TODO: process opt
     fdb_error_t err = fdb_create_database(cluster_file_path_.c_str(), &db_);
     if (err) {
         LOG(WARNING) << __PRETTY_FUNCTION__ << " fdb_create_database error: " << fdb_get_error(err)
                      << " conf: " << cluster_file_path_;
         return 1;
+    }
+
+    if (config::enable_fdb_locality_load_balance) {
+        if (!config::fdb_zone_id.empty()) {
+            err = fdb_database_set_option(db_, FDB_DB_OPTION_MACHINE_ID,
+                                          (const uint8_t*)config::fdb_zone_id.c_str(),
+                                          config::fdb_zone_id.size());
+            if (err) {
+                LOG(WARNING) << "failed to set FDB_DB_OPTION_MACHINE_ID: " << fdb_get_error(err)
+                             << ", zone_id: " << config::fdb_zone_id;
+                return 1;
+            }
+            LOG(INFO) << "set FDB_DB_OPTION_MACHINE_ID (zone_id): " << config::fdb_zone_id;
+        }
+        if (!config::fdb_dc_id.empty()) {
+            err = fdb_database_set_option(db_, FDB_DB_OPTION_DATACENTER_ID,
+                                          (const uint8_t*)config::fdb_dc_id.c_str(),
+                                          config::fdb_dc_id.size());
+            if (err) {
+                LOG(WARNING) << "failed to set FDB_DB_OPTION_DATACENTER_ID: " << fdb_get_error(err)
+                             << ", dc_id: " << config::fdb_dc_id;
+                return 1;
+            }
+            LOG(INFO) << "set FDB_DB_OPTION_DATACENTER_ID (dc_id): " << config::fdb_dc_id;
+        }
     }
 
     return 0;

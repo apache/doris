@@ -34,6 +34,11 @@ CONF_Bool(enable_fdb_external_client_directory, "true");
 // The directory path of external foundationdb client library.
 // eg: /path/to/dir1:/path/to/dir2:...
 CONF_String(fdb_external_client_directory, "./lib/fdb/7.3.69/");
+// Enable FDB locality-aware load balancing. When enabled, fdb_zone_id and fdb_dc_id
+// will be set on the database for better location-aware request routing.
+CONF_Bool(enable_fdb_locality_load_balance, "false");
+CONF_String(fdb_zone_id, "");
+CONF_String(fdb_dc_id, "");
 CONF_String(http_token, "greedisgood9999");
 // use volatile mem kv for test. MUST NOT be `true` in production environment.
 CONF_Bool(use_mem_kv, "false");
