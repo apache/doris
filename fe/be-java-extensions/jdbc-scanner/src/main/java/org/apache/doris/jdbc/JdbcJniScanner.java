@@ -228,8 +228,9 @@ public class JdbcJniScanner extends JniScanner {
             for (int i = 0; i < types.length; i++) {
                 String replaceStr = (replaceStringList != null && i < replaceStringList.length)
                         ? replaceStringList[i] : "not_replace";
-                if ("bitmap".equals(replaceStr) || "hll".equals(replaceStr)) {
-                    // bitmap/hll columns: use byte[][] for raw binary data
+                if ("bitmap".equals(replaceStr) || "hll".equals(replaceStr)
+                        || "quantile_state".equals(replaceStr)) {
+                    // bitmap/hll/quantile_state columns: use byte[][] for raw binary data
                     block.add(new byte[batchSize][]);
                 } else if (outputConverters[i] != null) {
                     // When a converter exists, the raw value from getColumnValue() may have a
@@ -252,7 +253,8 @@ public class JdbcJniScanner extends JniScanner {
                     int columnIndex = columnIndexMapping[col];
                     String replaceStr = (replaceStringList != null && col < replaceStringList.length)
                             ? replaceStringList[col] : "not_replace";
-                    if ("bitmap".equals(replaceStr) || "hll".equals(replaceStr)) {
+                    if ("bitmap".equals(replaceStr) || "hll".equals(replaceStr)
+                            || "quantile_state".equals(replaceStr)) {
                         // bitmap/hll: read raw bytes directly
                         byte[] data = resultSet.getBytes(columnIndex);
                         block.get(col)[curRows] = resultSet.wasNull() ? null : data;

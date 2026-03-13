@@ -97,11 +97,8 @@ Status VJdbcTableWriter::finish(RuntimeState* state) {
         return Status::OK();
     }
 
-    // Call commitTrans on the Java JdbcJniWriter via JNI
-    // VJniFormatTransformer manages the JNI writer object, so we use get_statistics
-    // to check for errors. The actual commit is done as part of close() on the Java side
-    // when use_transaction is true.
-    // TODO: Add explicit commitTrans JNI call support to VJniFormatTransformer
+    // Transaction commit is handled in JdbcJniWriter.close() on the Java side.
+    // When useTransaction=true, close() calls conn.commit() before closing the connection.
     return Status::OK();
 }
 

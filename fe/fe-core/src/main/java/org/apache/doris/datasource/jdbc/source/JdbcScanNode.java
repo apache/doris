@@ -155,6 +155,7 @@ public class JdbcScanNode extends FileQueryScanNode {
                 tbl.getJdbcPasswd(),
                 tbl.getDriverClass(),
                 tbl.getDriverUrl(),
+                tbl.getCheckSum(),
                 tbl.getCatalogId(),
                 jdbcType,
                 tbl.getConnectionPoolMinSize(),
@@ -186,6 +187,7 @@ public class JdbcScanNode extends FileQueryScanNode {
         jdbcParams.put("jdbc_password", jdbcSplit.getJdbcPassword());
         jdbcParams.put("jdbc_driver_class", jdbcSplit.getDriverClass());
         jdbcParams.put("jdbc_driver_url", jdbcSplit.getDriverUrl());
+        jdbcParams.put("jdbc_driver_checksum", jdbcSplit.getDriverChecksum());
         jdbcParams.put("query_sql", jdbcSplit.getQuerySql());
         jdbcParams.put("catalog_id", String.valueOf(jdbcSplit.getCatalogId()));
         jdbcParams.put("table_type", jdbcSplit.getTableType().name());

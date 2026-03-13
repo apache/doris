@@ -42,6 +42,7 @@ public class JdbcSplit extends FileSplit {
     private final String jdbcPassword;
     private final String driverClass;
     private final String driverUrl;
+    private final String driverChecksum;
     private final long catalogId;
     private final TOdbcTableType tableType;
     private final int connectionPoolMinSize;
@@ -52,6 +53,7 @@ public class JdbcSplit extends FileSplit {
 
     public JdbcSplit(String querySql, String jdbcUrl, String jdbcUser,
             String jdbcPassword, String driverClass, String driverUrl,
+            String driverChecksum,
             long catalogId, TOdbcTableType tableType,
             int connectionPoolMinSize, int connectionPoolMaxSize,
             int connectionPoolMaxWaitTime, int connectionPoolMaxLifeTime,
@@ -66,6 +68,7 @@ public class JdbcSplit extends FileSplit {
         this.jdbcPassword = jdbcPassword;
         this.driverClass = driverClass;
         this.driverUrl = driverUrl;
+        this.driverChecksum = driverChecksum;
         this.catalogId = catalogId;
         this.tableType = tableType;
         this.connectionPoolMinSize = connectionPoolMinSize;

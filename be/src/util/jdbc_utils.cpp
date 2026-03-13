@@ -15,11 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+
 #include "util/jdbc_utils.h"
 
 #include <filesystem>
 
+#include "cloud/config.h"
 #include "common/config.h"
+#include "runtime/plugin/cloud_plugin_downloader.h"
 
 namespace doris {
 
@@ -45,6 +48,14 @@ Status JdbcUtils::resolve_driver_url(const std::string& url, std::string* result
             *result_url = "file://" + target_path;
         } else if (std::filesystem::exists(old_target_path)) {
             *result_url = "file://" + old_target_path;
+        } else if (config::is_cloud_mode()) {
+            // In cloud/elastic deployments, BEs are ephemeral and driver JARs
+            // may not exist locally. Try downloading from cloud storage.
+            std::string downloaded_path;
+            RETURN_IF_ERROR(CloudPluginDownloader::download_from_cloud(
+                    CloudPluginDownloader::PluginType::JDBC_DRIVERS, url, target_path,
+                    &downloaded_path));
+            *result_url = "file://" + downloaded_path;
         } else {
             return Status::InternalError("JDBC driver file does not exist: " + url);
         }

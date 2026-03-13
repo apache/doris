@@ -162,7 +162,12 @@ public class JdbcJniWriter extends JniWriter {
     @Override
     public void close() throws IOException {
         try {
-            // Commit transaction if enabled (C++ side calls commitTrans via JNI before close)
+            // Commit transaction before closing if useTransaction is enabled.
+            // autoCommit was set to false in open(), so without explicit commit()
+            // the JDBC driver will roll back all writes on connection close.
+            if (useTransaction && conn != null && !conn.isClosed()) {
+                conn.commit();
+            }
             if (preparedStatement != null && !preparedStatement.isClosed()) {
                 preparedStatement.close();
             }
@@ -170,6 +175,15 @@ public class JdbcJniWriter extends JniWriter {
                 conn.close();
             }
         } catch (SQLException e) {
+            // If commit or close fails, attempt rollback before rethrowing
+            try {
+                if (useTransaction && conn != null && !conn.isClosed()) {
+                    conn.rollback();
+                }
+            } catch (SQLException rollbackEx) {
+                LOG.warn("JdbcJniWriter rollback on close failure also failed: "
+                        + rollbackEx.getMessage(), rollbackEx);
+            }
             throw new IOException("JdbcJniWriter close failed: " + e.getMessage(), e);
         } finally {
             preparedStatement = null;

@@ -65,6 +65,7 @@ std::map<std::string, std::string> JdbcScanner::_build_jdbc_params(
         driver_url = jdbc_table->jdbc_driver_url();
     }
     params["jdbc_driver_url"] = driver_url;
+    params["jdbc_driver_checksum"] = jdbc_table->jdbc_driver_checksum();
     params["query_sql"] = _query_string;
     params["catalog_id"] = std::to_string(jdbc_table->jdbc_catalog_id());
     params["table_type"] = _odbc_table_type_to_string(_table_type);

@@ -57,6 +57,8 @@ JdbcJniReader::JdbcJniReader(const std::vector<SlotDescriptor*>& file_slot_descs
                               replace_type = "hll";
                           } else if (ptype == PrimitiveType::TYPE_JSONB) {
                               replace_type = "jsonb";
+                          } else if (ptype == PrimitiveType::TYPE_QUANTILE_STATE) {
+                              replace_type = "quantile_state";
                           }
 
                           if (index == 0) {
