@@ -236,12 +236,11 @@ private:
 
     // Condition cache for external tables
     uint64_t _condition_cache_digest = 0;
-    bool _condition_cache_hit = false;
+    segment_v2::ConditionCache::ExternalCacheKey _condition_cache_key;
     std::shared_ptr<std::vector<bool>> _condition_cache;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     RuntimeProfile::Counter* _condition_cache_hit_counter = nullptr;
 
-private:
     Status _init_expr_ctxes();
     Status _init_src_block(Block* block);
     Status _check_output_block_types();

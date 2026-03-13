@@ -23,58 +23,36 @@
 
 namespace doris::segment_v2 {
 
-bool ConditionCache::lookup(const CacheKey& key, ConditionCacheHandle* handle) {
-    if (key.encode().empty()) {
-        return false;
-    }
-    auto* lru_handle = LRUCachePolicy::lookup(key.encode());
-    if (lru_handle == nullptr) {
-        return false;
-    }
-    *handle = ConditionCacheHandle(this, lru_handle);
-    return true;
-}
-
-void ConditionCache::insert(const CacheKey& key, std::shared_ptr<std::vector<bool>> result) {
-    if (key.encode().empty()) {
-        return;
-    }
-    std::unique_ptr<ConditionCache::CacheValue> cache_value_ptr =
-            std::make_unique<ConditionCache::CacheValue>();
-    cache_value_ptr->filter_result = result;
-
-    ConditionCacheHandle(
-            this,
-            LRUCachePolicy::insert(key.encode(), (void*)cache_value_ptr.release(),
-                                   result->capacity(), result->capacity(), CachePriority::NORMAL));
-}
-
-bool ConditionCache::lookup(const ExternalCacheKey& key, ConditionCacheHandle* handle) {
-    auto encoded = key.encode();
-    if (encoded.empty()) {
-        return false;
-    }
-    auto* lru_handle = LRUCachePolicy::lookup(encoded);
-    if (lru_handle == nullptr) {
+template <typename KeyType>
+bool ConditionCache::lookup(const KeyType& key, ConditionCacheHandle* handle) {
+    auto encoded_key = key.encode();
+    auto lru_handle = LRUCachePolicy::lookup(encoded_key);
+    if (!lru_handle) {
         return false;
     }
     *handle = ConditionCacheHandle(this, lru_handle);
     return true;
 }
 
-void ConditionCache::insert(const ExternalCacheKey& key,
-                            std::shared_ptr<std::vector<bool>> result) {
-    auto encoded = key.encode();
-    if (encoded.empty()) {
-        return;
-    }
-    std::unique_ptr<ConditionCache::CacheValue> cache_value_ptr =
-            std::make_unique<ConditionCache::CacheValue>();
-    cache_value_ptr->filter_result = result;
-
-    ConditionCacheHandle(this, LRUCachePolicy::insert(encoded, (void*)cache_value_ptr.release(),
-                                                      result->capacity(), result->capacity(),
-                                                      CachePriority::NORMAL));
+template <typename KeyType>
+void ConditionCache::insert(const KeyType& key, std::shared_ptr<std::vector<bool>> filter_result) {
+    auto* value = new CacheValue();
+    value->filter_result = std::move(filter_result);
+    auto encoded_key = key.encode();
+    auto lru_handle = LRUCachePolicy::insert(encoded_key, value, value->filter_result->size(), 0,
+                                             CachePriority::NORMAL);
+    auto handle = ConditionCacheHandle(this, lru_handle);
+    // Handle released in destructor
 }
+
+// Explicit template instantiations
+template bool ConditionCache::lookup<ConditionCache::CacheKey>(const CacheKey& key,
+                                                               ConditionCacheHandle* handle);
+template bool ConditionCache::lookup<ConditionCache::ExternalCacheKey>(
+        const ExternalCacheKey& key, ConditionCacheHandle* handle);
+template void ConditionCache::insert<ConditionCache::CacheKey>(
+        const CacheKey& key, std::shared_ptr<std::vector<bool>> filter_result);
+template void ConditionCache::insert<ConditionCache::ExternalCacheKey>(
+        const ExternalCacheKey& key, std::shared_ptr<std::vector<bool>> filter_result);
 
 } // namespace doris::segment_v2

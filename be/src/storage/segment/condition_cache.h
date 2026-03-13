@@ -71,6 +71,7 @@ public:
 
     // Cache key for external tables (Hive ORC/Parquet)
     struct ExternalCacheKey {
+        ExternalCacheKey() = default;
         ExternalCacheKey(const std::string& path_, int64_t modification_time_, int64_t file_size_,
                          uint64_t digest_, int64_t start_offset_, int64_t size_)
                 : path(path_),
@@ -80,11 +81,11 @@ public:
                   start_offset(start_offset_),
                   size(size_) {}
         std::string path;
-        int64_t modification_time;
-        int64_t file_size;
-        uint64_t digest;
-        int64_t start_offset;
-        int64_t size;
+        int64_t modification_time = 0;
+        int64_t file_size = 0;
+        uint64_t digest = 0;
+        int64_t start_offset = 0;
+        int64_t size = 0;
 
         [[nodiscard]] std::string encode() const {
             std::string key = path;
@@ -117,13 +118,11 @@ public:
                              /*element_count_capacity*/ 0, /*enable_prune*/ true,
                              /*is_lru_k*/ true) {}
 
-    bool lookup(const CacheKey& key, ConditionCacheHandle* handle);
+    template <typename KeyType>
+    bool lookup(const KeyType& key, ConditionCacheHandle* handle);
 
-    void insert(const CacheKey& key, std::shared_ptr<std::vector<bool>> filter_result);
-
-    bool lookup(const ExternalCacheKey& key, ConditionCacheHandle* handle);
-
-    void insert(const ExternalCacheKey& key, std::shared_ptr<std::vector<bool>> filter_result);
+    template <typename KeyType>
+    void insert(const KeyType& key, std::shared_ptr<std::vector<bool>> filter_result);
 };
 
 class ConditionCacheHandle {

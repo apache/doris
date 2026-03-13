@@ -1754,7 +1754,6 @@ bool FileScanner::_should_enable_condition_cache() {
 }
 
 void FileScanner::_init_reader_condition_cache() {
-    _condition_cache_hit = false;
     _condition_cache = nullptr;
     _condition_cache_ctx = nullptr;
 
@@ -1770,7 +1769,7 @@ void FileScanner::_init_reader_condition_cache() {
     }
 
     auto* cache = segment_v2::ConditionCache::instance();
-    segment_v2::ConditionCache::ExternalCacheKey cache_key(
+    _condition_cache_key = segment_v2::ConditionCache::ExternalCacheKey(
             _current_range.path,
             _current_range.__isset.modification_time ? _current_range.modification_time : 0,
             _current_range.__isset.file_size ? _current_range.file_size : -1,
@@ -1779,8 +1778,8 @@ void FileScanner::_init_reader_condition_cache() {
             _current_range.__isset.size ? _current_range.size : -1);
 
     segment_v2::ConditionCacheHandle handle;
-    _condition_cache_hit = cache->lookup(cache_key, &handle);
-    if (_condition_cache_hit) {
+    auto condition_cache_hit = cache->lookup(_condition_cache_key, &handle);
+    if (condition_cache_hit) {
         _condition_cache = handle.get_filter_result();
         COUNTER_UPDATE(_condition_cache_hit_counter, 1);
     } else {
@@ -1790,28 +1789,27 @@ void FileScanner::_init_reader_condition_cache() {
         // the data may span one more granule than ceil(total_rows / GRANULE_SIZE).
         // The extra element costs only 1 bit and never affects correctness (an extra
         // false-granule beyond the actual data range won't overlap any real row range).
-        _condition_cache = std::make_shared<std::vector<bool>>();
         int64_t total_rows = _cur_reader->get_total_rows();
         if (total_rows > 0) {
             size_t num_granules = (total_rows + ConditionCacheContext::GRANULE_SIZE - 1) /
                                   ConditionCacheContext::GRANULE_SIZE;
-            _condition_cache->resize(num_granules + 1, false);
+            _condition_cache = std::make_shared<std::vector<bool>>(num_granules + 1, false);
         }
     }
 
-    if (!_condition_cache->empty()) {
+    if (_condition_cache) {
         // Create context to pass to readers (native readers use it; non-native readers ignore it)
         _condition_cache_ctx = std::make_shared<ConditionCacheContext>();
-        _condition_cache_ctx->is_hit = _condition_cache_hit;
+        _condition_cache_ctx->is_hit = condition_cache_hit;
         _condition_cache_ctx->filter_result = _condition_cache;
         _cur_reader->set_condition_cache_context(_condition_cache_ctx);
     }
 }
 
 void FileScanner::_finalize_reader_condition_cache() {
-    if (!_should_enable_condition_cache() || _condition_cache == nullptr || _condition_cache_hit) {
+    if (!_should_enable_condition_cache() || !_condition_cache_ctx ||
+        _condition_cache_ctx->is_hit) {
         _condition_cache = nullptr;
-        _condition_cache_hit = false;
         _condition_cache_ctx = nullptr;
         return;
     }
@@ -1820,23 +1818,13 @@ void FileScanner::_finalize_reader_condition_cache() {
     // would remain false and cause surviving rows to be incorrectly skipped on HIT.
     if (!_cur_reader_eof) {
         _condition_cache = nullptr;
-        _condition_cache_hit = false;
         _condition_cache_ctx = nullptr;
         return;
     }
 
     auto* cache = segment_v2::ConditionCache::instance();
-    segment_v2::ConditionCache::ExternalCacheKey cache_key(
-            _current_range.path,
-            _current_range.__isset.modification_time ? _current_range.modification_time : 0,
-            _current_range.__isset.file_size ? _current_range.file_size : -1,
-            _condition_cache_digest,
-            _current_range.__isset.start_offset ? _current_range.start_offset : 0,
-            _current_range.__isset.size ? _current_range.size : -1);
-
-    cache->insert(cache_key, std::move(_condition_cache));
+    cache->insert(_condition_cache_key, std::move(_condition_cache));
     _condition_cache = nullptr;
-    _condition_cache_hit = false;
     _condition_cache_ctx = nullptr;
 }
 
