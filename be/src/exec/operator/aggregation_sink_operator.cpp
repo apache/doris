@@ -174,7 +174,7 @@ Status AggSinkLocalState::open(RuntimeState* state) {
             p._aggregate_evaluators[0]->function()->is_simple_count()) /* only one count(*) */
         && !_should_limit_output /* no limit optimization */ &&
         !Base::_shared_state->enable_spill /* spill not enabled */) {
-        _shared_state->use_simple_count = true;
+        _shared_state->use_simple_count = _shared_state->agg_data->is_fixed_key;
 #ifndef NDEBUG
         // Randomly enable/disable in debug mode to verify correctness of multi-phase agg promotion/demotion.
         _shared_state->use_simple_count = rand() % 2 == 0;
