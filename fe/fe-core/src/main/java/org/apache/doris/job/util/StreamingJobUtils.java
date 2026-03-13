@@ -275,10 +275,20 @@ public class StreamingJobUtils {
         return newProps;
     }
 
-    public static List<CreateTableCommand> generateCreateTableCmds(String targetDb, DataSourceType sourceType,
+    /**
+     * Generate CREATE TABLE commands for the Doris target tables.
+     *
+     * <p>Returns a {@link LinkedHashMap} whose key is the <b>source</b> (upstream) table name and
+     * whose value is the corresponding {@link CreateTableCommand} that creates the Doris target
+     * table (which may have a different name when {@code table.<src>.target_table} is configured).
+     * Callers must use the map key as the PG/MySQL source table identifier for CDC monitoring and
+     * the {@link CreateTableCommand} value for the actual DDL execution.
+     */
+    public static LinkedHashMap<String, CreateTableCommand> generateCreateTableCmds(String targetDb,
+            DataSourceType sourceType,
             Map<String, String> properties, Map<String, String> targetProperties)
             throws JobException {
-        List<CreateTableCommand> createtblCmds = new ArrayList<>();
+        LinkedHashMap<String, CreateTableCommand> createtblCmds = new LinkedHashMap<>();
         String includeTables = properties.get(DataSourceConfigKeys.INCLUDE_TABLES);
         String excludeTables = properties.get(DataSourceConfigKeys.EXCLUDE_TABLES);
         List<String> includeTablesList = new ArrayList<>();
@@ -319,6 +329,13 @@ public class StreamingJobUtils {
             if (primaryKeys.isEmpty()) {
                 noPrimaryKeyTables.add(table);
             }
+
+            // Resolve target (Doris) table name; defaults to source table name if not configured
+            String targetTableName = properties.getOrDefault(
+                    DataSourceConfigKeys.TABLE + "." + table + "."
+                            + DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX,
+                    table);
+
             // Convert Column to ColumnDefinition
             List<ColumnDefinition> columnDefinitions = columns.stream().map(col -> {
                 DataType dataType = DataType.fromCatalogType(col.getType());
@@ -340,7 +357,7 @@ public class StreamingJobUtils {
                     false, // isTemp
                     InternalCatalog.INTERNAL_CATALOG_NAME, // ctlName
                     targetDb, // dbName
-                    table, // tableName
+                    targetTableName, // tableName
                     columnDefinitions, // columns
                     ImmutableList.of(), // indexes
                     "olap", // engineName
@@ -355,7 +372,8 @@ public class StreamingJobUtils {
                     ImmutableList.of() // clusterKeyColumnNames
             );
             CreateTableCommand createtblCmd = new CreateTableCommand(Optional.empty(), createtblInfo);
-            createtblCmds.add(createtblCmd);
+            // Key: source (PG/MySQL) table name; Value: command that creates the Doris target table
+            createtblCmds.put(table, createtblCmd);
         }
         if (createtblCmds.isEmpty()) {
             throw new JobException("Can not found match table in database " + database);
