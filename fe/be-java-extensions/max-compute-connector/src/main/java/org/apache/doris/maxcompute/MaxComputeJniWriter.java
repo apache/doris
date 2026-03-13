@@ -223,14 +223,18 @@ public class MaxComputeJniWriter extends JniWriter {
                 int batchRows = Math.min(maxWriteBatchRows, numRows - rowOffset);
 
                 VectorSchemaRoot root = batchWriter.newElement();
-                root.setRowCount(batchRows);
+                try {
+                    root.setRowCount(batchRows);
 
-                for (int col = 0; col < numCols && col < columnTypeInfos.size(); col++) {
-                    OdpsType odpsType = columnTypeInfos.get(col).getOdpsType();
-                    fillArrowVector(root, col, odpsType, data[col], rowOffset, batchRows);
+                    for (int col = 0; col < numCols && col < columnTypeInfos.size(); col++) {
+                        OdpsType odpsType = columnTypeInfos.get(col).getOdpsType();
+                        fillArrowVector(root, col, odpsType, data[col], rowOffset, batchRows);
+                    }
+
+                    batchWriter.write(root);
+                } finally {
+                    root.close();
                 }
-
-                batchWriter.write(root);
                 writtenRows += batchRows;
                 rowOffset += batchRows;
             }
@@ -591,23 +595,38 @@ public class MaxComputeJniWriter extends JniWriter {
 
     @Override
     public void close() throws IOException {
+        Exception firstException = null;
         try {
             if (batchWriter != null) {
-                commitMessage = batchWriter.commit();
-                batchWriter = null;
+                try {
+                    commitMessage = batchWriter.commit();
+                } catch (Exception e) {
+                    firstException = e;
+                    LOG.warn("Failed to commit batch writer for table " + project + "." + tableName, e);
+                } finally {
+                    batchWriter = null;
+                }
             }
+        } finally {
             if (allocator != null) {
-                allocator.close();
-                allocator = null;
+                try {
+                    allocator.close();
+                } catch (Exception e) {
+                    LOG.warn("Failed to close Arrow allocator (possible memory leak)", e);
+                    if (firstException == null) {
+                        firstException = e;
+                    }
+                } finally {
+                    allocator = null;
+                }
             }
-            LOG.info("MaxComputeJniWriter closed: writeSessionId=" + writeSessionId
-                    + ", partitionSpec=" + partitionSpec
-                    + ", writtenRows=" + writtenRows
-                    + ", blockId=" + blockId);
-        } catch (Exception e) {
-            String errorMsg = "Failed to close MaxCompute arrow writer";
-            LOG.error(errorMsg, e);
-            throw new IOException(errorMsg, e);
+        }
+        LOG.info("MaxComputeJniWriter closed: writeSessionId=" + writeSessionId
+                + ", partitionSpec=" + partitionSpec
+                + ", writtenRows=" + writtenRows
+                + ", blockId=" + blockId);
+        if (firstException != null) {
+            throw new IOException("Failed to close MaxCompute arrow writer", firstException);
         }
     }
 

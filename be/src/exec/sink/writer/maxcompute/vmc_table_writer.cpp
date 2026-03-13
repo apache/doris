@@ -117,6 +117,9 @@ std::map<std::string, std::string> VMCTableWriter::_build_base_writer_params() {
     if (_mc_sink.__isset.retry_count) {
         params["retry_count"] = std::to_string(_mc_sink.retry_count);
     }
+    if (_mc_sink.__isset.max_write_batch_rows) {
+        params["max_write_batch_rows"] = std::to_string(_mc_sink.max_write_batch_rows);
+    }
     return params;
 }
 

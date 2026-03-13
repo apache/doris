@@ -514,6 +514,7 @@ struct TMaxComputeTableSink {
     14: optional list<string> partition_columns  // partition column names for dynamic partition
     15: optional string write_session_id          // Storage API write session ID
     16: optional map<string, string> properties // contains authentication properties
+    17: optional i32 max_write_batch_rows          // max rows per Arrow batch for write
 }
 
 struct TDataSink {
