@@ -1350,6 +1350,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             case MIX:
                 pushAggOp = TPushAggOp.MIX;
                 break;
+            case COUNT_NULL:
+                pushAggOp = TPushAggOp.COUNT_NULL;
+                break;
             default:
                 throw new AnalysisException("Unsupported storage layer aggregate: "
                         + storageLayerAggregate.getAggOp());
