@@ -25,6 +25,7 @@
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "exec/operator/operator.h"
+#include "exec/operator/streaming_agg_min_reduction.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "exprs/vslot_ref.h"
@@ -35,54 +36,13 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris {
-/// The minimum reduction factor (input rows divided by output rows) to grow hash tables
-/// in a streaming preaggregation, given that the hash tables are currently the given
-/// size or above. The sizes roughly correspond to hash table sizes where the bucket
-/// arrays will fit in  a cache level. Intuitively, we don't want the working set of the
-/// aggregation to expand to the next level of cache unless we're reducing the input
-/// enough to outweigh the increased memory latency we'll incur for each hash table
-/// lookup.
-///
-/// Note that the current reduction achieved is not always a good estimate of the
-/// final reduction. It may be biased either way depending on the ordering of the
-/// input. If the input order is random, we will underestimate the final reduction
-/// factor because the probability of a row having the same key as a previous row
-/// increases as more input is processed.  If the input order is correlated with the
-/// key, skew may bias the estimate. If high cardinality keys appear first, we
-/// may overestimate and if low cardinality keys appear first, we underestimate.
-/// To estimate the eventual reduction achieved, we estimate the final reduction
-/// using the planner's estimated input cardinality and the assumption that input
-/// is in a random order. This means that we assume that the reduction factor will
-/// increase over time.
-struct StreamingHtMinReductionEntry {
-    // Use 'streaming_ht_min_reduction' if the total size of hash table bucket directories in
-    // bytes is greater than this threshold.
-    int min_ht_mem;
-    // The minimum reduction factor to expand the hash tables.
-    double streaming_ht_min_reduction;
-};
-
-// TODO: experimentally tune these values and also programmatically get the cache size
-// of the machine that we're running on.
-static constexpr StreamingHtMinReductionEntry STREAMING_HT_MIN_REDUCTION[] = {
-        // Expand up to L2 cache always.
-        {0, 0.0},
-        // Expand into L3 cache if we look like we're getting some reduction.
-        // At present, The L2 cache is generally 1024k or more
-        {1024 * 1024, 1.1},
-        // Expand into main memory if we're getting a significant reduction.
-        // The L3 cache is generally 16MB or more
-        {16 * 1024 * 1024, 2.0},
-};
-
-static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
-        sizeof(STREAMING_HT_MIN_REDUCTION) / sizeof(STREAMING_HT_MIN_REDUCTION[0]);
 
 StreamingAggLocalState::StreamingAggLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent),
           _agg_data(std::make_unique<AggregatedDataVariants>()),
           _child_block(Block::create_unique()),
-          _pre_aggregated_block(Block::create_unique()) {}
+          _pre_aggregated_block(Block::create_unique()),
+          _is_single_backend(state->get_query_ctx()->is_single_backend_query()) {}
 
 Status StreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -235,10 +195,14 @@ bool StreamingAggLocalState::_should_expand_preagg_hash_tables() {
                             return true;
                         }
 
+                        const auto* reduction = _is_single_backend
+                                                        ? SINGLE_BE_STREAMING_HT_MIN_REDUCTION
+                                                        : STREAMING_HT_MIN_REDUCTION;
+
                         // Find the appropriate reduction factor in our table for the current hash table sizes.
                         int cache_level = 0;
                         while (cache_level + 1 < STREAMING_HT_MIN_REDUCTION_SIZE &&
-                               ht_mem >= STREAMING_HT_MIN_REDUCTION[cache_level + 1].min_ht_mem) {
+                               ht_mem >= reduction[cache_level + 1].min_ht_mem) {
                             ++cache_level;
                         }
 
@@ -267,8 +231,7 @@ bool StreamingAggLocalState::_should_expand_preagg_hash_tables() {
                         //  double estimated_reduction = aggregated_input_rows >= expected_input_rows
                         //      ? current_reduction
                         //      : 1 + (expected_input_rows / aggregated_input_rows) * (current_reduction - 1);
-                        double min_reduction =
-                                STREAMING_HT_MIN_REDUCTION[cache_level].streaming_ht_min_reduction;
+                        double min_reduction = reduction[cache_level].streaming_ht_min_reduction;
 
                         //  COUNTER_SET(preagg_estimated_reduction_, estimated_reduction);
                         //    COUNTER_SET(preagg_streaming_ht_min_reduction_, min_reduction);
