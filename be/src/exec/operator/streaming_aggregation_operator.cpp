@@ -24,7 +24,9 @@
 
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "core/column/column_fixed_length_object.h"
 #include "exec/operator/operator.h"
+#include "exprs/aggregate/aggregate_function_count.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "exprs/vslot_ref.h"
@@ -149,22 +151,36 @@ Status StreamingAggLocalState::open(RuntimeState* state) {
 
     RETURN_IF_ERROR(_init_hash_method(_probe_expr_ctxs));
 
-    std::visit(Overload {[&](std::monostate& arg) -> void {
-                             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                                    "uninited hash table");
-                         },
-                         [&](auto& agg_method) {
-                             using HashTableType = std::decay_t<decltype(agg_method)>;
-                             using KeyType = typename HashTableType::Key;
+    // Determine whether to use simple count aggregation.
+    // StreamingAgg only operates in update + serialize mode: input is raw data, output is serialized intermediate state.
+    // The serialization format of count is UInt64 itself, so it can be inlined into the hash table mapped slot.
+    if (_aggregate_evaluators.size() == 1 &&
+        _aggregate_evaluators[0]->function()->is_simple_count()) {
+        _use_simple_count = true;
+#ifndef NDEBUG
+        // Randomly enable/disable in debug mode to verify correctness of multi-phase agg promotion/demotion.
+        _use_simple_count = rand() % 2 == 0;
+#endif
+    }
 
-                             /// some aggregate functions (like AVG for decimal) have align issues.
-                             _aggregate_data_container = std::make_unique<AggregateDataContainer>(
-                                     sizeof(KeyType), ((p._total_size_of_aggregate_states +
-                                                        p._align_aggregate_states - 1) /
-                                                       p._align_aggregate_states) *
-                                                              p._align_aggregate_states);
-                         }},
-               _agg_data->method_variant);
+    std::visit(
+            Overload {[&](std::monostate& arg) -> void {
+                          throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                      },
+                      [&](auto& agg_method) {
+                          using HashTableType = std::decay_t<decltype(agg_method)>;
+                          using KeyType = typename HashTableType::Key;
+
+                          if (!_use_simple_count) {
+                              /// some aggregate functions (like AVG for decimal) have align issues.
+                              _aggregate_data_container = std::make_unique<AggregateDataContainer>(
+                                      sizeof(KeyType), ((p._total_size_of_aggregate_states +
+                                                         p._align_aggregate_states - 1) /
+                                                        p._align_aggregate_states) *
+                                                               p._align_aggregate_states);
+                          }
+                      }},
+            _agg_data->method_variant);
 
     limit = p._sort_limit;
     do_sort_limit = p._do_sort_limit;
@@ -191,8 +207,11 @@ void StreamingAggLocalState::_update_memusage_with_serialized_key() {
                          },
                          [&](auto& agg_method) -> void {
                              auto& data = *agg_method.hash_table;
-                             int64_t arena_memory_usage = _agg_arena_pool.size() +
-                                                          _aggregate_data_container->memory_usage();
+                             int64_t arena_memory_usage =
+                                     _agg_arena_pool.size() +
+                                     (_aggregate_data_container
+                                              ? _aggregate_data_container->memory_usage()
+                                              : 0);
                              int64_t hash_table_memory_usage = data.get_buffer_size_in_bytes();
 
                              COUNTER_SET(_memory_used_counter,
@@ -325,22 +344,23 @@ bool StreamingAggLocalState::_should_not_do_pre_agg(size_t rows) {
     const auto spill_streaming_agg_mem_limit = p._spill_streaming_agg_mem_limit;
     const bool used_too_much_memory =
             spill_streaming_agg_mem_limit > 0 && _memory_usage() > spill_streaming_agg_mem_limit;
-    std::visit(Overload {[&](std::monostate& arg) {
-                             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                                    "uninited hash table");
-                         },
-                         [&](auto& agg_method) {
-                             auto& hash_tbl = *agg_method.hash_table;
-                             /// If too much memory is used during the pre-aggregation stage,
-                             /// it is better to output the data directly without performing further aggregation.
-                             // do not try to do agg, just init and serialize directly return the out_block
-                             if (used_too_much_memory || (hash_tbl.add_elem_size_overflow(rows) &&
-                                                          !_should_expand_preagg_hash_tables())) {
-                                 SCOPED_TIMER(_streaming_agg_timer);
-                                 ret_flag = true;
-                             }
-                         }},
-               _agg_data->method_variant);
+    std::visit(
+            Overload {
+                    [&](std::monostate& arg) {
+                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                    },
+                    [&](auto& agg_method) {
+                        auto& hash_tbl = *agg_method.hash_table;
+                        /// If too much memory is used during the pre-aggregation stage,
+                        /// it is better to output the data directly without performing further aggregation.
+                        // do not try to do agg, just init and serialize directly return the out_block
+                        if (used_too_much_memory || (hash_tbl.add_elem_size_overflow(rows) &&
+                                                     !_should_expand_preagg_hash_tables())) {
+                            SCOPED_TIMER(_streaming_agg_timer);
+                            ret_flag = true;
+                        }
+                    }},
+            _agg_data->method_variant);
 
     return ret_flag;
 }
@@ -438,7 +458,12 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_blo
     } else {
         bool need_agg = true;
         if (need_do_sort_limit != 1) {
-            _emplace_into_hash_table(_places.data(), key_columns, rows);
+            if (_use_simple_count) {
+                _emplace_into_hash_table_inline_count(key_columns, rows);
+                need_agg = false;
+            } else {
+                _emplace_into_hash_table(_places.data(), key_columns, rows);
+            }
         } else {
             need_agg = _emplace_into_hash_table_limit(_places.data(), in_block, key_columns, rows);
         }
@@ -506,6 +531,74 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                         const auto size = std::min(data.size(), size_t(state->batch_size()));
                         using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
+
+                        if (_use_simple_count) {
+                            DCHECK_EQ(_aggregate_evaluators.size(), 1);
+
+                            value_data_types[0] =
+                                    _aggregate_evaluators[0]->function()->get_serialized_type();
+                            if (mem_reuse) {
+                                value_columns[0] =
+                                        std::move(*block->get_by_position(key_size).column)
+                                                .mutate();
+                            } else {
+                                value_columns[0] = _aggregate_evaluators[0]
+                                                           ->function()
+                                                           ->create_serialize_column();
+                            }
+
+                            std::vector<UInt64> inline_counts(size);
+                            uint32_t num_rows = 0;
+                            {
+                                SCOPED_TIMER(_hash_table_iterate_timer);
+                                auto& it = agg_method.begin;
+                                while (it != agg_method.end && num_rows < state->batch_size()) {
+                                    keys[num_rows] = it.get_first();
+                                    inline_counts[num_rows] =
+                                            reinterpret_cast<const UInt64&>(it.get_second());
+                                    ++it;
+                                    ++num_rows;
+                                }
+                            }
+
+                            {
+                                SCOPED_TIMER(_insert_keys_to_column_timer);
+                                agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
+                            }
+
+                            // Write inline counts to serialized column
+                            auto& count_col =
+                                    assert_cast<ColumnFixedLengthObject&>(*value_columns[0]);
+                            count_col.resize(num_rows);
+                            auto* col_data = count_col.get_data().data();
+                            for (uint32_t i = 0; i < num_rows; ++i) {
+                                *reinterpret_cast<UInt64*>(col_data + i * sizeof(UInt64)) =
+                                        inline_counts[i];
+                            }
+
+                            // Handle null key if present
+                            if (agg_method.begin == agg_method.end) {
+                                if (agg_method.hash_table->has_null_key_data()) {
+                                    DCHECK(key_columns.size() == 1);
+                                    DCHECK(key_columns[0]->is_nullable());
+                                    if (num_rows < state->batch_size()) {
+                                        key_columns[0]->insert_data(nullptr, 0);
+                                        auto mapped =
+                                                agg_method.hash_table->template get_null_key_data<
+                                                        AggregateDataPtr>();
+                                        count_col.resize(num_rows + 1);
+                                        *reinterpret_cast<UInt64*>(count_col.get_data().data() +
+                                                                   num_rows * sizeof(UInt64)) =
+                                                std::bit_cast<UInt64>(mapped);
+                                        *eos = true;
+                                    }
+                                } else {
+                                    *eos = true;
+                                }
+                            }
+                            return;
+                        }
+
                         if (_values.size() < size + 1) {
                             _values.resize(size + 1);
                         }
@@ -778,6 +871,11 @@ bool StreamingAggLocalState::_do_limit_filter(size_t num_rows, ColumnRawPtrs& ke
 void StreamingAggLocalState::_emplace_into_hash_table(AggregateDataPtr* places,
                                                       ColumnRawPtrs& key_columns,
                                                       const uint32_t num_rows) {
+    if (_use_simple_count) {
+        _emplace_into_hash_table_inline_count(key_columns, num_rows);
+        return;
+    }
+
     std::visit(Overload {[&](std::monostate& arg) -> void {
                              throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                                     "uninited hash table");
@@ -816,6 +914,40 @@ void StreamingAggLocalState::_emplace_into_hash_table(AggregateDataPtr* places,
                              lazy_emplace_batch(
                                      agg_method, state, num_rows, creator, creator_for_null_key,
                                      [&](uint32_t row, auto& mapped) { places[row] = mapped; });
+
+                             COUNTER_UPDATE(_hash_table_input_counter, num_rows);
+                         }},
+               _agg_data->method_variant);
+}
+
+void StreamingAggLocalState::_emplace_into_hash_table_inline_count(ColumnRawPtrs& key_columns,
+                                                                   uint32_t num_rows) {
+    std::visit(Overload {[&](std::monostate& arg) -> void {
+                             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                    "uninited hash table");
+                         },
+                         [&](auto& agg_method) -> void {
+                             SCOPED_TIMER(_hash_table_compute_timer);
+                             using HashMethodType = std::decay_t<decltype(agg_method)>;
+                             using AggState = typename HashMethodType::State;
+                             AggState state(key_columns);
+                             agg_method.init_serialized_keys(key_columns, num_rows);
+
+                             auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                                 HashMethodType::try_presis_key_and_origin(key, origin,
+                                                                           _agg_arena_pool);
+                                 AggregateDataPtr mapped = nullptr;
+                                 ctor(key, mapped);
+                             };
+
+                             auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
+
+                             SCOPED_TIMER(_hash_table_emplace_timer);
+                             for (size_t i = 0; i < num_rows; ++i) {
+                                 auto* mapped_ptr = agg_method.lazy_emplace(state, i, creator,
+                                                                            creator_for_null_key);
+                                 ++reinterpret_cast<UInt64&>(*mapped_ptr);
+                             }
 
                              COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                          }},
