@@ -823,7 +823,7 @@ class ModuleUDFLoader(UDFLoader):
     _import_locks: Dict[str, threading.RLock] = {}
     _import_locks_lock = threading.Lock()
 
-    #Key for _module_cache: (location, module_name) tuple to avoid conflicts between different locations
+    # Key for _module_cache: (location, module_name) tuple to avoid conflicts between different locations
     _module_cache: Dict[Tuple[str, str], Any] = {}
     _module_cache_lock = threading.Lock()
 
@@ -923,7 +923,7 @@ class ModuleUDFLoader(UDFLoader):
         """
         cache_key = (location, full_module_name)
 
-        # Use a per-(location, module) lock to prevent race conditions during import
+        # Use a per-module lock to prevent race conditions during import
         import_lock = ModuleUDFLoader._get_import_lock(full_module_name)
 
         with import_lock:
