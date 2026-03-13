@@ -62,7 +62,7 @@ export function DataPrev(props: any) {
                 key: item.name,
                 width: 150,
                 render: (text, record, index) => {
-                    return text === '\\N' ? '-' : text
+                    return text === '\\N' ? '-' : (text === null || text === undefined ? '' : String(text))
                 }
             };
         });
