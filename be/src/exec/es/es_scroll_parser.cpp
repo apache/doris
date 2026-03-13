@@ -713,6 +713,10 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
             if (pure_doc_value) {
                 if (col.Empty()) {
                     break;
+                } else if (col.Size() > 1) {
+                    // doc_values with multiple elements means actual array data
+                    // in ES keyword/text field, serialize as JSON array string
+                    val = json_value_to_string(col);
                 } else if (!col[0].IsString()) {
                     val = json_value_to_string(col[0]);
                 } else {

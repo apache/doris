@@ -35,7 +35,8 @@ suite("test_es_keyword_array_type", "p0,external,es,external_docker,external_doc
             "type"="es",
             "hosts"="http://${externalEnvIp}:$es_7_port",
             "nodes_discovery"="false",
-            "enable_keyword_sniff"="true"
+            "enable_keyword_sniff"="true",
+            "enable_docvalue_scan"="false"
         );
         """
 
@@ -44,7 +45,8 @@ suite("test_es_keyword_array_type", "p0,external,es,external_docker,external_doc
             "type"="es",
             "hosts"="http://${externalEnvIp}:$es_8_port",
             "nodes_discovery"="false",
-            "enable_keyword_sniff"="true"
+            "enable_keyword_sniff"="true",
+            "enable_docvalue_scan"="false"
         );
         """
 
