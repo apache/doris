@@ -98,10 +98,12 @@ public class StreamManager implements Writable {
     }
 
     public void fillStreamValuesMetadataResult(List<TRow> dataBatch) {
-        Map<Long, Set<Long>> coipedMap;
+        Map<Long, Set<Long>> coipedMap = new HashMap<>();
         rwLock.readLock().lock();
         try {
-            coipedMap = new HashMap<>(dbStreamMap);
+            for (Map.Entry<Long, Set<Long>> e : dbStreamMap.entrySet()) {
+                coipedMap.put(e.getKey(), new HashSet<>(e.getValue()));
+            }
         } finally {
             rwLock.readLock().unlock();
         }

@@ -75,10 +75,13 @@ public class OlapTableStream extends BaseStream {
         if (showInitialRows) {
             offset = 0;
         } else {
-            try {
-                offset = ((OlapTable) baseTable).getVisibleVersion();
-            } catch (RpcException e) {
-                throw new AnalysisException(e.getMessage(), e);
+            baseTable = getBaseTableNullable();
+            if (baseTable != null) {
+                try {
+                    offset = ((OlapTable) baseTable).getVisibleVersion();
+                } catch (RpcException e) {
+                    throw new AnalysisException(e.getMessage(), e);
+                }
             }
         }
     }

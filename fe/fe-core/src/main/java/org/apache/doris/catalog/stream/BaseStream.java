@@ -161,9 +161,9 @@ public abstract class BaseStream extends Table {
 
     public void getProperties(StringBuilder sb) {
         sb.append("\"").append(PropertyAnalyzer.PROPERTIES_STREAM_TYPE)
-                .append("\" = \"").append(streamConsumeType).append("\",\n");
-        sb.append("\"").append(PropertyAnalyzer.PROPERTIES_STREAM_SHOW_INITIAL_ROWS)
-                .append("\" = \"").append(showInitialRows).append("\",\n");
+                .append("\" = \"").append(streamConsumeType).append("\"");
+        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STREAM_SHOW_INITIAL_ROWS)
+                .append("\" = \"").append(showInitialRows).append("\"\n");
     }
 
     @Override

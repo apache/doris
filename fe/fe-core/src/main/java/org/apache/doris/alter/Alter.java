@@ -1325,8 +1325,4 @@ public class Alter {
             LOG.warn(e);
         }
     }
-
-    public void processAlterStream(AlterTableCommand command) throws UserException {
-
-    }
 }
