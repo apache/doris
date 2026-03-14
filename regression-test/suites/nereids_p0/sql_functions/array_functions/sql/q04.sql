@@ -1,3 +1,4 @@
+DROP TABLE IF EXISTS `table_100_undef_partitions2_keys3_properties4_distributed_by52`;
 CREATE TABLE `table_100_undef_partitions2_keys3_properties4_distributed_by52` (
   `pk` int NULL,
   `col_array_boolean__undef_signed` array<boolean> NULL,
