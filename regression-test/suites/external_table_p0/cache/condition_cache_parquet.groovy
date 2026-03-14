@@ -354,7 +354,7 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
 |          /tmp/test_condition_cache_parquet/parquet_large_9a9b87f91eb245e7-843725dec143358e_0.parquet start: 49152 length: 13342                             |
 |          dataFileNum=1, deleteFileNum=0, deleteSplitNum=0 
     */
-    assertEquals("4", metrics["ConditionCacheFileHit"])
+    assertEquals("1", metrics["ConditionCacheFileHit"])
     assertEquals("4.096K (4096)", metrics["ConditionCacheFilteredRows"])
 
     uuid = UUID.randomUUID().toString()
@@ -370,7 +370,7 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
     assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
     metrics = extractProfileBlockMetrics(profileText, "Scanner")
     logger.info("metrics = ${metrics}")
-    assertEquals("4", metrics["ConditionCacheFileHit"])
+    assertEquals("1", metrics["ConditionCacheFileHit"])
     assertEquals("4.096K (4096)", metrics["ConditionCacheFilteredRows"])
 
     // ---- Test 1: Basic predicate, no cache (baseline) ----

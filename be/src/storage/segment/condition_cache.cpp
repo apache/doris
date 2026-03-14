@@ -26,6 +26,9 @@ namespace doris::segment_v2 {
 template <typename KeyType>
 bool ConditionCache::lookup(const KeyType& key, ConditionCacheHandle* handle) {
     auto encoded_key = key.encode();
+    if (encoded_key.empty()) {
+        return false;
+    }
     auto lru_handle = LRUCachePolicy::lookup(encoded_key);
     if (!lru_handle) {
         return false;
@@ -35,14 +38,18 @@ bool ConditionCache::lookup(const KeyType& key, ConditionCacheHandle* handle) {
 }
 
 template <typename KeyType>
-void ConditionCache::insert(const KeyType& key, std::shared_ptr<std::vector<bool>> filter_result) {
-    auto* value = new CacheValue();
-    value->filter_result = std::move(filter_result);
+void ConditionCache::insert(const KeyType& key, std::shared_ptr<std::vector<bool>> result) {
     auto encoded_key = key.encode();
-    auto lru_handle = LRUCachePolicy::insert(encoded_key, value, value->filter_result->size(), 0,
-                                             CachePriority::NORMAL);
-    auto handle = ConditionCacheHandle(this, lru_handle);
-    // Handle released in destructor
+    if (encoded_key.empty()) {
+        return;
+    }
+    std::unique_ptr<ConditionCache::CacheValue> cache_value_ptr =
+            std::make_unique<ConditionCache::CacheValue>();
+    cache_value_ptr->filter_result = result;
+
+    ConditionCacheHandle(this, LRUCachePolicy::insert(encoded_key, (void*)cache_value_ptr.release(),
+                                                      result->capacity(), result->capacity(),
+                                                      CachePriority::NORMAL));
 }
 
 // Explicit template instantiations

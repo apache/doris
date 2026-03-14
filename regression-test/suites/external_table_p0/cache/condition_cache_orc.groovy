@@ -352,7 +352,7 @@ suite("condition_cache_orc", "tvf,external,external_docker") {
     assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
     metrics = extractProfileBlockMetrics(profileText, "Scanner")
     logger.info("metrics = ${metrics}")
-    assertEquals("3", metrics["ConditionCacheFileHit"])
+    assertEquals("1", metrics["ConditionCacheFileHit"])
     assertEquals("4.096K (4096)", metrics["ConditionCacheFilteredRows"])
 
     uuid = UUID.randomUUID().toString()
@@ -368,7 +368,7 @@ suite("condition_cache_orc", "tvf,external,external_docker") {
     assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
     metrics = extractProfileBlockMetrics(profileText, "Scanner")
     logger.info("metrics = ${metrics}")
-    assertEquals("3", metrics["ConditionCacheFileHit"])
+    assertEquals("1", metrics["ConditionCacheFileHit"])
     assertEquals("4.096K (4096)", metrics["ConditionCacheFilteredRows"])
 
     // ---- Test 1: Basic predicate, no cache (baseline) ----
