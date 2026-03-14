@@ -220,11 +220,12 @@ class ConcurrentLong2ObjectHashMapTest {
     }
 
     @Test
-    void testNullValues() {
+    void testNullValuesRejected() {
         ConcurrentLong2ObjectHashMap<String> map = new ConcurrentLong2ObjectHashMap<>();
-        map.put(1L, null);
-        Assertions.assertTrue(map.containsKey(1L));
-        Assertions.assertNull(map.get(1L));
+        Assertions.assertThrows(NullPointerException.class, () -> map.put(1L, null));
+        Assertions.assertThrows(NullPointerException.class, () -> map.putIfAbsent(1L, null));
+        Assertions.assertThrows(NullPointerException.class, () -> map.replace(1L, null));
+        Assertions.assertThrows(NullPointerException.class, () -> map.replace(1L, "old", null));
     }
 
     @Test

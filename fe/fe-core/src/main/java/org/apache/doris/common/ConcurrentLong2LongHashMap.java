@@ -23,10 +23,8 @@ import it.unimi.dsi.fastutil.longs.Long2LongFunction;
 import it.unimi.dsi.fastutil.longs.Long2LongMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.longs.LongBinaryOperator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import it.unimi.dsi.fastutil.objects.ObjectSet;
 
@@ -47,8 +45,14 @@ import java.util.function.LongUnaryOperator;
  * <p>The {@link #addTo(long, long)} method provides atomic increment semantics, useful for
  * counter patterns.
  *
- * <p><b>Important:</b> All compound operations from both {@link Long2LongMap} and {@link Map}
- * interfaces are overridden to ensure atomicity within a segment's write lock.
+ * <p><b>Note:</b> The {@code defaultReturnValue} is fixed at 0. Calling
+ * {@code defaultReturnValue(long)} on this wrapper will NOT propagate to the underlying
+ * segment maps, and reads/removes will still return 0 for missing keys.
+ *
+ * <p><b>Important:</b> All primitive-key compound operations (computeIfAbsent, computeIfPresent,
+ * compute, merge, mergeLong, putIfAbsent, replace, remove, addTo) are overridden to ensure
+ * atomicity within a segment. Boxed {@link Map}-level compound methods delegate to these
+ * primitive overrides via fastutil's bridge methods, so they are also atomic.
  */
 public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
 
@@ -210,6 +214,26 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
         seg.lock.writeLock().lock();
         try {
             return seg.map.replace(key, value);
+        } finally {
+            seg.lock.writeLock().unlock();
+        }
+    }
+
+    @Override
+    public boolean remove(Object key, Object value) {
+        if (!(key instanceof Long) || !(value instanceof Long)) {
+            return false;
+        }
+        long k = (Long) key;
+        long v = (Long) value;
+        Segment seg = segmentFor(k);
+        seg.lock.writeLock().lock();
+        try {
+            if (!seg.map.containsKey(k) || seg.map.get(k) != v) {
+                return false;
+            }
+            seg.map.remove(k);
+            return true;
         } finally {
             seg.lock.writeLock().unlock();
         }

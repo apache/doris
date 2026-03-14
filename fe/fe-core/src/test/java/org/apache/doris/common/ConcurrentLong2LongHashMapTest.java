@@ -448,8 +448,9 @@ class ConcurrentLong2LongHashMapTest {
         Assertions.assertTrue(map.containsKey(1L));
         Assertions.assertEquals(0L, map.get(1L));
 
+        // getOrDefault returns the specified default for missing keys
+        Assertions.assertEquals(0L, map.getOrDefault(999L, map.defaultReturnValue()));
         // Boxed get via Map<Long,Long> interface returns null for missing keys
-        Long boxedResult = map.getOrDefault(999L, map.defaultReturnValue());
-        Assertions.assertEquals(0L, boxedResult);
+        Assertions.assertNull(((Map<Long, Long>) map).get(999L));
     }
 }
