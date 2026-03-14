@@ -1398,6 +1398,18 @@ Status VariantColumnWriter::append_nullable(const uint8_t* null_map, const uint8
     return _impl->append_nullable(null_map, ptr, num_rows);
 }
 
+uint64_t VariantColumnWriter::get_raw_data_bytes() const {
+    return _impl->get_raw_data_bytes();
+}
+
+uint64_t VariantColumnWriter::get_total_uncompressed_data_pages_bytes() const {
+    return _impl->get_total_uncompressed_data_pages_bytes();
+}
+
+uint64_t VariantColumnWriter::get_total_compressed_data_pages_bytes() const {
+    return _impl->get_total_compressed_data_pages_bytes();
+}
+
 #include "common/compile_check_end.h"
 
 } // namespace doris::segment_v2

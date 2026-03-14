@@ -596,15 +596,15 @@ public:
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
     uint64_t get_raw_data_bytes() const override {
-        return 0; // TODO
+        return _writer ? _writer->get_raw_data_bytes() : 0;
     }
 
     uint64_t get_total_uncompressed_data_pages_bytes() const override {
-        return 0; // TODO
+        return _writer ? _writer->get_total_uncompressed_data_pages_bytes() : 0;
     }
 
     uint64_t get_total_compressed_data_pages_bytes() const override {
-        return 0; // TODO
+        return _writer ? _writer->get_total_compressed_data_pages_bytes() : 0;
     }
 
     Status append_nulls(size_t num_rows) override {
@@ -658,17 +658,9 @@ public:
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
-    uint64_t get_raw_data_bytes() const override {
-        return 0; // TODO
-    }
-
-    uint64_t get_total_uncompressed_data_pages_bytes() const override {
-        return 0; // TODO
-    }
-
-    uint64_t get_total_compressed_data_pages_bytes() const override {
-        return 0; // TODO
-    }
+    uint64_t get_raw_data_bytes() const override;
+    uint64_t get_total_uncompressed_data_pages_bytes() const override;
+    uint64_t get_total_compressed_data_pages_bytes() const override;
 
     Status append_nulls(size_t num_rows) override {
         return Status::NotSupported("variant writer can not append_nulls");

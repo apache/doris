@@ -613,6 +613,45 @@ uint64_t UnifiedSparseColumnWriter::estimate_buffer_size() const {
     return size;
 }
 
+uint64_t UnifiedSparseColumnWriter::get_raw_data_bytes() const {
+    uint64_t total = 0;
+    if (_single_writer) {
+        total += _single_writer->get_raw_data_bytes();
+    }
+    for (const auto& w : _bucket_writers) {
+        if (w) {
+            total += w->get_raw_data_bytes();
+        }
+    }
+    return total;
+}
+
+uint64_t UnifiedSparseColumnWriter::get_total_uncompressed_data_pages_bytes() const {
+    uint64_t total = 0;
+    if (_single_writer) {
+        total += _single_writer->get_total_uncompressed_data_pages_bytes();
+    }
+    for (const auto& w : _bucket_writers) {
+        if (w) {
+            total += w->get_total_uncompressed_data_pages_bytes();
+        }
+    }
+    return total;
+}
+
+uint64_t UnifiedSparseColumnWriter::get_total_compressed_data_pages_bytes() const {
+    uint64_t total = 0;
+    if (_single_writer) {
+        total += _single_writer->get_total_compressed_data_pages_bytes();
+    }
+    for (const auto& w : _bucket_writers) {
+        if (w) {
+            total += w->get_total_compressed_data_pages_bytes();
+        }
+    }
+    return total;
+}
+
 Status UnifiedSparseColumnWriter::finish() {
     if (_single_writer) {
         RETURN_IF_ERROR(_single_writer->finish());
@@ -958,6 +997,39 @@ uint64_t VariantDocWriter::estimate_buffer_size() const {
         size += writer->estimate_buffer_size();
     }
     return size;
+}
+
+uint64_t VariantDocWriter::get_raw_data_bytes() const {
+    uint64_t total = 0;
+    for (const auto& writer : _subcolumn_writers) {
+        total += writer->get_raw_data_bytes();
+    }
+    for (const auto& writer : _doc_value_column_writers) {
+        total += writer->get_raw_data_bytes();
+    }
+    return total;
+}
+
+uint64_t VariantDocWriter::get_total_uncompressed_data_pages_bytes() const {
+    uint64_t total = 0;
+    for (const auto& writer : _subcolumn_writers) {
+        total += writer->get_total_uncompressed_data_pages_bytes();
+    }
+    for (const auto& writer : _doc_value_column_writers) {
+        total += writer->get_total_uncompressed_data_pages_bytes();
+    }
+    return total;
+}
+
+uint64_t VariantDocWriter::get_total_compressed_data_pages_bytes() const {
+    uint64_t total = 0;
+    for (const auto& writer : _subcolumn_writers) {
+        total += writer->get_total_compressed_data_pages_bytes();
+    }
+    for (const auto& writer : _doc_value_column_writers) {
+        total += writer->get_total_compressed_data_pages_bytes();
+    }
+    return total;
 }
 
 Status VariantDocWriter::finish() {
@@ -1773,6 +1845,81 @@ Status VariantDocCompactWriter::finalize() {
 
 uint64_t VariantDocCompactWriter::estimate_buffer_size() {
     return _column->byte_size();
+}
+
+uint64_t VariantColumnWriterImpl::get_raw_data_bytes() const {
+    uint64_t total = 0;
+    if (_root_writer) {
+        total += _root_writer->get_raw_data_bytes();
+    }
+    for (const auto& writer : _subcolumn_writers) {
+        total += writer->get_raw_data_bytes();
+    }
+    if (_binary_writer) {
+        total += _binary_writer->get_raw_data_bytes();
+    }
+    return total;
+}
+
+uint64_t VariantColumnWriterImpl::get_total_uncompressed_data_pages_bytes() const {
+    uint64_t total = 0;
+    if (_root_writer) {
+        total += _root_writer->get_total_uncompressed_data_pages_bytes();
+    }
+    for (const auto& writer : _subcolumn_writers) {
+        total += writer->get_total_uncompressed_data_pages_bytes();
+    }
+    if (_binary_writer) {
+        total += _binary_writer->get_total_uncompressed_data_pages_bytes();
+    }
+    return total;
+}
+
+uint64_t VariantColumnWriterImpl::get_total_compressed_data_pages_bytes() const {
+    uint64_t total = 0;
+    if (_root_writer) {
+        total += _root_writer->get_total_compressed_data_pages_bytes();
+    }
+    for (const auto& writer : _subcolumn_writers) {
+        total += writer->get_total_compressed_data_pages_bytes();
+    }
+    if (_binary_writer) {
+        total += _binary_writer->get_total_compressed_data_pages_bytes();
+    }
+    return total;
+}
+
+uint64_t VariantDocCompactWriter::get_raw_data_bytes() const {
+    uint64_t total = 0;
+    if (_doc_value_column_writer) {
+        total += _doc_value_column_writer->get_raw_data_bytes();
+    }
+    for (const auto& writer : _subcolumn_writers) {
+        total += writer->get_raw_data_bytes();
+    }
+    return total;
+}
+
+uint64_t VariantDocCompactWriter::get_total_uncompressed_data_pages_bytes() const {
+    uint64_t total = 0;
+    if (_doc_value_column_writer) {
+        total += _doc_value_column_writer->get_total_uncompressed_data_pages_bytes();
+    }
+    for (const auto& writer : _subcolumn_writers) {
+        total += writer->get_total_uncompressed_data_pages_bytes();
+    }
+    return total;
+}
+
+uint64_t VariantDocCompactWriter::get_total_compressed_data_pages_bytes() const {
+    uint64_t total = 0;
+    if (_doc_value_column_writer) {
+        total += _doc_value_column_writer->get_total_compressed_data_pages_bytes();
+    }
+    for (const auto& writer : _subcolumn_writers) {
+        total += writer->get_total_compressed_data_pages_bytes();
+    }
+    return total;
 }
 
 #include "common/compile_check_end.h"

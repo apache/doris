@@ -62,6 +62,9 @@ public:
     virtual Status write_bloom_filter_index() = 0;
     virtual uint64_t estimate_buffer_size() const = 0;
     virtual void merge_stats_to(VariantStatistics* stats) const = 0;
+    virtual uint64_t get_raw_data_bytes() const = 0;
+    virtual uint64_t get_total_uncompressed_data_pages_bytes() const = 0;
+    virtual uint64_t get_total_compressed_data_pages_bytes() const = 0;
 };
 
 class VariantDocWriter : public VariantBinaryWriter {
@@ -79,6 +82,9 @@ public:
     Status write_bloom_filter_index() override;
     uint64_t estimate_buffer_size() const override;
     void merge_stats_to(VariantStatistics* stats) const override;
+    uint64_t get_raw_data_bytes() const override;
+    uint64_t get_total_uncompressed_data_pages_bytes() const override;
+    uint64_t get_total_compressed_data_pages_bytes() const override;
 
 private:
     Status _write_materialized_subcolumn(const TabletColumn& parent_column, std::string_view path,
@@ -134,6 +140,9 @@ public:
     Status write_inverted_index() override;
     Status write_bloom_filter_index() override;
     void merge_stats_to(VariantStatistics* stats) const override;
+    uint64_t get_raw_data_bytes() const override;
+    uint64_t get_total_uncompressed_data_pages_bytes() const override;
+    uint64_t get_total_compressed_data_pages_bytes() const override;
 
 private:
     // Initialize single sparse column writer and consume one column_id.
@@ -181,6 +190,10 @@ public:
     Status write_bloom_filter_index();
     uint64_t estimate_buffer_size();
     Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
+
+    uint64_t get_raw_data_bytes() const;
+    uint64_t get_total_uncompressed_data_pages_bytes() const;
+    uint64_t get_total_compressed_data_pages_bytes() const;
 
 private:
     Status _for_each_column_writer(const std::function<Status(ColumnWriter*)>& func);
@@ -238,17 +251,9 @@ public:
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
-    uint64_t get_raw_data_bytes() const override {
-        return 0; // TODO
-    }
-
-    uint64_t get_total_uncompressed_data_pages_bytes() const override {
-        return 0; // TODO
-    }
-
-    uint64_t get_total_compressed_data_pages_bytes() const override {
-        return 0; // TODO
-    }
+    uint64_t get_raw_data_bytes() const override;
+    uint64_t get_total_uncompressed_data_pages_bytes() const override;
+    uint64_t get_total_compressed_data_pages_bytes() const override;
 
     Status append_nulls(size_t num_rows) override {
         return Status::NotSupported("variant writer can not append_nulls");
