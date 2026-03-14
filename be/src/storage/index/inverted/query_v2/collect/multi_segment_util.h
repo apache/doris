@@ -60,6 +60,11 @@ void for_each_index_segment(const QueryExecutionContext& context, const std::str
                             SegmentCallback&& callback) {
     auto* reader = context.readers.empty() ? nullptr : context.readers.front().get();
     if (!reader) {
+        // No reader available (e.g., AllQuery/MatchAllDocsQuery which doesn't resolve fields).
+        // Fall back to using the original context directly, as AllScorer only needs segment_num_rows.
+        if (context.segment_num_rows > 0) {
+            callback(context, 0);
+        }
         return;
     }
 

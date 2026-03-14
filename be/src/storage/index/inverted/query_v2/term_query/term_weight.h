@@ -31,6 +31,8 @@ using TermOrEmptyScorer = std::variant<EmptyScorerPtr, TermScorerPtr>;
 
 class TermWeight : public Weight {
 public:
+    using Weight::for_each_pruning;
+
     TermWeight(IndexQueryContextPtr context, std::wstring field, std::wstring term,
                SimilarityPtr similarity, bool enable_scoring)
             : _context(std::move(context)),
