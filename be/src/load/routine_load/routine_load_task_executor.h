@@ -38,6 +38,7 @@ class StreamLoadContext;
 class TRoutineLoadTask;
 class PIntegerPair;
 class PKafkaMetaProxyRequest;
+class PKinesisMetaProxyRequest;
 
 // A routine load task executor will receive routine load
 // tasks from FE, put it to a fixed thread pool.
@@ -73,6 +74,9 @@ public:
                                                  std::vector<PIntegerPair>* partition_offsets,
                                                  int timeout);
 
+    Status get_kinesis_shard_meta(const PKinesisMetaProxyRequest& request,
+                                  std::vector<std::string>* shard_ids);
+
     ThreadPool& get_thread_pool() { return *_thread_pool; }
 
 private:
@@ -87,6 +91,10 @@ private:
     Status _execute_plan_for_test(std::shared_ptr<StreamLoadContext> ctx);
     // create a dummy StreamLoadContext for PKafkaMetaProxyRequest
     Status _prepare_ctx(const PKafkaMetaProxyRequest& request,
+                        std::shared_ptr<StreamLoadContext> ctx);
+
+    // create a dummy StreamLoadContext for PKinesisMetaProxyRequest
+    Status _prepare_ctx(const PKinesisMetaProxyRequest& request,
                         std::shared_ptr<StreamLoadContext> ctx);
     bool _reach_memory_limit(std::string& reason);
 

@@ -26,7 +26,6 @@
 
 #include "common/cast_set.h"
 #include "common/status.h"
-#include "io/fs/kafka_consumer_pipe.h"
 #include "load/routine_load/data_consumer.h"
 #include "util/blocking_queue.hpp"
 #include "util/uid_util.h"
@@ -67,7 +66,7 @@ public:
 
     // start all consumers
     virtual Status start_all(std::shared_ptr<StreamLoadContext> ctx,
-                             std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe) {
+                             std::shared_ptr<io::StreamLoadPipe> pipe) {
         return Status::OK();
     }
 
@@ -89,14 +88,13 @@ class KafkaDataConsumerGroup : public DataConsumerGroup {
 public:
     KafkaDataConsumerGroup(size_t consumer_num) : DataConsumerGroup(consumer_num), _queue(500) {}
 
-    virtual ~KafkaDataConsumerGroup();
+    ~KafkaDataConsumerGroup() override;
 
     Status start_all(std::shared_ptr<StreamLoadContext> ctx,
-                     std::shared_ptr<io::KafkaConsumerPipe> kafka_pipe) override;
+                     std::shared_ptr<io::StreamLoadPipe> pipe) override;
     // assign topic partitions to all consumers equally
     Status assign_topic_partitions(std::shared_ptr<StreamLoadContext> ctx);
 
-private:
     // start a single consumer
     void actual_consume(std::shared_ptr<DataConsumer> consumer,
                         BlockingQueue<RdKafka::Message*>* queue, int64_t max_running_time_ms,
@@ -106,6 +104,27 @@ private:
     // blocking queue to receive msgs from all consumers
     BlockingQueue<RdKafka::Message*> _queue;
 };
+
+// for kinesis
+class KinesisDataConsumerGroup : public DataConsumerGroup {
+    public:
+        KinesisDataConsumerGroup(size_t consumer_num) : DataConsumerGroup(consumer_num), _queue(500) {}
+    
+        ~KinesisDataConsumerGroup() override;
+    
+        Status start_all(std::shared_ptr<StreamLoadContext> ctx,
+                         std::shared_ptr<io::StreamLoadPipe> pipe) override;
+    
+        Status assign_stream_shards(std::shared_ptr<StreamLoadContext> ctx);
+    
+    private:
+        void actual_consume(std::shared_ptr<DataConsumer> consumer,
+                            BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
+                            int64_t max_running_time_ms, ConsumeFinishCallback cb);
+    
+        BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>> _queue;
+    };
+
 #include "common/compile_check_end.h"
 
 } // end namespace doris
