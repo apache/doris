@@ -35,7 +35,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.PriorityQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -48,6 +50,8 @@ import java.util.concurrent.Future;
 public class CloudTabletStatMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(CloudTabletStatMgr.class);
 
+    private volatile long totalTableSize = 0;
+    // keep Config.prom_output_table_metrics_limit tables with the largest data size, used for prometheus output
     private volatile List<OlapTable.Statistics> cloudTableStatsList = new ArrayList<>();
 
     private static final ExecutorService GET_TABLET_STATS_THREAD_POOL = Executors.newFixedThreadPool(
@@ -290,7 +294,8 @@ public class CloudTabletStatMgr extends MasterDaemon {
                 newCloudTableStatsList.add(tableStats);
             }
         }
-        this.cloudTableStatsList = newCloudTableStatsList;
+        filterTopTableStatsByDataSize(newCloudTableStatsList);
+        this.totalTableSize = totalTableSize;
 
         if (MetricRepo.isInit) {
             MetricRepo.GAUGE_MAX_TABLE_SIZE_BYTES.setValue(maxTableSize.second);
@@ -364,5 +369,29 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
     public List<OlapTable.Statistics> getCloudTableStats() {
         return this.cloudTableStatsList;
+    }
+
+    public long getTotalTableSize() {
+        return this.totalTableSize;
+    }
+
+    private void filterTopTableStatsByDataSize(List<OlapTable.Statistics> newCloudTableStatsList) {
+        int limit = Config.prom_output_table_metrics_limit;
+        if (limit <= 0 || newCloudTableStatsList.size() <= limit) {
+            this.cloudTableStatsList = newCloudTableStatsList;
+            return;
+        }
+        // only copy elements if number of tables > prom_output_table_metrics_limit
+        PriorityQueue<OlapTable.Statistics> topStats = new PriorityQueue<>(limit,
+                Comparator.comparingLong(OlapTable.Statistics::getDataSize));
+        for (OlapTable.Statistics stats : newCloudTableStatsList) {
+            if (topStats.size() < limit) {
+                topStats.offer(stats);
+            } else if (!topStats.isEmpty() && stats.getDataSize() > topStats.peek().getDataSize()) {
+                topStats.poll();
+                topStats.offer(stats);
+            }
+        }
+        this.cloudTableStatsList = new ArrayList<>(topStats);
     }
 }

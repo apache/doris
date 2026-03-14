@@ -240,10 +240,10 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     @Getter
     private class InfightTablet {
-        private final Long tabletId;
+        private final long tabletId;
         private final String clusterId;
 
-        public InfightTablet(Long tabletId, String clusterId) {
+        public InfightTablet(long tabletId, String clusterId) {
             this.tabletId = tabletId;
             this.clusterId = clusterId;
         }
@@ -257,7 +257,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 return false;
             }
             InfightTablet that = (InfightTablet) o;
-            return tabletId.equals(that.tabletId) && clusterId.equals(that.clusterId);
+            return tabletId == that.tabletId && clusterId.equals(that.clusterId);
         }
 
         @Override
@@ -270,7 +270,6 @@ public class CloudTabletRebalancer extends MasterDaemon {
         public Tablet pickedTablet;
         public long srcBe;
         public long destBe;
-        public Map<Long, Set<Tablet>> beToTablets;
         public long startTimestamp;
         BalanceType balanceType;
     }
@@ -1511,7 +1510,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                         futurePartitionToTablets, futureBeToTabletsInTable)) {
                     continue;
                 }
-                preheatAndUpdateTablet(pickedTablet, srcBe, destBe, clusterId, balanceType, beToTablets);
+                preheatAndUpdateTablet(pickedTablet, srcBe, destBe, clusterId, balanceType);
             }
         }
     }
@@ -1552,7 +1551,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     private void preheatAndUpdateTablet(Tablet pickedTablet, long srcBe, long destBe, String clusterId,
-                                     BalanceType balanceType, Map<Long, Set<Tablet>> beToTablets) {
+            BalanceType balanceType) {
         Backend srcBackend = cloudSystemInfoService.getBackend(srcBe);
         Backend destBackend = cloudSystemInfoService.getBackend(destBe);
         if (srcBackend == null || destBackend == null) {
@@ -1566,7 +1565,6 @@ public class CloudTabletRebalancer extends MasterDaemon {
         task.srcBe = srcBe;
         task.destBe = destBe;
         task.balanceType = balanceType;
-        task.beToTablets = beToTablets;
         task.startTimestamp = System.currentTimeMillis() / 1000;
         InfightTablet key = new InfightTablet(pickedTablet.getId(), clusterId);
 
