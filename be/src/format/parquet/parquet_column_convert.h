@@ -39,7 +39,6 @@ struct ConvertParams {
     static const cctz::time_zone utc0;
     // schema.logicalType.TIMESTAMP.isAdjustedToUTC == true, we should set local time zone
     const cctz::time_zone* ctz = nullptr;
-    size_t offset_days = 0;
     int64_t second_mask = 1;
     int64_t scale_to_nano_factor = 1;
     const FieldSchema* field_schema = nullptr;
@@ -110,11 +109,6 @@ struct ConvertParams {
             }
         }
 
-        if (ctz) {
-            VecDateTimeValue t;
-            t.from_unixtime(0, *ctz);
-            offset_days = t.day() == 31 ? -1 : 0;
-        }
         is_type_compatibility = field_schema_->is_type_compatibility;
     }
 };
@@ -642,9 +636,7 @@ class Int32ToDate : public PhysicalToLogicalConverter {
         date_day_offset_dict& date_dict = date_day_offset_dict::get();
 
         for (int i = 0; i < rows; i++) {
-            int64_t date_value = (int64_t)src_data[i] + _convert_params->offset_days;
-            data.push_back_without_reserve(
-                    date_dict[cast_set<int32_t>(date_value)].to_date_int_val());
+            data.push_back_without_reserve(date_dict[src_data[i]].to_date_int_val());
         }
 
         return Status::OK();

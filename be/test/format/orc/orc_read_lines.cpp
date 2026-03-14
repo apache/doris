@@ -57,7 +57,8 @@ public:
     OrcReadLinesTest() {}
 };
 
-static void read_orc_line(int64_t line, std::string block_dump) {
+static void read_orc_line(int64_t line, std::string block_dump,
+                          const std::string& time_zone = "CST") {
     auto runtime_state = RuntimeState::create_unique();
 
     std::vector<std::string> column_names = {"col1", "col2", "col3", "col4", "col5",
@@ -119,7 +120,6 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     io::IOContext io_ctx;
     io::FileReaderStats file_reader_stats;
     io_ctx.file_reader_stats = &file_reader_stats;
-    std::string time_zone = "CST";
     auto reader = OrcReader::create_unique(nullptr, runtime_state.get(), params, range, 100,
                                            time_zone, &io_ctx, nullptr, true);
     auto local_fs = io::global_local_filesystem();
@@ -185,7 +185,7 @@ static void read_orc_line(int64_t line, std::string block_dump) {
         slot_info.is_file_slot = true;
         params.required_slots.emplace_back(slot_info);
     }
-    runtime_state->_timezone = "CST";
+    runtime_state->_timezone = time_zone;
 
     std::unique_ptr<RuntimeProfile> runtime_profile;
     runtime_profile = std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
@@ -373,6 +373,24 @@ TEST_F(OrcReadLinesTest, test9) {
             "------------+----------------------+---------------------+-------------------+--------"
             "----------------+----------------------+\n";
     read_orc_line(9, block_dump);
+}
+
+TEST_F(OrcReadLinesTest, date_should_not_shift_in_west_timezone) {
+    std::string block_dump =
+            "+----------------------+--------------------+----------------------+------------------"
+            "----+----------------------+---------------------+-------------------+----------------"
+            "--------+----------------------+\n|col1(Nullable(BIGINT))|col2(Nullable(BOOL))|col3("
+            "Nullable(String))|col4(Nullable(DateV2))|col5(Nullable(DOUBLE))|col6(Nullable(FLOAT))|"
+            "col7(Nullable(INT))|col8(Nullable(SMALLINT))|col9(Nullable(String))|\n+---------------"
+            "-------+--------------------+----------------------+----------------------+-----------"
+            "-----------+---------------------+-------------------+------------------------+-------"
+            "---------------+\n|                     1|                   1|                 "
+            "doris|            1900-01-01|                 1.567|                1.567|            "
+            "  12345|                       1|                 "
+            "doris|\n+----------------------+--------------------+----------------------+----------"
+            "------------+----------------------+---------------------+-------------------+--------"
+            "----------------+----------------------+\n";
+    read_orc_line(1, block_dump, "-06:00");
 }
 
 } // namespace doris
