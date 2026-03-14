@@ -22,10 +22,10 @@
 #include "common/status.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/data_type/data_type_number.h"
 #include "core/string_ref.h"
 #include "exprs/function/function_totype.h"
 #include "exprs/function/simple_function_factory.h"
-#include "core/data_type/data_type_number.h"
 #include "util/simd/vstring_function.h"
 
 namespace doris {
