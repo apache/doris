@@ -41,7 +41,9 @@ RegexpWeight::RegexpWeight(IndexQueryContextPtr context, std::wstring field, std
           _pattern(std::move(pattern)),
           _enable_scoring(enable_scoring),
           _nullable(nullable) {
-    _max_expansions = _context->runtime_state->query_options().inverted_index_max_expansions;
+    if (_context->runtime_state) {
+        _max_expansions = _context->runtime_state->query_options().inverted_index_max_expansions;
+    }
 }
 
 ScorerPtr RegexpWeight::scorer(const QueryExecutionContext& context,

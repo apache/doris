@@ -46,7 +46,9 @@ public:
     int32_t read(int32_t*, int32_t*, int32_t) override { return 0; }
     int32_t read(int32_t*, int32_t*, int32_t*, int32_t) override { return 0; }
 
-    bool readRange(DocRange* docRange) override {
+    bool readRange(DocRange* docRange) override { return _fillDocRange(docRange); }
+    bool readBlock(DocRange* docRange) override { return _fillDocRange(docRange); }
+    bool _fillDocRange(DocRange* docRange) {
         if (_read_done || _docs.empty()) {
             return false;
         }
@@ -105,7 +107,9 @@ public:
     int32_t read(int32_t*, int32_t*, int32_t) override { return 0; }
     int32_t read(int32_t*, int32_t*, int32_t*, int32_t) override { return 0; }
 
-    bool readRange(DocRange* docRange) override {
+    bool readRange(DocRange* docRange) override { return _fillDocRange(docRange); }
+    bool readBlock(DocRange* docRange) override { return _fillDocRange(docRange); }
+    bool _fillDocRange(DocRange* docRange) {
         if (_read_done || _docs.empty()) {
             return false;
         }

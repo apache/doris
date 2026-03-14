@@ -84,7 +84,7 @@ private:
     }
 
     void _update_threshold_at_capacity() {
-        auto it = std::ranges::min_element(_buffer, ScoredDocByScoreDesc {});
+        auto it = std::ranges::max_element(_buffer, ScoredDocByScoreDesc {});
         _threshold = it->score;
     }
 

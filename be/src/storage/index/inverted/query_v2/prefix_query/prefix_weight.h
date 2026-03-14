@@ -135,7 +135,8 @@ private:
             auto term_wstr = StringHelper::to_wstring(term);
             auto t = make_term_ptr(_field.c_str(), term_wstr.c_str());
             auto iter = make_term_doc_ptr(reader.get(), t.get(), _enable_scoring, _context->io_ctx);
-            auto segment_postings = make_segment_postings(std::move(iter), _enable_scoring, nullptr);
+            auto segment_postings =
+                    make_segment_postings(std::move(iter), _enable_scoring, nullptr);
 
             uint32_t doc = segment_postings->doc();
             while (doc != TERMINATED) {
