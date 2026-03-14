@@ -4999,6 +4999,10 @@ public class Env {
 
     public void dropStream(String catalogName, String dbName, String tableName, boolean ifExists,
                            boolean force) throws DdlException {
+        if (!Config.experimental_enable_table_stream) {
+            throw new DdlException("Table Stream is experimental."
+                    + " Please set experimental_enable_table_stream=true to enable it.");
+        }
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(catalogName,
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
         catalogIf.dropTable(dbName, tableName, false, false, true, ifExists,  false, force);
@@ -6568,6 +6572,10 @@ public class Env {
     }
 
     public void createStream(CreateStreamCommand command) throws DdlException {
+        if (!Config.experimental_enable_table_stream) {
+            throw new DdlException("Table Stream is experimental."
+                    + " Please set experimental_enable_table_stream=true to enable it.");
+        }
         CreateStreamInfo createStreamInfo = command.getCreateStreamInfo();
         String dbName = createStreamInfo.getStreamName().getDb();
         String streamName = createStreamInfo.getStreamName().getTbl();
