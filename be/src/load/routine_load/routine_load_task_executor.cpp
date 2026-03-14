@@ -141,7 +141,7 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_meta(const PKafkaMetaProxyRe
 }
 
 Status RoutineLoadTaskExecutor::_prepare_ctx(const PKinesisMetaProxyRequest& request,
-    std::shared_ptr<StreamLoadContext> ctx) {
+                                             std::shared_ptr<StreamLoadContext> ctx) {
     ctx->load_type = TLoadType::ROUTINE_LOAD;
     ctx->load_src_type = TLoadSourceType::KINESIS;
     ctx->label = "NaN";
@@ -166,7 +166,7 @@ Status RoutineLoadTaskExecutor::_prepare_ctx(const PKinesisMetaProxyRequest& req
 }
 
 Status RoutineLoadTaskExecutor::get_kinesis_shard_meta(const PKinesisMetaProxyRequest& request,
-              std::vector<std::string>* shard_ids) {
+                                                       std::vector<std::string>* shard_ids) {
     CHECK(request.has_kinesis_info());
 
     // This context is meaningless, just for unifying the interface
@@ -182,7 +182,6 @@ Status RoutineLoadTaskExecutor::get_kinesis_shard_meta(const PKinesisMetaProxyRe
     }
     return st;
 }
-
 
 Status RoutineLoadTaskExecutor::get_kafka_partition_offsets_for_times(
         const PKafkaMetaProxyRequest& request, std::vector<PIntegerPair>* partition_offsets,

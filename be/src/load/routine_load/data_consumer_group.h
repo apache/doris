@@ -107,23 +107,23 @@ private:
 
 // for kinesis
 class KinesisDataConsumerGroup : public DataConsumerGroup {
-    public:
-        KinesisDataConsumerGroup(size_t consumer_num) : DataConsumerGroup(consumer_num), _queue(500) {}
-    
-        ~KinesisDataConsumerGroup() override;
-    
-        Status start_all(std::shared_ptr<StreamLoadContext> ctx,
-                         std::shared_ptr<io::StreamLoadPipe> pipe) override;
-    
-        Status assign_stream_shards(std::shared_ptr<StreamLoadContext> ctx);
-    
-    private:
-        void actual_consume(std::shared_ptr<DataConsumer> consumer,
-                            BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
-                            int64_t max_running_time_ms, ConsumeFinishCallback cb);
-    
-        BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>> _queue;
-    };
+public:
+    KinesisDataConsumerGroup(size_t consumer_num) : DataConsumerGroup(consumer_num), _queue(500) {}
+
+    ~KinesisDataConsumerGroup() override;
+
+    Status start_all(std::shared_ptr<StreamLoadContext> ctx,
+                     std::shared_ptr<io::StreamLoadPipe> pipe) override;
+
+    Status assign_stream_shards(std::shared_ptr<StreamLoadContext> ctx);
+
+private:
+    void actual_consume(std::shared_ptr<DataConsumer> consumer,
+                        BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
+                        int64_t max_running_time_ms, ConsumeFinishCallback cb);
+
+    BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>> _queue;
+};
 
 #include "common/compile_check_end.h"
 

@@ -212,7 +212,6 @@ void KafkaDataConsumerGroup::actual_consume(std::shared_ptr<DataConsumer> consum
     cb(st);
 }
 
-
 Status KinesisDataConsumerGroup::assign_stream_shards(std::shared_ptr<StreamLoadContext> ctx) {
     DCHECK(ctx->kinesis_info);
     DCHECK(_consumers.size() >= 1);

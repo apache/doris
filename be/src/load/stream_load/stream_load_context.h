@@ -94,11 +94,11 @@ class KinesisLoadInfo {
 public:
     KinesisLoadInfo(const TKinesisLoadInfo& t_info)
             : region(t_info.region),
-                stream(t_info.stream),
-                endpoint(t_info.__isset.endpoint ? t_info.endpoint : ""),
-                begin_sequence_number(t_info.shard_begin_sequence_number),
-                properties(t_info.__isset.properties ? t_info.properties
-                                                    : std::map<std::string, std::string>()) {
+              stream(t_info.stream),
+              endpoint(t_info.__isset.endpoint ? t_info.endpoint : ""),
+              begin_sequence_number(t_info.shard_begin_sequence_number),
+              properties(t_info.__isset.properties ? t_info.properties
+                                                   : std::map<std::string, std::string>()) {
         // Initialize committed sequence numbers with begin sequence numbers
         for (const auto& p : t_info.shard_begin_sequence_number) {
             cmt_sequence_number[p.first] = p.second;
