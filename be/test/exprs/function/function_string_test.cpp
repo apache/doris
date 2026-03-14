@@ -21,10 +21,10 @@
 #include <string>
 #include <vector>
 
-#include "core/columns/column_array.h"
-#include "core/columns/column_const.h"
-#include "core/columns/column_nullable.h"
-#include "core/columns/column_string.h"
+#include "core/column/column_array.h"
+#include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
