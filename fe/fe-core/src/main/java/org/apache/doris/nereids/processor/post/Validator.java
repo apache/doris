@@ -32,11 +32,7 @@ import org.apache.doris.nereids.util.LazyCompute;
 import com.google.common.base.Preconditions;
 
 import java.util.BitSet;
-import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 /**
  * validator plan.
@@ -63,27 +59,20 @@ public class Validator extends PlanPostProcessor {
             child.accept(this, context);
         }
 
-        Optional<Slot> opt = checkAllSlotFromChildren(plan);
-        if (opt.isPresent()) {
-            List<Slot> childrenOutput = plan.children().stream().flatMap(p -> p.getOutput().stream()).collect(
-                    Collectors.toList());
-            throw new AnalysisException("A expression contains slot not from children\n"
-                    + "Slot: " + opt.get() + "  Children Output:" + childrenOutput + "\n"
-                    + "Plan: " + plan.treeString() + "\n");
-        }
+        checkAllSlotFromChildren(plan);
         return plan;
     }
 
     /**
      * Check all slot must from children.
      */
-    public static Optional<Slot> checkAllSlotFromChildren(Plan plan) {
+    public static void checkAllSlotFromChildren(Plan plan) {
         if (plan.arity() == 0) {
-            return Optional.empty();
+            return;
         }
         // agg exist multi-phase
         if (plan instanceof Aggregate) {
-            return Optional.empty();
+            return;
         }
 
         Supplier<BitSet> childrenOutputIds = LazyCompute.of(() -> {
@@ -97,7 +86,6 @@ public class Validator extends PlanPostProcessor {
         });
 
         for (Expression expression : plan.getExpressions()) {
-            AtomicReference<Slot> invalidSlot = new AtomicReference<>();
             expression.anyMatch(e -> {
                 if (e instanceof Slot) {
                     Slot slot = (Slot) e;
@@ -105,14 +93,13 @@ public class Validator extends PlanPostProcessor {
                         return false;
                     }
                     if (!childrenOutputIds.get().get(slot.getExprId().asInt())) {
-                        invalidSlot.set(slot);
-                        return true;
+                        throw new AnalysisException("A expression contains slot not from children\n"
+                                + "Slot: " + slot + "  Children Output:" + childrenOutputIds.get() + "\n"
+                                + "Plan: " + plan.treeString() + "\n");
                     }
                 }
                 return false;
             });
-            return Optional.ofNullable(invalidSlot.get());
         }
-        return Optional.empty();
     }
 }
