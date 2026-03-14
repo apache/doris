@@ -285,7 +285,20 @@ Status OlapScanner::prepare() {
     }
 
     if (_tablet_reader_params.score_runtime) {
+        SCOPED_TIMER(local_state->_statistics_collect_timer);
         _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
+
+        io::IOContext io_ctx {
+                .reader_type = ReaderType::READER_QUERY,
+                .expiration_time = tablet->ttl_seconds(),
+                .query_id = &_state->query_id(),
+                .file_cache_stats = &_tablet_reader->mutable_stats()->file_cache_stats,
+                .is_inverted_index = true,
+        };
+
+        RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
+                _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
+                _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx));
     }
 
     _has_prepared = true;
@@ -302,24 +315,6 @@ Status OlapScanner::_open_impl(RuntimeState* state) {
                    std::to_string(_tablet_reader_params.tablet->tablet_id()) +
                    ", backend=" + BackendOptions::get_localhost());
         return res;
-    }
-
-    if (_tablet_reader_params.collection_statistics) {
-        auto* local_state = &_local_state->cast<OlapScanLocalState>();
-        SCOPED_TIMER(local_state->_statistics_collect_timer);
-        io::IOContext io_ctx {
-                .reader_type = ReaderType::READER_QUERY,
-                .expiration_time = _tablet_reader_params.tablet
-                                           ? _tablet_reader_params.tablet->ttl_seconds()
-                                           : 0,
-                .query_id = &_tablet_reader_params.runtime_state->query_id(),
-                .file_cache_stats = &_tablet_reader->mutable_stats()->file_cache_stats,
-                .is_inverted_index = true,
-        };
-        RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
-                _tablet_reader_params.runtime_state, _tablet_reader_params.rs_splits,
-                _tablet_reader_params.tablet_schema,
-                _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx));
     }
 
     // Do not hold rs_splits any more to release memory.
