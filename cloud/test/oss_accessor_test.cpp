@@ -230,8 +230,7 @@ TEST_F(OSSAccessorTest, oss_simple_credentials) {
             OSSConf {
                     .endpoint = config::test_oss_endpoint,
                     .bucket = config::test_oss_bucket,
-                    .prefix = config::test_oss_prefix + "/OSSAccessorTest/" +
-                              butil::GenerateGUID(),
+                    .prefix = config::test_oss_prefix + "/OSSAccessorTest/" + butil::GenerateGUID(),
                     .region = config::test_oss_region,
                     .access_key_id = config::test_oss_ak,
                     .access_key_secret = config::test_oss_sk,
@@ -273,8 +272,7 @@ TEST_F(OSSAccessorTest, oss_conf_from_obj_store_info) {
     obj_info.set_endpoint(config::test_oss_endpoint);
     obj_info.set_region(config::test_oss_region);
     obj_info.set_bucket(config::test_oss_bucket);
-    obj_info.set_prefix(config::test_oss_prefix + "/OSSAccessorTest/conf/" +
-                        butil::GenerateGUID());
+    obj_info.set_prefix(config::test_oss_prefix + "/OSSAccessorTest/conf/" + butil::GenerateGUID());
 
     auto conf = OSSConf::from_obj_store_info(obj_info);
     ASSERT_TRUE(conf.has_value());
@@ -318,8 +316,7 @@ TEST_F(OSSAccessorTest, oss_conf_skip_aksk) {
 
     auto conf = OSSConf::from_obj_store_info(obj_info, /*skip_aksk=*/true);
     ASSERT_TRUE(conf.has_value());
-    EXPECT_TRUE(conf->access_key_id.empty())
-            << "skip_aksk=true must not populate access_key_id";
+    EXPECT_TRUE(conf->access_key_id.empty()) << "skip_aksk=true must not populate access_key_id";
     EXPECT_TRUE(conf->access_key_secret.empty())
             << "skip_aksk=true must not populate access_key_secret";
     EXPECT_FALSE(conf->endpoint.empty());
@@ -536,11 +533,10 @@ TEST_F(OSSAccessorDeletePrefixExpirationTest, delete_prefix_with_expiration) {
     ASSERT_EQ(ret, 0);
 
     // Use a far-future expiration time (year 2099) — nothing should be deleted
-    int64_t far_future =
-            std::chrono::duration_cast<std::chrono::seconds>(
-                    std::chrono::system_clock::time_point::max().time_since_epoch())
-                    .count() /
-            2; // safely in the future
+    int64_t far_future = std::chrono::duration_cast<std::chrono::seconds>(
+                                 std::chrono::system_clock::time_point::max().time_since_epoch())
+                                 .count() /
+                         2; // safely in the future
     ret = accessor->delete_prefix("expire/", far_future);
     ASSERT_EQ(ret, 0);
 

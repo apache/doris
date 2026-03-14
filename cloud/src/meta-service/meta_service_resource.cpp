@@ -689,7 +689,8 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
         if (obj->role_arn().empty() || !obj->has_cred_provider_type() ||
             obj->cred_provider_type() != CredProviderTypePB::INSTANCE_PROFILE ||
             !obj->has_provider() ||
-            (obj->provider() != ObjectStoreInfoPB::S3 && obj->provider() != ObjectStoreInfoPB::OSS) ||
+            (obj->provider() != ObjectStoreInfoPB::S3 &&
+             obj->provider() != ObjectStoreInfoPB::OSS) ||
             bucket.empty() || endpoint.empty() || region.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "object storage conf info err with role_arn, please check it";
@@ -697,13 +698,14 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
         }
     } else {
         // Check if this is INSTANCE_PROFILE without role_arn (ECS instance metadata mode)
-        bool is_instance_profile = obj->has_cred_provider_type() &&
-                                    obj->cred_provider_type() == CredProviderTypePB::INSTANCE_PROFILE;
+        bool is_instance_profile =
+                obj->has_cred_provider_type() &&
+                obj->cred_provider_type() == CredProviderTypePB::INSTANCE_PROFILE;
 
         if (!is_instance_profile) {
             // external_endpoint is required for S3 but not for OSS.
-            bool needs_external_endpoint = obj->has_provider() &&
-                                           obj->provider() != ObjectStoreInfoPB::OSS;
+            bool needs_external_endpoint =
+                    obj->has_provider() && obj->provider() != ObjectStoreInfoPB::OSS;
             if (plain_ak.empty() || plain_sk.empty() || bucket.empty() || endpoint.empty() ||
                 region.empty() || !obj->has_provider() ||
                 (needs_external_endpoint && external_endpoint.empty())) {
@@ -714,8 +716,8 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
 
             EncryptionInfoPB encryption_info;
             AkSkPair cipher_ak_sk_pair;
-            auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair,
-                                            code, msg);
+            auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info,
+                                            &cipher_ak_sk_pair, code, msg);
             TEST_SYNC_POINT_CALLBACK("create_object_info_with_encrypt", &ret, &code, &msg);
             if (ret != 0) {
                 return;
@@ -1133,8 +1135,9 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
            external_id] = obj_desc;
 
     // Check credential configuration
-    bool is_instance_profile = obj.has_cred_provider_type() &&
-                                obj.cred_provider_type() == cloud::CredProviderTypePB::INSTANCE_PROFILE;
+    bool is_instance_profile =
+            obj.has_cred_provider_type() &&
+            obj.cred_provider_type() == cloud::CredProviderTypePB::INSTANCE_PROFILE;
 
     if (!obj.has_role_arn()) {
         // For INSTANCE_PROFILE, ak/sk are optional (obtained from instance metadata)
@@ -1150,8 +1153,8 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
         if (obj.has_ak() && obj.has_sk()) {
             std::string plain_ak = obj.ak();
             std::string plain_sk = obj.sk();
-            auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair,
-                                           code, msg);
+            auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info,
+                                            &cipher_ak_sk_pair, code, msg);
             if (ret != 0) {
                 return -1;
             }
@@ -1367,13 +1370,12 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         // ATTN: prefix may be empty
         // Check credential configuration
         bool is_instance_profile = obj.has_cred_provider_type() &&
-                                    obj.cred_provider_type() == CredProviderTypePB::INSTANCE_PROFILE;
+                                   obj.cred_provider_type() == CredProviderTypePB::INSTANCE_PROFILE;
 
         // For INSTANCE_PROFILE, credentials are obtained from instance metadata service
         // For other modes, either ak/sk or role_arn is required
-        bool has_valid_credentials = is_instance_profile ||
-                                     (!ak.empty() && !sk.empty()) ||
-                                     !role_arn.empty();
+        bool has_valid_credentials =
+                is_instance_profile || (!ak.empty() && !sk.empty()) || !role_arn.empty();
 
         if (!has_valid_credentials || bucket.empty() || endpoint.empty() || region.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1385,7 +1387,8 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             if (!obj.has_cred_provider_type() ||
                 obj.cred_provider_type() != CredProviderTypePB::INSTANCE_PROFILE ||
                 !obj.has_provider() ||
-                (obj.provider() != ObjectStoreInfoPB::S3 && obj.provider() != ObjectStoreInfoPB::OSS)) {
+                (obj.provider() != ObjectStoreInfoPB::S3 &&
+                 obj.provider() != ObjectStoreInfoPB::OSS)) {
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 msg = "object storage conf info err with role_arn, please check it";
                 return;

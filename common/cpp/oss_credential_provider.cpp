@@ -19,22 +19,21 @@
 
 #ifdef USE_OSS
 
+#include <alibabacloud/oss/auth/Credentials.h>
+#include <alibabacloud/oss/auth/CredentialsProvider.h>
 #include <curl/curl.h>
 #include <rapidjson/document.h>
 #include <time.h>
 
+#include <alibabacloud/Sts20150401.hpp>
+#include <alibabacloud/credentials/Client.hpp>
+#include <alibabacloud/utils/models/Config.hpp>
+#include <darabonba/Runtime.hpp>
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
 
 #include "common/logging.h"
-
-#include <alibabacloud/oss/auth/Credentials.h>
-#include <alibabacloud/oss/auth/CredentialsProvider.h>
-#include <alibabacloud/credentials/Client.hpp>
-#include <alibabacloud/Sts20150401.hpp>
-#include <alibabacloud/utils/models/Config.hpp>
-#include <darabonba/Runtime.hpp>
 
 namespace {
 std::string mask_credential(const std::string& cred) {
@@ -96,7 +95,8 @@ AlibabaCloud::OSS::Credentials ECSMetadataCredentialsProvider::getCredentials() 
             LOG(WARNING) << "Using expired ECS metadata credentials as fallback";
             return *_cached_credentials;
         }
-        LOG(ERROR) << "Failed to fetch credentials from ECS metadata service and no cached fallback available";
+        LOG(ERROR) << "Failed to fetch credentials from ECS metadata service and no cached "
+                      "fallback available";
         return AlibabaCloud::OSS::Credentials("", "", "");
     }
 
@@ -240,8 +240,8 @@ int ECSMetadataCredentialsProvider::_fetch_credentials_outside_lock(
 // ---- OSSSTSCredentialProvider ----
 
 OSSSTSCredentialProvider::OSSSTSCredentialProvider(const std::string& role_arn,
-                                                     const std::string& region,
-                                                     const std::string& external_id)
+                                                   const std::string& region,
+                                                   const std::string& external_id)
         : _cached_credentials(nullptr),
           _expiration(std::chrono::system_clock::now()),
           _role_arn(role_arn),
@@ -251,7 +251,8 @@ OSSSTSCredentialProvider::OSSSTSCredentialProvider(const std::string& role_arn,
         throw std::invalid_argument("RAM role ARN cannot be empty for STS AssumeRole");
     }
     LOG(INFO) << "OSSSTSCredentialProvider: role_arn=" << _role_arn << ", region=" << _region
-              << ", external_id=" << (_external_id.empty() ? "(none)" : mask_credential(_external_id));
+              << ", external_id="
+              << (_external_id.empty() ? "(none)" : mask_credential(_external_id));
 }
 
 bool OSSSTSCredentialProvider::_is_expired() const {
@@ -314,7 +315,8 @@ int OSSSTSCredentialProvider::_fetch_credentials_from_sts(
         cred_config.setType("ecs_ram_role");
         AlibabaCloud::Credentials::Client cred_client(cred_config);
         AlibabaCloud::Credentials::Models::CredentialModel base_cred = cred_client.getCredential();
-        LOG(INFO) << "STS AssumeRole base credentials from provider: " << base_cred.getProviderName();
+        LOG(INFO) << "STS AssumeRole base credentials from provider: "
+                  << base_cred.getProviderName();
 
         AlibabaCloud::OpenApi::Utils::Models::Config config;
         config.setAccessKeyId(base_cred.getAccessKeyId());
@@ -414,13 +416,14 @@ AlibabaCloud::OSS::Credentials OSSDefaultCredentialsProvider::getCredentials() {
                 LOG(WARNING) << "Default provider returned empty credentials, using fallback";
                 return *_cached_credentials;
             }
-            LOG(ERROR) << "Default provider chain returned empty credentials and no cached fallback available";
+            LOG(ERROR) << "Default provider chain returned empty credentials and no cached "
+                          "fallback available";
             return AlibabaCloud::OSS::Credentials("", "", "");
         }
 
-        auto new_credentials = token.empty()
-                ? std::make_unique<AlibabaCloud::OSS::Credentials>(ak, sk)
-                : std::make_unique<AlibabaCloud::OSS::Credentials>(ak, sk, token);
+        auto new_credentials =
+                token.empty() ? std::make_unique<AlibabaCloud::OSS::Credentials>(ak, sk)
+                              : std::make_unique<AlibabaCloud::OSS::Credentials>(ak, sk, token);
 
         auto new_expiration = std::chrono::system_clock::now() + std::chrono::hours(1);
 
@@ -442,7 +445,8 @@ AlibabaCloud::OSS::Credentials OSSDefaultCredentialsProvider::getCredentials() {
                          << e.what();
             return *_cached_credentials;
         }
-        LOG(ERROR) << "Failed to get OSS credentials and no cached fallback available: " << e.what();
+        LOG(ERROR) << "Failed to get OSS credentials and no cached fallback available: "
+                   << e.what();
         return AlibabaCloud::OSS::Credentials("", "", "");
     }
 }

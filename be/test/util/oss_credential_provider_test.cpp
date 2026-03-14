@@ -227,8 +227,7 @@ TEST_F(OSSSTSProviderTest, concurrent_calls_are_thread_safe) {
     }
     for (auto& t : threads) t.join();
 
-    EXPECT_EQ(failure_count.load(), 0)
-            << "All concurrent STS credential requests must succeed";
+    EXPECT_EQ(failure_count.load(), 0) << "All concurrent STS credential requests must succeed";
     EXPECT_EQ(success_count.load(), num_threads);
 }
 

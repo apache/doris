@@ -52,8 +52,8 @@
 #include "io/cache/file_cache_common.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
-#include "io/fs/s3_file_system.h"
 #include "io/fs/oss_file_system.h"
+#include "io/fs/s3_file_system.h"
 #include "io/hdfs_util.h"
 #include "io/io_common.h"
 #include "load/memtable/memtable_flush_executor.h"
@@ -109,7 +109,8 @@ CloudStorageEngine::~CloudStorageEngine() {
 }
 
 static Status vault_process_error(std::string_view id,
-                                  std::variant<S3Conf, cloud::HdfsVaultInfo, OSSConf>& vault, Status err) {
+                                  std::variant<S3Conf, cloud::HdfsVaultInfo, OSSConf>& vault,
+                                  Status err) {
     std::stringstream ss;
     std::visit(
             [&]<typename T>(T& val) {

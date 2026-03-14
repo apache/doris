@@ -61,7 +61,7 @@ static int64_t parse_oss_last_modified(const std::string& last_modified_str) {
         return 0;
     }
 
-    return static_cast<int64_t>(timegm(&tm));  // timegm() for UTC time
+    return static_cast<int64_t>(timegm(&tm)); // timegm() for UTC time
 }
 
 // OSS List Iterator implementation
@@ -103,9 +103,9 @@ public:
         }
 
         const auto& obj = objects_[current_index_++];
-        return FileMeta{.path = get_relative_path(obj.Key()),
-                        .size = obj.Size(),
-                        .mtime_s = parse_oss_last_modified(obj.LastModified())};
+        return FileMeta {.path = get_relative_path(obj.Key()),
+                         .size = obj.Size(),
+                         .mtime_s = parse_oss_last_modified(obj.LastModified())};
     }
 
 private:
@@ -156,7 +156,7 @@ private:
 // OSSConf implementation
 
 std::optional<OSSConf> OSSConf::from_obj_store_info(const ObjectStoreInfoPB& obj_info,
-                                                     bool skip_aksk) {
+                                                    bool skip_aksk) {
     // Only process OSS provider
     if (obj_info.provider() != ObjectStoreInfoPB_Provider_OSS) {
         return std::nullopt;
@@ -241,8 +241,7 @@ uint64_t OSSConf::get_hash() const {
 
 OSSAccessor::OSSAccessor(OSSConf conf)
         : StorageVaultAccessor(AccessorType::OSS), conf_(std::move(conf)) {
-    uri_ = fmt::format("oss://{}/{}", conf_.bucket,
-                       conf_.prefix.empty() ? "" : conf_.prefix + "/");
+    uri_ = fmt::format("oss://{}/{}", conf_.bucket, conf_.prefix.empty() ? "" : conf_.prefix + "/");
 }
 
 OSSAccessor::~OSSAccessor() = default;
@@ -258,7 +257,8 @@ int OSSAccessor::init() {
         AlibabaCloud::OSS::InitializeSdk();
         LOG(INFO) << "Alibaba Cloud OSS SDK initialized";
     });
-    _ca_cert_file_path = get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
+    _ca_cert_file_path =
+            get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
     return create_oss_client();
 }
 
@@ -271,7 +271,8 @@ int OSSAccessor::create_oss_client() {
     oss_config.requestTimeoutMs = conf_.request_timeout_ms;
 
     if (_ca_cert_file_path.empty()) {
-        _ca_cert_file_path = get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
+        _ca_cert_file_path =
+                get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
     }
     if (!_ca_cert_file_path.empty()) {
         oss_config.caFile = _ca_cert_file_path;
@@ -301,7 +302,8 @@ int OSSAccessor::create_oss_client() {
                         std::static_pointer_cast<AlibabaCloud::OSS::CredentialsProvider>(
                                 credentials_provider_),
                         oss_config);
-                LOG(INFO) << "OSS client created with INSTANCE_PROFILE, endpoint=" << conf_.endpoint;
+                LOG(INFO) << "OSS client created with INSTANCE_PROFILE, endpoint="
+                          << conf_.endpoint;
             }
         } else if (conf_.provider_type == OSSCredProviderType::DEFAULT) {
             if (!default_credential_provider_) {
@@ -315,9 +317,9 @@ int OSSAccessor::create_oss_client() {
             LOG(INFO) << "OSS client created with DEFAULT provider, endpoint=" << conf_.endpoint;
         } else if (conf_.provider_type == OSSCredProviderType::SIMPLE) {
             AlibabaCloud::OSS::Credentials creds(conf_.access_key_id, conf_.access_key_secret,
-                                                  conf_.security_token);
+                                                 conf_.security_token);
             oss_client_ = std::make_shared<AlibabaCloud::OSS::OssClient>(conf_.endpoint, creds,
-                                                                          oss_config);
+                                                                         oss_config);
             LOG(INFO) << "OSS client created with SIMPLE credentials, endpoint=" << conf_.endpoint;
         } else {
             LOG(ERROR) << "Unsupported OSS credential provider type";
@@ -519,15 +521,14 @@ int OSSAccessor::delete_prefix(const std::string& path_prefix, int64_t expiratio
             // Delete in batches
             if (keys_to_delete.size() >= batch_size) {
                 AlibabaCloud::OSS::DeletedKeyList batch_keys(keys_to_delete.begin(),
-                                                              keys_to_delete.end());
+                                                             keys_to_delete.end());
                 AlibabaCloud::OSS::DeleteObjectsRequest delete_request(conf_.bucket);
                 delete_request.setKeyList(batch_keys);
 
                 auto delete_outcome = client->DeleteObjects(delete_request);
                 if (!delete_outcome.isSuccess()) {
-                    LOG(WARNING) << "OSS DeleteObjects failed: "
-                                 << delete_outcome.error().Code() << " - "
-                                 << delete_outcome.error().Message();
+                    LOG(WARNING) << "OSS DeleteObjects failed: " << delete_outcome.error().Code()
+                                 << " - " << delete_outcome.error().Message();
                     return convert_oss_error_code(delete_outcome.error().Code());
                 }
 
@@ -543,15 +544,14 @@ int OSSAccessor::delete_prefix(const std::string& path_prefix, int64_t expiratio
 
     // Delete remaining keys
     if (!keys_to_delete.empty()) {
-        AlibabaCloud::OSS::DeletedKeyList batch_keys(keys_to_delete.begin(),
-                                                      keys_to_delete.end());
+        AlibabaCloud::OSS::DeletedKeyList batch_keys(keys_to_delete.begin(), keys_to_delete.end());
         AlibabaCloud::OSS::DeleteObjectsRequest delete_request(conf_.bucket);
         delete_request.setKeyList(batch_keys);
 
         auto delete_outcome = client->DeleteObjects(delete_request);
         if (!delete_outcome.isSuccess()) {
-            LOG(WARNING) << "OSS DeleteObjects failed: " << delete_outcome.error().Code()
-                         << " - " << delete_outcome.error().Message();
+            LOG(WARNING) << "OSS DeleteObjects failed: " << delete_outcome.error().Code() << " - "
+                         << delete_outcome.error().Message();
             return convert_oss_error_code(delete_outcome.error().Code());
         }
 
@@ -572,8 +572,7 @@ int OSSAccessor::delete_all(int64_t expiration_time) {
     return delete_prefix("", expiration_time);
 }
 
-int OSSAccessor::list_directory(const std::string& dir_path,
-                                 std::unique_ptr<ListIterator>* res) {
+int OSSAccessor::list_directory(const std::string& dir_path, std::unique_ptr<ListIterator>* res) {
     return list_prefix(dir_path, res);
 }
 
@@ -594,8 +593,7 @@ int OSSAccessor::list_prefix(const std::string& path_prefix, std::unique_ptr<Lis
     std::string prefix = get_key(path_prefix);
 
     *res = std::make_unique<OSSListIterator>(client, conf_.bucket, prefix,
-                                              conf_.prefix.empty() ? 0
-                                                                   : conf_.prefix.length() + 1);
+                                             conf_.prefix.empty() ? 0 : conf_.prefix.length() + 1);
     return 0;
 }
 
@@ -631,9 +629,8 @@ int OSSAccessor::abort_multipart_upload(const std::string& path, const std::stri
     AlibabaCloud::OSS::AbortMultipartUploadRequest request(conf_.bucket, key, upload_id);
     auto outcome = client->AbortMultipartUpload(request);
     if (!outcome.isSuccess()) {
-        LOG(WARNING) << "OSS AbortMultipartUpload failed: " << outcome.error().Code()
-                     << " - " << outcome.error().Message() << ", key=" << key
-                     << ", upload_id=" << upload_id;
+        LOG(WARNING) << "OSS AbortMultipartUpload failed: " << outcome.error().Code() << " - "
+                     << outcome.error().Message() << ", key=" << key << ", upload_id=" << upload_id;
         return -1;
     }
 

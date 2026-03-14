@@ -64,8 +64,8 @@
 #include "storage/tablet/tablet_meta.h"
 #include "util/client_cache.h"
 #include "util/network_util.h"
-#include "util/s3_util.h"
 #include "util/oss_util.h"
+#include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
 
 namespace doris::cloud {

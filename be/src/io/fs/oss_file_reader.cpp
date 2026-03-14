@@ -33,20 +33,20 @@
 
 #include "common/compiler_util.h"
 #include "common/config.h"
+#include "common/metrics/doris_metrics.h"
 #include "io/fs/err_utils.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "util/bvar_helper.h"
 #include "util/debug_points.h"
-#include "common/metrics/doris_metrics.h"
-#include "runtime/runtime_profile.h"
 
 namespace doris::io {
 
 namespace {
 // Thread-local random number generator for jitter
 // Using thread_local ensures each thread has its own seeded generator
-thread_local std::mt19937 g_rng(std::random_device{}());
+thread_local std::mt19937 g_rng(std::random_device {}());
 } // namespace
 
 bvar::Adder<uint64_t> oss_file_reader_read_counter("oss_file_reader", "read_at");
@@ -55,14 +55,14 @@ bvar::Adder<uint64_t> oss_bytes_read_total("oss_file_reader", "bytes_read");
 bvar::Adder<uint64_t> oss_file_being_read("oss_file_reader", "file_being_read");
 bvar::LatencyRecorder oss_bytes_per_read("oss_file_reader", "bytes_per_read");
 bvar::PerSecond<bvar::Adder<uint64_t>> oss_read_throughput("oss_file_reader", "oss_read_throughput",
-                                                            &oss_bytes_read_total);
+                                                           &oss_bytes_read_total);
 bvar::PerSecond<bvar::Adder<uint64_t>> oss_get_request_qps("oss_file_reader", "oss_get_request",
-                                                            &oss_file_reader_read_counter);
+                                                           &oss_file_reader_read_counter);
 bvar::LatencyRecorder oss_file_reader_latency("oss_file_reader", "oss_latency");
 
 Result<FileReaderSPtr> OSSFileReader::create(std::shared_ptr<OSSClientHolder> client,
-                                              std::string bucket, std::string key,
-                                              int64_t file_size, RuntimeProfile* profile) {
+                                             std::string bucket, std::string key, int64_t file_size,
+                                             RuntimeProfile* profile) {
     if (file_size < 0) {
         auto res = client->object_file_size(bucket, key);
         if (!res.has_value()) {
@@ -110,8 +110,8 @@ Status OSSFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_re
     DCHECK(!closed());
     if (offset > _file_size) {
         return Status::InternalError(
-                "offset exceeds file size(offset: {}, file size: {}, path: {})", offset,
-                _file_size, _path.native());
+                "offset exceeds file size(offset: {}, file size: {}, path: {})", offset, _file_size,
+                _path.native());
     }
 
     size_t bytes_req = result.size;
@@ -189,8 +189,8 @@ Status OSSFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_re
                 retry_count++;
                 if (retry_count > max_retries) {
                     std::string err_msg = fmt::format(
-                            "OSS GetObject failed after {} retries for {}: {} - {}",
-                            max_retries, _path.native(), error_code, outcome.error().Message());
+                            "OSS GetObject failed after {} retries for {}: {} - {}", max_retries,
+                            _path.native(), error_code, outcome.error().Message());
                     LOG(WARNING) << err_msg;
                     return Status::IOError(err_msg);
                 }
@@ -207,14 +207,14 @@ Status OSSFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_re
                 total_sleep_time += wait_time;
 
                 VLOG_DEBUG << "OSS rate limited, retry " << retry_count << "/" << max_retries
-                           << " after " << wait_time << "ms (jitter: " << jitter << "ms), path: "
-                           << _path.native();
+                           << " after " << wait_time << "ms (jitter: " << jitter
+                           << "ms), path: " << _path.native();
                 continue;
             }
 
-            std::string err_msg = fmt::format("OSS GetObject failed for {}: {} - {}",
-                                              _path.native(), error_code,
-                                              outcome.error().Message());
+            std::string err_msg =
+                    fmt::format("OSS GetObject failed for {}: {} - {}", _path.native(), error_code,
+                                outcome.error().Message());
             LOG(WARNING) << err_msg;
             return Status::IOError(err_msg);
         }
@@ -240,9 +240,8 @@ Status OSSFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_re
         DorisMetrics::instance()->s3_bytes_read_total->increment(bytes_req);
 
         if (retry_count > 0) {
-            LOG(INFO) << fmt::format(
-                    "OSS read {} succeeded after {} retries with {} ms sleeping", _path.native(),
-                    retry_count, total_sleep_time);
+            LOG(INFO) << fmt::format("OSS read {} succeeded after {} retries with {} ms sleeping",
+                                     _path.native(), retry_count, total_sleep_time);
         }
 
         return Status::OK();

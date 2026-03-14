@@ -741,7 +741,8 @@ int InstanceRecycler::init_storage_vault_accessors() {
                 auto s3_conf = S3Conf::from_obj_store_info(obj_info);
                 if (!s3_conf) {
                     LOG(WARNING) << "failed to init object accessor, invalid conf, instance_id="
-                                 << instance_id_ << " vault=" << encryt_sk(obj_info.ShortDebugString());
+                                 << instance_id_
+                                 << " vault=" << encryt_sk(obj_info.ShortDebugString());
                     continue;
                 }
 
@@ -756,8 +757,7 @@ int InstanceRecycler::init_storage_vault_accessors() {
                 }
                 LOG(INFO) << "succeed to init s3 accessor. instance_id=" << instance_id_
                           << " resource_id=" << vault.id() << " name=" << vault.name()
-                          << " ret=" << ret
-                          << " vault=" << encryt_sk(obj_info.ShortDebugString());
+                          << " ret=" << ret << " vault=" << encryt_sk(obj_info.ShortDebugString());
                 accessor_map_.emplace(vault.id(), std::move(accessor));
             }
         }

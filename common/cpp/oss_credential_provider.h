@@ -51,23 +51,24 @@ private:
     std::chrono::system_clock::time_point _expiration;
 
     static constexpr const char* METADATA_SERVICE_HOST = "100.100.100.200";
-    static constexpr const char* METADATA_SERVICE_PATH = "/latest/meta-data/ram/security-credentials/";
+    static constexpr const char* METADATA_SERVICE_PATH =
+            "/latest/meta-data/ram/security-credentials/";
     static constexpr int METADATA_SERVICE_TIMEOUT_MS = 5000;
     static constexpr int REFRESH_BEFORE_EXPIRY_SECONDS = 300;
 };
 
 class OSSSTSCredentialProvider : public AlibabaCloud::OSS::CredentialsProvider {
 public:
-    explicit OSSSTSCredentialProvider(const std::string& role_arn,
-                                       const std::string& region,
-                                       const std::string& external_id = "");
+    explicit OSSSTSCredentialProvider(const std::string& role_arn, const std::string& region,
+                                      const std::string& external_id = "");
     ~OSSSTSCredentialProvider() override = default;
 
     AlibabaCloud::OSS::Credentials getCredentials() override;
 
 private:
-    int _fetch_credentials_from_sts(std::unique_ptr<AlibabaCloud::OSS::Credentials>& out_credentials,
-                                     std::chrono::system_clock::time_point& out_expiration);
+    int _fetch_credentials_from_sts(
+            std::unique_ptr<AlibabaCloud::OSS::Credentials>& out_credentials,
+            std::chrono::system_clock::time_point& out_expiration);
     bool _is_expired() const;
 
     mutable std::mutex _mtx;

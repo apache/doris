@@ -27,9 +27,9 @@
 #include <string>
 
 #include "common/status.h"
+#include "core/string_ref.h"
 #include "cpp/oss_common.h"
 #include "util/s3_util.h"
-#include "core/string_ref.h"
 
 // Forward declare OSS SDK types
 namespace AlibabaCloud {
@@ -65,8 +65,8 @@ struct OSSClientConf {
     std::string sk;
     std::string token;
     std::string bucket;
-    std::string role_arn;      // For STS AssumeRole
-    std::string external_id;   // For STS AssumeRole (cross-account security)
+    std::string role_arn;    // For STS AssumeRole
+    std::string external_id; // For STS AssumeRole (cross-account security)
 
     int max_connections = 100;
     int request_timeout_ms = 30000;
@@ -93,10 +93,11 @@ struct OSSClientConf {
     std::string to_string() const {
         return fmt::format(
                 "(ak={}, token={}, endpoint={}, region={}, bucket={}, role_arn={}, external_id={}, "
-                "max_connections={}, request_timeout_ms={}, connect_timeout_ms={}, cred_provider_type={})",
-                hide_access_key(ak), hide_access_key(token), endpoint, region, bucket,
-                role_arn, external_id, max_connections, request_timeout_ms,
-                connect_timeout_ms, static_cast<int>(cred_provider_type));
+                "max_connections={}, request_timeout_ms={}, connect_timeout_ms={}, "
+                "cred_provider_type={})",
+                hide_access_key(ak), hide_access_key(token), endpoint, region, bucket, role_arn,
+                external_id, max_connections, request_timeout_ms, connect_timeout_ms,
+                static_cast<int>(cred_provider_type));
     }
 };
 
@@ -126,7 +127,7 @@ public:
 
     // Convert properties map to OSSConf
     static Status convert_properties_to_oss_conf(const std::map<std::string, std::string>& prop,
-                                                  OSSConf* oss_conf);
+                                                 OSSConf* oss_conf);
 
 private:
     OSSClientFactory();

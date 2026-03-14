@@ -20,13 +20,13 @@
 #include <alibabacloud/oss/OssClient.h>
 #include <alibabacloud/oss/client/ClientConfiguration.h>
 #include <bvar/reducer.h>
-#include "util/string_util.h"
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/aws_common.h"
 #include "cpp/oss_credential_provider.h"
 #include "util/s3_util.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -173,8 +173,7 @@ std::shared_ptr<AlibabaCloud::OSS::OssClient> OSSClientFactory::create(
         LOG(ERROR) << "Invalid OSS conf: endpoint, region and bucket are required";
         return nullptr;
     }
-    if (oss_conf.cred_provider_type == OSSCredProviderType::SIMPLE &&
-        oss_conf.role_arn.empty() &&
+    if (oss_conf.cred_provider_type == OSSCredProviderType::SIMPLE && oss_conf.role_arn.empty() &&
         (oss_conf.ak.empty() || oss_conf.sk.empty())) {
         LOG(ERROR) << "Invalid OSS conf: ak and sk required for SIMPLE credential provider";
         return nullptr;
@@ -263,8 +262,9 @@ std::shared_ptr<AlibabaCloud::OSS::OssClient> OSSClientFactory::create(
         } else {
             AlibabaCloud::OSS::Credentials creds(oss_conf.ak, oss_conf.sk, oss_conf.token);
             client = std::make_shared<AlibabaCloud::OSS::OssClient>(oss_conf.endpoint, creds,
-                                                                     oss_client_config);
-            LOG(INFO) << "OSS client created with SIMPLE credentials, endpoint=" << oss_conf.endpoint;
+                                                                    oss_client_config);
+            LOG(INFO) << "OSS client created with SIMPLE credentials, endpoint="
+                      << oss_conf.endpoint;
         }
     } catch (const std::exception& e) {
         LOG(ERROR) << "Failed to create OSS client: " << e.what();

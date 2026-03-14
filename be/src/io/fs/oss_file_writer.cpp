@@ -141,12 +141,11 @@ Status OSSFileWriter::_build_upload_buffer() {
 
     if (cache_builder() != nullptr) {
         int64_t tablet_id = get_tablet_id(_path.native()).value_or(0);
-        builder.set_allocate_file_blocks_holder(
-                [builder = *cache_builder(), offset = _bytes_appended,
-                 tablet_id = tablet_id]() -> FileBlocksHolderPtr {
-                    return builder.allocate_cache_holder(offset, config::s3_write_buffer_size,
-                                                         tablet_id);
-                });
+        builder.set_allocate_file_blocks_holder([builder = *cache_builder(),
+                                                 offset = _bytes_appended,
+                                                 tablet_id = tablet_id]() -> FileBlocksHolderPtr {
+            return builder.allocate_cache_holder(offset, config::s3_write_buffer_size, tablet_id);
+        });
     }
 
     RETURN_IF_ERROR(builder.build(&_pending_buf));
@@ -185,9 +184,8 @@ void OSSFileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
 
     auto stream = buf.get_stream();
     if (!stream) {
-        buf.set_status(
-                Status::InternalError("Failed to get stream from upload buffer for part {}",
-                                      part_num));
+        buf.set_status(Status::InternalError("Failed to get stream from upload buffer for part {}",
+                                             part_num));
         return;
     }
 
@@ -266,7 +264,6 @@ Status OSSFileWriter::_create_multipart_upload() {
     return Status::OK();
 }
 
-
 Status OSSFileWriter::_complete_multipart_upload() {
     auto client = _client->get();
     if (!client) {
@@ -288,7 +285,7 @@ Status OSSFileWriter::_complete_multipart_upload() {
               });
 
     AlibabaCloud::OSS::CompleteMultipartUploadRequest request(_bucket, _key, _completed_parts,
-                                                               _upload_id);
+                                                              _upload_id);
     auto outcome = client->CompleteMultipartUpload(request);
 
     if (!outcome.isSuccess()) {
@@ -327,8 +324,7 @@ Status OSSFileWriter::_abort_multipart_upload() {
         return Status::IOError(err);
     }
 
-    LOG(INFO) << "OSS multipart upload aborted: " << _path.native()
-              << " upload_id: " << _upload_id;
+    LOG(INFO) << "OSS multipart upload aborted: " << _path.native() << " upload_id: " << _upload_id;
     _upload_id.clear();
 
     return Status::OK();

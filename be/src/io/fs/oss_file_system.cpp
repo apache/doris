@@ -118,7 +118,7 @@ Status OSSClientHolder::reset(const OSSClientConf& conf) {
 }
 
 Result<int64_t> OSSClientHolder::object_file_size(const std::string& bucket,
-                                                   const std::string& key) const {
+                                                  const std::string& key) const {
     auto client = get();
     if (!client) {
         return ResultError(Status::InvalidArgument("init oss client error"));
@@ -253,14 +253,14 @@ Status OSSFileSystem::delete_directory_impl(const Path& dir) {
             const auto& uploads = uploads_result.MultipartUploadList();
 
             for (const auto& upload : uploads) {
-                AlibabaCloud::OSS::AbortMultipartUploadRequest abort_request(
-                        _bucket, upload.Key, upload.UploadId);
+                AlibabaCloud::OSS::AbortMultipartUploadRequest abort_request(_bucket, upload.Key,
+                                                                             upload.UploadId);
                 auto abort_outcome = client->AbortMultipartUpload(abort_request);
 
                 if (!abort_outcome.isSuccess()) {
                     LOG(WARNING) << "Failed to abort multipart upload: key=" << upload.Key
-                                 << " upload_id=" << upload.UploadId << " error="
-                                 << abort_outcome.error().Code() << " - "
+                                 << " upload_id=" << upload.UploadId
+                                 << " error=" << abort_outcome.error().Code() << " - "
                                  << abort_outcome.error().Message();
                     // Don't fail directory deletion if abort fails
                 } else {
@@ -460,8 +460,7 @@ Status OSSFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
         if (!copy_outcome.isSuccess()) {
             return Status::IOError("failed to copy object from {} to {}: {} - {}",
                                    full_oss_path(src_key), full_oss_path(dst_key),
-                                   copy_outcome.error().Code(),
-                                   copy_outcome.error().Message());
+                                   copy_outcome.error().Code(), copy_outcome.error().Message());
         }
     } else {
         // Multipart copy for large files to avoid timeouts
@@ -469,8 +468,7 @@ Status OSSFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
                 AlibabaCloud::OSS::InitiateMultipartUploadRequest(_bucket, dst_key));
         if (!init_outcome.isSuccess()) {
             return Status::IOError("failed to initiate multipart upload: {} - {}",
-                                   init_outcome.error().Code(),
-                                   init_outcome.error().Message());
+                                   init_outcome.error().Code(), init_outcome.error().Message());
         }
 
         std::string upload_id = init_outcome.result().UploadId();
@@ -482,9 +480,11 @@ Status OSSFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
         // Copy parts
         for (int64_t i = 0; i < part_count; ++i) {
             int64_t start_offset = i * MULTIPART_COPY_PART_SIZE;
-            int64_t end_offset = std::min(start_offset + MULTIPART_COPY_PART_SIZE - 1, file_size - 1);
+            int64_t end_offset =
+                    std::min(start_offset + MULTIPART_COPY_PART_SIZE - 1, file_size - 1);
 
-            AlibabaCloud::OSS::UploadPartCopyRequest part_request(_bucket, dst_key, _bucket, src_key);
+            AlibabaCloud::OSS::UploadPartCopyRequest part_request(_bucket, dst_key, _bucket,
+                                                                  src_key);
             part_request.setUploadId(upload_id);
             part_request.setPartNumber(static_cast<uint32_t>(i + 1));
             part_request.setCopySourceRange(start_offset, end_offset);
@@ -492,20 +492,19 @@ Status OSSFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
             auto part_outcome = client->UploadPartCopy(part_request);
             if (!part_outcome.isSuccess()) {
                 // Abort multipart upload on failure
-                client->AbortMultipartUpload(
-                        AlibabaCloud::OSS::AbortMultipartUploadRequest(_bucket, dst_key,
-                                                                        upload_id));
+                client->AbortMultipartUpload(AlibabaCloud::OSS::AbortMultipartUploadRequest(
+                        _bucket, dst_key, upload_id));
                 return Status::IOError("failed to copy part {}: {} - {}", i + 1,
-                                       part_outcome.error().Code(),
-                                       part_outcome.error().Message());
+                                       part_outcome.error().Code(), part_outcome.error().Message());
             }
 
-            part_etags.push_back(AlibabaCloud::OSS::Part(static_cast<int32_t>(i + 1), part_outcome.result().ETag()));
+            part_etags.push_back(AlibabaCloud::OSS::Part(static_cast<int32_t>(i + 1),
+                                                         part_outcome.result().ETag()));
         }
 
         // Complete multipart upload
         AlibabaCloud::OSS::CompleteMultipartUploadRequest complete_request(_bucket, dst_key,
-                                                                            part_etags, upload_id);
+                                                                           part_etags, upload_id);
         auto complete_outcome = client->CompleteMultipartUpload(complete_request);
         if (!complete_outcome.isSuccess()) {
             client->AbortMultipartUpload(
@@ -520,8 +519,7 @@ Status OSSFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
     auto delete_outcome = client->DeleteObject(_bucket, src_key);
     if (!delete_outcome.isSuccess()) {
         LOG(WARNING) << "Failed to delete source object after copy: " << src_key << " - "
-                     << delete_outcome.error().Code() << ": "
-                     << delete_outcome.error().Message();
+                     << delete_outcome.error().Code() << ": " << delete_outcome.error().Message();
         // Don't fail rename if delete fails, copy succeeded
     }
 
@@ -571,9 +569,9 @@ Status OSSFileSystem::download_impl(const Path& remote_file, const Path& local_f
     }
 
     // Use temp file + rename pattern to ensure atomicity and proper cleanup on failure.
-    std::string temp_file_path = local_file.native() + ".tmp." + std::to_string(getpid()) + "." +
-                                 std::to_string(std::hash<std::thread::id> {}(
-                                         std::this_thread::get_id()));
+    std::string temp_file_path =
+            local_file.native() + ".tmp." + std::to_string(getpid()) + "." +
+            std::to_string(std::hash<std::thread::id> {}(std::this_thread::get_id()));
 
     // RAII wrapper to ensure temp file cleanup on failure
     struct TempFileGuard {
@@ -590,7 +588,7 @@ Status OSSFileSystem::download_impl(const Path& remote_file, const Path& local_f
                 }
             }
         }
-    } temp_guard{temp_file_path};
+    } temp_guard {temp_file_path};
 
     // Write to temp file
     std::ofstream out(temp_file_path, std::ios::binary);

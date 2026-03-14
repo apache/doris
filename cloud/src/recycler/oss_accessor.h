@@ -69,8 +69,8 @@ struct OSSConf {
     std::string security_token;
 
     // AssumeRole configuration (for cross-account or elevated permissions)
-    std::string role_arn;      // RAM role ARN to assume
-    std::string external_id;   // External ID for cross-account AssumeRole security
+    std::string role_arn;    // RAM role ARN to assume
+    std::string external_id; // External ID for cross-account AssumeRole security
 
     OSSCredProviderType provider_type = OSSCredProviderType::INSTANCE_PROFILE;
 
@@ -82,7 +82,7 @@ struct OSSConf {
     // Create OSSConf from ObjectStoreInfoPB
     // skip_aksk: if true, don't extract AK/SK from obj_info (used for logging)
     static std::optional<OSSConf> from_obj_store_info(const ObjectStoreInfoPB& obj_info,
-                                                       bool skip_aksk = false);
+                                                      bool skip_aksk = false);
 
     // Get hash for configuration (for caching)
     uint64_t get_hash() const;
@@ -121,8 +121,7 @@ public:
     int delete_file(const std::string& path) override;
 
     // List files in directory recursively
-    int list_directory(const std::string& dir_path,
-                       std::unique_ptr<ListIterator>* res) override;
+    int list_directory(const std::string& dir_path, std::unique_ptr<ListIterator>* res) override;
 
     // List all files in the vault
     int list_all(std::unique_ptr<ListIterator>* res) override;
