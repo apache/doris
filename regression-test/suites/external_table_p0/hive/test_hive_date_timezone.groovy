@@ -48,7 +48,7 @@ suite("test_hive_date_timezone", "p0,external") {
             qt_orc_date_utc """select date_col from orc_primitive_types_to_date order by id"""
             qt_parquet_date_utc """select date_col from parquet_primitive_types_to_date order by id"""
 
-            sql """set time_zone = '-06:00'"""
+            sql """set time_zone = 'America/Mexico_City'"""
             qt_orc_date_west_tz """select date_col from orc_primitive_types_to_date order by id"""
             qt_parquet_date_west_tz """select date_col from parquet_primitive_types_to_date order by id"""
         } finally {
