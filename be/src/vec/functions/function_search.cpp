@@ -641,7 +641,7 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
                     occur = map_thrift_occur(child_clause.occur);
                 }
 
-                builder->add(child_query, occur);
+                builder->add(child_query, occur, std::move(child_binding_key));
             }
         }
 

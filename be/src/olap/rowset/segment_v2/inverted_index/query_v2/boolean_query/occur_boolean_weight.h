@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <roaring/roaring.hh>
+
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/occur.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_scorer.h"
@@ -44,8 +46,8 @@ template <typename ScoreCombinerPtrT>
 class OccurBooleanWeight : public Weight {
 public:
     OccurBooleanWeight(std::vector<std::pair<Occur, WeightPtr>> sub_weights,
-                       size_t minimum_number_should_match, bool enable_scoring,
-                       ScoreCombinerPtrT score_combiner);
+                       std::vector<std::string> binding_keys, size_t minimum_number_should_match,
+                       bool enable_scoring, ScoreCombinerPtrT score_combiner);
     ~OccurBooleanWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& context) override;
@@ -62,8 +64,6 @@ private:
     std::optional<CombinationMethod> build_should_opt(std::vector<ScorerPtr>& must_scorers,
                                                       std::vector<ScorerPtr> should_scorers,
                                                       CombinerT combiner, size_t num_all_scorers);
-    ScorerPtr build_exclude_opt(std::vector<ScorerPtr> must_not_scorers);
-
     ScorerPtr effective_must_scorer(std::vector<ScorerPtr> must_scorers,
                                     size_t must_num_all_scorers);
 
@@ -87,7 +87,12 @@ private:
     template <typename CombinerT>
     ScorerPtr into_box_scorer(SpecializedScorer&& specialized, CombinerT combiner);
 
+    ScorerPtr build_exclude_opt(std::vector<ScorerPtr> must_not_scorers,
+                                const NullBitmapResolver* resolver,
+                                roaring::Roaring& exclude_null_out);
+
     std::vector<std::pair<Occur, WeightPtr>> _sub_weights;
+    std::vector<std::string> _binding_keys;
     size_t _minimum_number_should_match = 1;
     bool _enable_scoring = false;
     ScoreCombinerPtrT _score_combiner;
