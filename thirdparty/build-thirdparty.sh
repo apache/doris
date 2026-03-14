@@ -1865,7 +1865,7 @@ build_libuuid() {
 # Apache Portable Runtime (APR) - Required by OSS SDK
 build_apr() {
     # Check if already built
-    if [[ -f "${TP_INSTALL_DIR}/lib/libapr-1.a" ]]; then
+    if [[ -f "${TP_INSTALL_DIR}/lib/libapr.a" ]]; then
         echo "APR already built, skipping"
         return
     fi
@@ -1886,8 +1886,7 @@ build_apr() {
     # Clean previous build
     make clean || true
 
-    # Use gcc instead of clang for APR
-    CC=gcc ./configure --prefix="${TP_INSTALL_DIR}" --enable-static --disable-shared
+    CC=gcc ./configure --enable-layout=classic --prefix="${TP_INSTALL_DIR}" --enable-static --disable-shared
     make -j "${PARALLEL}"
     make install
 }
@@ -1895,7 +1894,7 @@ build_apr() {
 # APR-Util - Required by OSS SDK
 build_apr_util() {
     # Check if already built
-    if [[ -f "${TP_INSTALL_DIR}/lib/libaprutil-1.a" ]]; then
+    if [[ -f "${TP_INSTALL_DIR}/lib/libaprutil.a" ]]; then
         echo "APR-Util already built, skipping"
         return
     fi
@@ -1916,8 +1915,7 @@ build_apr_util() {
     # Clean previous build
     make clean || true
 
-    # Use gcc instead of clang for APR-Util
-    CC=gcc ./configure --prefix="${TP_INSTALL_DIR}" \
+    CC=gcc ./configure --enable-layout=classic --prefix="${TP_INSTALL_DIR}" \
         --with-apr="${TP_INSTALL_DIR}" \
         --enable-static --disable-shared
     make -j "${PARALLEL}"

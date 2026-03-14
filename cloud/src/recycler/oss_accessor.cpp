@@ -58,7 +58,7 @@ static int64_t parse_oss_last_modified(const std::string& last_modified_str) {
 
     if (ss.fail()) {
         LOG(WARNING) << "Failed to parse OSS LastModified: " << last_modified_str;
-        return 0;
+        return INT64_MAX; // Treat as infinitely new to avoid premature deletion
     }
 
     return static_cast<int64_t>(timegm(&tm)); // timegm() for UTC time
@@ -284,7 +284,7 @@ int OSSAccessor::create_oss_client() {
                 if (!sts_credential_provider_) {
                     std::string region = conf_.region.empty() ? "cn-hangzhou" : conf_.region;
                     sts_credential_provider_ = std::make_shared<OSSSTSCredentialProvider>(
-                            conf_.role_arn, region, conf_.external_id);
+                            conf_.role_arn, region, conf_.external_id, _ca_cert_file_path);
                 }
                 oss_client_ = std::make_shared<AlibabaCloud::OSS::OssClient>(
                         conf_.endpoint,
@@ -563,8 +563,17 @@ int OSSAccessor::delete_prefix(const std::string& path_prefix, int64_t expiratio
 }
 
 int OSSAccessor::delete_directory(const std::string& dir_path) {
-    // For OSS, directory is just a prefix, same as delete_prefix
-    return delete_prefix(dir_path, 0);
+    auto norm_dir_path = dir_path;
+    strip_leading(norm_dir_path, "/");
+    if (norm_dir_path.empty()) {
+        LOG(WARNING) << "invalid dir_path " << dir_path;
+        return -1;
+    }
+
+    if (!norm_dir_path.ends_with('/')) {
+        norm_dir_path += '/';
+    }
+    return delete_prefix(norm_dir_path, 0);
 }
 
 int OSSAccessor::delete_all(int64_t expiration_time) {
@@ -573,7 +582,17 @@ int OSSAccessor::delete_all(int64_t expiration_time) {
 }
 
 int OSSAccessor::list_directory(const std::string& dir_path, std::unique_ptr<ListIterator>* res) {
-    return list_prefix(dir_path, res);
+    auto norm_dir_path = dir_path;
+    strip_leading(norm_dir_path, "/");
+    if (norm_dir_path.empty()) {
+        LOG(WARNING) << "invalid dir_path " << dir_path;
+        return -1;
+    }
+
+    if (!norm_dir_path.ends_with('/')) {
+        norm_dir_path += '/';
+    }
+    return list_prefix(norm_dir_path, res);
 }
 
 int OSSAccessor::list_all(std::unique_ptr<ListIterator>* res) {
@@ -609,12 +628,18 @@ int OSSAccessor::exists(const std::string& path) {
 
     std::string key = get_key(path);
 
-    // Use DoesObjectExist for efficient check
-    bool exists = client->DoesObjectExist(conf_.bucket, key);
-
-    VLOG(2) << "OSS exists check: " << key << " -> " << (exists ? "found" : "not found");
-
-    return exists ? 0 : 1; // 0 = exists, 1 = not found
+    auto outcome = client->HeadObject(conf_.bucket, key);
+    if (outcome.isSuccess()) {
+        VLOG(2) << "OSS exists check: " << key << " -> found";
+        return 0;
+    } else if (outcome.error().Code() == "NoSuchKey") {
+        VLOG(2) << "OSS exists check: " << key << " -> not found";
+        return 1;
+    } else {
+        LOG(WARNING) << "OSS HeadObject failed: " << outcome.error().Code() << " - "
+                     << outcome.error().Message() << ", key=" << key;
+        return -1;
+    }
 }
 
 int OSSAccessor::abort_multipart_upload(const std::string& path, const std::string& upload_id) {

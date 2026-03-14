@@ -60,7 +60,8 @@ private:
 class OSSSTSCredentialProvider : public AlibabaCloud::OSS::CredentialsProvider {
 public:
     explicit OSSSTSCredentialProvider(const std::string& role_arn, const std::string& region,
-                                      const std::string& external_id = "");
+                                      const std::string& external_id = "",
+                                      const std::string& ca_cert_path = "");
     ~OSSSTSCredentialProvider() override = default;
 
     AlibabaCloud::OSS::Credentials getCredentials() override;
@@ -77,6 +78,7 @@ private:
     std::string _role_arn;
     std::string _region;
     std::string _external_id;
+    std::string _ca_cert_path;
 
     static constexpr int REFRESH_BEFORE_EXPIRY_SECONDS = 300;
     static constexpr int SESSION_DURATION_SECONDS = 3600;

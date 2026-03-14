@@ -33,6 +33,7 @@
 #include "io/fs/s3_file_bufferpool.h"
 #include "runtime/exec_env.h"
 #include "util/debug_points.h"
+#include "common/compile_check_begin.h"
 
 namespace doris::io {
 
@@ -64,8 +65,13 @@ OSSFileWriter::OSSFileWriter(std::shared_ptr<OSSClientHolder> client, std::strin
 }
 
 OSSFileWriter::~OSSFileWriter() {
-    // Wait for any pending async operations to complete
-    _wait_until_finish("~OSSFileWriter");
+    // Wait for async close task or pending part uploads to complete before destruction.
+    if (_async_close_pack != nullptr) {
+        std::ignore = _async_close_pack->future.get();
+        _async_close_pack = nullptr;
+    } else {
+        _wait_until_finish("~OSSFileWriter");
+    }
 
     // Abort multipart upload if not completed
     if (state() != State::CLOSED && !_upload_id.empty()) {
@@ -218,6 +224,7 @@ void OSSFileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
 
 bool OSSFileWriter::_complete_part_task_callback(Status s) {
     if (!s.ok()) {
+        std::unique_lock<std::mutex> lck {_completed_lock};
         _failed = true;
         _st = std::move(s);
         LOG(WARNING) << "OSS async upload failed: " << _path.native() << " error: " << _st;
@@ -497,7 +504,10 @@ Status OSSFileWriter::_close_impl() {
         return Status::OK();
     }
 
+    // TODO: add check_after_upload like S3 (off by default via config)
     return _complete_multipart_upload();
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris::io

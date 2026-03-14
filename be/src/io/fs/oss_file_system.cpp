@@ -368,7 +368,15 @@ Status OSSFileSystem::exists_impl(const Path& path, bool* res) const {
 
     auto key = DORIS_TRY(get_oss_key(path));
 
-    *res = client->DoesObjectExist(_bucket, key);
+    auto outcome = client->HeadObject(_bucket, key);
+    if (outcome.isSuccess()) {
+        *res = true;
+    } else if (outcome.error().Code() == "NoSuchKey") {
+        *res = false;
+    } else {
+        return Status::IOError("failed to check existence of {}: {} - {}", key,
+                               outcome.error().Code(), outcome.error().Message());
+    }
     return Status::OK();
 }
 

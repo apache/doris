@@ -241,12 +241,14 @@ int ECSMetadataCredentialsProvider::_fetch_credentials_outside_lock(
 
 OSSSTSCredentialProvider::OSSSTSCredentialProvider(const std::string& role_arn,
                                                    const std::string& region,
-                                                   const std::string& external_id)
+                                                   const std::string& external_id,
+                                                   const std::string& ca_cert_path)
         : _cached_credentials(nullptr),
           _expiration(std::chrono::system_clock::now()),
           _role_arn(role_arn),
           _region(region),
-          _external_id(external_id) {
+          _external_id(external_id),
+          _ca_cert_path(ca_cert_path) {
     if (_role_arn.empty()) {
         throw std::invalid_argument("RAM role ARN cannot be empty for STS AssumeRole");
     }
@@ -311,6 +313,10 @@ int OSSSTSCredentialProvider::_fetch_credentials_from_sts(
         std::unique_ptr<AlibabaCloud::OSS::Credentials>& out_credentials,
         std::chrono::system_clock::time_point& out_expiration) {
     try {
+        // TODO: support OIDC/RRSA as base credentials for AssumeRole (requires new
+        // CredProviderTypePB enum value and proto change); currently only INSTANCE_PROFILE
+        // (ECS RAM role) is supported as base, which is enforced by OSSProperties and
+        // convert_properties_to_oss_conf when role_arn is set.
         AlibabaCloud::Credentials::Models::Config cred_config;
         cred_config.setType("ecs_ram_role");
         AlibabaCloud::Credentials::Client cred_client(cred_config);
@@ -338,7 +344,9 @@ int OSSSTSCredentialProvider::_fetch_credentials_from_sts(
         }
 
         Darabonba::RuntimeOptions runtime;
-        runtime.setIgnoreSSL(true);
+        if (!_ca_cert_path.empty()) {
+            runtime.setCa(_ca_cert_path);
+        }
 
         AlibabaCloud::Sts20150401::Models::AssumeRoleResponse response =
                 client.assumeRoleWithOptions(request, runtime);

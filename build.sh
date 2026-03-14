@@ -498,7 +498,7 @@ else
     BUILD_JINDOFS='ON'
 fi
 
-if [[ -n "${DISABLE_BUILD_OSS}" ]]; then
+if [[ "$(echo "${DISABLE_BUILD_OSS}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
     BUILD_OSS='OFF'
 fi
 
@@ -691,6 +691,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
+        -DBUILD_OSS="${BUILD_OSS}" \
         -DENABLE_DYNAMIC_ARCH="${ENABLE_DYNAMIC_ARCH}" \
         -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
         "${DORIS_HOME}/be"

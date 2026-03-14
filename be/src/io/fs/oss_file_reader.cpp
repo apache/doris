@@ -130,6 +130,7 @@ Status OSSFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_re
     if (!client) {
         return Status::InternalError("OSS client not initialized");
     }
+    // TODO: add SCOPED_CONCURRENCY_COUNT for oss_file_reader_read like S3
 
     int retry_count = 0;
     const int base_wait_time = config::oss_read_base_wait_time_ms;

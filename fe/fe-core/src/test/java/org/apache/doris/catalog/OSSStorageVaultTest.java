@@ -41,6 +41,7 @@ public class OSSStorageVaultTest {
     // ---------------------------------------------------------------------------
     private static Map<String, String> validProps() {
         Map<String, String> props = new HashMap<>();
+        props.put(StorageVault.PropertyKey.TYPE, "oss");
         props.put(OSSStorageVault.PropertyKey.ENDPOINT, "oss-cn-hangzhou.aliyuncs.com");
         props.put(OSSStorageVault.PropertyKey.BUCKET, "my-doris-bucket");
         props.put(OSSStorageVault.PropertyKey.ROOT_PATH, "doris/data");

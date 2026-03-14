@@ -160,6 +160,7 @@ OSSClientFactory::OSSClientFactory() {
     _ca_cert_file_path = get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
 }
 
+// TODO: call AlibabaCloud::OSS::ShutdownSdk() at process exit
 OSSClientFactory::~OSSClientFactory() = default;
 
 OSSClientFactory& OSSClientFactory::instance() {
@@ -215,7 +216,7 @@ std::shared_ptr<AlibabaCloud::OSS::OssClient> OSSClientFactory::create(
                 } else {
                     std::string region = oss_conf.region.empty() ? "cn-hangzhou" : oss_conf.region;
                     sts_provider = std::make_shared<OSSSTSCredentialProvider>(
-                            oss_conf.role_arn, region, oss_conf.external_id);
+                            oss_conf.role_arn, region, oss_conf.external_id, _ca_cert_file_path);
                     _sts_credential_providers[hash] = sts_provider;
                 }
             }
