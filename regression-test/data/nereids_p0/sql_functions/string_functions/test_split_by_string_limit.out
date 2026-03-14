@@ -44,8 +44,17 @@
 -- !limit15 --
 \N
 
+-- !limit_null2 --
+\N
+
 -- !limit16 --
 ["你", "a", "好b世c界"]
+
+-- !limit_utf8_delim --
+["上海", "北京北杭州"]
+
+-- !limit_utf8_empty --
+["你", "好世界"]
 
 -- !limit17 --
 ["", ",,"]
@@ -53,12 +62,63 @@
 -- !limit18 --
 ["", "", "a,b,c,"]
 
+-- !limit_trail1 --
+["a", "b,c,"]
+
+-- !limit_trail2 --
+["a", "b", "c", ""]
+
+-- !limit_trail3 --
+["a", "b", "c", ""]
+
+-- !limit_eq --
+["", ""]
+
+-- !limit_single --
+["a"]
+
+-- !limit_regex1 --
+["a", "b..c"]
+
+-- !limit_regex2 --
+["a", "b||c"]
+
+-- !limit_regex3 --
+["a", "b((c"]
+
+-- !limit_cast1 --
+["a", "b,c"]
+
+-- !limit_nomatch --
+["hello world"]
+
+-- !limit_unicode --
+["ṭṛì", "ḍḍumai ṭṛì"]
+
+-- !limit_upper --
+["a", "b,c,d"]
+
+-- !limit_nested1 --
+2
+
+-- !limit_nested2 --
+4
+
+-- !limit_arraymap --
+["ONE", "TWO,THREE"]
+
+-- !limit_where --
+1
+
 -- !table1 --
 1	["a", "b,c,d"]
 2	["x", "y::z"]
 3	["hello"]
 4	\N
 5	["a", "b,c,d,e"]
+6	["", ",,"]
+7	[]
+8	["a", "b,c,"]
 
 -- !table2 --
 1	["a", "b", "c,d"]
@@ -66,6 +126,77 @@
 3	["hello"]
 4	\N
 5	["a", "b", "c,d,e"]
+6	["", "", ","]
+7	[]
+8	["a", "b", "c,"]
+
+-- !table3 --
+1	["a", "b,c,d"]
+2	["x::y::z"]
+3	["hello"]
+4	\N
+5	["a", "b,c,d,e"]
+6	["", ",,"]
+7	[]
+8	["a", "b,c,"]
+
+-- !table6 --
+1	["a,b,c,d"]
+2	["x::y::z"]
+3	["hello"]
+4	\N
+5	["a,b,c,d,e"]
+6	[",,,"]
+7	[]
+8	["a,b,c,"]
+
+-- !table4 --
+1	["a", "b,c,d,e"]
+2	["a,b,c,d,e"]
+3	["a", "b,c,d,e"]
+4	["a", "b,c,d,e"]
+5	["a", "b,c,d,e"]
+6	["a", "b,c,d,e"]
+7	["a", "b,c,d,e"]
+8	["a", "b,c,d,e"]
+
+-- !table5 --
+["a", "b,c,d"]
+
+-- !table_2arg --
+1	["a", "b", "c", "d"]
+2	["x", "y", "z"]
+3	["hello"]
+4	\N
+5	["a", "b", "c", "d", "e"]
+6	["", "", "", ""]
+7	[]
+8	["a", "b", "c", ""]
+
+-- !table_alias --
+1	["a", "b,c,d"]
+2	["x", "y::z"]
+3	["hello"]
+4	\N
+5	["a", "b,c,d,e"]
+6	["", ",,"]
+7	[]
+8	["a", "b,c,"]
+
+-- !type1 --
+1	["a", "b,c,d"]
+2	["x::y::z"]
+3	\N
+
+-- !type2 --
+1	["a", "b,c,d"]
+2	["x::y::z"]
+3	\N
+
+-- !type3 --
+1	["a", "b,c,d"]
+2	["x::y::z"]
+3	\N
 
 -- !alias1 --
 ["one", "two,three"]
@@ -73,9 +204,15 @@
 -- !alias2 --
 ["a", "b::c"]
 
+-- !alias3 --
+["a", "b", "c,d"]
+
 -- !noregress1 --
 ["a", "b", "c"]
 
 -- !noregress2 --
 ["a", "b", "c", "d", "e"]
+
+-- !noregress3 --
+["你", "a", "好", "b", "世", "c", "界"]
 
