@@ -69,7 +69,7 @@ public class ShowCreateStreamCommand extends ShowCommand {
         }
 
         PrivPredicate wanted;
-        wanted = PrivPredicate.SHOW_STREAM;
+        wanted = PrivPredicate.SHOW;
 
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
                 tblNameInfo.getCtl(), tblNameInfo.getDb(), tblNameInfo.getTbl(), wanted)) {

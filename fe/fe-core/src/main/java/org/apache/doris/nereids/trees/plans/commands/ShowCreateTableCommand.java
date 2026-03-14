@@ -102,8 +102,6 @@ public class ShowCreateTableCommand extends ShowCommand {
         PrivPredicate wanted;
         if (tableIf instanceof View) {
             wanted = PrivPredicate.SHOW_VIEW;
-        } else if (tableIf instanceof BaseStream) {
-            wanted = PrivPredicate.SHOW_STREAM;
         } else {
             wanted = PrivPredicate.SHOW;
         }

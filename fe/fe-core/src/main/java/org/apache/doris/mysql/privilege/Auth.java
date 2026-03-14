@@ -2091,9 +2091,6 @@ public class Auth implements Writable {
                                         case STAGE_USAGE_PRIV:
                                             userInfo.set(13, "Y");
                                             break;
-                                        case SHOW_STREAM_PRIV:
-                                            userInfo.set(14, "Y");
-                                            break;
                                         default:
                                             break;
                                     }
