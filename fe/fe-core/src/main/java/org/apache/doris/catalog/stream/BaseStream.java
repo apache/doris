@@ -54,8 +54,7 @@ public abstract class BaseStream extends Table {
         }
     }
 
-    private static ImmutableList<TableType> supportedTableTypeList = ImmutableList.of(TableType.OLAP,
-            TableType.PAIMON_EXTERNAL_TABLE);
+    private static ImmutableList<TableType> supportedTableTypeList = ImmutableList.of(TableType.OLAP);
 
     @SerializedName("streamType")
     protected StreamConsumeType streamConsumeType = StreamConsumeType.DEFAULT;

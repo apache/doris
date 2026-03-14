@@ -65,7 +65,7 @@ public class ShowCreateStreamCommand extends ShowCommand {
 
         if (!(tableIf instanceof BaseStream)) {
             ErrorReport.reportAnalysisException(tblNameInfo.toFullyQualified()
-                    + "is not a stream, type:" + tableIf.getType());
+                    + " is not a stream, type:" + tableIf.getType());
         }
 
         PrivPredicate wanted;
