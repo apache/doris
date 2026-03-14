@@ -20,13 +20,13 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/string_ref.h"
+#include "exprs/function/function_totype.h"
+#include "exprs/function/simple_function_factory.h"
+#include "core/data_type/data_type_number.h"
 #include "util/simd/vstring_function.h"
-#include "vec/common/string_ref.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/functions/function_totype.h"
-#include "vec/functions/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 struct NameLevenshtein {
@@ -206,4 +206,4 @@ void register_function_levenshtein(SimpleFunctionFactory& factory) {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris
