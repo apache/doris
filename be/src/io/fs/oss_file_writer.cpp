@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <sstream>
 
+#include "common/compile_check_begin.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "io/cache/file_cache_common.h"
@@ -33,7 +34,6 @@
 #include "io/fs/s3_file_bufferpool.h"
 #include "runtime/exec_env.h"
 #include "util/debug_points.h"
-#include "common/compile_check_begin.h"
 
 namespace doris::io {
 
