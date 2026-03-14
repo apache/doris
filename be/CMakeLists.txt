@@ -283,7 +283,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 17)
 
 add_compile_options(-g
-                    -gdwarf-5
+                    -gdwarf-4
                     -Wall
                     -Wextra
                     -Werror
