@@ -1336,18 +1336,24 @@ public class StatisticsUtil {
         return null;
     }
 
+    /**
+     * Get max hot value count including null for balance/skew computation.
+     * When hotValues not exist or empty, treat nulls as the only hot value.
+     * Otherwise use the max of (top hot value count, null count).
+     */
+    public static double getMaxHotValueCntIncludeNull(ColumnStatistic columnStatistic, double rowCount) {
+        Map<Literal, Float> hotValues = columnStatistic.getHotValues();
+        if (columnStatistic.getHotValues() == null || hotValues.isEmpty()) {
+            return columnStatistic.numNulls;
+        }
+        double maxRate = hotValues.values().stream().mapToDouble(Float::doubleValue).max().orElse(0);
+        double maxHotRows = maxRate * rowCount;
+        return maxHotRows > columnStatistic.numNulls ? maxHotRows : columnStatistic.numNulls;
+    }
+
     public static boolean isBalanced(ColumnStatistic columnStatistic, double rowCount, int instanceNum) {
         double ndv = columnStatistic.ndv;
-        double maxHotValueCntIncludeNull;
-        Map<Literal, Float> hotValues = columnStatistic.getHotValues();
-        // When hotValues not exist, or exist but unknown, treat nulls as the only hot value.
-        if (columnStatistic.getHotValues() == null || hotValues.isEmpty()) {
-            maxHotValueCntIncludeNull = columnStatistic.numNulls;
-        } else {
-            double rate = hotValues.values().stream().mapToDouble(Float::doubleValue).max().orElse(0);
-            maxHotValueCntIncludeNull = rate * rowCount > columnStatistic.numNulls
-                    ? rate * rowCount : columnStatistic.numNulls;
-        }
+        double maxHotValueCntIncludeNull = getMaxHotValueCntIncludeNull(columnStatistic, rowCount);
         double rowsPerInstance = (rowCount - maxHotValueCntIncludeNull) / instanceNum;
         double balanceFactor = maxHotValueCntIncludeNull == 0
                 ? Double.MAX_VALUE : rowsPerInstance / maxHotValueCntIncludeNull;
