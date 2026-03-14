@@ -846,6 +846,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String AGG_SHUFFLE_USE_PARENT_KEY = "agg_shuffle_use_parent_key";
     public static final String DECOMPOSE_REPEAT_SHUFFLE_INDEX_IN_MAX_GROUP
             = "decompose_repeat_shuffle_index_in_max_group";
+    public static final String ENABLE_AGG_SHUFFLE_KEY_PRUNE = "enable_agg_shuffle_key_prune";
 
     public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
     @VariableMgr.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
@@ -2757,6 +2758,9 @@ public class SessionVariable implements Serializable, Writable {
             "Whether to use the parent node's grouping key for shuffling during the aggregation operator"
     }, needForward = false)
     public boolean aggShuffleUseParentKey = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_AGG_SHUFFLE_KEY_PRUNE)
+    public boolean enableAggShuffleKeyPrune = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
             description = {"是否启用 prefer cached rowset 功能",

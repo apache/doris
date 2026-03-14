@@ -57,7 +57,7 @@ import javax.annotation.Nullable;
  *      |      |
  *     Join   Join
  *     / \    / \
- *    t1 t2   t1 t3   (t1 is common side; t2,t3 is other side)
+ *    t2 t1   t3 t1   (t1 is common side; t2,t3 is other side)
  *  =====>
  *          project
  *            |

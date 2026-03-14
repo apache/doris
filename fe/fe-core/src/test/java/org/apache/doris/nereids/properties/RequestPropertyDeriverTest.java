@@ -141,7 +141,7 @@ class RequestPropertyDeriverTest {
         GroupExpression groupExpression = new GroupExpression(join, Lists.newArrayList(group, group));
         new Group(null, groupExpression, null);
 
-        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
+        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(connectContext, jobContext);
         List<List<PhysicalProperties>> actual
                 = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
 
@@ -177,7 +177,7 @@ class RequestPropertyDeriverTest {
         GroupExpression groupExpression = new GroupExpression(join, Lists.newArrayList(group, group));
         new Group(null, groupExpression, null);
 
-        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
+        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(connectContext, jobContext);
         List<List<PhysicalProperties>> actual
                 = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
 
@@ -200,6 +200,7 @@ class RequestPropertyDeriverTest {
                 new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT),
                 true,
                 logicalProperties,
+                false,
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -222,11 +223,12 @@ class RequestPropertyDeriverTest {
                 new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
+                false,
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
         new Group(null, groupExpression, null);
-        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
+        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(connectContext, jobContext);
         List<List<PhysicalProperties>> actual
                 = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
         List<List<PhysicalProperties>> expected = Lists.newArrayList();
@@ -246,6 +248,7 @@ class RequestPropertyDeriverTest {
                 new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
+                false,
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -383,6 +386,7 @@ class RequestPropertyDeriverTest {
                 new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
+                false,
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -426,6 +430,7 @@ class RequestPropertyDeriverTest {
                 new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
+                false,
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
