@@ -178,7 +178,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     public static final String SECRET_KEY_KEY = "oss.secret_key";
     public static final String SESSION_TOKEN_KEY = "oss.session_token";
     public static final String ROOT_PATH_KEY = "oss.root.path";
-    public static final String BUCKET_KEY = "bucket";
+    public static final String BUCKET_KEY = "oss.bucket";
     public static final String ROLE_ARN_KEY = "oss.role_arn";
     public static final String EXTERNAL_ID_KEY = "oss.external_id";
 
@@ -476,8 +476,8 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             builder.setPrefix(rootPath);
         }
 
-        // Bucket - try multiple property keys for compatibility
-        String bucket = Stream.of("oss.bucket", BUCKET_KEY)
+        // Bucket
+        String bucket = Stream.of(BUCKET_KEY, "bucket")
                 .map(properties::get)
                 .filter(StringUtils::isNotBlank)
                 .findFirst()

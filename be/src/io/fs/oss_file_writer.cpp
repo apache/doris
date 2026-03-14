@@ -27,12 +27,12 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_bufferpool.h"
 #include "runtime/exec_env.h"
 #include "util/debug_points.h"
-#include "util/doris_metrics.h"
 
 namespace doris::io {
 
@@ -140,9 +140,12 @@ Status OSSFileWriter::_build_upload_buffer() {
             .set_is_cancelled([this]() { return _failed.load(); });
 
     if (cache_builder() != nullptr) {
+        int64_t tablet_id = get_tablet_id(_path.native()).value_or(0);
         builder.set_allocate_file_blocks_holder(
-                [builder = *cache_builder(), offset = _bytes_appended]() -> FileBlocksHolderPtr {
-                    return builder.allocate_cache_holder(offset, config::s3_write_buffer_size);
+                [builder = *cache_builder(), offset = _bytes_appended,
+                 tablet_id = tablet_id]() -> FileBlocksHolderPtr {
+                    return builder.allocate_cache_holder(offset, config::s3_write_buffer_size,
+                                                         tablet_id);
                 });
     }
 
@@ -189,7 +192,7 @@ void OSSFileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
     }
 
     AlibabaCloud::OSS::UploadPartRequest request(_bucket, _key, stream);
-    request.setPartNumber(part_num);
+    request.setPartNumber(static_cast<int32_t>(part_num));
     request.setUploadId(_upload_id);
     request.setContentLength(buf.get_size());
 
@@ -204,7 +207,7 @@ void OSSFileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
 
     oss_bytes_written_total << buf.get_size();
 
-    AlibabaCloud::OSS::Part part(part_num, outcome.result().ETag());
+    AlibabaCloud::OSS::Part part(static_cast<int32_t>(part_num), outcome.result().ETag());
 
     {
         std::lock_guard<std::mutex> lock(_completed_lock);

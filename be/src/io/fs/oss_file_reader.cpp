@@ -38,8 +38,8 @@
 #include "runtime/workload_management/io_throttle.h"
 #include "util/bvar_helper.h"
 #include "util/debug_points.h"
-#include "util/doris_metrics.h"
-#include "util/runtime_profile.h"
+#include "common/metrics/doris_metrics.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris::io {
 

@@ -486,7 +486,7 @@ Status OSSFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
 
             AlibabaCloud::OSS::UploadPartCopyRequest part_request(_bucket, dst_key, _bucket, src_key);
             part_request.setUploadId(upload_id);
-            part_request.setPartNumber(i + 1);
+            part_request.setPartNumber(static_cast<uint32_t>(i + 1));
             part_request.setCopySourceRange(start_offset, end_offset);
 
             auto part_outcome = client->UploadPartCopy(part_request);
@@ -500,7 +500,7 @@ Status OSSFileSystem::rename_impl(const Path& orig_name, const Path& new_name) {
                                        part_outcome.error().Message());
             }
 
-            part_etags.push_back(AlibabaCloud::OSS::Part(i + 1, part_outcome.result().ETag()));
+            part_etags.push_back(AlibabaCloud::OSS::Part(static_cast<int32_t>(i + 1), part_outcome.result().ETag()));
         }
 
         // Complete multipart upload

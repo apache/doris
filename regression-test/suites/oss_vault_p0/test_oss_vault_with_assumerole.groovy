@@ -70,6 +70,7 @@ suite("test_oss_vault_with_assumerole") {
     assertTrue(vaultFound, "OSS vault should be created")
 
     // Test 2: Create table using the vault
+    sql """ DROP TABLE IF EXISTS ${ossVaultName}_table """
     sql """
         CREATE TABLE ${ossVaultName}_table (
             C_CUSTKEY     INTEGER NOT NULL,
@@ -118,6 +119,7 @@ suite("test_oss_vault_with_assumerole") {
         """
 
         // Create table with external_id vault
+        sql """ DROP TABLE IF EXISTS ${ossVaultNameExtId}_table """
         sql """
             CREATE TABLE ${ossVaultNameExtId}_table (
                 ID INTEGER NOT NULL,
@@ -142,4 +144,11 @@ suite("test_oss_vault_with_assumerole") {
     }
 
     logger.info("Successfully completed OSS AssumeRole vault tests")
+
+    // Cleanup
+    sql """ DROP TABLE IF EXISTS ${ossVaultName}_table """
+    if (!Strings.isNullOrEmpty(externalId)) {
+        def ossVaultNameExtId = "oss_extid_" + randomStr
+        sql """ DROP TABLE IF EXISTS ${ossVaultNameExtId}_table """
+    }
 }

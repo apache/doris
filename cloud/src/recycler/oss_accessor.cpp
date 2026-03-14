@@ -619,4 +619,25 @@ int OSSAccessor::exists(const std::string& path) {
     return exists ? 0 : 1; // 0 = exists, 1 = not found
 }
 
+int OSSAccessor::abort_multipart_upload(const std::string& path, const std::string& upload_id) {
+    int ret = refresh_client_if_needed();
+    if (ret != 0) {
+        return ret;
+    }
+
+    auto client = get_client();
+    std::string key = get_key(path);
+
+    AlibabaCloud::OSS::AbortMultipartUploadRequest request(conf_.bucket, key, upload_id);
+    auto outcome = client->AbortMultipartUpload(request);
+    if (!outcome.isSuccess()) {
+        LOG(WARNING) << "OSS AbortMultipartUpload failed: " << outcome.error().Code()
+                     << " - " << outcome.error().Message() << ", key=" << key
+                     << ", upload_id=" << upload_id;
+        return -1;
+    }
+
+    return 0;
+}
+
 } // namespace doris::cloud

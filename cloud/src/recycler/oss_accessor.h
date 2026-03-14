@@ -134,6 +134,9 @@ public:
     // returns 0 if exists, 1 if not found, negative for error
     int exists(const std::string& path) override;
 
+    // Abort an in-progress multipart upload
+    int abort_multipart_upload(const std::string& path, const std::string& upload_id) override;
+
 protected:
     // List objects with given prefix
     int list_prefix(const std::string& path_prefix, std::unique_ptr<ListIterator>* res);
