@@ -31,8 +31,8 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "librdkafka/rdkafkacpp.h"
-#include "runtime/aws_msk_iam_auth.h"
 #include "load/stream_load/stream_load_context.h"
+#include "runtime/aws_msk_iam_auth.h"
 #include "util/uid_util.h"
 
 namespace doris {

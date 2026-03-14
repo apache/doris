@@ -33,8 +33,8 @@
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
-#include "runtime/exec_env.h"
 #include "runtime/aws_msk_iam_auth.h"
+#include "runtime/exec_env.h"
 #include "runtime/small_file_mgr.h"
 #include "service/backend_options.h"
 #include "util/blocking_queue.hpp"
@@ -151,7 +151,7 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
 
     // Set up AWS MSK IAM authentication if configured
     _aws_msk_oauth_callback = AwsMskIamOAuthCallback::create_from_properties(
-        _custom_properties, ctx->kafka_info->brokers);
+            _custom_properties, ctx->kafka_info->brokers);
     if (_aws_msk_oauth_callback) {
         if (conf->set("oauthbearer_token_refresh_cb", _aws_msk_oauth_callback.get(), errstr) !=
             RdKafka::Conf::CONF_OK) {
