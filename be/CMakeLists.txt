@@ -306,7 +306,7 @@ add_compile_options(
 )
 
 add_compile_options(-g
-                    -gdwarf-5
+                    -gdwarf-4
                     -Wall
                     -Wextra
                     -Werror
