@@ -51,7 +51,7 @@ public class BaseTableInfo {
         DatabaseIf database = table.getDatabase();
         java.util.Objects.requireNonNull(database, "database is null");
         CatalogIf catalog = database.getCatalog();
-        java.util.Objects.requireNonNull(database, "catalog is null");
+        java.util.Objects.requireNonNull(catalog, "catalog is null");
         this.tableId = table.getId();
         this.dbId = database.getId();
         this.ctlId = catalog.getId();

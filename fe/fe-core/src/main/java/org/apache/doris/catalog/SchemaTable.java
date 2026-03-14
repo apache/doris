@@ -837,6 +837,7 @@ public class SchemaTable extends Table {
                              .column("BASE_TABLE_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
                              .column("BASE_TABLE_DB", ScalarType.createVarchar(NAME_CHAR_LEN))
                              .column("BASE_TABLE_CTL", ScalarType.createVarchar(NAME_CHAR_LEN))
+                             .column("BASE_TABLE_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
                              .column("ENABLED", ScalarType.createType(PrimitiveType.BOOLEAN))
                              .column("IS_STALE", ScalarType.createType(PrimitiveType.BOOLEAN))
                              .column("STALE_REASON", ScalarType.createStringType())

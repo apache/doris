@@ -132,6 +132,7 @@ public class StreamManager implements Writable {
                             trow.addToColumnValue(new TCell().setStringVal("N/A"));
                             trow.addToColumnValue(new TCell().setStringVal("N/A"));
                             trow.addToColumnValue(new TCell().setStringVal("N/A"));
+                            trow.addToColumnValue(new TCell().setStringVal("N/A"));
                         } else {
                             List<String> baseTableQualifiers = baseTable.getFullQualifiers();
                             Preconditions.checkArgument(baseTableQualifiers.size() == 3);

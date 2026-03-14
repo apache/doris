@@ -53,8 +53,7 @@ public class StreamBuildFactory {
         Preconditions.checkNotNull(params, "The factory isn't initialized.");
         Preconditions.checkNotNull(params.streamName, "Stream name isn't initialized.");
         Preconditions.checkNotNull(params.baseTable, "Stream base table isn't initialized.");
-        List<Column> schema;
-        schema = params.baseTable.getBaseSchema();
+        List<Column> schema = new java.util.ArrayList<>(params.baseTable.getBaseSchema());
 
         // extra columns
         Column changeTypeColumn = new Column(BaseStream.STREAM_CHANGE_TYPE_COL, Type.VARCHAR);

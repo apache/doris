@@ -41,9 +41,9 @@ std::vector<SchemaScanner::ColumnDesc> SchemaStreamsScanner::_s_streams_columns 
         {"BASE_TABLE_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"BASE_TABLE_DB", TYPE_VARCHAR, sizeof(StringRef), true},
         {"BASE_TABLE_CTL", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"BASE_TABLE_TYPE", TYPE_STRING, sizeof(StringRef), true},
-        {"ENABLED", TYPE_BOOLEAN, sizeof(int64_t), true},
-        {"IS_STALE", TYPE_BOOLEAN, sizeof(int64_t), true},
+        {"BASE_TABLE_TYPE", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"ENABLED", TYPE_BOOLEAN, sizeof(int8_t), true},
+        {"IS_STALE", TYPE_BOOLEAN, sizeof(int8_t), true},
         {"STALE_REASON", TYPE_STRING, sizeof(StringRef), true},
 };
 
