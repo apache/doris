@@ -1050,5 +1050,6 @@ TEST_F(OccurBooleanQueryTest, ShouldOnlyAllQueryScoring) {
         }
         doc = scorer->advance();
     }
+}
 
 } // namespace doris::segment_v2::inverted_index::query_v2

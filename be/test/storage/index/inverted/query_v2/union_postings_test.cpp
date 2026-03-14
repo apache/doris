@@ -72,7 +72,7 @@ public:
     }
 
     bool skipTo(const int32_t target) override { return false; }
-    void skipToBlock(const int32_t target) override {}
+    bool skipToBlock(const int32_t target) override { return false; }
     void close() override {}
     lucene::index::TermPositions* __asTermPositions() override { return this; }
     lucene::index::TermDocs* __asTermDocs() override { return this; }
@@ -105,7 +105,7 @@ static SegmentPostingsPtr make_pos_postings(std::vector<uint32_t> docs, std::vec
     int32_t df = static_cast<int32_t>(docs.size());
     TermPositionsPtr ptr(new MockTermPositionsForUnion(std::move(docs), std::move(freqs),
                                                        std::move(norms), std::move(positions), df));
-    return std::make_shared<SegmentPostings>(std::move(ptr), true);
+    return std::make_shared<SegmentPostings>(std::move(ptr), true, nullptr);
 }
 
 class UnionPostingsTest : public testing::Test {};
