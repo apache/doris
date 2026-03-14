@@ -299,7 +299,8 @@ public:
                           {TPrimitiveType::DATEV2});
         DescriptorTbl* local_desc_tbl = nullptr;
         ObjectPool local_obj_pool;
-        static_cast<void>(DescriptorTbl::create(&local_obj_pool, local_desc_table, &local_desc_tbl));
+        static_cast<void>(
+                DescriptorTbl::create(&local_obj_pool, local_desc_table, &local_desc_tbl));
 
         auto tuple_desc = local_desc_tbl->get_tuple_descriptor(0);
         auto slot_descs = tuple_desc->slots();
@@ -322,13 +323,13 @@ public:
         scan_range.start_offset = 0;
         scan_range.size = local_file_reader->size();
 
-        auto local_reader = ParquetReader::create_unique(nullptr, scan_params, scan_range,
-                                                         scan_range.size, &local_ctz, nullptr,
-                                                         nullptr);
+        auto local_reader = ParquetReader::create_unique(
+                nullptr, scan_params, scan_range, scan_range.size, &local_ctz, nullptr, nullptr);
         local_reader->set_file_reader(local_file_reader);
         phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
         static_cast<void>(local_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp,
-                                                    tuple_desc, nullptr, nullptr, nullptr, nullptr));
+                                                    tuple_desc, nullptr, nullptr, nullptr,
+                                                    nullptr));
 
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 partition_columns;
@@ -339,8 +340,8 @@ public:
         for (const auto& slot_desc : tuple_desc->slots()) {
             auto data_type = make_nullable(slot_desc->type());
             MutableColumnPtr data_column = data_type->create_column();
-            block->insert(
-                    ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
+            block->insert(ColumnWithTypeAndName(std::move(data_column), data_type,
+                                                slot_desc->col_name()));
         }
 
         bool eof = false;
