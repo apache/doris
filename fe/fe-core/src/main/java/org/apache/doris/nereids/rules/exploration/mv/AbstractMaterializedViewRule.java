@@ -33,6 +33,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.ExpressionInfo;
+import org.apache.doris.nereids.rules.exploration.mv.Predicates.PredicateCompensation;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PartitionRemover;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
@@ -840,22 +841,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         if (couldNotPulledUpCompensateConjunctions == null) {
             return SplitPredicate.INVALID_INSTANCE;
         }
-        // viewEquivalenceClass to query based
-        // equal predicate compensate
-        final Map<Expression, ExpressionInfo> equalCompensateConjunctions = Predicates.compensateEquivalence(
-                queryStructInfo, viewStructInfo, viewToQuerySlotMapping, comparisonResult);
-        // range compensate
-        final Map<Expression, ExpressionInfo> rangeCompensatePredicates =
-                Predicates.compensateRangePredicate(queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
-                comparisonResult, cascadesContext);
-        // residual compensate
-        final Map<Expression, ExpressionInfo> residualCompensatePredicates = Predicates.compensateResidualPredicate(
-                queryStructInfo, viewStructInfo, viewToQuerySlotMapping, comparisonResult);
-        if (equalCompensateConjunctions == null || rangeCompensatePredicates == null
-                || residualCompensatePredicates == null) {
+        PredicateCompensation finalPredicateCompensation =
+                Predicates.compensatePredicates(queryStructInfo, viewStructInfo,
+                        viewToQuerySlotMapping, comparisonResult, cascadesContext);
+        if (finalPredicateCompensation == null) {
             return SplitPredicate.INVALID_INSTANCE;
         }
-        return SplitPredicate.of(equalCompensateConjunctions, rangeCompensatePredicates, residualCompensatePredicates);
+        return finalPredicateCompensation.toSplitPredicate();
     }
 
     /**
