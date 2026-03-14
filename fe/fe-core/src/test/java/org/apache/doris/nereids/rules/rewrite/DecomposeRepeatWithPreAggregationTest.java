@@ -75,7 +75,7 @@ public class DecomposeRepeatWithPreAggregationTest extends TestWithFeService imp
                         + "distributed by hash(a) buckets 1\n"
                         + "properties('replication_num' = '1');"
         );
-        connectContext.setDatabase("default_cluster:decompose_repeat_with_preagg");
+        connectContext.setDatabase("decompose_repeat_with_preagg");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         rule = DecomposeRepeatWithPreAggregation.INSTANCE;
         ctx = new DistinctSelectorContext(

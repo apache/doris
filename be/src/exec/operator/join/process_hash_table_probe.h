@@ -68,6 +68,12 @@ struct ProcessHashTableProbe {
 
     Status do_mark_join_conjuncts(Block* output_block, const uint8_t* null_map);
 
+    // ASOF JOIN optimized: use pre-sorted index to find best match in O(log K) per probe row
+    // Returns the number of matched rows
+    template <typename HashTableType>
+    uint32_t _find_batch_asof_optimized(HashTableType& hash_table_ctx, const uint8_t* null_map,
+                                        uint32_t probe_rows);
+
     Status finalize_block_with_filter(Block* output_block, size_t filter_column_id,
                                       size_t column_to_keep);
 
@@ -121,6 +127,11 @@ struct ProcessHashTableProbe {
     RuntimeProfile::Counter* _build_side_output_timer = nullptr;
     RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
     RuntimeProfile::Counter* _finish_probe_phase_timer = nullptr;
+
+    // ASOF probe counters
+    RuntimeProfile::Counter* _asof_probe_expr_timer = nullptr;
+    RuntimeProfile::Counter* _asof_probe_hash_chain_timer = nullptr;
+    RuntimeProfile::Counter* _asof_probe_search_timer = nullptr;
 
     // See `HashJoinProbeOperatorX::_right_col_idx`
     const size_t _right_col_idx;

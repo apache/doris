@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.load;
 
-import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
@@ -453,11 +452,11 @@ public class NereidsLoadScanProvider {
             Map<String, Expression> columnExprMap) {
         List<NereidsImportColumnDesc> shadowColumnDescs = Lists.newArrayList();
         for (Column column : tbl.getFullSchema()) {
-            if (!column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+            if (!column.isNameWithPrefix(Column.SHADOW_NAME_PREFIX)) {
                 continue;
             }
 
-            String originCol = column.getNameWithoutPrefix(SchemaChangeHandler.SHADOW_NAME_PREFIX);
+            String originCol = column.getNameWithoutPrefix(Column.SHADOW_NAME_PREFIX);
             if (columnExprMap.containsKey(originCol)) {
                 Expression mappingExpr = columnExprMap.get(originCol);
                 if (mappingExpr != null) {

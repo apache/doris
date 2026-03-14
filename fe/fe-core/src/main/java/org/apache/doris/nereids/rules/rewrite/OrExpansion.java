@@ -139,10 +139,12 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
                 .deepCopy((LogicalPlan) join.left(), new DeepCopierContext());
         LogicalCTEProducer<? extends Plan> leftProducer = new LogicalCTEProducer<>(
                 ctx.statementContext.getNextCTEId(), leftClone);
+        ctx.statementContext.setCteProducer(leftProducer.getCteId(), leftProducer);
         LogicalPlan rightClone = LogicalPlanDeepCopier.INSTANCE
                 .deepCopy((LogicalPlan) join.right(), new DeepCopierContext());
         LogicalCTEProducer<? extends Plan> rightProducer = new LogicalCTEProducer<>(
                 ctx.statementContext.getNextCTEId(), rightClone);
+        ctx.statementContext.setCteProducer(rightProducer.getCteId(), rightProducer);
         Map<Slot, Slot> leftCloneToLeft = new HashMap<>();
         for (int i = 0; i < leftClone.getOutput().size(); i++) {
             leftCloneToLeft.put(leftClone.getOutput().get(i), (join.left()).getOutput().get(i));

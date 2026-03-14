@@ -19,7 +19,7 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
-import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.foundation.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;

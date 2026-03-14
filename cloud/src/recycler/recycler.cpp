@@ -877,19 +877,36 @@ int InstanceRecycler::recycle_deleted_instance() {
                      << "s, instance_id=" << instance_id_;
     };
 
-    // Step 1: Recycle versioned rowsets in recycle space (already marked for deletion)
+    // Step 1: Recycle tmp rowsets (contains ref count but txn is not committed)
+    auto recycle_tmp_rowsets_with_mark_delete_enabled = [&]() -> int {
+        int res = recycle_tmp_rowsets();
+        if (res == 0 && config::enable_mark_delete_rowset_before_recycle) {
+            // If mark_delete_rowset_before_recycle is enabled, we will mark delete rowsets before recycling them,
+            // so we need to recycle tmp rowsets again to make sure all rowsets in recycle space are marked for
+            // deletion, otherwise we may meet some corner cases that some rowsets are not marked for deletion
+            // and cannot be recycled.
+            res = recycle_tmp_rowsets();
+        }
+        return res;
+    };
+    if (recycle_tmp_rowsets_with_mark_delete_enabled() != 0) {
+        LOG_WARNING("failed to recycle tmp rowsets").tag("instance_id", instance_id_);
+        return -1;
+    }
+
+    // Step 2: Recycle versioned rowsets in recycle space (already marked for deletion)
     if (recycle_versioned_rowsets() != 0) {
         LOG_WARNING("failed to recycle versioned rowsets").tag("instance_id", instance_id_);
         return -1;
     }
 
-    // Step 2: Recycle operation logs (can recycle logs not referenced by snapshots)
+    // Step 3: Recycle operation logs (can recycle logs not referenced by snapshots)
     if (recycle_operation_logs() != 0) {
         LOG_WARNING("failed to recycle operation logs").tag("instance_id", instance_id_);
         return -1;
     }
 
-    // Step 3: Check if there are still cluster snapshots
+    // Step 4: Check if there are still cluster snapshots
     bool has_snapshots = false;
     if (has_cluster_snapshots(&has_snapshots) != 0) {
         LOG(WARNING) << "check instance cluster snapshots failed, instance_id=" << instance_id_;

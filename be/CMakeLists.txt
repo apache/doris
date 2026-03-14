@@ -123,7 +123,11 @@ endif()
 
 # Set dirs
 set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-set(ENV{DORIS_HOME} "${BASE_DIR}/..")
+if (DEFINED ENV{DORIS_HOME})
+    message(STATUS "DORIS_HOME is $ENV{DORIS_HOME}")
+else()
+    message(FATAL_ERROR "DORIS_HOME is not defined")
+endif()
 set(BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 set(GENSRC_DIR "${BASE_DIR}/../gensrc/build/")
 set(COMMON_SRC_DIR "${BASE_DIR}/../common")
@@ -303,6 +307,10 @@ endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 17)
 
+add_compile_options(
+  "-ffile-prefix-map=$ENV{DORIS_HOME}=."
+)
+
 add_compile_options(-g
                     -gdwarf-5
                     -Wall
@@ -425,7 +433,8 @@ endif()
 #   -O3: Enable all compiler optimizations
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
 set(CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
-set(CXX_FLAGS_ASAN "-O0 -fsanitize=address -fsanitize=undefined -fno-sanitize=float-cast-overflow  -fsanitize-ignorelist=${BASE_DIR}/../conf/ubsan_ignorelist.txt -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
+message(STATUS "UBSAN_IGNORELIST is ${UBSAN_IGNORELIST}")
+set(CXX_FLAGS_ASAN "-O0 -fsanitize=address -fsanitize=undefined -fno-sanitize=float-cast-overflow -fsanitize-ignorelist=${UBSAN_IGNORELIST} -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
 set(CXX_FLAGS_LSAN "-O0 -fsanitize=leak -DLEAK_SANITIZER")
 ## Use for BE-UT
 set(CXX_FLAGS_ASAN_UT "-O0 -fsanitize=address -DADDRESS_SANITIZER")

@@ -30,16 +30,17 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.AutoBucketUtils;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.GeneratedColumnUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
@@ -73,7 +74,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition.IndexType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VariantField;
@@ -1569,13 +1569,13 @@ public class CreateTableInfo {
         // which is implemented in Catalog.getDdlStmt()
         if (properties != null && !properties.isEmpty()) {
             sb.append("\nPROPERTIES (");
-            sb.append(new PrintableMap<>(properties, " = ", true, true, true));
+            sb.append(new DatasourcePrintableMap<>(properties, " = ", true, true, true));
             sb.append(")");
         }
 
         if (extProperties != null && !extProperties.isEmpty()) {
             sb.append("\n").append(engineName.toUpperCase()).append(" PROPERTIES (");
-            sb.append(new PrintableMap<>(extProperties, " = ", true, true, true));
+            sb.append(new DatasourcePrintableMap<>(extProperties, " = ", true, true, true));
             sb.append(")");
         }
 
