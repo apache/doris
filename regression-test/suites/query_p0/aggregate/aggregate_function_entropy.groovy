@@ -22,6 +22,11 @@ suite("test_entropy") {
     qt_entropy_null """select entropy(NULL)"""
     qt_entropy_literal """select entropy(1)"""
 
+    test{
+        sql """select entropy()"""
+        exception """Can not found function 'entropy' which has 0 arity"""
+    }
+
     sql """drop table if exists test_entropy_base"""
     sql """
     create table test_entropy_base (
@@ -178,6 +183,7 @@ suite("test_entropy") {
     qt_entropy_groupby """select entropy(col_int) from test_entropy group by k1 % 2 order by k1%2"""
     qt_entropy_window """select entropy(col_int) over (partition by k1%2) from test_entropy order by k1%2"""
 
-    qt_entropy_empty """select entropy(col_int) from test_entropy where 1=0"""
+    qt_entropy_empty_1 """select entropy(col_int) from test_entropy where 1=0"""
+    qt_entropy_empty_2 """select entropy(col_int) from test_entropy where col_int=-1"""
 
 }
