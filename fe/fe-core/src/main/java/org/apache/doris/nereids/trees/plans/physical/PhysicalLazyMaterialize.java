@@ -28,6 +28,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
@@ -191,9 +192,9 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return new PhysicalLazyMaterialize<>(children.get(0),
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalLazyMaterialize<>(children.get(0),
                 materializeInput, materializedSlots, relationToLazySlotMap,
-                relationToRowId, materializeMap, null, null);
+                relationToRowId, materializeMap, null, null));
     }
 
     @Override
@@ -210,8 +211,9 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalLazyMaterialize(children.get(0), materializeInput, materializedSlots, relationToLazySlotMap,
-                relationToRowId, materializeMap, physicalProperties, statistics);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalLazyMaterialize(children.get(0),
+                materializeInput, materializedSlots, relationToLazySlotMap,
+                relationToRowId, materializeMap, physicalProperties, statistics));
     }
 
     @Override

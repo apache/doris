@@ -22,6 +22,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -86,21 +87,21 @@ public class PhysicalOdbcScan extends PhysicalCatalogRelation {
 
     @Override
     public PhysicalOdbcScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalOdbcScan(relationId, table, qualifier, groupExpression, getLogicalProperties(),
-                null, null, operativeSlots, tableAlias);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalOdbcScan(relationId, table, qualifier,
+                groupExpression, getLogicalProperties(), null, null, operativeSlots, tableAlias));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalOdbcScan(relationId, table, qualifier, groupExpression, logicalProperties.get(),
-                null, null, operativeSlots, tableAlias);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalOdbcScan(relationId, table, qualifier,
+                groupExpression, logicalProperties.get(), null, null, operativeSlots, tableAlias));
     }
 
     @Override
     public PhysicalOdbcScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalOdbcScan(relationId, table, qualifier, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, operativeSlots, tableAlias);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalOdbcScan(relationId, table, qualifier,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, operativeSlots, tableAlias));
     }
 }

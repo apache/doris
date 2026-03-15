@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -173,25 +174,25 @@ public class PhysicalHashJoin<
     @Override
     public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withGroupExpression(
             Optional<GroupExpression> groupExpression) {
-        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
-                markJoinConjuncts, hint, markJoinSlotReference, groupExpression,
-                getLogicalProperties(), null, null, left(), right());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalHashJoin<>(joinType, hashJoinConjuncts,
+                otherJoinConjuncts, markJoinConjuncts, hint, markJoinSlotReference, groupExpression,
+                getLogicalProperties(), null, null, left(), right()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
-                markJoinConjuncts, hint, markJoinSlotReference, groupExpression,
-                logicalProperties.get(), null, null, children.get(0), children.get(1));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalHashJoin<>(joinType, hashJoinConjuncts,
+                otherJoinConjuncts, markJoinConjuncts, hint, markJoinSlotReference, groupExpression,
+                logicalProperties.get(), null, null, children.get(0), children.get(1)));
     }
 
     public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
-                markJoinConjuncts, hint, markJoinSlotReference, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, left(), right());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalHashJoin<>(joinType, hashJoinConjuncts,
+                otherJoinConjuncts, markJoinConjuncts, hint, markJoinSlotReference, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, left(), right()));
     }
 
     @Override
