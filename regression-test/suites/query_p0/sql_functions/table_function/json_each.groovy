@@ -129,9 +129,9 @@ suite('json_each') {
         ORDER BY id, k
     '''
 
-    // complex value types (nested obj + array): functional coverage only
-    sql '''
-        SELECT id, k
+    // complex value types (nested obj + array): values are JSONB
+    qt_json_each_complex '''
+        SELECT id, k, v
         FROM jdata
         LATERAL VIEW json_each(jval) t AS k, v
         WHERE id = 9
@@ -229,9 +229,9 @@ suite('json_each') {
         ORDER BY id, k
     '''
 
-    // complex value types in text mode: functional coverage only
-    sql '''
-        SELECT id, k
+    // complex value types in text mode: values are text representation
+    qt_json_each_text_complex '''
+        SELECT id, k, v
         FROM jdata
         LATERAL VIEW json_each_text(jval) t AS k, v
         WHERE id = 9
@@ -329,6 +329,91 @@ suite('json_each') {
         FROM jdata
         LATERAL VIEW json_each_text_outer(jval) t AS k, v
         WHERE id IN (1, 2, 3, 4)
+        ORDER BY id, k
+    '''
+
+    // ---------- Multiple LATERAL VIEW combinations ----------
+
+    // double json_each: expand nested object
+    qt_multi_lateral_nested '''
+        SELECT id, k1, k2, v2
+        FROM jdata
+        LATERAL VIEW json_each(jval) t1 AS k1, v1
+        LATERAL VIEW json_each(v1) t2 AS k2, v2
+        WHERE id = 9 AND k1 = 'sub'
+        ORDER BY k1, k2
+    '''
+
+    // json_each with const literal in second lateral view
+    qt_multi_lateral_const '''
+        SELECT id, k1, k2, v2
+        FROM jdata
+        LATERAL VIEW json_each(jval) t1 AS k1, v1
+        LATERAL VIEW json_each('{"x":1,"y":2}') t2 AS k2, v2
+        WHERE id = 1
+        ORDER BY k1, k2
+    '''
+
+    // three lateral views: column + two const literals with different sizes
+    qt_multi_lateral_three_mixed '''
+        SELECT id, k1, k2, k3
+        FROM jdata
+        LATERAL VIEW json_each(jval) t1 AS k1, v1
+        LATERAL VIEW json_each('{"a":1,"b":2}') t2 AS k2, v2
+        LATERAL VIEW json_each('{"x":1,"y":2,"z":3}') t3 AS k3, v3
+        WHERE id = 1
+        ORDER BY k1, k2, k3
+    '''
+
+    // multiple json_each on same row: cartesian product
+    qt_multi_lateral_cartesian '''
+        SELECT k1, v1, k2, v2
+        FROM (SELECT '{"a":1,"b":2}' AS j1, '{"x":10,"y":20}' AS j2) t
+        LATERAL VIEW json_each(j1) t1 AS k1, v1
+        LATERAL VIEW json_each(j2) t2 AS k2, v2
+        ORDER BY k1, k2
+    '''
+
+    // ---------- Corner cases ----------
+
+    // deeply nested object keys
+    qt_corner_deep_nesting '''
+        SELECT k, v
+        FROM (SELECT '{"level1":{"level2":{"level3":"deep"}}}' AS j) t
+        LATERAL VIEW json_each(j) t AS k, v
+        ORDER BY k
+    '''
+
+    // special characters in keys
+    qt_corner_special_keys '''
+        SELECT k, v
+        FROM (SELECT '{"key with spaces":"v1","key.with.dots":"v2","key-with-dash":"v3"}' AS j) t
+        LATERAL VIEW json_each_text(j) t AS k, v
+        ORDER BY k
+    '''
+
+    // large number of keys
+    qt_corner_many_keys '''
+        SELECT COUNT(*) AS key_count
+        FROM (SELECT '{"k1":1,"k2":2,"k3":3,"k4":4,"k5":5,"k6":6,"k7":7,"k8":8,"k9":9,"k10":10}' AS j) t
+        LATERAL VIEW json_each(j) t AS k, v
+    '''
+
+    // empty string key
+    qt_corner_empty_key '''
+        SELECT k, v
+        FROM (SELECT '{"":"empty_key_value","normal":"value"}' AS j) t
+        LATERAL VIEW json_each_text(j) t AS k, v
+        ORDER BY k
+    '''
+
+    // const input across multiple blocks: test process_close state reset
+    qt_corner_const_multi_block '''
+        SELECT k, v
+        FROM (
+            SELECT 1 AS id UNION ALL SELECT 2 UNION ALL SELECT 3
+        ) t
+        LATERAL VIEW json_each_text('{"const":"value"}') t AS k, v
         ORDER BY id, k
     '''
 }

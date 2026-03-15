@@ -34,6 +34,10 @@ version	3
 
 -- !json_each_non_object_arr --
 
+-- !json_each_complex --
+9	arr	[1,2]
+9	sub	{"x":1}
+
 -- !json_each_text_basic --
 1	a	foo
 1	b	bar
@@ -68,6 +72,10 @@ version	3
 -- !json_each_text_non_object_str --
 
 -- !json_each_text_non_object_arr --
+
+-- !json_each_text_complex --
+9	arr	[1,2]
+9	sub	{"x":1}
 
 -- !json_each_outer_null_input --
 4	\N	\N
@@ -114,4 +122,53 @@ version	3
 2	z	\N
 3	\N	\N
 4	\N	\N
+
+-- !multi_lateral_nested --
+9	sub	x	1
+
+-- !multi_lateral_const --
+1	a	x	1
+1	a	y	2
+1	b	x	1
+1	b	y	2
+
+-- !multi_lateral_three_mixed --
+1	a	a	x
+1	a	a	y
+1	a	a	z
+1	a	b	x
+1	a	b	y
+1	a	b	z
+1	b	a	x
+1	b	a	y
+1	b	a	z
+1	b	b	x
+1	b	b	y
+1	b	b	z
+
+-- !multi_lateral_cartesian --
+a	1	x	10
+a	1	y	20
+b	2	x	10
+b	2	y	20
+
+-- !corner_deep_nesting --
+level1	{"level2":{"level3":"deep"}}
+
+-- !corner_special_keys --
+key with spaces	v1
+key-with-dash	v3
+key.with.dots	v2
+
+-- !corner_many_keys --
+10
+
+-- !corner_empty_key --
+	empty_key_value
+normal	value
+
+-- !corner_const_multi_block --
+const	value
+const	value
+const	value
 
