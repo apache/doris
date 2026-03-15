@@ -143,7 +143,8 @@ static void read_orc_line(int64_t line, std::string block_dump,
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    static_cast<void>(reader->set_fill_columns(partition_columns, missing_columns));
+    auto st = reader->set_fill_columns(partition_columns, missing_columns);
+    EXPECT_TRUE(st.ok()) << st;
     BlockUPtr block = Block::create_unique();
     for (const auto& slot_desc : tuple_desc->slots()) {
         auto data_type = slot_desc->type();
@@ -158,7 +159,8 @@ static void read_orc_line(int64_t line, std::string block_dump,
 
     bool eof = false;
     size_t read_row = 0;
-    static_cast<void>(reader->get_next_block(block.get(), &read_row, &eof));
+    st = reader->get_next_block(block.get(), &read_row, &eof);
+    EXPECT_TRUE(st.ok()) << st;
     auto row_id_string_column = static_cast<const ColumnString&>(
             *block->get_by_position(block->get_position_by_name("row_id")).column.get());
     for (auto i = 0; i < row_id_string_column.size(); i++) {
@@ -390,7 +392,7 @@ TEST_F(OrcReadLinesTest, date_should_not_shift_in_west_timezone) {
             "doris|\n+----------------------+--------------------+----------------------+----------"
             "------------+----------------------+---------------------+-------------------+--------"
             "----------------+----------------------+\n";
-    read_orc_line(1, block_dump, "-06:00");
+    read_orc_line(1, block_dump, "America/Mexico_City");
 }
 
 } // namespace doris
