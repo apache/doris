@@ -46,9 +46,12 @@ struct LevenshteinImpl {
 
         const size_t size = loffsets.size();
         res.resize(size);
+        std::vector<size_t> left_offsets;
+        std::vector<size_t> right_offsets;
         for (size_t i = 0; i < size; ++i) {
             res[i] = levenshtein_distance(string_ref_at(ldata, loffsets, i),
-                                          string_ref_at(rdata, roffsets, i));
+                                          string_ref_at(rdata, roffsets, i), left_offsets,
+                                          right_offsets);
         }
         return Status::OK();
     }
@@ -58,8 +61,14 @@ struct LevenshteinImpl {
                                 ResultPaddedPODArray& res) {
         const size_t size = loffsets.size();
         res.resize(size);
+        const bool right_ascii = simd::VStringFunctions::is_ascii(rdata);
+        std::vector<size_t> right_offsets;
+        utf8_char_offsets(rdata, right_offsets);
+        std::vector<size_t> left_offsets;
         for (size_t i = 0; i < size; ++i) {
-            res[i] = levenshtein_distance(string_ref_at(ldata, loffsets, i), rdata);
+            res[i] = levenshtein_distance_with_right_offsets(string_ref_at(ldata, loffsets, i),
+                                                             left_offsets, rdata, right_offsets,
+                                                             right_ascii);
         }
         return Status::OK();
     }
@@ -68,8 +77,14 @@ struct LevenshteinImpl {
                                 const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
         const size_t size = roffsets.size();
         res.resize(size);
+        const bool left_ascii = simd::VStringFunctions::is_ascii(ldata);
+        std::vector<size_t> left_offsets;
+        utf8_char_offsets(ldata, left_offsets);
+        std::vector<size_t> right_offsets;
         for (size_t i = 0; i < size; ++i) {
-            res[i] = levenshtein_distance(ldata, string_ref_at(rdata, roffsets, i));
+            res[i] = levenshtein_distance_with_left_offsets(ldata, left_offsets, left_ascii,
+                                                            string_ref_at(rdata, roffsets, i),
+                                                            right_offsets);
         }
         return Status::OK();
     }
@@ -78,17 +93,9 @@ private:
     static StringRef string_ref_at(const ColumnString::Chars& data,
                                    const ColumnString::Offsets& offsets, size_t i) {
         DCHECK_LT(i, offsets.size());
-        const size_t begin = (i == 0) ? 0 : offsets[i - 1];
-        const size_t end = offsets[i];
-        if (end <= begin || end > data.size()) {
-            return StringRef("", 0);
-        }
-
-        size_t str_size = end - begin;
-        if (str_size > 0 && data[end - 1] == '\0') {
-            --str_size;
-        }
-        return StringRef(reinterpret_cast<const char*>(data.data() + begin), str_size);
+        const auto idx = static_cast<ssize_t>(i);
+        return StringRef(data.data() + offsets[idx - 1], offsets[idx] - offsets[idx - 1])
+                .trim_tail_padding_zero();
     }
 
     static void utf8_char_offsets(const StringRef& ref, std::vector<size_t>& offsets) {
@@ -103,6 +110,53 @@ private:
         const size_t right_len = right_next - right_off;
         return left_len == right_len &&
                std::memcmp(left.data + left_off, right.data + right_off, left_len) == 0;
+    }
+
+    static Int32 levenshtein_distance_utf8(const StringRef& left,
+                                           const std::vector<size_t>& left_offsets,
+                                           const StringRef& right,
+                                           const std::vector<size_t>& right_offsets) {
+        const StringRef* left_ref = &left;
+        const StringRef* right_ref = &right;
+        const std::vector<size_t>* left_offsets_ref = &left_offsets;
+        const std::vector<size_t>* right_offsets_ref = &right_offsets;
+        if (right_offsets_ref->size() > left_offsets_ref->size()) {
+            std::swap(left_offsets_ref, right_offsets_ref);
+            std::swap(left_ref, right_ref);
+        }
+
+        const size_t m = left_offsets_ref->size();
+        const size_t n = right_offsets_ref->size();
+
+        std::vector<Int32> prev(n + 1);
+        std::vector<Int32> curr(n + 1);
+        for (size_t j = 0; j <= n; ++j) {
+            prev[j] = static_cast<Int32>(j);
+        }
+
+        for (size_t i = 1; i <= m; ++i) {
+            curr[0] = static_cast<Int32>(i);
+            const size_t left_off = (*left_offsets_ref)[i - 1];
+            const size_t left_next = i < m ? (*left_offsets_ref)[i] : left_ref->size;
+
+            for (size_t j = 1; j <= n; ++j) {
+                const size_t right_off = (*right_offsets_ref)[j - 1];
+                const size_t right_next = j < n ? (*right_offsets_ref)[j] : right_ref->size;
+
+                const Int32 cost = utf8_char_equal(*left_ref, left_off, left_next, *right_ref,
+                                                   right_off, right_next)
+                                           ? 0
+                                           : 1;
+
+                const Int32 insert_cost = curr[j - 1] + 1;
+                const Int32 delete_cost = prev[j] + 1;
+                const Int32 replace_cost = prev[j - 1] + cost;
+                curr[j] = std::min(std::min(insert_cost, delete_cost), replace_cost);
+            }
+            std::swap(prev, curr);
+        }
+
+        return prev[n];
     }
 
     static Int32 levenshtein_distance_ascii(const StringRef& left, const StringRef& right) {
@@ -131,7 +185,7 @@ private:
                 const Int32 insert_cost = curr[j - 1] + 1;
                 const Int32 delete_cost = prev[j] + 1;
                 const Int32 replace_cost = prev[j - 1] + cost;
-                curr[j] = std::min({insert_cost, delete_cost, replace_cost});
+                curr[j] = std::min(std::min(insert_cost, delete_cost), replace_cost);
             }
             std::swap(prev, curr);
         }
@@ -139,8 +193,12 @@ private:
         return prev[n];
     }
 
-    static Int32 levenshtein_distance(const StringRef& left, const StringRef& right) {
-        if (simd::VStringFunctions::is_ascii(left) && simd::VStringFunctions::is_ascii(right)) {
+    static Int32 levenshtein_distance(const StringRef& left, const StringRef& right,
+                                      std::vector<size_t>& left_offsets,
+                                      std::vector<size_t>& right_offsets) {
+        const bool left_ascii = simd::VStringFunctions::is_ascii(left);
+        const bool right_ascii = simd::VStringFunctions::is_ascii(right);
+        if (left_ascii && right_ascii) {
             return levenshtein_distance_ascii(left, right);
         }
 
@@ -151,50 +209,60 @@ private:
             return static_cast<Int32>(simd::VStringFunctions::get_char_len(left.data, left.size));
         }
 
-        std::vector<size_t> left_offsets;
-        std::vector<size_t> right_offsets;
         utf8_char_offsets(left, left_offsets);
         utf8_char_offsets(right, right_offsets);
+        return levenshtein_distance_utf8(left, left_offsets, right, right_offsets);
+    }
 
-        const StringRef* left_ref = &left;
-        const StringRef* right_ref = &right;
-        if (right_offsets.size() > left_offsets.size()) {
-            std::swap(left_offsets, right_offsets);
-            std::swap(left_ref, right_ref);
+    static Int32 levenshtein_distance_with_right_offsets(const StringRef& left,
+                                                         std::vector<size_t>& left_offsets,
+                                                         const StringRef& right,
+                                                         const std::vector<size_t>& right_offsets,
+                                                         bool right_ascii) {
+        const bool left_ascii = simd::VStringFunctions::is_ascii(left);
+        if (left_ascii && right_ascii) {
+            return levenshtein_distance_ascii(left, right);
         }
 
-        const size_t m = left_offsets.size();
-        const size_t n = right_offsets.size();
-
-        std::vector<Int32> prev(n + 1);
-        std::vector<Int32> curr(n + 1);
-        for (size_t j = 0; j <= n; ++j) {
-            prev[j] = static_cast<Int32>(j);
+        if (left.size == 0) {
+            return static_cast<Int32>(right_offsets.size());
+        }
+        if (right.size == 0) {
+            return left_ascii ? static_cast<Int32>(left.size)
+                              : static_cast<Int32>(
+                                        simd::VStringFunctions::get_char_len(left.data, left.size));
         }
 
-        for (size_t i = 1; i <= m; ++i) {
-            curr[0] = static_cast<Int32>(i);
-            const size_t left_off = left_offsets[i - 1];
-            const size_t left_next = i < m ? left_offsets[i] : left_ref->size;
+        utf8_char_offsets(left, left_offsets);
+        return levenshtein_distance_utf8(left, left_offsets, right, right_offsets);
+    }
 
-            for (size_t j = 1; j <= n; ++j) {
-                const size_t right_off = right_offsets[j - 1];
-                const size_t right_next = j < n ? right_offsets[j] : right_ref->size;
-
-                const Int32 cost = utf8_char_equal(*left_ref, left_off, left_next, *right_ref,
-                                                   right_off, right_next)
-                                           ? 0
-                                           : 1;
-
-                const Int32 insert_cost = curr[j - 1] + 1;
-                const Int32 delete_cost = prev[j] + 1;
-                const Int32 replace_cost = prev[j - 1] + cost;
-                curr[j] = std::min({insert_cost, delete_cost, replace_cost});
-            }
-            std::swap(prev, curr);
+    static Int32 levenshtein_distance_with_left_offsets(const StringRef& left,
+                                                        const std::vector<size_t>& left_offsets,
+                                                        bool left_ascii, const StringRef& right,
+                                                        std::vector<size_t>& right_offsets) {
+        const bool right_ascii = simd::VStringFunctions::is_ascii(right);
+        if (left_ascii && right_ascii) {
+            return levenshtein_distance_ascii(left, right);
         }
 
-        return prev[n];
+        if (left.size == 0) {
+            return static_cast<Int32>(
+                    right_ascii ? right.size
+                                : simd::VStringFunctions::get_char_len(right.data, right.size));
+        }
+        if (right.size == 0) {
+            return static_cast<Int32>(left_offsets.size());
+        }
+
+        utf8_char_offsets(right, right_offsets);
+        return levenshtein_distance_utf8(left, left_offsets, right, right_offsets);
+    }
+
+    static Int32 levenshtein_distance(const StringRef& left, const StringRef& right) {
+        std::vector<size_t> left_offsets;
+        std::vector<size_t> right_offsets;
+        return levenshtein_distance(left, right, left_offsets, right_offsets);
     }
 };
 

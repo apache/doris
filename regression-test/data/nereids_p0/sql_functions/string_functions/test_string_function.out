@@ -653,9 +653,6 @@ W520
 6	1
 7	2
 
--- !hamming_distance --
-\N
-
 -- !soundex --
 A123
 
