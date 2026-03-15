@@ -791,7 +791,7 @@ std::string DataTypeNumberSerDe<T>::to_olap_string(const Field& field) const {
 // Examples:
 //   from_olap_string("12345", field, ...)  => field = Int32(12345)
 //   from_olap_string("3.14", field, ...)   => field = Float32(3.14)
-//   from_olap_string("NaN", field, ...)     => field = Float64(NaN)
+//   from_olap_string("NaN", field, ...)     => returns InvalidArgument (NaN/Inf are rejected)
 template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::from_olap_string(const std::string& str, Field& field,
                                                 const FormatOptions& options) const {
@@ -800,6 +800,14 @@ Status DataTypeNumberSerDe<T>::from_olap_string(const std::string& str, Field& f
     params.is_strict = false;
     if (!try_parse_impl<T, false>(val, StringRef(str), params)) {
         return Status::InvalidArgument("parse number fail, string: '{}'", str);
+    }
+    // In zonemap or some float values passed from FE(column's default value or
+    // schema change like operations), Nan and inf is not allowed.
+    if constexpr (is_float_or_double(T)) {
+        if (std::isnan(val) || std::isinf(val)) {
+            return Status::InvalidArgument(
+                    "parse number fail: NaN/Infinity not allowed in olap string: '{}'", str);
+        }
     }
     field = Field::create_field<T>(std::move(val));
     return Status::OK();

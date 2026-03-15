@@ -816,7 +816,8 @@ TEST_F(OlapTypeTest, ser_deser_decimal256) {
 // ---------------------------------------------------------------------------
 TEST_F(OlapTypeTest, ser_deser_decimalv2) {
     auto data_type_ptr =
-            DataTypeFactory::instance().create_data_type(TYPE_DECIMALV2, /*is_nullable=*/false);
+            DataTypeFactory::instance().create_data_type(TYPE_DECIMALV2, /*is_nullable=*/false,
+                                                         /*precision=*/27, /*scale=*/9);
     auto serde = data_type_ptr->get_serde();
     DataTypeSerDe::FormatOptions options;
     // DecimalV2 storage string has decimal point, so we must NOT ignore scale.
@@ -935,8 +936,10 @@ TEST_F(OlapTypeTest, ser_deser_float_olap_string) {
 }
 
 // ---------------------------------------------------------------------------
-// Double: same pattern as Float but with 16 significant digits.
-//   Format: fmt "{:.16g}" (digits10+1=16).
+// Double: same pattern as Float but with 17 significant digits.
+//   Format: fmt "{:.17g}" (max_digits10=17, guarantees lossless round-trip).
+//   The exact DBL_MAX/lowest strings below intentionally lock in this contract:
+//   if formatting regresses to 16 significant digits, parse-back may become inf.
 //   NaN/Inf same behavior: to_olap_string works, from_olap_string rejects.
 // ---------------------------------------------------------------------------
 TEST_F(OlapTypeTest, ser_deser_double_olap_string) {
@@ -945,10 +948,15 @@ TEST_F(OlapTypeTest, ser_deser_double_olap_string) {
     DataTypeSerDe::FormatOptions options;
 
     std::vector<std::pair<double, std::string>> normal_cases = {
-            {0.0, "0"},         {1.0, "1"},
-            {-1.0, "-1"},       {123.456789, "123.456789"},
-            {0.001, "0.001"},   {1234567890123456.0, "1234567890123456"},
-            {1e-100, "1e-100"}, {1.7976931348623157e+308, "1.7976931348623157e+308"},
+            {0.0, "0"},
+            {1.0, "1"},
+            {-1.0, "-1"},
+            {123.456789, "123.456789"},
+            {0.001, "0.001"},
+            {1234567890123456.0, "1234567890123456"},
+            {1e-100, "1e-100"},
+            {std::numeric_limits<double>::lowest(), "-1.7976931348623157e+308"},
+            {std::numeric_limits<double>::max(), "1.7976931348623157e+308"},
     };
 
     for (const auto& [val, expected_str] : normal_cases) {
