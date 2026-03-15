@@ -63,6 +63,7 @@ public class KinesisTaskInfo extends RoutineLoadTaskInfo {
     private RoutineLoadManager getRoutineLoadManager() {
         return Env.getCurrentEnv().getRoutineLoadManager();
     }
+
     /**
      * Map from shard ID to starting sequence number for this task.
      */

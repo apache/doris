@@ -17,7 +17,9 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -749,20 +751,26 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     @Override
     public NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo() throws UserException {
         Expression deleteCondition = getDeleteCondition() != null
-                ? NereidsLoadUtils.parseExpressionSeq(getDeleteCondition().toSql()).get(0)
+                ? NereidsLoadUtils.parseExpressionSeq(
+                        getDeleteCondition().accept(ExprToSqlVisitor.INSTANCE,
+                                ToSqlParams.WITHOUT_TABLE)).get(0)
                 : null;
         Expression precedingFilter = getPrecedingFilter() != null
-                ? NereidsLoadUtils.parseExpressionSeq(getPrecedingFilter().toSql()).get(0)
+                ? NereidsLoadUtils.parseExpressionSeq(
+                        getPrecedingFilter().accept(ExprToSqlVisitor.INSTANCE,
+                                ToSqlParams.WITHOUT_TABLE)).get(0)
                 : null;
         Expression whereExpr = getWhereExpr() != null
-                ? NereidsLoadUtils.parseExpressionSeq(getWhereExpr().toSqlWithoutTbl()).get(0)
+                ? NereidsLoadUtils.parseExpressionSeq(getWhereExpr().accept(
+                ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE)).get(0)
                 : null;
         NereidsLoadTaskInfo.NereidsImportColumnDescs importColumnDescs = null;
         if (columnDescs != null) {
             importColumnDescs = new NereidsLoadTaskInfo.NereidsImportColumnDescs();
             for (ImportColumnDesc desc : columnDescs.descs) {
                 Expression expression = desc.getExpr() != null
-                        ? NereidsLoadUtils.parseExpressionSeq(desc.getExpr().toSqlWithoutTbl()).get(0)
+                        ? NereidsLoadUtils.parseExpressionSeq(desc.getExpr().accept(
+                        ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE)).get(0)
                         : null;
                 importColumnDescs.descs.add(new NereidsImportColumnDesc(desc.getColumnName(), expression));
             }

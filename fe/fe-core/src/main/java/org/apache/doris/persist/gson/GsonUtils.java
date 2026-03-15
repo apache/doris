@@ -446,8 +446,10 @@ public class GsonUtils {
     private static RuntimeTypeAdapterFactory<AbstractDataSourceProperties> rdsTypeAdapterFactory =
             RuntimeTypeAdapterFactory.of(
                             AbstractDataSourceProperties.class, "clazz")
-                    .registerSubtype(KafkaDataSourceProperties.class, KafkaDataSourceProperties.class.getSimpleName())
-                    .registerSubtype(KinesisDataSourceProperties.class, KinesisDataSourceProperties.class.getSimpleName());
+                    .registerSubtype(KafkaDataSourceProperties.class,
+                            KafkaDataSourceProperties.class.getSimpleName())
+                    .registerSubtype(KinesisDataSourceProperties.class,
+                            KinesisDataSourceProperties.class.getSimpleName());
     private static RuntimeTypeAdapterFactory<org.apache.doris.job.base.AbstractJob>
             jobExecutorRuntimeTypeAdapterFactory
                     = RuntimeTypeAdapterFactory.of(org.apache.doris.job.base.AbstractJob.class, "clazz")
