@@ -698,15 +698,30 @@ struct RegexpExtractAllStringOutput {
         StringOP::push_null_string(index, result_data, result_offset, null_map);
     }
     void push_matches(size_t index, const std::vector<std::string>& matches) {
-        std::string res = "[";
+        size_t total_size = 2; // '[' and ']'
+        for (const auto& m : matches) {
+            total_size += m.size() + 3; // "'xxx',"
+        }
+
+        size_t old_size = result_data.size();
+        result_data.resize(old_size + total_size);
+        char* pos = reinterpret_cast<char*>(&result_data[old_size]);
+
+        *pos++ = '[';
         for (size_t j = 0; j < matches.size(); ++j) {
             if (j > 0) {
-                res += ",";
+                *pos++ = ',';
             }
-            res += "'" + matches[j] + "'";
+            *pos++ = '\'';
+            memcpy(pos, matches[j].data(), matches[j].size());
+            pos += matches[j].size();
+            *pos++ = '\'';
         }
-        res += "]";
-        StringOP::push_value_string(std::string_view(res), index, result_data, result_offset);
+        *pos++ = ']';
+
+        result_data.resize(old_size + static_cast<size_t>(pos - reinterpret_cast<char*>(
+                                                                        &result_data[old_size])));
+        result_offset[index] = static_cast<ColumnString::Offset>(result_data.size());
     }
 
     struct State {
