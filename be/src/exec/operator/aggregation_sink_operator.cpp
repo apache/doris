@@ -181,6 +181,24 @@ Status AggSinkLocalState::open(RuntimeState* state) {
 #endif
     }
 
+    // When use_simple_count is enabled, re-create aggregate_data_container with sizeof(UInt64)
+    // instead of the full aggregate state size. The container stores key + UInt64 counter pairs
+    // for cache-friendly sequential iteration in the source operator.
+    if (_shared_state->use_simple_count && Base::_shared_state->aggregate_data_container) {
+        std::visit(Overload {[&](std::monostate& arg) {
+                                 throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                        "uninited hash table");
+                             },
+                             [&](auto& agg_method) {
+                                 using HashTableType = std::decay_t<decltype(agg_method)>;
+                                 using KeyType = typename HashTableType::Key;
+                                 Base::_shared_state->aggregate_data_container =
+                                         std::make_unique<AggregateDataContainer>(
+                                                 sizeof(KeyType), sizeof(UInt64));
+                             }},
+                   _agg_data->method_variant);
+    }
+
     return Status::OK();
 }
 
@@ -613,9 +631,10 @@ void AggSinkLocalState::_emplace_into_hash_table(AggregateDataPtr* places,
                _agg_data->method_variant);
 }
 
-// For the agg hashmap<key, value>, the value is a char* type which is exactly 64 bits.
-// Here we treat it as a uint64 counter: each time the same key is encountered, the counter
-// is incremented by 1. This avoids storing the full aggregate state, saving memory and computation overhead.
+// For the agg hashmap<key, value>, the value is a char* pointing to a UInt64 counter
+// allocated in aggregate_data_container. Each time the same key is encountered, the counter
+// is incremented by 1. Keys and counters are stored contiguously in the container arena
+// for cache-friendly sequential access during the source (output) phase.
 void AggSinkLocalState::_emplace_into_hash_table_inline_count(ColumnRawPtrs& key_columns,
                                                               uint32_t num_rows) {
     std::visit(Overload {[&](std::monostate& arg) -> void {
@@ -632,17 +651,25 @@ void AggSinkLocalState::_emplace_into_hash_table_inline_count(ColumnRawPtrs& key
                              auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                                  HashMethodType::try_presis_key_and_origin(
                                          key, origin, Base::_shared_state->agg_arena_pool);
-                                 AggregateDataPtr mapped = nullptr;
+                                 auto mapped =
+                                         Base::_shared_state->aggregate_data_container
+                                                 ->append_data(origin);
+                                 // Zero-init the UInt64 counter, no need to create agg status.
+                                 *reinterpret_cast<UInt64*>(mapped) = 0;
                                  ctor(key, mapped);
                              };
 
-                             auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
+                             auto creator_for_null_key = [&](auto& mapped) {
+                                 mapped = Base::_shared_state->agg_arena_pool.alloc(
+                                         sizeof(UInt64));
+                                 *reinterpret_cast<UInt64*>(mapped) = 0;
+                             };
 
                              SCOPED_TIMER(_hash_table_emplace_timer);
                              for (size_t i = 0; i < num_rows; ++i) {
                                  auto* mapped_ptr = agg_method.lazy_emplace(state, i, creator,
                                                                             creator_for_null_key);
-                                 ++reinterpret_cast<UInt64&>(*mapped_ptr);
+                                 ++*reinterpret_cast<UInt64*>(*mapped_ptr);
                              }
 
                              COUNTER_UPDATE(_hash_table_input_counter, num_rows);
@@ -673,17 +700,24 @@ void AggSinkLocalState::_merge_into_hash_table_inline_count(ColumnRawPtrs& key_c
                              auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                                  HashMethodType::try_presis_key_and_origin(
                                          key, origin, Base::_shared_state->agg_arena_pool);
-                                 AggregateDataPtr mapped = nullptr;
+                                 auto mapped =
+                                         Base::_shared_state->aggregate_data_container
+                                                 ->append_data(origin);
+                                 *reinterpret_cast<UInt64*>(mapped) = 0;
                                  ctor(key, mapped);
                              };
 
-                             auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
+                             auto creator_for_null_key = [&](auto& mapped) {
+                                 mapped = Base::_shared_state->agg_arena_pool.alloc(
+                                         sizeof(UInt64));
+                                 *reinterpret_cast<UInt64*>(mapped) = 0;
+                             };
 
                              SCOPED_TIMER(_hash_table_emplace_timer);
                              for (size_t i = 0; i < num_rows; ++i) {
                                  auto* mapped_ptr = agg_method.lazy_emplace(state, i, creator,
                                                                             creator_for_null_key);
-                                 reinterpret_cast<UInt64&>(*mapped_ptr) += col_data[i].count;
+                                 *reinterpret_cast<UInt64*>(*mapped_ptr) += col_data[i].count;
                              }
 
                              COUNTER_UPDATE(_hash_table_input_counter, num_rows);

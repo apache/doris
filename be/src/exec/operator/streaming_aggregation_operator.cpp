@@ -119,7 +119,12 @@ Status StreamingAggLocalState::open(RuntimeState* state) {
                           using HashTableType = std::decay_t<decltype(agg_method)>;
                           using KeyType = typename HashTableType::Key;
 
-                          if (!_use_simple_count) {
+                          if (_use_simple_count) {
+                              // For simple count, store key + UInt64 counter in the container
+                              // for cache-friendly sequential iteration during output.
+                              _aggregate_data_container = std::make_unique<AggregateDataContainer>(
+                                      sizeof(KeyType), sizeof(UInt64));
+                          } else {
                               /// some aggregate functions (like AVG for decimal) have align issues.
                               _aggregate_data_container = std::make_unique<AggregateDataContainer>(
                                       sizeof(KeyType), ((p._total_size_of_aggregate_states +
@@ -495,16 +500,24 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                                                            ->create_serialize_column();
                             }
 
+                            // Iterate aggregate_data_container for cache-friendly sequential access.
+                            _aggregate_data_container->init_once();
+                            auto& iter = _aggregate_data_container->iterator;
+
+                            auto& count_col =
+                                    assert_cast<ColumnFixedLengthObject&>(*value_columns[0]);
+
                             std::vector<UInt64> inline_counts(size);
                             uint32_t num_rows = 0;
                             {
                                 SCOPED_TIMER(_hash_table_iterate_timer);
-                                auto& it = agg_method.begin;
-                                while (it != agg_method.end && num_rows < state->batch_size()) {
-                                    keys[num_rows] = it.get_first();
+                                while (iter != _aggregate_data_container->end() &&
+                                       num_rows < state->batch_size()) {
+                                    keys[num_rows] = iter.template get_key<KeyType>();
                                     inline_counts[num_rows] =
-                                            reinterpret_cast<const UInt64&>(it.get_second());
-                                    ++it;
+                                            *reinterpret_cast<const UInt64*>(
+                                                    iter.get_aggregate_data());
+                                    ++iter;
                                     ++num_rows;
                                 }
                             }
@@ -515,8 +528,6 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                             }
 
                             // Write inline counts to serialized column
-                            auto& count_col =
-                                    assert_cast<ColumnFixedLengthObject&>(*value_columns[0]);
                             count_col.resize(num_rows);
                             auto* col_data = count_col.get_data().data();
                             for (uint32_t i = 0; i < num_rows; ++i) {
@@ -525,7 +536,7 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                             }
 
                             // Handle null key if present
-                            if (agg_method.begin == agg_method.end) {
+                            if (iter == _aggregate_data_container->end()) {
                                 if (agg_method.hash_table->has_null_key_data()) {
                                     DCHECK(key_columns.size() == 1);
                                     DCHECK(key_columns[0]->is_nullable());
@@ -537,7 +548,7 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                                         count_col.resize(num_rows + 1);
                                         *reinterpret_cast<UInt64*>(count_col.get_data().data() +
                                                                    num_rows * sizeof(UInt64)) =
-                                                std::bit_cast<UInt64>(mapped);
+                                                *reinterpret_cast<const UInt64*>(mapped);
                                         *eos = true;
                                     }
                                 } else {
@@ -884,17 +895,21 @@ void StreamingAggLocalState::_emplace_into_hash_table_inline_count(ColumnRawPtrs
                              auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                                  HashMethodType::try_presis_key_and_origin(key, origin,
                                                                            _agg_arena_pool);
-                                 AggregateDataPtr mapped = nullptr;
+                                 auto mapped = _aggregate_data_container->append_data(origin);
+                                 *reinterpret_cast<UInt64*>(mapped) = 0;
                                  ctor(key, mapped);
                              };
 
-                             auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
+                             auto creator_for_null_key = [&](auto& mapped) {
+                                 mapped = _agg_arena_pool.alloc(sizeof(UInt64));
+                                 *reinterpret_cast<UInt64*>(mapped) = 0;
+                             };
 
                              SCOPED_TIMER(_hash_table_emplace_timer);
                              for (size_t i = 0; i < num_rows; ++i) {
                                  auto* mapped_ptr = agg_method.lazy_emplace(state, i, creator,
                                                                             creator_for_null_key);
-                                 ++reinterpret_cast<UInt64&>(*mapped_ptr);
+                                 ++*reinterpret_cast<UInt64*>(*mapped_ptr);
                              }
 
                              COUNTER_UPDATE(_hash_table_input_counter, num_rows);

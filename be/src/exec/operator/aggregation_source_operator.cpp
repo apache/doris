@@ -149,16 +149,24 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state, Bloc
                                                            ->create_serialize_column();
                             }
 
+                            // Iterate aggregate_data_container for cache-friendly sequential access.
+                            shared_state.aggregate_data_container->init_once();
+                            auto& iter = shared_state.aggregate_data_container->iterator;
+
+                            auto& count_col =
+                                    assert_cast<ColumnFixedLengthObject&>(*value_columns[0]);
+
                             std::vector<UInt64> inline_counts(size);
                             uint32_t num_rows = 0;
                             {
                                 SCOPED_TIMER(_hash_table_iterate_timer);
-                                auto& it = agg_method.begin;
-                                while (it != agg_method.end && num_rows < state->batch_size()) {
-                                    keys[num_rows] = it.get_first();
+                                while (iter != shared_state.aggregate_data_container->end() &&
+                                       num_rows < state->batch_size()) {
+                                    keys[num_rows] = iter.template get_key<KeyType>();
                                     inline_counts[num_rows] =
-                                            reinterpret_cast<const UInt64&>(it.get_second());
-                                    ++it;
+                                            *reinterpret_cast<const UInt64*>(
+                                                    iter.get_aggregate_data());
+                                    ++iter;
                                     ++num_rows;
                                 }
                             }
@@ -169,9 +177,7 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state, Bloc
                             }
 
                             // Write inline counts to serialized column
-                            // AggregateFunctionCountData = { UInt64 count }, same layout as inline
-                            auto& count_col =
-                                    assert_cast<ColumnFixedLengthObject&>(*value_columns[0]);
+                            // AggregateFunctionCountData = { UInt64 count }, same layout
                             count_col.resize(num_rows);
                             auto* col_data = count_col.get_data().data();
                             for (uint32_t i = 0; i < num_rows; ++i) {
@@ -180,7 +186,7 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state, Bloc
                             }
 
                             // Handle null key if present
-                            if (agg_method.begin == agg_method.end) {
+                            if (iter == shared_state.aggregate_data_container->end()) {
                                 if (agg_method.hash_table->has_null_key_data()) {
                                     DCHECK(key_columns.size() == 1);
                                     DCHECK(key_columns[0]->is_nullable());
@@ -192,7 +198,7 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state, Bloc
                                         count_col.resize(num_rows + 1);
                                         *reinterpret_cast<UInt64*>(count_col.get_data().data() +
                                                                    num_rows * sizeof(UInt64)) =
-                                                std::bit_cast<UInt64>(mapped);
+                                                *reinterpret_cast<const UInt64*>(mapped);
                                         *eos = true;
                                     }
                                 } else {
@@ -328,20 +334,24 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, Block
                         std::vector<KeyType> keys(size);
 
                         if (shared_state.use_simple_count) {
-                            // Inline count: mapped slot stores UInt64 count directly
-                            // (not a real AggregateDataPtr). Iterate hash table directly.
+                            // Inline count: iterate aggregate_data_container for
+                            // cache-friendly sequential access.
                             DCHECK_EQ(value_columns.size(), 1);
                             auto& count_column = assert_cast<ColumnInt64&>(*value_columns[0]);
+
+                            shared_state.aggregate_data_container->init_once();
+                            auto& iter = shared_state.aggregate_data_container->iterator;
+
                             uint32_t num_rows = 0;
                             {
                                 SCOPED_TIMER(_hash_table_iterate_timer);
-                                auto& it = agg_method.begin;
-                                while (it != agg_method.end && num_rows < state->batch_size()) {
-                                    keys[num_rows] = it.get_first();
-                                    auto& mapped = it.get_second();
+                                while (iter != shared_state.aggregate_data_container->end() &&
+                                       num_rows < state->batch_size()) {
+                                    keys[num_rows] = iter.template get_key<KeyType>();
+                                    auto* agg_data = iter.get_aggregate_data();
                                     count_column.insert_value(static_cast<Int64>(
-                                            reinterpret_cast<const UInt64&>(mapped)));
-                                    ++it;
+                                            *reinterpret_cast<const UInt64*>(agg_data)));
+                                    ++iter;
                                     ++num_rows;
                                 }
                             }
@@ -351,7 +361,7 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, Block
                             }
 
                             // Handle null key if present
-                            if (agg_method.begin == agg_method.end) {
+                            if (iter == shared_state.aggregate_data_container->end()) {
                                 if (agg_method.hash_table->has_null_key_data()) {
                                     DCHECK(key_columns.size() == 1);
                                     DCHECK(key_columns[0]->is_nullable());
@@ -360,8 +370,8 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, Block
                                         auto mapped =
                                                 agg_method.hash_table->template get_null_key_data<
                                                         AggregateDataPtr>();
-                                        count_column.insert_value(
-                                                static_cast<Int64>(std::bit_cast<UInt64>(mapped)));
+                                        count_column.insert_value(static_cast<Int64>(
+                                                *reinterpret_cast<const UInt64*>(mapped)));
                                         *eos = true;
                                     }
                                 } else {
