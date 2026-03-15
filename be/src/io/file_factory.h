@@ -118,7 +118,6 @@ public:
         case TStorageBackendType::BROKER:
             return TFileType::FILE_BROKER;
         case TStorageBackendType::HDFS:
-            return TFileType::FILE_HDFS;
         case TStorageBackendType::JFS:
             return TFileType::FILE_HDFS;
         default:
