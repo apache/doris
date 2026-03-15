@@ -282,8 +282,6 @@ void OrcReader::_collect_profile_before_close() {
         if (_file_input_stream != nullptr) {
             _file_input_stream->collect_profile_before_close();
         }
-        COUNTER_UPDATE(_orc_profile.condition_cache_filtered_rows_counter,
-                       _statistics.condition_cache_filtered_rows);
     }
 }
 
@@ -323,8 +321,6 @@ void OrcReader::_init_profile() {
                 ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterReadCalls", TUnit::UNIT, 1);
         _orc_profile.file_footer_hit_cache =
                 ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterHitCache", TUnit::UNIT, 1);
-        _orc_profile.condition_cache_filtered_rows_counter =
-                ADD_COUNTER_WITH_LEVEL(_profile, "ConditionCacheFilteredRows", TUnit::UNIT, 1);
     }
 }
 
@@ -2252,14 +2248,18 @@ void OrcReader::_filter_rows_by_condition_cache(size_t* read_rows, bool* eof) {
             // No more surviving rows exist in this scan range.
             *eof = true;
             *read_rows = 0;
-            _statistics.condition_cache_filtered_rows +=
-                    (_first_row_in_range + get_total_rows()) - _current_read_position;
+            if (_io_ctx) {
+                _io_ctx->condition_cache_filtered_rows +=
+                        (_first_row_in_range + get_total_rows()) - _current_read_position;
+            }
             return;
         }
         uint64_t target_row = (base_granule + cache_idx) * ConditionCacheContext::GRANULE_SIZE;
         if (target_row > _current_read_position) {
             _row_reader->seekToRow(target_row);
-            _statistics.condition_cache_filtered_rows += target_row - _current_read_position;
+            if (_io_ctx) {
+                _io_ctx->condition_cache_filtered_rows += target_row - _current_read_position;
+            }
             _current_read_position = target_row;
         }
     }

@@ -238,11 +238,11 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
     """
     def profileText = getProfileWithToken(uuid)
     assertTrue(profileText.contains("Scanner"), "Profile does not contain Scanner")
-    assertTrue(profileText.contains("ConditionCacheFileHit"), "Profile does not contain ConditionCacheFileHit")
+    assertTrue(profileText.contains("ConditionCacheHit"), "Profile does not contain ConditionCacheHit")
     assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
     def metrics = extractProfileBlockMetrics(profileText, "Scanner")
     logger.info("metrics = ${metrics}")
-    assertEquals("0", metrics["ConditionCacheFileHit"])
+    assertEquals("0", metrics["ConditionCacheHit"])
     assertEquals("0", metrics["ConditionCacheFilteredRows"])
 
     uuid = UUID.randomUUID().toString()
@@ -256,11 +256,11 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
     """
     profileText = getProfileWithToken(uuid)
     assertTrue(profileText.contains("Scanner"), "Profile does not contain Scanner")
-    assertTrue(profileText.contains("ConditionCacheFileHit"), "Profile does not contain ConditionCacheFileHit")
+    assertTrue(profileText.contains("ConditionCacheHit"), "Profile does not contain ConditionCacheHit")
     assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
     metrics = extractProfileBlockMetrics(profileText, "Scanner")
     logger.info("metrics = ${metrics}")
-    assertEquals("1", metrics["ConditionCacheFileHit"])
+    assertEquals("1", metrics["ConditionCacheHit"])
     assertEquals("2.048K (2048)", metrics["ConditionCacheFilteredRows"])
 
     uuid = UUID.randomUUID().toString()
@@ -274,11 +274,11 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
     """
     profileText = getProfileWithToken(uuid)
     assertTrue(profileText.contains("Scanner"), "Profile does not contain Scanner")
-    assertTrue(profileText.contains("ConditionCacheFileHit"), "Profile does not contain ConditionCacheFileHit")
+    assertTrue(profileText.contains("ConditionCacheHit"), "Profile does not contain ConditionCacheHit")
     assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
     metrics = extractProfileBlockMetrics(profileText, "Scanner")
     logger.info("metrics = ${metrics}")
-    assertEquals("1", metrics["ConditionCacheFileHit"])
+    assertEquals("1", metrics["ConditionCacheHit"])
     assertEquals("2.048K (2048)", metrics["ConditionCacheFilteredRows"])
 
     qt_condition_cache_verify_hit1 """
@@ -296,11 +296,11 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
         ) tmpa
         ORDER BY 1, 2, 3, 4; """
     profileText = getProfileWithToken(uuid)
-    assertTrue(profileText.contains("ConditionCacheFileHit"), "Profile does not contain ConditionCacheFileHit")
+    assertTrue(profileText.contains("ConditionCacheHit"), "Profile does not contain ConditionCacheHit")
     assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
     metrics = extractProfileBlockMetrics(profileText, "Scanner")
     logger.info("metrics = ${metrics}")
-    assertEquals("1", metrics["ConditionCacheFileHit"])
+    assertEquals("1", metrics["ConditionCacheHit"])
     assertEquals("4.096K (4096)", metrics["ConditionCacheFilteredRows"])
 
     uuid = UUID.randomUUID().toString()
@@ -312,11 +312,11 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
         ) tmpa
         ORDER BY 1, 2, 3, 4; """
     profileText = getProfileWithToken(uuid)
-    assertTrue(profileText.contains("ConditionCacheFileHit"), "Profile does not contain ConditionCacheFileHit")
+    assertTrue(profileText.contains("ConditionCacheHit"), "Profile does not contain ConditionCacheHit")
     assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
     metrics = extractProfileBlockMetrics(profileText, "Scanner")
     logger.info("metrics = ${metrics}")
-    assertEquals("1", metrics["ConditionCacheFileHit"])
+    assertEquals("1", metrics["ConditionCacheHit"])
     assertEquals("4.096K (4096)", metrics["ConditionCacheFilteredRows"])
 
     // small split size to force more splits
@@ -336,7 +336,7 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
         ) tmpa
         ORDER BY 1, 2, 3, 4; """
     profileText = getProfileWithToken(uuid)
-    assertTrue(profileText.contains("ConditionCacheFileHit"), "Profile does not contain ConditionCacheFileHit")
+    assertTrue(profileText.contains("ConditionCacheHit"), "Profile does not contain ConditionCacheHit")
     assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
     metrics = extractProfileBlockMetrics(profileText, "Scanner")
     logger.info("metrics = ${metrics}")
@@ -354,7 +354,7 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
 |          /tmp/test_condition_cache_parquet/parquet_large_9a9b87f91eb245e7-843725dec143358e_0.parquet start: 49152 length: 13342                             |
 |          dataFileNum=1, deleteFileNum=0, deleteSplitNum=0 
     */
-    assertEquals("1", metrics["ConditionCacheFileHit"])
+    assertEquals("1", metrics["ConditionCacheHit"])
     assertEquals("4.096K (4096)", metrics["ConditionCacheFilteredRows"])
 
     uuid = UUID.randomUUID().toString()
@@ -366,11 +366,11 @@ suite("condition_cache_parquet", "tvf,external,external_docker") {
         ) tmpa
         ORDER BY 1, 2, 3, 4; """
     profileText = getProfileWithToken(uuid)
-    assertTrue(profileText.contains("ConditionCacheFileHit"), "Profile does not contain ConditionCacheFileHit")
+    assertTrue(profileText.contains("ConditionCacheHit"), "Profile does not contain ConditionCacheHit")
     assertTrue(profileText.contains("ConditionCacheFilteredRows"), "Profile does not contain ConditionCacheFilteredRows")
     metrics = extractProfileBlockMetrics(profileText, "Scanner")
     logger.info("metrics = ${metrics}")
-    assertEquals("1", metrics["ConditionCacheFileHit"])
+    assertEquals("1", metrics["ConditionCacheHit"])
     assertEquals("4.096K (4096)", metrics["ConditionCacheFilteredRows"])
 
     // ---- Test 1: Basic predicate, no cache (baseline) ----

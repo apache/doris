@@ -159,9 +159,6 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
                                    "RuntimeFilterPartitionPrunedRangeNum", TUnit::UNIT, 1);
 
-    _condition_cache_hit_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
-                                                          "ConditionCacheFileHit", TUnit::UNIT, 1);
-
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _file_reader_stats.reset(new io::FileReaderStats());
 
@@ -1781,7 +1778,7 @@ void FileScanner::_init_reader_condition_cache() {
     auto condition_cache_hit = cache->lookup(_condition_cache_key, &handle);
     if (condition_cache_hit) {
         _condition_cache = handle.get_filter_result();
-        COUNTER_UPDATE(_condition_cache_hit_counter, 1);
+        _condition_cache_hit_count++;
     } else {
         // Allocate cache pre-sized to total number of granules.
         // We add +1 as a safety margin: when a file is split across multiple scanners
@@ -1919,6 +1916,11 @@ void FileScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(_file_read_bytes_counter, _file_reader_stats->read_bytes);
     COUNTER_UPDATE(_file_read_calls_counter, _file_reader_stats->read_calls);
     COUNTER_UPDATE(_file_read_time_counter, _file_reader_stats->read_time_ns);
+    COUNTER_UPDATE(local_state->_condition_cache_hit_counter, _condition_cache_hit_count);
+    if (_io_ctx) {
+        COUNTER_UPDATE(local_state->_condition_cache_filtered_rows_counter,
+                       _io_ctx->condition_cache_filtered_rows);
+    }
 
     DorisMetrics::instance()->query_scan_bytes->increment(_file_reader_stats->read_bytes);
     DorisMetrics::instance()->query_scan_rows->increment(_file_reader_stats->read_rows);

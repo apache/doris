@@ -239,7 +239,7 @@ private:
     segment_v2::ConditionCache::ExternalCacheKey _condition_cache_key;
     std::shared_ptr<std::vector<bool>> _condition_cache;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
-    RuntimeProfile::Counter* _condition_cache_hit_counter = nullptr;
+    int64_t _condition_cache_hit_count = 0;
 
     Status _init_expr_ctxes();
     Status _init_src_block(Block* block);

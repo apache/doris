@@ -139,7 +139,6 @@ public:
         int64_t lazy_read_filtered_rows = 0;
         int64_t file_footer_read_calls = 0;
         int64_t file_footer_hit_cache = 0;
-        int64_t condition_cache_filtered_rows = 0;
     };
 
     OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
@@ -268,7 +267,6 @@ private:
         RuntimeProfile::Counter* evaluated_row_group_count = nullptr;
         RuntimeProfile::Counter* file_footer_read_calls = nullptr;
         RuntimeProfile::Counter* file_footer_hit_cache = nullptr;
-        RuntimeProfile::Counter* condition_cache_filtered_rows_counter = nullptr;
     };
 
     class ORCFilterImpl : public orc::ORCFilter {
