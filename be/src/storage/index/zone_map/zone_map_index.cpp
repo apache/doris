@@ -70,20 +70,8 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
             }
         } else {
             if (!zone_map_info.pass_all) {
-                DataTypeSerDe::FormatOptions opt;
-                // DecimalV3 (Decimal32/64/128I/256): to_olap_string stores the RAW unscaled
-                // integer, e.g. Decimal(9,2) value 123.45 → internal int32=12345 → "12345".
-                // So from_olap_string must parse with scale=0 (ignore_scale=true) to avoid
-                // double-scaling.
-                //
-                // DecimalV2: to_olap_string stores "integer.fraction" with 9 zero-padded
-                // fractional digits via decimal12_t::to_string(), e.g. 123.456 → "123.456000000".
-                // So from_olap_string must parse with the real scale=9 (ignore_scale=false).
-                //
-                // Other types: ignore_scale has no effect.
-                opt.ignore_scale = (field_type != FieldType::OLAP_FIELD_TYPE_DECIMAL);
-                RETURN_IF_ERROR(data_type->get_serde()->from_olap_string(
-                        zone_map.min(), zone_map_info.min_value, opt));
+                RETURN_IF_ERROR(data_type->get_serde()->from_zonemap_string(
+                        zone_map.min(), zone_map_info.min_value));
             }
         }
 
@@ -109,11 +97,8 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
             }
         } else {
             if (!zone_map_info.pass_all) {
-                DataTypeSerDe::FormatOptions opt;
-                // See comment above for min_value about ignore_scale semantics.
-                opt.ignore_scale = (field_type != FieldType::OLAP_FIELD_TYPE_DECIMAL);
-                RETURN_IF_ERROR(data_type->get_serde()->from_olap_string(
-                        zone_map.max(), zone_map_info.max_value, opt));
+                RETURN_IF_ERROR(data_type->get_serde()->from_zonemap_string(
+                        zone_map.max(), zone_map_info.max_value));
             }
         }
     }

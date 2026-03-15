@@ -590,25 +590,26 @@ TEST_F(OlapTypeTest, ser_deser_double) {
 }
 
 // =============================================================================
-// Tests for to_olap_string / from_olap_string on DataTypeSerDe
+// Tests for to_olap_string / from_zonemap_string on DataTypeSerDe
 //
 // Background:
-//   ZoneMap index serializes min/max values via Field::to_string() (in olap/types.h)
-//   and deserializes via Field::from_string(). When migrating to DataTypeSerDe-based
-//   serialization, the equivalent pair is to_olap_string() / from_olap_string().
+//   ZoneMap index serializes min/max values via to_olap_string()
+//   and deserializes via from_zonemap_string(). The from_zonemap_string()
+//   method internally sets ignore_scale=true for DecimalV3 types to avoid
+//   double-scaling the raw unscaled integer stored in ZoneMap.
 //
-//   Key difference vs normal to_string/from_string:
+//   Key difference vs normal from_fe_string:
 //     - DecimalV2: to_olap_string uses decimal12_t::to_string() which outputs
 //       "integer.fraction" with 9 zero-padded fractional digits (e.g. "123.456000000").
-//       from_olap_string parses this with the full scale (ignore_scale=false).
+//       from_zonemap_string still works correctly because DecimalV2's parser
+//       hardcodes scale=9 regardless of the ignore_scale setting.
 //     - Decimal32/64/128I/256: to_olap_string outputs the RAW INTEGER string
-//       (the unscaled internal value). For example, Decimal(9,2) value 123.45 has
+//       (the unscaled internal value). E.g., Decimal(9,2) value 123.45 has
 //       internal integer 12345, so to_olap_string outputs "12345".
-//       from_olap_string with ignore_scale=true parses with scale=0 to avoid
-//       double-scaling.
+//       from_zonemap_string uses ignore_scale=true → scale=0, parsing as integer.
 //     - Float/Double: to_olap_string uses CastToString::from_number, which outputs
-//       "NaN", "Infinity", "-Infinity" for special values. But from_olap_string uses
-//       fast_float::from_chars which REJECTS these strings. In practice, ZoneMap
+//       "NaN", "Infinity", "-Infinity" for special values. But from_zonemap_string
+//       uses fast_float::from_chars which REJECTS these strings. In practice, ZoneMap
 //       tracks NaN/Inf via boolean flags (has_nan, has_positive_inf, has_negative_inf),
 //       so the min/max values never contain NaN/Inf.
 //     - DateV1 (TYPE_DATE): to_olap_string outputs "YYYY-MM-DD".
@@ -624,15 +625,13 @@ TEST_F(OlapTypeTest, ser_deser_double) {
 // Decimal32: to_olap_string outputs RAW integer (unscaled value).
 //   Internal representation: value * 10^scale.
 //   E.g., Decimal(9,2) value 123.45 → internal int32 = 12345 → "12345".
-//   from_olap_string with ignore_scale=true reads "12345" as integer 12345.
+//   from_zonemap_string reads "12345" as integer 12345 (ignore_scale=true internally).
 // ---------------------------------------------------------------------------
 TEST_F(OlapTypeTest, ser_deser_decimal32) {
     // Create Decimal(9,2) data type (precision=9, scale=2)
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(
             FieldType::OLAP_FIELD_TYPE_DECIMAL32, /*precision=*/9, /*scale=*/2);
     auto serde = data_type_ptr->get_serde();
-    DataTypeSerDe::FormatOptions options;
-    options.ignore_scale = true; // ZoneMap path: storage string is unscaled integer
 
     // Test cases: {internal_int32_value, expected_olap_string}
     // actual_decimal_value = internal / 10^scale
@@ -661,9 +660,9 @@ TEST_F(OlapTypeTest, ser_deser_decimal32) {
         EXPECT_EQ(result_str, expected_str)
                 << "Decimal32 to_olap_string failed for internal value " << int_val;
 
-        // Verify round-trip: from_olap_string should restore the same internal value
+        // Verify round-trip: from_zonemap_string should restore the same internal value
         Field restored_field;
-        auto status = serde->from_olap_string(result_str, restored_field, options);
+        auto status = serde->from_zonemap_string(result_str, restored_field);
         EXPECT_TRUE(status.ok()) << status.to_string();
         auto restored_value = restored_field.get<TYPE_DECIMAL32>();
         EXPECT_EQ(restored_value.value, int_val)
@@ -679,8 +678,6 @@ TEST_F(OlapTypeTest, ser_deser_decimal64) {
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(
             FieldType::OLAP_FIELD_TYPE_DECIMAL64, /*precision=*/18, /*scale=*/4);
     auto serde = data_type_ptr->get_serde();
-    DataTypeSerDe::FormatOptions options;
-    options.ignore_scale = true;
 
     std::vector<std::pair<int64_t, std::string>> test_cases = {
             // 12345.6789 → internal=123456789
@@ -704,7 +701,7 @@ TEST_F(OlapTypeTest, ser_deser_decimal64) {
                 << "Decimal64 to_olap_string failed for internal value " << int_val;
 
         Field restored_field;
-        auto status = serde->from_olap_string(result_str, restored_field, options);
+        auto status = serde->from_zonemap_string(result_str, restored_field);
         EXPECT_TRUE(status.ok()) << status.to_string();
         auto restored_value = restored_field.get<TYPE_DECIMAL64>();
         EXPECT_EQ(restored_value.value, int_val)
@@ -721,8 +718,6 @@ TEST_F(OlapTypeTest, ser_deser_decimal128i) {
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(
             FieldType::OLAP_FIELD_TYPE_DECIMAL128I, /*precision=*/38, /*scale=*/6);
     auto serde = data_type_ptr->get_serde();
-    DataTypeSerDe::FormatOptions options;
-    options.ignore_scale = true;
 
     // int128_t values and expected strings
     struct TestCase {
@@ -749,7 +744,7 @@ TEST_F(OlapTypeTest, ser_deser_decimal128i) {
                 << "Decimal128I to_olap_string failed for expected '" << tc.expected_str << "'";
 
         Field restored_field;
-        auto status = serde->from_olap_string(result_str, restored_field, options);
+        auto status = serde->from_zonemap_string(result_str, restored_field);
         EXPECT_TRUE(status.ok()) << status.to_string();
         auto restored_value = restored_field.get<TYPE_DECIMAL128I>();
         EXPECT_EQ(restored_value.value, tc.int_val)
@@ -765,8 +760,6 @@ TEST_F(OlapTypeTest, ser_deser_decimal256) {
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(
             FieldType::OLAP_FIELD_TYPE_DECIMAL256, /*precision=*/76, /*scale=*/10);
     auto serde = data_type_ptr->get_serde();
-    DataTypeSerDe::FormatOptions options;
-    options.ignore_scale = true;
 
     // Use int128_t-constructible values for simplicity
     // (wide::Int256 can be constructed from int128_t)
@@ -793,7 +786,7 @@ TEST_F(OlapTypeTest, ser_deser_decimal256) {
                 << "Decimal256 to_olap_string failed for expected '" << tc.expected_str << "'";
 
         Field restored_field;
-        auto status = serde->from_olap_string(result_str, restored_field, options);
+        auto status = serde->from_zonemap_string(result_str, restored_field);
         EXPECT_TRUE(status.ok()) << status.to_string();
         auto restored_value = restored_field.get<TYPE_DECIMAL256>();
         EXPECT_EQ(restored_value.value, tc.int_val)
@@ -807,9 +800,12 @@ TEST_F(OlapTypeTest, ser_deser_decimal256) {
 //   digits. E.g., DecimalV2(123.456) → int_value=123, frac_value=456000000 →
 //   decimal12_t(123, 456000000).to_string() → "123.456000000".
 //
-//   from_olap_string with ignore_scale=FALSE parses this as a normal decimal string
+//   from_zonemap_string with ignore_scale=TRUE internally parses this as a normal decimal string
 //   with the data type's scale (9). With ignore_scale=TRUE, scale would be 0 and the
 //   fractional part would be truncated — that is WRONG for DecimalV2.
+//   However, from_zonemap_string uses ignore_scale=TRUE, and this still works because
+//   DecimalV2's parser (read_decimal_text_impl) hardcodes DecimalV2Value::SCALE=9
+//   regardless of the passed-in scale, making ignore_scale irrelevant for DecimalV2.
 //
 //   Note: this is different from DecimalV3 where storage is raw integer.
 //   DecimalV2 storage string always contains a decimal point.
@@ -819,10 +815,8 @@ TEST_F(OlapTypeTest, ser_deser_decimalv2) {
             DataTypeFactory::instance().create_data_type(TYPE_DECIMALV2, /*is_nullable=*/false,
                                                          /*precision=*/27, /*scale=*/9);
     auto serde = data_type_ptr->get_serde();
-    DataTypeSerDe::FormatOptions options;
-    // DecimalV2 storage string has decimal point, so we must NOT ignore scale.
-    // ignore_scale=false means from_olap_string uses the full scale=9.
-    options.ignore_scale = false;
+    // DecimalV2 storage string has decimal point. from_zonemap_string sets ignore_scale=true,
+    // but DecimalV2's parser hardcodes scale=9 regardless, so round-trip works correctly.
 
     // Test cases: {DecimalV2Value, expected_to_olap_string}
     // DecimalV2Value internally stores value * 10^9.
@@ -856,9 +850,9 @@ TEST_F(OlapTypeTest, ser_deser_decimalv2) {
         auto result_str = serde->to_olap_string(field);
         EXPECT_EQ(result_str, tc.expected_str) << "DecimalV2 to_olap_string failed";
 
-        // Round-trip: from_olap_string should restore the same value
+        // Round-trip: from_zonemap_string should restore the same value
         Field restored_field;
-        auto status = serde->from_olap_string(result_str, restored_field, options);
+        auto status = serde->from_zonemap_string(result_str, restored_field);
         EXPECT_TRUE(status.ok()) << status.to_string();
         auto restored_value = restored_field.get<TYPE_DECIMALV2>();
         EXPECT_EQ(restored_value, tc.value)
@@ -871,19 +865,18 @@ TEST_F(OlapTypeTest, ser_deser_decimalv2) {
 }
 
 // ---------------------------------------------------------------------------
-// Float: to_olap_string / from_olap_string for normal values.
+// Float: to_olap_string / from_zonemap_string for normal values.
 //   to_olap_string uses CastToString::from_number which calls _fast_to_buffer.
 //   Format: fmt "{:.7g}" (digits10+1=7 significant digits).
-//   NaN/Inf are serialized as "NaN", "Infinity", "-Infinity" but from_olap_string
+//   NaN/Inf are serialized as "NaN", "Infinity", "-Infinity" but from_zonemap_string
 //   (which uses fast_float::from_chars) CANNOT parse them back → returns error.
 //   In ZoneMap, NaN/Inf are tracked via boolean flags, not stored in min/max values.
 // ---------------------------------------------------------------------------
 TEST_F(OlapTypeTest, ser_deser_float_olap_string) {
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, false);
     auto serde = data_type_ptr->get_serde();
-    DataTypeSerDe::FormatOptions options;
 
-    // Normal float values: to_olap_string → from_olap_string round-trip
+    // Normal float values: to_olap_string → from_zonemap_string round-trip
     std::vector<std::pair<float, std::string>> normal_cases = {
             {0.0f, "0"},       {1.0f, "1"},
             {-1.0f, "-1"},     {123.456f, "123.456"},
@@ -899,7 +892,7 @@ TEST_F(OlapTypeTest, ser_deser_float_olap_string) {
 
         // Round-trip
         Field restored_field;
-        auto status = serde->from_olap_string(result_str, restored_field, options);
+        auto status = serde->from_zonemap_string(result_str, restored_field);
         EXPECT_TRUE(status.ok()) << status.to_string();
         float restored_val = restored_field.get<TYPE_FLOAT>();
         float diff = std::abs(restored_val - val);
@@ -907,31 +900,31 @@ TEST_F(OlapTypeTest, ser_deser_float_olap_string) {
                 << "Float round-trip: expected " << val << ", got " << restored_val;
     }
 
-    // Special values: to_olap_string produces strings, but from_olap_string FAILS
+    // Special values: to_olap_string produces strings, but from_zonemap_string FAILS
     // This documents the intentional behavior: ZoneMap uses boolean flags for these.
     {
-        // NaN → "NaN", but from_olap_string cannot parse "NaN"
+        // NaN → "NaN", but from_zonemap_string cannot parse "NaN"
         auto field = Field::create_field<TYPE_FLOAT>(std::numeric_limits<float>::quiet_NaN());
         EXPECT_EQ(serde->to_olap_string(field), "NaN");
         Field restored_field;
-        auto status = serde->from_olap_string("NaN", restored_field, options);
-        EXPECT_FALSE(status.ok()) << "from_olap_string should reject 'NaN'";
+        auto status = serde->from_zonemap_string("NaN", restored_field);
+        EXPECT_FALSE(status.ok()) << "from_zonemap_string should reject 'NaN'";
     }
     {
         // +Infinity → "Infinity"
         auto field = Field::create_field<TYPE_FLOAT>(std::numeric_limits<float>::infinity());
         EXPECT_EQ(serde->to_olap_string(field), "Infinity");
         Field restored_field;
-        auto status = serde->from_olap_string("Infinity", restored_field, options);
-        EXPECT_FALSE(status.ok()) << "from_olap_string should reject 'Infinity'";
+        auto status = serde->from_zonemap_string("Infinity", restored_field);
+        EXPECT_FALSE(status.ok()) << "from_zonemap_string should reject 'Infinity'";
     }
     {
         // -Infinity → "-Infinity"
         auto field = Field::create_field<TYPE_FLOAT>(-std::numeric_limits<float>::infinity());
         EXPECT_EQ(serde->to_olap_string(field), "-Infinity");
         Field restored_field;
-        auto status = serde->from_olap_string("-Infinity", restored_field, options);
-        EXPECT_FALSE(status.ok()) << "from_olap_string should reject '-Infinity'";
+        auto status = serde->from_zonemap_string("-Infinity", restored_field);
+        EXPECT_FALSE(status.ok()) << "from_zonemap_string should reject '-Infinity'";
     }
 }
 
@@ -940,12 +933,11 @@ TEST_F(OlapTypeTest, ser_deser_float_olap_string) {
 //   Format: fmt "{:.17g}" (max_digits10=17, guarantees lossless round-trip).
 //   The exact DBL_MAX/lowest strings below intentionally lock in this contract:
 //   if formatting regresses to 16 significant digits, parse-back may become inf.
-//   NaN/Inf same behavior: to_olap_string works, from_olap_string rejects.
+//   NaN/Inf same behavior: to_olap_string works, from_zonemap_string rejects.
 // ---------------------------------------------------------------------------
 TEST_F(OlapTypeTest, ser_deser_double_olap_string) {
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
     auto serde = data_type_ptr->get_serde();
-    DataTypeSerDe::FormatOptions options;
 
     std::vector<std::pair<double, std::string>> normal_cases = {
             {0.0, "0"},
@@ -967,7 +959,7 @@ TEST_F(OlapTypeTest, ser_deser_double_olap_string) {
 
         // Round-trip
         Field restored_field;
-        auto status = serde->from_olap_string(result_str, restored_field, options);
+        auto status = serde->from_zonemap_string(result_str, restored_field);
         EXPECT_TRUE(status.ok()) << status.to_string();
         double restored_val = restored_field.get<TYPE_DOUBLE>();
         double diff = std::abs(restored_val - val);
@@ -980,19 +972,19 @@ TEST_F(OlapTypeTest, ser_deser_double_olap_string) {
         auto field = Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN());
         EXPECT_EQ(serde->to_olap_string(field), "NaN");
         Field restored_field;
-        EXPECT_FALSE(serde->from_olap_string("NaN", restored_field, options).ok());
+        EXPECT_FALSE(serde->from_zonemap_string("NaN", restored_field).ok());
     }
     {
         auto field = Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::infinity());
         EXPECT_EQ(serde->to_olap_string(field), "Infinity");
         Field restored_field;
-        EXPECT_FALSE(serde->from_olap_string("Infinity", restored_field, options).ok());
+        EXPECT_FALSE(serde->from_zonemap_string("Infinity", restored_field).ok());
     }
     {
         auto field = Field::create_field<TYPE_DOUBLE>(-std::numeric_limits<double>::infinity());
         EXPECT_EQ(serde->to_olap_string(field), "-Infinity");
         Field restored_field;
-        EXPECT_FALSE(serde->from_olap_string("-Infinity", restored_field, options).ok());
+        EXPECT_FALSE(serde->from_zonemap_string("-Infinity", restored_field).ok());
     }
     {
         // -0.0 → "-0"
@@ -1005,12 +997,11 @@ TEST_F(OlapTypeTest, ser_deser_double_olap_string) {
 // DateV1 (TYPE_DATE): to_olap_string outputs "YYYY-MM-DD".
 //   Internal representation: VecDateTimeValue, stored as uint24_t in OLAP.
 //   The old ZoneMap used VecDateTimeValue::to_string(buf) → "YYYY-MM-DD\0".
-//   from_olap_string uses CastToDateOrDatetime::from_string_non_strict_mode.
+//   from_zonemap_string uses CastToDateOrDatetime::from_string_non_strict_mode.
 // ---------------------------------------------------------------------------
 TEST_F(OlapTypeTest, ser_deser_datev1) {
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_DATE, false);
     auto serde = data_type_ptr->get_serde();
-    DataTypeSerDe::FormatOptions options;
 
     struct TestCase {
         int year, month, day;
@@ -1033,7 +1024,7 @@ TEST_F(OlapTypeTest, ser_deser_datev1) {
 
         // Round-trip
         Field restored_field;
-        auto status = serde->from_olap_string(result_str, restored_field, options);
+        auto status = serde->from_zonemap_string(result_str, restored_field);
         EXPECT_TRUE(status.ok()) << status.to_string();
         auto restored_val = restored_field.get<TYPE_DATE>();
         EXPECT_EQ(restored_val.year(), tc.year);
@@ -1047,12 +1038,11 @@ TEST_F(OlapTypeTest, ser_deser_datev1) {
 //   Internal representation: VecDateTimeValue, stored as uint64_t in OLAP.
 //   The old ZoneMap used the format:
 //     YYYYMMDDHHMMSSxxxxxx → "YYYY-MM-DD HH:MM:SS".
-//   from_olap_string uses CastToDateOrDatetime::from_string_non_strict_mode<true>.
+//   from_zonemap_string uses CastToDateOrDatetime::from_string_non_strict_mode<true>.
 // ---------------------------------------------------------------------------
 TEST_F(OlapTypeTest, ser_deser_datetimev1) {
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_DATETIME, false);
     auto serde = data_type_ptr->get_serde();
-    DataTypeSerDe::FormatOptions options;
 
     struct TestCase {
         int year, month, day, hour, minute, second;
@@ -1077,7 +1067,7 @@ TEST_F(OlapTypeTest, ser_deser_datetimev1) {
 
         // Round-trip
         Field restored_field;
-        auto status = serde->from_olap_string(result_str, restored_field, options);
+        auto status = serde->from_zonemap_string(result_str, restored_field);
         EXPECT_TRUE(status.ok()) << status.to_string();
         auto restored_val = restored_field.get<TYPE_DATETIME>();
         EXPECT_EQ(restored_val.year(), tc.year);
@@ -1093,12 +1083,11 @@ TEST_F(OlapTypeTest, ser_deser_datetimev1) {
 // DateV2 (TYPE_DATEV2): to_olap_string outputs "YYYY-MM-DD".
 //   Internal: DateV2Value<DateV2ValueType>, stored as uint32_t (bit-packed).
 //   Bit layout: year(16bits) << 9 | month(4bits) << 5 | day(5bits).
-//   from_olap_string uses strptime "%Y-%m-%d", then bit-packs the parsed date.
+//   from_zonemap_string uses strptime "%Y-%m-%d", then bit-packs the parsed date.
 // ---------------------------------------------------------------------------
 TEST_F(OlapTypeTest, ser_deser_datev2) {
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(TYPE_DATEV2, false);
     auto serde = data_type_ptr->get_serde();
-    DataTypeSerDe::FormatOptions options;
 
     struct TestCase {
         int year, month, day;
@@ -1120,7 +1109,7 @@ TEST_F(OlapTypeTest, ser_deser_datev2) {
 
         // Round-trip
         Field restored_field;
-        auto status = serde->from_olap_string(result_str, restored_field, options);
+        auto status = serde->from_zonemap_string(result_str, restored_field);
         EXPECT_TRUE(status.ok()) << status.to_string();
         auto restored_val = restored_field.get<TYPE_DATEV2>();
         EXPECT_EQ(restored_val.year(), tc.year);
@@ -1145,14 +1134,13 @@ TEST_F(OlapTypeTest, ser_deser_datev2) {
 //     scale=3: millisecond precision
 //     scale=6: microsecond precision (full precision)
 //
-//   from_olap_string uses from_date_format_str("%Y-%m-%d %H:%i:%s.%f").
+//   from_zonemap_string uses from_date_format_str("%Y-%m-%d %H:%i:%s.%f").
 // ---------------------------------------------------------------------------
 TEST_F(OlapTypeTest, ser_deser_datetimev2_no_microsecond) {
     // Test with scale=0: no fractional seconds expected
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(
             TYPE_DATETIMEV2, /*is_nullable=*/false, /*precision=*/0, /*scale=*/0);
     auto serde = data_type_ptr->get_serde();
-    DataTypeSerDe::FormatOptions options;
 
     struct TestCase {
         int year, month, day, hour, minute, second;
@@ -1177,7 +1165,7 @@ TEST_F(OlapTypeTest, ser_deser_datetimev2_no_microsecond) {
 
         // Round-trip
         Field restored_field;
-        auto status = serde->from_olap_string(result_str, restored_field, options);
+        auto status = serde->from_zonemap_string(result_str, restored_field);
         EXPECT_TRUE(status.ok()) << status.to_string();
         auto restored_val = restored_field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(restored_val.year(), tc.year);
@@ -1195,7 +1183,6 @@ TEST_F(OlapTypeTest, ser_deser_datetimev2_with_microsecond) {
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(
             TYPE_DATETIMEV2, /*is_nullable=*/false, /*precision=*/0, /*scale=*/6);
     auto serde = data_type_ptr->get_serde();
-    DataTypeSerDe::FormatOptions options;
 
     struct TestCase {
         int year, month, day, hour, minute, second;
@@ -1226,7 +1213,7 @@ TEST_F(OlapTypeTest, ser_deser_datetimev2_with_microsecond) {
 
         // Round-trip
         Field restored_field;
-        auto status = serde->from_olap_string(result_str, restored_field, options);
+        auto status = serde->from_zonemap_string(result_str, restored_field);
         EXPECT_TRUE(status.ok()) << status.to_string();
         auto restored_val = restored_field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(restored_val.year(), tc.year);
@@ -1243,12 +1230,11 @@ TEST_F(OlapTypeTest, ser_deser_datetimev2_scale3) {
     // Test with scale=3 (millisecond precision)
     // to_olap_string uses default scale=-1, so behavior is the same as scale=6
     // for the output: microsecond part appears ONLY if > 0, always 6 digits.
-    // However, the data type has scale=3, meaning from_olap_string should still
+    // However, the data type has scale=3, meaning from_zonemap_string should still
     // be able to parse back the full microsecond value stored in the field.
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(
             TYPE_DATETIMEV2, /*is_nullable=*/false, /*precision=*/0, /*scale=*/3);
     auto serde = data_type_ptr->get_serde();
-    DataTypeSerDe::FormatOptions options;
 
     {
         // 123000 microseconds (= 123 milliseconds)
@@ -1262,7 +1248,7 @@ TEST_F(OlapTypeTest, ser_deser_datetimev2_scale3) {
 
         // Round-trip
         Field restored_field;
-        auto status = serde->from_olap_string(result_str, restored_field, options);
+        auto status = serde->from_zonemap_string(result_str, restored_field);
         EXPECT_TRUE(status.ok()) << status.to_string();
         auto restored_val = restored_field.get<TYPE_DATETIMEV2>();
         EXPECT_EQ(restored_val.year(), 2023);

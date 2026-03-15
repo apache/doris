@@ -515,14 +515,15 @@ std::string DataTypeDecimalSerDe<T>::to_olap_string(const Field& field) const {
         // DecimalV2 outputs "integer.fraction" with 9 zero-padded fractional digits.
         // E.g., DecimalV2 value 123.456 → int_value=123, frac_value=456000000
         //       → decimal12_t(123, 456000000).to_string() → "123.456000000".
-        // from_olap_string() must use ignore_scale=false to parse this format correctly.
+        // from_zonemap_string() sets ignore_scale=true internally, but DecimalV2's parser
+        // hardcodes scale=9 regardless, so the round-trip is correct either way.
         decimal12_t decimal_val(value.int_value(), value.frac_value());
         return decimal_val.to_string();
     } else if constexpr (T == TYPE_DECIMAL256) {
         // DecimalV3: outputs the raw unscaled integer string.
         // E.g., Decimal256(76,10) value 123.456 → internal int = 1234560000000
         //       → "1234560000000".
-        // from_olap_string() must use ignore_scale=true to parse this as a raw integer.
+        // from_zonemap_string() sets ignore_scale=true to parse this as a raw integer.
         return wide::to_string(value.value);
     } else if constexpr (T == TYPE_DECIMAL128I) {
         // Same as Decimal256: raw unscaled integer.
