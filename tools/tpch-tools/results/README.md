@@ -17,60 +17,60 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Databricks TPC-H Result Summary
+# Databricks TPC-H 结果总结
 
-This directory stores three Databricks SQL Warehouse TPC-H SF1000 result sets collected on 2026-03-15:
+这个目录保存了 2026-03-15 采集的 3 组 Databricks SQL Warehouse TPC-H SF1000 测试结果：
 
-| Label | Run ID | Warehouse ID | Size | Scope |
+| 标签 | Run ID | Warehouse ID | 规格 | 范围 |
 | --- | --- | --- | --- | --- |
-| medium baseline | `20260315T041645Z` | `8aa191202f247888` | `medium` | Full 22-query run, 3 passes per query |
-| medium q20 rerun | `20260315T044033Z` | `8aa191202f247888` | `medium` | `q20` rerun only, 3 passes |
-| large baseline | `20260315T044414Z` | `06d5d2d7689aec4a` | `large` | Full 22-query run, 3 passes per query |
+| medium 基线 | `20260315T041645Z` | `8aa191202f247888` | `medium` | 完整 22 条查询，每条执行 3 个 pass |
+| medium q20 重跑 | `20260315T044033Z` | `8aa191202f247888` | `medium` | 只重跑 `q20`，共 3 个 pass |
+| large 基线 | `20260315T044414Z` | `06d5d2d7689aec4a` | `large` | 完整 22 条查询，每条执行 3 个 pass |
 
-All runs target `catalog=workspace`, `schema=tpch_sf1000_ext`, and the pass order `cold`, `hot1`, `hot2`.
+所有结果都基于 `catalog=workspace`、`schema=tpch_sf1000_ext`，执行顺序都是 `cold`、`hot1`、`hot2`。
 
-## High-Level Results
+## 总览
 
-| View | Successful statements | Failed statements | Cold total | Hot1 total | Hot2 total | Best-hot total | Notes |
+| 视图 | 成功语句数 | 失败语句数 | Cold 总耗时 | Hot1 总耗时 | Hot2 总耗时 | Best-hot 总耗时 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| medium baseline | 64 / 66 | 2 | 474.749 s | 16.703 s | 13.462 s | 12.874 s | `q20` failed in `cold` and `hot2` |
-| medium q20 rerun | 3 / 3 | 0 | 16.384 s | 3.469 s | 3.136 s | 3.136 s | rerun of `q20` only |
-| medium merged view | 66 / 66 | 0 | 491.133 s | 16.961 s | 16.598 s | 16.010 s | baseline with `q20` replaced by rerun |
-| large baseline | 64 / 66 | 2 | 43.513 s | 36.400 s | 35.413 s | 32.435 s | `q16` failed in `cold` and `hot1` |
+| medium 基线 | 64 / 66 | 2 | 474.749 s | 16.703 s | 13.462 s | 12.874 s | `q20` 在 `cold` 和 `hot2` 失败 |
+| medium q20 重跑 | 3 / 3 | 0 | 16.384 s | 3.469 s | 3.136 s | 3.136 s | 只重跑了 `q20` |
+| medium 合并视图 | 66 / 66 | 0 | 491.133 s | 16.961 s | 16.598 s | 16.010 s | 用重跑结果替换基线里的 `q20` |
+| large 基线 | 64 / 66 | 2 | 43.513 s | 36.400 s | 35.413 s | 32.435 s | `q16` 在 `cold` 和 `hot1` 失败 |
 
-`medium merged view` is not a raw artifact. It is the practical full-run view formed by keeping the original medium baseline and replacing the failed `q20` row with the successful rerun.
+`medium 合并视图` 不是原始产物，而是保留 medium 基线的全部结果，再用 `q20` 的成功重跑结果替换掉失败记录后得到的完整视图。
 
-## Run-By-Run Findings
+## 分组结论
 
-### Medium Baseline
+### Medium 基线
 
-- The baseline completed 21 of 22 queries across all three passes. The only unstable query was `q20`.
-- `q20` failed in `cold` and `hot2` with `IncompleteRead(4296009 bytes read)`, but `hot1` succeeded in `3.211 s`.
-- The slowest cold queries were `q5` (`71.708 s`), `q21` (`50.399 s`), `q9` (`46.629 s`), `q18` (`43.876 s`), and `q4` (`34.846 s`).
-- The slowest best-hot queries among the fully successful baseline queries were `q19` (`1.362 s`), `q22` (`1.356 s`), `q21` (`1.319 s`), `q5` (`0.569 s`), and `q2` (`0.561 s`).
+- 这组基线里，22 条查询中有 21 条在 3 个 pass 上都执行成功，唯一不稳定的是 `q20`。
+- `q20` 在 `cold` 和 `hot2` 都报了 `IncompleteRead(4296009 bytes read)`，但 `hot1` 成功，耗时 `3.211 s`。
+- Cold 最慢的 5 条查询是 `q5`（`71.708 s`）、`q21`（`50.399 s`）、`q9`（`46.629 s`）、`q18`（`43.876 s`）和 `q4`（`34.846 s`）。
+- 在完整成功的查询里，best-hot 最慢的 5 条查询是 `q19`（`1.362 s`）、`q22`（`1.356 s`）、`q21`（`1.319 s`）、`q5`（`0.569 s`）和 `q2`（`0.561 s`）。
 
-### Medium q20 Rerun
+### Medium q20 重跑
 
-- The rerun shows that `q20` can complete successfully on the same medium warehouse.
-- `q20` finished in `16.384 s` for `cold`, `3.469 s` for `hot1`, and `3.136 s` for `hot2`.
-- After merging the rerun back into the medium baseline, the medium result becomes a full `22 / 22` successful query set.
+- 这次重跑说明 `q20` 在同一个 medium warehouse 上是可以稳定跑通的。
+- `q20` 的 `cold` 耗时 `16.384 s`，`hot1` 耗时 `3.469 s`，`hot2` 耗时 `3.136 s`。
+- 把这次重跑并回 medium 基线之后，medium 侧就能得到一份完整的 `22 / 22` 成功结果。
 
-### Large Baseline
+### Large 基线
 
-- The large warehouse also completed 21 of 22 queries across all three passes. The unstable query here was `q16`.
-- `q16` failed in `cold` with `IncompleteRead(703547 bytes read)` and in `hot1` with `IncompleteRead(672370 bytes read)`, then succeeded in `hot2` with `2.383 s`.
-- The slowest cold queries were `q1` (`7.662 s`), `q2` (`4.379 s`), `q20` (`3.259 s`), `q3` (`2.210 s`), and `q7` (`1.609 s`).
-- The slowest best-hot queries were `q2` (`3.246 s`), `q20` (`3.076 s`), `q1` (`1.521 s`), `q3` (`1.441 s`), and `q8` (`1.424 s`).
+- large 仓库这组结果也是 22 条查询里有 21 条在 3 个 pass 上都执行成功，唯一不稳定的是 `q16`。
+- `q16` 在 `cold` 报 `IncompleteRead(703547 bytes read)`，在 `hot1` 报 `IncompleteRead(672370 bytes read)`，但在 `hot2` 成功，耗时 `2.383 s`。
+- Cold 最慢的 5 条查询是 `q1`（`7.662 s`）、`q2`（`4.379 s`）、`q20`（`3.259 s`）、`q3`（`2.210 s`）和 `q7`（`1.609 s`）。
+- Best-hot 最慢的 5 条查询是 `q2`（`3.246 s`）、`q20`（`3.076 s`）、`q1`（`1.521 s`）、`q3`（`1.441 s`）和 `q8`（`1.424 s`）。
 
-## Interpretation Notes
+## 解读注意事项
 
-- The cold totals are the most stable cross-run comparison point in the current artifacts. On the 21 queries that have complete three-pass data in both warehouse sizes, the large warehouse cold total is `43.513 s` versus `481.283 s` for the medium merged view, or about `11.06x` faster.
-- The hot totals are not directly comparable without caveats. The medium baseline `queries.csv` includes `from_result_cache`, and the CSV explicitly marks `18` `hot1` rows plus `18` `hot2` rows as cache hits. Three `cold` rows are also explicitly marked as cache hits.
-- The large baseline and the `q20` rerun only store `metric_duration_ms` and do not expose the cache-hit flag or the detailed execution metrics present in the medium baseline output. This means the hot-path comparison is not apples-to-apples.
-- Because `q20` and `q16` both succeed in at least one pass, the failures look more like intermittent read or fetch instability than deterministic SQL correctness issues.
+- 目前这批产物里，Cold 总耗时是更稳定的横向比较口径。在两种 warehouse 规格下都拥有完整三次执行结果的 21 条查询上，large 的 Cold 总耗时是 `43.513 s`，medium 合并视图是 `481.283 s`，也就是 large 大约快 `11.06x`。
+- Hot 总耗时不能直接横比。medium 基线的 `queries.csv` 带有 `from_result_cache` 字段，其中明确标记了 `18` 条 `hot1` 和 `18` 条 `hot2` 为缓存命中，另外还有 `3` 条 `cold` 也被明确标记为缓存命中。
+- large 基线和 `q20` 重跑结果只保留了 `metric_duration_ms`，没有暴露像 medium 基线那样的缓存命中标记和更细的执行指标，所以 hot 路径的对比不是严格同口径。
+- `q20` 和 `q16` 都至少在一个 pass 上成功过，因此这些失败更像是间歇性的读取或结果拉取不稳定，而不是 SQL 本身存在确定性错误。
 
-## Recommended Follow-Up
+## 后续建议
 
-- Keep the medium merged view as the current medium reference result, because it restores the missing `q20` measurements without changing any other query.
-- Rerun `q16` on the large warehouse to close the only missing query in that run.
-- If these results will be used for warehouse sizing or engine comparisons, disable or clear result cache before each pass, or at minimum capture cache-hit metadata consistently for every run.
+- 当前 medium 结果建议以 `medium 合并视图` 为准，因为它只补齐了缺失的 `q20`，没有改动其他查询的结果。
+- 建议在 large warehouse 上补跑 `q16`，把这组结果里唯一缺失的查询补完整。
+- 如果后续要把这些结果用于 warehouse 选型或引擎对比，建议在每个 pass 前显式关闭或清理结果缓存，至少也要保证每次运行都一致地记录 cache-hit 元数据。
