@@ -40,59 +40,55 @@ struct HammingDistanceImpl {
     using ResultDataType = DataTypeInt64;
     using ResultPaddedPODArray = PaddedPODArray<Int64>;
 
-    static Status vector_vector(const ColumnString::Chars& ldata,
-                                const ColumnString::Offsets& loffsets,
-                                const ColumnString::Chars& rdata,
-                                const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
-        DCHECK_EQ(loffsets.size(), roffsets.size());
-
-        const size_t size = loffsets.size();
-        res.resize(size);
-        for (size_t i = 0; i < size; ++i) {
-            RETURN_IF_ERROR(hamming_distance(string_ref_at(ldata, loffsets, i),
-                                             string_ref_at(rdata, roffsets, i), res[i], i));
-        }
-        return Status::OK();
-    }
-
-    static Status vector_scalar(const ColumnString::Chars& ldata,
-                                const ColumnString::Offsets& loffsets, const StringRef& rdata,
+    static Status vector_vector(const ColumnString& lcol, const ColumnString& rcol,
                                 ResultPaddedPODArray& res) {
-        const size_t size = loffsets.size();
+        DCHECK_EQ(lcol.size(), rcol.size());
+
+        const size_t size = lcol.size();
         res.resize(size);
+        std::vector<size_t> left_offsets;
+        std::vector<size_t> right_offsets;
         for (size_t i = 0; i < size; ++i) {
-            RETURN_IF_ERROR(hamming_distance(string_ref_at(ldata, loffsets, i), rdata, res[i], i));
+            RETURN_IF_ERROR(hamming_distance(lcol.get_data_at(i).trim_tail_padding_zero(),
+                                             rcol.get_data_at(i).trim_tail_padding_zero(),
+                                             left_offsets, right_offsets, res[i], i));
         }
         return Status::OK();
     }
 
-    static Status scalar_vector(const StringRef& ldata, const ColumnString::Chars& rdata,
-                                const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
-        const size_t size = roffsets.size();
+    static Status vector_scalar(const ColumnString& lcol, const StringRef& rdata,
+                                ResultPaddedPODArray& res) {
+        const size_t size = lcol.size();
         res.resize(size);
+        const bool right_ascii = simd::VStringFunctions::is_ascii(rdata);
+        std::vector<size_t> right_offsets;
+        utf8_char_offsets(rdata, right_offsets);
+        std::vector<size_t> left_offsets;
         for (size_t i = 0; i < size; ++i) {
-            RETURN_IF_ERROR(hamming_distance(ldata, string_ref_at(rdata, roffsets, i), res[i], i));
+            RETURN_IF_ERROR(hamming_distance_with_right_offsets(
+                    lcol.get_data_at(i).trim_tail_padding_zero(), left_offsets, rdata,
+                    right_offsets, right_ascii, res[i], i));
+        }
+        return Status::OK();
+    }
+
+    static Status scalar_vector(const StringRef& ldata, const ColumnString& rcol,
+                                ResultPaddedPODArray& res) {
+        const size_t size = rcol.size();
+        res.resize(size);
+        const bool left_ascii = simd::VStringFunctions::is_ascii(ldata);
+        std::vector<size_t> left_offsets;
+        utf8_char_offsets(ldata, left_offsets);
+        std::vector<size_t> right_offsets;
+        for (size_t i = 0; i < size; ++i) {
+            RETURN_IF_ERROR(hamming_distance_with_left_offsets(
+                    ldata, left_offsets, left_ascii, rcol.get_data_at(i).trim_tail_padding_zero(),
+                    right_offsets, res[i], i));
         }
         return Status::OK();
     }
 
 private:
-    static StringRef string_ref_at(const ColumnString::Chars& data,
-                                   const ColumnString::Offsets& offsets, size_t i) {
-        DCHECK_LT(i, offsets.size());
-        const size_t begin = (i == 0) ? 0 : offsets[i - 1];
-        const size_t end = offsets[i];
-        if (end <= begin || end > data.size()) {
-            return StringRef("", 0);
-        }
-
-        size_t str_size = end - begin;
-        if (str_size > 0 && data[end - 1] == '\0') {
-            --str_size;
-        }
-        return StringRef(reinterpret_cast<const char*>(data.data() + begin), str_size);
-    }
-
     static void utf8_char_offsets(const StringRef& ref, std::vector<size_t>& offsets) {
         offsets.clear();
         offsets.reserve(ref.size);
@@ -107,28 +103,26 @@ private:
                std::memcmp(left.data + left_off, right.data + right_off, left_len) == 0;
     }
 
-public:
-    static Status hamming_distance(const StringRef& left, const StringRef& right, Int64& result,
-                                   size_t row) {
-        if (simd::VStringFunctions::is_ascii(left) && simd::VStringFunctions::is_ascii(right)) {
-            if (left.size != right.size) {
-                return Status::InvalidArgument(
-                        "hamming_distance requires strings of the same length at row {}", row);
-            }
-
-            Int64 distance = 0;
-            for (size_t i = 0; i < left.size; ++i) {
-                distance += static_cast<Int64>(left.data[i] != right.data[i]);
-            }
-            result = distance;
-            return Status::OK();
+    static Status hamming_distance_ascii(const StringRef& left, const StringRef& right,
+                                         Int64& result, size_t row) {
+        if (left.size != right.size) {
+            return Status::InvalidArgument(
+                    "hamming_distance requires strings of the same length at row {}", row);
         }
 
-        std::vector<size_t> left_offsets;
-        std::vector<size_t> right_offsets;
-        utf8_char_offsets(left, left_offsets);
-        utf8_char_offsets(right, right_offsets);
+        Int64 distance = 0;
+        for (size_t i = 0; i < left.size; ++i) {
+            distance += static_cast<Int64>(left.data[i] != right.data[i]);
+        }
+        result = distance;
+        return Status::OK();
+    }
 
+    static Status hamming_distance_utf8(const StringRef& left,
+                                        const std::vector<size_t>& left_offsets,
+                                        const StringRef& right,
+                                        const std::vector<size_t>& right_offsets, Int64& result,
+                                        size_t row) {
         if (left_offsets.size() != right_offsets.size()) {
             return Status::InvalidArgument(
                     "hamming_distance requires strings of the same length at row {}", row);
@@ -153,6 +147,56 @@ public:
 
         result = distance;
         return Status::OK();
+    }
+
+public:
+    static Status hamming_distance(const StringRef& left, const StringRef& right,
+                                   std::vector<size_t>& left_offsets,
+                                   std::vector<size_t>& right_offsets, Int64& result, size_t row) {
+        const bool left_ascii = simd::VStringFunctions::is_ascii(left);
+        const bool right_ascii = simd::VStringFunctions::is_ascii(right);
+        if (left_ascii && right_ascii) {
+            return hamming_distance_ascii(left, right, result, row);
+        }
+
+        utf8_char_offsets(left, left_offsets);
+        utf8_char_offsets(right, right_offsets);
+        return hamming_distance_utf8(left, left_offsets, right, right_offsets, result, row);
+    }
+
+    static Status hamming_distance_with_right_offsets(const StringRef& left,
+                                                      std::vector<size_t>& left_offsets,
+                                                      const StringRef& right,
+                                                      const std::vector<size_t>& right_offsets,
+                                                      bool right_ascii, Int64& result, size_t row) {
+        const bool left_ascii = simd::VStringFunctions::is_ascii(left);
+        if (left_ascii && right_ascii) {
+            return hamming_distance_ascii(left, right, result, row);
+        }
+
+        utf8_char_offsets(left, left_offsets);
+        return hamming_distance_utf8(left, left_offsets, right, right_offsets, result, row);
+    }
+
+    static Status hamming_distance_with_left_offsets(const StringRef& left,
+                                                     const std::vector<size_t>& left_offsets,
+                                                     bool left_ascii, const StringRef& right,
+                                                     std::vector<size_t>& right_offsets,
+                                                     Int64& result, size_t row) {
+        const bool right_ascii = simd::VStringFunctions::is_ascii(right);
+        if (left_ascii && right_ascii) {
+            return hamming_distance_ascii(left, right, result, row);
+        }
+
+        utf8_char_offsets(right, right_offsets);
+        return hamming_distance_utf8(left, left_offsets, right, right_offsets, result, row);
+    }
+
+    static Status hamming_distance(const StringRef& left, const StringRef& right, Int64& result,
+                                   size_t row) {
+        std::vector<size_t> left_offsets;
+        std::vector<size_t> right_offsets;
+        return hamming_distance(left, right, left_offsets, right_offsets, result, row);
     }
 };
 
@@ -216,18 +260,17 @@ public:
         if (!has_nullable) {
             if (left_const) {
                 auto st = Impl<LeftDataType, RightDataType>::scalar_vector(
-                        left_str_col->get_data_at(0), right_str_col->get_chars(),
-                        right_str_col->get_offsets(), res_data);
+                        left_str_col->get_data_at(0).trim_tail_padding_zero(), *right_str_col,
+                        res_data);
                 RETURN_IF_ERROR(st);
             } else if (right_const) {
                 auto st = Impl<LeftDataType, RightDataType>::vector_scalar(
-                        left_str_col->get_chars(), left_str_col->get_offsets(),
-                        right_str_col->get_data_at(0), res_data);
+                        *left_str_col, right_str_col->get_data_at(0).trim_tail_padding_zero(),
+                        res_data);
                 RETURN_IF_ERROR(st);
             } else {
                 auto st = Impl<LeftDataType, RightDataType>::vector_vector(
-                        left_str_col->get_chars(), left_str_col->get_offsets(),
-                        right_str_col->get_chars(), right_str_col->get_offsets(), res_data);
+                        *left_str_col, *right_str_col, res_data);
                 RETURN_IF_ERROR(st);
             }
             block.replace_by_position(result, std::move(res_col));
@@ -249,8 +292,8 @@ public:
             }
 
             auto st = Impl<LeftDataType, RightDataType>::hamming_distance(
-                    left_str_col->get_data_at(left_idx), right_str_col->get_data_at(right_idx),
-                    res_data[i], i);
+                    left_str_col->get_data_at(left_idx).trim_tail_padding_zero(),
+                    right_str_col->get_data_at(right_idx).trim_tail_padding_zero(), res_data[i], i);
             RETURN_IF_ERROR(st);
         }
 
