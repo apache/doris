@@ -198,9 +198,9 @@ static void read_orc_line(int64_t line, std::string block_dump,
     ExternalFileMappingInfo external_info(0, range, false);
     int64_t init_reader_ms = 0;
     int64_t get_block_ms = 0;
-    auto st = vf->read_lines_from_range(range, {line}, block.get(), external_info, &init_reader_ms,
-                                        &get_block_ms);
-    EXPECT_TRUE(st.ok());
+    st = vf->read_lines_from_range(range, {line}, block.get(), external_info, &init_reader_ms,
+                                   &get_block_ms);
+    EXPECT_TRUE(st.ok()) << st;
     EXPECT_EQ(block->dump_data(1), block_dump);
 }
 
