@@ -59,6 +59,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -887,8 +888,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
     @VisibleForTesting
     Map<Slot, Slot> constructReplaceMap(MTMV mtmv) {
         Map<Slot, Slot> replaceMap = new HashMap<>();
-        // Need remove invisible column, and then mapping them
-        Map<List<String>, Slot> mvOutputsMap = new HashMap<>();
         MTMVCache cache;
         try {
             cache = mtmv.getOrGenerateCache(ConnectContext.get());
@@ -896,33 +895,55 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
             LOG.warn(String.format("LogicalOlapScan constructReplaceMap fail, mv name is %s", mtmv.getName()), e);
             return replaceMap;
         }
-        for (Slot mvSlot : cache.getOriginalFinalPlan().getOutput()) {
-            if (mvSlot instanceof SlotReference && (((SlotReference) mvSlot).isVisible())) {
-                SlotReference mvRef = (SlotReference) mvSlot;
-                String mvName = mvRef.getOriginalColumn().map(Column::getName).orElse(mvRef.getName());
-                List<String> slotFullNames = Lists.newArrayList(mvName.toLowerCase(Locale.ROOT));
-                slotFullNames.addAll(mvRef.getSubPath());
-                mvOutputsMap.put(slotFullNames, mvSlot);
+        // Get MV plan's visible output slots (ordered, matching MV definition SELECT list).
+        // This includes all visible slots: regular columns AND variant subPath columns
+        // like payload['issue'] that are real physical columns of the MV.
+        List<Slot> mvPlanVisibleOutputs = new ArrayList<>();
+        for (Slot slot : cache.getOriginalFinalPlan().getOutput()) {
+            if (slot instanceof SlotReference && ((SlotReference) slot).isVisible()) {
+                mvPlanVisibleOutputs.add(slot);
             }
         }
+        // Get MV table's visible physical columns (ordered).
+        // getBaseSchema() returns visible-only columns whose names are derived from the
+        // CREATE MV AS SELECT aliases. These names are guaranteed unique per table.
+        // Using physical column names as keys (instead of plan slot's originalColumn.getName())
+        // correctly handles:
+        // - Aliased columns (e.g. SELECT sum_total AS agg3): key is "agg3", not "sum_total"
+        // - Self-join MVs: physical column names are unique even if source columns collide
+        // - Variant columns (e.g. SELECT payload['issue']): they are physical columns in getBaseSchema()
+        List<Column> mvPhysicalColumns = mtmv.getBaseSchema();
+        if (mvPlanVisibleOutputs.size() != mvPhysicalColumns.size()) {
+            LOG.error("LogicalOlapScan constructReplaceMap: MV plan visible output size {} "
+                    + "doesn't match physical column size {} for mv {}",
+                    mvPlanVisibleOutputs.size(), mvPhysicalColumns.size(), mtmv.getName());
+            // not throw exception here to avoid query failed, compute mv fd should not influence query process
+            return Collections.emptyMap();
+        }
+        // Build mvOutputsMap: the i-th visible plan output corresponds to the i-th physical column.
+        Map<List<String>, Slot> mvOutputsMap = new HashMap<>();
+        for (int i = 0; i < mvPlanVisibleOutputs.size(); i++) {
+            String physicalColName = mvPhysicalColumns.get(i).getName().toLowerCase(Locale.ROOT);
+            List<String> key = Lists.newArrayList(physicalColName);
+            mvOutputsMap.put(key, mvPlanVisibleOutputs.get(i));
+        }
+        // Match scan output slots against mvOutputsMap.
+        // Scan slot's originalColumn.getName() refers to the MV's physical column, so keys match.
+        // Extra subPath slots added by VariantSubPathPruning during query optimization won't
+        // match any mvOutputsMap entry (their keys include subPath elements) and are safely skipped.
         for (Slot scanSlot : getOutput()) {
-            if (scanSlot instanceof SlotReference && (((SlotReference) scanSlot).isVisible())) {
+            if (scanSlot instanceof SlotReference && ((SlotReference) scanSlot).isVisible()) {
                 SlotReference scanRef = (SlotReference) scanSlot;
                 String scanName = scanRef.getOriginalColumn().map(Column::getName).orElse(scanRef.getName());
-                List<String> slotFullNames = Lists.newArrayList(scanName.toLowerCase(Locale.ROOT));
-                slotFullNames.addAll(scanRef.getSubPath());
-                Slot mvMappingSlot = mvOutputsMap.get(slotFullNames);
+                List<String> key = Lists.newArrayList(scanName.toLowerCase(Locale.ROOT));
+                key.addAll(scanRef.getSubPath());
+                Slot mvMappingSlot = mvOutputsMap.get(key);
                 if (mvMappingSlot != null) {
-                    // Put replace map should consider subPath, because query mv scan may add subPath slot by
-                    // VariantSubPathPruning rule, this would cause mv sql plan output slot and mv scan output
-                    // slot different. eg:  mv sql plan output is col1 which is variant type,
-                    // mv scan output may be like: col1, col1.sub1.sub2. col1.sub1.sub2 is generated by
-                    // VariantSubPathPruning rule.
                     replaceMap.put(mvMappingSlot, scanSlot);
                 }
             }
         }
-        // If size not match, log error and return empty replace map
+        // Every MV plan slot must be mapped
         if (mvOutputsMap.size() != replaceMap.size()) {
             LOG.error(String.format("LogicalOlapScan constructReplaceMap size not match,"
                     + "mv name is %s, mvOutputsMap is %s, mv output is %s, scan output is %s",

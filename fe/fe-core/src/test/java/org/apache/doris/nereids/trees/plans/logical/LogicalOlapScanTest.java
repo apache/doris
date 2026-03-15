@@ -86,106 +86,69 @@ public class LogicalOlapScanTest {
         return slot;
     }
 
+    private Column createMockColumn(String name) {
+        Column col = Mockito.mock(Column.class);
+        Mockito.when(col.getName()).thenReturn(name);
+        return col;
+    }
+
+    private LogicalOlapScan createMockScan(List<Slot> outputSlots) {
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        Mockito.when(olapTable.getId()).thenReturn(1L);
+        Mockito.when(olapTable.getName()).thenReturn("test_table");
+        Mockito.when(olapTable.getFullQualifiers()).thenReturn(ImmutableList.of("db", "test_table"));
+
+        LogicalOlapScan scan = Mockito.spy(new LogicalOlapScan(
+                new RelationId(1),
+                olapTable,
+                ImmutableList.of("db"),
+                Collections.emptyList(),
+                Collections.emptyList(),
+                Optional.empty(),
+                Collections.emptyList()
+        ));
+        Mockito.doReturn(outputSlots).when(scan).getOutput();
+        return scan;
+    }
+
     /**
-     * Test constructReplaceMap returns empty map when origin outputs size != target outputs size
+     * Test constructReplaceMap returns empty map when MV plan output size
+     * doesn't match physical column size.
      */
     @Test
     public void testConstructReplaceMapSizeMismatch() throws Exception {
-        // Create mock MTMV
         MTMV mtmv = Mockito.mock(MTMV.class);
         MTMVCache cache = Mockito.mock(MTMVCache.class);
         Plan originalPlan = Mockito.mock(Plan.class);
 
-        // Set up origin outputs with 3 visible slots
-        SlotReference originSlot1 = createMockSlot("col1", true);
-        SlotReference originSlot2 = createMockSlot("col2", true);
-        SlotReference originSlot3 = createMockSlot("col3", true);
-        List<Slot> originOutputs = ImmutableList.of(originSlot1, originSlot2, originSlot3);
+        // MV plan has 3 visible output slots
+        List<Slot> originOutputs = ImmutableList.of(
+                createMockSlot("col1", true),
+                createMockSlot("col2", true),
+                createMockSlot("col3", true));
 
         Mockito.when(mtmv.getOrGenerateCache(Mockito.any())).thenReturn(cache);
         Mockito.when(mtmv.getName()).thenReturn("test_mv");
         Mockito.when(cache.getOriginalFinalPlan()).thenReturn(originalPlan);
         Mockito.when(originalPlan.getOutput()).thenReturn(originOutputs);
 
-        // Create LogicalOlapScan with only 2 visible output slots (size mismatch)
-        SlotReference targetSlot1 = createMockSlot("col1", true);
-        SlotReference targetSlot2 = createMockSlot("col2", true);
-        List<Slot> targetOutputs = ImmutableList.of(targetSlot1, targetSlot2);
+        // But MV physical table only has 2 columns (size mismatch with plan output)
+        Mockito.when(mtmv.getBaseSchema()).thenReturn(ImmutableList.of(
+                createMockColumn("col1"), createMockColumn("col2")));
 
-        // Mock OlapTable for LogicalOlapScan constructor
-        OlapTable olapTable = Mockito.mock(OlapTable.class);
-        Mockito.when(olapTable.getId()).thenReturn(1L);
-        Mockito.when(olapTable.getName()).thenReturn("test_table");
-        Mockito.when(olapTable.getFullQualifiers()).thenReturn(ImmutableList.of("db", "test_table"));
+        LogicalOlapScan scan = createMockScan(ImmutableList.of(
+                createMockSlot("col1", "col1", Collections.emptyList(), true),
+                createMockSlot("col2", "col2", Collections.emptyList(), true)));
 
-        // Create LogicalOlapScan with mocked cachedOutput
-        LogicalOlapScan scan = Mockito.spy(new LogicalOlapScan(
-                new RelationId(1),
-                olapTable,
-                ImmutableList.of("db"),
-                Collections.emptyList(),
-                Collections.emptyList(),
-                Optional.empty(),
-                Collections.emptyList()
-        ));
-
-        // Mock getOutput() to return target outputs (size = 2)
-        Mockito.doReturn(targetOutputs).when(scan).getOutput();
-
-        // Call constructReplaceMap - should return empty map due to size mismatch
         Map<Slot, Slot> replaceMap = scan.constructReplaceMap(mtmv);
 
-        // Verify that the map is empty because originOutputs.size() (3) != targetOutputs.size() (2)
         Assertions.assertTrue(replaceMap.isEmpty(),
-                "replaceMap should be empty when origin and target output sizes don't match");
+                "replaceMap should be empty when plan output size doesn't match physical column size");
     }
 
     /**
-     * Test constructReplaceMap matches slots case-insensitively and with subPath.
-     */
-    @Test
-    public void testConstructReplaceMapCaseInsensitiveWithSubPath() throws Exception {
-        MTMV mtmv = Mockito.mock(MTMV.class);
-        MTMVCache cache = Mockito.mock(MTMVCache.class);
-        Plan originalPlan = Mockito.mock(Plan.class);
-
-        SlotReference mvSlotBase = createMockSlot("Col1", "COL1", Collections.emptyList(), true);
-        SlotReference mvSlotSub = createMockSlot("Col1", "COL1", Arrays.asList("a", "b"), true);
-        List<Slot> originOutputs = ImmutableList.of(mvSlotBase, mvSlotSub);
-
-        Mockito.when(mtmv.getOrGenerateCache(Mockito.any())).thenReturn(cache);
-        Mockito.when(cache.getOriginalFinalPlan()).thenReturn(originalPlan);
-        Mockito.when(originalPlan.getOutput()).thenReturn(originOutputs);
-
-        SlotReference scanSlotBase = createMockSlot("col1", "col1", Collections.emptyList(), true);
-        SlotReference scanSlotSub = createMockSlot("col1", "col1", Arrays.asList("a", "b"), true);
-        List<Slot> targetOutputs = ImmutableList.of(scanSlotBase, scanSlotSub);
-
-        OlapTable olapTable = Mockito.mock(OlapTable.class);
-        Mockito.when(olapTable.getId()).thenReturn(1L);
-        Mockito.when(olapTable.getName()).thenReturn("test_table");
-        Mockito.when(olapTable.getFullQualifiers()).thenReturn(ImmutableList.of("db", "test_table"));
-
-        LogicalOlapScan scan = Mockito.spy(new LogicalOlapScan(
-                new RelationId(1),
-                olapTable,
-                ImmutableList.of("db"),
-                Collections.emptyList(),
-                Collections.emptyList(),
-                Optional.empty(),
-                Collections.emptyList()
-        ));
-        Mockito.doReturn(targetOutputs).when(scan).getOutput();
-
-        Map<Slot, Slot> replaceMap = scan.constructReplaceMap(mtmv);
-
-        Assertions.assertEquals(2, replaceMap.size());
-        Assertions.assertSame(scanSlotBase, replaceMap.get(mvSlotBase));
-        Assertions.assertSame(scanSlotSub, replaceMap.get(mvSlotSub));
-    }
-
-    /**
-     * Test constructReplaceMap ignores extra helper slots in scan output and still maps base slots.
+     * Test constructReplaceMap ignores extra subPath slots in scan output
+     * (added by VariantSubPathPruning during query optimization).
      */
     @Test
     public void testConstructReplaceMapIgnoresExtraScanSlots() throws Exception {
@@ -193,36 +156,66 @@ public class LogicalOlapScanTest {
         MTMVCache cache = Mockito.mock(MTMVCache.class);
         Plan originalPlan = Mockito.mock(Plan.class);
 
-        SlotReference mvSlotBase = createMockSlot("col1", "col1", Collections.emptyList(), true);
-        List<Slot> originOutputs = ImmutableList.of(mvSlotBase);
-
+        SlotReference mvSlot = createMockSlot("col1", true);
         Mockito.when(mtmv.getOrGenerateCache(Mockito.any())).thenReturn(cache);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
         Mockito.when(cache.getOriginalFinalPlan()).thenReturn(originalPlan);
-        Mockito.when(originalPlan.getOutput()).thenReturn(originOutputs);
+        Mockito.when(originalPlan.getOutput()).thenReturn(ImmutableList.of(mvSlot));
+        Mockito.when(mtmv.getBaseSchema()).thenReturn(ImmutableList.of(createMockColumn("col1")));
 
+        // Scan has base slot + extra subPath slot from VariantSubPathPruning
         SlotReference scanSlotBase = createMockSlot("col1", "col1", Collections.emptyList(), true);
         SlotReference scanSlotHelper = createMockSlot("col1", "col1", Arrays.asList("a", "b"), true);
-        List<Slot> targetOutputs = ImmutableList.of(scanSlotBase, scanSlotHelper);
-
-        OlapTable olapTable = Mockito.mock(OlapTable.class);
-        Mockito.when(olapTable.getId()).thenReturn(1L);
-        Mockito.when(olapTable.getName()).thenReturn("test_table");
-        Mockito.when(olapTable.getFullQualifiers()).thenReturn(ImmutableList.of("db", "test_table"));
-
-        LogicalOlapScan scan = Mockito.spy(new LogicalOlapScan(
-                new RelationId(1),
-                olapTable,
-                ImmutableList.of("db"),
-                Collections.emptyList(),
-                Collections.emptyList(),
-                Optional.empty(),
-                Collections.emptyList()
-        ));
-        Mockito.doReturn(targetOutputs).when(scan).getOutput();
+        LogicalOlapScan scan = createMockScan(ImmutableList.of(scanSlotBase, scanSlotHelper));
 
         Map<Slot, Slot> replaceMap = scan.constructReplaceMap(mtmv);
 
         Assertions.assertEquals(1, replaceMap.size());
-        Assertions.assertSame(scanSlotBase, replaceMap.get(mvSlotBase));
+        Assertions.assertSame(scanSlotBase, replaceMap.get(mvSlot));
+    }
+
+    /**
+     * Test constructReplaceMap correctly handles aliased columns.
+     * MV SQL: SELECT l_orderkey, sum_total AS agg3, max_total AS agg4 FROM mv1
+     * Plan slots have originalColumn names from source table (sum_total, max_total),
+     * but MV physical columns are named agg3, agg4 (the aliases).
+     * Physical column name is used as the key, so the mapping succeeds.
+     */
+    @Test
+    public void testConstructReplaceMapWithAliasedColumns() throws Exception {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        MTMVCache cache = Mockito.mock(MTMVCache.class);
+        Plan originalPlan = Mockito.mock(Plan.class);
+
+        // MV plan output: slot originalColumn names are from source table
+        SlotReference mvSlot1 = createMockSlot("l_orderkey", "l_orderkey", Collections.emptyList(), true);
+        SlotReference mvSlot2 = createMockSlot("sum_total", "sum_total", Collections.emptyList(), true);
+        SlotReference mvSlot3 = createMockSlot("max_total", "max_total", Collections.emptyList(), true);
+
+        Mockito.when(mtmv.getOrGenerateCache(Mockito.any())).thenReturn(cache);
+        Mockito.when(mtmv.getName()).thenReturn("test_alias_mv");
+        Mockito.when(cache.getOriginalFinalPlan()).thenReturn(originalPlan);
+        Mockito.when(originalPlan.getOutput()).thenReturn(ImmutableList.of(mvSlot1, mvSlot2, mvSlot3));
+
+        // Physical columns have aliased names
+        Mockito.when(mtmv.getBaseSchema()).thenReturn(ImmutableList.of(
+                createMockColumn("l_orderkey"),
+                createMockColumn("agg3"),  // aliased from sum_total
+                createMockColumn("agg4")   // aliased from max_total
+        ));
+
+        // Scan slots reference MV's physical column names
+        SlotReference scanSlot1 = createMockSlot("l_orderkey", "l_orderkey", Collections.emptyList(), true);
+        SlotReference scanSlot2 = createMockSlot("agg3", "agg3", Collections.emptyList(), true);
+        SlotReference scanSlot3 = createMockSlot("agg4", "agg4", Collections.emptyList(), true);
+        LogicalOlapScan scan = createMockScan(ImmutableList.of(scanSlot1, scanSlot2, scanSlot3));
+
+        Map<Slot, Slot> replaceMap = scan.constructReplaceMap(mtmv);
+
+        // All 3 should be mapped despite plan slots having different names than scan slots
+        Assertions.assertEquals(3, replaceMap.size());
+        Assertions.assertSame(scanSlot1, replaceMap.get(mvSlot1));
+        Assertions.assertSame(scanSlot2, replaceMap.get(mvSlot2));
+        Assertions.assertSame(scanSlot3, replaceMap.get(mvSlot3));
     }
 }
