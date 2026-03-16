@@ -149,10 +149,6 @@ Status IcebergTableReader::init_row_filters() {
                 _position_delete_base(table_desc.original_file_path, position_delete_files));
         _file_format_reader->set_push_down_agg_type(TPushAggOp::NONE);
     }
-    if (!equality_delete_files.empty()) {
-        RETURN_IF_ERROR(_equality_delete_base(equality_delete_files));
-        _file_format_reader->set_push_down_agg_type(TPushAggOp::NONE);
-    }
 
     COUNTER_UPDATE(_iceberg_profile.num_delete_files, table_desc.delete_files.size());
     return Status::OK();
@@ -908,7 +904,8 @@ Status IcebergParquetReader::_process_equality_delete(
 
         auto delete_reader = ParquetReader::create_unique(
                 _profile, _params, delete_desc, READ_DELETE_FILE_BATCH_SIZE,
-                &_state->timezone_obj(), _io_ctx, _state, _meta_cache);
+                const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx, _state,
+                _meta_cache);
         RETURN_IF_ERROR(delete_reader->init_schema_reader());
 
         // the column that to read equality delete file.
