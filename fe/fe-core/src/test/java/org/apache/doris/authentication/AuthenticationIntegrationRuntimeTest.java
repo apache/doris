@@ -31,6 +31,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 class AuthenticationIntegrationRuntimeTest {
+    private static final String CREATE_USER = "creator";
 
     @Test
     void testAuthenticateContinuesOnUserNotFound() throws Exception {
@@ -111,7 +112,7 @@ class AuthenticationIntegrationRuntimeTest {
         Map<String, String> createProperties = new LinkedHashMap<>();
         createProperties.put("type", type);
         createProperties.putAll(properties);
-        return AuthenticationIntegrationMeta.fromCreateSql(name, createProperties, null);
+        return AuthenticationIntegrationMeta.fromCreateSql(name, createProperties, null, CREATE_USER);
     }
 
     private static Map<String, String> map(String... kvs) {

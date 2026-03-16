@@ -44,6 +44,7 @@ import java.util.Map;
 
 class AuthenticationIntegrationAuthenticatorTest {
     private static final String CHAIN_CONFIG = "corp_ldap,backup_ldap";
+    private static final String CREATE_USER = "creator";
 
     private Env env;
     private Auth auth;
@@ -148,7 +149,7 @@ class AuthenticationIntegrationAuthenticatorTest {
         Map<String, String> properties = new LinkedHashMap<>();
         properties.put("type", "ldap");
         properties.put("enable_jit_user", String.valueOf(jitEnabled));
-        return AuthenticationIntegrationMeta.fromCreateSql(name, properties, null);
+        return AuthenticationIntegrationMeta.fromCreateSql(name, properties, null, CREATE_USER);
     }
 
     private static AuthenticationIntegration integration(String name, boolean jitEnabled) {
