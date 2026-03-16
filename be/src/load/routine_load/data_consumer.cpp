@@ -750,9 +750,9 @@ Status KinesisDataConsumer::group_consume(
         BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
         int64_t max_running_time_ms) {
     static constexpr int MAX_RETRY_TIMES_FOR_TRANSPORT_FAILURE = 3;
-    static constexpr int RATE_LIMIT_BACKOFF_MS = 1000;     // 1 second
-    static constexpr int KINESIS_GET_RECORDS_LIMIT = 1000; // Max 10000
-    static constexpr int INTER_SHARD_SLEEP_MS = 10;        // Small sleep between shards
+    static constexpr int RATE_LIMIT_BACKOFF_MS = 1000;         // 1 second
+    static constexpr int KINESIS_GET_RECORDS_LIMIT = 1000;     // Max 10000
+    static constexpr int INTER_SHARD_SLEEP_MS = 10;            // Small sleep between shards
     static constexpr int MIN_INTERVAL_BETWEEN_ROUNDS_MS = 200; // Min 200ms between rounds
 
     int64_t left_time = max_running_time_ms;
@@ -762,7 +762,7 @@ Status KinesisDataConsumer::group_consume(
     int64_t received_rows = 0;
     int64_t put_rows = 0;
     int32_t retry_times = 0;
-    int32_t throttle_count = 0;  // Track consecutive throttle errors
+    int32_t throttle_count = 0; // Track consecutive throttle errors
     Status st = Status::OK();
     bool done = false;
 
@@ -818,10 +818,11 @@ Status KinesisDataConsumer::group_consume(
                     Aws::Kinesis::KinesisErrors::PROVISIONED_THROUGHPUT_EXCEEDED) {
                     throttle_count++;
                     // Exponential backoff: 1s, 2s, 4s, 8s, max 10s
-                    int backoff_ms = std::min(RATE_LIMIT_BACKOFF_MS * (1 << std::min(throttle_count - 1, 3)), 10000);
+                    int backoff_ms = std::min(
+                            RATE_LIMIT_BACKOFF_MS * (1 << std::min(throttle_count - 1, 3)), 10000);
                     LOG(INFO) << "Kinesis rate limit exceeded for shard: " << shard_id
-                              << ", throttle_count: " << throttle_count
-                              << ", backing off " << backoff_ms << "ms";
+                              << ", throttle_count: " << throttle_count << ", backing off "
+                              << backoff_ms << "ms";
                     std::this_thread::sleep_for(std::chrono::milliseconds(backoff_ms));
                     ++it; // Move to next shard, will retry this one next round
                     continue;
@@ -849,7 +850,7 @@ Status KinesisDataConsumer::group_consume(
 
             // Reset retry counter on success
             retry_times = 0;
-            throttle_count = 0;  // Reset throttle counter on successful GetRecords
+            throttle_count = 0; // Reset throttle counter on successful GetRecords
 
             // Process records - move result to allow moving individual records
             auto result = outcome.GetResultWithOwnership();
