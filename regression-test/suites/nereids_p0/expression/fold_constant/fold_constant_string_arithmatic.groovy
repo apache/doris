@@ -996,6 +996,13 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select split_by_string('a::b::c', '::', 2)")
     testFoldConst("select split_by_string('one,two,three,', ',', 1)")
     testFoldConst("select split_by_string('', ',', 2)")
+    // split_by_string with limit via string-to-int coercion
+    testFoldConst("select split_by_string('a,b,c,d', ',', '2')")
+    testFoldConst("select split_by_string('one,two,three,', ',', '-1')")
+    testFoldConst("select split_by_string('a,b,c', ',', '0')")
+    testFoldConst("select split_by_string('a,b,c,d', ',', cast('3' as int))")
+    testFoldConst("select split_by_string('a,b,c,d', ',', cast(2 as tinyint))")
+    testFoldConst("select split_by_string('a,b,c,d', ',', cast(2 as bigint))")
 
     // split_part
     testFoldConst("select split_part('a,b,c', '', -2)")

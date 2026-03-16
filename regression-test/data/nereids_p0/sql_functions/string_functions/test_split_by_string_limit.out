@@ -216,3 +216,24 @@
 -- !noregress3 --
 ["你", "a", "好", "b", "世", "c", "界"]
 
+-- !coerce1 --
+["one", "two", "three", ""]
+
+-- !coerce2 --
+["a", "b,c,d"]
+
+-- !coerce3 --
+["a", "b", "c"]
+
+-- !coerce4 --
+["a", "b", "c,d"]
+
+-- !coerce5 --
+["a", "b,c,d"]
+
+-- !coerce6 --
+["a", "b,c,d"]
+
+-- !coerce_invalid --
+\N
+
