@@ -336,20 +336,23 @@ public:
         std::unordered_map<std::string, VExprContextSPtr> missing_columns;
         static_cast<void>(local_reader->set_fill_columns(partition_columns, missing_columns));
 
-        BlockUPtr block = Block::create_unique();
-        for (const auto& slot_desc : tuple_desc->slots()) {
-            auto data_type = make_nullable(slot_desc->type());
-            MutableColumnPtr data_column = data_type->create_column();
-            block->insert(ColumnWithTypeAndName(std::move(data_column), data_type,
-                                                slot_desc->col_name()));
-        }
-
         bool eof = false;
-        size_t read_row = 0;
-        Status st = local_reader->get_next_block(block.get(), &read_row, &eof);
-        EXPECT_TRUE(st.ok()) << st;
-        EXPECT_TRUE(eof);
-        return block->dump_data();
+        std::string dump;
+        while (!eof) {
+            BlockUPtr block = Block::create_unique();
+            for (const auto& slot_desc : tuple_desc->slots()) {
+                auto data_type = make_nullable(slot_desc->type());
+                MutableColumnPtr data_column = data_type->create_column();
+                block->insert(ColumnWithTypeAndName(std::move(data_column), data_type,
+                                                    slot_desc->col_name()));
+            }
+
+            size_t read_row = 0;
+            Status st = local_reader->get_next_block(block.get(), &read_row, &eof);
+            EXPECT_TRUE(st.ok()) << st;
+            dump += block->dump_data();
+        }
+        return dump;
     }
 
     static void create_table_desc(TDescriptorTable& t_desc_table, TTableDescriptor& t_table_desc,
