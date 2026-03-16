@@ -116,9 +116,6 @@ Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnInde
                 static_cast<int64_t>(load_costs_ms));
         if (_index_type == AnnIndexType::IVF_ON_DISK) {
             stats->ivf_on_disk_load_costs_ns.update(stats->load_index_costs_ns.value());
-            DorisMetrics::instance()->ann_ivf_on_disk_load_costs_ms->increment(
-                    static_cast<int64_t>(load_costs_ms));
-            DorisMetrics::instance()->ann_ivf_on_disk_load_cnt->increment(1);
         }
     }
 #endif
@@ -207,9 +204,6 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
                 static_cast<int64_t>(load_costs_ms));
         if (_index_type == AnnIndexType::IVF_ON_DISK) {
             stats->ivf_on_disk_load_costs_ns.update(stats->load_index_costs_ns.value());
-            DorisMetrics::instance()->ann_ivf_on_disk_load_costs_ms->increment(
-                    static_cast<int64_t>(load_costs_ms));
-            DorisMetrics::instance()->ann_ivf_on_disk_load_cnt->increment(1);
         }
     }
 #endif

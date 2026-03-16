@@ -339,10 +339,12 @@ struct CachedRandomAccessReader : faiss::RandomAccessReader {
                 auto page = std::make_unique<DataPage>(actual_block_size, /*use_cache=*/true,
                                                        segment_v2::INDEX_PAGE);
 
+                const int64_t fetch_start_ns = MonotonicNanos();
                 {
                     std::lock_guard<std::mutex> lock(_io_mutex);
                     _read_from_input(block_start, page->data(), actual_block_size);
                 }
+                const int64_t fetch_costs_ns = MonotonicNanos() - fetch_start_ns;
 
                 ::memcpy(dst, page->data() + offset_in_block, can_read);
 
@@ -351,6 +353,10 @@ struct CachedRandomAccessReader : faiss::RandomAccessReader {
                     page.release(); // cache owns the page now
                 }
                 ++g_ivf_on_disk_cache_stats.miss_cnt;
+                DorisMetrics::instance()->ann_ivf_on_disk_fetch_page_cnt->increment(1);
+                double fetch_costs_ms = static_cast<double>(fetch_costs_ns) / 1000.0;
+                DorisMetrics::instance()->ann_ivf_on_disk_fetch_page_costs_ms->increment(
+                        static_cast<int64_t>(fetch_costs_ms));
             }
 
             dst += can_read;
