@@ -127,6 +127,10 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_creden
 Status AwsMskIamAuth::get_credentials(Aws::Auth::AWSCredentials* credentials) {
     std::lock_guard<std::mutex> lock(_mutex);
 
+    if (!_credentials_provider) {
+        return Status::InternalError("AWS credentials provider not initialized");
+    }
+
     // Refresh if needed
     if (_should_refresh_credentials()) {
         _cached_credentials = _credentials_provider->GetAWSCredentials();
@@ -428,6 +432,18 @@ std::unique_ptr<AwsMskIamOAuthCallback> AwsMskIamOAuthCallback::create_from_prop
         auth_config.credentials_provider = credentials_provider_it->second;
         LOG(INFO) << "AWS MSK IAM: using credentials provider " << auth_config.credentials_provider
                   << " (region: " << auth_config.region << ")";
+    }
+
+    // Validate that at least one credential source is configured
+    bool has_credentials = !auth_config.access_key.empty() || !auth_config.role_arn.empty() ||
+                           !auth_config.profile_name.empty() ||
+                           !auth_config.credentials_provider.empty();
+
+    if (!has_credentials) {
+        LOG(ERROR) << "AWS MSK IAM authentication enabled but no credentials configured. "
+                   << "Please provide one of: access_key/secret_key, role_arn, profile_name, or "
+                      "credentials_provider";
+        return nullptr;
     }
 
     LOG(INFO) << "Enabling AWS MSK IAM authentication for broker: " << broker_hostname
