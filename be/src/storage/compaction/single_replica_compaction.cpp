@@ -40,6 +40,7 @@
 #include "util/brpc_client_cache.h"
 #include "util/client_cache.h"
 #include "util/security.h"
+#include "util/time.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/trace.h"
 
@@ -67,6 +68,7 @@ Status SingleReplicaCompaction::prepare_compact() {
 }
 
 Status SingleReplicaCompaction::execute_compact() {
+    // Pre-checks: early return without profile recording (intentionally excluded)
     if (!tablet()->should_fetch_from_peer()) {
         return Status::Aborted("compaction should be performed locally");
     }
@@ -83,10 +85,15 @@ Status SingleReplicaCompaction::execute_compact() {
                 "another base compaction is running. tablet={}", _tablet->tablet_id());
     }
 
+    // Pre-checks passed, start timing for profile recording
+    int64_t profile_start_time_ms = UnixMillis();
+
     SCOPED_ATTACH_TASK(_mem_tracker);
 
     // do single replica compaction
-    RETURN_IF_ERROR(_do_single_replica_compaction());
+    Status st = _do_single_replica_compaction();
+    submit_profile_record(st.ok(), profile_start_time_ms, st.ok() ? "" : st.to_string());
+    RETURN_IF_ERROR(st);
 
     _state = CompactionState::SUCCESS;
 

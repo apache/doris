@@ -161,7 +161,8 @@ Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
           _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction),
           _enable_vertical_compact_variant_subcolumns(
                   config::enable_vertical_compact_variant_subcolumns),
-          _enable_inverted_index_compaction(config::inverted_index_compaction_enable) {
+          _enable_inverted_index_compaction(config::inverted_index_compaction_enable),
+          _compaction_id(CompactionProfileManager::instance()->next_compaction_id()) {
     init_profile(label);
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     _rowid_conversion = std::make_unique<RowIdConversion>();
@@ -175,6 +176,46 @@ Compaction::~Compaction() {
     _output_rowset.reset();
     _cur_tablet_schema.reset();
     _rowid_conversion.reset();
+}
+
+void Compaction::submit_profile_record(bool success, int64_t start_time_ms,
+                                       const std::string& status_msg) {
+    CompactionProfileRecord record;
+    record.compaction_id = _compaction_id;
+    record.compaction_type = profile_type();
+    record.tablet_id = _tablet->tablet_id();
+    record.start_time_ms = start_time_ms;
+    record.end_time_ms = UnixMillis();
+    record.cost_time_ms = record.end_time_ms - record.start_time_ms;
+    record.success = success;
+    record.status_msg = status_msg;
+
+    record.input_rowsets_data_size = _input_rowsets_data_size;
+    record.input_rowsets_count = static_cast<int64_t>(_input_rowsets.size());
+    record.input_row_num = _input_row_num;
+    record.input_segments_num = input_segments_num();
+    record.input_rowsets_index_size = _input_rowsets_index_size;
+    record.input_rowsets_total_size = _input_rowsets_total_size;
+
+    record.merged_rows = _stats.merged_rows;
+    record.filtered_rows = _stats.filtered_rows;
+    record.output_rows = _stats.output_rows;
+    record.bytes_read_from_local = _stats.bytes_read_from_local;
+    record.bytes_read_from_remote = _stats.bytes_read_from_remote;
+
+    record.merge_rowsets_latency_ns =
+            _merge_rowsets_latency_timer ? _merge_rowsets_latency_timer->value() : 0;
+
+    if (_output_rowset) {
+        record.output_rowset_data_size = _output_rowset->data_disk_size();
+        record.output_row_num = _output_rowset->num_rows();
+        record.output_segments_num = _output_rowset->num_segments();
+        record.output_rowset_index_size = _output_rowset->index_disk_size();
+        record.output_rowset_total_size = _output_rowset->total_disk_size();
+        record.output_version = _output_version.to_string();
+    }
+
+    CompactionProfileManager::instance()->add_record(std::move(record));
 }
 
 void Compaction::init_profile(const std::string& label) {
@@ -533,6 +574,8 @@ bool CompactionMixin::handle_ordered_data_compaction() {
 }
 
 Status CompactionMixin::execute_compact() {
+    int64_t profile_start_time_ms = UnixMillis();
+
     uint32_t checksum_before;
     uint32_t checksum_after;
     bool enable_compaction_checksum = config::enable_compaction_checksum;
@@ -553,19 +596,51 @@ Status CompactionMixin::execute_compact() {
         data_dir->disks_compaction_num_increment(-1);
     };
 
-    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits), record_compaction_stats);
+    // Inline HANDLE_EXCEPTION_IF_CATCH_EXCEPTION to capture failure status for profile recording
+    Status impl_status;
+    try {
+        doris::enable_thread_catch_bad_alloc++;
+        Defer alloc_defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};
+        impl_status = execute_compact_impl(permits);
+        if (UNLIKELY(!impl_status.ok())) {
+            record_compaction_stats(doris::Exception());
+        }
+    } catch (const doris::Exception& e) {
+        record_compaction_stats(e);
+        if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {
+            impl_status = Status::MemoryLimitExceeded(fmt::format(
+                    "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}", e.code(),
+                    e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));
+        } else {
+            impl_status = e.to_status();
+        }
+    }
+
+    if (!impl_status.ok()) {
+        submit_profile_record(false, profile_start_time_ms, impl_status.to_string());
+        return impl_status;
+    }
+
     record_compaction_stats(doris::Exception());
 
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
                                          _input_rowsets.back()->end_version(), &checksum_after);
-        RETURN_IF_ERROR(checksum_task.execute());
+        auto checksum_st = checksum_task.execute();
+        if (!checksum_st.ok()) {
+            submit_profile_record(false, profile_start_time_ms, checksum_st.to_string());
+            return checksum_st;
+        }
         if (checksum_before != checksum_after) {
-            return Status::InternalError(
+            auto st = Status::InternalError(
                     "compaction tablet checksum not consistent, before={}, after={}, tablet_id={}",
                     checksum_before, checksum_after, _tablet->tablet_id());
+            submit_profile_record(false, profile_start_time_ms, st.to_string());
+            return st;
         }
     }
+
+    submit_profile_record(true, profile_start_time_ms);
 
     DorisMetrics::instance()->local_compaction_read_rows_total->increment(_input_row_num);
     DorisMetrics::instance()->local_compaction_read_bytes_total->increment(
@@ -1672,21 +1747,45 @@ size_t CloudCompactionMixin::apply_txn_size_truncation_and_log(const std::string
 
 Status CloudCompactionMixin::execute_compact() {
     TEST_INJECTION_POINT("Compaction::do_compaction");
+    int64_t profile_start_time_ms = UnixMillis();
     int64_t permits = get_compaction_permits();
-    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(
-            execute_compact_impl(permits), [&](const doris::Exception& ex) {
-                auto st = garbage_collection();
-                if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-                    _tablet->enable_unique_key_merge_on_write() && !st.ok()) {
-                    // if compaction fail, be will try to abort compaction, and delete bitmap lock
-                    // will release if abort job successfully, but if abort failed, delete bitmap
-                    // lock will not release, in this situation, be need to send this rpc to ms
-                    // to try to release delete bitmap lock.
-                    _engine.meta_mgr().remove_delete_bitmap_update_lock(
-                            _tablet->table_id(), COMPACTION_DELETE_BITMAP_LOCK_ID, initiator(),
-                            _tablet->tablet_id());
-                }
-            });
+
+    auto cloud_exception_handler = [&](const doris::Exception& ex) {
+        auto st = garbage_collection();
+        if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+            _tablet->enable_unique_key_merge_on_write() && !st.ok()) {
+            _engine.meta_mgr().remove_delete_bitmap_update_lock(
+                    _tablet->table_id(), COMPACTION_DELETE_BITMAP_LOCK_ID, initiator(),
+                    _tablet->tablet_id());
+        }
+    };
+
+    // Inline HANDLE_EXCEPTION_IF_CATCH_EXCEPTION to capture failure status for profile recording
+    Status impl_status;
+    try {
+        doris::enable_thread_catch_bad_alloc++;
+        Defer alloc_defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};
+        impl_status = execute_compact_impl(permits);
+        if (UNLIKELY(!impl_status.ok())) {
+            cloud_exception_handler(doris::Exception());
+        }
+    } catch (const doris::Exception& e) {
+        cloud_exception_handler(e);
+        if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {
+            impl_status = Status::MemoryLimitExceeded(fmt::format(
+                    "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}", e.code(),
+                    e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));
+        } else {
+            impl_status = e.to_status();
+        }
+    }
+
+    if (!impl_status.ok()) {
+        submit_profile_record(false, profile_start_time_ms, impl_status.to_string());
+        return impl_status;
+    }
+
+    submit_profile_record(true, profile_start_time_ms);
 
     DorisMetrics::instance()->remote_compaction_read_rows_total->increment(_input_row_num);
     DorisMetrics::instance()->remote_compaction_write_rows_total->increment(

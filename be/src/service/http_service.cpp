@@ -43,6 +43,7 @@
 #include "service/http/action/checksum_action.h"
 #include "service/http/action/clear_cache_action.h"
 #include "service/http/action/compaction_action.h"
+#include "service/http/action/compaction_profile_action.h"
 #include "service/http/action/compaction_score_action.h"
 #include "service/http/action/config_action.h"
 #include "service/http/action/debug_point_action.h"
@@ -279,6 +280,12 @@ Status HttpService::start() {
     // shrink memory for starting co-exist process during upgrade
     ShrinkMemAction* shrink_mem_action = _pool.add(new ShrinkMemAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/shrink_mem", shrink_mem_action);
+
+    CompactionProfileAction* compaction_profile_action =
+            _pool.add(new CompactionProfileAction(_env, TPrivilegeHier::GLOBAL,
+                                                   TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/profile",
+                                      compaction_profile_action);
 
 #ifndef BE_TEST
     auto& engine = _env->storage_engine();

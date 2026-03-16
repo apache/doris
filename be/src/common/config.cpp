@@ -436,6 +436,8 @@ DEFINE_Bool(enable_low_cardinality_cache_code, "true");
 DEFINE_mBool(enable_compaction_checksum, "false");
 // whether disable automatic compaction task
 DEFINE_mBool(disable_auto_compaction, "false");
+// max number of compaction profile records to keep in memory, 0 to disable
+DEFINE_mInt32(compaction_profile_max_records, "500");
 // whether enable vertical compaction
 DEFINE_mBool(enable_vertical_compaction, "true");
 // whether enable ordered data compaction

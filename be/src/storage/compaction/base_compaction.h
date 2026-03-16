@@ -43,6 +43,7 @@ public:
 private:
     Status pick_rowsets_to_compact();
     std::string_view compaction_name() const override { return "base compaction"; }
+    CompactionProfileType profile_type() const override { return CompactionProfileType::BASE; }
 
     ReaderType compaction_type() const override { return ReaderType::READER_BASE_COMPACTION; }
 
