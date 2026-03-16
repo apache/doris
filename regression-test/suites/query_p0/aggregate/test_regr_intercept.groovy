@@ -206,4 +206,8 @@ suite("test_regr_intercept") {
     // Boolean type inputs
     qt_sql_bool_1 "select regr_intercept(true, false)"
 
+    // NULL literal inputs
+    qt_sql_null_1 "select regr_intercept(NULL, 1)"
+    qt_sql_null_2 "select regr_intercept(1, NULL)"
+
 }

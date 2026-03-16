@@ -206,4 +206,8 @@ suite("test_regr_slope") {
     // Boolean type inputs
     qt_sql_bool_1 "select regr_slope(true, false)"
 
+    // NULL literal inputs
+    qt_sql_null_1 "select regr_slope(NULL, 1)"
+    qt_sql_null_2 "select regr_slope(1, NULL)"
+
 }

@@ -163,4 +163,8 @@ suite("test_regr_count") {
 
     // Boolean type inputs
     qt_sql_bool_1 "select regr_count(true, false)"
+
+    // NULL literal inputs
+    qt_sql_null_1 "select regr_count(NULL, 1)"
+    qt_sql_null_2 "select regr_count(1, NULL)"
 }

@@ -103,4 +103,8 @@ suite("test_regr_sxx") {
 
     // Boolean type inputs
     qt_sql_bool_1 "select regr_sxx(true, false)"
+
+    // NULL literal inputs
+    qt_sql_null_1 "select regr_sxx(NULL, 1)"
+    qt_sql_null_2 "select regr_sxx(1, NULL)"
 }
