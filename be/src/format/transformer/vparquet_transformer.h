@@ -82,6 +82,7 @@ struct ParquetFileOptions {
     TParquetCompressionType::type compression_type;
     TParquetVersion::type parquet_version;
     bool parquet_disable_dictionary = false;
+    // https://github.com/apache/doris/pull/51384 iceberg write sink set false to use int64, hive write sink set true use int96.
     bool enable_int96_timestamps = false;
 };
 

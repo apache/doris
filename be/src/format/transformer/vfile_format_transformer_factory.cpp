@@ -19,6 +19,7 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -79,9 +80,13 @@ Status create_tvf_format_transformer(const TTVFTableSink& tvf_sink, RuntimeState
                 parquet_schemas.push_back(schema);
             }
         }
-        result->reset(new VParquetTransformer(
-                state, file_writer, output_vexpr_ctxs, parquet_schemas, false,
-                {TParquetCompressionType::SNAPPY, TParquetVersion::PARQUET_1_0, false, false}));
+        // maybe need configure parquet options by tvf_sink properties
+        ParquetFileOptions parquet_options = {.compression_type = TParquetCompressionType::SNAPPY,
+                                              .parquet_version = TParquetVersion::PARQUET_1_0,
+                                              .parquet_disable_dictionary = false,
+                                              .enable_int96_timestamps = false};
+        *result = std::make_unique<VParquetTransformer>(state, file_writer, output_vexpr_ctxs,
+                                                        parquet_schemas, false, parquet_options);
         break;
     }
     case TFileFormatType::FORMAT_ORC: {

@@ -711,13 +711,17 @@ struct Int96toTimestamp : public PhysicalToLogicalConverter {
         dst_col->resize(start_idx + rows);
         auto& data = static_cast<ColumnDateTimeV2*>(dst_col.get())->get_data();
 
+        // INT96 encodes wall-clock (local) time with no timezone information — the same
+        // convention used by Hive and Impala. Treat the stored value as UTC so that
+        // from_unixtime() returns the wall-clock value unchanged, regardless of the
+        // session timezone.
         for (int i = 0; i < rows; i++) {
             ParquetInt96 src_cell_data = ParquetInt96_data[i];
             auto& dst_value =
                     reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[start_idx + i]);
 
             int64_t timestamp_with_micros = src_cell_data.to_timestamp_micros();
-            dst_value.from_unixtime(timestamp_with_micros / 1000000, *_convert_params->ctz);
+            dst_value.from_unixtime(timestamp_with_micros / 1000000, ConvertParams::utc0);
             dst_value.set_microsecond(timestamp_with_micros % 1000000);
         }
         return Status::OK();
