@@ -824,8 +824,7 @@ static Block create_all_types_test_block() {
         DataTypePtr type =
                 make_nullable(DataTypeFactory::instance().create_data_type(TYPE_SMALLINT, false));
         MutableColumnPtr col = type->create_column();
-        col->insert(
-                Field::create_field<PrimitiveType::TYPE_SMALLINT>(static_cast<int16_t>(1234)));
+        col->insert(Field::create_field<PrimitiveType::TYPE_SMALLINT>(static_cast<int16_t>(1234)));
         block.insert(ColumnWithTypeAndName(std::move(col), type, "col_smallint"));
     }
 
@@ -926,8 +925,8 @@ static Block create_all_types_test_block() {
                 DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, false, 0, 0));
         MutableColumnPtr col = type->create_column();
         // TIMEV2 is stored as Float64 representing seconds
-        col->insert(Field::create_field<PrimitiveType::TYPE_TIMEV2>(
-                37845.0)); // 10:30:45 in seconds
+        col->insert(
+                Field::create_field<PrimitiveType::TYPE_TIMEV2>(37845.0)); // 10:30:45 in seconds
         block.insert(ColumnWithTypeAndName(std::move(col), type, "col_timev2"));
     }
 
