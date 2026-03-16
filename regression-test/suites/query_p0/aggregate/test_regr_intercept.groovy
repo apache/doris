@@ -194,24 +194,16 @@ suite("test_regr_intercept") {
     qt_sql_double_10 "select regr_intercept(y, non_nullable(x)) from test_regr_intercept_double where id >= 3 group by id order by id"
 
     // exception test
-    test{
-        sql """select regr_intercept('range', 1);"""
-        exception "regr_intercept requires numeric for first parameter"
+    test {
+        sql """select regr_intercept(1, cast([1, 2, 3] as array<int>));"""
+        exception "regr_intercept requires a numeric, boolean or string parameter"
     }
 
-    test{
-        sql """select regr_intercept(1, 'hello');"""
-        exception "regr_intercept requires numeric for second parameter"
-    }
+    // String type inputs (compile-time cast only, no table needed)
+    qt_sql_string_1 "select regr_intercept('5', '3')"
+    qt_sql_string_2 "select regr_intercept(1, '3')"
 
-    test{
-        sql """select regr_intercept(y, 'hello') from test_regr_intercept_int;"""
-        exception "regr_intercept requires numeric for second parameter"
-    }
-
-    test{
-        sql """select regr_intercept(1, true);"""
-        exception "regr_intercept requires numeric for second parameter"
-    }
+    // Boolean type inputs
+    qt_sql_bool_1 "select regr_intercept(true, false)"
 
 }

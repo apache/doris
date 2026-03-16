@@ -153,17 +153,14 @@ suite("test_regr_avgx") {
 
     // exception
     test {
-        sql """select regr_avgx('range', 1);"""
-        exception "regr_avgx requires numeric for first parameter"
-    }
-
-    test {
-        sql """select regr_avgx(1, 'hello');"""
-        exception "regr_avgx requires numeric for second parameter"
-    }
-
-    test {
         sql """select regr_avgx(1, cast([1, 2, 3] as array<int>));"""
-        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column"
+        exception "regr_avgx requires a numeric, boolean or string parameter"
     }
+
+    // String type inputs (compile-time cast only, no table needed)
+    qt_sql_string_1 "select regr_avgx('5', '3')"
+    qt_sql_string_2 "select regr_avgx(1, '3')"
+
+    // Boolean type inputs
+    qt_sql_bool_1 "select regr_avgx(true, false)"
 }

@@ -65,12 +65,14 @@ public class RegrIntercept extends AggregateFunction
     public void checkLegalityBeforeTypeCoercion() throws AnalysisException {
         DataType arg0Type = left().getDataType();
         DataType arg1Type = right().getDataType();
-        if ((!arg0Type.isNumericType() && !arg0Type.isNullType())
-                || arg0Type.isOnlyMetricType()) {
-            throw new AnalysisException("regr_intercept requires numeric for first parameter: " + toSql());
-        } else if ((!arg1Type.isNumericType() && !arg1Type.isNullType())
-                || arg1Type.isOnlyMetricType()) {
-            throw new AnalysisException("regr_intercept requires numeric for second parameter: " + toSql());
+        if (!arg0Type.isNumericType() && !arg0Type.isBooleanType()
+                && !arg0Type.isNullType() && !arg0Type.isStringLikeType()) {
+            throw new AnalysisException("regr_intercept requires a numeric, boolean or string parameter"
+                    + " for first parameter: " + toSql());
+        } else if (!arg1Type.isNumericType() && !arg1Type.isBooleanType()
+                && !arg1Type.isNullType() && !arg1Type.isStringLikeType()) {
+            throw new AnalysisException("regr_intercept requires a numeric, boolean or string parameter"
+                    + " for second parameter: " + toSql());
         }
     }
 

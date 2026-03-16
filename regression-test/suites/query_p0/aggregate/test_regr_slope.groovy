@@ -194,24 +194,16 @@ suite("test_regr_slope") {
     qt_sql_double_10 "select regr_slope(y, non_nullable(x)) from test_regr_slope_double where id >= 3 group by id order by id"
 
     // exception test
-    test{
-        sql """select regr_slope('range', 1);"""
-        exception "regr_slope requires numeric for first parameter"
+    test {
+        sql """select regr_slope(1, cast([1, 2, 3] as array<int>));"""
+        exception "regr_slope requires a numeric, boolean or string parameter"
     }
 
-    test{
-        sql """select regr_slope(1, 'hello');"""
-        exception "regr_slope requires numeric for second parameter"
-    }
+    // String type inputs (compile-time cast only, no table needed)
+    qt_sql_string_1 "select regr_slope('5', '3')"
+    qt_sql_string_2 "select regr_slope(1, '3')"
 
-    test{
-        sql """select regr_slope(y, 'hello') from test_regr_slope_int;"""
-        exception "regr_slope requires numeric for second parameter"
-    }
-
-    test{
-        sql """select regr_slope(1, true);"""
-        exception "regr_slope requires numeric for second parameter"
-    }
+    // Boolean type inputs
+    qt_sql_bool_1 "select regr_slope(true, false)"
 
 }

@@ -100,24 +100,6 @@ public class FunctionSet<T> {
 
     public static final String COUNT = "count";
 
-    public static final String REGR_AVGX = "regr_avgx";
-
-    public static final String REGR_AVGY = "regr_avgy";
-
-    public static final String REGR_COUNT = "regr_count";
-
-    public static final String REGR_INTERCEPT = "regr_intercept";
-
-    public static final String REGR_R2 = "regr_r2";
-
-    public static final String REGR_SLOPE = "regr_slope";
-
-    public static final String REGR_SXX = "regr_sxx";
-
-    public static final String REGR_SXY = "regr_sxy";
-
-    public static final String REGR_SYY = "regr_syy";
-
     public static final String SEQUENCE_COUNT = "sequence_count";
 
     public static final String GROUP_ARRAY_INTERSECT = "group_array_intersect";

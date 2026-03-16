@@ -151,17 +151,14 @@ suite("test_regr_r2") {
 
     // exception
     test {
-        sql """select regr_r2('range', 1);"""
-        exception "regr_r2 requires numeric for first parameter"
-    }
-
-    test {
-        sql """select regr_r2(1, 'hello');"""
-        exception "regr_r2 requires numeric for second parameter"
-    }
-
-    test {
         sql """select regr_r2(1, cast([1, 2, 3] as array<int>));"""
-        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column"
+        exception "regr_r2 requires a numeric, boolean or string parameter"
     }
+
+    // String type inputs (compile-time cast only, no table needed)
+    qt_sql_string_1 "select regr_r2('5', '3')"
+    qt_sql_string_2 "select regr_r2(1, '3')"
+
+    // Boolean type inputs
+    qt_sql_bool_1 "select regr_r2(true, false)"
 }

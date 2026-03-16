@@ -46,3 +46,12 @@
 -- !sql_double_6 --
 0
 
+-- !sql_string_1 --
+1
+
+-- !sql_string_2 --
+1
+
+-- !sql_bool_1 --
+1
+
