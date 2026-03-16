@@ -18,6 +18,8 @@
 package load
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -54,6 +56,21 @@ func getNode(endpoints []string) (string, error) {
 	return endpointURL.Host, nil
 }
 
+// wrapWithGzip compresses r into memory and returns a *bytes.Reader of the compressed data.
+// Using *bytes.Reader ensures Go's http.NewRequest automatically sets GetBody, which is
+// required for the HTTP client to replay the body when Doris FE issues a 307 redirect to BE.
+func wrapWithGzip(r io.Reader) (*bytes.Reader, error) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if _, err := io.Copy(gz, r); err != nil {
+		return nil, fmt.Errorf("gzip compress: %w", err)
+	}
+	if err := gz.Close(); err != nil {
+		return nil, fmt.Errorf("gzip close: %w", err)
+	}
+	return bytes.NewReader(buf.Bytes()), nil
+}
+
 // CreateStreamLoadRequest creates an HTTP PUT request for Doris stream load
 func CreateStreamLoadRequest(cfg *config.Config, data io.Reader, attempt int) (*http.Request, error) {
 	// Get a random endpoint host
@@ -64,6 +81,17 @@ func CreateStreamLoadRequest(cfg *config.Config, data io.Reader, attempt int) (*
 
 	// Construct the load URL
 	loadURL := fmt.Sprintf(StreamLoadPattern, host, cfg.Database, cfg.Table)
+
+	// Wrap with gzip compression if enabled.
+	// Must happen before http.NewRequest so the compressed *bytes.Reader is used as body,
+	// allowing Go to auto-set GetBody for transparent 307 redirect replay.
+	if cfg.EnableGzip {
+		compressed, err := wrapWithGzip(data)
+		if err != nil {
+			return nil, err
+		}
+		data = compressed
+	}
 
 	// Create the HTTP PUT request
 	req, err := http.NewRequest(http.MethodPut, loadURL, data)
@@ -147,6 +175,11 @@ func buildStreamLoadOptions(cfg *config.Config) map[string]string {
 		result["group_commit"] = "async_mode"
 	case config.OFF:
 		// Don't add group_commit option
+	}
+
+	// Add compress_type header if gzip is enabled
+	if cfg.EnableGzip {
+		result["compress_type"] = "gz"
 	}
 
 	return result

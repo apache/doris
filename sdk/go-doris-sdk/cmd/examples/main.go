@@ -75,6 +75,9 @@ func runExample(name string) {
 	case "basic":
 		fmt.Println("Running Basic Concurrent Example...")
 		examples.RunBasicConcurrentExample()
+	case "gzip":
+		fmt.Println("Running Gzip Compression Example...")
+		examples.GzipExample()
 	case "all":
 		fmt.Println("Running All Examples...")
 		fmt.Println("\n" + strings.Repeat("=", 80))
