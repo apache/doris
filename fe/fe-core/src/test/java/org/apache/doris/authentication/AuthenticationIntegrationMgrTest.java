@@ -120,7 +120,7 @@ class AuthenticationIntegrationMgrTest {
         DdlException exception = Assertions.assertThrows(DdlException.class, () ->
                 mgr.createAuthenticationIntegration("corp_ldap", false, map("type", "ldap"), null, CREATE_USER));
 
-        Assertions.assertEquals("prepare failed", exception.getMessage());
+        Assertions.assertEquals("prepare failed", exception.getDetailMessage());
         Assertions.assertTrue(mgr.getAuthenticationIntegrations().isEmpty());
         Mockito.verify(runtime, Mockito.never()).activatePreparedAuthenticationIntegration(prepared);
         Mockito.verifyNoInteractions(editLog);
