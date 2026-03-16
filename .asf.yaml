@@ -176,10 +176,7 @@ github:
     - wm1581066
     - doris-robot
     - echo-hhj
-    - yuanyuan8983
-    - yz-jayhua
     - ixzc
     - deardeng
-    - wyxxxcat
 notifications:
   pullrequests_status:  commits@doris.apache.org
