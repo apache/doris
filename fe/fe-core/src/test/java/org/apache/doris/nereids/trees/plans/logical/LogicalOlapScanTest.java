@@ -187,10 +187,13 @@ public class LogicalOlapScanTest {
         MTMVCache cache = Mockito.mock(MTMVCache.class);
         Plan originalPlan = Mockito.mock(Plan.class);
 
-        // MV plan output: slot originalColumn names are from source table
-        SlotReference mvSlot1 = createMockSlot("l_orderkey", "l_orderkey", Collections.emptyList(), true);
-        SlotReference mvSlot2 = createMockSlot("sum_total", "sum_total", Collections.emptyList(), true);
-        SlotReference mvSlot3 = createMockSlot("max_total", "max_total", Collections.emptyList(), true);
+        // MV plan output: slot names are from source table.
+        // Use 2-arg createMockSlot (no originalColumn) to avoid nested mock Column objects
+        // causing Mockito UnfinishedStubbingException. constructReplaceMap only calls
+        // getOriginalColumn() on scan slots, not on MV plan output slots.
+        SlotReference mvSlot1 = createMockSlot("l_orderkey", true);
+        SlotReference mvSlot2 = createMockSlot("sum_total", true);
+        SlotReference mvSlot3 = createMockSlot("max_total", true);
 
         Mockito.when(mtmv.getOrGenerateCache(Mockito.any())).thenReturn(cache);
         Mockito.when(mtmv.getName()).thenReturn("test_alias_mv");
