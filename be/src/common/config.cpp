@@ -1531,33 +1531,32 @@ DEFINE_Strings(paimon_file_system_scheme_mappings,
                "s3=s3,s3a=s3,s3n=s3,oss=s3,obs=s3,cos=s3,cosn=s3,gs=s3,"
                "abfs=s3,abfss=s3,wasb=s3,wasbs=s3,http=http,https=http,"
                "ofs=broker,gfs=broker");
-DEFINE_Validator(
-        paimon_file_system_scheme_mappings,
-        ([](const std::vector<std::string>& mappings) -> bool {
-            doris::StringCaseUnorderedSet seen_schemes;
-            static const doris::StringCaseUnorderedSet supported_types = {
-                    "local", "hdfs", "s3", "http", "broker"};
-            for (const auto& raw_entry : mappings) {
-                std::string_view entry = doris::trim(raw_entry);
-                size_t separator = entry.find('=');
-                if (separator == std::string_view::npos) {
-                    return false;
-                }
-                std::string scheme = std::string(doris::trim(entry.substr(0, separator)));
-                std::string file_type =
-                        std::string(doris::trim(entry.substr(separator + 1)));
-                if (scheme.empty() || file_type.empty()) {
-                    return false;
-                }
-                if (supported_types.find(file_type) == supported_types.end()) {
-                    return false;
-                }
-                if (!seen_schemes.insert(scheme).second) {
-                    return false;
-                }
-            }
-            return true;
-        }));
+DEFINE_Validator(paimon_file_system_scheme_mappings,
+                 ([](const std::vector<std::string>& mappings) -> bool {
+                     doris::StringCaseUnorderedSet seen_schemes;
+                     static const doris::StringCaseUnorderedSet supported_types = {
+                             "local", "hdfs", "s3", "http", "broker"};
+                     for (const auto& raw_entry : mappings) {
+                         std::string_view entry = doris::trim(raw_entry);
+                         size_t separator = entry.find('=');
+                         if (separator == std::string_view::npos) {
+                             return false;
+                         }
+                         std::string scheme = std::string(doris::trim(entry.substr(0, separator)));
+                         std::string file_type =
+                                 std::string(doris::trim(entry.substr(separator + 1)));
+                         if (scheme.empty() || file_type.empty()) {
+                             return false;
+                         }
+                         if (supported_types.find(file_type) == supported_types.end()) {
+                             return false;
+                         }
+                         if (!seen_schemes.insert(scheme).second) {
+                             return false;
+                         }
+                     }
+                     return true;
+                 }));
 
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
 

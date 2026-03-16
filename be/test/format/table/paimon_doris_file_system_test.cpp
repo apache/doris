@@ -45,8 +45,8 @@ TEST_F(PaimonDorisFileSystemTest, UsesDefaultSchemeMappings) {
 }
 
 TEST_F(PaimonDorisFileSystemTest, AllowsOverridingSchemeMappingsFromConfig) {
-    config::paimon_file_system_scheme_mappings = {
-            "file=local", "jfs = s3", "gs = hdfs", "custom-http = http", "custom-broker = broker"};
+    config::paimon_file_system_scheme_mappings = {"file=local", "jfs = s3", "gs = hdfs",
+                                                  "custom-http = http", "custom-broker = broker"};
 
     EXPECT_EQ(TFileType::FILE_LOCAL, paimon::map_scheme_to_file_type("file"));
     EXPECT_EQ(TFileType::FILE_S3, paimon::map_scheme_to_file_type("JFS"));
