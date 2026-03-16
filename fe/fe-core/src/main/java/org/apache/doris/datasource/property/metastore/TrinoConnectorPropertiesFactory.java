@@ -15,20 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.property;
+package org.apache.doris.datasource.property.metastore;
 
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties.Type;
 
-@Retention(RetentionPolicy.RUNTIME)
-public @interface ConnectorProperty {
-    String[] names() default {};
-    String description() default "";
+import java.util.Map;
 
-    boolean required() default true;
-    boolean supported() default true;
-
-    boolean sensitive() default false;
-
-    boolean isRegionField() default false;
+/**
+ * Just a placeholder
+ */
+public class TrinoConnectorPropertiesFactory extends AbstractMetastorePropertiesFactory {
+    @Override
+    public MetastoreProperties create(Map<String, String> props) {
+        return new MetastoreProperties(Type.TRINO_CONNECTOR, props);
+    }
 }
