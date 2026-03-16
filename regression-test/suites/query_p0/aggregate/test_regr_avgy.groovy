@@ -154,7 +154,7 @@ suite("test_regr_avgy") {
     // exception
     test {
         sql """select regr_avgy(1, cast([1, 2, 3] as array<int>));"""
-        exception "regr_avgy requires a numeric, boolean or string parameter"
+        exception "must be numeric, boolean or string type"
     }
 
     // String type inputs (compile-time cast only, no table needed)

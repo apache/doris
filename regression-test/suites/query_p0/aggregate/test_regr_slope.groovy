@@ -196,7 +196,7 @@ suite("test_regr_slope") {
     // exception test
     test {
         sql """select regr_slope(1, cast([1, 2, 3] as array<int>));"""
-        exception "regr_slope requires a numeric, boolean or string parameter"
+        exception "must be numeric, boolean or string type"
     }
 
     // String type inputs (compile-time cast only, no table needed)

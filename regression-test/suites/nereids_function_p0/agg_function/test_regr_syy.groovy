@@ -94,7 +94,7 @@ suite("test_regr_syy") {
     // exception
     test {
         sql "select regr_syy(1, CAST([1, 2, 3] AS ARRAY<INT>))"
-        exception "regr_syy requires a numeric, boolean or string parameter"
+        exception "must be numeric, boolean or string type"
     }
 
     // String type inputs (compile-time cast only, no table needed)

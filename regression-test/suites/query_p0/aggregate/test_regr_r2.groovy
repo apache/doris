@@ -152,7 +152,7 @@ suite("test_regr_r2") {
     // exception
     test {
         sql """select regr_r2(1, cast([1, 2, 3] as array<int>));"""
-        exception "regr_r2 requires a numeric, boolean or string parameter"
+        exception "must be numeric, boolean or string type"
     }
 
     // String type inputs (compile-time cast only, no table needed)

@@ -67,12 +67,10 @@ public class RegrIntercept extends AggregateFunction
         DataType arg1Type = right().getDataType();
         if (!arg0Type.isNumericType() && !arg0Type.isBooleanType()
                 && !arg0Type.isNullType() && !arg0Type.isStringLikeType()) {
-            throw new AnalysisException("regr_intercept requires a numeric, boolean or string parameter"
-                    + " for first parameter: " + toSql());
+            throw new AnalysisException("regr_intercept(y, x): y must be numeric, boolean or string type: " + toSql());
         } else if (!arg1Type.isNumericType() && !arg1Type.isBooleanType()
                 && !arg1Type.isNullType() && !arg1Type.isStringLikeType()) {
-            throw new AnalysisException("regr_intercept requires a numeric, boolean or string parameter"
-                    + " for second parameter: " + toSql());
+            throw new AnalysisException("regr_intercept(y, x): x must be numeric, boolean or string type: " + toSql());
         }
     }
 

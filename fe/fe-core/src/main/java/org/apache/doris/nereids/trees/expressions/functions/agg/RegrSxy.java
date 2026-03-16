@@ -57,13 +57,11 @@ public class RegrSxy extends AggregateFunction
         DataType xType = right().getDataType();
         if (!yType.isNumericType() && !yType.isBooleanType()
                 && !yType.isNullType() && !yType.isStringLikeType()) {
-            throw new AnalysisException("regr_sxy requires a numeric, boolean or string parameter"
-                    + " for first parameter: " + toSql());
+            throw new AnalysisException("regr_sxy(y, x): y must be numeric, boolean or string type: " + toSql());
         }
         if (!xType.isNumericType() && !xType.isBooleanType()
                 && !xType.isNullType() && !xType.isStringLikeType()) {
-            throw new AnalysisException("regr_sxy requires a numeric, boolean or string parameter"
-                    + " for second parameter: " + toSql());
+            throw new AnalysisException("regr_sxy(y, x): x must be numeric, boolean or string type: " + toSql());
         }
     }
 

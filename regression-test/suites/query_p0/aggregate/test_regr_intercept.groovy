@@ -196,7 +196,7 @@ suite("test_regr_intercept") {
     // exception test
     test {
         sql """select regr_intercept(1, cast([1, 2, 3] as array<int>));"""
-        exception "regr_intercept requires a numeric, boolean or string parameter"
+        exception "must be numeric, boolean or string type"
     }
 
     // String type inputs (compile-time cast only, no table needed)
