@@ -75,7 +75,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
 
     // Overwrite specific partition (dt='2025-01-25', region='bj')
     sql """
-        INSERT OVERWRITE TABLE ${tb1} 
+        INSERT OVERWRITE TABLE ${tb1}
         PARTITION (dt='2025-01-25', region='bj')
         SELECT 10, 'Eve'
     """
@@ -135,12 +135,12 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     // 2. Insert new data with dt='2025-01-25' and region values from source table
     // Note: SELECT does NOT include 'dt' column - it comes from PARTITION clause
     sql """
-        INSERT OVERWRITE TABLE ${tb1} 
+        INSERT OVERWRITE TABLE ${tb1}
         PARTITION (dt='2025-01-25')
         SELECT id, name, region FROM ${tb_src}
     """
 
-    // Verify: 
+    // Verify:
     // - Partitions with dt='2025-01-25' are replaced with new data (bj, sh, gz regions)
     // - Partitions with dt='2025-01-26' remain unchanged
     order_qt_q03_after """ SELECT * FROM ${tb1} ORDER BY id """
@@ -173,7 +173,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
 
     // Overwrite with empty result to delete the specified partition
     sql """
-        INSERT OVERWRITE TABLE ${tb1} 
+        INSERT OVERWRITE TABLE ${tb1}
         PARTITION (dt='2025-01-25', region='bj')
         SELECT id, name FROM ${tb1} WHERE 1=0
     """
@@ -195,7 +195,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
 
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (invalid_col='value')
             SELECT * FROM ${tb1}
         """
@@ -225,7 +225,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
 
     // Overwrite partition with multiple partition columns including integer type
     sql """
-        INSERT OVERWRITE TABLE ${tb1} 
+        INSERT OVERWRITE TABLE ${tb1}
         PARTITION (dt='2025-01-25', region='bj', amount=100)
         SELECT 10, 'Eve'
     """
@@ -281,7 +281,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     // Hybrid mode: dt and region are static, category is dynamic from source
     // SELECT should only include: id, name, category (not dt, region)
     sql """
-        INSERT OVERWRITE TABLE ${tb2} 
+        INSERT OVERWRITE TABLE ${tb2}
         PARTITION (dt='2025-01-25', region='bj')
         SELECT id, name, category FROM ${tb2_src}
     """
@@ -315,7 +315,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         (3, 'Charlie', 1706313600000)
     """
     sql """
-        INSERT OVERWRITE TABLE ${tb1} 
+        INSERT OVERWRITE TABLE ${tb1}
         PARTITION (timestamp_val=1706140800000)
         SELECT 10, 'Eve'
     """
@@ -353,7 +353,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         (3, 'Charlie', 1706227200000, 'bj')
     """
     sql """
-        INSERT OVERWRITE TABLE ${tb1} 
+        INSERT OVERWRITE TABLE ${tb1}
         PARTITION (timestamp_val=1706140800000)
         SELECT id, name, region FROM ${tb_long_src}
     """
@@ -377,7 +377,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         (3, 'Charlie', 75.5)
     """
     sql """
-        INSERT OVERWRITE TABLE ${tb1} 
+        INSERT OVERWRITE TABLE ${tb1}
         PARTITION (score=85.5)
         SELECT 10, 'Eve'
     """
@@ -415,7 +415,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         (3, 'Charlie', 90.0, 1)
     """
     sql """
-        INSERT OVERWRITE TABLE ${tb1} 
+        INSERT OVERWRITE TABLE ${tb1}
         PARTITION (score=85.5)
         SELECT id, name, level FROM ${tb_float_src}
     """
@@ -439,7 +439,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         (3, 'Charlie', 299.99)
     """
     sql """
-        INSERT OVERWRITE TABLE ${tb1} 
+        INSERT OVERWRITE TABLE ${tb1}
         PARTITION (price=99.99)
         SELECT 10, 'Eve'
     """
@@ -477,7 +477,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         (3, 'Charlie', 199.99, 'A')
     """
     sql """
-        INSERT OVERWRITE TABLE ${tb1} 
+        INSERT OVERWRITE TABLE ${tb1}
         PARTITION (price=99.99)
         SELECT id, name, category FROM ${tb_double_src}
     """
@@ -501,7 +501,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         (3, 'Charlie', true)
     """
     sql """
-        INSERT OVERWRITE TABLE ${tb1} 
+        INSERT OVERWRITE TABLE ${tb1}
         PARTITION (is_active=true)
         SELECT 10, 'Eve'
     """
@@ -539,7 +539,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         (3, 'Charlie', false, 1)
     """
     sql """
-        INSERT OVERWRITE TABLE ${tb1} 
+        INSERT OVERWRITE TABLE ${tb1}
         PARTITION (is_active=true)
         SELECT id, name, status FROM ${tb_bool_src}
     """
@@ -563,7 +563,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
         (3, 'Charlie', '2025-01-26 10:00:00')
     """
     sql """
-        INSERT OVERWRITE TABLE ${tb1} 
+        INSERT OVERWRITE TABLE ${tb1}
         PARTITION (ts='2025-01-25 10:00:00')
         SELECT 10, 'Eve'
     """
@@ -990,7 +990,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     """
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (category='food')
             SELECT 10, 'Eve'
         """
@@ -999,7 +999,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     // Using correct partition field name should trigger non-identity error
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (category_bucket=0)
             SELECT 10, 'Eve'
         """
@@ -1023,7 +1023,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     """
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (description='hello')
             SELECT 10, 'Eve'
         """
@@ -1032,7 +1032,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     // Using correct partition field name should trigger non-identity error
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (description_trunc='hel')
             SELECT 10, 'Eve'
         """
@@ -1056,7 +1056,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     """
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (ts='2025-01-25 10:00:00')
             SELECT 10, 'Eve'
         """
@@ -1065,7 +1065,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     // Using correct partition field name should trigger non-identity error
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (ts_day='2025-01-25')
             SELECT 10, 'Eve'
         """
@@ -1089,7 +1089,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     """
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (event_date='2024-06-15')
             SELECT 10, 'Eve'
         """
@@ -1098,7 +1098,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     // Using correct partition field name should trigger non-identity error
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (event_date_year=2024)
             SELECT 10, 'Eve'
         """
@@ -1122,7 +1122,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     """
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (event_date='2025-01-15')
             SELECT 10, 'Eve'
         """
@@ -1131,7 +1131,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     // Using correct partition field name should trigger non-identity error
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (event_date_month='2025-01')
             SELECT 10, 'Eve'
         """
@@ -1155,7 +1155,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     """
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (ts='2025-01-25 10:00:00')
             SELECT 10, 'Eve'
         """
@@ -1164,7 +1164,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     // Using correct partition field name should trigger non-identity error
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (ts_hour='2025-01-25-10')
             SELECT 10, 'Eve'
         """
@@ -1190,7 +1190,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     // Static partition on non-identity column should fail
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (id=1)
             SELECT 'Eve', 'bj'
         """
@@ -1199,7 +1199,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     // Using correct partition field name should trigger non-identity error
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (id_bucket=0)
             SELECT 'Eve', 'bj'
         """
@@ -1223,7 +1223,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     """
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (amount=100)
             SELECT 10, 'Eve'
         """
@@ -1232,7 +1232,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     // Using correct partition field name should trigger non-identity error
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (amount_trunc=100)
             SELECT 10, 'Eve'
         """
@@ -1256,7 +1256,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     """
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (user_id=1001)
             SELECT 10, 'Eve'
         """
@@ -1265,7 +1265,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     // Using correct partition field name should trigger non-identity error
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (user_id_bucket=0)
             SELECT 10, 'Eve'
         """
@@ -1297,7 +1297,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     // For simplicity, test only the error case where non-identity column is specified
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (ts='2025-01-25 10:00:00')
             SELECT 10, 'Eve', 'bj'
         """
@@ -1306,7 +1306,7 @@ suite("test_iceberg_static_partition_overwrite", "p0,external,iceberg,external_d
     // Using correct partition field name should trigger non-identity error
     test {
         sql """
-            INSERT OVERWRITE TABLE ${tb1} 
+            INSERT OVERWRITE TABLE ${tb1}
             PARTITION (ts_day='2025-01-25')
             SELECT 10, 'Eve', 'bj'
         """
