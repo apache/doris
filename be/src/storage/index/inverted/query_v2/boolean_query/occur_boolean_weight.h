@@ -52,8 +52,7 @@ public:
     ~OccurBooleanWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& context) override;
-    ScorerPtr scorer(const QueryExecutionContext& context,
-                     const std::string& binding_key) override;
+    ScorerPtr scorer(const QueryExecutionContext& context, const std::string& binding_key) override;
 
     void for_each_pruning(const QueryExecutionContext& context, float threshold,
                           PruningCallback callback) override;

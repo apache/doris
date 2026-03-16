@@ -242,10 +242,9 @@ private:
                 }
                 // Full re-sort to guarantee invariant after swap-with-back,
                 // consistent with advance_all_scorers_on_pivot approach.
-                std::ranges::sort(scorers,
-                                  [](const ScorerWrapper& a, const ScorerWrapper& b) {
-                                      return a.doc() < b.doc();
-                                  });
+                std::ranges::sort(scorers, [](const ScorerWrapper& a, const ScorerWrapper& b) {
+                    return a.doc() < b.doc();
+                });
                 return false;
             }
         }

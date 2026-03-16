@@ -50,7 +50,7 @@ ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::scorer(const QueryExecutionCont
 
 template <typename ScoreCombinerPtrT>
 ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::scorer(const QueryExecutionContext& context,
-                                                         const std::string& binding_key) {
+                                                        const std::string& binding_key) {
     if (_sub_weights.empty()) {
         return std::make_shared<EmptyScorer>();
     }
@@ -75,7 +75,7 @@ ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::scorer(const QueryExecutionCont
 template <typename ScoreCombinerPtrT>
 std::unordered_map<Occur, std::vector<ScorerPtr>>
 OccurBooleanWeight<ScoreCombinerPtrT>::per_occur_scorers(const QueryExecutionContext& context,
-                                                          const std::string& binding_key) {
+                                                         const std::string& binding_key) {
     std::unordered_map<Occur, std::vector<ScorerPtr>> result;
     for (size_t i = 0; i < _sub_weights.size(); ++i) {
         const auto& [occur, weight] = _sub_weights[i];
@@ -224,8 +224,7 @@ SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::build_positive_opt(
 template <typename ScoreCombinerPtrT>
 template <typename CombinerT>
 SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::complex_scorer(
-        const QueryExecutionContext& context, CombinerT combiner,
-        const std::string& binding_key) {
+        const QueryExecutionContext& context, CombinerT combiner, const std::string& binding_key) {
     auto scorers_by_occur = per_occur_scorers(context, binding_key);
     auto must_scorers = std::move(scorers_by_occur[Occur::MUST]);
     auto should_scorers = std::move(scorers_by_occur[Occur::SHOULD]);
