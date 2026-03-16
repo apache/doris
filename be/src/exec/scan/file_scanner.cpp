@@ -1205,6 +1205,16 @@ Status FileScanner::_init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
             RETURN_IF_ERROR(_create_row_id_column_iterator());
             iceberg_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
         }
+        if (_row_lineage_columns != nullptr) {
+            auto row_lineage_columns = std::make_shared<RowGroupReader::RowLineageColumns>();
+            row_lineage_columns->row_id_column_idx = _row_lineage_columns->row_id_column_idx;
+            row_lineage_columns->last_updated_sequence_number_column_idx =
+                    _row_lineage_columns->last_updated_sequence_number_column_idx;
+            row_lineage_columns->first_row_id = range.table_format_params.iceberg_params.first_row_id;
+            row_lineage_columns->last_updated_sequence_number =
+                    range.table_format_params.iceberg_params.last_updated_sequence_number;
+            iceberg_reader->set_row_lineage_columns(row_lineage_columns);
+        }
         iceberg_reader->set_push_down_agg_type(_get_push_down_agg_type());
 
         init_status = iceberg_reader->init_reader(
@@ -1760,6 +1770,19 @@ Status FileScanner::_init_expr_ctxes() {
         if (it->second->col_name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
             _row_id_column_iterator_pair.second = _default_val_row_desc->get_column_id(slot_id);
             continue;
+        }
+        if (it->second->col_name().starts_with("_row_id")) {
+            if (_row_lineage_columns == nullptr) {
+                _row_lineage_columns = std::make_shared<RowGroupReader::RowLineageColumns>();
+            }
+            _row_lineage_columns->row_id_column_idx = _default_val_row_desc->get_column_id(slot_id);
+        }
+        if (it->second->col_name().starts_with("_last_updated_sequence_number")) {
+            if (_row_lineage_columns == nullptr) {
+                _row_lineage_columns = std::make_shared<RowGroupReader::RowLineageColumns>();
+            }
+            _row_lineage_columns->last_updated_sequence_number_column_idx =
+                    _default_val_row_desc->get_column_id(slot_id);
         }
 
         LOG(INFO) << "[DEBUG _init_expr_ctxes] slot: '" << it->second->col_name()

@@ -128,6 +128,9 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
             // Build query plan with DELETE sink
             LogicalPlan deleteQueryPlan = completeQueryPlan(ctx, logicalQuery, icebergTable);
 
+            // disable batch mode for iceberg scan node get all splits.
+            // IcebergRewritableDeletePlanner.collect for map<data file -> list<delete file>>
+            ctx.getSessionVariable().enableExternalTableBatchMode = false;
             // Create planner and plan the delete operation
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
             LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(deleteQueryPlan, ctx.getStatementContext());

@@ -18,6 +18,10 @@
 #include "exec/sink/viceberg_delete_sink.h"
 
 #include <gtest/gtest.h>
+#include <rapidjson/document.h>
+
+#include <filesystem>
+#include <fstream>
 
 #include "common/consts.h"
 #include "common/object_pool.h"
@@ -28,9 +32,11 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "exec/common/endian.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/runtime_state.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -54,6 +60,25 @@ protected:
         delete_sink.__set_hadoop_config(hadoop_conf);
 
         _t_data_sink.__set_iceberg_delete_sink(delete_sink);
+    }
+
+    TDataSink build_local_delete_sink(const std::string& output_path, int32_t format_version) {
+        TDataSink t_data_sink;
+        t_data_sink.__set_type(TDataSinkType::ICEBERG_DELETE_SINK);
+
+        TIcebergDeleteSink delete_sink;
+        delete_sink.__set_db_name("test_db");
+        delete_sink.__set_tb_name("test_table");
+        delete_sink.__set_delete_type(TFileContent::POSITION_DELETES);
+        delete_sink.__set_file_format(TFileFormatType::FORMAT_PARQUET);
+        delete_sink.__set_compress_type(TFileCompressType::SNAPPYBLOCK);
+        delete_sink.__set_output_path(output_path);
+        delete_sink.__set_table_location(output_path);
+        delete_sink.__set_file_type(TFileType::FILE_LOCAL);
+        delete_sink.__set_format_version(format_version);
+
+        t_data_sink.__set_iceberg_delete_sink(delete_sink);
+        return t_data_sink;
     }
 
     TDataSink _t_data_sink;
@@ -480,6 +505,91 @@ TEST_F(VIcebergDeleteSinkTest, TestUnsupportedDeleteType) {
     ObjectPool pool;
     Status status = sink->init_properties(&pool);
     ASSERT_FALSE(status.ok());
+}
+
+TEST_F(VIcebergDeleteSinkTest, TestWriteDeletionVectorsToSingleSharedPuffin) {
+    std::filesystem::path temp_dir =
+            std::filesystem::temp_directory_path() / ("iceberg_delete_sink_test_" + generate_uuid_string());
+    ASSERT_TRUE(std::filesystem::create_directories(temp_dir));
+
+    TDataSink t_data_sink = build_local_delete_sink(temp_dir.string(), 3);
+    VExprContextSPtrs output_exprs;
+    auto sink = std::make_shared<VIcebergDeleteSink>(t_data_sink, output_exprs, nullptr, nullptr);
+    ObjectPool pool;
+    ASSERT_TRUE(sink->init_properties(&pool).ok());
+
+    std::map<std::string, IcebergFileDeletion> file_deletions;
+    auto [file1_it, file1_inserted] =
+            file_deletions.emplace("file1.parquet", IcebergFileDeletion(1, "[\"p=1\"]"));
+    ASSERT_TRUE(file1_inserted);
+    file1_it->second.rows_to_delete.add(10);
+    file1_it->second.rows_to_delete.add(20);
+
+    auto [file2_it, file2_inserted] =
+            file_deletions.emplace("file2.parquet", IcebergFileDeletion(2, "[\"p=2\"]"));
+    ASSERT_TRUE(file2_inserted);
+    file2_it->second.rows_to_delete.add(30);
+
+    ASSERT_TRUE(sink->_write_deletion_vector_files(file_deletions).ok());
+    ASSERT_EQ(2, sink->_commit_data_list.size());
+    ASSERT_EQ(2, sink->_delete_file_count);
+
+    const auto& first_commit = sink->_commit_data_list[0];
+    const auto& second_commit = sink->_commit_data_list[1];
+    ASSERT_EQ(first_commit.file_path, second_commit.file_path);
+    ASSERT_EQ(first_commit.file_size, second_commit.file_size);
+    ASSERT_LT(first_commit.content_offset, second_commit.content_offset);
+
+    size_t puffin_file_count = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(temp_dir)) {
+        if (entry.path().extension() == ".puffin") {
+            ++puffin_file_count;
+        }
+    }
+    ASSERT_EQ(1, puffin_file_count);
+
+    std::ifstream input(first_commit.file_path, std::ios::binary);
+    ASSERT_TRUE(input.good());
+    std::string file_bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    ASSERT_EQ(static_cast<size_t>(first_commit.file_size), file_bytes.size());
+    ASSERT_GE(file_bytes.size(), 16);
+    ASSERT_EQ("PFA1", std::string(file_bytes.data(), 4));
+    ASSERT_EQ("PFA1", std::string(file_bytes.data() + file_bytes.size() - 4, 4));
+
+    uint32_t footer_size = LittleEndian::Load32(file_bytes.data() + file_bytes.size() - 12);
+    size_t footer_start = file_bytes.size() - 12 - footer_size;
+    std::string footer_json = file_bytes.substr(footer_start, footer_size);
+
+    rapidjson::Document footer_doc;
+    footer_doc.Parse(footer_json.c_str(), footer_json.size());
+    ASSERT_FALSE(footer_doc.HasParseError());
+    ASSERT_TRUE(footer_doc.HasMember("blobs"));
+    ASSERT_TRUE(footer_doc["blobs"].IsArray());
+    ASSERT_EQ(2u, footer_doc["blobs"].Size());
+
+    std::map<std::string, const TIcebergCommitData*> commit_data_by_file;
+    commit_data_by_file.emplace(first_commit.referenced_data_file_path, &first_commit);
+    commit_data_by_file.emplace(second_commit.referenced_data_file_path, &second_commit);
+
+    for (const auto& blob : footer_doc["blobs"].GetArray()) {
+        ASSERT_TRUE(blob.IsObject());
+        ASSERT_TRUE(blob.HasMember("properties"));
+        ASSERT_TRUE(blob["properties"].IsObject());
+        const auto& properties = blob["properties"];
+        ASSERT_TRUE(properties.HasMember("referenced-data-file"));
+        ASSERT_TRUE(properties.HasMember("cardinality"));
+
+        std::string referenced_data_file = properties["referenced-data-file"].GetString();
+        auto commit_it = commit_data_by_file.find(referenced_data_file);
+        ASSERT_NE(commit_data_by_file.end(), commit_it);
+
+        const auto* commit_data = commit_it->second;
+        ASSERT_EQ(commit_data->content_offset, blob["offset"].GetInt64());
+        ASSERT_EQ(commit_data->content_size_in_bytes, blob["length"].GetInt64());
+        ASSERT_EQ(std::to_string(commit_data->row_count), properties["cardinality"].GetString());
+    }
+
+    std::filesystem::remove_all(temp_dir);
 }
 
 } // namespace doris

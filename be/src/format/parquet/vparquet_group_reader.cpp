@@ -792,7 +792,8 @@ Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, b
         *batch_eof = _position_delete_ctx.current_row_id == _position_delete_ctx.last_row_id;
 
         if (_row_id_column_iterator_pair.first != nullptr ||
-            !_lazy_read_ctx.predicate_synthesized_col_names.empty()) {
+            !_lazy_read_ctx.predicate_synthesized_col_names.empty() ||
+            (_row_lineage_columns != nullptr && _row_lineage_columns->need_row_ids())) {
             *modify_row_ids = true;
             _current_batch_row_ids.clear();
             _current_batch_row_ids.resize(*read_rows);
@@ -855,14 +856,51 @@ Status RowGroupReader::_get_current_batch_row_id(size_t read_rows) {
 
 Status RowGroupReader::_fill_row_id_columns(Block* block, size_t read_rows,
                                             bool is_current_row_ids) {
+    const bool need_row_ids = _row_id_column_iterator_pair.first != nullptr
+            || (_row_lineage_columns != nullptr && _row_lineage_columns->need_row_ids());
+    if (need_row_ids && !is_current_row_ids) {
+        RETURN_IF_ERROR(_get_current_batch_row_id(read_rows));
+    }
     if (_row_id_column_iterator_pair.first != nullptr) {
-        if (!is_current_row_ids) {
-            RETURN_IF_ERROR(_get_current_batch_row_id(read_rows));
-        }
         auto col = block->get_by_position(_row_id_column_iterator_pair.second)
                            .column->assume_mutable();
         RETURN_IF_ERROR(_row_id_column_iterator_pair.first->read_by_rowids(
                 _current_batch_row_ids.data(), _current_batch_row_ids.size(), col));
+    }
+
+    if (_row_lineage_columns != nullptr && _row_lineage_columns->need_row_ids()
+            && _row_lineage_columns->first_row_id >= 0) {
+        auto col = block->get_by_position(_row_lineage_columns->row_id_column_idx)
+                           .column->assume_mutable();
+        auto* nullable_column = assert_cast<ColumnNullable*>(col.get());
+        auto& null_map = nullable_column->get_null_map_data();
+        auto& data = assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
+        for (size_t i = 0; i < read_rows; ++i) {
+            if (null_map[i] != 0) {
+                null_map[i] = 0;
+                data[i] = _row_lineage_columns->first_row_id +
+                        static_cast<int64_t>(_current_batch_row_ids[i]);
+            }
+        }
+    }
+
+    if (_row_lineage_columns != nullptr
+            && _row_lineage_columns->has_last_updated_sequence_number_column()
+            && _row_lineage_columns->last_updated_sequence_number >= 0
+            && _row_lineage_columns->first_row_id >= 0
+            && _row_lineage_columns->need_row_ids()) {
+        auto col = block->get_by_position(
+                _row_lineage_columns->last_updated_sequence_number_column_idx)
+                           .column->assume_mutable();
+        auto* nullable_column = assert_cast<ColumnNullable*>(col.get());
+        auto& null_map = nullable_column->get_null_map_data();
+        auto& data = assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
+        for (size_t i = 0; i < read_rows; ++i) {
+            if (null_map[i] != 0) {
+                null_map[i] = 0;
+                data[i] = _row_lineage_columns->last_updated_sequence_number;
+            }
+        }
     }
 
     return Status::OK();

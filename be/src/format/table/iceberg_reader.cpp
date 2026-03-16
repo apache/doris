@@ -50,6 +50,7 @@
 #include "format/parquet/schema_desc.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/table/deletion_vector_reader.h"
+#include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format/table/iceberg/iceberg_orc_nested_column_utils.h"
 #include "format/table/iceberg/iceberg_parquet_nested_column_utils.h"
 #include "format/table/nested_column_access_helper.h"
@@ -74,6 +75,41 @@ class VExprContext;
 } // namespace doris
 
 namespace doris {
+namespace {
+
+class GroupedDeleteRowsVisitor final : public IcebergPositionDeleteVisitor {
+public:
+    using DeleteRows = std::vector<int64_t>;
+    using DeleteFile = phmap::parallel_flat_hash_map<
+            std::string, std::unique_ptr<DeleteRows>, std::hash<std::string>, std::equal_to<>,
+            std::allocator<std::pair<const std::string, std::unique_ptr<DeleteRows>>>, 8,
+            std::mutex>;
+
+    explicit GroupedDeleteRowsVisitor(DeleteFile* position_delete) : _position_delete(position_delete) {}
+
+    Status visit(const std::string& file_path, int64_t pos) override {
+        if (_position_delete == nullptr) {
+            return Status::InvalidArgument("position delete map is null");
+        }
+
+        auto iter = _position_delete->find(file_path);
+        DeleteRows* delete_rows = nullptr;
+        if (iter == _position_delete->end()) {
+            delete_rows = new DeleteRows;
+            (*_position_delete)[file_path] = std::unique_ptr<DeleteRows>(delete_rows);
+        } else {
+            delete_rows = iter->second.get();
+        }
+        delete_rows->push_back(pos);
+        return Status::OK();
+    }
+
+private:
+    DeleteFile* _position_delete;
+};
+
+} // namespace
+
 const std::string IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE = "iceberg.id";
 
 // ============================================================================
@@ -220,55 +256,18 @@ ColumnIdResult IcebergParquetReader::_create_column_ids(const FieldDescriptor* f
 // ============================================================================
 Status IcebergParquetReader::_read_position_delete_file(const TFileRangeDesc* delete_range,
                                                         DeleteFile* position_delete) {
-    ParquetReader parquet_delete_reader(get_profile(), get_scan_params(), *delete_range,
-                                        READ_DELETE_FILE_BATCH_SIZE, &get_state()->timezone_obj(),
-                                        get_io_ctx(), get_state(), _meta_cache);
-    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    RETURN_IF_ERROR(parquet_delete_reader._do_init_reader(
-            delete_file_col_names,
-            const_cast<std::unordered_map<std::string, uint32_t>*>(&DELETE_COL_NAME_TO_BLOCK_IDX),
-            {}, tmp, nullptr, nullptr, nullptr, nullptr, nullptr,
-            TableSchemaChangeHelper::ConstNode::get_instance()));
-
-    // The delete file range has size=-1 (read whole file). We must disable
-    // row group filtering; otherwise set_fill_columns returns EndOfFile
-    // when _range_size < 0.
-    parquet_delete_reader.set_filter_groups(false);
-
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    RETURN_IF_ERROR(parquet_delete_reader.set_fill_columns(partition_columns, missing_columns));
-
-    const tparquet::FileMetaData* meta_data = parquet_delete_reader.get_meta_data();
-    bool dictionary_coded = true;
-    for (const auto& row_group : meta_data->row_groups) {
-        const auto& column_chunk = row_group.columns[ICEBERG_FILE_PATH_INDEX];
-        if (!(column_chunk.__isset.meta_data && has_dict_page(column_chunk.meta_data))) {
-            dictionary_coded = false;
-            break;
-        }
-    }
-    DataTypePtr data_type_file_path {new DataTypeString};
-    DataTypePtr data_type_pos {new DataTypeInt64};
-    bool eof = false;
-    while (!eof) {
-        Block block = {dictionary_coded
-                               ? ColumnWithTypeAndName {ColumnDictI32::create(
-                                                                FieldType::OLAP_FIELD_TYPE_VARCHAR),
-                                                        data_type_file_path, ICEBERG_FILE_PATH}
-                               : ColumnWithTypeAndName {data_type_file_path, ICEBERG_FILE_PATH},
-
-                       {data_type_pos, ICEBERG_ROW_POS}};
-        size_t read_rows = 0;
-        RETURN_IF_ERROR(parquet_delete_reader.get_next_block(&block, &read_rows, &eof));
-
-        if (read_rows <= 0) {
-            break;
-        }
-        _gen_position_delete_file_range(block, position_delete, read_rows, dictionary_coded);
-    }
-    return Status::OK();
+    GroupedDeleteRowsVisitor visitor(position_delete);
+    IcebergDeleteFileReaderOptions options;
+    options.state = get_state();
+    options.profile = get_profile();
+    options.scan_params = &get_scan_params();
+    options.io_ctx = get_io_ctx();
+    options.meta_cache = _meta_cache;
+    options.fs_name = &delete_range->fs_name;
+    options.batch_size = READ_DELETE_FILE_BATCH_SIZE;
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.path = delete_range->path;
+    return read_iceberg_position_delete_file(delete_file, options, &visitor);
 };
 
 // ============================================================================
@@ -407,31 +406,18 @@ ColumnIdResult IcebergOrcReader::_create_column_ids(const orc::Type* orc_type,
 // ============================================================================
 Status IcebergOrcReader::_read_position_delete_file(const TFileRangeDesc* delete_range,
                                                     DeleteFile* position_delete) {
-    OrcReader orc_delete_reader(get_profile(), get_state(), get_scan_params(), *delete_range,
-                                READ_DELETE_FILE_BATCH_SIZE, get_state()->timezone(), get_io_ctx(),
-                                _meta_cache);
-    RETURN_IF_ERROR(orc_delete_reader._do_init_reader(
-            &delete_file_col_names,
-            const_cast<std::unordered_map<std::string, uint32_t>*>(&DELETE_COL_NAME_TO_BLOCK_IDX),
-            {}, {}, {}, nullptr, nullptr));
-
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    RETURN_IF_ERROR(orc_delete_reader.set_fill_columns(partition_columns, missing_columns));
-
-    bool eof = false;
-    DataTypePtr data_type_file_path {new DataTypeString};
-    DataTypePtr data_type_pos {new DataTypeInt64};
-    while (!eof) {
-        Block block = {{data_type_file_path, ICEBERG_FILE_PATH}, {data_type_pos, ICEBERG_ROW_POS}};
-
-        size_t read_rows = 0;
-        RETURN_IF_ERROR(orc_delete_reader.get_next_block(&block, &read_rows, &eof));
-
-        _gen_position_delete_file_range(block, position_delete, read_rows, false);
-    }
-    return Status::OK();
+    GroupedDeleteRowsVisitor visitor(position_delete);
+    IcebergDeleteFileReaderOptions options;
+    options.state = get_state();
+    options.profile = get_profile();
+    options.scan_params = &get_scan_params();
+    options.io_ctx = get_io_ctx();
+    options.meta_cache = _meta_cache;
+    options.fs_name = &delete_range->fs_name;
+    options.batch_size = READ_DELETE_FILE_BATCH_SIZE;
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.path = delete_range->path;
+    return read_iceberg_position_delete_file(delete_file, options, &visitor);
 }
 
 #include "common/compile_check_end.h"

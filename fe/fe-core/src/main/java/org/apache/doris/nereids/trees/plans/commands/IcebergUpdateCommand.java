@@ -26,6 +26,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -136,6 +137,9 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
     private boolean executeMergePlan(ConnectContext ctx, StmtExecutor executor,
                                      IcebergExternalTable icebergTable,
                                      LogicalPlan logicalPlan) throws Exception {
+        // disable batch mode for iceberg scan node get all splits.
+        // IcebergRewritableDeletePlanner.collect for map<data file -> list<delete file>>
+        ctx.getSessionVariable().enableExternalTableBatchMode = false;
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalPlan, ctx.getStatementContext());
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
@@ -182,11 +186,15 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
         NamedExpression operationColumn = new UnboundAlias(
                 new TinyIntLiteral(IcebergMergeOperation.UPDATE_OPERATION_NUMBER),
                 IcebergMergeOperation.OPERATION_COLUMN);
-
         List<NamedExpression> projectItems = new ArrayList<>(2 + updateColumns.size());
         projectItems.add(operationColumn);
         projectItems.add(rowIdColumn);
         projectItems.addAll(updateColumns);
+        for (Column col : columns) {
+            if (IcebergUtils.isIcebergRowLineageColumn(col)) {
+                projectItems.add(new UnboundSlot(tableName, col.getName()));
+            }
+        }
         return new LogicalProject<>(projectItems, planWithRowId);
     }
 

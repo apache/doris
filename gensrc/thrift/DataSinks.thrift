@@ -397,7 +397,8 @@ struct THivePartitionUpdate {
 enum TFileContent {
     DATA = 0,
     POSITION_DELETES = 1,
-    EQUALITY_DELETES = 2
+    EQUALITY_DELETES = 2,
+    DELETION_VECTOR = 3
 }
 
 struct TIcebergColumnStats {
@@ -425,12 +426,26 @@ struct TIcebergCommitData {
     10: optional i32 partition_spec_id
     // Partition data JSON for delete files
     11: optional string partition_data_json
+    // For deletion vector (V3): offset of the DV blob within the Puffin file
+    12: optional i64 content_offset
+    // For deletion vector (V3): size of the DV blob in bytes
+    13: optional i64 content_size_in_bytes
 }
 
 struct TSortField {
     1: optional i32 source_column_id
     2: optional bool ascending
     3: optional bool null_first
+}
+
+// Iceberg table sink write type: normal insert vs rewrite/compaction
+enum TIcebergWriteType {
+    // Normal INSERT INTO
+    INSERT = 0, 
+    // rewrite_data_files / compaction  
+    REWRITE = 1,
+    // update / merge into
+    UPDATE = 2     
 }
 
 struct TIcebergTableSink {
@@ -453,12 +468,21 @@ struct TIcebergTableSink {
     // When set, BE should use these values directly instead of computing from data
     15: optional map<string, string> static_partition_values;
     16: optional PlanNodes.TSortInfo sort_info;
+    17: optional TIcebergWriteType write_type = TIcebergWriteType.INSERT;
 }
+
+struct TIcebergRewritableDeleteFileSet {
+    // Data file being modified by the current statement
+    1: optional string referenced_data_file_path
+    // old position delete file and old deletion vector that need to be merged into the new DV file.
+    2: optional list<PlanNodes.TIcebergDeleteFileDesc> delete_files
+}
+
 
 struct TIcebergDeleteSink {
     1: optional string db_name
     2: optional string tb_name
-    3: optional TFileContent delete_type  // POSITION_DELETES or EQUALITY_DELETES
+    3: optional TFileContent delete_type  // POSITION_DELETES or EQUALITY_DELETES or DELETION_VECTOR
     4: optional list<i32> equality_field_ids  // For equality delete
     5: optional PlanNodes.TFileFormatType file_format
     6: optional PlanNodes.TFileCompressType compress_type
@@ -469,6 +493,10 @@ struct TIcebergDeleteSink {
     11: optional i32 partition_spec_id
     12: optional string partition_data_json
     13: optional list<Types.TNetworkAddress> broker_addresses;
+    // Iceberg table format version (2 or 3), determines whether to write DVs
+    14: optional i32 format_version
+    // Only for format_version >= 3. Existing live delete files that should be merged into the new DV.
+    15: optional list<TIcebergRewritableDeleteFileSet> rewritable_delete_file_sets
 }
 
 // Merge sink for Iceberg UPDATE: mix of position delete + data insert
@@ -493,6 +521,10 @@ struct TIcebergMergeSink {
     21: optional string table_location
     22: optional i32 partition_spec_id_for_delete
     23: optional string partition_data_json_for_delete
+    // Iceberg table format version (2 or 3), determines whether to write DVs
+    24: optional i32 format_version
+    // Only for format_version >= 3. Existing live delete files that should be merged into the new DV.
+    25: optional list<TIcebergRewritableDeleteFileSet> rewritable_delete_file_sets
 }
 
 enum TDictLayoutType {

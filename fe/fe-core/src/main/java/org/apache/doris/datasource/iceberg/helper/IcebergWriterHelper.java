@@ -206,11 +206,14 @@ public class IcebergWriterHelper {
             String deleteFilePath = commitData.getFilePath();
             long fileSize = commitData.getFileSize();
             long recordCount = commitData.getRowCount();
+            boolean isDeletionVector = commitData.isSetContentOffset()
+                    && commitData.isSetContentSizeInBytes();
+            FileFormat effectiveFormat = isDeletionVector ? FileFormat.PUFFIN : format;
 
             // Build delete file metadata
             FileMetadata.Builder deleteBuilder = FileMetadata.deleteFileBuilder(spec)
                     .withPath(deleteFilePath)
-                    .withFormat(format)
+                    .withFormat(effectiveFormat)
                     .withFileSizeInBytes(fileSize)
                     .withRecordCount(recordCount);
 
@@ -220,6 +223,17 @@ public class IcebergWriterHelper {
             } else {
                 throw new VerifyException("Iceberg delete only supports position deletes, but got "
                         + commitData.getFileContent());
+            }
+
+            if (isDeletionVector) {
+                deleteBuilder.withContentOffset(commitData.getContentOffset());
+                deleteBuilder.withContentSizeInBytes(commitData.getContentSizeInBytes());
+            }
+
+            if (commitData.isSetReferencedDataFilePath()
+                    && commitData.getReferencedDataFilePath() != null
+                    && !commitData.getReferencedDataFilePath().isEmpty()) {
+                deleteBuilder.withReferencedDataFile(commitData.getReferencedDataFilePath());
             }
 
             // Add partition information if table is partitioned

@@ -187,6 +187,11 @@ public:
         _row_id_column_iterator_pair = iterator_pair;
     }
 
+    void set_row_lineage_columns(
+            std::shared_ptr<RowGroupReader::RowLineageColumns> row_lineage_columns) {
+        _row_lineage_columns = std::move(row_lineage_columns);
+    }
+
     /// Access current batch row positions (delegates to RowGroupReader).
     /// Used by IcebergReaderMixin to build $row_id column.
     const std::vector<segment_v2::rowid_t>& current_batch_row_positions() const {
@@ -401,6 +406,7 @@ private:
 
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
+    std::shared_ptr<RowGroupReader::RowLineageColumns> _row_lineage_columns;
 
 protected:
     // Used for column lazy read. Protected so Iceberg/Paimon subclasses can

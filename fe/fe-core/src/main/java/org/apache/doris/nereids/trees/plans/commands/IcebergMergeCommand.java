@@ -27,6 +27,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
 import org.apache.doris.datasource.iceberg.IcebergRowId;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -230,7 +231,7 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         projection.add(new TinyIntLiteral(IcebergMergeOperation.DELETE_OPERATION_NUMBER));
         projection.add(rowIdExpr);
         for (Column column : columns) {
-            if (!column.isVisible()) {
+            if (!column.isVisible() && !IcebergUtils.isIcebergRowLineageColumn(column)) {
                 continue;
             }
             List<String> nameParts = Lists.newArrayList(targetNameInPlan);
@@ -255,6 +256,12 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         projection.add(new TinyIntLiteral(IcebergMergeOperation.UPDATE_OPERATION_NUMBER));
         projection.add(rowIdExpr);
         for (Column column : columns) {
+            if (IcebergUtils.isIcebergRowLineageColumn(column)) {
+                List<String> nameParts = Lists.newArrayList(targetNameInPlan);
+                nameParts.add(column.getName());
+                projection.add(new UnboundSlot(nameParts));
+                continue;
+            }
             if (!column.isVisible()) {
                 continue;
             }
@@ -308,6 +315,10 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
 
         int visibleIndex = 0;
         for (Column column : columns) {
+            if (IcebergUtils.isIcebergRowLineageColumn(column)) {
+                projection.add(new NullLiteral(DataType.fromCatalogType(column.getType())));
+                continue;
+            }
             if (!column.isVisible()) {
                 continue;
             }
@@ -384,6 +395,8 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         outputProjections.add(new UnboundStar(ImmutableList.of()));
         if (!Util.showHiddenColumns()) {
             outputProjections.add((NamedExpression) rowIdExpr);
+            outputProjections.add(getTargetRowLineageSlot(IcebergUtils.ICEBERG_ROW_ID_COL));
+            outputProjections.add(getTargetRowLineageSlot(IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL));
         }
         outputProjections.add(generateBranchLabel(rowIdExpr));
         plan = new LogicalProject<>(outputProjections, plan);
@@ -408,7 +421,7 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         colNames.add(IcebergMergeOperation.OPERATION_COLUMN);
         colNames.add(Column.ICEBERG_ROWID_COL);
         for (Column column : columns) {
-            if (column.isVisible()) {
+            if (column.isVisible() || IcebergUtils.isIcebergRowLineageColumn(column)) {
                 colNames.add(column.getName());
             }
         }
@@ -448,6 +461,9 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
     private boolean executeMergePlan(ConnectContext ctx, StmtExecutor executor,
                                      IcebergExternalTable icebergTable,
                                      LogicalPlan logicalPlan) throws Exception {
+        // disable batch mode for iceberg scan node get all splits.
+        // IcebergRewritableDeletePlanner.collect for map<data file -> list<delete file>>
+        ctx.getSessionVariable().enableExternalTableBatchMode = false;
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalPlan, ctx.getStatementContext());
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
@@ -506,6 +522,12 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
 
     private Expression getTargetRowIdSlot() {
         return new UnboundSlot(Column.ICEBERG_ROWID_COL);
+    }
+
+    private NamedExpression getTargetRowLineageSlot(String columnName) {
+        List<String> nameParts = Lists.newArrayList(targetNameInPlan);
+        nameParts.add(columnName);
+        return new UnboundSlot(nameParts);
     }
 
     private static Column getRowIdColumn(IcebergExternalTable table) {
