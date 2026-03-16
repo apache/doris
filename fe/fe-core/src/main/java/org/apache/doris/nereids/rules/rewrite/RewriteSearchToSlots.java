@@ -107,7 +107,6 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
                 Expression childExpr;
                 String normalizedFieldName;
 
-                // Check if this is a variant subcolumn (contains dot)
                 if (originalFieldName.contains(".")) {
                     int firstDotPos = originalFieldName.indexOf('.');
                     String parentFieldName = originalFieldName.substring(0, firstDotPos);

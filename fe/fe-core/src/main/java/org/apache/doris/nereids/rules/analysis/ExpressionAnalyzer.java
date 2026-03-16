@@ -298,7 +298,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     }
                     outerScope.get().getCorrelatedSlots().add((Slot) firstBound);
                 }
-                if (firstBound.getDataType() instanceof NestedColumnPrunable) {
+                if (firstBound.getDataType() instanceof NestedColumnPrunable
+                        || firstBound.getDataType().isVariantType()) {
                     context.cascadesContext.getStatementContext().setHasNestedColumns(true);
                 } else if (firstBound.containsType(ElementAt.class, StructElement.class)) {
                     context.cascadesContext.getStatementContext().setHasNestedColumns(true);
@@ -322,7 +323,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                             .filter(bound -> unboundSlot.getNameParts().size() == bound.getQualifier().size() + 1)
                             .collect(Collectors.toList());
                     if (exactMatch.size() == 1) {
-                        if (exactMatch.get(0).getDataType() instanceof NestedColumnPrunable) {
+                        if (exactMatch.get(0).getDataType() instanceof NestedColumnPrunable
+                                || exactMatch.get(0).getDataType().isVariantType()) {
                             context.cascadesContext.getStatementContext().setHasNestedColumns(true);
                         }
                         return exactMatch.get(0);

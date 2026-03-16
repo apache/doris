@@ -247,12 +247,13 @@ enum TSearchOccur {
 }
 
 struct TSearchClause {
-  1: required string clause_type  // TERM, QUOTED, PREFIX, WILDCARD, REGEXP, RANGE, LIST, ANY_ALL, AND, OR, NOT, OCCUR_BOOLEAN
+  1: required string clause_type  // TERM, QUOTED, PREFIX, WILDCARD, REGEXP, RANGE, LIST, ANY_ALL, AND, OR, NOT, OCCUR_BOOLEAN, NESTED
   2: optional string field_name   // Field name for leaf clauses
   3: optional string value        // Search value for leaf clauses
   4: optional list<TSearchClause> children  // Child clauses for compound clauses (AND, OR, NOT, OCCUR_BOOLEAN)
   5: optional TSearchOccur occur  // Occur type for this clause (used with OCCUR_BOOLEAN parent)
   6: optional i32 minimum_should_match  // Minimum number of SHOULD clauses that must match (for OCCUR_BOOLEAN)
+  7: optional string nested_path  // Path for NESTED clause (e.g., "items")
 }
 
 struct TSearchFieldBinding {
@@ -335,5 +336,3 @@ struct TExpr {
 struct TExprList {
   1: required list<TExpr> exprs
 }
-
-

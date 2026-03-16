@@ -162,7 +162,6 @@ public class SearchPredicate extends Predicate {
             String fieldPath = binding.getFieldName();
             thriftBinding.setFieldName(fieldPath);
 
-            // Check if this is a variant subcolumn (contains dot)
             if (fieldPath.contains(".")) {
                 // Parse variant subcolumn path
                 int firstDotPos = fieldPath.indexOf('.');
@@ -272,6 +271,9 @@ public class SearchPredicate extends Predicate {
     private void appendClauseExplain(TSearchClause clause, List<String> lines, int depth) {
         StringBuilder line = new StringBuilder();
         line.append(indent(depth)).append("- clause_type=").append(clause.getClauseType());
+        if (clause.isSetNestedPath()) {
+            line.append(", nested_path=").append('\"').append(escapeText(clause.getNestedPath())).append('\"');
+        }
         if (clause.isSetFieldName()) {
             line.append(", field=").append('\"').append(escapeText(clause.getFieldName())).append('\"');
         }
@@ -339,6 +341,10 @@ public class SearchPredicate extends Predicate {
 
         if (node.getField() != null) {
             clause.setFieldName(node.getField());
+        }
+
+        if (node.getType() == SearchDslParser.QsClauseType.NESTED && node.getNestedPath() != null) {
+            clause.setNestedPath(node.getNestedPath());
         }
 
         if (node.getValue() != null) {

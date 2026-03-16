@@ -21,10 +21,10 @@
 #include <CLucene/search/Scorer.h>
 #include <glog/logging.h>
 
+#include <limits>
 #include <memory>
 #include <roaring/roaring.hh>
 #include <set>
-#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -50,11 +50,17 @@
 #include "olap/rowset/segment_v2/inverted_index_iterator.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_searcher.h"
+#include "olap/rowset/segment_v2/segment.h"
+#include "olap/rowset/segment_v2/variant/nested_group_path.h"
+#include "olap/rowset/segment_v2/variant/nested_group_provider.h"
+#include "olap/rowset/segment_v2/variant/variant_column_reader.h"
+#include "olap/types.h"
 #include "util/string_util.h"
 #include "util/thrift_util.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -100,6 +106,59 @@ static std::string extract_segment_prefix(
                << iterators.size() << " iterators, caching disabled for this query";
     return "";
 }
+
+namespace {
+
+bool is_nested_group_search_supported() {
+    auto provider = segment_v2::create_nested_group_read_provider();
+    return provider != nullptr && provider->should_enable_nested_group_read_path();
+}
+
+class ResolverNullBitmapAdapter final : public query_v2::NullBitmapResolver {
+public:
+    explicit ResolverNullBitmapAdapter(const FieldReaderResolver& resolver) : _resolver(resolver) {}
+
+    segment_v2::IndexIterator* iterator_for(const query_v2::Scorer& /*scorer*/,
+                                            const std::string& logical_field) const override {
+        if (logical_field.empty()) {
+            return nullptr;
+        }
+        return _resolver.get_iterator(logical_field);
+    }
+
+private:
+    const FieldReaderResolver& _resolver;
+};
+
+void populate_binding_context(const FieldReaderResolver& resolver,
+                              query_v2::QueryExecutionContext* exec_ctx) {
+    DCHECK(exec_ctx != nullptr);
+    exec_ctx->readers = resolver.readers();
+    exec_ctx->reader_bindings = resolver.reader_bindings();
+    exec_ctx->field_reader_bindings = resolver.field_readers();
+    for (const auto& [binding_key, binding] : resolver.binding_cache()) {
+        if (binding_key.empty()) {
+            continue;
+        }
+        query_v2::FieldBindingContext binding_ctx;
+        binding_ctx.logical_field_name = binding.logical_field_name;
+        binding_ctx.stored_field_name = binding.stored_field_name;
+        binding_ctx.stored_field_wstr = binding.stored_field_wstr;
+        exec_ctx->binding_fields.emplace(binding_key, std::move(binding_ctx));
+    }
+}
+
+query_v2::QueryExecutionContext build_query_execution_context(
+        uint32_t segment_num_rows, const FieldReaderResolver& resolver,
+        query_v2::NullBitmapResolver* null_resolver) {
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = segment_num_rows;
+    populate_binding_context(resolver, &exec_ctx);
+    exec_ctx.null_resolver = null_resolver;
+    return exec_ctx;
+}
+
+} // namespace
 
 Status FieldReaderResolver::resolve(const std::string& field_name,
                                     InvertedIndexQueryType query_type,
@@ -307,7 +366,27 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
                 data_type_with_names,
         std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
         InvertedIndexResultBitmap& bitmap_result, bool enable_cache) const {
-    if (iterators.empty() || data_type_with_names.empty()) {
+    static const std::unordered_map<std::string, int> empty_field_to_column_id;
+    return evaluate_inverted_index_with_search_param(
+            search_param, data_type_with_names, std::move(iterators), num_rows, bitmap_result,
+            enable_cache, nullptr, empty_field_to_column_id);
+}
+
+Status FunctionSearch::evaluate_inverted_index_with_search_param(
+        const TSearchParam& search_param,
+        const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
+                data_type_with_names,
+        std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
+        InvertedIndexResultBitmap& bitmap_result, bool enable_cache,
+        const IndexExecContext* index_exec_ctx,
+        const std::unordered_map<std::string, int>& field_name_to_column_id) const {
+    const bool is_nested_query = search_param.root.clause_type == "NESTED";
+    if (is_nested_query && !is_nested_group_search_supported()) {
+        return Status::NotSupported(
+                "NESTED query requires NestedGroup support, which is unavailable in this build");
+    }
+
+    if (!is_nested_query && (iterators.empty() || data_type_with_names.empty())) {
         LOG(INFO) << "No indexed columns or iterators available, returning empty result, dsl:"
                   << search_param.original_dsl;
         bitmap_result = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
@@ -358,9 +437,94 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     context->collection_statistics = std::make_shared<CollectionStatistics>();
     context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
+    // NESTED() queries evaluate predicates on the flattened "element space" of a nested group.
+    // For VARIANT nested groups, the indexed lucene field (stored_field_name) uses:
+    //   parent_unique_id + "." + <variant-relative nested path>
+    // where the nested path is rooted at either:
+    //   - "__D0_root__" for top-level array<object> (NESTED(data, ...))
+    //   - "<nested_path_after_variant_root>" for object fields (NESTED(data.items, ...))
+    //
+    // FE field bindings are expressed using logical column paths (e.g. "data.items.msg"), so for
+    // NESTED() we normalize stored_field_name suffix to be consistent with the nested group root.
+    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>
+            patched_data_type_with_names;
+    const auto* effective_data_type_with_names = &data_type_with_names;
+    if (is_nested_query && search_param.root.__isset.nested_path) {
+        const std::string& nested_path = search_param.root.nested_path;
+        const auto dot_pos = nested_path.find('.');
+        const std::string root_field =
+                (dot_pos == std::string::npos) ? nested_path : nested_path.substr(0, dot_pos);
+        const std::string root_prefix = root_field + ".";
+        const std::string array_path = (dot_pos == std::string::npos)
+                                               ? std::string(segment_v2::kRootNestedGroupPath)
+                                               : nested_path.substr(dot_pos + 1);
+
+        bool copied = false;
+        for (const auto& fb : search_param.field_bindings) {
+            if (!fb.__isset.is_variant_subcolumn || !fb.is_variant_subcolumn) {
+                continue;
+            }
+            if (fb.field_name.empty()) {
+                continue;
+            }
+            const auto it_orig = data_type_with_names.find(fb.field_name);
+            if (it_orig == data_type_with_names.end()) {
+                continue;
+            }
+            const std::string& old_stored = it_orig->second.first;
+            const auto first_dot = old_stored.find('.');
+            if (first_dot == std::string::npos) {
+                continue;
+            }
+            std::string sub_path;
+            if (fb.__isset.subcolumn_path && !fb.subcolumn_path.empty()) {
+                sub_path = fb.subcolumn_path;
+            } else if (fb.field_name.starts_with(nested_path + ".")) {
+                sub_path = fb.field_name.substr(nested_path.size() + 1);
+            } else if (fb.field_name.starts_with(root_prefix)) {
+                sub_path = fb.field_name.substr(root_prefix.size());
+            } else {
+                sub_path = fb.field_name;
+            }
+            if (sub_path.empty()) {
+                continue;
+            }
+            const std::string array_prefix = array_path + ".";
+            const std::string suffix_path =
+                    sub_path.starts_with(array_prefix) ? sub_path : (array_prefix + sub_path);
+            const std::string parent_uid = old_stored.substr(0, first_dot);
+            const std::string expected_stored = parent_uid + "." + suffix_path;
+            if (old_stored == expected_stored) {
+                continue;
+            }
+
+            if (!copied) {
+                patched_data_type_with_names = data_type_with_names;
+                effective_data_type_with_names = &patched_data_type_with_names;
+                copied = true;
+            }
+            auto it = patched_data_type_with_names.find(fb.field_name);
+            if (it == patched_data_type_with_names.end()) {
+                continue;
+            }
+            it->second.first = expected_stored;
+        }
+    }
+
     // Pass field_bindings to resolver for variant subcolumn detection
-    FieldReaderResolver resolver(data_type_with_names, iterators, context,
+    FieldReaderResolver resolver(*effective_data_type_with_names, iterators, context,
                                  search_param.field_bindings);
+
+    if (is_nested_query) {
+        std::shared_ptr<roaring::Roaring> row_bitmap;
+        RETURN_IF_ERROR(evaluate_nested_query(search_param, search_param.root, context, resolver,
+                                              num_rows, index_exec_ctx, field_name_to_column_id,
+                                              row_bitmap));
+        bitmap_result = InvertedIndexResultBitmap(std::move(row_bitmap),
+                                                  std::make_shared<roaring::Roaring>());
+        bitmap_result.mask_out_null();
+        return Status::OK();
+    }
 
     // Extract default_operator from TSearchParam (default: "or")
     std::string default_operator = "or";
@@ -386,40 +550,9 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         return Status::OK();
     }
 
-    query_v2::QueryExecutionContext exec_ctx;
-    exec_ctx.segment_num_rows = num_rows;
-    exec_ctx.readers = resolver.readers();
-    exec_ctx.reader_bindings = resolver.reader_bindings();
-    exec_ctx.field_reader_bindings = resolver.field_readers();
-    for (const auto& [binding_key, binding] : resolver.binding_cache()) {
-        if (binding_key.empty()) {
-            continue;
-        }
-        query_v2::FieldBindingContext binding_ctx;
-        binding_ctx.logical_field_name = binding.logical_field_name;
-        binding_ctx.stored_field_name = binding.stored_field_name;
-        binding_ctx.stored_field_wstr = binding.stored_field_wstr;
-        exec_ctx.binding_fields.emplace(binding_key, std::move(binding_ctx));
-    }
-
-    class ResolverAdapter final : public query_v2::NullBitmapResolver {
-    public:
-        explicit ResolverAdapter(const FieldReaderResolver& resolver) : _resolver(resolver) {}
-
-        segment_v2::IndexIterator* iterator_for(const query_v2::Scorer& /*scorer*/,
-                                                const std::string& logical_field) const override {
-            if (logical_field.empty()) {
-                return nullptr;
-            }
-            return _resolver.get_iterator(logical_field);
-        }
-
-    private:
-        const FieldReaderResolver& _resolver;
-    };
-
-    ResolverAdapter null_resolver(resolver);
-    exec_ctx.null_resolver = &null_resolver;
+    ResolverNullBitmapAdapter null_resolver(resolver);
+    query_v2::QueryExecutionContext exec_ctx =
+            build_query_execution_context(num_rows, resolver, &null_resolver);
 
     auto weight = root_query->weight(false);
     if (!weight) {
@@ -489,11 +622,144 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     return Status::OK();
 }
 
+Status FunctionSearch::evaluate_nested_query(
+        const TSearchParam& search_param, const TSearchClause& nested_clause,
+        const std::shared_ptr<IndexQueryContext>& context, FieldReaderResolver& resolver,
+        uint32_t num_rows, const IndexExecContext* index_exec_ctx,
+        const std::unordered_map<std::string, int>& field_name_to_column_id,
+        std::shared_ptr<roaring::Roaring>& result_bitmap) const {
+    (void)field_name_to_column_id;
+    if (!(nested_clause.__isset.nested_path)) {
+        return Status::InvalidArgument("NESTED clause missing nested_path");
+    }
+    if (!(nested_clause.__isset.children) || nested_clause.children.empty()) {
+        return Status::InvalidArgument("NESTED clause missing inner query");
+    }
+    if (result_bitmap == nullptr) {
+        result_bitmap = std::make_shared<roaring::Roaring>();
+    } else {
+        *result_bitmap = roaring::Roaring();
+    }
+
+    // 1. Get the nested group chain directly
+    std::string root_field = nested_clause.nested_path;
+    auto dot_pos = nested_clause.nested_path.find('.');
+    if (dot_pos != std::string::npos) {
+        root_field = nested_clause.nested_path.substr(0, dot_pos);
+    }
+    if (index_exec_ctx == nullptr || index_exec_ctx->segment() == nullptr) {
+        return Status::InvalidArgument("NESTED query requires IndexExecContext with valid segment");
+    }
+    auto* segment = index_exec_ctx->segment();
+    const int32_t ordinal = segment->tablet_schema()->field_index(root_field);
+    if (ordinal < 0) {
+        return Status::InvalidArgument("Column '{}' not found in tablet schema for nested query",
+                                       root_field);
+    }
+    const ColumnId column_id = static_cast<ColumnId>(ordinal);
+
+    std::shared_ptr<segment_v2::ColumnReader> column_reader;
+    RETURN_IF_ERROR(segment->get_column_reader(segment->tablet_schema()->column(column_id),
+                                               &column_reader,
+                                               index_exec_ctx->column_iter_opts().stats));
+    auto* variant_reader = dynamic_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+    if (variant_reader == nullptr) {
+        return Status::InvalidArgument("Column '{}' is not VARIANT for nested query", root_field);
+    }
+
+    std::string array_path;
+    if (dot_pos == std::string::npos) {
+        array_path = std::string(segment_v2::kRootNestedGroupPath);
+    } else {
+        array_path = nested_clause.nested_path.substr(dot_pos + 1);
+    }
+
+    auto [found, group_chain, _] = variant_reader->collect_nested_group_chain(array_path);
+    if (!found || group_chain.empty()) {
+        return Status::OK();
+    }
+
+    // Use the read provider for element counting and bitmap mapping.
+    auto read_provider = segment_v2::create_nested_group_read_provider();
+    if (!read_provider || !read_provider->should_enable_nested_group_read_path()) {
+        return Status::NotSupported(
+                "NestedGroup search is an enterprise capability, not available in this build");
+    }
+
+    auto& leaf_group = group_chain.back();
+    uint64_t total_elements = 0;
+    RETURN_IF_ERROR(read_provider->get_total_elements(index_exec_ctx->column_iter_opts(),
+                                                      leaf_group, &total_elements));
+    if (total_elements == 0) {
+        return Status::OK();
+    }
+
+    // 3. Evaluate inner query
+    std::string default_operator = "or";
+    if (search_param.__isset.default_operator && !search_param.default_operator.empty()) {
+        default_operator = search_param.default_operator;
+    }
+    int32_t minimum_should_match = -1;
+    if (search_param.__isset.minimum_should_match) {
+        minimum_should_match = search_param.minimum_should_match;
+    }
+
+    query_v2::QueryPtr inner_query;
+    std::string inner_binding_key;
+    RETURN_IF_ERROR(build_query_recursive(nested_clause.children[0], context, resolver,
+                                          &inner_query, &inner_binding_key, default_operator,
+                                          minimum_should_match));
+    if (inner_query == nullptr) {
+        return Status::OK();
+    }
+
+    if (total_elements > std::numeric_limits<uint32_t>::max()) {
+        return Status::InvalidArgument("nested element_count exceeds uint32_t max");
+    }
+
+    ResolverNullBitmapAdapter null_resolver(resolver);
+    query_v2::QueryExecutionContext exec_ctx = build_query_execution_context(
+            static_cast<uint32_t>(total_elements), resolver, &null_resolver);
+
+    auto weight = inner_query->weight(false);
+    if (!weight) {
+        return Status::OK();
+    }
+    auto scorer = weight->scorer(exec_ctx, inner_binding_key);
+    if (!scorer) {
+        return Status::OK();
+    }
+
+    roaring::Roaring element_bitmap;
+    uint32_t doc = scorer->doc();
+    while (doc != query_v2::TERMINATED) {
+        element_bitmap.add(doc);
+        doc = scorer->advance();
+    }
+
+    if (scorer->has_null_bitmap(exec_ctx.null_resolver)) {
+        const auto* bitmap = scorer->get_null_bitmap(exec_ctx.null_resolver);
+        if (bitmap != nullptr && !bitmap->isEmpty()) {
+            element_bitmap -= *bitmap;
+        }
+    }
+
+    // 4. Map element-level hits back to row-level hits through NestedGroup chain.
+    if (result_bitmap == nullptr) {
+        result_bitmap = std::make_shared<roaring::Roaring>();
+    }
+    roaring::Roaring parent_bitmap;
+    RETURN_IF_ERROR(read_provider->map_elements_to_parent_ords(
+            group_chain, index_exec_ctx->column_iter_opts(), element_bitmap, &parent_bitmap));
+    *result_bitmap = std::move(parent_bitmap);
+    return Status::OK();
+}
+
 // Aligned with FE QsClauseType enum - uses enum.name() as clause_type
 FunctionSearch::ClauseTypeCategory FunctionSearch::get_clause_type_category(
         const std::string& clause_type) const {
     if (clause_type == "AND" || clause_type == "OR" || clause_type == "NOT" ||
-        clause_type == "OCCUR_BOOLEAN") {
+        clause_type == "OCCUR_BOOLEAN" || clause_type == "NESTED") {
         return ClauseTypeCategory::COMPOUND;
     } else if (clause_type == "TERM" || clause_type == "PREFIX" || clause_type == "WILDCARD" ||
                clause_type == "REGEXP" || clause_type == "RANGE" || clause_type == "LIST" ||
@@ -554,6 +820,7 @@ InvertedIndexQueryType FunctionSearch::clause_type_to_query_type(
             {"OR", InvertedIndexQueryType::BOOLEAN_QUERY},
             {"NOT", InvertedIndexQueryType::BOOLEAN_QUERY},
             {"OCCUR_BOOLEAN", InvertedIndexQueryType::BOOLEAN_QUERY},
+            {"NESTED", InvertedIndexQueryType::BOOLEAN_QUERY},
 
             // Non-tokenized queries (exact matching, pattern matching)
             {"TERM", InvertedIndexQueryType::EQUAL_QUERY},
@@ -649,6 +916,10 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
         return Status::OK();
     }
 
+    if (clause_type == "NESTED") {
+        return Status::InvalidArgument("NESTED clause must be evaluated at top level");
+    }
+
     // Handle standard boolean operators (AND/OR/NOT)
     if (clause_type == "AND" || clause_type == "OR" || clause_type == "NOT") {
         query_v2::OperatorType op = query_v2::OperatorType::OP_AND;
@@ -726,8 +997,9 @@ Status FunctionSearch::build_leaf_query(const TSearchClause& clause,
 
     // Check if binding is empty (variant subcolumn not found in this segment)
     if (binding.lucene_reader == nullptr) {
-        VLOG_DEBUG << "build_leaf_query: Variant subcolumn '" << field_name
-                   << "' has no index in this segment, creating empty BitSetQuery (no matches)";
+        LOG(INFO) << "search: No inverted index for field '" << field_name
+                  << "' in this segment, clause_type='" << clause_type
+                  << "', query_type=" << static_cast<int>(query_type) << ", returning no matches";
         // Variant subcolumn doesn't exist - create empty BitSetQuery (no matches)
         *out = std::make_shared<query_v2::BitSetQuery>(roaring::Roaring());
         if (binding_key) {
