@@ -24,6 +24,8 @@ import com.aliyun.odps.Partition;
 import com.aliyun.odps.Project;
 import com.aliyun.odps.Schema;
 import com.aliyun.odps.Table;
+import com.aliyun.odps.TableSchema;
+import com.aliyun.odps.Tables;
 import com.aliyun.odps.security.SecurityManager;
 import com.aliyun.odps.table.TableIdentifier;
 import com.aliyun.odps.utils.StringUtils;
@@ -58,6 +60,10 @@ public interface McStructureHelper {
     Iterator<Partition> getPartitionIterator(Odps mcClient, String dbName, String tableName);
 
     Table getOdpsTable(Odps mcClient, String dbName, String tableName);
+
+    Tables.TableCreator createTableCreator(Odps mcClient, String dbName, String tableName, TableSchema schema);
+
+    void dropTable(Odps mcClient, String dbName, String tableName, boolean ifExists) throws OdpsException;
 
     /**
      * `mc.enable.namespace.schema` = true.
@@ -127,6 +133,21 @@ public interface McStructureHelper {
         @Override
         public Table getOdpsTable(Odps mcClient, String dbName, String tableName) {
             return mcClient.tables().get(defaultProjectName, dbName, tableName);
+        }
+
+        @Override
+        public Tables.TableCreator createTableCreator(Odps mcClient, String dbName, String tableName,
+                TableSchema schema) {
+            // dbName is the schema name, defaultProjectName is the project
+            return mcClient.tables().newTableCreator(defaultProjectName, tableName, schema)
+                    .withSchemaName(dbName);
+        }
+
+        @Override
+        public void dropTable(Odps mcClient, String dbName, String tableName, boolean ifExists)
+                throws OdpsException {
+            // dbName is the schema name, defaultProjectName is the project
+            mcClient.tables().delete(defaultProjectName, dbName, tableName, ifExists);
         }
     }
 
@@ -210,6 +231,20 @@ public interface McStructureHelper {
         @Override
         public Table getOdpsTable(Odps mcClient, String dbName, String tableName) {
             return mcClient.tables().get(dbName, tableName);
+        }
+
+        @Override
+        public Tables.TableCreator createTableCreator(Odps mcClient, String dbName, String tableName,
+                TableSchema schema) {
+            // dbName is the project name
+            return mcClient.tables().newTableCreator(dbName, tableName, schema);
+        }
+
+        @Override
+        public void dropTable(Odps mcClient, String dbName, String tableName, boolean ifExists)
+                throws OdpsException {
+            // dbName is the project name
+            mcClient.tables().delete(dbName, tableName, ifExists);
         }
     }
 
