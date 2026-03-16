@@ -27,6 +27,7 @@ import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Strings;
+import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.commons.io.IOUtils;
@@ -34,6 +35,7 @@ import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpRequestBase;
+import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
@@ -55,6 +57,7 @@ import java.util.stream.Collectors;
  */
 public class HttpUtils {
     private static final Logger LOG = LogManager.getLogger(HttpUtils.class);
+    private static final Gson HTTP_BODY_GSON = new Gson();
 
     static final int REQUEST_SUCCESS_CODE = 0;
     static final int DEFAULT_TIME_OUT_MS = 2000;
@@ -99,14 +102,18 @@ public class HttpUtils {
     }
 
     static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
+        return doPost(url, headers, body, DEFAULT_TIME_OUT_MS);
+    }
+
+    static String doPost(String url, Map<String, String> headers, Object body, int timeoutMs) throws IOException {
         HttpPost httpPost = new HttpPost(url);
         if (Objects.nonNull(body)) {
-            String jsonString = GsonUtils.GSON.toJson(body);
-            StringEntity stringEntity = new StringEntity(jsonString, "UTF-8");
+            String jsonString = HTTP_BODY_GSON.toJson(body);
+            StringEntity stringEntity = new StringEntity(jsonString, ContentType.APPLICATION_JSON);
             httpPost.setEntity(stringEntity);
         }
 
-        setRequestConfig(httpPost, headers, DEFAULT_TIME_OUT_MS);
+        setRequestConfig(httpPost, headers, timeoutMs);
         return executeRequest(httpPost);
     }
 
