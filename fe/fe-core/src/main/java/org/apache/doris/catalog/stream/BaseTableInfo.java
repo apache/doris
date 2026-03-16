@@ -34,7 +34,7 @@ public class BaseTableInfo {
     private static final Logger LOG = LogManager.getLogger(BaseTableInfo.class);
     // for internal table we use id as identifier otherwise use name instead
     @SerializedName("ci")
-    private final long ctlId;
+    private long ctlId;
     @SerializedName("di")
     private long dbId;
     @SerializedName("ti")

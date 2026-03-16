@@ -80,7 +80,7 @@ public class CreateStreamInfo {
                     PrivPredicate.SELECT.getPrivs().toString(), baseTableName.getTbl());
         }
 
-        InternalDatabaseUtil.checkDatabase(tableStreamName.getDb(), ConnectContext.get());
+        InternalDatabaseUtil.checkDatabase(tableStreamName.getDb(), ctx);
     }
 
     public TableNameInfo getStreamName() {
