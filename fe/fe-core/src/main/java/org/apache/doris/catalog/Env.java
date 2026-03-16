@@ -4999,9 +4999,9 @@ public class Env {
 
     public void dropStream(String catalogName, String dbName, String tableName, boolean ifExists,
                            boolean force) throws DdlException {
-        if (!Config.experimental_enable_table_stream) {
+        if (!Config.enable_table_stream) {
             throw new DdlException("Table Stream is experimental."
-                    + " Please set experimental_enable_table_stream=true to enable it.");
+                    + " Please set enable_table_stream=true to enable it.");
         }
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(catalogName,
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
@@ -6572,9 +6572,9 @@ public class Env {
     }
 
     public void createStream(CreateStreamCommand command) throws DdlException {
-        if (!Config.experimental_enable_table_stream) {
+        if (!Config.enable_table_stream) {
             throw new DdlException("Table Stream is experimental."
-                    + " Please set experimental_enable_table_stream=true to enable it.");
+                    + " Please set enable_table_stream=true to enable it.");
         }
         CreateStreamInfo createStreamInfo = command.getCreateStreamInfo();
         String dbName = createStreamInfo.getStreamName().getDb();
@@ -6605,14 +6605,15 @@ public class Env {
                 baseCatalog = getCatalogMgr()
                         .getCatalogOrDdlException(createStreamInfo.getBaseTableName().getCtl());
             }
+            BaseStream newStream;
             TableIf baseTable = baseCatalog.getDbOrDdlException(createStreamInfo.getBaseTableName().getDb())
-                    .getTableOrDdlException(createStreamInfo.getBaseTableName().getTbl());
-            Map<String, String> properties = createStreamInfo.getProperties();
+                                    .getTableOrDdlException(createStreamInfo.getBaseTableName().getTbl());
             // lock base table for stream init
             baseTable.readLock();
             try {
+                Map<String, String> properties = createStreamInfo.getProperties();
                 // build new stream
-                BaseStream newStream = new StreamBuildFactory()
+                newStream = new StreamBuildFactory()
                         .withName(streamName)
                         .withBaseTable(baseTable)
                         .build();
@@ -6623,17 +6624,17 @@ public class Env {
                     throw new DdlException(e.getMessage(), e);
                 }
                 if (properties != null && !properties.isEmpty()) {
-                    // here, all properties should be checked
+                    // before here, all properties should be checked
                     throw new DdlException("Unknown properties: " + properties);
                 }
                 newStream.setId((Env.getCurrentEnv().getNextId()));
-                if (!db.createTableWithLock(newStream, false, createStreamInfo.isIfNotExists()).first) {
-                    throw new DdlException("Failed to create stream[" + streamName + "].");
-                }
-                getStreamManager().addStream(newStream);
             } finally {
                 baseTable.readUnlock();
             }
+            if (!db.createTableWithLock(newStream, false, createStreamInfo.isIfNotExists()).first) {
+                throw new DdlException("Failed to create stream[" + streamName + "].");
+            }
+            getStreamManager().addStream(newStream);
             LOG.info("successfully create stream[{}]", streamName);
         }
     }

@@ -2905,10 +2905,10 @@ public class Config extends ConfigBase {
             "Interval at which the dictionary triggers a data expiration check, in seconds."})
     public static int dictionary_auto_refresh_interval_seconds = 5;
 
-    @ConfField(mutable = false, description = { "是否启用 Table Stream 功能",
+    @ConfField(mutable = false, masterOnly = false, description = { "是否启用 Table Stream 功能",
             "Whether to enable the experimental Table Stream functionality" },
             varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean experimental_enable_table_stream = false;
+    public static boolean enable_table_stream = false;
 
     //==========================================================================
     //                    begin of cloud config

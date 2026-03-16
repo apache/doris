@@ -98,16 +98,16 @@ public class StreamManager implements Writable {
     }
 
     public void fillStreamValuesMetadataResult(List<TRow> dataBatch) {
-        Map<Long, Set<Long>> coipedMap = new HashMap<>();
+        Map<Long, Set<Long>> copiedMap = new HashMap<>();
         rwLock.readLock().lock();
         try {
             for (Map.Entry<Long, Set<Long>> e : dbStreamMap.entrySet()) {
-                coipedMap.put(e.getKey(), new HashSet<>(e.getValue()));
+                copiedMap.put(e.getKey(), new HashSet<>(e.getValue()));
             }
         } finally {
             rwLock.readLock().unlock();
         }
-        for (Map.Entry<Long, Set<Long>> entry : coipedMap.entrySet()) {
+        for (Map.Entry<Long, Set<Long>> entry : copiedMap.entrySet()) {
             Optional<Database> db = Env.getCurrentInternalCatalog().getDb(entry.getKey());
             if (db.isPresent()) {
                 for (Long tableId : entry.getValue()) {

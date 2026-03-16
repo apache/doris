@@ -40,6 +40,9 @@ public abstract class BaseStream extends Table {
         MIN_DELTA,
         UNKNOWN;
         public static StreamConsumeType getType(String typeName) {
+            if (typeName == null) {
+                return UNKNOWN;
+            }
             typeName = typeName.toLowerCase();
             switch (typeName) {
                 case "default":
