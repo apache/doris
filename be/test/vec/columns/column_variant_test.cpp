@@ -3499,16 +3499,21 @@ TEST_F(ColumnVariantTest, test_variant_deserialize_from_sparse_column) {
     auto& offsets = column_map.get_offsets();
 
     {
-        Field int_field = Field::create_field<TYPE_INT>(123);
+        // First insert: TINYINT array field with TINYINT info
+        Field tinyint_field = Field::create_field<TYPE_TINYINT>(static_cast<Int8>(123));
         Field array_field = Field::create_field<TYPE_ARRAY>(Array(1));
-        array_field.get<TYPE_ARRAY>()[0] = int_field;
+        array_field.get<TYPE_ARRAY>()[0] = tinyint_field;
         FieldInfo info = {PrimitiveType::TYPE_TINYINT, false, false, 1};
         ColumnVariant::Subcolumn int_subcolumn(0, true, false);
         int_subcolumn.insert(array_field, info);
         int_subcolumn.serialize_to_binary_column(&key, "b", &value, 0);
 
+        // Second insert: INT array field with INT info (type promotion)
+        Field int_field = Field::create_field<TYPE_INT>(123);
+        Field array_field2 = Field::create_field<TYPE_ARRAY>(Array(1));
+        array_field2.get<TYPE_ARRAY>()[0] = int_field;
         info = {PrimitiveType::TYPE_INT, false, false, 1};
-        int_subcolumn.insert(array_field, info);
+        int_subcolumn.insert(array_field2, info);
         int_subcolumn.serialize_to_binary_column(&key, "b", &value, 1);
 
         offsets.push_back(key.size());
