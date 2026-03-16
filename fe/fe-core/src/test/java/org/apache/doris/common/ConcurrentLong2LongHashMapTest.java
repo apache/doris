@@ -17,11 +17,12 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.persist.gson.GsonUtils;
+
 import com.google.gson.Gson;
 import it.unimi.dsi.fastutil.longs.Long2LongMap;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.objects.ObjectSet;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -448,8 +449,12 @@ class ConcurrentLong2LongHashMapTest {
         Assertions.assertTrue(map.containsKey(1L));
         Assertions.assertEquals(0L, map.get(1L));
 
+        // getOrDefault returns the specified default for missing keys
+        Assertions.assertEquals(0L, map.getOrDefault(999L, map.defaultReturnValue()));
         // Boxed get via Map<Long,Long> interface returns null for missing keys
-        Long boxedResult = map.getOrDefault(999L, map.defaultReturnValue());
-        Assertions.assertEquals(0L, boxedResult);
+        Assertions.assertNull(((Map<Long, Long>) map).get(999L));
+
+        // Changing defaultReturnValue is not supported
+        Assertions.assertThrows(UnsupportedOperationException.class, () -> map.defaultReturnValue(-1L));
     }
 }

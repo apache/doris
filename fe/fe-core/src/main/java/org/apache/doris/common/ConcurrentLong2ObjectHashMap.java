@@ -31,6 +31,7 @@ import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import it.unimi.dsi.fastutil.objects.ObjectSet;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -44,13 +45,14 @@ import java.util.function.LongFunction;
  * while avoiding the memory overhead of boxing long keys. For a cluster with millions of tablet entries,
  * this saves ~32 bytes per entry compared to {@code ConcurrentHashMap<Long, V>}.
  *
+ * <p>Like {@link java.util.concurrent.ConcurrentHashMap}, null values are not permitted.
+ *
  * <p>Iteration methods ({@link #long2ObjectEntrySet()}, {@link #keySet()}, {@link #values()})
  * return snapshot copies and are weakly consistent.
  *
- * <p><b>Important:</b> All compound operations (computeIfAbsent, computeIfPresent, compute, merge)
- * from both {@link Long2ObjectMap} and {@link Map} interfaces are overridden to ensure atomicity
- * within a segment. The default interface implementations would call get/put as separate locked
- * operations, breaking atomicity.
+ * <p><b>Important:</b> All compound operations from both {@link Long2ObjectMap} and {@link Map}
+ * interfaces (computeIfAbsent, computeIfPresent, compute, merge, putIfAbsent, replace, remove)
+ * are overridden to ensure atomicity within a segment.
  *
  * @param <V> the type of mapped values
  */
@@ -167,6 +169,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
 
     @Override
     public V put(long key, V value) {
+        Objects.requireNonNull(value, "Null values are not permitted");
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
@@ -189,6 +192,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
 
     @Override
     public V putIfAbsent(long key, V value) {
+        Objects.requireNonNull(value, "Null values are not permitted");
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
@@ -200,6 +204,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
 
     @Override
     public boolean replace(long key, V oldValue, V newValue) {
+        Objects.requireNonNull(newValue, "Null values are not permitted");
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
@@ -211,10 +216,31 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
 
     @Override
     public V replace(long key, V value) {
+        Objects.requireNonNull(value, "Null values are not permitted");
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
             return seg.map.replace(key, value);
+        } finally {
+            seg.lock.writeLock().unlock();
+        }
+    }
+
+    @Override
+    public boolean remove(Object key, Object value) {
+        if (!(key instanceof Long)) {
+            return false;
+        }
+        long k = (Long) key;
+        Segment<V> seg = segmentFor(k);
+        seg.lock.writeLock().lock();
+        try {
+            V curValue = seg.map.get(k);
+            if (!java.util.Objects.equals(curValue, value) || (curValue == null && !seg.map.containsKey(k))) {
+                return false;
+            }
+            seg.map.remove(k);
+            return true;
         } finally {
             seg.lock.writeLock().unlock();
         }
@@ -253,7 +279,9 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
                 return val;
             }
             V newValue = mappingFunction.apply(key);
-            seg.map.put(key, newValue);
+            if (newValue != null) {
+                seg.map.put(key, newValue);
+            }
             return newValue;
         } finally {
             seg.lock.writeLock().unlock();
@@ -270,7 +298,9 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
                 return val;
             }
             V newValue = mappingFunction.get(key);
-            seg.map.put(key, newValue);
+            if (newValue != null) {
+                seg.map.put(key, newValue);
+            }
             return newValue;
         } finally {
             seg.lock.writeLock().unlock();

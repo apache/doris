@@ -17,13 +17,14 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.persist.gson.GsonUtils;
+
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.objects.ObjectCollection;
 import it.unimi.dsi.fastutil.objects.ObjectSet;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -220,11 +221,12 @@ class ConcurrentLong2ObjectHashMapTest {
     }
 
     @Test
-    void testNullValues() {
+    void testNullValuesRejected() {
         ConcurrentLong2ObjectHashMap<String> map = new ConcurrentLong2ObjectHashMap<>();
-        map.put(1L, null);
-        Assertions.assertTrue(map.containsKey(1L));
-        Assertions.assertNull(map.get(1L));
+        Assertions.assertThrows(NullPointerException.class, () -> map.put(1L, null));
+        Assertions.assertThrows(NullPointerException.class, () -> map.putIfAbsent(1L, null));
+        Assertions.assertThrows(NullPointerException.class, () -> map.replace(1L, null));
+        Assertions.assertThrows(NullPointerException.class, () -> map.replace(1L, "old", null));
     }
 
     @Test
