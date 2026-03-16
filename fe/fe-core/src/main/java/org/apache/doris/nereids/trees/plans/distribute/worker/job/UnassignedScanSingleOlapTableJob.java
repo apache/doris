@@ -175,7 +175,8 @@ public class UnassignedScanSingleOlapTableJob extends AbstractUnassignedScanJob 
 
         long totalTabletNum = olapScanNode.getScanTabletIds().size();
         int parallelPipelineTaskNum = Math.max(
-                context.getSessionVariable().getParallelExecInstanceNum(), 1);
+                context.getSessionVariable().getParallelExecInstanceNum(
+                        olapScanNode.getScanContext().getClusterName()), 1);
         long threshold = (long) parallelPipelineTaskNum * workerToScanRanges.size();
         return totalTabletNum > threshold;
     }
