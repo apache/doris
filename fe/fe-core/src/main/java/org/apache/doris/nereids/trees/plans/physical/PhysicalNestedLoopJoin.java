@@ -163,9 +163,9 @@ public class PhysicalNestedLoopJoin<
     @Override
     public PhysicalNestedLoopJoin<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        PhysicalNestedLoopJoin newJoin = new PhysicalNestedLoopJoin<>(joinType,
+        PhysicalNestedLoopJoin newJoin = AbstractPlan.copyWithSameId(this, () -> new PhysicalNestedLoopJoin<>(joinType,
                 hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, markJoinSlotReference, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statistics, children.get(0), children.get(1));
+                getLogicalProperties(), physicalProperties, statistics, children.get(0), children.get(1)));
         if (groupExpression.isPresent()) {
             newJoin.setMutableState(MutableState.KEY_GROUP, groupExpression.get().getOwnerGroup().getGroupId().asInt());
         }

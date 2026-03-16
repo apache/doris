@@ -161,10 +161,10 @@ public class PhysicalHashJoin<
     @Override
     public PhysicalHashJoin<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        PhysicalHashJoin newJoin = new PhysicalHashJoin<>(joinType, hashJoinConjuncts,
-                otherJoinConjuncts, markJoinConjuncts, hint, markJoinSlotReference,
+        PhysicalHashJoin newJoin = AbstractPlan.copyWithSameId(this, () -> new PhysicalHashJoin<>(joinType,
+                hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, hint, markJoinSlotReference,
                 Optional.empty(), getLogicalProperties(), physicalProperties, statistics,
-                children.get(0), children.get(1));
+                children.get(0), children.get(1)));
         if (groupExpression.isPresent()) {
             newJoin.setMutableState(MutableState.KEY_GROUP, groupExpression.get().getOwnerGroup().getGroupId().asInt());
         }
