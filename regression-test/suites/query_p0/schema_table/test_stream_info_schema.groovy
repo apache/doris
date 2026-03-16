@@ -39,5 +39,5 @@ suite("test_stream_info_schema") {
     """
 
     qt_sql "select * from information_schema.streams;"
-
+    sql "DROP DATABASE IF EXISTS test_stream_db"
 }
