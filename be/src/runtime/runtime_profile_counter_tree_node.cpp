@@ -157,4 +157,19 @@ PProfileCounter RuntimeProfileCounterTreeNode::to_proto() const {
     return pcounter;
 }
 
+void RuntimeProfileCounterTreeNode::pretty_print(std::ostream* s, const std::string& prefix) const {
+    // Print this node's counter (skip ROOT_COUNTER which has no counter)
+    if (name != RuntimeProfile::ROOT_COUNTER && counter != nullptr) {
+        counter->pretty_print(s, prefix, name);
+    }
+
+    // ROOT_COUNTER doesn't print itself, so don't add indentation for its children;
+    // non-root nodes add "  " for their children, matching the old print_child_counters behavior.
+    const std::string& child_prefix =
+            (name == RuntimeProfile::ROOT_COUNTER) ? prefix : prefix + "  ";
+    for (const auto& child : children) {
+        child.pretty_print(s, child_prefix);
+    }
+}
+
 } // namespace doris
