@@ -1369,10 +1369,15 @@ public class StmtExecutor {
         }
 
         coordBase.setIsProfileSafeStmt(this.isProfileSafeStmt());
+        OutFileClause outFileClause = null;
+        if (isOutfileQuery) {
+            outFileClause = queryStmt.getOutFileClause();
+            Preconditions.checkState(outFileClause != null, "OUTFILE query must have OutFileClause");
+        }
 
         try {
-            if (isOutfileQuery) {
-                deleteExistingOutfileFilesInFe(queryStmt.getOutFileClause());
+            if (outFileClause != null) {
+                deleteExistingOutfileFilesInFe(outFileClause);
             }
             coordBase.exec();
             profile.getSummaryProfile().setQueryScheduleFinishTime(TimeUtils.getStartTimeMs());
@@ -1407,8 +1412,8 @@ public class StmtExecutor {
                             sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
                                     getReturnTypes(queryStmt));
                         } else {
-                            if (!Strings.isNullOrEmpty(queryStmt.getOutFileClause().getSuccessFileName())) {
-                                outfileWriteSuccess(queryStmt.getOutFileClause());
+                            if (!Strings.isNullOrEmpty(outFileClause.getSuccessFileName())) {
+                                outfileWriteSuccess(outFileClause);
                             }
                             sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
                         }
@@ -1555,10 +1560,10 @@ public class StmtExecutor {
         if (!outFileClause.shouldDeleteExistingFiles()) {
             return;
         }
-        if (outFileClause.getBrokerDesc() == null
-                || outFileClause.getBrokerDesc().storageType() == StorageType.LOCAL) {
-            return;
-        }
+        Preconditions.checkState(outFileClause.getBrokerDesc() != null,
+                "delete_existing_files requires a remote outfile sink");
+        Preconditions.checkState(outFileClause.getBrokerDesc().storageType() != StorageType.LOCAL,
+                "delete_existing_files is not supported for local outfile sinks");
         BrokerUtil.deleteParentDirectoryWithFileSystem(outFileClause.getFilePath(), outFileClause.getBrokerDesc());
         clearDeleteExistingFilesInPlan();
     }
