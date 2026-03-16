@@ -107,11 +107,7 @@ class AuthenticationIntegrationMgrTest {
 
         Mockito.verify(runtime, Mockito.times(3)).activatePreparedAuthenticationIntegration(prepared);
         Mockito.verify(runtime).removeAuthenticationIntegration("corp_ldap");
-        Mockito.verify(editLog).logCreateAuthenticationIntegration(Mockito.any(AuthenticationIntegrationMeta.class));
-        Mockito.verify(editLog, Mockito.times(3))
-                .logAlterAuthenticationIntegration(Mockito.any(AuthenticationIntegrationMeta.class));
-        Mockito.verify(editLog)
-                .logDropAuthenticationIntegration(Mockito.any(DropAuthenticationIntegrationOperationLog.class));
+        Mockito.verifyNoInteractions(editLog);
     }
 
     @Test
