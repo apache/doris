@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFun
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
@@ -221,6 +222,14 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             default:
                 throw new RuntimeException("Could not derive output properties for agg phase: " + agg.getAggPhase());
         }
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalBucketedHashAggregate(
+            PhysicalBucketedHashAggregate<? extends Plan> agg, PlanContext context) {
+        Preconditions.checkState(childrenOutputProperties.size() == 1);
+        PhysicalProperties childOutputProperty = childrenOutputProperties.get(0);
+        return new PhysicalProperties(childOutputProperty.getDistributionSpec());
     }
 
     @Override
