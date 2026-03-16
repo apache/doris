@@ -47,14 +47,19 @@ public class LoadManagerTest {
     private LoadManager loadManager;
     private final String fieldName = "idToLoadJob";
     private UserIdentity userInfo = UserIdentity.createAnalyzedUserIdentWithIp("root", "localhost");
+    private int oldStreamingLabelKeepMaxSecond;
+    private int oldLabelNumThreshold;
 
     @Before
     public void setUp() throws Exception {
-
+        oldStreamingLabelKeepMaxSecond = Config.streaming_label_keep_max_second;
+        oldLabelNumThreshold = Config.label_num_threshold;
     }
 
     @After
     public void tearDown() throws Exception {
+        Config.streaming_label_keep_max_second = oldStreamingLabelKeepMaxSecond;
+        Config.label_num_threshold = oldLabelNumThreshold;
         File file = new File("./loadManagerTest");
         if (file.exists()) {
             file.delete();

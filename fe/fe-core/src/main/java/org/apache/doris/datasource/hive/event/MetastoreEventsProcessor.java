@@ -58,7 +58,7 @@ import java.util.Map;
  * Metastore clients like Apache Hive or Apache Spark configured to talk with the same metastore.
  * <p>
  * This class is used to poll metastore for such events at a given frequency. By observing
- * such events, we can take appropriate action on the {@link org.apache.doris.datasource.hive.HiveMetaStoreCache}
+ * such events, we can take appropriate action on the {@link org.apache.doris.datasource.hive.HiveExternalMetaCache}
  * (refresh/invalidate/add/remove) so that represents the latest information
  * available in metastore. We keep track of the last synced event id in each polling
  * iteration so the next batch can be requested appropriately. The current batch size is

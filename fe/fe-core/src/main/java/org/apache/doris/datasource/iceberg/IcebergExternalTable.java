@@ -25,12 +25,13 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.systable.IcebergSysTable;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
@@ -77,6 +78,11 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         super(id, name, remoteName, catalog, db, TableType.ICEBERG_EXTERNAL_TABLE);
     }
 
+    @Override
+    public String getMetaCacheEngine() {
+        return IcebergExternalMetaCache.ENGINE;
+    }
+
     public String getIcebergCatalogType() {
         return ((IcebergExternalCatalog) catalog).getIcebergCatalogType();
     }
@@ -93,6 +99,13 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
         boolean isView = isView();
         return IcebergUtils.loadSchemaCacheValue(this, ((IcebergSchemaCacheKey) key).getSchemaId(), isView);
+    }
+
+    @Override
+    public Optional<SchemaCacheValue> getSchemaCacheValue() {
+        IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getSnapshotCacheValue(
+                MvccUtil.getSnapshotFromContext(this), this);
+        return Optional.of(IcebergUtils.getSchemaCacheValue(this, snapshotValue));
     }
 
     @Override

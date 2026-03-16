@@ -25,12 +25,13 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
-import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.hive.HMSSchemaCacheValue;
 import org.apache.doris.datasource.hive.HiveDlaTable;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -47,6 +48,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 public class HmsCatalogTest extends AnalyzeCheckTestBase {
     private static final String HMS_CATALOG = "hms_ctl";
@@ -98,9 +100,11 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
     private void createDbAndTableForHmsCatalog(HMSExternalCatalog hmsCatalog) {
         Deencapsulation.setField(hmsCatalog, "initialized", true);
         Deencapsulation.setField(hmsCatalog, "objectCreated", true);
+        Env.getCurrentEnv().getExtMetaCacheMgr().prepareCatalog(hmsCatalog.getId());
 
         List<Column> schema = Lists.newArrayList();
         schema.add(new Column("k1", PrimitiveType.INT));
+        HMSSchemaCacheValue schemaCacheValue = new HMSSchemaCacheValue(schema, Lists.newArrayList());
 
         HMSExternalDatabase db = new HMSExternalDatabase(hmsCatalog, 10000, "hms_db", "hms_db");
         Deencapsulation.setField(db, "initialized", true);
@@ -143,9 +147,17 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 minTimes = 0;
                 result = TableIf.TableType.HMS_EXTERNAL_TABLE;
 
-                // mock initSchemaAndUpdateTime and do nothing
-                tbl.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey(tbl.getOrBuildNameMapping()));
+                tbl.getCatalog();
                 minTimes = 0;
+                result = hmsCatalog;
+
+                tbl.getSchemaCacheValue();
+                minTimes = 0;
+                result = Optional.of(schemaCacheValue);
+
+                tbl.initSchemaAndUpdateTime((SchemaCacheKey) any);
+                minTimes = 0;
+                result = Optional.of(schemaCacheValue);
 
                 tbl.getDatabase();
                 minTimes = 0;

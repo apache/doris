@@ -129,4 +129,3 @@ public class SwitchingFileSystem implements FileSystem {
         return extMetaCacheMgr.getFsCache().getRemoteFileSystem(fileSystemCacheKey);
     }
 }
-

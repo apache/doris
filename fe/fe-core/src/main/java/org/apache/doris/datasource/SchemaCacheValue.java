@@ -24,7 +24,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * The cache value of ExternalSchemaCache.
+ * The cache value of schema cache entries.
  * Different external table type has different schema cache value.
  * For example, Hive table has HMSSchemaCacheValue, Paimon table has PaimonSchemaCacheValue.
  * All objects that should be refreshed along with schema should be put in this class.

@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.datasource.NameMapping;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
+import org.apache.doris.datasource.hive.HiveExternalMetaCache.FileCacheValue;
 import org.apache.doris.datasource.property.storage.LocalProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.LocalDfsFileSystem;

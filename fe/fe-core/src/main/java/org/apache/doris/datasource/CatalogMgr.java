@@ -22,6 +22,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
@@ -40,7 +41,10 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveExternalMetaCache;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -121,19 +125,23 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     private CatalogIf removeCatalog(long catalogId) {
-        CatalogIf catalog = idToCatalog.remove(catalogId);
-        LOG.info("Removed catalog with id {}, name {}", catalogId, catalog == null ? "N/A" : catalog.getName());
-        if (catalog != null) {
-            Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(catalogId);
-            catalog.onClose();
-            Env.getCurrentEnv().getConstraintManager().dropCatalogConstraints(catalog.getName());
-            nameToCatalog.remove(catalog.getName());
-            if (ConnectContext.get() != null) {
-                ConnectContext.get().removeLastDBOfCatalog(catalog.getName());
-            }
-            Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getId());
-            Env.getCurrentEnv().getQueryStats().clear(catalog.getId());
+        CatalogIf catalog = idToCatalog.get(catalogId);
+        if (catalog == null) {
+            LOG.info("Removed catalog with id {}, name N/A", catalogId);
+            return null;
         }
+        Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(catalogId);
+        catalog.onClose();
+        Env.getCurrentEnv().getConstraintManager().dropCatalogConstraints(catalog.getName());
+        if (ConnectContext.get() != null) {
+            ConnectContext.get().removeLastDBOfCatalog(catalog.getName());
+        }
+        // Invalidate external meta cache by the catalog-declared engines before removing catalog mappings.
+        Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalog(catalog.getId());
+        Env.getCurrentEnv().getQueryStats().clear(catalog.getId());
+        nameToCatalog.remove(catalog.getName());
+        idToCatalog.remove(catalogId);
+        LOG.info("Removed catalog with id {}, name {}", catalogId, catalog.getName());
         return catalog;
     }
 
@@ -726,7 +734,15 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
 
         HMSExternalTable hmsTable = (HMSExternalTable) table;
-        Env.getCurrentEnv().getExtMetaCacheMgr().addPartitionsCache(catalog.getId(), hmsTable, partitionNames);
+        List<Type> partitionColumnTypes;
+        try {
+            partitionColumnTypes = hmsTable.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(hmsTable));
+        } catch (NotSupportedException e) {
+            LOG.warn("Ignore not supported hms table, message: {} ", e.getMessage());
+            return;
+        }
+        HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().hive(catalog.getId());
+        cache.addPartitionsCache(hmsTable.getOrBuildNameMapping(), partitionNames, partitionColumnTypes);
         hmsTable.setUpdateTime(updateTime);
     }
 
@@ -757,7 +773,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
 
         HMSExternalTable hmsTable = (HMSExternalTable) table;
-        Env.getCurrentEnv().getExtMetaCacheMgr().dropPartitionsCache(catalog.getId(), hmsTable, partitionNames);
+        Env.getCurrentEnv().getExtMetaCacheMgr().hive(catalog.getId())
+                .dropPartitionsCache(hmsTable, partitionNames, true);
         hmsTable.setUpdateTime(updateTime);
     }
 

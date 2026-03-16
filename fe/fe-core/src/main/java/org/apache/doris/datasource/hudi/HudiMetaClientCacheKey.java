@@ -15,23 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.iceberg.cache;
+package org.apache.doris.datasource.hudi;
+
+import org.apache.doris.datasource.NameMapping;
 
 import java.util.Objects;
 
 /**
- * Cache key for a single Iceberg manifest file.
- * Since Iceberg manifest files are immutable, path uniquely identifies a manifest.
+ * Cache key for hudi meta client entry.
  */
-public class ManifestCacheKey {
-    private final String path;
+public final class HudiMetaClientCacheKey {
+    private final NameMapping nameMapping;
 
-    public ManifestCacheKey(String path) {
-        this.path = path;
+    private HudiMetaClientCacheKey(NameMapping nameMapping) {
+        this.nameMapping = Objects.requireNonNull(nameMapping, "nameMapping can not be null");
     }
 
-    public String getPath() {
-        return path;
+    public static HudiMetaClientCacheKey of(NameMapping nameMapping) {
+        return new HudiMetaClientCacheKey(nameMapping);
+    }
+
+    public NameMapping getNameMapping() {
+        return nameMapping;
     }
 
     @Override
@@ -39,20 +44,15 @@ public class ManifestCacheKey {
         if (this == o) {
             return true;
         }
-        if (!(o instanceof ManifestCacheKey)) {
+        if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        ManifestCacheKey that = (ManifestCacheKey) o;
-        return Objects.equals(path, that.path);
+        HudiMetaClientCacheKey that = (HudiMetaClientCacheKey) o;
+        return nameMapping.equals(that.nameMapping);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(path);
-    }
-
-    @Override
-    public String toString() {
-        return "ManifestCacheKey{path='" + path + "'}";
+        return Objects.hash(nameMapping);
     }
 }
