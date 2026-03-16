@@ -416,6 +416,8 @@ struct TTableFormatFileDesc {
     8: optional TLakeSoulFileDesc lakesoul_params
     9: optional i64 table_level_row_count = -1
     10: optional TRemoteDorisFileDesc remote_doris_params
+    // JDBC connection parameters (used when table_format_type == "jdbc")
+    11: optional map<string, string> jdbc_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
