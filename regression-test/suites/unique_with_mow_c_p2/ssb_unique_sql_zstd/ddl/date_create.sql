@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS `date` (
   `d_weekdayfl` int(11) NOT NULL COMMENT ""
 )
 UNIQUE KEY (`d_datekey`)
-CLUSTER BY (`d_weeknuminyear`, `d_month`)
+ORDER BY (`d_weeknuminyear`, `d_month`)
 DISTRIBUTED BY HASH(`d_datekey`) BUCKETS 1
 PROPERTIES (
 "enable_mow_light_delete" = "true",
