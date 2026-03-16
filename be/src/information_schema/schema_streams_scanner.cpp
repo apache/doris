@@ -137,5 +137,4 @@ Status SchemaStreamsScanner::get_next_block_internal(Block* block, bool* eos) {
     return Status::OK();
 }
 
-
 } // namespace doris
