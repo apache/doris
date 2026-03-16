@@ -1040,6 +1040,13 @@ TEST(FunctionJsonbTEST, JsonExtractStringFromVarcharAliasTest) {
             check_function<DataTypeString, true>("jsonb_extract_string", input_types, data_set));
     static_cast<void>(
             check_function<DataTypeString, true>("get_json_string", input_types, data_set));
+
+    // Malformed JSON path: ends with a single backslash. This used to trigger
+    // boost::escaped_list_error inside escaped_list_separator.
+    // get_json_string should handle it gracefully and return NULL.
+    data_set = {{{STRING(R"({"k1":"v1", "k2":"v2"})"), STRING("$.k1\\")}, Null()}};
+    static_cast<void>(
+            check_function<DataTypeString, true>("get_json_string", input_types, data_set));
 }
 
 } // namespace doris::vectorized

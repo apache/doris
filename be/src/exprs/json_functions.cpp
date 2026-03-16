@@ -219,8 +219,16 @@ void JsonFunctions::parse_json_paths(const std::string& path_string,
                 path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
         std::vector<std::string> paths(tok.begin(), tok.end());
         get_parsed_paths(paths, parsed_paths);
-    } catch (const boost::escaped_list_error& err) {
-        throw doris::Exception(ErrorCode::INVALID_JSON_PATH, "meet error {}", err.what());
+    } catch (const boost::escaped_list_error&) {
+        // If boost tokenizer throws exception due to invalid escape sequences,
+        // mark the path as invalid so that JSON extraction will return NULL
+        // This prevents program crash when user provides malformed JSON path strings
+        parsed_paths->clear();
+        parsed_paths->emplace_back("", -1, false);
+    } catch (const std::exception&) {
+        // Catch any other exceptions from boost tokenizer
+        parsed_paths->clear();
+        parsed_paths->emplace_back("", -1, false);
     }
 }
 

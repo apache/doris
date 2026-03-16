@@ -217,35 +217,43 @@ rapidjson::Value* get_json_object(std::string_view json_string, std::string_view
         if (tmp_parsed_paths.empty()) {
             return document;
         }
-    } catch (boost::escaped_list_error&) {
-        // meet unknown escape sequence, example '$.name\k'
-        return nullptr;
-    }
 
-    parsed_paths = &tmp_parsed_paths;
+        parsed_paths = &tmp_parsed_paths;
 
-    if (!(*parsed_paths)[0].is_valid) {
-        return nullptr;
-    }
-
-    if (UNLIKELY((*parsed_paths).size() == 1)) {
-        if (fntype == JSON_FUN_STRING) {
-            document->SetString(json_string.data(),
-                                cast_set<rapidjson::SizeType>(json_string.size()),
-                                document->GetAllocator());
-        } else {
-            return document;
+        if (!(*parsed_paths)[0].is_valid) {
+            return nullptr;
         }
-    }
 
-    document->Parse(json_string.data(), json_string.size());
-    if (UNLIKELY(document->HasParseError())) {
-        // VLOG_CRITICAL << "Error at offset " << document->GetErrorOffset() << ": "
-        //         << GetParseError_En(document->GetParseError());
+        if (UNLIKELY((*parsed_paths).size() == 1)) {
+            if (fntype == JSON_FUN_STRING) {
+                document->SetString(json_string.data(),
+                                    cast_set<rapidjson::SizeType>(json_string.size()),
+                                    document->GetAllocator());
+            } else {
+                return document;
+            }
+        }
+
+        document->Parse(json_string.data(), json_string.size());
+        if (UNLIKELY(document->HasParseError())) {
+            // VLOG_CRITICAL << "Error at offset " << document->GetErrorOffset() << ": "
+            //         << GetParseError_En(document->GetParseError());
+            return nullptr;
+        }
+
+        return match_value(*parsed_paths, document, document->GetAllocator());
+    } catch (const boost::escaped_list_error& e) {
+        // If boost tokenizer throws exception due to invalid escape sequences,
+        // return NULL
+        VLOG_DEBUG << "Failed to parse JSON path due to escaped_list_error: " << e.what()
+                   << ", path: " << path_string;
+        return nullptr;
+    } catch (const std::exception& e) {
+        // Catch any other exceptions from boost tokenizer
+        VLOG_DEBUG << "Failed to parse JSON path due to exception: " << e.what()
+                   << ", path: " << path_string;
         return nullptr;
     }
-
-    return match_value(*parsed_paths, document, document->GetAllocator());
 }
 
 template <int flag>
