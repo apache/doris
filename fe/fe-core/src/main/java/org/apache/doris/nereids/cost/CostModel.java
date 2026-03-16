@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
@@ -387,6 +388,18 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                     exprCost / 100 + inputStatistics.getRowCount() / factor,
                     inputStatistics.getRowCount() / factor, 0);
         }
+    }
+
+    @Override
+    public Cost visitPhysicalBucketedHashAggregate(
+            PhysicalBucketedHashAggregate<? extends Plan> aggregate, PlanContext context) {
+        // Bucketed agg is similar to one-phase agg: all computation on a single BE,
+        // but avoids exchange overhead. Cost is comparable to one-phase agg.
+        Statistics inputStatistics = context.getChildStatistics(0);
+        double exprCost = expressionTreeCost(aggregate.getExpressions());
+        return Cost.of(context.getSessionVariable(),
+                exprCost / 100 + inputStatistics.getRowCount(),
+                inputStatistics.getRowCount(), 0);
     }
 
     @Override
