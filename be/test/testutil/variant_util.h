@@ -19,9 +19,8 @@
 
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_variant.h"
-#include "vec/common/schema_util.h"
+#include "vec/common/variant_util.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/json/parse2column.h"
 
 namespace doris {
 
@@ -323,7 +322,7 @@ public:
         auto res = fill_string_column_with_test_data(column_string, size, inserted_jsonstr);
         vectorized::ParseConfig config;
         config.enable_flatten_nested = false;
-        parse_json_to_variant(*column_object, *column_string, config);
+        variant_util::parse_json_to_variant(*column_object, *column_string, config);
         return res;
     }
 
@@ -376,7 +375,7 @@ public:
         vectorized::ParseConfig config;
         // do not treat array with jsonb field
         config.enable_flatten_nested = has_nested;
-        parse_json_to_variant(*variant_column, *column_string, config);
+        variant_util::parse_json_to_variant(*variant_column, *column_string, config);
     }
 
     static std::unordered_map<std::string, int> fill_object_column_with_nested_test_data(
@@ -387,7 +386,7 @@ public:
         auto res = fill_string_column_with_nested_test_data(column_string, size, inserted_jsonstr);
         vectorized::ParseConfig config;
         config.enable_flatten_nested = false;
-        parse_json_to_variant(*column_object, *column_string, config);
+        variant_util::parse_json_to_variant(*column_object, *column_string, config);
         return res;
     }
 };

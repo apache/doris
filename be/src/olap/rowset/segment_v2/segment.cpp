@@ -69,7 +69,6 @@
 #include "util/coding.h"
 #include "util/slice.h" // Slice
 #include "vec/columns/column.h"
-#include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
@@ -650,7 +649,7 @@ Status Segment::new_default_iterator(const TabletColumn& tablet_column,
 Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                     std::unique_ptr<ColumnIterator>* iter,
                                     const StorageReadOptions* opt,
-                                    const std::unordered_map<int32_t, PathToSparseColumnCacheUPtr>*
+                                    const std::unordered_map<int32_t, PathToBinaryColumnCacheUPtr>*
                                             variant_sparse_column_cache) {
     if (opt->runtime_state != nullptr) {
         _be_exec_version = opt->runtime_state->be_exec_version();
@@ -675,7 +674,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     }
     if (reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
         // if sparse_column_cache_ptr is nullptr, means the sparse column cache is not used
-        PathToSparseColumnCache* sparse_column_cache_ptr = nullptr;
+        PathToBinaryColumnCache* sparse_column_cache_ptr = nullptr;
         if (variant_sparse_column_cache) {
             auto it = variant_sparse_column_cache->find(unique_id);
             if (it != variant_sparse_column_cache->end()) {
@@ -950,7 +949,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
                 iterator_hint->read_by_rowids(single_row_loc.data(), 1, file_storage_column));
         vectorized::ColumnPtr source_ptr;
         // storage may have different type with schema, so we need to cast the column
-        RETURN_IF_ERROR(vectorized::schema_util::cast_column(
+        RETURN_IF_ERROR(vectorized::variant_util::cast_column(
                 vectorized::ColumnWithTypeAndName(file_storage_column->get_ptr(), storage_type,
                                                   column.name()),
                 slot->type(), &source_ptr));

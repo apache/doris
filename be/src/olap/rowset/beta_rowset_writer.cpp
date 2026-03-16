@@ -59,7 +59,6 @@
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "vec/columns/column.h"
-#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_factory.hpp"
 

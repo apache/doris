@@ -79,7 +79,10 @@ public:
         size_t raw_est = raw_bytes + raw_overhead + kReserveSlackBytes;
         size_t reserve_bytes = std::min(raw_est, run_bytes_est);
         if (_bitmap_buf.capacity() < reserve_bytes) {
-            _bitmap_buf.reserve(reserve_bytes);
+            const size_t cap = _bitmap_buf.capacity();
+            const size_t grow = cap + cap / 2;
+            const size_t new_cap = std::max(reserve_bytes, grow);
+            _bitmap_buf.reserve(new_cap);
         }
     }
 
@@ -321,7 +324,17 @@ Status ColumnWriter::create_agg_state_writer(const ColumnWriterOptions& opts,
 Status ColumnWriter::create_variant_writer(const ColumnWriterOptions& opts,
                                            const TabletColumn* column, io::FileWriter* file_writer,
                                            std::unique_ptr<ColumnWriter>* writer) {
+    // Variant extracted columns have two kinds of physical writers:
+    // - Doc-value snapshot column (`...__DORIS_VARIANT_DOC_VALUE__...`): use `VariantDocCompactWriter`
+    //   to store the doc snapshot in a compact binary form.
+    // - Regular extracted subcolumns: use `VariantSubcolumnWriter`.
+    // The root VARIANT column itself uses `VariantColumnWriter`.
     if (column->is_extracted_column()) {
+        if (column->name().find(DOC_VALUE_COLUMN_PATH) != std::string::npos) {
+            *writer = std::make_unique<VariantDocCompactWriter>(
+                    opts, column, std::unique_ptr<Field>(FieldFactory::create(*column)));
+            return Status::OK();
+        }
         VLOG_DEBUG << "gen subwriter for " << column->path_info_ptr()->get_path();
         *writer = std::make_unique<VariantSubcolumnWriter>(
                 opts, column, std::unique_ptr<Field>(FieldFactory::create(*column)));

@@ -64,7 +64,7 @@ suite("test_variant_cast", "p0") {
     sql """
         CREATE TABLE `var_cast_decimal` (
             `k` int NULL,
-            `var` variant<'aaa': decimal(10, 2), properties("variant_enable_typed_paths_to_sparse" = "false")> NULL
+            `var` variant<'aaa': decimal(10, 2), properties("variant_enable_doc_mode" = "false")> NULL
         ) ENGINE=OLAP
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1

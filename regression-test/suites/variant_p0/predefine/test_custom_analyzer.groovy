@@ -24,6 +24,7 @@ suite("test_variant_custom_analyzer", "p0") {
     sql "set default_variant_max_subcolumns_count = 100"
     sql """ set enable_match_without_inverted_index = false """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_enable_doc_mode = false """
 
     sql """
         CREATE INVERTED INDEX TOKENIZER IF NOT EXISTS edge_ngram_phone_number_tokenizer
