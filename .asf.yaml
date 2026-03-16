@@ -175,8 +175,8 @@ github:
     - shuke987
     - wm1581066
     - doris-robot
-    - echo-hhj
     - ixzc
     - deardeng
+    - wyxxxcat
 notifications:
   pullrequests_status:  commits@doris.apache.org
