@@ -39,6 +39,15 @@ inline bool contains_nested_group_marker(std::string_view path) {
     return path.find(kNestedGroupMarker) != std::string_view::npos;
 }
 
+inline bool nested_group_path_has_prefix(std::string_view path, std::string_view prefix) {
+    return path == prefix ||
+           (path.size() > prefix.size() && path.starts_with(prefix) && path[prefix.size()] == '.');
+}
+
+inline bool nested_group_paths_overlap(std::string_view lhs, std::string_view rhs) {
+    return nested_group_path_has_prefix(lhs, rhs) || nested_group_path_has_prefix(rhs, lhs);
+}
+
 inline std::string nested_group_marker_token() {
     return "." + std::string(kNestedGroupMarker) + ".";
 }

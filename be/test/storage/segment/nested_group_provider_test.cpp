@@ -62,10 +62,10 @@ TEST(NestedGroupProviderTest, DefaultWriteProviderIsNoOp) {
     ColumnWriterOptions opts;
     VariantStatistics statistics;
 
-    EXPECT_TRUE(write_provider
-                        ->prepare(*column_variant, false, nullptr, opts, nullptr, 0, nullptr,
-                                  &statistics)
-                        .ok());
+    auto status =
+            write_provider->prepare(*column_variant, nullptr, opts, nullptr, nullptr, &statistics);
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>());
     EXPECT_EQ(0, write_provider->estimate_buffer_size());
     EXPECT_TRUE(write_provider->finish().ok());
     EXPECT_TRUE(write_provider->write_data().ok());
