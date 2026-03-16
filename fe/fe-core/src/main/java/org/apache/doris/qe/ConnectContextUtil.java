@@ -91,7 +91,9 @@ public class ConnectContextUtil {
             if (catalogName != null) {
                 ctx.getEnv().changeCatalog(ctx, catalogName);
             }
-            ctx.getEnv().changeDb(ctx, dbName);
+            if (dbName != null) {
+                ctx.getEnv().changeDb(ctx, dbName);
+            }
         } catch (DdlException e) {
             return Optional.of(Pair.of(e.getMysqlErrorCode(), e.getMessage()));
         } catch (Throwable t) {
