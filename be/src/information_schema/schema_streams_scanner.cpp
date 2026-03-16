@@ -17,14 +17,13 @@
 
 #include "information_schema/schema_streams_scanner.h"
 
-#include "gen_cpp/FrontendService_types.h"
-
 #include <cstddef>
 
 #include "core/block/block.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
 #include "core/string_ref.h"
+#include "gen_cpp/FrontendService_types.h"
 #include "information_schema/schema_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
