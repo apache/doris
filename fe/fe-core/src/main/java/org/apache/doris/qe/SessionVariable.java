@@ -963,6 +963,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
+    public static final String ENABLE_BUCKETED_HASH_AGG = "enable_bucketed_hash_agg";
 
     public static final String MERGE_IO_READ_SLICE_SIZE_BYTES = "merge_io_read_slice_size_bytes";
 
@@ -2913,6 +2914,14 @@ public class SessionVariable implements Serializable, Writable {
                     + "between 1 and 4 forces the use of phases 1 to 4 for aggregate calculations."},
             checker = "checkAggPhase")
     public int aggPhase = 0;
+
+    @VariableMgr.VarAttr(name = ENABLE_BUCKETED_HASH_AGG, needForward = true, description = {
+            "是否启用 bucketed hash aggregation 优化。该优化在单 BE 场景下将两阶段聚合融合为单个算子，"
+                    + "消除 Exchange 开销和序列化/反序列化成本。默认关闭。",
+            "Whether to enable bucketed hash aggregation optimization. This optimization fuses two-phase "
+                    + "aggregation into a single operator on single-BE deployments, eliminating exchange overhead "
+                    + "and serialization/deserialization costs. Disabled by default."})
+    public boolean enableBucketedHashAgg = false;
 
 
     @VariableMgr.VarAttr(name = MERGE_IO_READ_SLICE_SIZE_BYTES, description = {

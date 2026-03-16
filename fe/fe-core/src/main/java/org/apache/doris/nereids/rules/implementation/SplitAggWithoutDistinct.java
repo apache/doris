@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -60,21 +61,22 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
     }
 
     private List<Plan> rewrite(LogicalAggregate<? extends Plan> aggregate, ConnectContext ctx) {
+        ImmutableList.Builder<Plan> candidates = ImmutableList.builder();
         switch (ctx.getSessionVariable().aggPhase) {
             case 1:
-                return ImmutableList.<Plan>builder()
-                        .addAll(implementOnePhase(aggregate))
-                        .build();
+                candidates.addAll(implementOnePhase(aggregate));
+                break;
             case 2:
-                return ImmutableList.<Plan>builder()
-                        .addAll(splitTwoPhase(aggregate))
-                        .build();
+                candidates.addAll(splitTwoPhase(aggregate));
+                break;
             default:
-                return ImmutableList.<Plan>builder()
-                        .addAll(implementOnePhase(aggregate))
-                        .addAll(splitTwoPhase(aggregate))
-                        .build();
+                candidates.addAll(implementOnePhase(aggregate));
+                candidates.addAll(splitTwoPhase(aggregate));
+                break;
         }
+        // Add bucketed agg candidate when enabled and on single BE with GROUP BY keys
+        candidates.addAll(implementBucketedPhase(aggregate, ctx));
+        return candidates.build();
     }
 
     /**
@@ -163,6 +165,48 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
                 globalAggOutput, aggregate.getPartitionExpressions(), bufferToResultParam,
                 AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), bufferToResultParam),
                 aggregate.getLogicalProperties(), localAgg));
+    }
+
+    /**
+     * Implements bucketed hash aggregation for single-BE deployments.
+     * Fuses two-phase aggregation into a single PhysicalBucketedHashAggregate operator,
+     * eliminating exchange overhead and serialization/deserialization costs.
+     *
+     * Only generated when:
+     * 1. enable_bucketed_hash_agg session variable is true
+     * 2. Cluster has exactly one alive BE
+     * 3. Aggregate has GROUP BY keys (no without-key aggregation)
+     * 4. Aggregate functions support two-phase execution
+     */
+    private List<Plan> implementBucketedPhase(LogicalAggregate<? extends Plan> aggregate, ConnectContext ctx) {
+        if (!ctx.getSessionVariable().enableBucketedHashAgg) {
+            return ImmutableList.of();
+        }
+        // Only for single-BE deployments
+        int beNumber = Math.max(1, ctx.getEnv().getClusterInfo().getBackendsNumber(true));
+        if (beNumber != 1) {
+            return ImmutableList.of();
+        }
+        // Without-key aggregation not supported in initial version
+        if (aggregate.getGroupByExpressions().isEmpty()) {
+            return ImmutableList.of();
+        }
+        // Must support two-phase execution (same check as splitTwoPhase)
+        if (!aggregate.supportAggregatePhase(AggregatePhase.TWO)) {
+            return ImmutableList.of();
+        }
+        // Build output expressions: INPUT_TO_RESULT mode (same as one-phase)
+        List<NamedExpression> aggOutput = ExpressionUtils.rewriteDownShortCircuit(
+                aggregate.getOutputExpressions(), expr -> {
+                    if (!(expr instanceof AggregateFunction)) {
+                        return expr;
+                    }
+                    return new AggregateExpression((AggregateFunction) expr, AggregateParam.GLOBAL_RESULT);
+                }
+        );
+        return ImmutableList.of(new PhysicalBucketedHashAggregate<>(
+                aggregate.getGroupByExpressions(), aggOutput,
+                aggregate.getLogicalProperties(), aggregate.child()));
     }
 
     private boolean shouldUseLocalAgg(LogicalAggregate<? extends Plan> aggregate) {

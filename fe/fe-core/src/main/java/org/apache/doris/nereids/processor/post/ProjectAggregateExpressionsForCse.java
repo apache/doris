@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -175,6 +176,106 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
                     child.getStats(),
                     aggregate.child());
             aggregate = (PhysicalHashAggregate<? extends Plan>) aggregate
+                    .withAggOutput(aggOutputReplaced)
+                    .withChildren(project);
+        }
+        return aggregate;
+    }
+
+    @Override
+    public Plan visitPhysicalBucketedHashAggregate(
+            PhysicalBucketedHashAggregate<? extends Plan> aggregate, CascadesContext ctx) {
+        aggregate = (PhysicalBucketedHashAggregate<? extends Plan>) super.visit(aggregate, ctx);
+
+        // Bucketed agg is a fused single-phase operator, so its child should never be
+        // PhysicalDistribute or Aggregate. No early-return needed, but keep the same guard
+        // for safety.
+        if (aggregate.child() instanceof PhysicalDistribute || aggregate.child() instanceof Aggregate) {
+            return aggregate;
+        }
+
+        Map<Expression, Alias> cseCandidates = new HashMap<>();
+        Set<Slot> inputSlots = new HashSet<>();
+        List<Expression> allAggFunctionChildren = new ArrayList<>();
+
+        for (Expression expr : aggregate.getExpressions()) {
+            getCseCandidatesFromAggregateFunction(expr, cseCandidates, allAggFunctionChildren);
+            inputSlots.addAll(expr.getInputSlots());
+        }
+        if (cseCandidates.isEmpty()) {
+            return aggregate;
+        }
+        CommonSubExpressionCollector collector = new CommonSubExpressionCollector();
+        for (Expression expr : allAggFunctionChildren) {
+            collector.collect(expr);
+        }
+        if (collector.commonExprByDepth.isEmpty()) {
+            return aggregate;
+        }
+        if (aggregate.child() instanceof PhysicalProject) {
+            List<NamedExpression> projections = ((PhysicalProject) aggregate.child()).getProjects();
+            Map<Slot, Expression> replaceMap = new HashMap<>();
+            for (NamedExpression ne : projections) {
+                if (ne instanceof Alias) {
+                    replaceMap.put(ne.toSlot(), ((Alias) ne).child());
+                }
+            }
+            for (Expression key : cseCandidates.keySet()) {
+                cseCandidates.put(key,
+                        (Alias) ExpressionUtils.replace(cseCandidates.get(key), replaceMap));
+            }
+        }
+
+        Map<Expression, Slot> slotMap = new HashMap<>();
+        for (Expression key : cseCandidates.keySet()) {
+            slotMap.put(key, cseCandidates.get(key).toSlot());
+        }
+        List<NamedExpression> aggOutputReplaced = new ArrayList<>();
+        for (NamedExpression expr : aggregate.getOutputExpressions()) {
+            aggOutputReplaced.add((NamedExpression) ExpressionUtils.replace(expr, slotMap));
+        }
+
+        if (aggregate.child() instanceof PhysicalProject) {
+            List<NamedExpression> newProjections = Lists.newArrayList();
+            PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) aggregate.child();
+            Set<Slot> newInputSlots = aggOutputReplaced.stream()
+                    .flatMap(expr -> expr.getInputSlots().stream())
+                    .collect(Collectors.toSet());
+            for (NamedExpression expr : project.getProjects()) {
+                if (!(expr instanceof SlotReference) || newInputSlots.contains(expr)) {
+                    newProjections.add(expr);
+                }
+            }
+            newProjections.addAll(cseCandidates.values());
+
+            project = project.withProjectionsAndChild(newProjections, project.child());
+            PhysicalProperties projectPhysicalProperties = ChildOutputPropertyDeriver.computeProjectOutputProperties(
+                    project.getProjects(), ((PhysicalPlan) project.child()).getPhysicalProperties());
+            project = project.withPhysicalPropertiesAndStats(projectPhysicalProperties, project.getStats());
+            aggregate = (PhysicalBucketedHashAggregate<? extends Plan>) aggregate
+                    .withAggOutput(aggOutputReplaced)
+                    .withChildren(project);
+        } else {
+            List<NamedExpression> projections = new ArrayList<>();
+            projections.addAll(inputSlots);
+            projections.addAll(cseCandidates.values());
+            List<Slot> projectOutput = new ImmutableList.Builder<Slot>()
+                    .addAll(inputSlots)
+                    .addAll(slotMap.values())
+                    .build();
+            LogicalProperties projectLogicalProperties = new LogicalProperties(
+                    () -> projectOutput,
+                    () -> DataTrait.EMPTY_TRAIT
+            );
+            AbstractPhysicalPlan child = ((AbstractPhysicalPlan) aggregate.child());
+            PhysicalProperties projectPhysicalProperties = ChildOutputPropertyDeriver.computeProjectOutputProperties(
+                    projections, child.getPhysicalProperties());
+            PhysicalProject<? extends Plan> project = new PhysicalProject<>(projections, Optional.empty(),
+                    projectLogicalProperties,
+                    projectPhysicalProperties,
+                    child.getStats(),
+                    aggregate.child());
+            aggregate = (PhysicalBucketedHashAggregate<? extends Plan>) aggregate
                     .withAggOutput(aggOutputReplaced)
                     .withChildren(project);
         }

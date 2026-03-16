@@ -417,6 +417,12 @@ void AggSharedState::_destroy_agg_status(AggregateDataPtr data) {
     }
 }
 
+void BucketedAggSharedState::_destroy_agg_status(AggregateDataPtr data) {
+    for (int i = 0; i < aggregate_evaluators.size(); ++i) {
+        aggregate_evaluators[i]->function()->destroy(data + offsets_of_aggregate_states[i]);
+    }
+}
+
 LocalExchangeSharedState::~LocalExchangeSharedState() = default;
 
 Status SetSharedState::update_build_not_ignore_null(const VExprContextSPtrs& ctxs) {

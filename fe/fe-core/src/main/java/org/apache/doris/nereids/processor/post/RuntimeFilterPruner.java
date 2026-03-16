@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -262,6 +263,18 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         // q2: A join (select x, sum(y) as z from B group by x) T on A.a = T.z
         // RF on q1 is not effective, but RF on q2 is. But q1 is a more generous pattern, and hence agg is not
         // regarded as an effective source. Let this RF judge by ndv.
+        if (ctx.isEffectiveSrcNode(aggregate.child(0))) {
+            RuntimeFilterContext.EffectiveSrcType childType = ctx.getEffectiveSrcType(aggregate.child());
+            ctx.addEffectiveSrcNode(aggregate, childType);
+        }
+        return aggregate;
+    }
+
+    @Override
+    public PhysicalBucketedHashAggregate visitPhysicalBucketedHashAggregate(
+            PhysicalBucketedHashAggregate<? extends Plan> aggregate, CascadesContext context) {
+        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
+        aggregate.child().accept(this, context);
         if (ctx.isEffectiveSrcNode(aggregate.child(0))) {
             RuntimeFilterContext.EffectiveSrcType childType = ctx.getEffectiveSrcType(aggregate.child());
             ctx.addEffectiveSrcNode(aggregate, childType);
