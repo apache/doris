@@ -110,5 +110,14 @@ public interface SourceOffsetProvider {
         return null;
     }
 
+    /**
+     * Returns true if the provider has reached a natural completion point
+     * and the job should be marked as FINISHED.
+     * Default: false (most providers run indefinitely).
+     */
+    default boolean hasReachedEnd() {
+        return false;
+    }
+
 }
 
