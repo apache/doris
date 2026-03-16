@@ -1,0 +1,18 @@
+# Find module shim for Snappy
+if(TARGET snappy)
+    get_target_property(_snappy_src_dir snappy SOURCE_DIR)
+    get_target_property(_snappy_bin_dir snappy BINARY_DIR)
+    set(SNAPPY_FOUND TRUE)
+    set(Snappy_FOUND TRUE)
+    set(SNAPPY_INCLUDE_DIR "${_snappy_src_dir}")
+    set(SNAPPY_INCLUDE_DIRS "${SNAPPY_INCLUDE_DIR}")
+    set(SNAPPY_LIBRARY snappy)
+    set(SNAPPY_STATIC_LIB snappy)
+    set(SNAPPY_LIBRARIES snappy)
+    include(FindPackageHandleStandardArgs)
+    find_package_handle_standard_args(Snappy DEFAULT_MSG SNAPPY_LIBRARY SNAPPY_INCLUDE_DIR)
+    if(NOT TARGET Snappy::snappy)
+        add_library(Snappy::snappy ALIAS snappy)
+    endif()
+endif()
+

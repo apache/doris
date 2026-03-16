@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gflags/gflags.h>
 #include <memory>
 #include <string>
 
@@ -104,7 +105,7 @@ int main(int argc, char** argv) {
     listeners.Append(new TestListener);
     doris::ExecEnv::set_tracking_memory(false);
 
-    google::ParseCommandLineFlags(&argc, &argv, false);
+    gflags::ParseCommandLineFlags(&argc, &argv, false);
 
     updatePHDRCache();
     try {

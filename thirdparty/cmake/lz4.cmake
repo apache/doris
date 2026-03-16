@@ -1,0 +1,9 @@
+# lz4
+set(LZ4_BUILD_CLI OFF CACHE BOOL "" FORCE)
+set(LZ4_BUILD_LEGACY_LZ4C OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
+add_subdirectory(${TP_SOURCE_DIR}/lz4-1.9.4/build/cmake ${CMAKE_CURRENT_BINARY_DIR}/lz4 EXCLUDE_FROM_ALL)
+if(TARGET lz4_static)
+    add_library(lz4 ALIAS lz4_static)
+endif()

@@ -46,6 +46,10 @@ Usage: $0 <options>
      [no option]                build all components
      --fe                       build Frontend. Default ON.
      --be                       build Backend. Default ON.
+     --asan                     build Backend in ASAN (AddressSanitizer) mode. Implies --be.
+     --tsan                     build Backend in TSAN (ThreadSanitizer) mode. Implies --be.
+     --ubsan                    build Backend in UBSAN (UndefinedBehaviorSanitizer) mode. Implies --be.
+     --ut                       build Backend unit tests. Implies --be and ASAN mode (unless overridden).
      --meta-tool                build Backend meta tool. Default OFF.
      --file-cache-microbench    build Backend file cache microbench tool. Default OFF.
      --cloud                    build Cloud. Default OFF.
@@ -86,6 +90,11 @@ Usage: $0 <options>
     $0 --broker                             build Broker
     $0 --be --fe                            build Backend, Frontend, and Java UDF library
     $0 --be --coverage                      build Backend with coverage enabled
+    $0 --be --asan                          build Backend with AddressSanitizer
+    $0 --be --tsan                          build Backend with ThreadSanitizer
+    $0 --be --ubsan                          build Backend with UndefinedBehaviorSanitizer
+    $0 --ut                                 build Backend unit tests (ASAN mode)
+    $0 --ut --tsan                          build Backend unit tests (TSAN mode)
     $0 --be --output PATH                   build Backend, the result will be output to PATH(relative paths are available)
     $0 --be-extension-ignore avro-scanner   build be-java-extensions, choose which modules to ignore. Multiple modules separated by commas, like --be-extension-ignore avro-scanner,hadoop-hudi-scanner
 
@@ -115,6 +124,9 @@ clean_be() {
     # while building be.
     CMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
     CMAKE_BUILD_DIR="${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}"
+    if [[ "${MAKE_TEST}" == "ON" ]]; then
+        CMAKE_BUILD_DIR="${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}"
+    fi
 
     rm -rf "${CMAKE_BUILD_DIR}"
     rm -rf "${DORIS_HOME}/be/output"
@@ -155,6 +167,10 @@ if ! OPTS="$(getopt \
     -l 'disable-dynamic-arch' \
     -l 'clean' \
     -l 'coverage' \
+    -l 'asan' \
+    -l 'tsan' \
+    -l 'ut' \
+    -l 'ubsan' \
     -l 'help' \
     -l 'output:' \
     -o 'hj:' \
@@ -186,6 +202,7 @@ PARAMETER_COUNT="$#"
 PARAMETER_FLAG=0
 DENABLE_CLANG_COVERAGE='OFF'
 BUILD_AZURE='ON'
+MAKE_TEST='OFF'
 BUILD_UI=1
 if [[ "$#" == 1 ]]; then
     # default
@@ -289,6 +306,34 @@ else
             DENABLE_CLANG_COVERAGE='ON'
             shift
             ;;
+        --asan)
+            BUILD_TYPE='ASAN'
+            BUILD_BE=1
+            BUILD_BE_JAVA_EXTENSIONS=1
+            BUILD_BE_CDC_CLIENT=1
+            shift
+            ;;
+        --tsan)
+            BUILD_TYPE='TSAN'
+            BUILD_BE=1
+            BUILD_BE_JAVA_EXTENSIONS=1
+            BUILD_BE_CDC_CLIENT=1
+            shift
+            ;;
+        --ubsan)
+            BUILD_TYPE='UBSAN'
+            BUILD_BE=1
+            BUILD_BE_JAVA_EXTENSIONS=1
+            BUILD_BE_CDC_CLIENT=1
+            shift
+            ;;
+        --ut)
+            MAKE_TEST='ON'
+            BUILD_BE=1
+            BUILD_BE_JAVA_EXTENSIONS=1
+            BUILD_BE_CDC_CLIENT=1
+            shift
+            ;;
         -h)
             HELP=1
             shift
@@ -340,23 +385,8 @@ fi
 if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
-# build thirdparty libraries if necessary. check last thirdparty lib installation
-if [[ "${TARGET_SYSTEM}" == 'Darwin' ]]; then
-    LAST_THIRDPARTY_LIB='libbrotlienc.a'
-else
-    LAST_THIRDPARTY_LIB='hadoop_hdfs/native/libhdfs.a'
-fi
-if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
-    echo "Thirdparty libraries need to be build ..."
-    # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
-    rm -rf "${DORIS_THIRDPARTY}/installed"
-
-    if [[ "${CLEAN}" -eq 0 ]]; then
-        "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
-    else
-        "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
-    fi
-fi
+# download thirdparty source code if necessary (CMake will build from source)
+"${DORIS_THIRDPARTY}/download-thirdparty.sh"
 
 update_submodule() {
     local submodule_path=$1
@@ -425,8 +455,19 @@ if [[ -z "${STRIP_DEBUG_INFO}" ]]; then
     STRIP_DEBUG_INFO='OFF'
 fi
 BUILD_TYPE_LOWWER=$(echo "${BUILD_TYPE}" | tr '[:upper:]' '[:lower:]')
-if [[ "${BUILD_TYPE_LOWWER}" == "asan" ]]; then
+# For UT builds, default to ASAN mode if no BUILD_TYPE is explicitly set
+if [[ "${MAKE_TEST}" == 'ON' && -z "${BUILD_TYPE}" ]]; then
+    BUILD_TYPE='ASAN'
+    BUILD_TYPE_LOWWER='asan'
+fi
+if [[ "${BUILD_TYPE_LOWWER}" == "asan" || "${BUILD_TYPE_LOWWER}" == "tsan" || "${BUILD_TYPE_LOWWER}" == "ubsan" ]]; then
     USE_JEMALLOC='OFF'
+    # Sanitizer builds must disable PCH to avoid PIE mismatch errors
+    ENABLE_PCH='OFF'
+    # UT builds enable injection points by default
+    if [[ "${MAKE_TEST}" == 'ON' ]]; then
+        ENABLE_INJECTION_POINT='ON'
+    fi
 elif [[ -z "${USE_JEMALLOC}" ]]; then
     if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
         USE_JEMALLOC='ON'
@@ -632,7 +673,12 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     fi
     CMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}"
     echo "Build Backend: ${CMAKE_BUILD_TYPE}"
-    CMAKE_BUILD_DIR="${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}"
+    if [[ "${MAKE_TEST}" == 'ON' ]]; then
+        CMAKE_BUILD_DIR="${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}"
+        echo "Build UT: ON (build dir: ${CMAKE_BUILD_DIR})"
+    else
+        CMAKE_BUILD_DIR="${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}"
+    fi
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_be
     fi
@@ -661,10 +707,12 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     cd "${CMAKE_BUILD_DIR}"
     "${CMAKE_CMD}" -G "${GENERATOR}" \
         -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
+        -DCMAKE_C_COMPILER="${CC}" \
+        -DCMAKE_CXX_COMPILER="${CXX}" \
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
         -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
         -DENABLE_INJECTION_POINT="${ENABLE_INJECTION_POINT}" \
-        -DMAKE_TEST=OFF \
+        -DMAKE_TEST="${MAKE_TEST}" \
         -DBUILD_BENCHMARK="${BUILD_BENCHMARK}" \
         -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
         -DBUILD_TASK_EXECUTOR_SIMULATOR="${BUILD_TASK_EXECUTOR_SIMULATOR}" \

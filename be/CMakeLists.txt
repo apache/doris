@@ -133,8 +133,9 @@ set(OUTPUT_DIR "${BASE_DIR}/output")
 if (NOT DEFINED ENV{DORIS_THIRDPARTY})
     set(ENV{DORIS_THIRDPARTY} "$ENV{DORIS_HOME}/thirdparty")
 endif()
-set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed")
-message(STATUS "THIRDPARTY_DIR is ${THIRDPARTY_DIR}")
+set(THIRDPARTY_SRC_DIR "$ENV{DORIS_THIRDPARTY}")
+
+
 
 option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 message(STATUS "make test: ${MAKE_TEST}")
@@ -173,21 +174,6 @@ if(NOT ${MAKE_GENSRC_RESULT} EQUAL 0 AND NOT APPLE)
     message(FATAL_ERROR "Failed to build ${BASE_DIR}/../gensrc/")
 endif()
 
-# Set Boost
-set(Boost_DEBUG FALSE)
-set(Boost_USE_MULTITHREADED ON)
-set(Boost_ROOT ${THIRDPARTY_DIR})
-set(Boost_NO_BOOST_CMAKE OFF)
-set(BOOST_VERSION "1.81.0")
-
-if (NOT APPLE)
-    find_package(Boost ${BOOST_VERSION} REQUIRED COMPONENTS system date_time)
-    find_package(Boost ${BOOST_VERSION} REQUIRED COMPONENTS system container)
-else()
-    find_package(Boost ${BOOST_VERSION} COMPONENTS system date_time)
-    find_package(Boost ${BOOST_VERSION} COMPONENTS system container)
-endif()
-
 # Set if use libazure or not
 option(BUILD_AZURE "ON for building azure support for BE or OFF for not" OFF)
 message(STATUS "build azure: ${BUILD_AZURE}")
@@ -195,10 +181,16 @@ if(BUILD_AZURE STREQUAL "ON")
     add_definitions(-DUSE_AZURE)
 endif()
 
+# =========================================================================
+# Build thirdparty from source
+# Compiler flags (ASAN/TSAN/Debug/Release) propagate to all thirdparty libs
+# =========================================================================
+message(STATUS "Building thirdparty from source")
+add_subdirectory(${THIRDPARTY_SRC_DIR} ${CMAKE_BINARY_DIR}/thirdparty)
 
-set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
-
-include (cmake/thirdparty.cmake)
+# GPERFTOOLS_HOME points to source-built gperftools
+set(GPERFTOOLS_HOME "${CMAKE_BINARY_DIR}/thirdparty/gperftools")
+# COMMON_THIRDPARTY is set by thirdparty/CMakeLists.txt via PARENT_SCOPE
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
@@ -207,32 +199,44 @@ set(BUILD_JAVA OFF)
 set(BUILD_CPP_TESTS OFF)
 set(STOP_BUILD_ON_WARNING OFF)
 set(BUILD_LIBHDFSPP OFF)
-SET(PROTOBUF_HOME "$ENV{DORIS_THIRDPARTY}/installed")
-SET(SNAPPY_HOME "$ENV{DORIS_THIRDPARTY}/installed")
-SET(LZ4_HOME "$ENV{DORIS_THIRDPARTY}/installed")
-SET(LZ4_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/lz4")
-SET(ZLIB_HOME "$ENV{DORIS_THIRDPARTY}/installed")
+# zlib is built from source via add_subdirectory(thirdparty)
 SET(ZLIB_USE_STATIC_LIBS ON)
-SET(ZLIB_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
-find_package(ZLIB)
-SET(ZSTD_HOME "$ENV{DORIS_THIRDPARTY}/installed")
-SET(ZSTD_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/zstd")
 SET(CONTRIB_PATH "${PROJECT_SOURCE_DIR}/../contrib")
 
 # Out of source build need to set the binary dir
+# ORC's ThirdpartyToolchain.cmake detects our source-built targets (zlibstatic,
+# snappy, libzstd_static, lz4_static, libprotobuf) via if(TARGET ...) and links
+# them directly, skipping ExternalProject downloads.
 add_subdirectory(${CONTRIB_PATH}/apache-orc ${PROJECT_BINARY_DIR}/apache-orc EXCLUDE_FROM_ALL)
 target_compile_options(orc PRIVATE -Wno-implicit-fallthrough -w)
+# ORC Compression.cc needs libdeflate.h (installed by build-thirdparty.sh)
+target_include_directories(orc PRIVATE
+    ${CMAKE_SOURCE_DIR}/../thirdparty/installed/include
+    ${CMAKE_SOURCE_DIR}/../thirdparty/src/libdeflate-1.19
+)
 
 option(BUILD_STATIC_LIBRARIES "Build static libraries" ON)
 option(BUILD_SHARED_LIBRARIES "Build shared libraries" OFF)
 option(BUILD_CONTRIBS_LIB "Build contribs lib" ON)
 
-set(BOOST_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
-set(Roaring_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
+# Boost and Roaring are built from source via add_subdirectory(thirdparty)
 set(USE_STAT64 0)
 
 # disable clucene bthread supported.
 set(USE_BTHREAD OFF)
+
+# Roaring is already built from source via add_subdirectory(thirdparty).
+# Set Roaring_FOUND to prevent CLucene's FindRoaring.cmake from creating a duplicate target.
+# CLucene uses #include <roaring/roaring.hh>, but CRoaring keeps roaring.hh in cpp/,
+# so we copy it into include/roaring/ to create the expected layout.
+set(_CROARING_SRC "${PROJECT_SOURCE_DIR}/../thirdparty/src/CRoaring-2.1.2")
+if(NOT EXISTS "${_CROARING_SRC}/include/roaring/roaring.hh")
+    file(COPY "${_CROARING_SRC}/cpp/roaring.hh" "${_CROARING_SRC}/cpp/roaring64map.hh"
+         DESTINATION "${_CROARING_SRC}/include/roaring/")
+endif()
+set(Roaring_FOUND TRUE)
+set(Roaring_LIBRARY roaring)
+set(Roaring_INCLUDE_DIR "${_CROARING_SRC}/include")
 
 # Out of source build need to set the binary dir
 add_subdirectory(${CONTRIB_PATH}/clucene ${PROJECT_BINARY_DIR}/clucene EXCLUDE_FROM_ALL)
@@ -248,6 +252,9 @@ target_compile_options(clucene-core-static PRIVATE ${clucene_options})
 target_compile_options(clucene-shared-static PRIVATE ${clucene_options})
 target_compile_options(clucene-contribs-lib PRIVATE ${clucene_options})
 target_compile_options(ic PRIVATE ${clucene_options})
+# CLucene's FindRoaring.cmake does not add include dirs to targets, so we do it here.
+target_include_directories(clucene-core-static PRIVATE "${Roaring_INCLUDE_DIR}")
+target_include_directories(ic PRIVATE "${Roaring_INCLUDE_DIR}")
 
 install(DIRECTORY
     ${CONTRIB_PATH}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict
@@ -473,6 +480,94 @@ include_directories(
     ${CONTRIB_PATH}/clucene/src/core
     ${CONTRIB_PATH}/clucene/src/shared
     ${CONTRIB_PATH}/clucene/src/contribs-lib
+    ${Roaring_INCLUDE_DIR}
+)
+
+# Third-party source include directories
+# These ensure PCH and all BE source files can find thirdparty headers
+# when building from source (replaces the old thirdparty/installed/include).
+# IMPORTANT: Use SYSTEM to avoid shadowing openblas config.h with glog config.h.
+set(TP_SRC_DIR "${CMAKE_SOURCE_DIR}/../thirdparty/src")
+set(TP_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/thirdparty")
+link_directories(${CMAKE_SOURCE_DIR}/../thirdparty/installed/lib)
+link_directories(${CMAKE_SOURCE_DIR}/../thirdparty/installed/lib64)
+include_directories(SYSTEM
+    # thrift
+    ${TP_SRC_DIR}/thrift-0.16.0/lib/cpp/src
+    ${TP_BUILD_DIR}/thrift
+    # protobuf
+    ${TP_SRC_DIR}/protobuf-21.11/src
+    # arrow
+    ${CMAKE_SOURCE_DIR}/../contrib/apache-arrow/cpp/src
+    ${CMAKE_CURRENT_BINARY_DIR}/arrow/src
+    # fmt
+    ${TP_SRC_DIR}/fmt-7.1.3/include
+    # glog
+    ${TP_SRC_DIR}/glog-0.6.0/src
+    ${TP_BUILD_DIR}/glog
+    # boost
+    ${TP_SRC_DIR}/boost_1_81_0
+    # brpc/bvar
+    ${TP_SRC_DIR}/brpc-1.4.0/src
+    ${TP_BUILD_DIR}/brpc/output/include
+    # zstd
+    ${TP_SRC_DIR}/zstd-1.5.7/lib
+    # lz4
+    ${TP_SRC_DIR}/lz4-1.9.4/lib
+    # sasl
+    ${TP_SRC_DIR}/cyrus-sasl-2.1.27/include
+    # streamvbyte
+    ${TP_SRC_DIR}/streamvbyte-1.0.0/include
+    # aws sdk
+    ${TP_SRC_DIR}/aws-sdk-cpp-1.11.219/src/aws-cpp-sdk-core/include
+    # backtrace
+    ${TP_SRC_DIR}/libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e
+    ${TP_BUILD_DIR}/backtrace
+    # cctz
+    ${TP_SRC_DIR}/cctz-2.5/include
+    # crc32c
+    ${TP_SRC_DIR}/crc32c-1.1.2/include
+    # simdjson
+    ${TP_SRC_DIR}/simdjson-3.11.6/include
+    # leveldb
+    ${TP_SRC_DIR}/leveldb-1.23/include
+    # base64
+    ${TP_SRC_DIR}/base64-0.5.2/include
+    # gflags (generated headers in build dir)
+    ${TP_BUILD_DIR}/gflags/include
+    # re2
+    ${TP_SRC_DIR}/re2-2021-02-02
+    # snappy (build generates snappy-stubs-public.h)
+    ${TP_SRC_DIR}/snappy-1.1.10
+    ${TP_BUILD_DIR}/snappy
+    # s2geometry
+    ${TP_SRC_DIR}/s2geometry-0.10.0/src
+    # bitshuffle
+    ${TP_SRC_DIR}/bitshuffle-0.5.1/src
+    # odbc
+    ${TP_SRC_DIR}/unix-odbc-2.3.7/include
+    # gperftools
+    ${TP_BUILD_DIR}/gperftools/include
+    # xxHash
+    ${TP_SRC_DIR}/xxHash-0.8.3
+    # parallel_hashmap
+    ${TP_SRC_DIR}/parallel-hashmap-1.3.8
+    # concurrentqueue
+    ${TP_SRC_DIR}/concurrentqueue-1.0.3
+    # libdivide
+    ${TP_SRC_DIR}/libdivide-5.2.0
+    # rapidjson
+    ${TP_SRC_DIR}/rapidjson-232389d4f1012dddec4ef84861face2d2ba85709/include
+    # pdqsort (header directly in src/ root)
+    ${TP_SRC_DIR}
+    # rocksdb
+    ${TP_SRC_DIR}/rocksdb-5.14.2/include
+    # aws-crt-cpp
+    ${TP_SRC_DIR}/aws-sdk-cpp-1.11.219/crt/aws-crt-cpp/include
+    # fallback: thirdparty/installed/include for externally-built libs (sasl, libdeflate, etc)
+    ${CMAKE_SOURCE_DIR}/../thirdparty/installed/include
+    # CRoaring (needs SYSTEM to suppress -Wundef/-Wshorten-64-to-32 from roaring headers)
+    ${TP_SRC_DIR}/CRoaring-2.1.2/include
 )
 
 include_directories(
@@ -483,7 +578,6 @@ include_directories(
     SYSTEM
     ${COMMON_SRC_DIR}
     ${GENSRC_DIR}/
-    ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
 )
 
@@ -547,16 +641,18 @@ set(DORIS_LINK_LIBS
     CommonCPP
 )
 
-set(absl_DIR ${THIRDPARTY_DIR}/lib/cmake/absl)
-find_package(absl)
+# absl is built from source via add_subdirectory(thirdparty)
+set(absl_FOUND TRUE)
 
-# COMMON_THIRDPARTY are thirdparty dependencies that can run on all platform
-# When adding new dependencies, If you don’t know if it can run on all platforms,
-# add it here first.
+# COMMON_THIRDPARTY comes from thirdparty/CMakeLists.txt via PARENT_SCOPE.
+# Prepend Boost targets and add conditional libs here.
 set(COMMON_THIRDPARTY
     Boost::date_time
     Boost::container
     ${COMMON_THIRDPARTY}
+    ${GPERFTOOLS_LIBS}
+    ${AZURE_THIRDPARTY}
+    ${PAIMON_THIRDPARTY}
 )
 
 if (ENABLE_PAIMON_CPP)
@@ -564,26 +660,15 @@ if (ENABLE_PAIMON_CPP)
 endif()
 
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
-    add_library(hadoop_hdfs STATIC IMPORTED)
-    set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs_3_4/native/libhdfs.a)
-
+    # hadoop_hdfs target is created by thirdparty/cmake/hadoop_hdfs.cmake
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
         hadoop_hdfs
     )
     add_definitions(-DUSE_HADOOP_HDFS)
-    # USE_DORIS_HADOOP_HDFS means use hadoop deps from doris-thirdparty.
-    # the hadoop deps from doris-thirdparty contains some modification diff from the standard hadoop, such as log interface
     add_definitions(-DUSE_DORIS_HADOOP_HDFS)
 else()
-    add_library(hdfs3 STATIC IMPORTED)
-    set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)
-
     # TODO: use arm hadoop hdfs to replace this
-    set(COMMON_THIRDPARTY
-        ${COMMON_THIRDPARTY}
-        hdfs3
-    )
     add_definitions(-DUSE_LIBHDFS3)
 endif()
 
@@ -835,6 +920,9 @@ if (ENABLE_PCH)
     endif()
 
     add_library(pch STATIC ${SRC_DIR}pch/pch.cc)
+    # Link COMMON_THIRDPARTY to propagate INTERFACE_INCLUDE_DIRECTORIES to PCH.
+    # PCH includes headers from many thirdparty libs (Arrow, CLucene, zstd, etc.).
+    target_link_libraries(pch PUBLIC ${COMMON_THIRDPARTY})
     target_precompile_headers(
         pch
         PUBLIC
