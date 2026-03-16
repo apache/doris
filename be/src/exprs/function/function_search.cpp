@@ -578,7 +578,8 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
 
     std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
     if (enable_scoring && !is_asc && top_k > 0) {
-        bool use_wand = index_query_context->runtime_state->query_options()
+        bool use_wand = index_query_context->runtime_state != nullptr &&
+                        index_query_context->runtime_state->query_options()
                                 .enable_inverted_index_wand_query;
         query_v2::collect_multi_segment_top_k(weight, exec_ctx, root_binding_key, top_k, roaring,
                                               index_query_context->collection_similarity, use_wand);
@@ -595,13 +596,15 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     // The scorer correctly computes which documents evaluate to NULL based on query logic
     // For example: TRUE OR NULL = TRUE (not NULL), FALSE OR NULL = NULL
     std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-    auto scorer = weight->scorer(exec_ctx, root_binding_key);
-    if (scorer && scorer->has_null_bitmap(exec_ctx.null_resolver)) {
-        const auto* bitmap = scorer->get_null_bitmap(exec_ctx.null_resolver);
-        if (bitmap != nullptr) {
-            *null_bitmap = *bitmap;
-            VLOG_TRACE << "search: Extracted NULL bitmap with " << null_bitmap->cardinality()
-                       << " NULL documents";
+    if (exec_ctx.null_resolver) {
+        auto scorer = weight->scorer(exec_ctx, root_binding_key);
+        if (scorer && scorer->has_null_bitmap(exec_ctx.null_resolver)) {
+            const auto* bitmap = scorer->get_null_bitmap(exec_ctx.null_resolver);
+            if (bitmap != nullptr) {
+                *null_bitmap = *bitmap;
+                VLOG_TRACE << "search: Extracted NULL bitmap with " << null_bitmap->cardinality()
+                           << " NULL documents";
+            }
         }
     }
 

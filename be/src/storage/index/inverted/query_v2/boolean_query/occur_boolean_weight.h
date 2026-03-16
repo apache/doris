@@ -52,17 +52,22 @@ public:
     ~OccurBooleanWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& context) override;
+    ScorerPtr scorer(const QueryExecutionContext& context,
+                     const std::string& binding_key) override;
 
     void for_each_pruning(const QueryExecutionContext& context, float threshold,
                           PruningCallback callback) override;
+    void for_each_pruning(const QueryExecutionContext& context, const std::string& binding_key,
+                          float threshold, PruningCallback callback) override;
 
 private:
     std::unordered_map<Occur, std::vector<ScorerPtr>> per_occur_scorers(
-            const QueryExecutionContext& context);
+            const QueryExecutionContext& context, const std::string& binding_key = {});
     AllAndEmptyScorerCounts remove_and_count_all_and_empty_scorers(std::vector<ScorerPtr>& scorers);
 
     template <typename CombinerT>
-    SpecializedScorer complex_scorer(const QueryExecutionContext& context, CombinerT combiner);
+    SpecializedScorer complex_scorer(const QueryExecutionContext& context, CombinerT combiner,
+                                     const std::string& binding_key = {});
 
     template <typename CombinerT>
     std::optional<CombinationMethod> build_should_opt(std::vector<ScorerPtr>& must_scorers,
@@ -109,12 +114,20 @@ template <typename ScoreCombinerPtrT>
 void OccurBooleanWeight<ScoreCombinerPtrT>::for_each_pruning(const QueryExecutionContext& context,
                                                              float threshold,
                                                              PruningCallback callback) {
+    for_each_pruning(context, {}, threshold, std::move(callback));
+}
+
+template <typename ScoreCombinerPtrT>
+void OccurBooleanWeight<ScoreCombinerPtrT>::for_each_pruning(const QueryExecutionContext& context,
+                                                             const std::string& binding_key,
+                                                             float threshold,
+                                                             PruningCallback callback) {
     if (_sub_weights.empty()) {
         return;
     }
 
     _max_doc = context.segment_num_rows;
-    auto specialized = complex_scorer(context, _score_combiner);
+    auto specialized = complex_scorer(context, _score_combiner, binding_key);
 
     std::visit(
             [&](auto&& arg) {

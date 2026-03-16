@@ -236,8 +236,16 @@ private:
                 if (new_doc == TERMINATED) {
                     std::swap(scorers[idx], scorers.back());
                     scorers.pop_back();
+                    if (scorers.empty()) {
+                        return false;
+                    }
                 }
-                restore_ordering(scorers, idx);
+                // Full re-sort to guarantee invariant after swap-with-back,
+                // consistent with advance_all_scorers_on_pivot approach.
+                std::ranges::sort(scorers,
+                                  [](const ScorerWrapper& a, const ScorerWrapper& b) {
+                                      return a.doc() < b.doc();
+                                  });
                 return false;
             }
         }

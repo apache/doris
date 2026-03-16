@@ -203,7 +203,12 @@ public:
         return _similarity->max_score();
     }
 
-    float max_score() const { return _similarity->max_score(); }
+    float max_score() const {
+        if (!_enable_scoring || !_similarity) {
+            return std::numeric_limits<float>::max();
+        }
+        return _similarity->max_score();
+    }
 
     int32_t max_block_freq() const { return _raw_iter->getMaxBlockFreq(); }
     int32_t max_block_norm() const { return _raw_iter->getMaxBlockNorm(); }

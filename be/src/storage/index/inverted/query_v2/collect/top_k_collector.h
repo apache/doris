@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
 #include <algorithm>
 #include <cstdint>
 #include <limits>
@@ -49,6 +51,10 @@ public:
     static constexpr size_t kMaxK = 10000;
 
     explicit TopKCollector(size_t k) : _k(std::clamp(k, size_t(1), kMaxK)) {
+        if (k > kMaxK) {
+            LOG(WARNING) << "TopKCollector: requested k=" << k << " exceeds maximum " << kMaxK
+                         << ", truncated to " << kMaxK;
+        }
         _buffer.reserve(_k * 2);
     }
 

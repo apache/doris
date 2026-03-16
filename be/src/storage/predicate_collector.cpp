@@ -112,6 +112,7 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
         }
 
         auto options = DataTypeSerDe::get_default_format_options();
+        options.timezone = &state->timezone_obj();
         auto term_infos = InvertedIndexAnalyzer::get_analyse_result(right_literal->value(options),
                                                                     index_meta->properties());
 
