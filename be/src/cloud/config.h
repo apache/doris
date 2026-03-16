@@ -199,5 +199,11 @@ DECLARE_mInt64(file_cache_warmup_download_rate_limit_bytes_per_second);
 
 DECLARE_mInt64(cache_read_from_peer_expired_seconds);
 
+// Base compaction output: only write index files to file cache, not data files
+DECLARE_mBool(enable_file_cache_write_base_compaction_index_only);
+
+// Cumulative compaction output: only write index files to file cache, not data files
+DECLARE_mBool(enable_file_cache_write_cumu_compaction_index_only);
+
 #include "common/compile_check_end.h"
 } // namespace doris::config
