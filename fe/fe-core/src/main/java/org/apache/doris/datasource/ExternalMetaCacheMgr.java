@@ -18,7 +18,6 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.doris.DorisExternalMetaCache;
@@ -232,31 +231,27 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateDb(long catalogId, String dbName) {
-        String normalizedDbName = ClusterNamespace.getNameFromFullName(dbName);
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                cache, catalogId, "invalidateDb", () -> cache.invalidateDb(catalogId, normalizedDbName)));
+                cache, catalogId, "invalidateDb", () -> cache.invalidateDb(catalogId, dbName)));
     }
 
     public void invalidateTable(long catalogId, String dbName, String tableName) {
-        String normalizedDbName = ClusterNamespace.getNameFromFullName(dbName);
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateTable",
-                () -> cache.invalidateTable(catalogId, normalizedDbName, tableName)));
+                () -> cache.invalidateTable(catalogId, dbName, tableName)));
     }
 
     public void invalidateTableByEngine(long catalogId, String engine, String dbName, String tableName) {
-        String normalizedDbName = ClusterNamespace.getNameFromFullName(dbName);
         routeSpecifiedEngine(engine, cache -> safeInvalidate(
                 cache, catalogId, "invalidateTableByEngine",
-                () -> cache.invalidateTable(catalogId, normalizedDbName, tableName)));
+                () -> cache.invalidateTable(catalogId, dbName, tableName)));
     }
 
     public void invalidatePartitions(long catalogId,
             String dbName, String tableName, List<String> partitions) {
-        String normalizedDbName = ClusterNamespace.getNameFromFullName(dbName);
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidatePartitions",
-                () -> cache.invalidatePartitions(catalogId, normalizedDbName, tableName, partitions)));
+                () -> cache.invalidatePartitions(catalogId, dbName, tableName, partitions)));
     }
 
     public List<CatalogMetaCacheStats> getCatalogCacheStats(long catalogId) {
@@ -369,7 +364,7 @@ public class ExternalMetaCacheMgr {
 
     public void invalidateTableCache(ExternalTable dorisTable) {
         invalidateTable(dorisTable.getCatalog().getId(),
-                ClusterNamespace.getNameFromFullName(dorisTable.getDbName()),
+                dorisTable.getDbName(),
                 dorisTable.getName());
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalid table cache for {}.{} in catalog {}", dorisTable.getRemoteDbName(),
@@ -418,7 +413,7 @@ public class ExternalMetaCacheMgr {
                     this::loadSchemaCacheValue,
                     defaultSchemaCacheSpec(),
                     MetaCacheEntryInvalidation.forTableIdentity(
-                            key -> ClusterNamespace.getNameFromFullName(key.getNameMapping().getLocalDbName()),
+                            key -> key.getNameMapping().getLocalDbName(),
                             key -> key.getNameMapping().getLocalTblName())));
         }
 
