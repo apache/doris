@@ -1698,6 +1698,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getOrCreatTableProperty().getGroupCommitDataBytes();
     }
 
+    public void setGroupCommitMode(String groupCommitMode) {
+        getOrCreatTableProperty().setGroupCommitMode(groupCommitMode);
+    }
+
+    public String getGroupCommitMode() {
+        return getOrCreatTableProperty().getGroupCommitMode();
+    }
+
     public Boolean hasSequenceCol() {
         return getSequenceCol() != null;
     }

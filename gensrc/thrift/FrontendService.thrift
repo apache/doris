@@ -466,6 +466,8 @@ struct TLoadTxnBeginRequest {
     14: optional i64 table_id
     15: optional i64 backend_id
     16: optional TCertBasedAuth cert_based_auth
+    // If set to true: use table group_commit_mode property
+    17: optional bool use_table_group_commit_mode
 }
 
 struct TLoadTxnBeginResult {
@@ -473,6 +475,9 @@ struct TLoadTxnBeginResult {
     2: optional i64 txnId
     3: optional string job_status // if label already used, set status of existing job
     4: optional i64 db_id
+    // If use_table_group_commit_mode is true in TLoadTxnBeginRequest, and table group_commit_mode property is
+    // async_mode or sync_mode, return table group_commit_mode (begin_txn is skipped)
+    5: optional string table_group_commit_mode
 }
 
 struct TBeginTxnRequest {
