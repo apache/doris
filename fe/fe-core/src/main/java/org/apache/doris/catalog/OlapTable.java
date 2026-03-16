@@ -3313,6 +3313,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableAttributes.updateVisibleVersionAndTime(visibleVersion, visibleVersionTime);
     }
 
+    public void resetVisibleVersion() {
+        LOG.info("resetVisibleVersion, tableName: {}", name);
+        tableAttributes.resetVisibleVersion();
+    }
+
     // During `getNextVersion` and `updateVisibleVersionAndTime` period,
     // the write lock on the table should be held continuously
     public long getNextVersion() {
