@@ -115,12 +115,8 @@ private:
                 end = fmt::format_to(buffer, FMT_COMPILE("{:.{}g}"), value,
                                      std::numeric_limits<float>::digits10 + 1);
             } else {
-                // Use max_digits10 for double to preserve round-trip stability when
-                // serializing to decimal text and parsing back. Boundary values such
-                // as DBL_MAX may overflow to inf after parse-back if only 16
-                // significant digits are kept.
                 end = fmt::format_to(buffer, FMT_COMPILE("{:.{}g}"), value,
-                                     std::numeric_limits<double>::max_digits10);
+                                     std::numeric_limits<double>::digits10 + 1);
             }
         }
         *end = '\0';
