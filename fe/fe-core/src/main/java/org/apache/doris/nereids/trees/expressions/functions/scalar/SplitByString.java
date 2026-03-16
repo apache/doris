@@ -76,11 +76,6 @@ public class SplitByString extends ScalarFunction
     }
 
     @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        checkLegalityAfterRewrite();
-    }
-
-    @Override
     public void checkLegalityAfterRewrite() {
         if (children().size() == 3) {
             if (!(child(2) instanceof IntegerLikeLiteral)) {

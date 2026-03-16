@@ -176,15 +176,44 @@ suite("test_split_by_string_limit") {
     qt_noregress2 "select split_by_string('abcde', '');"
     qt_noregress3 "select split_by_string('你a好b世c界', '');"
 
+    // === Positive tests: string literal coerced to integer ===
+    // string '-1' coerced to integer -1 (no limit, same as 2-arg)
+    qt_coerce1 "select split_by_string('one,two,three,', ',', '-1');"
+    // string '2' coerced to integer 2
+    qt_coerce2 "select split_by_string('a,b,c,d', ',', '2');"
+    // string '0' coerced to integer 0 (no limit)
+    qt_coerce3 "select split_by_string('a,b,c', ',', '0');"
+    // cast string to integer explicitly
+    qt_coerce4 "select split_by_string('a,b,c,d', ',', cast('3' as int));"
+    // tinyint literal
+    qt_coerce5 "select split_by_string('a,b,c,d', ',', cast(2 as tinyint));"
+    // bigint literal
+    qt_coerce6 "select split_by_string('a,b,c,d', ',', cast(2 as bigint));"
+
     // === Negative tests: limit must be a constant integer ===
+    // column reference as limit (BE requires constant)
     test {
         sql "SELECT k1, split_by_string(v1, ',', k1) FROM test_split_limit"
         exception "must be a constant integer"
     }
+    // expression (non-literal) as limit
     test {
-        sql "select split_by_string('a,b,c', ',', 'abc')"
+        sql "SELECT k1, split_by_string(v1, ',', k1 + 1) FROM test_split_limit"
         exception "must be a constant integer"
     }
+
+    // === Invalid string coercion tests ===
+    // non-strict mode: 'abc' cannot cast to int, degrades to NULL
+    sql "set enable_strict_cast = false"
+    qt_coerce_invalid "select split_by_string('a,b,c', ',', 'abc');"
+
+    // strict mode: 'abc' cast to int throws exception
+    sql "set enable_strict_cast = true"
+    test {
+        sql "select split_by_string('a,b,c', ',', 'abc')"
+        exception "can't cast"
+    }
+    sql "set enable_strict_cast = false"
 
     // === testFoldConst: verify FE constant folding matches BE execution ===
     testFoldConst("select split_by_string('a,b,c,d', ',', 2)")
@@ -209,4 +238,11 @@ suite("test_split_by_string_limit") {
     testFoldConst("select split_by_string('a||b||c', '||', 2)")
     testFoldConst("select split_by_string('a,b,c,', ',', 4)")
     testFoldConst("select split_by_string(',,a,b,c,', ',', 3)")
+    // string-to-int coercion fold const
+    testFoldConst("select split_by_string('a,b,c,d', ',', '2')")
+    testFoldConst("select split_by_string('one,two,three,', ',', '-1')")
+    testFoldConst("select split_by_string('a,b,c', ',', '0')")
+    testFoldConst("select split_by_string('a,b,c,d', ',', cast('3' as int))")
+    testFoldConst("select split_by_string('a,b,c,d', ',', cast(2 as tinyint))")
+    testFoldConst("select split_by_string('a,b,c,d', ',', cast(2 as bigint))")
 }
