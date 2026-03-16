@@ -82,16 +82,16 @@ suite("test_authentication_integration_auth", "p0,auth") {
             WHERE NAME = '${integrationName}'
             ORDER BY NAME
         """
-        assertTrue(result.size() == 1)
-        assertTrue(result[0].size() == 8)
-        assertTrue(result[0][0] == integrationName)
-        assertTrue(result[0][1] == "ldap")
+        assertEquals(1, result.size())
+        assertEquals(8, result[0].size())
+        assertEquals(integrationName, result[0][0])
+        assertEquals("ldap", result[0][1])
         assertTrue(result[0][2].contains("\"ldap.server\" = \"ldap://127.0.0.1:1389\""))
         assertTrue(result[0][2].contains("\"ldap.admin_password\" = \"*XXX\""))
         assertTrue(result[0][2].contains("\"secret.endpoint\" = \"*XXX\""))
         assertTrue(!result[0][2].contains("abcdef"))
         assertTrue(!result[0][2].contains("secret_alter_value"))
-        assertTrue(result[0][3] == "updated comment")
+        assertEquals("updated comment", result[0][3])
         assertTrue(result[0][4] != null && result[0][4].length() > 0)
         assertTrue(result[0][5] != null && result[0][5].length() > 0)
         assertTrue(result[0][6] != null && result[0][6].length() > 0)

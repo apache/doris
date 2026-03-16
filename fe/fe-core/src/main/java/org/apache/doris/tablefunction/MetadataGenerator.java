@@ -769,7 +769,6 @@ public class MetadataGenerator {
         String lowerCaseKey = key.toLowerCase(Locale.ROOT);
         return DatasourcePrintableMap.SENSITIVE_KEY.contains(key)
                 || lowerCaseKey.startsWith("secret.")
-                || lowerCaseKey.equals("password")
                 || lowerCaseKey.endsWith(".password")
                 || lowerCaseKey.endsWith("_password")
                 || lowerCaseKey.equals("secret")

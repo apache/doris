@@ -282,7 +282,7 @@ public class FrontendServiceImplTest {
                             .map(cell -> cell.isSetStringVal() ? cell.getStringVal() : null)
                             .collect(Collectors.toList()))
                     .findFirst()
-                    .orElseThrow(() -> new AssertionError("authentication integration row not found"));
+                    .orElseThrow(() -> new java.lang.AssertionError("authentication integration row not found"));
 
             Assert.assertEquals(integrationName, rowValues.get(0));
             Assert.assertEquals("ldap", rowValues.get(1));

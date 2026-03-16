@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <utility>
+
 #include "information_schema/schema_authentication_integrations_scanner.h"
 
 #include "core/block/block.h"
@@ -93,7 +95,7 @@ Status SchemaAuthenticationIntegrationsScanner::_get_authentication_integrations
     }
     _authentication_integrations_block->reserve(_block_rows_limit);
 
-    std::vector<TRow> result_data = result.data_batch;
+    std::vector<TRow> result_data = std::move(result.data_batch);
     if (!result_data.empty()) {
         auto col_size = result_data[0].column_value.size();
         if (col_size != _s_tbls_columns.size()) {
@@ -103,7 +105,7 @@ Status SchemaAuthenticationIntegrationsScanner::_get_authentication_integrations
     }
 
     for (int i = 0; i < result_data.size(); i++) {
-        TRow row = result_data[i];
+        const TRow& row = result_data[i];
         for (int j = 0; j < _s_tbls_columns.size(); j++) {
             RETURN_IF_ERROR(insert_block_column(row.column_value[j], j,
                                                 _authentication_integrations_block.get(),
