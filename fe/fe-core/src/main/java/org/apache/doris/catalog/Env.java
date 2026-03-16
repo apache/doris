@@ -92,7 +92,6 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalMetaIdMgr;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSourceManager;
 import org.apache.doris.datasource.es.EsExternalCatalog;
@@ -2940,6 +2939,9 @@ public class Env {
         }
         int migratedCount = 0;
         for (CatalogIf catalog : catalogMgr.getCopyOfCatalog()) {
+            if (!(catalog instanceof InternalCatalog)) {
+                continue;
+            }
             for (Object dbObj : catalog.getAllDbs()) {
                 DatabaseIf db = (DatabaseIf) dbObj;
                 for (Object tableObj : db.getTables()) {
@@ -2947,11 +2949,7 @@ public class Env {
                     try {
                         Map<String, Constraint> oldConstraints = null;
                         if (table instanceof Table) {
-                            oldConstraints = ((Table) table)
-                                    .getTableAttributes().getConstraintsMap();
-                        } else if (table instanceof ExternalTable) {
-                            oldConstraints = ((ExternalTable) table)
-                                    .getTableAttributes().getConstraintsMap();
+                            oldConstraints = ((Table) table).getTableAttributes().getConstraintsMap();
                         } else {
                             LOG.debug("Skipping constraint migration for "
                                     + "unsupported table type: {} ({})",
@@ -4059,6 +4057,12 @@ public class Env {
         // group commit data bytes
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES).append("\" = \"");
         sb.append(olapTable.getGroupCommitDataBytes()).append("\"");
+
+        // group commit mode (only show when not off_mode)
+        if (!olapTable.getGroupCommitMode().equalsIgnoreCase(PropertyAnalyzer.GROUP_COMMIT_MODE_OFF)) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE).append("\" = \"");
+            sb.append(olapTable.getGroupCommitMode()).append("\"");
+        }
 
         // enable delete on delete predicate
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {

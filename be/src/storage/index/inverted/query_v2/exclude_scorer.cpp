@@ -21,11 +21,29 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 
 template <typename TDocSet, typename TDocSetExclude>
 Exclude<TDocSet, TDocSetExclude>::Exclude(TDocSet underlying_docset,
-                                          TDocSetExclude excluding_docset)
+                                          TDocSetExclude excluding_docset,
+                                          roaring::Roaring exclude_null,
+                                          const NullBitmapResolver* resolver)
         : _underlying_docset(std::move(underlying_docset)),
-          _excluding_docset(std::move(excluding_docset)) {
+          _excluding_docset(std::move(excluding_docset)),
+          _exclude_null(std::move(exclude_null)) {
+    // Inherit the include scorer's null bitmap (e.g. from parent AND operations).
+    if (resolver != nullptr && _underlying_docset->has_null_bitmap(resolver)) {
+        const auto* nb = _underlying_docset->get_null_bitmap(resolver);
+        if (nb != nullptr) {
+            _null_bitmap |= *nb;
+        }
+    }
+
     while (_underlying_docset->doc() != TERMINATED) {
         uint32_t target = _underlying_docset->doc();
+        // O(1) null bitmap check (pre-computed from index, cheap).
+        if (!_exclude_null.isEmpty() && _exclude_null.contains(target)) {
+            _null_bitmap.add(target);
+            _underlying_docset->advance();
+            continue;
+        }
+        // Original lazy seek (unchanged).
         if (!is_within(_excluding_docset, target)) {
             break;
         }
@@ -40,6 +58,12 @@ uint32_t Exclude<TDocSet, TDocSetExclude>::advance() {
         if (candidate == TERMINATED) {
             return TERMINATED;
         }
+        // O(1) null bitmap check (pre-computed from index, cheap).
+        if (!_exclude_null.isEmpty() && _exclude_null.contains(candidate)) {
+            _null_bitmap.add(candidate);
+            continue;
+        }
+        // Original lazy seek (unchanged).
         if (!is_within(_excluding_docset, candidate)) {
             return candidate;
         }
@@ -51,6 +75,11 @@ uint32_t Exclude<TDocSet, TDocSetExclude>::seek(uint32_t target) {
     uint32_t candidate = _underlying_docset->seek(target);
     if (candidate == TERMINATED) {
         return TERMINATED;
+    }
+    // O(1) null bitmap check (pre-computed from index, cheap).
+    if (!_exclude_null.isEmpty() && _exclude_null.contains(candidate)) {
+        _null_bitmap.add(candidate);
+        return advance();
     }
     if (!is_within(_excluding_docset, candidate)) {
         return candidate;
@@ -76,9 +105,21 @@ float Exclude<TDocSet, TDocSetExclude>::score() {
     return 0.0F;
 }
 
-ScorerPtr make_exclude(ScorerPtr underlying, ScorerPtr excluding) {
-    return std::make_shared<Exclude<ScorerPtr, ScorerPtr>>(std::move(underlying),
-                                                           std::move(excluding));
+template <typename TDocSet, typename TDocSetExclude>
+bool Exclude<TDocSet, TDocSetExclude>::has_null_bitmap(const NullBitmapResolver* /*resolver*/) {
+    return !_null_bitmap.isEmpty();
+}
+
+template <typename TDocSet, typename TDocSetExclude>
+const roaring::Roaring* Exclude<TDocSet, TDocSetExclude>::get_null_bitmap(
+        const NullBitmapResolver* /*resolver*/) {
+    return _null_bitmap.isEmpty() ? nullptr : &_null_bitmap;
+}
+
+ScorerPtr make_exclude(ScorerPtr underlying, ScorerPtr excluding, roaring::Roaring exclude_null,
+                       const NullBitmapResolver* resolver) {
+    return std::make_shared<Exclude<ScorerPtr, ScorerPtr>>(
+            std::move(underlying), std::move(excluding), std::move(exclude_null), resolver);
 }
 
 template class Exclude<ScorerPtr, ScorerPtr>;

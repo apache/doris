@@ -14,6 +14,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -755,6 +756,16 @@ using ResultError = unexpected<Status>;
             ASSERT_TRUE(res.has_value()) << "Expected success, but got error: " << res.error(); \
         }                                                                                       \
         std::forward<T>(res).value();                                                           \
+    })
+
+#define TEST_RESULT_ERROR(stmt)                                                                   \
+    ({                                                                                            \
+        auto&& _result_ = (stmt);                                                                 \
+        using _result_t = std::decay_t<decltype(_result_)>;                                       \
+        if (_result_.has_value()) [[unlikely]] {                                                  \
+            ASSERT_FALSE(_result_.has_value()) << "Expected ResultError, but got success result"; \
+        }                                                                                         \
+        std::forward<_result_t>(_result_).error();                                                \
     })
 
 // core in Debug mode, exception in Release mode.

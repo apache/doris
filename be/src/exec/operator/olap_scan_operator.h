@@ -103,6 +103,7 @@ private:
 
     bool _storage_no_merge() override;
 
+    bool _read_mor_as_dup();
     bool _push_down_topn(const RuntimePredicate& predicate) override {
         if (!predicate.target_is_slot(_parent->node_id())) {
             return false;

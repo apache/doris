@@ -141,6 +141,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<typename Derived::Parent>();
+    _max_pushdown_conditions_per_column = p._max_pushdown_conditions_per_column;
     RETURN_IF_ERROR(_helper.init(state, p.is_serial_operator(), p.node_id(), p.operator_id(),
                                  _filter_dependencies, p.get_name() + "_FILTER_DEPENDENCY"));
     RETURN_IF_ERROR(_init_profile());
@@ -442,7 +443,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, cons
         return Status::OK();
     }
 
-    if (pdt == PushDownType::ACCEPTABLE && (_is_key_column(slot->col_name()))) {
+    if (pdt == PushDownType::ACCEPTABLE && _is_key_column(slot->col_name())) {
         output_expr = nullptr;
         return Status::OK();
     } else {
@@ -454,8 +455,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, cons
     return Status::OK();
 }
 
-template <typename Derived>
-Status ScanLocalState<Derived>::_normalize_bloom_filter(
+Status ScanLocalStateBase::_normalize_bloom_filter(
         VExprContext* expr_ctx, const VExprSPtr& root, SlotDescriptor* slot,
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, PushDownType* pdt) {
     std::shared_ptr<ColumnPredicate> pred = nullptr;
@@ -483,8 +483,7 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(
     return Status::OK();
 }
 
-template <typename Derived>
-Status ScanLocalState<Derived>::_normalize_topn_filter(
+Status ScanLocalStateBase::_normalize_topn_filter(
         VExprContext* expr_ctx, const VExprSPtr& root, SlotDescriptor* slot,
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, PushDownType* pdt) {
     std::shared_ptr<ColumnPredicate> pred = nullptr;
@@ -500,18 +499,16 @@ Status ScanLocalState<Derived>::_normalize_topn_filter(
     DCHECK(root->is_topn_filter());
     *pdt = _should_push_down_topn_filter();
     if (*pdt != PushDownType::UNACCEPTABLE) {
-        auto& p = _parent->cast<typename Derived::Parent>();
         auto& tmp = _state->get_query_ctx()->get_runtime_predicate(
                 assert_cast<VTopNPred*>(root.get())->source_node_id());
         if (_push_down_topn(tmp)) {
-            pred = tmp.get_predicate(p.node_id());
+            pred = tmp.get_predicate(_parent->node_id());
         }
     }
     return Status::OK();
 }
 
-template <typename Derived>
-Status ScanLocalState<Derived>::_normalize_bitmap_filter(
+Status ScanLocalStateBase::_normalize_bitmap_filter(
         VExprContext* expr_ctx, const VExprSPtr& root, SlotDescriptor* slot,
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, PushDownType* pdt) {
     std::shared_ptr<ColumnPredicate> pred = nullptr;
@@ -539,10 +536,8 @@ Status ScanLocalState<Derived>::_normalize_bitmap_filter(
     return Status::OK();
 }
 
-template <typename Derived>
-Status ScanLocalState<Derived>::_normalize_function_filters(VExprContext* expr_ctx,
-                                                            SlotDescriptor* slot,
-                                                            PushDownType* pdt) {
+Status ScanLocalStateBase::_normalize_function_filters(VExprContext* expr_ctx, SlotDescriptor* slot,
+                                                       PushDownType* pdt) {
     auto expr = expr_ctx->root()->is_rf_wrapper() ? expr_ctx->root()->get_impl() : expr_ctx->root();
     bool opposite = false;
     VExpr* fn_expr = expr.get();
@@ -622,8 +617,7 @@ std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
     return fmt::to_string(debug_string_buffer);
 }
 
-template <typename Derived>
-Status ScanLocalState<Derived>::_eval_const_conjuncts(VExprContext* expr_ctx, PushDownType* pdt) {
+Status ScanLocalStateBase::_eval_const_conjuncts(VExprContext* expr_ctx, PushDownType* pdt) {
     auto vexpr =
             expr_ctx->root()->is_rf_wrapper() ? expr_ctx->root()->get_impl() : expr_ctx->root();
     // Used to handle constant expressions, such as '1 = 1' _eval_const_conjuncts does not handle cases like 'colA = 1'
@@ -671,9 +665,8 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(VExprContext* expr_ctx, Pu
     return Status::OK();
 }
 
-template <typename Derived>
 template <PrimitiveType T>
-Status ScanLocalState<Derived>::_normalize_in_predicate(
+Status ScanLocalStateBase::_normalize_in_predicate(
         VExprContext* expr_ctx, const VExprSPtr& root, SlotDescriptor* slot,
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
         PushDownType* pdt) {
@@ -705,8 +698,7 @@ Status ScanLocalState<Derived>::_normalize_in_predicate(
     auto is_in = false;
     if (hybrid_set != nullptr) {
         // runtime filter produce VDirectInPredicate
-        if (hybrid_set->size() <=
-            _parent->cast<typename Derived::Parent>()._max_pushdown_conditions_per_column) {
+        if (hybrid_set->size() <= static_cast<size_t>(_max_pushdown_conditions_per_column)) {
             iter = hybrid_set->begin();
         }
         is_in = true;
@@ -784,9 +776,8 @@ Status ScanLocalState<Derived>::_normalize_in_predicate(
     return Status::OK();
 }
 
-template <typename Derived>
 template <PrimitiveType T>
-Status ScanLocalState<Derived>::_normalize_binary_predicate(
+Status ScanLocalStateBase::_normalize_binary_predicate(
         VExprContext* expr_ctx, const VExprSPtr& root, SlotDescriptor* slot,
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
         PushDownType* pdt) {
@@ -895,13 +886,12 @@ Status ScanLocalState<Derived>::_normalize_binary_predicate(
     return Status::OK();
 }
 
-template <typename Derived>
 template <PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
-Status ScanLocalState<Derived>::_change_value_range(bool is_equal_op,
-                                                    ColumnValueRange<PrimitiveType>& temp_range,
-                                                    const Field& value,
-                                                    const ChangeFixedValueRangeFunc& func,
-                                                    const std::string& fn_name) {
+Status ScanLocalStateBase::_change_value_range(bool is_equal_op,
+                                               ColumnValueRange<PrimitiveType>& temp_range,
+                                               const Field& value,
+                                               const ChangeFixedValueRangeFunc& func,
+                                               const std::string& fn_name) {
     if constexpr (PrimitiveType == TYPE_DATE) {
         auto tmp_value = value.template get<TYPE_DATE>();
         if (is_equal_op) {
@@ -937,9 +927,8 @@ Status ScanLocalState<Derived>::_change_value_range(bool is_equal_op,
     return Status::OK();
 }
 
-template <typename Derived>
 template <PrimitiveType T>
-Status ScanLocalState<Derived>::_normalize_is_null_predicate(
+Status ScanLocalStateBase::_normalize_is_null_predicate(
         VExprContext* expr_ctx, const VExprSPtr& root, SlotDescriptor* slot,
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
         PushDownType* pdt) {

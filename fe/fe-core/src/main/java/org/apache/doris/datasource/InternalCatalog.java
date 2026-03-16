@@ -88,7 +88,6 @@ import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr;
 import org.apache.doris.cluster.Cluster;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -256,8 +255,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (StringUtils.isEmpty(dbName)) {
             return null;
         }
-        // ATTN: this should be removed in v3.0
-        dbName = ClusterNamespace.getNameFromFullName(dbName);
         if (fullNameToDb.containsKey(dbName)) {
             return fullNameToDb.get(dbName);
         } else {
@@ -2979,6 +2976,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         try {
+            String groupCommitMode = PropertyAnalyzer.analyzeGroupCommitMode(properties, true);
+            olapTable.setGroupCommitMode(groupCommitMode);
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
+
+        try {
             TEncryptionAlgorithm tdeAlgorithm = PropertyAnalyzer.analyzeTDEAlgorithm(properties);
             olapTable.setEncryptionAlgorithm(tdeAlgorithm);
         } catch (Exception e) {
@@ -3144,7 +3148,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             db.writeLockOrDdlException();
             try {
                 // db name not changed
-                if (!db.getName().equals(ClusterNamespace.getNameFromFullName(createTableInfo.getDbName()))) {
+                if (!db.getName().equals(createTableInfo.getDbName())) {
                     throw new DdlException("Database name renamed, please check the database name");
                 }
                 // register table, write create table edit log
@@ -3734,6 +3738,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         for (Map.Entry<Long, RecyclePartitionParam> pair : recyclePartitionParamMap.entrySet()) {
             olapTable.dropPartitionForTruncate(olapTable.getDatabase().getId(), isforceDrop, pair.getValue());
         }
+
+        // Reset table-level visibleVersion to TABLE_INIT_VERSION so it stays consistent
+        // with the newly created partitions (which also start at PARTITION_INIT_VERSION).
+        olapTable.resetVisibleVersion();
 
         return oldPartitions;
     }
