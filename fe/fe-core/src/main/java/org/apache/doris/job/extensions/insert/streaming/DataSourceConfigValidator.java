@@ -67,6 +67,10 @@ public class DataSourceConfigValidator {
                 if (!ALLOW_TABLE_LEVEL_SUFFIXES.contains(suffix)) {
                     throw new IllegalArgumentException("Unknown per-table config key: '" + key + "'");
                 }
+                if (value == null || value.trim().isEmpty()) {
+                    throw new IllegalArgumentException(
+                            "Value for per-table config key '" + key + "' must not be empty");
+                }
                 continue;
             }
 
