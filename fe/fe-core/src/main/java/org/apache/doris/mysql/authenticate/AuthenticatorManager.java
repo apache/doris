@@ -17,7 +17,6 @@
 
 package org.apache.doris.mysql.authenticate;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.ClassLoaderUtils;
@@ -27,7 +26,6 @@ import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.integration.AuthenticationIntegrationAuthenticator;
-import org.apache.doris.mysql.authenticate.ldap.LdapAuthenticator;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
 import org.apache.doris.mysql.authenticate.password.Password;
 import org.apache.doris.mysql.authenticate.plugin.AuthenticationPluginAuthenticator;
@@ -151,24 +149,8 @@ public class AuthenticatorManager {
             return true;
         }
 
-        Optional<AuthenticateResponse> jitChainResponse = tryJitUserAuthenticationChainFallback(context, userName,
-                remoteIp, channel, serializer, authPacket, handshakePacket, password.get());
-        if (jitChainResponse.isPresent()) {
-            AuthenticateResponse response = jitChainResponse.get();
-            if (response.isSuccess()) {
-                context.getState().setOk();
-                applyAuthenticateResponse(context, remoteIp, response);
-                return true;
-            }
-            ensureAuthenticationErrorReported(context, userName, remoteIp, password.get());
-            if (context.getState().getStateType() == QueryState.MysqlStateType.ERR) {
-                MysqlProto.sendResponsePacket(context);
-            }
-            return false;
-        }
-
         AuthenticateResponse chainResponse = tryAuthenticationChainFallback(context, userName, remoteIp,
-                channel, serializer, authPacket, handshakePacket, primaryAuthenticator, password.get());
+                channel, serializer, authPacket, handshakePacket, password.get());
         if (chainResponse != null && chainResponse.isSuccess()) {
             context.getState().setOk();
             applyAuthenticateResponse(context, remoteIp, chainResponse);
@@ -190,43 +172,6 @@ public class AuthenticatorManager {
         return new AuthenticationIntegrationAuthenticator(Config.authentication_chain, "authentication_chain");
     }
 
-    Optional<AuthenticateResponse> tryJitUserAuthenticationChainFallback(ConnectContext context,
-            String userName,
-            String remoteIp,
-            MysqlChannel channel,
-            MysqlSerializer serializer,
-            MysqlAuthPacket authPacket,
-            MysqlHandshakePacket handshakePacket,
-            Password primaryPassword) throws IOException {
-        if (!shouldTryJitUserAuthenticationChain(userName, remoteIp)) {
-            return Optional.empty();
-        }
-
-        Authenticator chainAuthenticator;
-        try {
-            chainAuthenticator = getAuthenticationChainAuthenticator();
-        } catch (RuntimeException e) {
-            LOG.warn("Failed to initialize JIT authentication_chain authenticator: {}", e.getMessage(), e);
-            return Optional.of(AuthenticateResponse.failedResponse);
-        }
-        if (!chainAuthenticator.canDeal(userName)) {
-            return Optional.of(AuthenticateResponse.failedResponse);
-        }
-
-        Password chainPassword = primaryPassword;
-        if (!(chainPassword instanceof ClearPassword)) {
-            Optional<Password> fallbackPassword = chainAuthenticator.getPasswordResolver()
-                    .resolvePassword(context, channel, serializer, authPacket, handshakePacket);
-            if (!fallbackPassword.isPresent()) {
-                return Optional.of(AuthenticateResponse.failedResponse);
-            }
-            chainPassword = fallbackPassword.get();
-        }
-
-        LOG.info("Try JIT authentication_chain fallback for user '{}'", userName);
-        return Optional.of(chainAuthenticator.authenticate(new AuthenticateRequest(userName, chainPassword, remoteIp)));
-    }
-
     private void applyAuthenticateResponse(ConnectContext context, String remoteIp, AuthenticateResponse response) {
         context.setCurrentUserIdentity(response.getUserIdentity());
         context.setRemoteIP(remoteIp);
@@ -240,9 +185,8 @@ public class AuthenticatorManager {
             MysqlSerializer serializer,
             MysqlAuthPacket authPacket,
             MysqlHandshakePacket handshakePacket,
-            Authenticator primaryAuthenticator,
             Password primaryPassword) throws IOException {
-        if (!shouldTryAuthenticationChain(primaryAuthenticator, userName, remoteIp)) {
+        if (!hasAuthenticationChain()) {
             return null;
         }
 
@@ -267,48 +211,12 @@ public class AuthenticatorManager {
             chainPassword = fallbackPassword.get();
         }
 
-        LOG.info("Try authentication_chain fallback for user '{}' with policy '{}'",
-                userName, Config.authentication_chain_fallback_policy);
+        LOG.info("Try authentication_chain fallback for user '{}'", userName);
         return chainAuthenticator.authenticate(new AuthenticateRequest(userName, chainPassword, remoteIp));
     }
 
-    private boolean shouldTryJitUserAuthenticationChain(String userName, String remoteIp) {
-        if (!Config.enable_jit_user_authentication_chain) {
-            return false;
-        }
-        if (AuthenticationIntegrationAuthenticator.parseAuthenticationChain(Config.authentication_chain).isEmpty()) {
-            return false;
-        }
-        return !Env.getCurrentEnv().getAuth().doesUserExist(userName, remoteIp);
-    }
-
-    private boolean shouldTryAuthenticationChain(Authenticator primaryAuthenticator, String userName, String remoteIp) {
-        if (!Config.enable_authentication_chain) {
-            return false;
-        }
-        if (AuthenticationIntegrationAuthenticator.parseAuthenticationChain(Config.authentication_chain).isEmpty()) {
-            return false;
-        }
-
-        AuthenticationChainFallbackPolicy policy =
-                AuthenticationChainFallbackPolicy.fromConfig(Config.authentication_chain_fallback_policy);
-        switch (policy) {
-            case ANY_FAILURE:
-                return true;
-            case USER_NOT_FOUND:
-                return isPrimaryUserNotFound(primaryAuthenticator, userName, remoteIp);
-            case DISABLED:
-            default:
-                return false;
-        }
-    }
-
-    private boolean isPrimaryUserNotFound(Authenticator primaryAuthenticator, String userName, String remoteIp) {
-        if (primaryAuthenticator instanceof LdapAuthenticator
-                || AuthenticateType.LDAP.name().equalsIgnoreCase(authTypeIdentifier)) {
-            return !Env.getCurrentEnv().getAuth().getLdapManager().doesUserExist(userName);
-        }
-        return !Env.getCurrentEnv().getAuth().doesUserExist(userName, remoteIp);
+    private boolean hasAuthenticationChain() {
+        return !AuthenticationIntegrationAuthenticator.parseAuthenticationChain(Config.authentication_chain).isEmpty();
     }
 
     private void ensureAuthenticationErrorReported(ConnectContext context, String userName, String remoteIp,

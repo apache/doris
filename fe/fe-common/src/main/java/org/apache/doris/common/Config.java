@@ -2778,24 +2778,10 @@ public class Config extends ConfigBase {
             options = {"default", "password", "ldap", "<plugin_name>"})
     public static String authentication_type = "default";
 
-    @ConfField(description = {"是否启用主认证失败后的认证链兜底",
-            "Whether to enable authentication chain fallback after primary authentication failure"})
-    public static boolean enable_authentication_chain = false;
-
     @ConfField(description = {"指定主认证失败后使用的认证链，多个 integration 名称用逗号分隔",
             "Specifies the authentication chain used after primary authentication failure, multiple integration "
                     + "names are comma-separated"})
     public static String authentication_chain = "";
-
-    @ConfField(description = {"当主认证失败且 Doris 本地不存在该用户时，是否允许进入 authentication_chain 进行 JIT 登录",
-            "Whether to allow JIT login through authentication_chain when the primary authentication fails and the "
-                    + "user does not exist locally in Doris"})
-    public static boolean enable_jit_user_authentication_chain = false;
-
-    @ConfField(description = {"指定主认证失败后进入认证链的策略",
-            "Specifies when to fallback to the authentication chain after primary authentication failure"},
-            options = {"disabled", "user_not_found", "any_failure"})
-    public static String authentication_chain_fallback_policy = "disabled";
 
     @ConfField(mutable = true, masterOnly = false, description = {"指定 trino-connector catalog 的插件默认加载路径",
             "Specify the default plugins loading path for the trino-connector catalog"})

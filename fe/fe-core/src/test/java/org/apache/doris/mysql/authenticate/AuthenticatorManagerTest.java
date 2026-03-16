@@ -50,21 +50,12 @@ class AuthenticatorManagerTest {
     private Auth auth;
     private MockedStatic<Env> envMockedStatic;
     private String originalFallbackChain;
-    private boolean originalEnableAuthenticationChain;
-    private String originalFallbackPolicy;
-    private boolean originalEnableJitUserAuthenticationChain;
 
     @BeforeEach
     void setUp() throws Exception {
         resetAuthenticatorManagerState();
         originalFallbackChain = Config.authentication_chain;
-        originalEnableAuthenticationChain = Config.enable_authentication_chain;
-        originalFallbackPolicy = Config.authentication_chain_fallback_policy;
-        originalEnableJitUserAuthenticationChain = Config.enable_jit_user_authentication_chain;
         Config.authentication_chain = "";
-        Config.enable_authentication_chain = false;
-        Config.authentication_chain_fallback_policy = "disabled";
-        Config.enable_jit_user_authentication_chain = false;
 
         env = Mockito.mock(Env.class);
         auth = Mockito.mock(Auth.class);
@@ -77,9 +68,6 @@ class AuthenticatorManagerTest {
     @AfterEach
     void tearDown() throws Exception {
         Config.authentication_chain = originalFallbackChain;
-        Config.enable_authentication_chain = originalEnableAuthenticationChain;
-        Config.authentication_chain_fallback_policy = originalFallbackPolicy;
-        Config.enable_jit_user_authentication_chain = originalEnableJitUserAuthenticationChain;
         if (envMockedStatic != null) {
             envMockedStatic.close();
         }
@@ -113,10 +101,8 @@ class AuthenticatorManagerTest {
     }
 
     @Test
-    void testAuthenticateFallsBackToAuthenticationChainOnAnyFailure() throws Exception {
-        Config.enable_authentication_chain = true;
+    void testAuthenticateFallsBackToAuthenticationChainWhenConfigured() throws Exception {
         Config.authentication_chain = "corp_ldap";
-        Config.authentication_chain_fallback_policy = "any_failure";
 
         Authenticator primaryAuthenticator = Mockito.mock(Authenticator.class);
         PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
@@ -154,8 +140,7 @@ class AuthenticatorManagerTest {
     }
 
     @Test
-    void testAuthenticateFallsBackToJitUserChainWhenPrimaryFailsAndLocalUserMissing() throws Exception {
-        Config.enable_jit_user_authentication_chain = true;
+    void testAuthenticateFallsBackToAuthenticationChainForMissingLocalUser() throws Exception {
         Config.authentication_chain = "corp_ldap";
         Mockito.when(auth.doesUserExist(USER_NAME, REMOTE_IP)).thenReturn(false);
 
@@ -197,10 +182,8 @@ class AuthenticatorManagerTest {
     }
 
     @Test
-    void testAuthenticateDoesNotFallbackToJitUserChainWhenLocalUserExists() throws Exception {
-        Config.enable_jit_user_authentication_chain = true;
-        Config.authentication_chain = "corp_ldap";
-        Mockito.when(auth.doesUserExist(USER_NAME, REMOTE_IP)).thenReturn(true);
+    void testAuthenticateDoesNotFallbackWhenAuthenticationChainEmpty() throws Exception {
+        Config.authentication_chain = "";
 
         Authenticator primaryAuthenticator = Mockito.mock(Authenticator.class);
         PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
@@ -233,9 +216,7 @@ class AuthenticatorManagerTest {
 
     @Test
     void testAuthenticateFallsBackToAuthenticationChainWithResolverSwitch() throws Exception {
-        Config.enable_authentication_chain = true;
         Config.authentication_chain = "corp_ldap";
-        Config.authentication_chain_fallback_policy = "any_failure";
 
         Authenticator primaryAuthenticator = Mockito.mock(Authenticator.class);
         PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
@@ -276,11 +257,9 @@ class AuthenticatorManagerTest {
     }
 
     @Test
-    void testAuthenticateFallsBackToAuthenticationChainOnUserNotFound() throws Exception {
-        Config.enable_authentication_chain = true;
+    void testAuthenticateFallsBackToAuthenticationChainWhenLocalUserExists() throws Exception {
         Config.authentication_chain = "corp_ldap";
-        Config.authentication_chain_fallback_policy = "user_not_found";
-        Mockito.when(auth.doesUserExist(USER_NAME, REMOTE_IP)).thenReturn(false);
+        Mockito.when(auth.doesUserExist(USER_NAME, REMOTE_IP)).thenReturn(true);
 
         Authenticator primaryAuthenticator = Mockito.mock(Authenticator.class);
         PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
@@ -316,14 +295,12 @@ class AuthenticatorManagerTest {
     }
 
     @Test
-    void testAuthenticateFallsBackToAuthenticationChainOnLdapUserNotFound() throws Exception {
-        Config.enable_authentication_chain = true;
+    void testAuthenticateFallsBackToAuthenticationChainForLdapPrimaryWithoutUserExistenceGate() throws Exception {
         Config.authentication_chain = "corp_ldap";
-        Config.authentication_chain_fallback_policy = "user_not_found";
 
         LdapManager ldapManager = Mockito.mock(LdapManager.class);
         Mockito.when(auth.getLdapManager()).thenReturn(ldapManager);
-        Mockito.when(ldapManager.doesUserExist(USER_NAME)).thenReturn(false);
+        Mockito.when(ldapManager.doesUserExist(USER_NAME)).thenReturn(true);
 
         Authenticator primaryAuthenticator = Mockito.mock(Authenticator.class);
         PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
@@ -354,16 +331,14 @@ class AuthenticatorManagerTest {
                 Mockito.mock(MysqlHandshakePacket.class));
 
         Assertions.assertTrue(result);
-        Mockito.verify(ldapManager).doesUserExist(USER_NAME);
+        Mockito.verify(ldapManager, Mockito.never()).doesUserExist(USER_NAME);
         Mockito.verify(chainAuthenticator).authenticate(Mockito.any());
     }
 
     @Test
-    void testAuthenticateFallsBackToAuthenticationChainOnUserNotFoundForCustomLegacyAuthenticator() throws Exception {
-        Config.enable_authentication_chain = true;
+    void testAuthenticateFallsBackToAuthenticationChainForCustomLegacyAuthenticator() throws Exception {
         Config.authentication_chain = "corp_ldap";
-        Config.authentication_chain_fallback_policy = "user_not_found";
-        Mockito.when(auth.doesUserExist(USER_NAME, REMOTE_IP)).thenReturn(false);
+        Mockito.when(auth.doesUserExist(USER_NAME, REMOTE_IP)).thenReturn(true);
 
         Authenticator primaryAuthenticator = Mockito.mock(Authenticator.class);
         PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
@@ -394,44 +369,8 @@ class AuthenticatorManagerTest {
                 Mockito.mock(MysqlHandshakePacket.class));
 
         Assertions.assertTrue(result);
-        Mockito.verify(auth).doesUserExist(USER_NAME, REMOTE_IP);
+        Mockito.verify(auth, Mockito.never()).doesUserExist(USER_NAME, REMOTE_IP);
         Mockito.verify(chainAuthenticator).authenticate(Mockito.any());
-    }
-
-    @Test
-    void testAuthenticateDoesNotFallbackWhenUserExistsUnderUserNotFoundPolicy() throws Exception {
-        Config.enable_authentication_chain = true;
-        Config.authentication_chain = "corp_ldap";
-        Config.authentication_chain_fallback_policy = "user_not_found";
-        Mockito.when(auth.doesUserExist(USER_NAME, REMOTE_IP)).thenReturn(true);
-
-        Authenticator primaryAuthenticator = Mockito.mock(Authenticator.class);
-        PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
-        Mockito.when(primaryAuthenticator.canDeal(USER_NAME)).thenReturn(true);
-        Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(primaryResolver);
-        Mockito.when(primaryResolver.resolvePassword(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any())).thenReturn(Optional.of(new ClearPassword("secret")));
-        Mockito.when(primaryAuthenticator.authenticate(Mockito.any()))
-                .thenReturn(AuthenticateResponse.failedResponse);
-
-        Authenticator chainAuthenticator = Mockito.mock(Authenticator.class);
-
-        AuthenticatorManager manager = Mockito.spy(new AuthenticatorManager(AuthenticateType.DEFAULT.name()));
-        setStaticField("authTypeAuthenticator", primaryAuthenticator);
-        setStaticField("authTypeIdentifier", AuthenticateType.DEFAULT.name());
-        Mockito.doReturn(chainAuthenticator).when(manager).getAuthenticationChainAuthenticator();
-
-        QueryState state = Mockito.mock(QueryState.class);
-        Mockito.when(state.getStateType()).thenReturn(QueryState.MysqlStateType.ERR);
-        Mockito.when(state.toResponsePacket()).thenReturn(Mockito.mock(org.apache.doris.mysql.MysqlPacket.class));
-        ConnectContext context = mockContext(state);
-
-        boolean result = manager.authenticate(context, USER_NAME, context.getMysqlChannel(),
-                Mockito.mock(MysqlSerializer.class), Mockito.mock(MysqlAuthPacket.class),
-                Mockito.mock(MysqlHandshakePacket.class));
-
-        Assertions.assertFalse(result);
-        Mockito.verify(chainAuthenticator, Mockito.never()).authenticate(Mockito.any());
     }
 
     private static void resetAuthenticatorManagerState() throws Exception {
