@@ -49,6 +49,8 @@
 #include "exec/operator/analytic_source_operator.h"
 #include "exec/operator/assert_num_rows_operator.h"
 #include "exec/operator/blackhole_sink_operator.h"
+#include "exec/operator/bucketed_aggregation_sink_operator.h"
+#include "exec/operator/bucketed_aggregation_source_operator.h"
 #include "exec/operator/cache_sink_operator.h"
 #include "exec/operator/cache_source_operator.h"
 #include "exec/operator/datagen_operator.h"
@@ -1414,6 +1416,53 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             }
             RETURN_IF_ERROR(cur_pipe->set_sink(sink_ops.back()));
             RETURN_IF_ERROR(cur_pipe->sink()->init(tnode, _runtime_state.get()));
+        }
+        break;
+    }
+    case TPlanNodeType::BUCKETED_AGGREGATION_NODE: {
+        if (tnode.bucketed_agg_node.grouping_exprs.empty()) {
+            return Status::InternalError(
+                    "Bucketed aggregation node {} should not be used without group by keys",
+                    tnode.node_id);
+        }
+
+        // Create source operator (goes on the current / downstream pipeline).
+        op = std::make_shared<BucketedAggSourceOperatorX>(pool, tnode, next_operator_id(), descs);
+        RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
+
+        // Create a new pipeline for the sink side.
+        const auto downstream_pipeline_id = cur_pipe->id();
+        if (!_dag.contains(downstream_pipeline_id)) {
+            _dag.insert({downstream_pipeline_id, {}});
+        }
+        cur_pipe = add_pipeline(cur_pipe);
+        _dag[downstream_pipeline_id].push_back(cur_pipe->id());
+
+        // Create sink operator.
+        sink_ops.push_back(std::make_shared<BucketedAggSinkOperatorX>(
+                pool, next_sink_operator_id(), op->operator_id(), tnode, descs));
+        RETURN_IF_ERROR(cur_pipe->set_sink(sink_ops.back()));
+        RETURN_IF_ERROR(cur_pipe->sink()->init(tnode, _runtime_state.get()));
+
+        // Pre-register a single shared state for ALL instances so that every
+        // sink instance writes its per-instance hash table into the same
+        // BucketedAggSharedState and every source instance can merge across
+        // all of them.
+        {
+            auto shared_state = BucketedAggSharedState::create_shared();
+            shared_state->id = op->operator_id();
+            shared_state->related_op_ids.insert(op->operator_id());
+
+            for (int i = 0; i < _num_instances; i++) {
+                auto sink_dep = std::make_shared<Dependency>(op->operator_id(), op->node_id(),
+                                                             "BUCKETED_AGG_SINK_DEPENDENCY");
+                sink_dep->set_shared_state(shared_state.get());
+                shared_state->sink_deps.push_back(sink_dep);
+            }
+            shared_state->create_source_dependencies(_num_instances, op->operator_id(),
+                                                     op->node_id(), "BUCKETED_AGG_SOURCE");
+            _op_id_to_shared_state.insert(
+                    {op->operator_id(), {shared_state, shared_state->sink_deps}});
         }
         break;
     }

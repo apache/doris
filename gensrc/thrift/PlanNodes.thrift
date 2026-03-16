@@ -62,7 +62,8 @@ enum TPlanNodeType {
   GROUP_COMMIT_SCAN_NODE = 33,
   MATERIALIZATION_NODE = 34,
   REC_CTE_NODE = 35,
-  REC_CTE_SCAN_NODE = 36
+  REC_CTE_SCAN_NODE = 36,
+  BUCKETED_AGGREGATION_NODE = 37
 }
 
 struct TKeyRange {
@@ -1062,6 +1063,14 @@ struct TAggregationNode {
   10: optional TSortInfo agg_sort_info_by_group_key
 }
 
+struct TBucketedAggregationNode {
+  1: optional list<Exprs.TExpr> grouping_exprs
+  2: required list<Exprs.TExpr> aggregate_functions
+  3: required Types.TTupleId intermediate_tuple_id
+  4: required Types.TTupleId output_tuple_id
+  5: required bool need_finalize
+}
+
 struct TRepeatNode {
  // Tulple id used for output, it has new slots.
   1: required Types.TTupleId output_tuple_id
@@ -1510,6 +1519,7 @@ struct TPlanNode {
   50: optional list<list<Exprs.TExpr>> distribute_expr_lists
   51: optional bool is_serial_operator
   52: optional TRecCTEScanNode rec_cte_scan_node
+  53: optional TBucketedAggregationNode bucketed_agg_node
 
   // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections

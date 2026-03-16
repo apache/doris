@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBlackholeSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
@@ -501,6 +502,14 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
             return null;
         }
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalBucketedHashAggregate(
+            PhysicalBucketedHashAggregate<? extends Plan> agg, PlanContext context) {
+        // Bucketed agg runs entirely on a single BE — no exchange needed.
+        addRequestPropertyToChildren(PhysicalProperties.ANY);
         return null;
     }
 
