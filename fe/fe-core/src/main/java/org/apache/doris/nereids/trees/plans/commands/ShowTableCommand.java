@@ -31,6 +31,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.AliasInfo;
@@ -150,34 +151,56 @@ public class ShowTableCommand extends ShowCommand {
         if (likePattern != null) {
             matcher = PatternMatcherWrapper.createMysqlPattern(likePattern, isShowTablesCaseSensitive());
         }
-        for (TableIf tbl : dbIf.getTables()) {
-            if (type.equals(PlanType.SHOW_VIEWS) && (tbl.getEngine() == null
-                    || !tbl.getEngine().equals(TableIf.TableType.VIEW.toEngineName()))) {
-                continue;
-            }
-            if (matcher != null && !matcher.match(tbl.getName())) {
-                continue;
-            }
-            if (tbl.isTemporary()) {
-                continue;
-            }
-            // check tbl privs
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(ConnectContext.get(), catalog, dbIf.getFullName(), tbl.getName(),
-                            PrivPredicate.SHOW)) {
-                continue;
-            }
-            if (isVerbose) {
-                String storageFormat = "NONE";
-                String invertedIndexFileStorageFormat = "NONE";
-                if (tbl instanceof OlapTable) {
-                    storageFormat = ((OlapTable) tbl).getStorageFormat().toString();
-                    invertedIndexFileStorageFormat = ((OlapTable) tbl).getInvertedIndexFileStorageFormat().toString();
+        if (dbIf.getCatalog() instanceof InternalCatalog) {
+            for (TableIf tbl : dbIf.getTables()) {
+                if (type.equals(PlanType.SHOW_VIEWS) && (tbl.getEngine() == null
+                        || !tbl.getEngine().equals(TableIf.TableType.VIEW.toEngineName()))) {
+                    continue;
                 }
-                rows.add(Lists.newArrayList(tbl.getName(), tbl.getMysqlType(), storageFormat,
-                        invertedIndexFileStorageFormat));
+                if (matcher != null && !matcher.match(tbl.getName())) {
+                    continue;
+                }
+                if (tbl.isTemporary()) {
+                    continue;
+                }
+                // check tbl privs
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkTblPriv(ConnectContext.get(), catalog, dbIf.getFullName(), tbl.getName(),
+                        PrivPredicate.SHOW)) {
+                    continue;
+                }
+                if (isVerbose) {
+                    String storageFormat = "NONE";
+                    String invertedIndexFileStorageFormat = "NONE";
+                    if (tbl instanceof OlapTable) {
+                        storageFormat = ((OlapTable) tbl).getStorageFormat().toString();
+                        invertedIndexFileStorageFormat = ((OlapTable) tbl)
+                                .getInvertedIndexFileStorageFormat().toString();
+                    }
+                    rows.add(Lists.newArrayList(tbl.getName(), tbl.getMysqlType(), storageFormat,
+                            invertedIndexFileStorageFormat));
+                } else {
+                    rows.add(Lists.newArrayList(tbl.getName()));
+                }
+            }
+        } else {
+            List<String> tableNames = Lists.newArrayList();
+            if (type.equals(PlanType.SHOW_VIEWS)) {
+                for (TableIf tbl : dbIf.getTables()) {
+                    if (tbl.getEngine() == null || !tbl.getEngine().equals(TableIf.TableType.VIEW.toEngineName())) {
+                        continue;
+                    }
+                    tableNames.add(tbl.getName());
+                }
+
             } else {
-                rows.add(Lists.newArrayList(tbl.getName()));
+                tableNames = new ArrayList<>(dbIf.getTableNamesOrEmptyWithLock());
+            }
+            for (String tableName : tableNames) {
+                if (matcher != null && !matcher.match(tableName)) {
+                    continue;
+                }
+                rows.add(Lists.newArrayList(tableName));
             }
         }
         // sort by table name
