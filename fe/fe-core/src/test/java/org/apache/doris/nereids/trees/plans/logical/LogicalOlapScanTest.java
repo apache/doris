@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -77,8 +78,7 @@ public class LogicalOlapScanTest {
     private SlotReference createMockSlot(String name, String originalColumnName,
             List<String> subPath, boolean isVisible) {
         SlotReference slot = Mockito.mock(SlotReference.class);
-        Column column = Mockito.mock(Column.class);
-        Mockito.when(column.getName()).thenReturn(originalColumnName);
+        Column column = createColumn(originalColumnName);
         Mockito.when(slot.isVisible()).thenReturn(isVisible);
         Mockito.when(slot.getName()).thenReturn(name);
         Mockito.when(slot.getSubPath()).thenReturn(subPath);
@@ -86,10 +86,8 @@ public class LogicalOlapScanTest {
         return slot;
     }
 
-    private Column createMockColumn(String name) {
-        Column col = Mockito.mock(Column.class);
-        Mockito.when(col.getName()).thenReturn(name);
-        return col;
+    private Column createColumn(String name) {
+        return new Column(name, PrimitiveType.INT);
     }
 
     private LogicalOlapScan createMockScan(List<Slot> outputSlots) {
@@ -134,7 +132,7 @@ public class LogicalOlapScanTest {
 
         // But MV physical table only has 2 columns (size mismatch with plan output)
         Mockito.when(mtmv.getBaseSchema()).thenReturn(ImmutableList.of(
-                createMockColumn("col1"), createMockColumn("col2")));
+                createColumn("col1"), createColumn("col2")));
 
         LogicalOlapScan scan = createMockScan(ImmutableList.of(
                 createMockSlot("col1", "col1", Collections.emptyList(), true),
@@ -161,7 +159,7 @@ public class LogicalOlapScanTest {
         Mockito.when(mtmv.getName()).thenReturn("test_mv");
         Mockito.when(cache.getOriginalFinalPlan()).thenReturn(originalPlan);
         Mockito.when(originalPlan.getOutput()).thenReturn(ImmutableList.of(mvSlot));
-        Mockito.when(mtmv.getBaseSchema()).thenReturn(ImmutableList.of(createMockColumn("col1")));
+        Mockito.when(mtmv.getBaseSchema()).thenReturn(ImmutableList.of(createColumn("col1")));
 
         // Scan has base slot + extra subPath slot from VariantSubPathPruning
         SlotReference scanSlotBase = createMockSlot("col1", "col1", Collections.emptyList(), true);
@@ -202,9 +200,9 @@ public class LogicalOlapScanTest {
 
         // Physical columns have aliased names
         Mockito.when(mtmv.getBaseSchema()).thenReturn(ImmutableList.of(
-                createMockColumn("l_orderkey"),
-                createMockColumn("agg3"),  // aliased from sum_total
-                createMockColumn("agg4")   // aliased from max_total
+                createColumn("l_orderkey"),
+                createColumn("agg3"),  // aliased from sum_total
+                createColumn("agg4")   // aliased from max_total
         ));
 
         // Scan slots reference MV's physical column names
