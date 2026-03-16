@@ -23,11 +23,9 @@
 #include <gen_cpp/parquet_types.h>
 #include <glog/logging.h>
 #include <parallel_hashmap/phmap.h>
-#include <rapidjson/allocators.h>
 #include <rapidjson/document.h>
 
 #include <algorithm>
-#include <boost/iterator/iterator_facade.hpp>
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -37,8 +35,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
-#include "runtime/types.h"
-#include "util/string_util.h"
+#include "util/coding.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
@@ -53,6 +50,7 @@
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/schema_desc.h"
 #include "vec/exec/format/parquet/vparquet_column_chunk_reader.h"
+#include "vec/exec/format/table/deletion_vector_reader.h"
 #include "vec/exec/format/table/iceberg/iceberg_orc_nested_column_utils.h"
 #include "vec/exec/format/table/iceberg/iceberg_parquet_nested_column_utils.h"
 #include "vec/exec/format/table/nested_column_access_helper.h"
@@ -96,6 +94,8 @@ IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_forma
             ADD_CHILD_TIMER(_profile, "DeleteFileReadTime", iceberg_profile);
     _iceberg_profile.delete_rows_sort_time =
             ADD_CHILD_TIMER(_profile, "DeleteRowsSortTime", iceberg_profile);
+    _iceberg_profile.parse_delete_file_time =
+            ADD_CHILD_TIMER(_profile, "ParseDeleteFileTime", iceberg_profile);
 }
 
 Status IcebergTableReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
@@ -124,21 +124,39 @@ Status IcebergTableReader::init_row_filters() {
 
     std::vector<TIcebergDeleteFileDesc> position_delete_files;
     std::vector<TIcebergDeleteFileDesc> equality_delete_files;
+    std::vector<TIcebergDeleteFileDesc> deletion_vector_files;
     for (const TIcebergDeleteFileDesc& desc : table_desc.delete_files) {
         if (desc.content == POSITION_DELETE) {
             position_delete_files.emplace_back(desc);
         } else if (desc.content == EQUALITY_DELETE) {
             equality_delete_files.emplace_back(desc);
+        } else if (desc.content == DELETION_VECTOR) {
+            deletion_vector_files.emplace_back(desc);
         }
     }
 
-    if (!position_delete_files.empty()) {
-        RETURN_IF_ERROR(
-                _position_delete_base(table_desc.original_file_path, position_delete_files));
-        _file_format_reader->set_push_down_agg_type(TPushAggOp::NONE);
-    }
     if (!equality_delete_files.empty()) {
         RETURN_IF_ERROR(_equality_delete_base(equality_delete_files));
+        _file_format_reader->set_push_down_agg_type(TPushAggOp::NONE);
+    }
+
+    if (!deletion_vector_files.empty()) {
+        if (deletion_vector_files.size() != 1) [[unlikely]] {
+            /*
+             * Deletion vectors are a binary representation of deletes for a single data file that is more efficient
+             * at execution time than position delete files. Unlike equality or position delete files, there can be
+             * at most one deletion vector for a given data file in a snapshot.
+             */
+            return Status::DataQualityError("This iceberg data file has multiple DVs.");
+        }
+        RETURN_IF_ERROR(
+                read_deletion_vector(table_desc.original_file_path, deletion_vector_files[0]));
+
+        _file_format_reader->set_push_down_agg_type(TPushAggOp::NONE);
+        // Readers can safely ignore position delete files if there is a DV for a data file.
+    } else if (!position_delete_files.empty()) {
+        RETURN_IF_ERROR(
+                _position_delete_base(table_desc.original_file_path, position_delete_files));
         _file_format_reader->set_push_down_agg_type(TPushAggOp::NONE);
     }
 
@@ -307,10 +325,24 @@ Status IcebergTableReader::_position_delete_base(
         };
         delete_file_map.if_contains(data_file_path, get_value);
     }
+    // Use a KV cache to store the delete rows corresponding to a data file path.
+    // The Parquet/ORC reader holds a reference (pointer) to this cached entry.
+    // This allows delete rows to be reused when a single data file is split into
+    // multiple splits, avoiding excessive memory usage when delete rows are large.
     if (num_delete_rows > 0) {
         SCOPED_TIMER(_iceberg_profile.delete_rows_sort_time);
-        _sort_delete_rows(delete_rows_array, num_delete_rows);
-        this->set_delete_rows();
+        _iceberg_delete_rows =
+                _kv_cache->get<DeleteRows>(data_file_path,
+                                           [&]() -> DeleteRows* {
+                                               auto* data_file_position_delete = new DeleteRows;
+                                               _sort_delete_rows(delete_rows_array, num_delete_rows,
+                                                                 *data_file_position_delete);
+
+                                               return data_file_position_delete;
+                                           }
+
+                );
+        set_delete_rows();
         COUNTER_UPDATE(_iceberg_profile.num_delete_rows, num_delete_rows);
     }
     return Status::OK();
@@ -357,29 +389,35 @@ IcebergTableReader::PositionDeleteRange IcebergTableReader::_get_range(
     return range;
 }
 
-void IcebergTableReader::_sort_delete_rows(std::vector<std::vector<int64_t>*>& delete_rows_array,
-                                           int64_t num_delete_rows) {
+/**
+ * https://iceberg.apache.org/spec/#position-delete-files
+ * The rows in the delete file must be sorted by file_path then position to optimize filtering rows while scanning.
+ * Sorting by file_path allows filter pushdown by file in columnar storage formats.
+ * Sorting by position allows filtering rows while scanning, to avoid keeping deletes in memory.
+ */
+void IcebergTableReader::_sort_delete_rows(
+        const std::vector<std::vector<int64_t>*>& delete_rows_array, int64_t num_delete_rows,
+        std::vector<int64_t>& result) {
     if (delete_rows_array.empty()) {
         return;
     }
     if (delete_rows_array.size() == 1) {
-        _iceberg_delete_rows.resize(num_delete_rows);
-        memcpy(_iceberg_delete_rows.data(), delete_rows_array.front()->data(),
-               sizeof(int64_t) * num_delete_rows);
+        result.resize(num_delete_rows);
+        memcpy(result.data(), delete_rows_array.front()->data(), sizeof(int64_t) * num_delete_rows);
         return;
     }
     if (delete_rows_array.size() == 2) {
-        _iceberg_delete_rows.resize(num_delete_rows);
+        result.resize(num_delete_rows);
         std::merge(delete_rows_array.front()->begin(), delete_rows_array.front()->end(),
                    delete_rows_array.back()->begin(), delete_rows_array.back()->end(),
-                   _iceberg_delete_rows.begin());
+                   result.begin());
         return;
     }
 
     using vec_pair = std::pair<std::vector<int64_t>::iterator, std::vector<int64_t>::iterator>;
-    _iceberg_delete_rows.resize(num_delete_rows);
-    auto row_id_iter = _iceberg_delete_rows.begin();
-    auto iter_end = _iceberg_delete_rows.end();
+    result.resize(num_delete_rows);
+    auto row_id_iter = result.begin();
+    auto iter_end = result.end();
     std::vector<vec_pair> rows_array;
     for (auto* rows : delete_rows_array) {
         if (!rows->empty()) {
@@ -408,6 +446,7 @@ void IcebergTableReader::_sort_delete_rows(std::vector<std::vector<int64_t>*>& d
 void IcebergTableReader::_gen_position_delete_file_range(Block& block, DeleteFile* position_delete,
                                                          size_t read_rows,
                                                          bool file_path_column_dictionary_coded) {
+    SCOPED_TIMER(_iceberg_profile.parse_delete_file_time);
     // todo: maybe do not need to build name to index map every time
     auto name_to_pos_map = block.get_name_to_pos_map();
     ColumnPtr path_column = block.get_by_position(name_to_pos_map[ICEBERG_FILE_PATH]).column;
@@ -740,6 +779,95 @@ Status IcebergOrcReader::_read_position_delete_file(const TFileRangeDesc* delete
         RETURN_IF_ERROR(orc_delete_reader.get_next_block(&block, &read_rows, &eof));
 
         _gen_position_delete_file_range(block, position_delete, read_rows, false);
+    }
+    return Status::OK();
+}
+
+// Directly read the deletion vector using the `content_offset` and
+// `content_size_in_bytes` provided by FE in `delete_file_desc`.
+// These two fields indicate the location of a blob in storage.
+// Since the current format is `deletion-vector-v1`, which does not
+// compress any blobs, we can temporarily skip parsing the Puffin footer.
+Status IcebergTableReader::read_deletion_vector(const std::string& data_file_path,
+                                                const TIcebergDeleteFileDesc& delete_file_desc) {
+    Status create_status = Status::OK();
+    SCOPED_TIMER(_iceberg_profile.delete_files_read_time);
+    _iceberg_delete_rows = _kv_cache->get<DeleteRows>(data_file_path, [&]() -> DeleteRows* {
+        auto* delete_rows = new DeleteRows;
+
+        TFileRangeDesc delete_range;
+        // must use __set() method to make sure __isset is true
+        delete_range.__set_fs_name(_range.fs_name);
+        delete_range.path = delete_file_desc.path;
+        delete_range.start_offset = delete_file_desc.content_offset;
+        delete_range.size = delete_file_desc.content_size_in_bytes;
+        delete_range.file_size = -1;
+
+        // We may consider caching the DeletionVectorReader when reading Puffin files,
+        // where the underlying reader is an `InMemoryFileReader` and a single data file is
+        // split into multiple splits. However, we need to ensure that the underlying
+        // reader supports multi-threaded access.
+        DeletionVectorReader dv_reader(_state, _profile, _params, delete_range, _io_ctx);
+        create_status = dv_reader.open();
+        if (!create_status.ok()) [[unlikely]] {
+            return nullptr;
+        }
+
+        size_t buffer_size = delete_range.size;
+        std::vector<char> buf(buffer_size);
+        if (buffer_size < 12) [[unlikely]] {
+            // Minimum size: 4 bytes length + 4 bytes magic + 4 bytes CRC32
+            create_status = Status::DataQualityError("Deletion vector file size too small: {}",
+                                                     buffer_size);
+            return nullptr;
+        }
+
+        create_status = dv_reader.read_at(delete_range.start_offset, {buf.data(), buffer_size});
+        if (!create_status) [[unlikely]] {
+            return nullptr;
+        }
+        // The serialized blob contains:
+        //
+        // Combined length of the vector and magic bytes stored as 4 bytes, big-endian
+        // A 4-byte magic sequence, D1 D3 39 64
+        // The vector, serialized as described below
+        // A CRC-32 checksum of the magic bytes and serialized vector as 4 bytes, big-endian
+
+        auto total_length = BigEndian::Load32(buf.data());
+        if (total_length + 8 != buffer_size) [[unlikely]] {
+            create_status = Status::DataQualityError(
+                    "Deletion vector length mismatch, expected: {}, actual: {}", total_length + 8,
+                    buffer_size);
+            return nullptr;
+        }
+
+        constexpr static char MAGIC_NUMBER[] = {'\xD1', '\xD3', '\x39', '\x64'};
+        if (memcmp(buf.data() + sizeof(total_length), MAGIC_NUMBER, 4)) [[unlikely]] {
+            create_status = Status::DataQualityError("Deletion vector magic number mismatch");
+            return nullptr;
+        }
+
+        roaring::Roaring64Map bitmap;
+        SCOPED_TIMER(_iceberg_profile.parse_delete_file_time);
+        try {
+            bitmap = roaring::Roaring64Map::readSafe(buf.data() + 8, buffer_size - 12);
+        } catch (const std::runtime_error& e) {
+            create_status = Status::DataQualityError("Decode roaring bitmap failed, {}", e.what());
+            return nullptr;
+        }
+        // skip CRC-32 checksum
+
+        delete_rows->reserve(bitmap.cardinality());
+        for (auto it = bitmap.begin(); it != bitmap.end(); it++) {
+            delete_rows->push_back(*it);
+        }
+        COUNTER_UPDATE(_iceberg_profile.num_delete_rows, delete_rows->size());
+        return delete_rows;
+    });
+
+    RETURN_IF_ERROR(create_status);
+    if (!_iceberg_delete_rows->empty()) [[likely]] {
+        set_delete_rows();
     }
     return Status::OK();
 }
