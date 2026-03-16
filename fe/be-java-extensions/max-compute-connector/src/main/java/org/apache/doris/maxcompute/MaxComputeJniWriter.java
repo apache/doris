@@ -19,7 +19,6 @@ package org.apache.doris.maxcompute;
 
 import org.apache.doris.common.jni.JniWriter;
 import org.apache.doris.common.jni.vec.VectorTable;
-import org.apache.doris.common.maxcompute.MCProperties;
 import org.apache.doris.common.maxcompute.MCUtils;
 
 import com.aliyun.odps.Odps;
@@ -94,6 +93,7 @@ public class MaxComputeJniWriter extends JniWriter {
     private static final String CONNECT_TIMEOUT = "connect_timeout";
     private static final String READ_TIMEOUT = "read_timeout";
     private static final String RETRY_COUNT = "retry_count";
+    private static final String MAX_WRITE_BATCH_ROWS = "max_write_batch_rows";
 
     private final Map<String, String> params;
     private final String endpoint;
@@ -134,9 +134,7 @@ public class MaxComputeJniWriter extends JniWriter {
         this.connectTimeout = Integer.parseInt(params.getOrDefault(CONNECT_TIMEOUT, "10"));
         this.readTimeout = Integer.parseInt(params.getOrDefault(READ_TIMEOUT, "120"));
         this.retryCount = Integer.parseInt(params.getOrDefault(RETRY_COUNT, "4"));
-        this.maxWriteBatchRows = Integer.parseInt(
-                params.getOrDefault(MCProperties.MAX_WRITE_BATCH_ROWS,
-                        MCProperties.DEFAULT_MAX_WRITE_BATCH_ROWS));
+        this.maxWriteBatchRows = Integer.parseInt(params.getOrDefault(MAX_WRITE_BATCH_ROWS, "4096"));
     }
 
     @Override
