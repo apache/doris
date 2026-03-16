@@ -193,7 +193,7 @@ config := &doris.Config{
 	Password:    "password",
 	Database:    "test_db",
 	Table:       "users",
-	Format:      doris.DefaultCSVFormat(), // compress_type only supports CSV format
+	Format:      doris.DefaultCSVFormat(), // works with both CSV and JSON formats
 	Retry:       doris.DefaultRetry(),
 	GroupCommit: doris.OFF,
 	EnableGzip:  true, // SDK compresses the body with gzip and sets compress_type=gz header automatically
@@ -205,7 +205,7 @@ data := "1,Alice,25\n2,Bob,30\n3,Charlie,35"
 response, err := client.Load(doris.StringReader(data))
 ```
 
-> ⚠️ **Note**: `EnableGzip` is only supported for CSV format. Using it with JSON format will return an error at client creation time. The SDK compresses the request body transparently — no need to pre-compress the data.
+> **Note**: The SDK compresses the request body transparently — no need to pre-compress the data. Whether JSON compression is supported depends on the Doris version.
 
 ## 🔄 Concurrent Usage
 

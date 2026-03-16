@@ -142,11 +142,6 @@ func (c *Config) ValidateInternal() error {
 		return fmt.Errorf("format cannot be nil")
 	}
 
-	if c.EnableGzip {
-		if _, ok := c.Format.(*CSVFormat); !ok {
-			return fmt.Errorf("EnableGzip is only supported for CSV format (Doris compress_type does not support JSON)")
-		}
-	}
 
 	if c.Retry != nil {
 		if c.Retry.MaxRetryTimes < 0 {

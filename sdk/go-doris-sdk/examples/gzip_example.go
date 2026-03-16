@@ -31,10 +31,10 @@ func GzipExample() {
 		Password:    "",
 		Database:    "test",
 		Table:       "student",
-		Format:      doris.DefaultCSVFormat(), // compress_type only supported for CSV format
+		Format:      doris.DefaultJSONFormat(),
 		Retry:       doris.DefaultRetry(),
 		GroupCommit: doris.OFF,
-		EnableGzip:  true, // SDK will compress the body with gzip and set compress_type=gz header
+		EnableGzip:  true,
 	}
 
 	client, err := doris.NewLoadClient(config)
@@ -43,12 +43,11 @@ func GzipExample() {
 		return
 	}
 
-	// CSV format: columns match table column order
-	csvData := `1001,Alice,20
-1002,Bob,22
-1003,Charlie,19`
+	jsonData := `{"id": 1001, "name": "Alice", "age": 20}
+{"id": 1002, "name": "Bob", "age": 22}
+{"id": 1003, "name": "Charlie", "age": 19}`
 
-	response, err := client.Load(strings.NewReader(csvData))
+	response, err := client.Load(strings.NewReader(jsonData))
 	if err != nil {
 		fmt.Printf("Load failed: %v\n", err)
 		return
