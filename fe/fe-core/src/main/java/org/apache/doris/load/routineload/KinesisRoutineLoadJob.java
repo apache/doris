@@ -186,8 +186,9 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
 
         // Handle default position
         if (convertedCustomProperties.containsKey(KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName())) {
-            kinesisDefaultPosition = convertedCustomProperties.remove(
+            kinesisDefaultPosition = convertedCustomProperties.get(
                     KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName());
+            // Keep it in convertedCustomProperties so BE can use it
         }
     }
 

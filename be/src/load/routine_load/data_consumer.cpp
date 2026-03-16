@@ -753,6 +753,7 @@ Status KinesisDataConsumer::group_consume(
     static constexpr int RATE_LIMIT_BACKOFF_MS = 1000;     // 1 second
     static constexpr int KINESIS_GET_RECORDS_LIMIT = 1000; // Max 10000
     static constexpr int INTER_SHARD_SLEEP_MS = 10;        // Small sleep between shards
+    static constexpr int MIN_INTERVAL_BETWEEN_ROUNDS_MS = 200; // Min 200ms between rounds
 
     int64_t left_time = max_running_time_ms;
     LOG(INFO) << "start Kinesis consumer: " << _id << ", grp: " << _grp_id
@@ -761,6 +762,7 @@ Status KinesisDataConsumer::group_consume(
     int64_t received_rows = 0;
     int64_t put_rows = 0;
     int32_t retry_times = 0;
+    int32_t throttle_count = 0;  // Track consecutive throttle errors
     Status st = Status::OK();
     bool done = false;
 
@@ -814,9 +816,13 @@ Status KinesisDataConsumer::group_consume(
                 // Handle throttling (ProvisionedThroughputExceededException)
                 if (error.GetErrorType() ==
                     Aws::Kinesis::KinesisErrors::PROVISIONED_THROUGHPUT_EXCEEDED) {
+                    throttle_count++;
+                    // Exponential backoff: 1s, 2s, 4s, 8s, max 10s
+                    int backoff_ms = std::min(RATE_LIMIT_BACKOFF_MS * (1 << std::min(throttle_count - 1, 3)), 10000);
                     LOG(INFO) << "Kinesis rate limit exceeded for shard: " << shard_id
-                              << ", backing off " << RATE_LIMIT_BACKOFF_MS << "ms";
-                    std::this_thread::sleep_for(std::chrono::milliseconds(RATE_LIMIT_BACKOFF_MS));
+                              << ", throttle_count: " << throttle_count
+                              << ", backing off " << backoff_ms << "ms";
+                    std::this_thread::sleep_for(std::chrono::milliseconds(backoff_ms));
                     ++it; // Move to next shard, will retry this one next round
                     continue;
                 }
@@ -843,11 +849,13 @@ Status KinesisDataConsumer::group_consume(
 
             // Reset retry counter on success
             retry_times = 0;
+            throttle_count = 0;  // Reset throttle counter on successful GetRecords
 
             // Process records - move result to allow moving individual records
             auto result = outcome.GetResultWithOwnership();
             auto millis_behind = result.GetMillisBehindLatest();
             std::string next_iterator = result.GetNextShardIterator();
+            size_t record_count = result.GetRecords().size();
             RETURN_IF_ERROR(_process_records(shard_id, std::move(result), queue, &received_rows,
                                              &put_rows));
 
@@ -858,6 +866,13 @@ Status KinesisDataConsumer::group_consume(
             if (next_iterator.empty()) {
                 // Shard is closed (split/merge), remove from active set
                 LOG(INFO) << "Shard closed: " << shard_id << " (split/merge detected)";
+                _shard_iterators.erase(shard_id);
+                it = _consuming_shard_ids.erase(it);
+            } else if (millis_behind == 0 && record_count == 0) {
+                // Shard has caught up with latest data (no lag, no records in this batch)
+                // Similar to Kafka's PARTITION_EOF behavior - remove from active set to allow early exit
+                LOG(INFO) << "Shard caught up with latest data: " << shard_id
+                          << " (MillisBehindLatest=0, no records)";
                 _shard_iterators.erase(shard_id);
                 it = _consuming_shard_ids.erase(it);
             } else {
@@ -875,6 +890,9 @@ Status KinesisDataConsumer::group_consume(
             // Small sleep to avoid tight loop
             std::this_thread::sleep_for(std::chrono::milliseconds(INTER_SHARD_SLEEP_MS));
         }
+
+        // Ensure minimum interval between rounds to respect Kinesis rate limits (5 GetRecords/sec per shard)
+        std::this_thread::sleep_for(std::chrono::milliseconds(MIN_INTERVAL_BETWEEN_ROUNDS_MS));
 
         left_time = max_running_time_ms - watch.elapsed_time() / 1000 / 1000;
         if (done) {

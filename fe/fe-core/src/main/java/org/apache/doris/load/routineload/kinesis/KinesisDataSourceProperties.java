@@ -210,7 +210,8 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
         // Parse positions
         List<String> positions = KinesisConfiguration.KINESIS_POSITIONS.getParameterValue(
                 originalDataSourceProperties.get(KinesisConfiguration.KINESIS_POSITIONS.getName()));
-        String defaultPositionString = originalDataSourceProperties.get(
+        // Get default position from customKinesisProperties (already parsed from "property." prefix)
+        String defaultPositionString = customKinesisProperties.get(
                 KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName());
 
         // Validate that positions and default_position are not both set
