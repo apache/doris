@@ -38,7 +38,6 @@
 #include "orc/ColumnPrinter.hh"
 
 namespace doris {
-namespace vectorized {
 
 class MemoryOutputStream : public orc::OutputStream {
 public:
@@ -97,5 +96,4 @@ private:
     uint64_t size, naturalReadSize;
     std::string name;
 };
-} // namespace vectorized
 } // namespace doris

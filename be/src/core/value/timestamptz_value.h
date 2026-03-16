@@ -31,9 +31,7 @@ namespace doris {
 
 struct StringRef;
 
-namespace vectorized {
 struct CastParameters;
-}
 
 // TIMESTAMPTZ can be understood as a DATETIME type with timezone conversion functionality.
 // Doris automatically handles timezone conversions internally.
@@ -65,7 +63,7 @@ public:
 
     // Parses a string, CastParameters can control whether strict mode is used
     bool from_string(const StringRef& str, const cctz::time_zone* local_time_zone,
-                     vectorized::CastParameters& params, uint32_t to_scale);
+                     CastParameters& params, uint32_t to_scale);
 
     // Converts from a datetime value
     bool from_datetime(const DateV2Value<DateTimeV2ValueType>& dt,

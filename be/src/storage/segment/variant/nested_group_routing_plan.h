@@ -22,9 +22,9 @@
 
 #include "common/status.h"
 
-namespace doris::vectorized {
+namespace doris {
 class ColumnVariant;
-} // namespace doris::vectorized
+} // namespace doris
 
 namespace doris::segment_v2 {
 
@@ -65,15 +65,14 @@ struct NestedGroupRoutingPlan {
 
 // Build NG routing plan from variant content. Scans the variant for
 // array<object> paths, detects conflicts, and populates the plan.
-Status build_nested_group_routing_plan(const vectorized::ColumnVariant& variant,
-                                       NestedGroupRoutingPlan* plan);
+Status build_nested_group_routing_plan(const ColumnVariant& variant, NestedGroupRoutingPlan* plan);
 
 // Collect NG routing metadata from variant content:
 // - out_ng_paths: all NG candidate paths
 // - out_conflict_paths: NG paths that have ARRAY<OBJECT> vs non-array structural conflicts
 // Both outputs are de-duplicated and sorted.
 Status collect_nested_group_routing_paths_from_variant_jsonb(
-        const vectorized::ColumnVariant& variant, std::vector<std::string>* out_ng_paths,
+        const ColumnVariant& variant, std::vector<std::string>* out_ng_paths,
         std::vector<std::string>* out_conflict_paths);
 
 // Get the current global conflict policy (driven by config).

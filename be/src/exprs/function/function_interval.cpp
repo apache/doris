@@ -41,7 +41,7 @@
 #include "exprs/function/function_needs_to_handle_null.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 class FunctionInterval : public IFunction {
 public:
     static constexpr auto name = "interval";
@@ -122,4 +122,4 @@ void register_function_interval(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionInterval>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -30,10 +30,8 @@ static constexpr size_t V1_LEVEL_SIZE = 4;
 #include "common/cast_set.h"
 #include "common/compile_check_begin.h"
 
-doris::Status doris::vectorized::LevelDecoder::init(doris::Slice* slice,
-                                                    tparquet::Encoding::type encoding,
-                                                    doris::vectorized::level_t max_level,
-                                                    uint32_t num_levels) {
+doris::Status doris::LevelDecoder::init(doris::Slice* slice, tparquet::Encoding::type encoding,
+                                        doris::level_t max_level, uint32_t num_levels) {
     _encoding = encoding;
     _bit_width = cast_set<level_t>(BitUtil::log2(max_level + 1));
     _max_level = max_level;
@@ -73,9 +71,8 @@ doris::Status doris::vectorized::LevelDecoder::init(doris::Slice* slice,
     return Status::OK();
 }
 
-doris::Status doris::vectorized::LevelDecoder::init_v2(const doris::Slice& levels,
-                                                       doris::vectorized::level_t max_level,
-                                                       uint32_t num_levels) {
+doris::Status doris::LevelDecoder::init_v2(const doris::Slice& levels, doris::level_t max_level,
+                                           uint32_t num_levels) {
     _encoding = tparquet::Encoding::RLE;
     _bit_width = cast_set<level_t>(BitUtil::log2(max_level + 1));
     _max_level = max_level;
@@ -86,7 +83,7 @@ doris::Status doris::vectorized::LevelDecoder::init_v2(const doris::Slice& level
     return Status::OK();
 }
 
-size_t doris::vectorized::LevelDecoder::get_levels(doris::vectorized::level_t* levels, size_t n) {
+size_t doris::LevelDecoder::get_levels(doris::level_t* levels, size_t n) {
     // toto template.
     if (_encoding == tparquet::Encoding::RLE) {
         n = std::min((size_t)_num_levels, n);

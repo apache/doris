@@ -23,7 +23,7 @@
 
 #include "core/data_type/data_type_number.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionBeTestMock : public IFunction {
 public:
@@ -95,4 +95,4 @@ TEST_F(SimpleFunctionFactoryTest, test_return_all) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

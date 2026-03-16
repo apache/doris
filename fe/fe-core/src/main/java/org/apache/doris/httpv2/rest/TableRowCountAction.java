@@ -57,12 +57,11 @@ public class TableRowCountAction extends RestBaseController {
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(4);
         try {
-            String fullDbName = getFullDbName(dbName);
             // check privilege for select, otherwise return HTTP 401
-            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
+            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), dbName, tblName, PrivPredicate.SELECT);
             OlapTable olapTable;
             try {
-                Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+                Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
                 olapTable = (OlapTable) db.getTableOrMetaException(tblName, Table.TableType.OLAP);
             } catch (MetaNotFoundException e) {
                 return ResponseEntityBuilder.okWithCommonError(e.getMessage());

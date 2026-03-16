@@ -30,7 +30,7 @@
 #include "core/data_type/primitive_type.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(ColumnConstTest, TestCreate) {
     auto column_data = ColumnHelper::create_column<DataTypeInt64>({7});
@@ -309,4 +309,4 @@ TEST(ColumnConstTest, replace_float_special_values) {
         column_const->finalize();
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

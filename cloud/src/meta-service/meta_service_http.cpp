@@ -702,6 +702,29 @@ static HttpResponse process_list_snapshot(MetaServiceImpl* service, brpc::Contro
     return http_json_reply_message(resp.status(), resp);
 }
 
+static HttpResponse process_compact_snapshot(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string instance_id(http_query(uri, "instance_id"));
+    if (instance_id.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "instance_id is empty");
+    }
+    CompactSnapshotRequest req;
+    req.set_instance_id(instance_id);
+    CompactSnapshotResponse resp;
+    service->compact_snapshot(ctrl, &req, &resp, nullptr);
+    return http_json_reply(resp.status());
+}
+
+static HttpResponse process_decouple_instance(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string instance_id(http_query(uri, "instance_id"));
+    if (instance_id.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "instance_id is empty");
+    }
+    auto [code, msg] = service->snapshot_manager()->decouple_instance(instance_id);
+    return http_json_reply(code, msg);
+}
+
 static HttpResponse process_set_snapshot_property(MetaServiceImpl* service,
                                                   brpc::Controller* ctrl) {
     AlterInstanceRequest req;
@@ -940,6 +963,10 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/set_snapshot_property", process_set_snapshot_property},
             {"v1/get_snapshot_property", process_get_snapshot_property},
             {"v1/set_multi_version_status", process_set_multi_version_status},
+            {"compact_snapshot", process_compact_snapshot},
+            {"v1/compact_snapshot", process_compact_snapshot},
+            {"decouple_instance", process_decouple_instance},
+            {"v1/decouple_instance", process_decouple_instance},
             // misc
             {"abort_txn", process_abort_txn},
             {"abort_tablet_job", process_abort_tablet_job},

@@ -24,7 +24,7 @@
 #include "core/data_type/data_type.h"
 #include "exprs/table_function/table_function.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class Block;
@@ -63,4 +63,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

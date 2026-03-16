@@ -30,7 +30,6 @@
 namespace doris {
 class RuntimeState;
 
-namespace pipeline {
 class PipelineFragmentContext;
 
 class RevokableTask : public PipelineTask {
@@ -71,5 +70,4 @@ private:
     std::shared_ptr<SpillContext> _spill_context;
 };
 
-} // namespace pipeline
 } // namespace doris

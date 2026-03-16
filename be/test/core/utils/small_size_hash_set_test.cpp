@@ -27,7 +27,7 @@
 
 #include "exec/common/hash_table/ph_hash_set.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename T>
 void test_type_hash_map() {
@@ -120,4 +120,4 @@ TEST(SmallSizeHashSetTest, testuint16) {
         test_type_hash_map<uint16_t>();
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

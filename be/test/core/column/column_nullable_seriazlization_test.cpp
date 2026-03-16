@@ -31,7 +31,7 @@
 #include "core/types.h"
 
 using namespace doris;
-using namespace doris::vectorized;
+using namespace doris;
 
 TEST(ColumnNullableSerializationTest, column_nullable_column_vector) {
     const size_t input_rows_count = 4096 * 1000;

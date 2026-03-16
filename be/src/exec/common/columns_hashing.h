@@ -33,7 +33,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "util/unaligned.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 using Sizes = std::vector<size_t>;
 
@@ -164,4 +164,4 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
 };
 
 } // namespace ColumnsHashing
-} // namespace doris::vectorized
+} // namespace doris

@@ -32,17 +32,17 @@
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/segment/segment.h"
 
-namespace doris::vectorized {
+namespace doris {
 using namespace segment_v2;
 
 namespace {
 
 struct SearchInputBundle {
     std::unordered_map<std::string, IndexIterator*> iterators;
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> field_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> field_types;
     std::unordered_map<std::string, int> field_name_to_column_id;
     std::vector<int> column_ids;
-    vectorized::ColumnsWithTypeAndName literal_args;
+    ColumnsWithTypeAndName literal_args;
 };
 
 Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
@@ -277,4 +277,4 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

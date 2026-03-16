@@ -53,7 +53,7 @@
 #include "storage/olap_scan_common.h"
 #include "util/timezone_utils.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // Define the column access path configuration structure
 struct ColumnAccessPathConfig {
@@ -1181,4 +1181,4 @@ TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_6) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

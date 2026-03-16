@@ -35,12 +35,10 @@
 
 namespace doris {
 class TFileRangeDesc;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class TableFormatReader : public GenericReader {
 public:
@@ -385,31 +383,18 @@ public:
                                         const schema::external::TStructField& file_schema,
                                         std::shared_ptr<TableSchemaChangeHelper::Node>& node);
 
-        //for iceberg parquet: Use the field id in the `table schema` and the parquet file to match columns.
-        static Status by_parquet_field_id(const schema::external::TStructField& table_schema,
-                                          const FieldDescriptor& parquet_field_desc,
-                                          std::shared_ptr<TableSchemaChangeHelper::Node>& node,
-                                          bool& exist_field_id);
-
         // for iceberg parquet
         static Status by_parquet_field_id(const schema::external::TField& table_schema,
                                           const FieldSchema& parquet_field,
-                                          std::shared_ptr<TableSchemaChangeHelper::Node>& node,
-                                          bool& exist_field_id);
-
-        // for iceberg orc : Use the field id in the `table schema` and the orc file to match columns.
-        static Status by_orc_field_id(const schema::external::TStructField& table_schema,
-                                      const orc::Type* orc_root,
-                                      const std::string& field_id_attribute_key,
-                                      std::shared_ptr<TableSchemaChangeHelper::Node>& node,
-                                      bool& exist_field_id);
+                                          const bool exist_field_id,
+                                          std::shared_ptr<TableSchemaChangeHelper::Node>& node);
 
         // for iceberg orc
         static Status by_orc_field_id(const schema::external::TField& table_schema,
                                       const orc::Type* orc_root,
                                       const std::string& field_id_attribute_key,
-                                      std::shared_ptr<TableSchemaChangeHelper::Node>& node,
-                                      bool& exist_field_id);
+                                      const bool exist_field_id,
+                                      std::shared_ptr<TableSchemaChangeHelper::Node>& node);
     };
 };
 
@@ -425,4 +410,4 @@ struct ColumnIdResult {
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

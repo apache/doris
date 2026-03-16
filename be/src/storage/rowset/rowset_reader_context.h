@@ -52,7 +52,7 @@ struct RowsetReaderContext {
     // limit of rows for read_orderby_key
     size_t read_orderby_key_limit = 0;
     // filter_block arguments
-    vectorized::VExprContextSPtrs filter_block_conjuncts;
+    VExprContextSPtrs filter_block_conjuncts;
     // projection columns: the set of columns rowset reader should return
     const std::vector<uint32_t>* return_columns = nullptr;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
@@ -68,8 +68,8 @@ struct RowsetReaderContext {
     const DeleteHandler* delete_handler = nullptr;
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;
-    std::vector<vectorized::VExprSPtr> remaining_conjunct_roots;
-    vectorized::VExprContextSPtrs common_expr_ctxs_push_down;
+    std::vector<VExprSPtr> remaining_conjunct_roots;
+    VExprContextSPtrs common_expr_ctxs_push_down;
     bool use_page_cache = false;
     int sequence_id_idx = -1;
     int batch_size = 1024;
@@ -85,21 +85,24 @@ struct RowsetReaderContext {
     const std::set<int32_t>* output_columns = nullptr;
     RowsetId rowset_id;
     // slots that cast may be eliminated in storage layer
-    std::map<std::string, vectorized::DataTypePtr> target_cast_type_for_variants;
+    std::map<std::string, DataTypePtr> target_cast_type_for_variants;
     int64_t ttl_seconds = 0;
 
-    std::map<ColumnId, vectorized::VExprContextSPtr> virtual_column_exprs;
+    std::map<ColumnId, VExprContextSPtr> virtual_column_exprs;
     std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
-    std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
+    std::map<size_t, DataTypePtr> vir_col_idx_to_type;
 
     std::map<int32_t, TColumnAccessPaths> all_access_paths;
     std::map<int32_t, TColumnAccessPaths> predicate_access_paths;
 
-    std::shared_ptr<vectorized::ScoreRuntime> score_runtime;
+    std::shared_ptr<ScoreRuntime> score_runtime;
     CollectionStatisticsPtr collection_statistics;
     std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;
 
     uint64_t condition_cache_digest = 0;
+
+    // When true, push down value predicates for MOR tables
+    bool enable_mor_value_predicate_pushdown = false;
 };
 
 } // namespace doris

@@ -26,7 +26,7 @@
 #include "parquet/types.h"
 #include "util/slice.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class BoolPlainDecoderTest : public ::testing::Test {
 protected:
@@ -242,4 +242,4 @@ TEST_F(BoolPlainDecoderTest, test_data_generated_by_arrow) {
 //    ASSERT_FALSE(_decoder->set_data(&data_slice).ok());
 //}
 
-} // namespace doris::vectorized
+} // namespace doris

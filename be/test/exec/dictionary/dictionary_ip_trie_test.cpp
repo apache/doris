@@ -24,7 +24,7 @@
 #include "exprs/function/dictionary_factory.h"
 #include "exprs/function/ip_address_dictionary.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 IPv6 get_ipv6_from_ipv4(std::string ipv4) {
     IPv4Value ipv4_value;
@@ -73,4 +73,4 @@ TEST(DictionaryIpTest, testEQ) {
     EXPECT_NE(get_ipv6_from_cidr_format("192.1.255.1/20"), get_ipv6_from_ipv4("192.1.255.1"));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

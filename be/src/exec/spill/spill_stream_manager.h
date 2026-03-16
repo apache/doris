@@ -39,8 +39,6 @@ using UIntGauge = AtomicGauge<uint64_t>;
 class MetricEntity;
 struct MetricPrototype;
 
-namespace vectorized {
-
 class SpillStreamManager;
 class SpillDataDir {
 public:
@@ -115,8 +113,8 @@ private:
 class SpillStreamManager {
 public:
     ~SpillStreamManager();
-    SpillStreamManager(std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>>&&
-                               spill_store_map);
+    SpillStreamManager(
+            std::unordered_map<std::string, std::unique_ptr<SpillDataDir>>&& spill_store_map);
 
     Status init();
 
@@ -163,6 +161,5 @@ private:
     IntAtomicCounter* _spill_write_bytes_counter {nullptr};
     IntAtomicCounter* _spill_read_bytes_counter {nullptr};
 };
-} // namespace vectorized
 } // namespace doris
 #include "common/compile_check_end.h"

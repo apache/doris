@@ -31,7 +31,6 @@ namespace doris {
 
 class ObjectPool;
 
-namespace vectorized {
 class TableFunction;
 
 class TableFunctionFactory {
@@ -57,6 +56,5 @@ private:
         }
     }
 };
-} // namespace vectorized
 #include "common/compile_check_end.h"
 } // namespace doris

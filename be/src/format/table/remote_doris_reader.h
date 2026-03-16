@@ -26,19 +26,17 @@
 #include <vector>
 
 #include "common/status.h"
-#include "format/jni_reader.h"
+#include "format/jni/jni_reader.h"
 #include "storage/olap_scan_common.h"
 
 namespace doris {
 class RuntimeProfile;
 class RuntimeState;
 class SlotDescriptor;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class RemoteDorisReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(RemoteDorisReader);
@@ -77,4 +75,4 @@ private:
     std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
 };
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -32,7 +32,6 @@
 
 namespace doris {
 
-namespace vectorized {
 #include "common/compile_check_begin.h"
 class DataTypeVarbinarySerDe : public DataTypeSerDe {
 public:
@@ -89,7 +88,7 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
@@ -97,5 +96,4 @@ public:
 };
 
 #include "common/compile_check_end.h"
-} // namespace vectorized
 } // namespace doris

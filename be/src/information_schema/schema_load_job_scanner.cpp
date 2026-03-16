@@ -30,9 +30,7 @@
 
 namespace doris {
 class RuntimeState;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaLoadJobScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
@@ -73,7 +71,7 @@ Status SchemaLoadJobScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaLoadJobScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaLoadJobScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }
@@ -89,7 +87,7 @@ Status SchemaLoadJobScanner::get_next_block_internal(vectorized::Block* block, b
     return _fill_block_impl(block);
 }
 
-Status SchemaLoadJobScanner::_fill_block_impl(vectorized::Block* block) {
+Status SchemaLoadJobScanner::_fill_block_impl(Block* block) {
     SCOPED_TIMER(_fill_block_timer);
 
     const auto& jobs_info = _result.loadJobs;

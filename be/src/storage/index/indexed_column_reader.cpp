@@ -278,7 +278,7 @@ Status IndexedColumnIterator::seek_at_or_after(const void* key, bool* exact_matc
     return Status::OK();
 }
 
-Status IndexedColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+Status IndexedColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst) {
     DCHECK(_seeked);
     if (_current_ordinal == _reader->num_values()) {
         *n = 0;

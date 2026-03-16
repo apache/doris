@@ -34,7 +34,7 @@
 
 namespace doris {
 
-using namespace doris::vectorized;
+using namespace doris;
 
 constexpr static uint32_t MAX_PATH_LEN = 1024;
 constexpr static std::string_view dest_dir = "./ut_dir/date_bloom_filter";
@@ -181,7 +181,7 @@ TEST_F(DateBloomFilterTest, query_index_test) {
             auto date = timestamp_from_date(query_string);
             std::unique_ptr<ComparisonPredicateBase<TYPE_DATE, PredicateType::EQ>> date_pred(
                     new ComparisonPredicateBase<TYPE_DATE, PredicateType::EQ>(
-                            0, "", vectorized::Field::create_field<TYPE_DATE>(date)));
+                            0, "", Field::create_field<TYPE_DATE>(date)));
             EXPECT_EQ(date_pred->evaluate_and(bf.get()), result);
         };
         test("2024-11-08", true);
@@ -204,7 +204,7 @@ TEST_F(DateBloomFilterTest, query_index_test) {
             auto datetime = timestamp_from_datetime(query_string);
             std::unique_ptr<ComparisonPredicateBase<TYPE_DATETIME, PredicateType::EQ>> date_pred(
                     new ComparisonPredicateBase<TYPE_DATETIME, PredicateType::EQ>(
-                            0, "", vectorized::Field::create_field<TYPE_DATETIME>(datetime)));
+                            0, "", Field::create_field<TYPE_DATETIME>(datetime)));
             EXPECT_EQ(date_pred->evaluate_and(bf.get()), result);
         };
         test("2024-11-08 09:00:00", true);

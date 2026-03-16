@@ -41,7 +41,7 @@
 
 namespace doris {
 
-using CacheResult = std::vector<vectorized::BlockUPtr>;
+using CacheResult = std::vector<BlockUPtr>;
 // A handle for mid-result from query lru cache.
 // The handle will automatically release the cache entry when it is destroyed.
 // So the caller need to make sure the handle is valid in lifecycle.
@@ -109,27 +109,76 @@ public:
     static Status build_cache_key(const std::vector<TScanRangeParams>& scan_ranges,
                                   const TQueryCacheParam& cache_param, std::string* cache_key,
                                   int64_t* version) {
-        if (scan_ranges.size() > 1) {
-            return Status::InternalError(
-                    "CacheSourceOperator only support one scan range, plan error");
-        }
-        auto& scan_range = scan_ranges[0];
-        DCHECK(scan_range.scan_range.__isset.palo_scan_range);
-        auto tablet_id = scan_range.scan_range.palo_scan_range.tablet_id;
-
-        std::from_chars(scan_range.scan_range.palo_scan_range.version.data(),
-                        scan_range.scan_range.palo_scan_range.version.data() +
-                                scan_range.scan_range.palo_scan_range.version.size(),
-                        *version);
-
-        auto find_tablet = cache_param.tablet_to_range.find(tablet_id);
-        if (find_tablet == cache_param.tablet_to_range.end()) {
-            return Status::InternalError("Not find tablet in partition_to_tablets, plan error");
+        if (scan_ranges.empty()) {
+            return Status::InternalError("scan_ranges is empty, plan error");
         }
 
-        *cache_key = cache_param.digest +
-                     std::string(reinterpret_cast<char*>(&tablet_id), sizeof(tablet_id)) +
-                     find_tablet->second;
+        std::string digest;
+        try {
+            digest = cache_param.digest;
+        } catch (const std::exception&) {
+            return Status::InternalError("digest is invalid, plan error");
+        }
+        if (digest.empty()) {
+            return Status::InternalError("digest is empty, plan error");
+        }
+
+        if (cache_param.tablet_to_range.empty()) {
+            return Status::InternalError("tablet_to_range is empty, plan error");
+        }
+
+        std::vector<int64_t> tablet_ids;
+        tablet_ids.reserve(scan_ranges.size());
+        for (const auto& scan_range : scan_ranges) {
+            auto tablet_id = scan_range.scan_range.palo_scan_range.tablet_id;
+            tablet_ids.push_back(tablet_id);
+        }
+        std::sort(tablet_ids.begin(), tablet_ids.end());
+
+        int64_t first_version = -1;
+        std::string first_tablet_range;
+        for (size_t i = 0; i < tablet_ids.size(); ++i) {
+            auto tablet_id = tablet_ids[i];
+
+            auto find_tablet = cache_param.tablet_to_range.find(tablet_id);
+            if (find_tablet == cache_param.tablet_to_range.end()) {
+                return Status::InternalError("Not find tablet in partition_to_tablets, plan error");
+            }
+
+            auto scan_range_iter =
+                    std::find_if(scan_ranges.begin(), scan_ranges.end(),
+                                 [&tablet_id](const TScanRangeParams& range) {
+                                     return range.scan_range.palo_scan_range.tablet_id == tablet_id;
+                                 });
+            int64_t current_version = -1;
+            std::from_chars(scan_range_iter->scan_range.palo_scan_range.version.data(),
+                            scan_range_iter->scan_range.palo_scan_range.version.data() +
+                                    scan_range_iter->scan_range.palo_scan_range.version.size(),
+                            current_version);
+
+            if (i == 0) {
+                first_version = current_version;
+                first_tablet_range = find_tablet->second;
+            } else {
+                if (current_version != first_version) {
+                    return Status::InternalError(
+                            "All tablets in one instance must have the same version, plan error");
+                }
+                if (find_tablet->second != first_tablet_range) {
+                    return Status::InternalError(
+                            "All tablets in one instance must have the same tablet_to_range, plan "
+                            "error");
+                }
+            }
+        }
+
+        *version = first_version;
+
+        *cache_key = digest;
+        for (auto tablet_id : tablet_ids) {
+            *cache_key += std::string(reinterpret_cast<char*>(&tablet_id), sizeof(tablet_id));
+        }
+        *cache_key += first_tablet_range;
 
         return Status::OK();
     }

@@ -28,8 +28,6 @@ using BetaRowsetSharedPtr = std::shared_ptr<BetaRowset>;
 }; // namespace doris
 namespace doris::segment_v2 {
 
-using namespace vectorized;
-
 class LazyInitSegmentIterator : public RowwiseIterator {
 public:
     LazyInitSegmentIterator(BetaRowsetSharedPtr rowset, int64_t segment_id, bool should_use_cache,

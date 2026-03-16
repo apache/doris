@@ -33,7 +33,7 @@
 #include "core/data_type_serde/data_type_date_or_datetime_serde.h"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class BufferWritable;
 class IColumn;
@@ -79,4 +79,4 @@ public:
     }
 };
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

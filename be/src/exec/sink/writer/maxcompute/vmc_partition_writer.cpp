@@ -21,7 +21,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-namespace vectorized {
 
 VMCPartitionWriter::VMCPartitionWriter(RuntimeState* state,
                                        const VExprContextSPtrs& output_vexpr_ctxs,
@@ -39,7 +38,7 @@ Status VMCPartitionWriter::open() {
     return _jni_format_transformer->open();
 }
 
-Status VMCPartitionWriter::write(vectorized::Block& block) {
+Status VMCPartitionWriter::write(Block& block) {
     RETURN_IF_ERROR(_jni_format_transformer->write(block));
     _row_count += block.rows();
     return Status::OK();
@@ -81,5 +80,4 @@ TMCCommitData VMCPartitionWriter::_build_mc_commit_data() {
     return commit_data;
 }
 
-} // namespace vectorized
 } // namespace doris

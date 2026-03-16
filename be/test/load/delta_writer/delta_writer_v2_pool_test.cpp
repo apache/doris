@@ -20,7 +20,7 @@
 
 #include "load/delta_writer/delta_writer_v2.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class DeltaWriterV2PoolTest : public testing::Test {
 public:
@@ -78,4 +78,4 @@ TEST_F(DeltaWriterV2PoolTest, test_map) {
     EXPECT_EQ(0, pool.size());
 }
 
-} // namespace doris::vectorized
+} // namespace doris

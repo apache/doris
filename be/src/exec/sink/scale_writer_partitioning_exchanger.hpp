@@ -24,7 +24,7 @@
 #include "exec/connector/skewed_partition_rebalancer.h"
 #include "exec/partitioner/partitioner.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class ScaleWriterPartitioner final : public PartitionerBase {
 public:
@@ -46,8 +46,7 @@ public:
                       min_partition_data_processed_rebalance_threshold),
               _min_data_processed_rebalance_threshold(min_data_processed_rebalance_threshold) {
         _crc_partitioner =
-                std::make_unique<vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>>(
-                        _partition_count);
+                std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(_partition_count);
     }
 
     ~ScaleWriterPartitioner() override = default;
@@ -126,4 +125,4 @@ private:
     const long _min_data_processed_rebalance_threshold;
 };
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

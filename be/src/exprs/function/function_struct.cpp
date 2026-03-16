@@ -44,7 +44,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 // construct a struct
 template <typename Impl>
@@ -148,4 +148,4 @@ void register_function_struct(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStruct<NamedStructImpl>>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -23,12 +23,10 @@
 #include "core/types.h"
 
 namespace doris {
-namespace vectorized {
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 struct ColumnArrayMutableData {
@@ -99,4 +97,4 @@ void slice_array(ColumnArrayMutableData& dst, ColumnArrayExecutionData& src,
 
 using ColumnArrayExecutionDatas = std::vector<ColumnArrayExecutionData>;
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

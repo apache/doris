@@ -30,7 +30,7 @@
 
 #include "testutil/creators.h"
 
-namespace doris::pipeline {
+namespace doris {
 void SpillableOperatorTestHelper::SetUp() {
     runtime_state = std::make_unique<MockRuntimeState>();
     obj_pool = std::make_unique<ObjectPool>();
@@ -79,14 +79,13 @@ void SpillableOperatorTestHelper::SetUp() {
     EXPECT_TRUE(st.ok()) << "create descriptor table failed: " << st.to_string();
     runtime_state->set_desc_tbl(desc_tbl);
 
-    auto spill_data_dir =
-            std::make_unique<vectorized::SpillDataDir>("./ut_dir/spill_test", 1024L * 1024 * 4);
+    auto spill_data_dir = std::make_unique<SpillDataDir>("./ut_dir/spill_test", 1024L * 1024 * 4);
     st = io::global_local_filesystem()->create_directory(spill_data_dir->path(), false);
     EXPECT_TRUE(st.ok()) << "create directory: " << spill_data_dir->path()
                          << " failed: " << st.to_string();
-    std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>> data_map;
+    std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> data_map;
     data_map.emplace("test", std::move(spill_data_dir));
-    auto* spill_stream_manager = new vectorized::SpillStreamManager(std::move(data_map));
+    auto* spill_stream_manager = new SpillStreamManager(std::move(data_map));
     ExecEnv::GetInstance()->_spill_stream_mgr = spill_stream_manager;
     st = spill_stream_manager->init();
     EXPECT_TRUE(st.ok()) << "init spill stream manager failed: " << st.to_string();
@@ -98,4 +97,4 @@ void SpillableOperatorTestHelper::TearDown() {
     runtime_state.reset();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

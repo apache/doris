@@ -71,7 +71,7 @@ struct IOContext;
 } // namespace io
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 const std::vector<int64_t> RowGroupReader::NO_DELETE = {};
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
@@ -342,7 +342,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
 #endif
 
         if (block->rows() == 0) {
-            _convert_dict_cols_to_string_cols(block);
+            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block));
             *read_rows = block->rows();
 #ifndef NDEBUG
             for (auto col : *block) {
@@ -382,7 +382,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
                         std::move(*block->get_by_position(col).column).assume_mutable()->clear();
                     }
                     Block::erase_useless_column(block, column_to_keep);
-                    _convert_dict_cols_to_string_cols(block);
+                    RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block));
                     return Status::OK();
                 }
 
@@ -393,7 +393,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
                 RETURN_IF_CATCH_EXCEPTION(
                         RETURN_IF_ERROR(_filter_block(block, column_to_keep, columns_to_filter)));
             }
-            _convert_dict_cols_to_string_cols(block);
+            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block));
         }
 #ifndef NDEBUG
         for (auto col : *block) {
@@ -598,7 +598,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
                 _cached_filtered_rows += pre_read_rows;
                 if (pre_raw_read_rows >= config::doris_scanner_row_num) {
                     *read_rows = 0;
-                    _convert_dict_cols_to_string_cols(block);
+                    RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block));
                     return Status::OK();
                 }
             } else { // pre_eof
@@ -606,7 +606,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
                 *read_rows = 0;
                 *batch_eof = true;
                 _lazy_read_filtered_rows += (pre_read_rows + _cached_filtered_rows);
-                _convert_dict_cols_to_string_cols(block);
+                RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block));
                 return Status::OK();
             }
         } else {
@@ -657,7 +657,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         }
     }
 
-    _convert_dict_cols_to_string_cols(block);
+    RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block));
 
     size_t column_num = block->columns();
     size_t column_size = 0;
@@ -760,7 +760,7 @@ Status RowGroupReader::_fill_missing_columns(
             // no default column, fill with null
             auto mutable_column = block->get_by_position((*_col_name_to_block_idx)[kv.first])
                                           .column->assume_mutable();
-            auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_column.get());
+            auto* nullable_column = assert_cast<ColumnNullable*>(mutable_column.get());
             nullable_column->insert_many_defaults(rows);
         } else {
             // fill with default value
@@ -1114,7 +1114,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             for (int j = 0; j < dict_codes.size(); ++j) {
                 hybrid_set->insert(&dict_codes[j]);
             }
-            root = vectorized::VDirectInPredicate::create_shared(node, hybrid_set);
+            root = VDirectInPredicate::create_shared(node, hybrid_set);
         }
         {
             SlotDescriptor* slot = nullptr;
@@ -1136,7 +1136,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
     return Status::OK();
 }
 
-void RowGroupReader::_convert_dict_cols_to_string_cols(Block* block) {
+Status RowGroupReader::_convert_dict_cols_to_string_cols(Block* block) {
     for (auto& dict_filter_cols : _dict_filter_cols) {
         if (!_col_name_to_block_idx->contains(dict_filter_cols.first)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -1151,9 +1151,9 @@ void RowGroupReader::_convert_dict_cols_to_string_cols(Block* block) {
             const auto* dict_column = assert_cast<const ColumnInt32*>(nested_column.get());
             DCHECK(dict_column);
 
-            MutableColumnPtr string_column =
+            auto string_column = DORIS_TRY(
                     _column_readers[dict_filter_cols.first]->convert_dict_column_to_string_column(
-                            dict_column);
+                            dict_column));
 
             column_with_type_and_name.type =
                     std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
@@ -1163,15 +1163,16 @@ void RowGroupReader::_convert_dict_cols_to_string_cols(Block* block) {
                                            nullable_column->get_null_map_column_ptr()));
         } else {
             const auto* dict_column = assert_cast<const ColumnInt32*>(column.get());
-            MutableColumnPtr string_column =
+            auto string_column = DORIS_TRY(
                     _column_readers[dict_filter_cols.first]->convert_dict_column_to_string_column(
-                            dict_column);
+                            dict_column));
 
             column_with_type_and_name.type = std::make_shared<DataTypeString>();
             block->replace_by_position((*_col_name_to_block_idx)[dict_filter_cols.first],
                                        std::move(string_column));
         }
     }
+    return Status::OK();
 }
 
 ParquetColumnReader::ColumnStatistics RowGroupReader::merged_column_statistics() {
@@ -1184,4 +1185,4 @@ ParquetColumnReader::ColumnStatistics RowGroupReader::merged_column_statistics()
 }
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

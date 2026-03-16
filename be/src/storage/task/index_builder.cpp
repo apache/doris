@@ -21,6 +21,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "storage/field.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
@@ -46,7 +47,7 @@ IndexBuilder::IndexBuilder(StorageEngine& engine, TabletSharedPtr tablet,
           _columns(columns),
           _alter_inverted_indexes(alter_inverted_indexes),
           _is_drop_op(is_drop_op) {
-    _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    _olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
 }
 
 IndexBuilder::~IndexBuilder() {
@@ -483,7 +484,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 DCHECK(output_rowset_schema->has_inverted_index_with_index_id(index_id));
                 _olap_data_convertor->add_column_data_convertor(column);
                 return_columns.emplace_back(column_idx);
-                std::unique_ptr<Field> field(FieldFactory::create(column));
+                std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
 
                 if (inverted_index.index_type == TIndexType::INVERTED) {
                     // inverted index
@@ -576,8 +577,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 return Status::Error<ErrorCode::ROWSET_READER_INIT>(res.to_string());
             }
 
-            auto block = vectorized::Block::create_unique(
-                    output_rowset_schema->create_block(return_columns));
+            auto block = Block::create_unique(output_rowset_schema->create_block(return_columns));
             while (true) {
                 auto status = iter->next_batch(block.get());
                 DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset_iterator_next_batch_error", {
@@ -661,7 +661,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
 }
 
 Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, int64_t segment_idx,
-                                                vectorized::Block* block) {
+                                                Block* block) {
     VLOG_DEBUG << "begin to write inverted/ann index";
     // converter block data
     _olap_data_convertor->set_source_content(block, 0, block->rows());
@@ -686,7 +686,7 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
         }
         auto column = tablet_schema->column(column_idx);
         auto writer_sign = std::make_pair(segment_idx, index_id);
-        std::unique_ptr<Field> field(FieldFactory::create(column));
+        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
         auto converted_result = _olap_data_convertor->convert_column_data(i);
         DBUG_EXECUTE_IF("IndexBuilder::_write_inverted_index_data_convert_column_data_error", {
             converted_result.first = Status::Error<ErrorCode::INTERNAL_ERROR>(
@@ -712,8 +712,8 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
 
 Status IndexBuilder::_add_nullable(const std::string& column_name,
                                    const std::pair<int64_t, int64_t>& index_writer_sign,
-                                   Field* field, const uint8_t* null_map, const uint8_t** ptr,
-                                   size_t num_rows) {
+                                   StorageField* field, const uint8_t* null_map,
+                                   const uint8_t** ptr, size_t num_rows) {
     // TODO: need to process null data for inverted index
     if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(field->get_sub_field_count() == 1);
@@ -776,8 +776,8 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
 }
 
 Status IndexBuilder::_add_data(const std::string& column_name,
-                               const std::pair<int64_t, int64_t>& index_writer_sign, Field* field,
-                               const uint8_t** ptr, size_t num_rows) {
+                               const std::pair<int64_t, int64_t>& index_writer_sign,
+                               StorageField* field, const uint8_t** ptr, size_t num_rows) {
     try {
         if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
             DCHECK(field->get_sub_field_count() == 1);

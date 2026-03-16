@@ -18,15 +18,13 @@
 #include "storage/segment/empty_segment_iterator.h"
 
 namespace doris {
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 namespace segment_v2 {
 
 EmptySegmentIterator::EmptySegmentIterator(const doris::Schema& schema) : _schema(schema) {}
 
-Status EmptySegmentIterator::next_batch(vectorized::Block* block) {
+Status EmptySegmentIterator::next_batch(Block* block) {
     return Status::EndOfFile("no more data in segment");
 }
 

@@ -18,8 +18,8 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
-import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.foundation.property.ConnectorProperty;
 
 import com.google.common.collect.ImmutableList;
 import lombok.Getter;

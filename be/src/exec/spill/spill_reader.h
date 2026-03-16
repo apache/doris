@@ -30,7 +30,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/workload_management/resource_context.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class Block;
 class SpillReader {
@@ -95,5 +95,5 @@ private:
 
 using SpillReaderUPtr = std::unique_ptr<SpillReader>;
 
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

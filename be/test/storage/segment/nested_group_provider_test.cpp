@@ -58,7 +58,7 @@ TEST(NestedGroupProviderTest, DefaultWriteProviderIsNoOp) {
         GTEST_SKIP() << "EE build: write provider has real implementation";
     }
 
-    auto column_variant = vectorized::ColumnVariant::create(0);
+    auto column_variant = ColumnVariant::create(0);
     ColumnWriterOptions opts;
     VariantStatistics statistics;
 
@@ -85,11 +85,11 @@ TEST(DefaultNestedGroupReadProviderTest, TryBuildReadPlanReturnsFalse) {
 
     NestedGroupReaders readers;
     TabletColumn col;
-    vectorized::PathInData path;
+    PathInData path;
 
     bool is_whole = true;
-    vectorized::DataTypePtr out_type;
-    vectorized::PathInData out_path;
+    DataTypePtr out_type;
+    PathInData out_path;
     std::string child_path, pruned_path;
     std::vector<const NestedGroupReader*> chain;
     std::optional<NestedGroupPathFilter> path_filter;
@@ -109,7 +109,7 @@ TEST(DefaultNestedGroupReadProviderTest, CreateNestedGroupIteratorCEBehavior) {
 
     std::vector<const NestedGroupReader*> chain;
     ColumnIteratorUPtr iter;
-    vectorized::DataTypePtr out_type;
+    DataTypePtr out_type;
     std::optional<NestedGroupPathFilter> filter;
 
     auto status =

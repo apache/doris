@@ -79,8 +79,6 @@ class Thread;
 class ThreadPoolToken;
 class TupleDescriptor;
 
-namespace vectorized {
-
 // The counter of add_batch rpc of a single node
 struct AddBatchCounter {
     // total execution time of a add_batch rpc
@@ -223,7 +221,7 @@ struct WriterStats {
 };
 
 // pair<row_id,tablet_id>
-using Payload = std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>;
+using Payload = std::pair<std::unique_ptr<IColumn::Selector>, std::vector<int64_t>>;
 
 // every NodeChannel keeps a data transmission channel with one BE. for multiple times open, it has a dozen of requests and corresponding closures.
 class VNodeChannel {
@@ -259,7 +257,7 @@ public:
     // this function will called multi times. NON_REENTRANT
     Status open_wait();
 
-    Status add_block(vectorized::Block* block, const Payload* payload);
+    Status add_block(Block* block, const Payload* payload);
 
     // @return: 1 if running, 0 if finished.
     // @caller: VOlapTabletSink::_send_batch_process. it's a continual asynchronous process.
@@ -431,11 +429,11 @@ protected:
     std::vector<std::pair<int64_t, int64_t>> _tablets_filtered_rows;
 
     // build a _cur_mutable_block and push into _pending_blocks. when not building, this block is empty.
-    std::unique_ptr<vectorized::MutableBlock> _cur_mutable_block;
+    std::unique_ptr<MutableBlock> _cur_mutable_block;
     std::shared_ptr<PTabletWriterAddBlockRequest> _cur_add_block_request;
 
-    using AddBlockReq = std::pair<std::unique_ptr<vectorized::MutableBlock>,
-                                  std::shared_ptr<PTabletWriterAddBlockRequest>>;
+    using AddBlockReq =
+            std::pair<std::unique_ptr<MutableBlock>, std::shared_ptr<PTabletWriterAddBlockRequest>>;
     std::queue<AddBlockReq> _pending_blocks;
     // send block to slave BE rely on this. dont reconstruct it.
     std::shared_ptr<WriteBlockCallback<PTabletWriterAddBlockResult>> _send_block_callback = nullptr;
@@ -451,7 +449,7 @@ protected:
 // an IndexChannel is related to specific table and its rollup and mv
 class IndexChannel {
 public:
-    IndexChannel(VTabletWriter* parent, int64_t index_id, vectorized::VExprContextSPtr where_clause)
+    IndexChannel(VTabletWriter* parent, int64_t index_id, VExprContextSPtr where_clause)
             : _parent(parent), _index_id(index_id), _where_clause(std::move(where_clause)) {
         _index_channel_tracker =
                 std::make_unique<MemTracker>("IndexChannel:indexID=" + std::to_string(_index_id));
@@ -565,7 +563,7 @@ public:
 
     void set_start_time(const int64_t& start_time) { _start_time = start_time; }
 
-    vectorized::VExprContextSPtr get_where_clause() { return _where_clause; }
+    VExprContextSPtr get_where_clause() { return _where_clause; }
 
 private:
     friend class VNodeChannel;
@@ -583,7 +581,7 @@ private:
 
     VTabletWriter* _parent = nullptr;
     int64_t _index_id;
-    vectorized::VExprContextSPtr _where_clause;
+    VExprContextSPtr _where_clause;
 
     // from backend channel to tablet_id
     // ATTN: must be placed before `_node_channels` and `_channels_by_tablet`.
@@ -617,17 +615,15 @@ private:
 
     int64_t _start_time = 0;
 };
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 //
 // write result to file
 class VTabletWriter final : public AsyncResultWriter {
 public:
     VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                  std::shared_ptr<pipeline::Dependency> dep,
-                  std::shared_ptr<pipeline::Dependency> fin_dep);
+                  std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
 
     Status write(RuntimeState* state, Block& block) override;
 
@@ -775,5 +771,9 @@ private:
 
     // tablet_id -> <total replicas num, load required replicas num>
     std::unordered_map<int64_t, std::pair<int, int>> _tablet_replica_info;
+
+    // tablet_id -> set of backend_ids that have version gaps
+    // these backends' success should not be counted for majority write
+    std::unordered_map<int64_t, std::unordered_set<int64_t>> _tablet_version_gap_backends;
 };
-} // namespace doris::vectorized
+} // namespace doris

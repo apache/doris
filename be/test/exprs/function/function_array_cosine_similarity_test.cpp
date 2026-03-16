@@ -24,7 +24,7 @@
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(function_cosine_similarity_test, cosine_similarity) {
     std::string func_name = "cosine_similarity";
@@ -156,4 +156,4 @@ TEST(function_cosine_similarity_test, cosine_similarity) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

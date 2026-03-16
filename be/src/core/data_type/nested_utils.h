@@ -25,7 +25,7 @@
 
 #include "core/block/block.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 namespace Nested {
 std::string concatenate_name(const std::string& nested_table_name,
@@ -43,4 +43,4 @@ Block flatten(const Block& block);
 void validate_array_sizes(const Block& block);
 } // namespace Nested
 
-} // namespace doris::vectorized
+} // namespace doris

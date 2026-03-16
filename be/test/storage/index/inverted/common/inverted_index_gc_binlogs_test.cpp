@@ -24,7 +24,7 @@
 
 namespace doris {
 
-using namespace doris::vectorized;
+using namespace doris;
 
 constexpr static uint32_t MAX_PATH_LEN = 1024;
 constexpr static std::string_view dest_dir = "./ut_dir/inverted_index_test";
@@ -150,8 +150,8 @@ TEST_F(IndexGcBinglogsTest, gc_binlogs_test) {
         Block block = _tablet_schema->create_block();
         auto columns = block.mutate_columns();
 
-        vectorized::Field key = vectorized::Field::create_field<TYPE_INT>(10);
-        vectorized::Field v1 = vectorized::Field::create_field<TYPE_STRING>("v1");
+        Field key = Field::create_field<TYPE_INT>(10);
+        Field v1 = Field::create_field<TYPE_STRING>("v1");
         columns[0]->insert(key);
         columns[1]->insert(v1);
 

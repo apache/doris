@@ -24,7 +24,7 @@
 #include "core/data_type/data_type_number_base.h"
 #include "core/data_type/define_primitive_type.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <PrimitiveType T>
 class DataTypeNumber final : public DataTypeNumberBase<T> {
@@ -77,4 +77,4 @@ inline constexpr bool IsDataTypeFloat<DataTypeFloat32> = true;
 template <>
 inline constexpr bool IsDataTypeFloat<DataTypeFloat64> = true;
 
-} // namespace doris::vectorized
+} // namespace doris

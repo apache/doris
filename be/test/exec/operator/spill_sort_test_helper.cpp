@@ -34,7 +34,7 @@
 #include "testutil/creators.h"
 #include "testutil/mock/mock_operators.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 TPlanNode SpillSortTestHelper::create_test_plan_node() {
     TPlanNode tnode;
@@ -166,4 +166,4 @@ SpillSortTestHelper::create_operators() {
     return {std::move(source_operator), std::move(sink_operator)};
 }
 
-} // namespace doris::pipeline
+} // namespace doris

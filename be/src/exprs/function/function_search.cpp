@@ -63,7 +63,7 @@
 #include "util/string_util.h"
 #include "util/thrift_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // Build canonical DSL signature for cache key.
 // Serializes the entire TSearchParam via Thrift binary protocol so that
@@ -353,7 +353,7 @@ Status FunctionSearch::execute_impl(FunctionContext* /*context*/, Block& /*block
 // Enhanced implementation: Handle new parameter structure (DSL + SlotReferences)
 Status FunctionSearch::evaluate_inverted_index(
         const ColumnsWithTypeAndName& arguments,
-        const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+        const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
         std::vector<IndexIterator*> iterators, uint32_t num_rows,
         const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/,
         InvertedIndexResultBitmap& bitmap_result) const {
@@ -362,8 +362,7 @@ Status FunctionSearch::evaluate_inverted_index(
 
 Status FunctionSearch::evaluate_inverted_index_with_search_param(
         const TSearchParam& search_param,
-        const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
-                data_type_with_names,
+        const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
         std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
         InvertedIndexResultBitmap& bitmap_result, bool enable_cache) const {
     static const std::unordered_map<std::string, int> empty_field_to_column_id;
@@ -374,8 +373,7 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
 
 Status FunctionSearch::evaluate_inverted_index_with_search_param(
         const TSearchParam& search_param,
-        const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
-                data_type_with_names,
+        const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
         std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
         InvertedIndexResultBitmap& bitmap_result, bool enable_cache,
         const IndexExecContext* index_exec_ctx,
@@ -446,8 +444,7 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     //
     // FE field bindings are expressed using logical column paths (e.g. "data.items.msg"), so for
     // NESTED() we normalize stored_field_name suffix to be consistent with the nested group root.
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>
-            patched_data_type_with_names;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> patched_data_type_with_names;
     const auto* effective_data_type_with_names = &data_type_with_names;
     if (is_nested_query && search_param.root.__isset.nested_path) {
         const std::string& nested_path = search_param.root.nested_path;
@@ -908,7 +905,7 @@ Status FunctionSearch::build_query_recursive(const TSearchClause& clause,
                     occur = map_thrift_occur(child_clause.occur);
                 }
 
-                builder->add(child_query, occur);
+                builder->add(child_query, occur, std::move(child_binding_key));
             }
         }
 
@@ -1275,4 +1272,4 @@ void register_function_search(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSearch>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

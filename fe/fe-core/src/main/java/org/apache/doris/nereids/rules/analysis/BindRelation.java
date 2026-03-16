@@ -371,7 +371,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
     public static LogicalPlan checkAndAddDeleteSignFilter(LogicalOlapScan scan, ConnectContext connectContext,
             OlapTable olapTable) {
         if (!Util.showHiddenColumns() && scan.getTable().hasDeleteSign()
-                && !connectContext.getSessionVariable().skipDeleteSign()) {
+                && !connectContext.getSessionVariable().skipDeleteSign()
+                && !(olapTable.isMorTable()
+                    && connectContext.getSessionVariable().isReadMorAsDupEnabled(
+                        olapTable.getQualifiedDbName(), olapTable.getName()))) {
             // table qualifier is catalog.db.table, we make db.table.column
             Slot deleteSlot = null;
             for (Slot slot : scan.getOutput()) {

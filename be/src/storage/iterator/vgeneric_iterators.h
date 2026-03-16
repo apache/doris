@@ -44,7 +44,6 @@ class Segment;
 class ColumnIterator;
 } // namespace segment_v2
 
-namespace vectorized {
 #include "common/compile_check_begin.h"
 
 class VStatisticsIterator : public RowwiseIterator {
@@ -64,6 +63,7 @@ public:
 private:
     std::shared_ptr<Segment> _segment;
     const Schema& _schema;
+    std::shared_ptr<TabletSchema> _tablet_schema;
     size_t _target_rows = 0;
     size_t _output_rows = 0;
     bool _init = false;
@@ -375,6 +375,5 @@ RowwiseIteratorUPtr new_auto_increment_iterator(const Schema& schema, size_t num
 RowwiseIterator* new_vstatistics_iterator(std::shared_ptr<Segment> segment, const Schema& schema);
 
 #include "common/compile_check_end.h"
-} // namespace vectorized
 
 } // namespace doris

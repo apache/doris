@@ -33,7 +33,7 @@
 #include "exec/common/util.hpp"
 #include "exprs/function/function.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // support string->complex/primary
 // support primary/complex->primary/complex
@@ -391,7 +391,7 @@ public:
     }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (vectorized::HasGetVariadicArgumentTypesImpl<Impl>) {
+        if constexpr (HasGetVariadicArgumentTypesImpl<Impl>) {
             return Impl::get_variadic_argument_types_impl();
         } else {
             return {};
@@ -566,4 +566,4 @@ public:
                                     get_name());
     }
 };
-} // namespace doris::vectorized
+} // namespace doris

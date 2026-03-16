@@ -67,7 +67,6 @@ namespace io {
 class FileSystem;
 struct IOContext;
 } // namespace io
-namespace vectorized {
 class Block;
 template <PrimitiveType T>
 class ColumnVector;
@@ -75,14 +74,13 @@ template <PrimitiveType T>
 class DataTypeDecimal;
 template <DecimalNativeTypeConcept T>
 struct Decimal;
-} // namespace vectorized
 } // namespace doris
 namespace orc {
 template <class T>
 class DataBuffer;
 } // namespace orc
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class ORCFileInputStream;
 
@@ -893,4 +891,4 @@ private:
     RuntimeProfile* _profile = nullptr;
 };
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

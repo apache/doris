@@ -72,7 +72,7 @@ class FunctionContext;
 #pragma GCC diagnostic ignored "-Wcast-user-defined"
 #endif
 
-namespace doris::vectorized {
+namespace doris {
 struct DayCeil;
 struct DayFloor;
 struct HourCeil;
@@ -524,7 +524,8 @@ private:
         constexpr bool need_tz_conversion =
                 std::is_same_v<DateValueType, TimestampTzValue> &&
                 (Flag::Unit == YEAR || Flag::Unit == QUARTER || Flag::Unit == MONTH ||
-                 Flag::Unit == WEEK || Flag::Unit == DAY);
+                 Flag::Unit == WEEK || Flag::Unit == DAY || Flag::Unit == HOUR ||
+                 Flag::Unit == MINUTE);
 
         DateValueType local_arg;
         DateValueType local_origin;
@@ -764,7 +765,8 @@ private:
         // For TimestampTzValue on date-based units, disable optimization to ensure timezone conversion
         if constexpr (std::is_same_v<DateValueType, TimestampTzValue>) {
             if constexpr (Flag::Unit == YEAR || Flag::Unit == QUARTER || Flag::Unit == MONTH ||
-                          Flag::Unit == WEEK || Flag::Unit == DAY) {
+                          Flag::Unit == WEEK || Flag::Unit == DAY || Flag::Unit == HOUR ||
+                          Flag::Unit == MINUTE) {
                 return false;
             }
         }
@@ -991,7 +993,7 @@ void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory) {
 }
 #undef FLOOR
 #undef CEIL
-} // namespace doris::vectorized
+} // namespace doris
 
 #if defined(__GNUC__) && (__GNUC__ >= 15)
 #pragma GCC diagnostic pop

@@ -19,10 +19,10 @@
 
 namespace doris::segment_v2 {
 
-LexemePath::LexemePath(vectorized::Arena& arena)
+LexemePath::LexemePath(Arena& arena)
         : QuickSortSet(arena), path_begin_(-1), path_end_(-1), payload_length_(0) {}
 
-LexemePath::LexemePath(LexemePath& other, vectorized::Arena& arena)
+LexemePath::LexemePath(LexemePath& other, Arena& arena)
         : QuickSortSet(arena),
           path_begin_(other.path_begin_),
           path_end_(other.path_end_),
@@ -34,7 +34,7 @@ LexemePath::LexemePath(LexemePath& other, vectorized::Arena& arena)
     }
 }
 
-LexemePath::LexemePath(LexemePath&& other, vectorized::Arena& arena) noexcept
+LexemePath::LexemePath(LexemePath&& other, Arena& arena) noexcept
         : QuickSortSet(arena),
           path_begin_(other.path_begin_),
           path_end_(other.path_end_),

@@ -35,7 +35,7 @@
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 std::string to_string(JsonbWriter& writer) {
     const auto* ptr = writer.getOutput()->getBuffer();
@@ -241,4 +241,4 @@ TEST(DataTypeWritToJsonb, test_struct) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

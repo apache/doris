@@ -17,11 +17,12 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser.QsClauseType;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser.QsFieldBinding;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser.QsNode;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser.QsOccur;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser.QsPlan;
+import org.apache.doris.analysis.SearchDslParser;
+import org.apache.doris.analysis.SearchDslParser.QsClauseType;
+import org.apache.doris.analysis.SearchDslParser.QsFieldBinding;
+import org.apache.doris.analysis.SearchDslParser.QsNode;
+import org.apache.doris.analysis.SearchDslParser.QsOccur;
+import org.apache.doris.analysis.SearchDslParser.QsPlan;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

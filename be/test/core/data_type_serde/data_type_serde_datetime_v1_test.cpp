@@ -35,7 +35,7 @@
 #include "util/slice.h"
 #include "util/string_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 static std::string test_data_dir;
 
 static auto serde_date_v1 = std::make_shared<DataTypeDateSerDe<>>();
@@ -184,4 +184,4 @@ TEST_F(DataTypeDateTimeV1SerDeTest, serdes) {
     test_func(*serde_date_v1, column_date_v1);
     test_func(*serde_datetime_v1, column_datetime_v1_0);
 }
-} // namespace doris::vectorized
+} // namespace doris

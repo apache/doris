@@ -36,7 +36,6 @@ namespace io {
 class FileSystem;
 } // namespace io
 
-namespace vectorized {
 Status SpillReader::open() {
     if (file_reader_) {
         return Status::OK();
@@ -166,5 +165,4 @@ Status SpillReader::close() {
     return Status::OK();
 }
 
-} // namespace vectorized
 } // namespace doris

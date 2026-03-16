@@ -19,9 +19,9 @@
 
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 void register_function_grouping(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionGrouping>();
     factory.register_function<FunctionGroupingId>();
 }
-} // namespace doris::vectorized
+} // namespace doris

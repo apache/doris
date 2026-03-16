@@ -21,9 +21,7 @@
 
 namespace doris {
 class RuntimeState;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
 namespace {
@@ -40,7 +38,7 @@ Status SchemaDummyScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaDummyScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaDummyScanner::get_next_block_internal(Block* block, bool* eos) {
     *eos = true;
     return Status::OK();
 }

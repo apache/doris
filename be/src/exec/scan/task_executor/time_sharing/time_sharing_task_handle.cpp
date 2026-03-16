@@ -18,7 +18,6 @@
 #include "exec/scan/task_executor/time_sharing/time_sharing_task_handle.h"
 
 namespace doris {
-namespace vectorized {
 #include "common/compile_check_begin.h"
 
 TimeSharingTaskHandle::TimeSharingTaskHandle(
@@ -192,5 +191,4 @@ std::shared_ptr<PrioritizedSplitRunner> TimeSharingTaskHandle::get_split(
     }
 }
 
-} // namespace vectorized
 } // namespace doris

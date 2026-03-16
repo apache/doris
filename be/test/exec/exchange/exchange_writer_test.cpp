@@ -30,14 +30,14 @@
 
 using doris::MockRuntimeState;
 using doris::Status;
-using doris::vectorized::Block;
-using doris::vectorized::ColumnHelper;
-using doris::vectorized::DataTypeInt32;
-using doris::vectorized::Channel;
-using doris::vectorized::MockChannel;
-using doris::pipeline::ExchangeSinkLocalState;
+using doris::Block;
+using doris::ColumnHelper;
+using doris::DataTypeInt32;
+using doris::Channel;
+using doris::MockChannel;
+using doris::ExchangeSinkLocalState;
 
-namespace doris::pipeline {
+namespace doris {
 
 // Helper: create channels that will never actually send rows (is_receiver_eof == true),
 // so writer logic can be tested without exercising Channel::add_rows / BlockSerializer.
@@ -70,7 +70,7 @@ TEST(TrivialExchangeWriterTest, BasicDistribution) {
 
     // rows: [1,2,3,4,5], channel_ids: [0,1,0,1,1]
     Block block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5});
-    std::vector<vectorized::PartitionerBase::HashValType> channel_ids = {0, 1, 0, 1, 1};
+    std::vector<PartitionerBase::HashValType> channel_ids = {0, 1, 0, 1, 1};
     const size_t rows = channel_ids.size();
 
     Status st = writer._channel_add_rows(&state, channels, channel_count, channel_ids, rows, &block,
@@ -101,7 +101,7 @@ TEST(TrivialExchangeWriterTest, AllRowsToSingleChannel) {
     auto channels = make_disabled_channels(&local_state, channel_count);
 
     Block block = ColumnHelper::create_block<DataTypeInt32>({10, 20, 30, 40});
-    std::vector<vectorized::PartitionerBase::HashValType> channel_ids = {2, 2, 2, 2};
+    std::vector<PartitionerBase::HashValType> channel_ids = {2, 2, 2, 2};
     const size_t rows = channel_ids.size();
 
     Status st = writer._channel_add_rows(&state, channels, channel_count, channel_ids, rows, &block,
@@ -131,7 +131,7 @@ TEST(TrivialExchangeWriterTest, EmptyInput) {
     auto channels = make_disabled_channels(&local_state, channel_count);
 
     Block block = ColumnHelper::create_block<DataTypeInt32>({});
-    std::vector<vectorized::PartitionerBase::HashValType> channel_ids {};
+    std::vector<PartitionerBase::HashValType> channel_ids {};
     const size_t rows = 0;
 
     Status st = writer._channel_add_rows(&state, channels, channel_count, channel_ids, rows, &block,
@@ -155,7 +155,7 @@ TEST(OlapExchangeWriterTest, NeedCheckSkipsInvalidChannelIds) {
 
     // channel_ids: [0, x, 2, x, 2]
     Block block = ColumnHelper::create_block<DataTypeInt32>({10, 20, 30, 40, 50});
-    std::vector<vectorized::PartitionerBase::HashValType> channel_ids = {0, 10, 2, 10, 2};
+    std::vector<PartitionerBase::HashValType> channel_ids = {0, 10, 2, 10, 2};
     const size_t rows = channel_ids.size();
 
     Status st = writer._channel_add_rows(&state, channels, channel_count, channel_ids, rows, &block,
@@ -187,7 +187,7 @@ TEST(OlapExchangeWriterTest, NoCheckUsesAllRows) {
     auto channels = make_disabled_channels(&local_state, channel_count);
 
     Block block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
-    std::vector<vectorized::PartitionerBase::HashValType> channel_ids = {0, 1, 0};
+    std::vector<PartitionerBase::HashValType> channel_ids = {0, 1, 0};
     const size_t rows = channel_ids.size();
 
     Status st = writer._channel_add_rows(&state, channels, channel_count, channel_ids, rows, &block,
@@ -216,7 +216,7 @@ TEST(OlapExchangeWriterTest, EmptyInput) {
     auto channels = make_disabled_channels(&local_state, channel_count);
 
     Block block = ColumnHelper::create_block<DataTypeInt32>({});
-    std::vector<vectorized::PartitionerBase::HashValType> channel_ids {};
+    std::vector<PartitionerBase::HashValType> channel_ids {};
     const size_t rows = 0;
 
     Status st = writer._channel_add_rows(&state, channels, channel_count, channel_ids, rows, &block,
@@ -230,4 +230,4 @@ TEST(OlapExchangeWriterTest, EmptyInput) {
     EXPECT_EQ(writer._origin_row_idx.size(), 0U);
 }
 
-} // namespace doris::pipeline
+} // namespace doris

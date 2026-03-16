@@ -25,8 +25,7 @@
 #include "core/data_type/data_type_number.h"
 #include "testutil/column_helper.h"
 
-namespace doris::pipeline {
-using namespace vectorized;
+namespace doris {
 class QueryCacheTest : public testing::Test {
 public:
     void SetUp() override {}
@@ -40,9 +39,24 @@ TEST_F(QueryCacheTest, create_global_cache) {
 TEST_F(QueryCacheTest, build_cache_key) {
     {
         std::vector<TScanRangeParams> scan_ranges;
-        scan_ranges.push_back({});
-        scan_ranges.push_back({});
+        TScanRangeParams scan_range1;
+        TPaloScanRange palp_scan_range1;
+        palp_scan_range1.__set_tablet_id(1);
+        palp_scan_range1.__set_version("100");
+        scan_range1.scan_range.__set_palo_scan_range(palp_scan_range1);
+        scan_ranges.emplace_back(scan_range1);
+
+        TScanRangeParams scan_range2;
+        TPaloScanRange palp_scan_range2;
+        palp_scan_range2.__set_tablet_id(2);
+        palp_scan_range2.__set_version("100");
+        scan_range2.scan_range.__set_palo_scan_range(palp_scan_range2);
+        scan_ranges.emplace_back(scan_range2);
+
         TQueryCacheParam cache_param;
+        cache_param.__set_digest("test_digest");
+        cache_param.tablet_to_range.insert({1, "range_abc"});
+        cache_param.tablet_to_range.insert({2, "range_xyz"});
         std::string cache_key;
         int64_t version = 0;
         auto st = QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version);
@@ -59,6 +73,7 @@ TEST_F(QueryCacheTest, build_cache_key) {
         scan_range.scan_range.__set_palo_scan_range(palp_scan_range);
         scan_ranges.push_back(scan_range);
         TQueryCacheParam cache_param;
+        cache_param.__set_digest("test_digest");
         std::string cache_key;
         int64_t version = 0;
         auto st = QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version);
@@ -84,6 +99,156 @@ TEST_F(QueryCacheTest, build_cache_key) {
         std::cout << version << std::endl;
         std::cout << cache_key << std::endl;
         EXPECT_TRUE(st.ok());
+    }
+}
+
+TEST_F(QueryCacheTest, build_cache_key_multiple_tablets) {
+    {
+        std::vector<TScanRangeParams> scan_ranges;
+        TScanRangeParams scan_range1;
+        TPaloScanRange palp_scan_range1;
+        palp_scan_range1.__set_tablet_id(3);
+        palp_scan_range1.__set_version("100");
+        scan_range1.scan_range.__set_palo_scan_range(palp_scan_range1);
+        scan_ranges.push_back(scan_range1);
+
+        TScanRangeParams scan_range2;
+        TPaloScanRange palp_scan_range2;
+        palp_scan_range2.__set_tablet_id(1);
+        palp_scan_range2.__set_version("100");
+        scan_range2.scan_range.__set_palo_scan_range(palp_scan_range2);
+        scan_ranges.push_back(scan_range2);
+
+        TScanRangeParams scan_range3;
+        TPaloScanRange palp_scan_range3;
+        palp_scan_range3.__set_tablet_id(2);
+        palp_scan_range3.__set_version("100");
+        scan_range3.scan_range.__set_palo_scan_range(palp_scan_range3);
+        scan_ranges.push_back(scan_range3);
+
+        TQueryCacheParam cache_param;
+        cache_param.__set_digest("test_digest");
+        cache_param.tablet_to_range.insert({1, "range_abc"});
+        cache_param.tablet_to_range.insert({2, "range_abc"});
+        cache_param.tablet_to_range.insert({3, "range_abc"});
+
+        std::string cache_key;
+        int64_t version = 0;
+        auto st = QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version);
+
+        EXPECT_TRUE(st.ok());
+        EXPECT_EQ(version, 100);
+
+        int64_t expected_tablet1 = 1;
+        int64_t expected_tablet2 = 2;
+        int64_t expected_tablet3 = 3;
+        std::string expected_key =
+                "test_digest" +
+                std::string(reinterpret_cast<char*>(&expected_tablet1), sizeof(expected_tablet1)) +
+                std::string(reinterpret_cast<char*>(&expected_tablet2), sizeof(expected_tablet2)) +
+                std::string(reinterpret_cast<char*>(&expected_tablet3), sizeof(expected_tablet3)) +
+                "range_abc";
+
+        EXPECT_EQ(cache_key, expected_key);
+    }
+
+    {
+        std::vector<TScanRangeParams> scan_ranges;
+        TScanRangeParams scan_range1;
+        TPaloScanRange palp_scan_range1;
+        palp_scan_range1.__set_tablet_id(1);
+        palp_scan_range1.__set_version("100");
+        scan_range1.scan_range.__set_palo_scan_range(palp_scan_range1);
+        scan_ranges.push_back(scan_range1);
+
+        TScanRangeParams scan_range2;
+        TPaloScanRange palp_scan_range2;
+        palp_scan_range2.__set_tablet_id(2);
+        palp_scan_range2.__set_version("200");
+        scan_range2.scan_range.__set_palo_scan_range(palp_scan_range2);
+        scan_ranges.push_back(scan_range2);
+
+        TQueryCacheParam cache_param;
+        cache_param.__set_digest("test_digest");
+        cache_param.tablet_to_range.insert({1, "range_abc"});
+        cache_param.tablet_to_range.insert({2, "range_abc"});
+
+        std::string cache_key;
+        int64_t version = 0;
+        auto st = QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version);
+
+        EXPECT_FALSE(st.ok());
+        EXPECT_TRUE(st.msg().find("same version") != std::string::npos);
+    }
+
+    {
+        std::vector<TScanRangeParams> scan_ranges;
+        TScanRangeParams scan_range1;
+        TPaloScanRange palp_scan_range1;
+        palp_scan_range1.__set_tablet_id(1);
+        palp_scan_range1.__set_version("100");
+        scan_range1.scan_range.__set_palo_scan_range(palp_scan_range1);
+        scan_ranges.push_back(scan_range1);
+
+        TScanRangeParams scan_range2;
+        TPaloScanRange palp_scan_range2;
+        palp_scan_range2.__set_tablet_id(2);
+        palp_scan_range2.__set_version("100");
+        scan_range2.scan_range.__set_palo_scan_range(palp_scan_range2);
+        scan_ranges.push_back(scan_range2);
+
+        TQueryCacheParam cache_param;
+        cache_param.__set_digest("test_digest");
+        cache_param.tablet_to_range.insert({1, "range_abc"});
+        cache_param.tablet_to_range.insert({2, "range_xyz"});
+
+        std::string cache_key;
+        int64_t version = 0;
+        auto st = QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version);
+
+        EXPECT_FALSE(st.ok());
+        EXPECT_TRUE(st.msg().find("same tablet_to_range") != std::string::npos);
+    }
+
+    {
+        std::vector<TScanRangeParams> scan_ranges;
+        TScanRangeParams scan_range1;
+        TPaloScanRange palp_scan_range1;
+        palp_scan_range1.__set_tablet_id(1);
+        palp_scan_range1.__set_version("100");
+        scan_range1.scan_range.__set_palo_scan_range(palp_scan_range1);
+        scan_ranges.push_back(scan_range1);
+
+        TScanRangeParams scan_range2;
+        TPaloScanRange palp_scan_range2;
+        palp_scan_range2.__set_tablet_id(2);
+        palp_scan_range2.__set_version("100");
+        scan_range2.scan_range.__set_palo_scan_range(palp_scan_range2);
+        scan_ranges.push_back(scan_range2);
+
+        TQueryCacheParam cache_param;
+        cache_param.__set_digest("test_digest");
+        cache_param.tablet_to_range.insert({1, "range_abc"});
+        cache_param.tablet_to_range.insert({3, "range_abc"});
+
+        std::string cache_key;
+        int64_t version = 0;
+        auto st = QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version);
+
+        EXPECT_FALSE(st.ok());
+        EXPECT_TRUE(st.msg().find("Not find tablet") != std::string::npos);
+    }
+
+    {
+        std::vector<TScanRangeParams> scan_ranges;
+        TQueryCacheParam cache_param;
+        cache_param.__set_digest("test_digest");
+        std::string cache_key;
+        int64_t version = 0;
+        auto st = QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version);
+
+        EXPECT_FALSE(st.ok());
+        EXPECT_TRUE(st.msg().find("empty") != std::string::npos);
     }
 }
 
@@ -122,4 +287,4 @@ TEST_F(QueryCacheTest, insert_and_lookup) {
 
 // ./run-be-ut.sh --run --filter=DataQueueTest.*
 
-} // namespace doris::pipeline
+} // namespace doris

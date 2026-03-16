@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.qe.ConnectContext;
@@ -138,7 +139,7 @@ public class MaterializationNode extends PlanNode {
         msg.materialization_node.setTupleId(tupleIds.get(0).asInt());
         msg.materialization_node.setIntermediateTupleId(materializeTupleDescriptor.getId().asInt());
         msg.materialization_node.setNodesInfo(nodesInfo);
-        msg.materialization_node.setFetchExprLists(Expr.treesToThrift(rowIds));
+        msg.materialization_node.setFetchExprLists(ExprToThriftVisitor.treesToThrift(rowIds));
 
         List<List<TColumn>> thriftCols = new ArrayList<>();
         for (List<Column> cols : lazyColumns) {

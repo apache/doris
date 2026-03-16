@@ -46,8 +46,6 @@ struct StringRef;
 using IPv4 = uint32_t;
 using IPv6 = uint128_t;
 
-namespace vectorized {
-
 /// Data types for representing elementary values from a database in RAM.
 
 struct Null {};
@@ -577,37 +575,34 @@ struct NativeType<Decimal256> {
 };
 
 // NOLINTEND(readability-function-size)
-} // namespace vectorized
 #include "common/compile_check_end.h"
 } // namespace doris
 
 /// Specialization of `std::hash` for the Decimal<T> types.
 template <typename T>
-struct std::hash<doris::vectorized::Decimal<T>> {
-    size_t operator()(const doris::vectorized::Decimal<T>& x) const { return hash<T>()(x.value); }
+struct std::hash<doris::Decimal<T>> {
+    size_t operator()(const doris::Decimal<T>& x) const { return hash<T>()(x.value); }
 };
 
 template <>
-struct std::hash<doris::vectorized::Decimal128V2> {
-    size_t operator()(const doris::vectorized::Decimal128V2& x) const {
-        return std::hash<doris::vectorized::Int64>()(x.value >> 64) ^
-               std::hash<doris::vectorized::Int64>()(
-                       x.value & std::numeric_limits<doris::vectorized::UInt64>::max());
+struct std::hash<doris::Decimal128V2> {
+    size_t operator()(const doris::Decimal128V2& x) const {
+        return std::hash<doris::Int64>()(x.value >> 64) ^
+               std::hash<doris::Int64>()(x.value & std::numeric_limits<doris::UInt64>::max());
     }
 };
 
 template <>
-struct std::hash<doris::vectorized::Decimal128V3> {
-    size_t operator()(const doris::vectorized::Decimal128V3& x) const {
-        return std::hash<doris::vectorized::Int64>()(x.value >> 64) ^
-               std::hash<doris::vectorized::Int64>()(
-                       x.value & std::numeric_limits<doris::vectorized::UInt64>::max());
+struct std::hash<doris::Decimal128V3> {
+    size_t operator()(const doris::Decimal128V3& x) const {
+        return std::hash<doris::Int64>()(x.value >> 64) ^
+               std::hash<doris::Int64>()(x.value & std::numeric_limits<doris::UInt64>::max());
     }
 };
 
 template <>
-struct std::hash<doris::vectorized::Decimal256> {
-    size_t operator()(const doris::vectorized::Decimal256& x) const {
+struct std::hash<doris::Decimal256> {
+    size_t operator()(const doris::Decimal256& x) const {
         return std::hash<uint64_t>()(x.value >> 192) ^ std::hash<uint64_t>()(x.value >> 128) ^
                std::hash<uint64_t>()(x.value >> 64) ^
                std::hash<uint64_t>()(x.value & std::numeric_limits<uint64_t>::max());
@@ -615,7 +610,7 @@ struct std::hash<doris::vectorized::Decimal256> {
 };
 
 template <typename T>
-struct fmt::formatter<doris::vectorized::Decimal<T>> {
+struct fmt::formatter<doris::Decimal<T>> {
     constexpr auto parse(format_parse_context& ctx) {
         const auto* it = ctx.begin();
         const auto* end = ctx.end();
@@ -629,13 +624,13 @@ struct fmt::formatter<doris::vectorized::Decimal<T>> {
     }
 
     template <typename FormatContext>
-    auto format(const doris::vectorized::Decimal<T>& value, FormatContext& ctx) const {
+    auto format(const doris::Decimal<T>& value, FormatContext& ctx) const {
         return fmt::format_to(ctx.out(), "{}", to_string(value.value));
     }
 };
 
-extern template struct fmt::formatter<doris::vectorized::Decimal32>;
-extern template struct fmt::formatter<doris::vectorized::Decimal64>;
-extern template struct fmt::formatter<doris::vectorized::Decimal128V2>;
-extern template struct fmt::formatter<doris::vectorized::Decimal128V3>;
-extern template struct fmt::formatter<doris::vectorized::Decimal256>;
+extern template struct fmt::formatter<doris::Decimal32>;
+extern template struct fmt::formatter<doris::Decimal64>;
+extern template struct fmt::formatter<doris::Decimal128V2>;
+extern template struct fmt::formatter<doris::Decimal128V3>;
+extern template struct fmt::formatter<doris::Decimal256>;

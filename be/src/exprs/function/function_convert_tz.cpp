@@ -54,7 +54,7 @@
 #include "exprs/function_context.h"
 #include "util/timezone_utils.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 struct ConvertTzState {
@@ -313,6 +313,6 @@ void register_function_convert_tz(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionConvertTZ>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

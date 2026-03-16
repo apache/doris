@@ -28,7 +28,7 @@
 #include "core/data_type/primitive_type.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // ==================== ColumnElementView Tests ====================
 
@@ -161,4 +161,4 @@ TEST(ColumnExecuteUtilTest, ColumnView_string) {
     EXPECT_EQ(view.value_at(2).to_string(), "ccc");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -218,7 +218,7 @@ public:
     virtual std::shared_ptr<ColumnPredicate> clone(uint32_t col_id) const = 0;
 
     //evaluate predicate on inverted
-    virtual Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
+    virtual Status evaluate(const IndexFieldNameAndTypePair& name_with_type,
                             IndexIterator* iterator, uint32_t num_rows,
                             roaring::Roaring* bitmap) const {
         return Status::NotSupported(
@@ -241,7 +241,7 @@ public:
 
     // evaluate predicate on IColumn
     // a short circuit eval way
-    uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel, uint16_t size) const {
+    uint16_t evaluate(const IColumn& column, uint16_t* sel, uint16_t size) const {
         Defer defer([&] { try_reset_judge_selectivity(); });
 
         if (always_true()) {
@@ -256,9 +256,9 @@ public:
         update_filter_info(size - new_size, size, 0);
         return new_size;
     }
-    virtual void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
+    virtual void evaluate_and(const IColumn& column, const uint16_t* sel, uint16_t size,
                               bool* flags) const {}
-    virtual void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
+    virtual void evaluate_or(const IColumn& column, const uint16_t* sel, uint16_t size,
                              bool* flags) const {}
 
     virtual bool support_zonemap() const { return true; }
@@ -269,9 +269,7 @@ public:
 
     virtual bool evaluate_del(const segment_v2::ZoneMap& zone_map) const { return false; }
 
-    virtual bool evaluate_and(const vectorized::ParquetBlockSplitBloomFilter* bf) const {
-        return true;
-    }
+    virtual bool evaluate_and(const ParquetBlockSplitBloomFilter* bf) const { return true; }
 
     virtual bool evaluate_and(const BloomFilter* bf) const { return true; }
 
@@ -284,13 +282,13 @@ public:
     /**
      * Figure out whether this page is matched partially or completely.
      */
-    virtual bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const {
+    virtual bool evaluate_and(ParquetPredicate::ColumnStat* statistic) const {
         throw Exception(ErrorCode::INTERNAL_ERROR,
                         "ParquetPredicate is not supported by this predicate!");
         return true;
     }
 
-    virtual bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+    virtual bool evaluate_and(ParquetPredicate::CachedPageIndexStat* statistic,
                               RowRanges* row_ranges) const {
         throw Exception(ErrorCode::INTERNAL_ERROR,
                         "ParquetPredicate is not supported by this predicate!");
@@ -300,11 +298,10 @@ public:
     // used to evaluate pre read column in lazy materialization
     // now only support integer/float
     // a vectorized eval way
-    virtual void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const {
+    virtual void evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const {
         DCHECK(false) << "should not reach here";
     }
-    virtual void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
-                                  bool* flags) const {
+    virtual void evaluate_and_vec(const IColumn& column, uint16_t size, bool* flags) const {
         DCHECK(false) << "should not reach here";
     }
 
@@ -397,8 +394,7 @@ public:
 
 protected:
     virtual bool _can_ignore() const { return _runtime_filter_id != -1; }
-    virtual uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
-                                     uint16_t size) const {
+    virtual uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const {
         throw Exception(INTERNAL_ERROR, "Not Implemented _evaluate_inner");
     }
 

@@ -27,7 +27,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class VFileFormatTransformer {
@@ -43,7 +43,7 @@ public:
             data_types.push_back(output_vexpr_ctxs[i]->root()->data_type());
         }
         _options._output_object_data = output_object_data;
-        _serdes = vectorized::create_data_type_serdes(data_types);
+        _serdes = create_data_type_serdes(data_types);
     }
 
     virtual ~VFileFormatTransformer() = default;
@@ -58,9 +58,9 @@ protected:
     const VExprContextSPtrs& _output_vexpr_ctxs;
     int64_t _cur_written_rows;
     bool _output_object_data;
-    vectorized::DataTypeSerDeSPtrs _serdes;
-    vectorized::DataTypeSerDe::FormatOptions _options;
+    DataTypeSerDeSPtrs _serdes;
+    DataTypeSerDe::FormatOptions _options;
 };
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

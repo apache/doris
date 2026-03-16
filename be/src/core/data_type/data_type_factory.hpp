@@ -33,7 +33,7 @@ namespace arrow {
 class DataType;
 } // namespace arrow
 namespace doris {
-class Field;
+class StorageField;
 class PColumnMeta;
 enum class FieldType;
 
@@ -43,19 +43,16 @@ class ColumnMetaPB;
 
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class DataTypeFactory {
-    using DataTypeMap = std::unordered_map<std::string, DataTypePtr>;
-    using InvertedDataTypeMap = std::vector<std::pair<DataTypePtr, std::string>>;
-
 public:
     static DataTypeFactory& instance() {
         static DataTypeFactory instance;
         return instance;
     }
 
-    DataTypePtr create_data_type(const doris::Field& col_desc);
+    DataTypePtr create_data_type(const doris::StorageField& col_desc);
     DataTypePtr create_data_type(const TabletColumn& col_desc, bool is_nullable = false);
 
     DataTypePtr create_data_type(const PColumnMeta& pcolumn);
@@ -90,4 +87,4 @@ private:
 
     std::string _empty_string;
 };
-} // namespace doris::vectorized
+} // namespace doris

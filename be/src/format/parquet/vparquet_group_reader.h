@@ -49,10 +49,8 @@ class TupleDescriptor;
 namespace io {
 struct IOContext;
 } // namespace io
-namespace vectorized {
 class Block;
 class FieldDescriptor;
-} // namespace vectorized
 } // namespace doris
 namespace tparquet {
 class ColumnMetaData;
@@ -64,7 +62,7 @@ namespace doris::segment_v2 {
 class RowIdColumnIteratorV2;
 }
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 // TODO: we need to determine it by test.
 
@@ -234,7 +232,7 @@ private:
     bool is_dictionary_encoded(const tparquet::ColumnMetaData& column_metadata);
     Status _rewrite_dict_predicates();
     Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
-    void _convert_dict_cols_to_string_cols(Block* block);
+    Status _convert_dict_cols_to_string_cols(Block* block);
 
     Status _get_current_batch_row_id(size_t read_rows);
     Status _fill_row_id_columns(Block* block, size_t read_rows, bool is_current_row_ids);
@@ -284,4 +282,4 @@ private:
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

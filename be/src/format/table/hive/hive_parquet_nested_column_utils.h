@@ -25,7 +25,7 @@
 
 #include "format/table/table_format_reader.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 struct FieldSchema;
@@ -38,4 +38,4 @@ public:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

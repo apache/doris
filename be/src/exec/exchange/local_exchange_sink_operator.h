@@ -19,11 +19,11 @@
 
 #include "exec/operator/operator.h"
 
-namespace doris::vectorized {
+namespace doris {
 class PartitionerBase;
 }
 
-namespace doris::pipeline {
+namespace doris {
 
 class ExchangerBase;
 class ShuffleExchanger;
@@ -62,7 +62,7 @@ private:
     // Used by shuffle exchanger
     RuntimeProfile::Counter* _compute_hash_value_timer = nullptr;
     RuntimeProfile::Counter* _distribute_timer = nullptr;
-    std::unique_ptr<vectorized::PartitionerBase> _partitioner = nullptr;
+    std::unique_ptr<PartitionerBase> _partitioner = nullptr;
 
     // Used by random passthrough exchanger
     int _channel_id = 0;
@@ -103,7 +103,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
 
     void set_low_memory_mode(RuntimeState* state) override {
         auto& local_state = get_local_state(state);
@@ -119,9 +119,9 @@ private:
     const int _num_partitions;
     const std::vector<TExpr>& _texprs;
     const size_t _partitioned_exprs_num;
-    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
+    std::unique_ptr<PartitionerBase> _partitioner;
     std::map<int, int> _shuffle_idx_to_instance_idx;
     bool _use_global_shuffle = false;
 };
 
-} // namespace doris::pipeline
+} // namespace doris

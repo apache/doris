@@ -45,7 +45,7 @@
 #include "storage/segment/column_reader.h"
 #include "storage/segment/virtual_column_iterator.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // select id, value,l2_distance_approximate(embedding, [1, 2, 3, 4, 5, 6, 7, 20]) as dist from ann_with_fulltext where l2_distance_approximate(embedding, [1, 2, 3, 4, 5, 6, 7, 20]) >= 10;
 std::string ann_range_search_thrift =
@@ -71,7 +71,7 @@ TEST_F(VectorSearchTest, TestPrepareAnnRangeSearch) {
 
     VExprContextSPtr range_search_ctx;
     doris::VectorSearchUserParams user_params;
-    ASSERT_TRUE(vectorized::VExpr::create_expr_tree(texpr, range_search_ctx).ok());
+    ASSERT_TRUE(VExpr::create_expr_tree(texpr, range_search_ctx).ok());
     ASSERT_TRUE(range_search_ctx->prepare(state.get(), row_desc).ok());
     ASSERT_TRUE(range_search_ctx->open(state.get()).ok());
     range_search_ctx->prepare_ann_range_search(user_params);
@@ -106,7 +106,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
     state->set_desc_tbl(desc_tbl_ptr);
 
     VExprContextSPtr range_search_ctx;
-    ASSERT_TRUE(vectorized::VExpr::create_expr_tree(texpr, range_search_ctx).ok());
+    ASSERT_TRUE(VExpr::create_expr_tree(texpr, range_search_ctx).ok());
     ASSERT_TRUE(range_search_ctx->prepare(state.get(), row_desc).ok());
     ASSERT_TRUE(range_search_ctx->open(state.get()).ok());
     doris::VectorSearchUserParams user_params;
@@ -164,7 +164,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
             }));
 
     segment_v2::AnnIndexStats stats;
-    std::unordered_map<vectorized::VExprContext*, std::unordered_map<ColumnId, vectorized::VExpr*>>
+    std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>
             common_expr_to_slotref_map;
     ASSERT_TRUE(range_search_ctx
                         ->evaluate_ann_range_search(cid_to_index_iterators, idx_to_cid,
@@ -174,11 +174,9 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
 
     doris::segment_v2::VirtualColumnIterator* virtual_column_iter =
             dynamic_cast<doris::segment_v2::VirtualColumnIterator*>(column_iterators[3].get());
-    vectorized::IColumn::Ptr column = virtual_column_iter->get_materialized_column();
-    const vectorized::ColumnFloat32* float_column =
-            check_and_get_column<const vectorized::ColumnFloat32>(column.get());
-    const vectorized::ColumnNothing* nothing_column =
-            check_and_get_column<const vectorized::ColumnNothing>(column.get());
+    IColumn::Ptr column = virtual_column_iter->get_materialized_column();
+    const ColumnFloat32* float_column = check_and_get_column<const ColumnFloat32>(column.get());
+    const ColumnNothing* nothing_column = check_and_get_column<const ColumnNothing>(column.get());
     ASSERT_EQ(float_column, nullptr);
     ASSERT_NE(nothing_column, nullptr);
     EXPECT_EQ(column->size(), 0);
@@ -192,7 +190,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
     TExpr texpr = read_from_json<TExpr>(ann_range_search_thrift);
     TExprNode& opNode = texpr.nodes[0];
     opNode.opcode = TExprOpcode::LT;
-    opNode.fn.name.function_name = doris::vectorized::NameLess::name;
+    opNode.fn.name.function_name = doris::NameLess::name;
     TDescriptorTable table1 = read_from_json<TDescriptorTable>(thrift_table_desc);
     std::unique_ptr<doris::ObjectPool> pool = std::make_unique<doris::ObjectPool>();
     auto desc_tbl = std::make_unique<DescriptorTbl>();
@@ -203,7 +201,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
     state->set_desc_tbl(desc_tbl_ptr);
 
     VExprContextSPtr range_search_ctx;
-    ASSERT_TRUE(vectorized::VExpr::create_expr_tree(texpr, range_search_ctx).ok());
+    ASSERT_TRUE(VExpr::create_expr_tree(texpr, range_search_ctx).ok());
     ASSERT_TRUE(range_search_ctx->prepare(state.get(), row_desc).ok());
     ASSERT_TRUE(range_search_ctx->open(state.get()).ok());
     doris::VectorSearchUserParams user_params;
@@ -263,7 +261,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
             }));
 
     segment_v2::AnnIndexStats stats;
-    std::unordered_map<vectorized::VExprContext*, std::unordered_map<ColumnId, vectorized::VExpr*>>
+    std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>
             common_expr_to_slotref_map;
     ASSERT_TRUE(range_search_ctx
                         ->evaluate_ann_range_search(cid_to_index_iterators, idx_to_cid,
@@ -274,11 +272,9 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
     doris::segment_v2::VirtualColumnIterator* virtual_column_iter =
             dynamic_cast<doris::segment_v2::VirtualColumnIterator*>(column_iterators[3].get());
 
-    vectorized::IColumn::Ptr column = virtual_column_iter->get_materialized_column();
-    const vectorized::ColumnFloat32* nullable_column =
-            check_and_get_column<const vectorized::ColumnFloat32>(column.get());
-    const vectorized::ColumnNothing* nothing_column =
-            check_and_get_column<const vectorized::ColumnNothing>(column.get());
+    IColumn::Ptr column = virtual_column_iter->get_materialized_column();
+    const ColumnFloat32* nullable_column = check_and_get_column<const ColumnFloat32>(column.get());
+    const ColumnNothing* nothing_column = check_and_get_column<const ColumnNothing>(column.get());
     ASSERT_NE(nullable_column, nullptr);
     ASSERT_EQ(nothing_column, nullptr);
     EXPECT_EQ(nullable_column->size(), 10);
@@ -714,7 +710,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch_DimensionMismatch) {
     state->set_desc_tbl(desc_tbl_ptr);
 
     VExprContextSPtr range_search_ctx;
-    ASSERT_TRUE(vectorized::VExpr::create_expr_tree(texpr, range_search_ctx).ok());
+    ASSERT_TRUE(VExpr::create_expr_tree(texpr, range_search_ctx).ok());
     ASSERT_TRUE(range_search_ctx->prepare(state.get(), row_desc).ok());
     ASSERT_TRUE(range_search_ctx->open(state.get()).ok());
     doris::VectorSearchUserParams user_params;
@@ -744,7 +740,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch_DimensionMismatch) {
 
     roaring::Roaring row_bitmap;
     segment_v2::AnnIndexStats stats;
-    std::unordered_map<vectorized::VExprContext*, std::unordered_map<ColumnId, vectorized::VExpr*>>
+    std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>
             common_expr_to_slotref_map;
 
     auto st = range_search_ctx->evaluate_ann_range_search(
@@ -838,7 +834,7 @@ TEST_F(VectorSearchTest, TestPrepareAnnRangeSearch_EarlyReturn_WrongOpcode) {
 
     VExprContextSPtr ctx;
     // The VExpr::create_expr_tree might fail for invalid expressions
-    auto status = vectorized::VExpr::create_expr_tree(texpr, ctx);
+    auto status = VExpr::create_expr_tree(texpr, ctx);
     if (!status.ok()) {
         // If create_expr_tree fails, we can't test prepare_ann_range_search
         // This is still a valid test case - invalid expressions should fail early
@@ -883,7 +879,7 @@ TEST_F(VectorSearchTest, TestPrepareAnnRangeSearch_EarlyReturn_NonLiteralRight) 
     state->set_desc_tbl(desc_tbl_ptr);
 
     VExprContextSPtr ctx;
-    auto status = vectorized::VExpr::create_expr_tree(texpr, ctx);
+    auto status = VExpr::create_expr_tree(texpr, ctx);
     if (!status.ok()) {
         // If create_expr_tree fails, that's still a valid test case
         EXPECT_FALSE(status.ok());
@@ -904,4 +900,4 @@ TEST_F(VectorSearchTest, TestPrepareAnnRangeSearch_EarlyReturn_NonLiteralRight) 
     EXPECT_FALSE(ctx->_ann_range_search_runtime.is_ann_range_search);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

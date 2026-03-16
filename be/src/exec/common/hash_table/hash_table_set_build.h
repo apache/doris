@@ -19,7 +19,7 @@
 #include "exec/operator/set_sink_operator.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 constexpr size_t CHECK_FRECUENCY = 65536;
 template <class HashTableContext, bool is_intersect>
@@ -57,4 +57,4 @@ private:
     RuntimeState* _state = nullptr;
 };
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

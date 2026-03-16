@@ -25,12 +25,12 @@
 #include "exprs/function/array/function_array_utils.h"
 #include "exprs/table_function/table_function.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class Block;
-} // namespace doris::vectorized
+} // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class VExplodeV2TableFunction : public TableFunction {
     ENABLE_FACTORY_CREATOR(VExplodeV2TableFunction);
@@ -62,4 +62,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris
