@@ -16,9 +16,9 @@
 // under the License.
 
 suite("test_stream_info_schema") {
-    sql "DROP DATABASE IF EXISTS test_stream_db"
-    sql "CREATE DATABASE test_stream_db"
-    sql "USE test_stream_db"
+    sql "DROP DATABASE IF EXISTS test_stream_info_db"
+    sql "CREATE DATABASE test_stream_info_db"
+    sql "USE test_stream_info_db"
 
     sql """
         CREATE TABLE `tbl1` (
@@ -38,6 +38,6 @@ suite("test_stream_info_schema") {
         PROPERTIES('type' = 'min_delta');
     """
 
-    qt_sql "select * from information_schema.streams;"
-    sql "DROP DATABASE IF EXISTS test_stream_db"
+    qt_sql "select * from information_schema.streams where DB_NAME = 'test_stream_info_db'; "
+    sql "DROP DATABASE IF EXISTS test_stream_info_db"
 }
