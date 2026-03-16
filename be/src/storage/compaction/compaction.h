@@ -39,6 +39,7 @@
 #include "storage/olap_common.h"
 #include "storage/rowid_conversion.h"
 #include "storage/rowset/pending_rowset_helper.h"
+#include "storage/compaction/compaction_task_tracker.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/tablet/tablet_fwd.h"
 
@@ -74,6 +75,17 @@ public:
 
     virtual ReaderType compaction_type() const = 0;
     virtual std::string_view compaction_name() const = 0;
+    virtual CompactionProfileType profile_type() const = 0;
+
+    int64_t compaction_id() const { return _compaction_id; }
+
+    // Public getters for tracker integration
+    int64_t input_rowsets_data_size() const { return _input_rowsets_data_size; }
+    int64_t input_row_num() const { return _input_row_num; }
+    int64_t input_rowsets_count() const { return static_cast<int64_t>(_input_rowsets.size()); }
+    int64_t input_segments_num_value() const { return _input_num_segments; }
+    bool is_vertical() const { return _is_vertical; }
+    std::string input_version_range_str() const;
 
     // the difference between index change compmaction and other compaction.
     // 1. delete predicate should be kept when input is cumu rowset.
@@ -85,6 +97,11 @@ private:
     void set_delete_predicate_for_output_rowset();
 
 protected:
+    void submit_profile_record(bool success, int64_t start_time_ms,
+                               const std::string& status_msg = "");
+
+    virtual int64_t input_segments_num() const { return _input_num_segments; }
+
     Status merge_input_rowsets();
 
     // merge inverted index files
@@ -114,6 +131,8 @@ protected:
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
     BaseTabletSPtr _tablet;
+
+    int64_t _compaction_id {0};
 
     std::vector<RowsetSharedPtr> _input_rowsets;
     int64_t _input_rowsets_data_size {0};

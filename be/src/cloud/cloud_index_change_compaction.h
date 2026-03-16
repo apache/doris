@@ -45,6 +45,8 @@ public:
 
     bool is_base_compaction() const { return _compact_type == cloud::TabletCompactionJobPB::BASE; }
 
+    CompactionProfileType profile_type() const override { return CompactionProfileType::INDEX_CHANGE; }
+
     Status rebuild_tablet_schema() override;
 
 private:
@@ -55,6 +57,7 @@ private:
 
 protected:
     std::string_view compaction_name() const override { return "CloudIndexChangeCompaction"; }
+    int64_t input_segments_num() const override { return _input_segments; }
 
     // if cumu rowset is modified, cumu compaction should sync rowset before execute.
     // if base rowset is modified, base compaction should sync rowset before execute.

@@ -501,6 +501,8 @@ DECLARE_Bool(enable_low_cardinality_cache_code);
 DECLARE_mBool(enable_compaction_checksum);
 // whether disable automatic compaction task
 DECLARE_mBool(disable_auto_compaction);
+// max number of compaction task records to keep in memory, 0 to disable
+DECLARE_mInt32(compaction_profile_max_records);
 // whether enable vertical compaction
 DECLARE_mBool(enable_vertical_compaction);
 // whether enable ordered data compaction

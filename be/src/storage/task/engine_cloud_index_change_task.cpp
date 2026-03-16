@@ -20,7 +20,10 @@
 #include "cloud/cloud_index_change_compaction.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cpp/sync_point.h"
+#include "service/backend_options.h"
+#include "storage/compaction/compaction_task_tracker.h"
 #include "storage/tablet/tablet_manager.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -138,7 +141,32 @@ Status EngineCloudIndexChangeTask::execute() {
             }
         }
 
+        // Register task as RUNNING directly (index change has no PENDING phase)
+        int64_t compaction_id = index_change_compact->compaction_id();
+        {
+            CompactionTaskInfo info;
+            info.compaction_id = compaction_id;
+            info.backend_id = BackendOptions::get_backend_id();
+            info.table_id = tablet->table_id();
+            info.partition_id = tablet->partition_id();
+            info.tablet_id = tablet->tablet_id();
+            info.compaction_type = index_change_compact->profile_type();
+            info.status = CompactionTaskStatus::RUNNING;
+            info.trigger_method = TriggerMethod::BACKGROUND;
+            info.scheduled_time_ms = UnixMillis();
+            info.start_time_ms = UnixMillis();
+            info.input_rowsets_count = index_change_compact->input_rowsets_count();
+            info.input_row_num = index_change_compact->input_row_num();
+            info.input_data_size = index_change_compact->input_rowsets_data_size();
+            info.input_segments_num = index_change_compact->input_segments_num_value();
+            info.input_version_range = index_change_compact->input_version_range_str();
+            info.is_vertical = index_change_compact->is_vertical();
+            CompactionTaskTracker::instance()->register_task(std::move(info));
+        }
+
         VLOG_DEBUG << "[index_change] begin execute index change compact." << tablet_id_str;
+        // submit_profile_record() inside execute_compact() handles both
+        // success (complete) and failure (fail) tracker updates.
         Status exec_ret = index_change_compact->execute_compact();
         if (!exec_ret.ok()) {
             LOG(WARNING) << "[index_change] exec index change compaction failed." << tablet_id_str;

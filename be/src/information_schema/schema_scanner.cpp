@@ -48,6 +48,7 @@
 #include "information_schema/schema_backend_kerberos_ticket_cache.h"
 #include "information_schema/schema_catalog_meta_cache_stats_scanner.h"
 #include "information_schema/schema_charsets_scanner.h"
+#include "information_schema/schema_compaction_tasks_scanner.h"
 #include "information_schema/schema_cluster_snapshot_properties_scanner.h"
 #include "information_schema/schema_cluster_snapshots_scanner.h"
 #include "information_schema/schema_collations_scanner.h"
@@ -233,6 +234,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaBackendWorkloadGroupResourceUsage::create_unique();
     case TSchemaTableType::SCH_TABLE_PROPERTIES:
         return SchemaTablePropertiesScanner::create_unique();
+    case TSchemaTableType::SCH_BE_COMPACTION_TASKS:
+        return SchemaCompactionTasksScanner::create_unique();
     case TSchemaTableType::SCH_DATABASE_PROPERTIES:
         return SchemaDatabasePropertiesScanner::create_unique();
     case TSchemaTableType::SCH_FILE_CACHE_STATISTICS:

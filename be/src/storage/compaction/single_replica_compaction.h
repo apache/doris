@@ -38,6 +38,7 @@ public:
     Status execute_compact() override;
 
     inline CompactionType real_compact_type() const { return _compaction_type; }
+    CompactionProfileType profile_type() const override { return CompactionProfileType::SINGLE_REPLICA; }
 
 protected:
     std::string_view compaction_name() const override { return "single replica compaction"; }

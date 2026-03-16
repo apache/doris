@@ -49,6 +49,7 @@
 
 #include "agent/utils.h"
 #include "common/config.h"
+#include "service/backend_options.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
@@ -881,14 +882,41 @@ Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tab
         return Status::OK(); // No suitable version, regard as OK
     }
 
+    // Register task as PENDING in the tracker after successful prepare
+    int64_t compaction_id = compaction->compaction_id();
+    {
+        CompactionTaskInfo info;
+        info.compaction_id = compaction_id;
+        info.backend_id = BackendOptions::get_backend_id();
+        info.table_id = tablet->table_id();
+        info.partition_id = tablet->partition_id();
+        info.tablet_id = tablet->tablet_id();
+        info.compaction_type = compaction->profile_type();
+        info.status = CompactionTaskStatus::PENDING;
+        info.trigger_method = TriggerMethod::BACKGROUND;
+        info.compaction_score = tablet->get_compaction_score();
+        info.scheduled_time_ms = UnixMillis();
+        info.input_rowsets_count = compaction->input_rowsets_count();
+        info.input_row_num = compaction->input_row_num();
+        info.input_data_size = compaction->input_rowsets_data_size();
+        info.input_segments_num = compaction->input_segments_num_value();
+        info.input_version_range = compaction->input_version_range_str();
+        CompactionTaskTracker::instance()->register_task(std::move(info));
+    }
+
     auto submit_st = _single_replica_compaction_thread_pool->submit_func(
-            [tablet, compaction = std::move(compaction),
+            [tablet, compaction = std::move(compaction), compaction_id,
              clean_single_replica_compaction]() mutable {
+                RunningStats rs;
+                rs.start_time_ms = UnixMillis();
+                rs.is_vertical = compaction->is_vertical();
+                CompactionTaskTracker::instance()->update_to_running(compaction_id, rs);
                 tablet->execute_single_replica_compaction(*compaction);
                 clean_single_replica_compaction();
             });
     if (!submit_st.ok()) {
         clean_single_replica_compaction();
+        CompactionTaskTracker::instance()->remove_task(compaction_id);
         return Status::InternalError(
                 "failed to submit single replica compaction task to thread pool, "
                 "tablet_id={}",
@@ -1053,7 +1081,8 @@ void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet
 }
 
 Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
-                                              CompactionType compaction_type, bool force) {
+                                              CompactionType compaction_type, bool force,
+                                              TriggerMethod trigger_method) {
     if (tablet->tablet_meta()->tablet_schema()->enable_single_replica_compaction() &&
         should_fetch_from_peer(tablet->tablet_id())) {
         VLOG_CRITICAL << "start to submit single replica compaction task for tablet: "
@@ -1078,6 +1107,28 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
     Status st = Tablet::prepare_compaction_and_calculate_permits(compaction_type, tablet,
                                                                  compaction, permits);
     if (st.ok() && permits > 0) {
+        // Register task as PENDING in the tracker after successful prepare
+        int64_t compaction_id = compaction->compaction_id();
+        {
+            CompactionTaskInfo info;
+            info.compaction_id = compaction_id;
+            info.backend_id = BackendOptions::get_backend_id();
+            info.table_id = tablet->table_id();
+            info.partition_id = tablet->partition_id();
+            info.tablet_id = tablet->tablet_id();
+            info.compaction_type = compaction->profile_type();
+            info.status = CompactionTaskStatus::PENDING;
+            info.trigger_method = trigger_method;
+            info.compaction_score = tablet->get_compaction_score();
+            info.scheduled_time_ms = UnixMillis();
+            info.input_rowsets_count = compaction->input_rowsets_count();
+            info.input_row_num = compaction->input_row_num();
+            info.input_data_size = compaction->input_rowsets_data_size();
+            info.input_segments_num = compaction->input_segments_num_value();
+            info.input_version_range = compaction->input_version_range_str();
+            CompactionTaskTracker::instance()->register_task(std::move(info));
+        }
+
         if (!force) {
             _permit_limiter.request(permits);
         }
@@ -1094,10 +1145,11 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                       << ", max_threads: " << thread_pool->max_threads()
                       << ", min_threads: " << thread_pool->min_threads()
                       << ", num_total_queued_tasks: " << thread_pool->get_queue_size();
-        auto status = thread_pool->submit_func([=, compaction = std::move(compaction), this]() {
-            _handle_compaction(std::move(tablet), std::move(compaction), compaction_type, permits,
-                               force);
-        });
+        auto status = thread_pool->submit_func(
+                [=, compaction = std::move(compaction), this]() {
+                    _handle_compaction(std::move(tablet), std::move(compaction), compaction_type,
+                                       permits, force);
+                });
         if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) [[likely]] {
             DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
                     _cumu_compaction_thread_pool->get_queue_size());
@@ -1111,6 +1163,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
             }
             _pop_tablet_from_submitted_compaction(tablet, compaction_type);
             tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
+            CompactionTaskTracker::instance()->remove_task(compaction_id);
             return Status::InternalError(
                     "failed to submit compaction task to thread pool, "
                     "tablet_id={}, compaction_type={}.",
@@ -1153,6 +1206,11 @@ void StorageEngine::_handle_compaction(TabletSharedPtr tablet,
         }
         _pop_tablet_from_submitted_compaction(tablet, compaction_type);
         tablet->compaction_stage = CompactionStage::NOT_SCHEDULED;
+        // Clean up any PENDING/RUNNING tracker entry that wasn't moved to
+        // completed by submit_profile_record(). This covers early-return
+        // branches (large task delay, tablet state change) and is a no-op
+        // if the task was already completed.
+        CompactionTaskTracker::instance()->remove_task(compaction->compaction_id());
         if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
             std::lock_guard<std::mutex> lock(_cumu_compaction_delay_mtx);
             _cumu_compaction_thread_pool_used_threads--;
@@ -1219,12 +1277,21 @@ void StorageEngine::_handle_compaction(TabletSharedPtr tablet,
         return;
     }
     tablet->compaction_stage = CompactionStage::EXECUTING;
+    // Update tracker to RUNNING when execution starts
+    {
+        RunningStats stats;
+        stats.start_time_ms = UnixMillis();
+        stats.is_vertical = compaction->is_vertical();
+        stats.permits = permits;
+        CompactionTaskTracker::instance()->update_to_running(compaction->compaction_id(), stats);
+    }
     TEST_SYNC_POINT_RETURN_WITH_VOID("olap_server::execute_compaction");
     tablet->execute_compaction(*compaction);
 }
 
 Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                             bool force, bool eager) {
+                                             bool force, bool eager,
+                                             TriggerMethod trigger_method) {
     if (!eager) {
         DCHECK(compaction_type == CompactionType::BASE_COMPACTION ||
                compaction_type == CompactionType::CUMULATIVE_COMPACTION);
@@ -1254,7 +1321,7 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionT
                 _cumulative_compaction_policies.at(tablet->tablet_meta()->compaction_policy()));
     }
     tablet->set_skip_compaction(false);
-    return _submit_compaction_task(tablet, compaction_type, force);
+    return _submit_compaction_task(tablet, compaction_type, force, trigger_method);
 }
 
 Status StorageEngine::_handle_seg_compaction(std::shared_ptr<SegcompactionWorker> worker,
@@ -1632,6 +1699,32 @@ void StorageEngine::_handle_cold_data_compaction(TabletSharedPtr t) {
         return;
     }
 
+    // Register task as RUNNING directly (cold data compaction has no PENDING phase)
+    int64_t compaction_id = compaction->compaction_id();
+    {
+        CompactionTaskInfo info;
+        info.compaction_id = compaction_id;
+        info.backend_id = BackendOptions::get_backend_id();
+        info.table_id = t->table_id();
+        info.partition_id = t->partition_id();
+        info.tablet_id = t->tablet_id();
+        info.compaction_type = compaction->profile_type();
+        info.status = CompactionTaskStatus::RUNNING;
+        info.trigger_method = TriggerMethod::BACKGROUND;
+        info.compaction_score = t->calc_cold_data_compaction_score();
+        info.scheduled_time_ms = UnixMillis();
+        info.start_time_ms = UnixMillis();
+        info.input_rowsets_count = compaction->input_rowsets_count();
+        info.input_row_num = compaction->input_row_num();
+        info.input_data_size = compaction->input_rowsets_data_size();
+        info.input_segments_num = compaction->input_segments_num_value();
+        info.input_version_range = compaction->input_version_range_str();
+        info.is_vertical = compaction->is_vertical();
+        CompactionTaskTracker::instance()->register_task(std::move(info));
+    }
+
+    // submit_profile_record() inside execute_compact() handles both
+    // success (complete) and failure (fail) tracker updates.
     st = compaction->execute_compact();
     if (!st.ok()) {
         LOG(WARNING) << "failed to execute cold data compaction. tablet_id=" << t->tablet_id()
