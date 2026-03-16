@@ -90,7 +90,7 @@ suite("unnest_group_by_list_test", "unnest") {
     test {
         // Test that using an aggregate function on an UNNEST result in the SELECT list and grouping by it is invalid.
         sql """SELECT SUM(UNNEST(scores)) as col1 FROM ${tb_name1} group by col1;"""
-        exception "GROUP BY expression must not contain aggregate functions"
+        exception "Unknown column"
     }
 
     sql """drop table if exists ${tb_name2}"""

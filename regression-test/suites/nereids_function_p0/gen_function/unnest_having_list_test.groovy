@@ -45,7 +45,7 @@ suite("unnest_having_list_test", "unnest") {
             FROM ${tb_name1} 
             GROUP BY dept_name 
             HAVING UNNEST(skills) = 'Java';"""
-        exception "HAVING expression 'skills' must appear in the GROUP BY clause or be used in an aggregate function"
+        exception "skills should be grouped by"
     }
 
     // Test a HAVING clause on an aggregate function (COUNT) of an unnested column.
