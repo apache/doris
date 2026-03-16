@@ -23,10 +23,8 @@ import it.unimi.dsi.fastutil.longs.Long2LongFunction;
 import it.unimi.dsi.fastutil.longs.Long2LongMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.longs.LongBinaryOperator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import it.unimi.dsi.fastutil.objects.ObjectSet;
 
@@ -34,6 +32,7 @@ import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.function.LongBinaryOperator;
 import java.util.function.LongUnaryOperator;
 
 /**
@@ -47,8 +46,13 @@ import java.util.function.LongUnaryOperator;
  * <p>The {@link #addTo(long, long)} method provides atomic increment semantics, useful for
  * counter patterns.
  *
+ * <p><b>Note:</b> The {@code defaultReturnValue} is fixed at 0. Calling
+ * {@link #defaultReturnValue(long)} will throw {@link UnsupportedOperationException}
+ * because it cannot be propagated to the underlying segment maps consistently.
+ *
  * <p><b>Important:</b> All compound operations from both {@link Long2LongMap} and {@link Map}
- * interfaces are overridden to ensure atomicity within a segment's write lock.
+ * interfaces (computeIfAbsent, computeIfPresent, compute, merge, mergeLong, putIfAbsent,
+ * replace, remove) are overridden to ensure atomicity within a segment.
  */
 public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
 
@@ -73,6 +77,13 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
         for (int i = 0; i < segmentCount; i++) {
             segments[i] = new Segment(DEFAULT_INITIAL_CAPACITY_PER_SEGMENT);
         }
+    }
+
+    @Override
+    public void defaultReturnValue(long rv) {
+        throw new UnsupportedOperationException(
+                "ConcurrentLong2LongHashMap does not support changing defaultReturnValue. "
+                + "It is fixed at 0.");
     }
 
     private Segment segmentFor(long key) {
@@ -210,6 +221,26 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
         seg.lock.writeLock().lock();
         try {
             return seg.map.replace(key, value);
+        } finally {
+            seg.lock.writeLock().unlock();
+        }
+    }
+
+    @Override
+    public boolean remove(Object key, Object value) {
+        if (!(key instanceof Long) || !(value instanceof Long)) {
+            return false;
+        }
+        long k = (Long) key;
+        long v = (Long) value;
+        Segment seg = segmentFor(k);
+        seg.lock.writeLock().lock();
+        try {
+            if (!seg.map.containsKey(k) || seg.map.get(k) != v) {
+                return false;
+            }
+            seg.map.remove(k);
+            return true;
         } finally {
             seg.lock.writeLock().unlock();
         }
@@ -373,7 +404,7 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
     }
 
     @Override
-    public long mergeLong(long key, long value, java.util.function.LongBinaryOperator remappingFunction) {
+    public long mergeLong(long key, long value, LongBinaryOperator remappingFunction) {
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
