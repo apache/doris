@@ -116,8 +116,13 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
         segment->_fs = fs;
         segment->_file_reader = std::move(file_reader);
         st = segment->_open(stats);
-    } else if (st.is<ErrorCode::CORRUPTION>() &&
-               reader_options.cache_type == io::FileCachePolicy::FILE_BLOCK_CACHE) {
+    }
+
+    // Three-tier retry for CORRUPTION errors when file cache is enabled.
+    // This handles CORRUPTION from both open_file() and _parse_footer() (via _open()).
+    if (st.is<ErrorCode::CORRUPTION>() &&
+        reader_options.cache_type == io::FileCachePolicy::FILE_BLOCK_CACHE) {
+        // Tier 1: Clear file cache and retry with cache support (re-downloads from remote).
         LOG(WARNING) << "bad segment file may be read from file cache, try to read remote source "
                         "file directly, file path: "
                      << path << " cache_key: " << file_cache_key_str(path);
@@ -133,6 +138,7 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
         }
         TEST_INJECTION_POINT_CALLBACK("Segment::open:corruption1", &st);
         if (st.is<ErrorCode::CORRUPTION>()) { // corrupt again
+            // Tier 2: Bypass cache entirely and read directly from remote storage.
             LOG(WARNING) << "failed to try to read remote source file again with cache support,"
                          << " try to read from remote directly, "
                          << " file path: " << path << " cache_key: " << file_cache_key_str(path);
@@ -146,6 +152,7 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
             segment->_file_reader = std::move(file_reader);
             st = segment->_open(stats);
             if (!st.ok()) {
+                // Tier 3: Remote source itself is corrupt.
                 LOG(WARNING) << "failed to try to read remote source file directly,"
                              << " file path: " << path
                              << " cache_key: " << file_cache_key_str(path);
