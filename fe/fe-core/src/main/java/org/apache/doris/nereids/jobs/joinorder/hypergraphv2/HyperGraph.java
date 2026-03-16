@@ -93,8 +93,8 @@ public class HyperGraph {
             return false;
         }
         LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
-        // TODO add asof join here later
-        return !join.isMarkJoin() && !join.isLeadingJoin() && !join.hasDistributeHint();
+        return !join.isMarkJoin() && !join.isLeadingJoin() && !join.hasDistributeHint()
+                && !join.getJoinType().isAsofJoin();
     }
 
     public static Builder builderForDPhyper(Group group, CascadesContext ctx) {
