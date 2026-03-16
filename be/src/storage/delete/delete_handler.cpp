@@ -110,9 +110,10 @@ Status convert(const DataTypePtr& data_type, const std::list<std::string>& str,
 
 // Parses a single condition value string into a Field and creates a comparison predicate.
 // Uses serde->from_fe_string to do the parsing, which handles all type-specific
-// conversions (including CHAR padding, decimal scale, etc.).
-// For string types, the original behavior is preserved: Field is created directly
-// from the raw string without CHAR padding, matching the existing predicate comparison semantics.
+// conversions (including decimal scale, etc.).
+// For CHAR type, the value is padded with '\0' to the declared column length, consistent
+// with the IN list path in convert() above.
+// For VARCHAR/STRING, the Field is created directly from the raw string.
 Status parse_to_predicate(const uint32_t index, const std::string col_name, const DataTypePtr& type,
                           DeleteHandler::ConditionParseResult& res, Arena& arena,
                           std::shared_ptr<ColumnPredicate>& predicate) {
@@ -126,11 +127,22 @@ Status parse_to_predicate(const uint32_t index, const std::string col_name, cons
     }
 
     Field v;
-    if (is_string_type(type->get_primitive_type())) {
-        // String types: create Field directly from the raw string.
-        // This preserves the existing behavior where comparison predicates
-        // do NOT apply CHAR padding (padding is only relevant for IN predicates
-        // via HybridSet, handled in convert() above).
+    if (type->get_primitive_type() == TYPE_CHAR) {
+        // CHAR type: create Field and pad with '\0' to the declared column length,
+        // consistent with IN list path (convert() above) and create_comparison_predicate.
+        const auto& str = res.value_str.front();
+        auto char_len = cast_set<size_t>(
+                assert_cast<const DataTypeString*>(remove_nullable(type).get())->len());
+        auto target = std::max(char_len, str.size());
+        if (target > str.size()) {
+            std::string padded(target, '\0');
+            memcpy(padded.data(), str.data(), str.size());
+            v = Field::create_field<TYPE_CHAR>(std::move(padded));
+        } else {
+            v = Field::create_field<TYPE_CHAR>(str);
+        }
+    } else if (is_string_type(type->get_primitive_type())) {
+        // VARCHAR/STRING: create Field directly from the raw string, no padding needed.
         v = Field::create_field<TYPE_STRING>(res.value_str.front());
     } else {
         auto serde = type->get_serde();
