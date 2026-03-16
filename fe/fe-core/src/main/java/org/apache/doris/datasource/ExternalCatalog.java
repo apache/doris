@@ -578,14 +578,16 @@ public abstract class ExternalCatalog
      * @param invalidCache if {@code true}, the catalog cache will be invalidated
      *                     and reloaded during the refresh process.
      */
-    public synchronized void resetToUninitialized(boolean invalidCache) {
-        this.objectCreated = false;
-        this.initialized = false;
-        synchronized (this.confLock) {
-            this.cachedConf = null;
+    public void resetToUninitialized(boolean invalidCache) {
+        synchronized (this) {
+            this.objectCreated = false;
+            this.initialized = false;
+            synchronized (this.confLock) {
+                this.cachedConf = null;
+            }
+            this.lowerCaseToDatabaseName.clear();
+            onClose();
         }
-        this.lowerCaseToDatabaseName.clear();
-        onClose();
         onRefreshCache(invalidCache);
     }
 
