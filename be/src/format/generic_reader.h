@@ -20,8 +20,12 @@
 #include <gen_cpp/PlanNodes_types.h>
 
 #include "common/status.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
+#include "format/column_processor.h"
 #include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "util/profile_collector.h"
 
@@ -79,6 +83,17 @@ public:
     }
 
     virtual Status close() { return Status::OK(); }
+
+    virtual Status init_column_descriptors(
+            const TFileScanRangeParams& params, const TFileRangeDesc& range,
+            const std::vector<ColumnDescriptor>& column_descs,
+            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
+            RuntimeState* state, bool fill_partition_from_path,
+            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                    partition_col_descs,
+            std::unordered_map<std::string, VExprContextSPtr>* out_missing_col_descs,
+            std::unordered_set<std::string>* out_missing_cols,
+            std::unordered_map<std::string, DataTypePtr>* out_name_to_col_type);
 
     Status read_by_rows(const std::list<int64_t>& row_ids) {
         _read_by_rows = true;

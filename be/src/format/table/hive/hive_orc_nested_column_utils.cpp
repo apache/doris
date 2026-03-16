@@ -26,6 +26,7 @@
 
 #include "common/logging.h"
 #include "format/table/table_format_reader.h"
+#include "format/table/table_schema_change_helper.h"
 #include "orc/Type.hh"
 
 namespace doris {

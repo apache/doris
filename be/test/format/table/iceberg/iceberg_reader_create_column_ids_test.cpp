@@ -686,31 +686,25 @@ protected:
         // Create mock profile
         RuntimeProfile profile("test_profile");
 
-        // Create ParquetReader as the underlying file format reader
+        // Create IcebergParquetReader (IS-A ParquetReader via CRTP mixin)
         cctz::time_zone ctz;
         TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
 
-        auto generic_reader =
-                ParquetReader::create_unique(&profile, scan_params, scan_range, 1024, &ctz, nullptr,
-                                             &runtime_state, cache.get());
-        if (!generic_reader) {
+        auto iceberg_reader = std::make_unique<IcebergParquetReader>(
+                nullptr /* kv_cache */, &profile, scan_params, scan_range, 1024, &ctz,
+                nullptr /* io_ctx */, &runtime_state, cache.get());
+        if (!iceberg_reader) {
             return {nullptr, nullptr};
         }
 
-        // Set file reader for the generic reader
-        auto parquet_reader = static_cast<ParquetReader*>(generic_reader.get());
-        parquet_reader->set_file_reader(file_reader);
+        // Set file reader directly on the iceberg reader (it IS the ParquetReader)
+        iceberg_reader->set_file_reader(file_reader);
 
         const FieldDescriptor* field_desc = nullptr;
-        st = parquet_reader->get_file_metadata_schema(&field_desc);
+        st = iceberg_reader->get_file_metadata_schema(&field_desc);
         if (!st.ok() || !field_desc) {
             return {nullptr, nullptr};
         }
-
-        // Create IcebergParquetReader
-        auto iceberg_reader = std::make_unique<IcebergParquetReader>(
-                std::move(generic_reader), &profile, &runtime_state, scan_params, scan_range,
-                nullptr, nullptr, cache.get());
 
         return {std::move(iceberg_reader), field_desc};
     }
@@ -741,29 +735,20 @@ protected:
         // Create mock profile
         RuntimeProfile profile("test_profile");
 
-        // Create OrcReader as the underlying file format reader
-        cctz::time_zone ctz;
-        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-
-        auto generic_reader =
-                OrcReader::create_unique(&profile, &runtime_state, scan_params, scan_range, 1024,
-                                         "CST", nullptr, cache.get());
-        if (!generic_reader) {
+        // Create IcebergOrcReader (IS-A OrcReader via CRTP mixin)
+        auto iceberg_reader = std::make_unique<IcebergOrcReader>(
+                nullptr /* kv_cache */, &profile, &runtime_state, scan_params, scan_range, 1024,
+                "CST", nullptr /* io_ctx */, cache.get());
+        if (!iceberg_reader) {
             return {nullptr, nullptr};
         }
 
-        auto orc_reader = static_cast<OrcReader*>(generic_reader.get());
-        // Get FieldDescriptor from Orc file
+        // Get ORC type from the iceberg reader (it IS the OrcReader)
         const orc::Type* orc_type_ptr = nullptr;
-        st = orc_reader->get_file_type(&orc_type_ptr);
+        st = iceberg_reader->get_file_type(&orc_type_ptr);
         if (!st.ok() || !orc_type_ptr) {
             return {nullptr, nullptr};
         }
-
-        // Create IcebergOrcReader
-        auto iceberg_reader = std::make_unique<IcebergOrcReader>(
-                std::move(generic_reader), &profile, &runtime_state, scan_params, scan_range,
-                nullptr, nullptr, cache.get());
 
         return {std::move(iceberg_reader), orc_type_ptr};
     }

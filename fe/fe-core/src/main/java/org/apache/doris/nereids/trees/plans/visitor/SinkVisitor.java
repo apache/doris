@@ -32,6 +32,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeResul
 import org.apache.doris.nereids.trees.plans.logical.LogicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalMaxComputeTableSink;
@@ -45,6 +47,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeRes
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
@@ -135,6 +139,14 @@ public interface SinkVisitor<R, C> {
         return visitLogicalTableSink(mcTableSink, context);
     }
 
+    default R visitLogicalIcebergDeleteSink(LogicalIcebergDeleteSink<? extends Plan> icebergDeleteSink, C context) {
+        return visitLogicalTableSink(icebergDeleteSink, context);
+    }
+
+    default R visitLogicalIcebergMergeSink(LogicalIcebergMergeSink<? extends Plan> icebergMergeSink, C context) {
+        return visitLogicalTableSink(icebergMergeSink, context);
+    }
+
     default R visitLogicalJdbcTableSink(LogicalJdbcTableSink<? extends Plan> jdbcTableSink, C context) {
         return visitLogicalTableSink(jdbcTableSink, context);
     }
@@ -193,6 +205,14 @@ public interface SinkVisitor<R, C> {
 
     default R visitPhysicalMaxComputeTableSink(PhysicalMaxComputeTableSink<? extends Plan> mcTableSink, C context) {
         return visitPhysicalTableSink(mcTableSink, context);
+    }
+
+    default R visitPhysicalIcebergDeleteSink(PhysicalIcebergDeleteSink<? extends Plan> icebergDeleteSink, C context) {
+        return visitPhysicalTableSink(icebergDeleteSink, context);
+    }
+
+    default R visitPhysicalIcebergMergeSink(PhysicalIcebergMergeSink<? extends Plan> icebergMergeSink, C context) {
+        return visitPhysicalTableSink(icebergMergeSink, context);
     }
 
     default R visitPhysicalJdbcTableSink(PhysicalJdbcTableSink<? extends Plan> jdbcTableSink, C context) {

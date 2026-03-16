@@ -391,6 +391,65 @@ void ParquetReader::_init_file_description() {
 }
 
 Status ParquetReader::init_reader(
+        const std::vector<ColumnDescriptor>& column_descs,
+        std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+        const VExprContextSPtrs& conjuncts,
+        phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
+                slot_id_to_predicates,
+        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
+        const std::unordered_map<std::string, int>* colname_to_slot_id,
+        const VExprContextSPtrs* not_single_slot_filter_conjuncts,
+        const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
+    // Store essential params early so hooks can access them
+    _tuple_descriptor = tuple_descriptor;
+    _row_descriptor = row_descriptor;
+
+    // Open file first so hooks can access file metadata
+    RETURN_IF_ERROR(_open_file());
+
+    // Hook: let subclasses customize column selection and schema mapping
+    std::vector<std::string> column_names;
+    std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node =
+            TableSchemaChangeHelper::ConstNode::get_instance();
+    std::set<uint64_t> column_ids;
+    std::set<uint64_t> filter_column_ids;
+
+    RETURN_IF_ERROR(on_before_init_columns(column_descs, column_names, table_info_node, column_ids,
+                                           filter_column_ids));
+
+    // Core init
+    RETURN_IF_ERROR(_do_init_reader(
+            column_names, col_name_to_block_idx, conjuncts, slot_id_to_predicates, tuple_descriptor,
+            row_descriptor, colname_to_slot_id, not_single_slot_filter_conjuncts,
+            slot_id_to_filter_conjuncts, table_info_node, column_ids, filter_column_ids));
+
+    // Hook: let subclasses do post-init work (e.g. read delete files)
+    RETURN_IF_ERROR(on_after_init());
+
+    // Auto-detect SYNTHESIZED columns
+    for (const auto& desc : column_descs) {
+        if (desc.category == ColumnCategory::SYNTHESIZED) {
+            _lazy_read_ctx.predicate_synthesized_col_names.push_back(desc.name);
+        }
+    }
+
+    return Status::OK();
+}
+
+Status ParquetReader::on_before_init_columns(
+        const std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
+        std::shared_ptr<TableSchemaChangeHelper::Node>& /*table_info_node*/,
+        std::set<uint64_t>& /*column_ids*/, std::set<uint64_t>& /*filter_column_ids*/) {
+    // Default: extract REGULAR + INTERNAL column names from descriptors
+    for (const auto& desc : column_descs) {
+        if (desc.category == ColumnCategory::REGULAR || desc.category == ColumnCategory::INTERNAL) {
+            column_names.push_back(desc.name);
+        }
+    }
+    return Status::OK();
+}
+
+Status ParquetReader::_do_init_reader(
         const std::vector<std::string>& all_column_names,
         std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
         const VExprContextSPtrs& conjuncts,
@@ -400,7 +459,7 @@ Status ParquetReader::init_reader(
         const std::unordered_map<std::string, int>* colname_to_slot_id,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
-        std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr, bool filter_groups,
+        std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr,
         const std::set<uint64_t>& column_ids, const std::set<uint64_t>& filter_column_ids) {
     _col_name_to_block_idx = col_name_to_block_idx;
     _tuple_descriptor = tuple_descriptor;
@@ -409,11 +468,14 @@ Status ParquetReader::init_reader(
     _not_single_slot_filter_conjuncts = not_single_slot_filter_conjuncts;
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
     _table_info_node_ptr = table_info_node_ptr;
-    _filter_groups = filter_groups;
     _column_ids = column_ids;
     _filter_column_ids = filter_column_ids;
 
-    RETURN_IF_ERROR(_open_file());
+    // _open_file() is called by init_reader template method before hooks.
+    // For standalone _do_init_reader callers (tvf, load, etc.), open the file here if not already opened.
+    if (_file_metadata == nullptr) {
+        RETURN_IF_ERROR(_open_file());
+    }
     _t_metadata = &(_file_metadata->to_thrift());
     if (_file_metadata == nullptr) {
         return Status::InternalError("failed to init parquet reader, please open reader first");
@@ -479,8 +541,14 @@ Status ParquetReader::set_fill_columns(
         const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                 partition_columns,
         const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
-    _lazy_read_ctx.fill_partition_columns = partition_columns;
-    _lazy_read_ctx.fill_missing_columns = missing_columns;
+    LOG(INFO) << "[DEBUG ParquetReader::set_fill_columns] partition_columns.size="
+              << partition_columns.size() << " missing_columns.size=" << missing_columns.size();
+    for (const auto& kv : partition_columns) {
+        LOG(INFO) << "[DEBUG ParquetReader::set_fill_columns] partition col: " << kv.first
+                  << " value=" << std::get<0>(kv.second);
+    }
+    // Store in TableFormatReader for on_fill_partition/missing_columns hooks
+    set_fill_column_data(partition_columns, missing_columns, _col_name_to_block_idx);
 
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
@@ -557,7 +625,7 @@ Status ParquetReader::set_fill_columns(
         _lazy_read_ctx.all_predicate_col_ids.emplace_back(_row_id_column_iterator_pair.second);
     }
 
-    for (auto& kv : _lazy_read_ctx.fill_partition_columns) {
+    for (auto& kv : partition_columns) {
         auto iter = predicate_columns.find(kv.first);
         if (iter == predicate_columns.end()) {
             _lazy_read_ctx.partition_columns.emplace(kv.first, kv.second);
@@ -567,7 +635,7 @@ Status ParquetReader::set_fill_columns(
         }
     }
 
-    for (auto& kv : _lazy_read_ctx.fill_missing_columns) {
+    for (auto& kv : missing_columns) {
         auto iter = predicate_columns.find(kv.first);
         if (iter == predicate_columns.end()) {
             _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
@@ -597,6 +665,20 @@ Status ParquetReader::set_fill_columns(
         for (auto& kv : _lazy_read_ctx.predicate_missing_columns) {
             _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
         }
+    }
+
+    // Populate col_names vectors for ColumnProcessor path.
+    for (auto& kv : _lazy_read_ctx.predicate_partition_columns) {
+        _lazy_read_ctx.predicate_partition_col_names.emplace_back(kv.first);
+    }
+    for (auto& kv : _lazy_read_ctx.predicate_missing_columns) {
+        _lazy_read_ctx.predicate_missing_col_names.emplace_back(kv.first);
+    }
+    for (auto& kv : _lazy_read_ctx.partition_columns) {
+        _lazy_read_ctx.partition_col_names.emplace_back(kv.first);
+    }
+    for (auto& kv : _lazy_read_ctx.missing_columns) {
+        _lazy_read_ctx.missing_col_names.emplace_back(kv.first);
     }
 
     if (_filter_groups && (_total_groups == 0 || _t_metadata->num_rows == 0 || _range_size < 0)) {
@@ -641,6 +723,15 @@ Status ParquetReader::get_columns(std::unordered_map<std::string, DataTypePtr>* 
 }
 
 Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+    RETURN_IF_ERROR(on_before_read_block(block));
+    RETURN_IF_ERROR(_do_get_next_block(block, read_rows, eof));
+    if (*read_rows > 0) {
+        RETURN_IF_ERROR(on_after_read_block(block, read_rows));
+    }
+    return Status::OK();
+}
+
+Status ParquetReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_current_group_reader == nullptr || _row_group_eof) {
         Status st = _next_row_group_reader();
         if (!st.ok() && !st.is<ErrorCode::END_OF_FILE>()) {
@@ -824,7 +915,9 @@ Status ParquetReader::_next_row_group_reader() {
 
     _current_group_reader->set_current_row_group_idx(_current_row_group_index);
     _current_group_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
+    _current_group_reader->set_row_lineage_columns(_row_lineage_columns);
     _current_group_reader->set_col_name_to_block_idx(_col_name_to_block_idx);
+    _current_group_reader->set_table_format_reader(this);
 
     _current_group_reader->_table_info_node_ptr = _table_info_node_ptr;
     return _current_group_reader->init(_file_metadata->schema(), candidate_row_ranges, _col_offsets,

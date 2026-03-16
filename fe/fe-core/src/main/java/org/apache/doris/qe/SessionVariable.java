@@ -538,6 +538,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // Target file size in bytes for Iceberg write operations
     public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
+    public static final String ENABLE_ICEBERG_MERGE_PARTITIONING = "enable_iceberg_merge_partitioning";
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
@@ -1465,6 +1466,18 @@ public class SessionVariable implements Serializable, Writable {
             affectQueryResultInPlan = true
     )
     public boolean showHiddenColumns = false;
+
+    // 内部变量，保留兼容性；实际由 ConnectContext.needIcebergRowId 控制
+    // 不对外暴露
+    private boolean needIcebergRowId = false;
+
+    public boolean needIcebergRowId() {
+        return needIcebergRowId;
+    }
+
+    public void setNeedIcebergRowId(boolean need) {
+        this.needIcebergRowId = need;
+    }
 
     @VariableMgr.VarAttr(name = ALLOW_PARTITION_COLUMN_NULLABLE, description = {
             "是否允许 NULLABLE 列作为 PARTITION 列。开启后，RANGE PARTITION 允许 NULLABLE PARTITION 列"
@@ -3531,6 +3544,11 @@ public class SessionVariable implements Serializable, Writable {
                             + "to exclude the impact of dangling delete files."})
     public boolean ignoreIcebergDanglingDelete = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_ICEBERG_MERGE_PARTITIONING,
+            description = {"是否启用 Iceberg UPDATE/DELETE 合并写入的双分支分发（INSERT 按分区列，DELETE 按 row_id）。",
+                    "Enable merge partitioning for Iceberg UPDATE/DELETE (INSERT by partition columns, "
+                            + "DELETE by row_id)."})
+    public boolean enableIcebergMergePartitioning = true;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -4634,6 +4652,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setIcebergWriteTargetFileSizeBytes(long icebergWriteTargetFileSizeBytes) {
         this.icebergWriteTargetFileSizeBytes = icebergWriteTargetFileSizeBytes;
+    }
+
+    public boolean isEnableIcebergMergePartitioning() {
+        return enableIcebergMergePartitioning;
     }
 
     public int getNumPartitionsInBatchMode() {
@@ -6096,6 +6118,7 @@ public class SessionVariable implements Serializable, Writable {
         return ignoreSplitType;
     }
 
+
     public void checkIgnoreSplitType(String value) {
         try {
             IgnoreSplitType.valueOf(value);
@@ -6104,6 +6127,7 @@ public class SessionVariable implements Serializable, Writable {
                     "We only support `NONE`, `IGNORE_JNI`, `IGNORE_NATIVE` and `IGNORE_PAIMON_CPP`");
         }
     }
+
 
     public boolean getUseConsistentHashForExternalScan() {
         return useConsistentHashForExternalScan;

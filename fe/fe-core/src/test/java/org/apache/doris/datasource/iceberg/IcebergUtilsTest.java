@@ -28,6 +28,7 @@ import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFile.PartitionFieldSummary;
+import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
@@ -100,6 +101,20 @@ public class IcebergUtilsTest {
         Field declaredField = hiveCatalog.getClass().getDeclaredField("listAllTables");
         declaredField.setAccessible(true);
         return declaredField.getBoolean(hiveCatalog);
+    }
+
+    @Test
+    public void testGetPartitionInfoMapSkipBinaryIdentityPartition() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "partition_bin", Types.BinaryType.get()));
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(schema).identity("partition_bin").build();
+        PartitionData partitionData = new PartitionData(partitionSpec.partitionType());
+        partitionData.set(0, ByteBuffer.wrap(new byte[] {0x0F, (byte) 0xF1, 0x02, (byte) 0xFD, (byte) 0xFE,
+                (byte) 0xFF}));
+
+        Map<String, String> partitionInfoMap = IcebergUtils.getPartitionInfoMap(partitionData, partitionSpec, "UTC");
+        Assert.assertNull(partitionInfoMap);
     }
 
     @Test

@@ -216,8 +216,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
                 DMLCommandType.INSERT,
                 Optional.empty(), // labelName
                 Optional.empty(), // branchName
-                sourceRelation);
-
+                sourceRelation, true);
         // Create RewriteTableCommand for rewrite operation
         return new RewriteTableCommand(
                 tableSink,

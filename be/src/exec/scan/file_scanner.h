@@ -125,6 +125,8 @@ protected:
     std::vector<SlotDescriptor*> _file_slot_descs;
     // col names from _file_slot_descs
     std::vector<std::string> _file_col_names;
+    // Unified column descriptors for init_reader (includes file, partition, missing, synthesized cols)
+    std::vector<ColumnDescriptor> _column_descs;
 
     // Partition source slot descriptors
     std::vector<SlotDescriptor*> _partition_slot_descs;
@@ -229,6 +231,7 @@ private:
 
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
+    std::shared_ptr<RowGroupReader::RowLineageColumns> _row_lineage_columns = nullptr;
     int64_t _last_bytes_read_from_local = 0;
     int64_t _last_bytes_read_from_remote = 0;
 
@@ -254,10 +257,10 @@ private:
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
     Status _generate_truncate_columns(bool need_to_get_parsed_schema);
     Status _set_fill_or_truncate_columns(bool need_to_get_parsed_schema);
-    Status _init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader,
-                            FileMetaCache* file_meta_cache_ptr);
-    Status _init_parquet_reader(std::unique_ptr<ParquetReader>&& parquet_reader,
-                                FileMetaCache* file_meta_cache_ptr);
+    Status _init_orc_reader(FileMetaCache* file_meta_cache_ptr,
+                            std::unique_ptr<OrcReader> orc_reader = nullptr);
+    Status _init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
+                                std::unique_ptr<ParquetReader> parquet_reader = nullptr);
     Status _create_row_id_column_iterator();
 
     TFileFormatType::type _get_current_format_type() {
