@@ -788,7 +788,8 @@ TEST_F(SpillFileTest, SeekToBlock) {
     st = reader->open();
     ASSERT_TRUE(st.ok());
 
-    reader->seek(2);
+    st = reader->seek(2);
+    ASSERT_TRUE(st.ok()) << st.to_string();
 
     Block block;
     bool eos = false;
@@ -833,7 +834,8 @@ TEST_F(SpillFileTest, SeekBeyondEnd) {
     ASSERT_TRUE(st.ok());
 
     // Seek beyond the end
-    reader->seek(100);
+    st = reader->seek(100);
+    ASSERT_TRUE(st.ok()) << st.to_string();
 
     Block block;
     bool eos = false;

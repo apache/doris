@@ -62,7 +62,7 @@ public:
     /// Seek to a global block index within the whole spill file.
     /// block_index is 0-based across all parts.
     /// If block_index is out of range, the reader is positioned at EOS.
-    void seek(size_t block_index);
+    Status seek(size_t block_index);
 
     Status close();
 

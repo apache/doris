@@ -138,6 +138,11 @@ Status PartitionedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* s
     RETURN_IF_ERROR(DataSinkOperatorX<PartitionedAggSinkLocalState>::init(tnode, state));
     _name = "PARTITIONED_AGGREGATION_SINK_OPERATOR";
     _partition_count = state->spill_aggregation_partition_count();
+    if (_partition_count < 2 || _partition_count > 32) {
+        return Status::InvalidArgument(fmt::format(
+                "Invalid partition count {} for PartitionedAggSinkOperatorX, should be in [2, 32]",
+                _partition_count));
+    }
     return _agg_sink_operator->init(tnode, state);
 }
 

@@ -678,22 +678,22 @@ public:
 
     int spill_aggregation_partition_count() const {
         if (_query_options.__isset.spill_aggregation_partition_count) {
-            return _query_options.spill_aggregation_partition_count;
+            return std::min(std::max(2, _query_options.spill_aggregation_partition_count), 32);
         }
-        return 32;
+        return 8;
     }
 
     int spill_hash_join_partition_count() const {
         if (_query_options.__isset.spill_hash_join_partition_count) {
-            return _query_options.spill_hash_join_partition_count;
+            return std::min(std::max(2, _query_options.spill_hash_join_partition_count), 32);
         }
-        return 4;
+        return 8;
     }
 
     int spill_repartition_max_depth() const {
         if (_query_options.__isset.spill_repartition_max_depth) {
             // Clamp to a reasonable range: [1, 128]
-            return std::min(_query_options.spill_repartition_max_depth, 128);
+            return std::max(1, std::min(_query_options.spill_repartition_max_depth, 128));
         }
         return 8;
     }

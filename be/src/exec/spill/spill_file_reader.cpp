@@ -203,10 +203,8 @@ Status SpillFileReader::read(Block* block, bool* eos) {
     return Status::OK();
 }
 
-void SpillFileReader::seek(size_t block_index) {
-    auto st = _seek_to_block(block_index);
-    DCHECK(st.ok()) << "SpillFileReader::seek failed, block_index=" << block_index
-                    << ", error=" << st.to_string();
+Status SpillFileReader::seek(size_t block_index) {
+    return _seek_to_block(block_index);
 }
 
 Status SpillFileReader::_seek_to_block(size_t block_index) {

@@ -86,7 +86,7 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, Block* b
             auto& reader = reader_item->reader;
             RETURN_IF_ERROR(reader->open());
             if (reader_item->block_offset != 0) {
-                reader->seek(reader_item->block_offset);
+                RETURN_IF_ERROR(reader->seek(reader_item->block_offset));
                 reader_item->block_offset = 0;
             }
 

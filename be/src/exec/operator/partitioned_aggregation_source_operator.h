@@ -61,16 +61,6 @@ public:
 
     bool is_blockable() const override;
 
-    /// Flush the current in-memory hash table by draining it as blocks and routing
-    /// each block through the repartitioner into the output sub-spill-files.
-    Status flush_hash_table_to_sub_spill_files(RuntimeState* state);
-
-    /// Flush the in-memory hash table into FANOUT sub-spill-files, repartition remaining
-    /// unread spill files from `remaining_spill_files`, and push resulting sub-partitions into
-    /// `_partition_queue`. After this call the hash table is reset and
-    /// `remaining_spill_files` is cleared.
-    Status flush_and_repartition(RuntimeState* state);
-
 private:
     friend class PartitionedAggSourceOperatorX;
 
@@ -165,7 +155,7 @@ private:
     // number of spill partitions configured for this operator
     size_t _partition_count = 0;
     // max repartition depth (configured from session variable in FE)
-    size_t _repartition_max_depth = SpillRepartitioner::MAX_DEPTH;
+    int _repartition_max_depth = SpillRepartitioner::MAX_DEPTH;
 };
 #include "common/compile_check_end.h"
 } // namespace doris

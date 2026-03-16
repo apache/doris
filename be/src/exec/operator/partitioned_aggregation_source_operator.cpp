@@ -288,6 +288,7 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, Block* bloc
         return Status::OK();
     }
 
+    auto* memory_sufficient_dependency = state->get_query_ctx()->get_memory_sufficient_dependency();
     // Phase 3: Merge recovered blocks into hash table.
     if (!local_state._blocks.empty()) {
         size_t merged_rows = 0;
@@ -298,7 +299,12 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, Block* bloc
             status = _agg_source_operator->merge_with_serialized_key_helper(
                     local_state._runtime_state.get(), &blk);
             RETURN_IF_ERROR(status);
+
+            if (memory_sufficient_dependency && !memory_sufficient_dependency->ready()) {
+                break;
+            }
         }
+
         local_state._estimate_memory_usage +=
                 _agg_source_operator->get_estimated_memory_size_for_merging(
                         local_state._runtime_state.get(), merged_rows);
@@ -425,7 +431,7 @@ Status PartitionedAggLocalState::_flush_hash_table_to_sub_spill_files(RuntimeSta
     auto& p = _parent->cast<PartitionedAggSourceOperatorX>();
     auto* in_mem_state = _shared_state->_in_mem_shared_state;
 
-    // setup_output must have been called by the caller (flush_and_repartition)
+    // setup_output must have been called by the caller (_flush_and_repartition)
     // before calling this function. The repartitioner writes to the persistent output writers.
 
     in_mem_state->aggregate_data_container->init_once();
@@ -450,12 +456,12 @@ Status PartitionedAggLocalState::_flush_and_repartition(RuntimeState* state) {
     if (new_level >= p._repartition_max_depth) {
         return Status::InternalError(
                 "query:{}, node:{}, Agg spill repartition exceeded max depth {} during "
-                "flush_and_repartition. Likely due to extreme data skew.",
+                "_flush_and_repartition. Likely due to extreme data skew.",
                 print_id(state->query_id()), p.node_id(), p._repartition_max_depth);
     }
 
     VLOG_DEBUG << fmt::format(
-            "Query:{}, agg source:{}, task:{}, flush_and_repartition: "
+            "Query:{}, agg source:{}, task:{}, _flush_and_repartition: "
             "flushing hash table and repartitioning remaining spill file at level {} -> {}",
             print_id(state->query_id()), p.node_id(), state->task_id(), _current_partition.level,
             new_level);

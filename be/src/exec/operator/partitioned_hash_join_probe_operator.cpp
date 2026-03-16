@@ -535,6 +535,12 @@ PartitionedHashJoinProbeOperatorX::PartitionedHashJoinProbeOperatorX(ObjectPool*
 
 Status PartitionedHashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     _partition_count = state->spill_hash_join_partition_count();
+    if (_partition_count < 2 || _partition_count > 32) {
+        return Status::InternalError(
+                "query:{}, node:{}, invalid partition count {}. Must be between 2 and 32.",
+                print_id(state->query_id()), node_id(), _partition_count);
+    }
+
     // default repartition max depth; can be overridden from session variable
     _repartition_max_depth = state->spill_repartition_max_depth();
     RETURN_IF_ERROR(JoinProbeOperatorX::init(tnode, state));
@@ -902,7 +908,7 @@ size_t PartitionedHashJoinProbeOperatorX::get_reserve_mem_size(RuntimeState* sta
     const bool about_to_build = local_state._current_partition.is_valid() &&
                                 !local_state._current_partition.build_finished;
 
-    if (about_to_build) {
+    if (about_to_build && local_state._recovered_build_block) {
         // Estimate rows that will land in the hash table so we can reserve
         // enough for JoinHashTable::first[] + JoinHashTable::next[].
         size_t rows = std::max(static_cast<size_t>(state->batch_size()),
