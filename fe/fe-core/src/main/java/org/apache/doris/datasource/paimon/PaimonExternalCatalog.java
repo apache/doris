@@ -24,13 +24,13 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.catalog.Catalog;
-import org.apache.paimon.catalog.Catalog.TableNotExistException;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 
@@ -67,6 +67,7 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         catalogType = paimonProperties.getPaimonCatalogType();
         catalog = createCatalog();
         initPreExecutionAuthenticator();
+        metadataOps = ExternalMetadataOperations.newPaimonMetaOps(this, catalog);
     }
 
     @Override
@@ -81,49 +82,16 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         return catalogType;
     }
 
-    protected List<String> listDatabaseNames() {
-        try {
-            return executionAuthenticator.execute(() -> new ArrayList<>(catalog.listDatabases()));
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to list databases names, catalog name: " + getName(), e);
-        }
-    }
-
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
-        try {
-            return executionAuthenticator.execute(() -> {
-                try {
-                    catalog.getTable(Identifier.create(dbName, tblName));
-                    return true;
-                } catch (TableNotExistException e) {
-                    return false;
-                }
-            });
-
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to check table existence, catalog name: " + getName()
-                    + "error message is:" + ExceptionUtils.getRootCauseMessage(e), e);
-        }
+        return metadataOps.tableExist(dbName, tblName);
     }
 
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        try {
-            return executionAuthenticator.execute(() -> {
-                List<String> tableNames = null;
-                try {
-                    tableNames = catalog.listTables(dbName);
-                } catch (Catalog.DatabaseNotExistException e) {
-                    LOG.warn("DatabaseNotExistException", e);
-                }
-                return tableNames;
-            });
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to list table names, catalog name: " + getName(), e);
-        }
+        return metadataOps.listTableNames(dbName);
     }
 
     public List<Partition> getPaimonPartitions(NameMapping nameMapping) {
