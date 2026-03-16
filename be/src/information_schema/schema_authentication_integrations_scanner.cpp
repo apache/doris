@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <utility>
-
 #include "information_schema/schema_authentication_integrations_scanner.h"
+
+#include <utility>
 
 #include "core/block/block.h"
 #include "core/data_type/data_type_factory.hpp"
