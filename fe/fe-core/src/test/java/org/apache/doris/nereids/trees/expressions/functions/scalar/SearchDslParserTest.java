@@ -2605,6 +2605,33 @@ public class SearchDslParserTest {
     }
 
     @Test
+    public void testNestedQueryMustBeTopLevelInAndLuceneMode() {
+        String dsl = "title:hello AND NESTED(data, data.msg:hello)";
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
+            SearchDslParser.parseDsl(dsl, "{\"mode\":\"lucene\"}");
+        });
+        Assertions.assertTrue(exception.getMessage().contains("NESTED clause must be evaluated at top level"));
+    }
+
+    @Test
+    public void testNestedQueryMustBeTopLevelInOrLuceneMode() {
+        String dsl = "NESTED(data, data.msg:hello) OR title:hello";
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
+            SearchDslParser.parseDsl(dsl, "{\"mode\":\"lucene\"}");
+        });
+        Assertions.assertTrue(exception.getMessage().contains("NESTED clause must be evaluated at top level"));
+    }
+
+    @Test
+    public void testNestedQueryMustBeTopLevelInNotLuceneMode() {
+        String dsl = "NOT NESTED(data, data.msg:hello)";
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
+            SearchDslParser.parseDsl(dsl, "{\"mode\":\"lucene\"}");
+        });
+        Assertions.assertTrue(exception.getMessage().contains("NESTED clause must be evaluated at top level"));
+    }
+
+    @Test
     public void testMultiFieldMatchAllDocsPreservesOccurInOrQuery() {
         // Test: '"Lauren Boebert" OR *' with multi-field + lucene mode + best_fields
         // Bug: expandCrossFields was dropping the SHOULD occur on MATCH_ALL_DOCS nodes,

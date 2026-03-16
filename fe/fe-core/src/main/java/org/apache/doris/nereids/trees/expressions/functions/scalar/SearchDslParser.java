@@ -2308,6 +2308,10 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
             } else if (atomCtx.fieldGroupQuery() != null) {
                 // Field group query (e.g., title:(rock OR jazz))
                 node = visit(atomCtx.fieldGroupQuery());
+            } else if (atomCtx.nestedQuery() != null) {
+                // Let NESTED() parse normally here so validateNestedTopLevelOnly()
+                // can reject non-top-level usage with the intended error message.
+                node = visit(atomCtx.nestedQuery());
             } else if (atomCtx.fieldQuery() != null) {
                 // Field query with explicit field prefix
                 node = visit(atomCtx.fieldQuery());
@@ -2506,10 +2510,16 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
                 throw new RuntimeException("Invalid NESTED clause: missing path");
             }
             String nestedPath = ctx.NESTED_PATH().getText();
-            QsNode innerQuery = visit(ctx.clause());
+            String effectiveField = (currentFieldName != null && !currentFieldName.isEmpty())
+                    ? currentFieldName : getEffectiveDefaultField();
+            // NESTED() keeps the inner predicate as a regular boolean tree instead of
+            // Lucene occur semantics so BE can evaluate it within one nested element.
+            QsAstBuilder innerVisitor = new QsAstBuilder(effectiveField, options.getDefaultOperator());
+            QsNode innerQuery = innerVisitor.visit(ctx.clause());
             if (innerQuery == null) {
                 throw new RuntimeException("Invalid NESTED clause: missing inner query");
             }
+            fieldNames.addAll(innerVisitor.getFieldNames());
 
             validateNestedFieldPaths(innerQuery, nestedPath);
 
