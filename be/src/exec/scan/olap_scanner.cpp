@@ -287,7 +287,10 @@ Status OlapScanner::_init_tablet_reader_params(
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
     const bool single_version = _tablet_reader_params.has_single_version();
 
-    if (_state->skip_storage_engine_merge()) {
+    auto* olap_local_state = static_cast<OlapScanLocalState*>(_local_state);
+    bool read_mor_as_dup = olap_local_state->olap_scan_node().__isset.read_mor_as_dup &&
+                           olap_local_state->olap_scan_node().read_mor_as_dup;
+    if (_state->skip_storage_engine_merge() || read_mor_as_dup) {
         _tablet_reader_params.direct_mode = true;
         _tablet_reader_params.aggregation = true;
     } else {
@@ -408,6 +411,13 @@ Status OlapScanner::_init_tablet_reader_params(
     if (!_state->skip_storage_engine_merge()) {
         auto* olap_scan_local_state = (OlapScanLocalState*)_local_state;
         TOlapScanNode& olap_scan_node = olap_scan_local_state->olap_scan_node();
+
+        // Set MOR value predicate pushdown flag
+        if (olap_scan_node.__isset.enable_mor_value_predicate_pushdown &&
+            olap_scan_node.enable_mor_value_predicate_pushdown) {
+            _tablet_reader_params.enable_mor_value_predicate_pushdown = true;
+        }
+
         // order by table keys optimization for topn
         // will only read head/tail of data file since it's already sorted by keys
         if (olap_scan_node.__isset.sort_info && !olap_scan_node.sort_info.is_asc_order.empty()) {

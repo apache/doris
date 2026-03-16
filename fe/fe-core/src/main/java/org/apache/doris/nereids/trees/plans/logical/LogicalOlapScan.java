@@ -785,6 +785,13 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                     && getTable().getKeysType() == KeysType.UNIQUE_KEYS) {
                 return;
             }
+            // When readMorAsDup is enabled, MOR tables are read as DUP, so uniqueness cannot be guaranteed.
+            if (getTable().getKeysType() == KeysType.UNIQUE_KEYS
+                    && getTable().isMorTable()
+                    && ConnectContext.get().getSessionVariable().isReadMorAsDupEnabled(
+                        getTable().getQualifiedDbName(), getTable().getName())) {
+                return;
+            }
             ImmutableSet.Builder<Slot> uniqSlots = ImmutableSet.builderWithExpectedSize(outputSet.size());
             for (Slot slot : outputSet) {
                 if (!(slot instanceof SlotReference)) {
