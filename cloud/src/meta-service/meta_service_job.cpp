@@ -163,8 +163,9 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
         }
     }
 
-    if (compaction.base_compaction_cnt() < stats.base_compaction_cnt() ||
-        compaction.cumulative_compaction_cnt() < stats.cumulative_compaction_cnt()) {
+    if (compaction.type() != TabletCompactionJobPB::STOP_TOKEN &&
+        (compaction.base_compaction_cnt() < stats.base_compaction_cnt() ||
+         compaction.cumulative_compaction_cnt() < stats.cumulative_compaction_cnt())) {
         code = MetaServiceCode::STALE_TABLET_CACHE;
         SS << "could not perform compaction on expired tablet cache."
            << " req_base_compaction_cnt=" << compaction.base_compaction_cnt()
