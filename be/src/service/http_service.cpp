@@ -281,9 +281,8 @@ Status HttpService::start() {
     ShrinkMemAction* shrink_mem_action = _pool.add(new ShrinkMemAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/shrink_mem", shrink_mem_action);
 
-    CompactionProfileAction* compaction_profile_action =
-            _pool.add(new CompactionProfileAction(_env, TPrivilegeHier::GLOBAL,
-                                                   TPrivilegeType::ADMIN));
+    CompactionProfileAction* compaction_profile_action = _pool.add(
+            new CompactionProfileAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/profile",
                                       compaction_profile_action);
 

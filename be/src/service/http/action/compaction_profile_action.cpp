@@ -33,7 +33,7 @@
 namespace doris {
 
 CompactionProfileAction::CompactionProfileAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
-                                                  TPrivilegeType::type ptype)
+                                                 TPrivilegeType::type ptype)
         : HttpHandlerWithAuth(exec_env, hier, ptype) {}
 
 void CompactionProfileAction::handle(HttpRequest* req) {
@@ -46,7 +46,7 @@ void CompactionProfileAction::handle(HttpRequest* req) {
     if (!tablet_id_str.empty()) {
         try {
             tablet_id = std::stoll(tablet_id_str);
-        } catch (const std::exception& e) {
+        } catch (const std::exception&) {
             HttpChannel::send_reply(
                     req, HttpStatus::BAD_REQUEST,
                     R"({"status": "Failed", "msg": "invalid tablet_id parameter"})");
@@ -58,10 +58,14 @@ void CompactionProfileAction::handle(HttpRequest* req) {
     if (!top_n_str.empty()) {
         try {
             top_n = std::stoll(top_n_str);
-        } catch (const std::exception& e) {
-            HttpChannel::send_reply(
-                    req, HttpStatus::BAD_REQUEST,
-                    R"({"status": "Failed", "msg": "invalid top_n parameter"})");
+        } catch (const std::exception&) {
+            HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST,
+                                    R"({"status": "Failed", "msg": "invalid top_n parameter"})");
+            return;
+        }
+        if (top_n < 0) {
+            HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST,
+                                    R"({"status": "Failed", "msg": "top_n must be non-negative"})");
             return;
         }
     }

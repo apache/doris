@@ -55,7 +55,9 @@ private:
 
 protected:
     std::string_view compaction_name() const override { return "CloudIndexChangeCompaction"; }
-    CompactionProfileType profile_type() const override { return CompactionProfileType::INDEX_CHANGE; }
+    CompactionProfileType profile_type() const override {
+        return CompactionProfileType::INDEX_CHANGE;
+    }
     int64_t input_segments_num() const override { return _input_segments; }
 
     // if cumu rowset is modified, cumu compaction should sync rowset before execute.

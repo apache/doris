@@ -17,14 +17,14 @@
 
 #pragma once
 
+#include <rapidjson/document.h>
+
 #include <atomic>
 #include <cstdint>
 #include <deque>
 #include <shared_mutex>
 #include <string>
 #include <vector>
-
-#include <rapidjson/document.h>
 
 namespace doris {
 

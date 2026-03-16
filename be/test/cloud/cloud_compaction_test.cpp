@@ -239,6 +239,8 @@ public:
     ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
 
     std::string_view compaction_name() const override { return "test_compaction"; }
+
+    CompactionProfileType profile_type() const override { return CompactionProfileType::BASE; }
 };
 
 TEST_F(CloudCompactionTest, test_set_storage_resource_from_input_rowsets) {

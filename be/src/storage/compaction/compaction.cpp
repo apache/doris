@@ -157,12 +157,12 @@ Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
         : _mem_tracker(
                   MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::COMPACTION, label)),
           _tablet(std::move(tablet)),
+          _compaction_id(CompactionProfileManager::instance()->next_compaction_id()),
           _is_vertical(config::enable_vertical_compaction),
           _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction),
           _enable_vertical_compact_variant_subcolumns(
                   config::enable_vertical_compact_variant_subcolumns),
-          _enable_inverted_index_compaction(config::inverted_index_compaction_enable),
-          _compaction_id(CompactionProfileManager::instance()->next_compaction_id()) {
+          _enable_inverted_index_compaction(config::inverted_index_compaction_enable) {
     init_profile(label);
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     _rowid_conversion = std::make_unique<RowIdConversion>();
@@ -582,7 +582,11 @@ Status CompactionMixin::execute_compact() {
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
                                          _input_rowsets.back()->end_version(), &checksum_before);
-        RETURN_IF_ERROR(checksum_task.execute());
+        auto checksum_before_st = checksum_task.execute();
+        if (!checksum_before_st.ok()) {
+            submit_profile_record(false, profile_start_time_ms, checksum_before_st.to_string());
+            return checksum_before_st;
+        }
     }
 
     auto* data_dir = tablet()->data_dir();
@@ -609,8 +613,8 @@ Status CompactionMixin::execute_compact() {
         record_compaction_stats(e);
         if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {
             impl_status = Status::MemoryLimitExceeded(fmt::format(
-                    "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}", e.code(),
-                    e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));
+                    "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}",
+                    e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));
         } else {
             impl_status = e.to_status();
         }
@@ -1754,9 +1758,9 @@ Status CloudCompactionMixin::execute_compact() {
         auto st = garbage_collection();
         if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
             _tablet->enable_unique_key_merge_on_write() && !st.ok()) {
-            _engine.meta_mgr().remove_delete_bitmap_update_lock(
-                    _tablet->table_id(), COMPACTION_DELETE_BITMAP_LOCK_ID, initiator(),
-                    _tablet->tablet_id());
+            _engine.meta_mgr().remove_delete_bitmap_update_lock(_tablet->table_id(),
+                                                                COMPACTION_DELETE_BITMAP_LOCK_ID,
+                                                                initiator(), _tablet->tablet_id());
         }
     };
 
@@ -1773,8 +1777,8 @@ Status CloudCompactionMixin::execute_compact() {
         cloud_exception_handler(e);
         if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {
             impl_status = Status::MemoryLimitExceeded(fmt::format(
-                    "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}", e.code(),
-                    e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));
+                    "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}",
+                    e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));
         } else {
             impl_status = e.to_status();
         }

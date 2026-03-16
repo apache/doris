@@ -41,7 +41,9 @@ public:
 
 protected:
     std::string_view compaction_name() const override { return "single replica compaction"; }
-    CompactionProfileType profile_type() const override { return CompactionProfileType::SINGLE_REPLICA; }
+    CompactionProfileType profile_type() const override {
+        return CompactionProfileType::SINGLE_REPLICA;
+    }
     ReaderType compaction_type() const override {
         return (_compaction_type == CompactionType::CUMULATIVE_COMPACTION)
                        ? ReaderType::READER_CUMULATIVE_COMPACTION

@@ -59,8 +59,8 @@ void CompactionProfileRecord::to_json(rapidjson::Value& obj,
                                       rapidjson::Document::AllocatorType& allocator) const {
     obj.SetObject();
     obj.AddMember("compaction_id", compaction_id, allocator);
-    obj.AddMember("compaction_type",
-                  rapidjson::Value(doris::to_string(compaction_type), allocator), allocator);
+    obj.AddMember("compaction_type", rapidjson::Value(doris::to_string(compaction_type), allocator),
+                  allocator);
     obj.AddMember("tablet_id", tablet_id, allocator);
     add_time_string(obj, "start_time", start_time_ms, allocator);
     add_time_string(obj, "end_time", end_time_ms, allocator);

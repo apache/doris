@@ -39,7 +39,9 @@ public:
 
 private:
     std::string_view compaction_name() const override { return "cumulative compaction"; }
-    CompactionProfileType profile_type() const override { return CompactionProfileType::CUMULATIVE; }
+    CompactionProfileType profile_type() const override {
+        return CompactionProfileType::CUMULATIVE;
+    }
 
     ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
 

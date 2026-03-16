@@ -40,8 +40,8 @@
 #include "util/brpc_client_cache.h"
 #include "util/client_cache.h"
 #include "util/security.h"
-#include "util/time.h"
 #include "util/thrift_rpc_helper.h"
+#include "util/time.h"
 #include "util/trace.h"
 
 namespace doris {
