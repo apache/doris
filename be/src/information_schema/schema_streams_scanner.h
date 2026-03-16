@@ -22,7 +22,6 @@
 
 #include "common/status.h"
 #include "information_schema/schema_scanner.h"
-#include "gen_cpp/FrontendService_types.h"
 
 namespace doris {
 

@@ -17,18 +17,19 @@
 
 #include "information_schema/schema_streams_scanner.h"
 
-#include <gen_cpp/FrontendService_types.h>
+#include "gen_cpp/FrontendService_types.h"
+
 #include <cstddef>
 
-#include "information_schema/schema_helper.h"
-#include "util/client_cache.h"
-#include "core/data_type/define_primitive_type.h"
-#include "runtime/exec_env.h"
-#include "runtime/runtime_state.h"
-#include "util/thrift_rpc_helper.h"
-#include "core/string_ref.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/define_primitive_type.h"
+#include "core/string_ref.h"
+#include "information_schema/schema_helper.h"
+#include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
+#include "util/client_cache.h"
+#include "util/thrift_rpc_helper.h"
 
 namespace doris {
 
@@ -84,10 +85,10 @@ Status SchemaStreamsScanner::_get_streams_block_from_fe() {
 
     _streams_block = Block::create_unique();
     for (int i = 0; i < _s_streams_columns.size(); ++i) {
-        auto data_type = DataTypeFactory::instance().create_data_type(
-                _s_streams_columns[i].type, true);
-        _streams_block->insert(ColumnWithTypeAndName(
-                data_type->create_column(), data_type, _s_streams_columns[i].name));
+        auto data_type =
+                DataTypeFactory::instance().create_data_type(_s_streams_columns[i].type, true);
+        _streams_block->insert(ColumnWithTypeAndName(data_type->create_column(), data_type,
+                                                     _s_streams_columns[i].name));
     }
 
     _streams_block->reserve(_block_rows_limit);
@@ -102,8 +103,7 @@ Status SchemaStreamsScanner::_get_streams_block_from_fe() {
     for (int i = 0; i < result_data.size(); i++) {
         TRow row = result_data[i];
         for (int j = 0; j < _s_streams_columns.size(); j++) {
-            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j,
-                                                _streams_block.get(),
+            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j, _streams_block.get(),
                                                 _s_streams_columns[j].type));
         }
     }
