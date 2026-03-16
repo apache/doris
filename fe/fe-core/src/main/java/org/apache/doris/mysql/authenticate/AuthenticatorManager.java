@@ -43,6 +43,16 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.ServiceLoader;
 
+/**
+ * MySQL authenticator entry that keeps legacy auth-type compatibility while supporting plugin-based authenticators.
+ *
+ * <p>The compatibility rules are:
+ * <ul>
+ *     <li>{@code password} remains an alias of {@code default}</li>
+ *     <li>built-in and customer legacy {@link AuthenticatorFactory} implementations are resolved first</li>
+ *     <li>authentication plugins are used as the fallback when no legacy factory matches</li>
+ * </ul>
+ */
 public class AuthenticatorManager {
     private static final Logger LOG = LogManager.getLogger(AuthenticatorManager.class);
 
@@ -75,6 +85,9 @@ public class AuthenticatorManager {
         }
     }
 
+    /**
+     * Normalize auth-type names so old config values keep their historical meaning.
+     */
     private String normalizeAuthTypeIdentifier(String type) {
         if (type == null) {
             return AuthenticateType.DEFAULT.name();
@@ -89,6 +102,9 @@ public class AuthenticatorManager {
     }
 
 
+    /**
+     * Preserve the old resolution order: legacy factories first, plugin authenticator second.
+     */
     private Authenticator loadFactoriesByName(String identifier) throws Exception {
         Authenticator authenticator = loadLegacyFactoryByName(identifier);
         if (authenticator != null) {
