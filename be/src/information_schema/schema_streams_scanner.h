@@ -37,6 +37,7 @@ public:
 
     Status start(RuntimeState* state) override;
     Status get_next_block_internal(Block* block, bool* eos) override;
+
 private:
     Status _get_streams_block_from_fe();
     int _block_rows_limit = 4096;
