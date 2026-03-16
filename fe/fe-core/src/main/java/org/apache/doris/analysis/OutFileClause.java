@@ -188,10 +188,6 @@ public class OutFileClause {
         return deleteExistingFiles;
     }
 
-    public void markDeleteExistingFilesHandledInFe() {
-        deleteExistingFiles = false;
-    }
-
     public BrokerDesc getBrokerDesc() {
         return brokerDesc;
     }

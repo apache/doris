@@ -108,8 +108,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.GroupCommitScanNode;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
@@ -1558,7 +1560,19 @@ public class StmtExecutor {
             return;
         }
         BrokerUtil.deleteParentDirectoryWithFileSystem(outFileClause.getFilePath(), outFileClause.getBrokerDesc());
-        outFileClause.markDeleteExistingFilesHandledInFe();
+        clearDeleteExistingFilesInPlan();
+    }
+
+    private void clearDeleteExistingFilesInPlan() {
+        ResultFileSink resultFileSink = null;
+        for (PlanFragment fragment : planner.getFragments()) {
+            if (fragment.getSink() instanceof ResultFileSink) {
+                Preconditions.checkState(resultFileSink == null, "OUTFILE query should have only one ResultFileSink");
+                resultFileSink = (ResultFileSink) fragment.getSink();
+            }
+        }
+        Preconditions.checkState(resultFileSink != null, "OUTFILE query must have ResultFileSink");
+        resultFileSink.setDeleteExistingFiles(false);
     }
 
     public static void syncLoadForTablets(List<List<Backend>> backendsList, List<Long> allTabletIds) {
