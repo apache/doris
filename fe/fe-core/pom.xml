@@ -579,12 +579,6 @@ under the License.
         </dependency>
 
         <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-oss</artifactId>
-            <version>${paimon.version}</version>
-        </dependency>
-
-        <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>glue</artifactId>
             <exclusions>
