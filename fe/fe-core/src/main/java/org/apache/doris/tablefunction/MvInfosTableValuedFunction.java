@@ -21,7 +21,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TBDPAuthContext;
 import org.apache.doris.thrift.TMaterializedViewsMetadataParams;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
@@ -110,6 +112,11 @@ public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
             LOG.debug("getMetaScanRange() start");
         }
         TMetaScanRange metaScanRange = new TMetaScanRange();
+        if (BDPAuthContext.get() != null) {
+            BDPAuthContext bdpAuthContext = BDPAuthContext.get();
+            metaScanRange.setBdpAuthContext(new TBDPAuthContext(bdpAuthContext.getSource(), bdpAuthContext.getErp(),
+                    bdpAuthContext.getHadoopUserName(), bdpAuthContext.getUserToken()));
+        }
         metaScanRange.setMetadataType(TMetadataType.MATERIALIZED_VIEWS);
         TMaterializedViewsMetadataParams mtmvParam = new TMaterializedViewsMetadataParams();
         mtmvParam.setDatabase(databaseName);
