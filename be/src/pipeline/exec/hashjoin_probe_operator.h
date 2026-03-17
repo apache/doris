@@ -40,7 +40,9 @@ using HashTableCtxVariants =
                      ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN>,
                      ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>>;
+                     ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::ASOF_LEFT_INNER_JOIN>,
+                     ProcessHashTableProbe<TJoinOp::ASOF_LEFT_OUTER_JOIN>>;
 
 class HashJoinProbeOperatorX;
 class HashJoinProbeLocalState MOCK_REMOVE(final)
@@ -78,6 +80,8 @@ private:
     template <int JoinOpType>
     friend struct ProcessHashTableProbe;
 
+    // one probe row may match multiple build rows. and we need output whenever we filled a block.
+    // so we use _probe_index to record the current probe row index for multi times do probe for one probe block.
     int _probe_index = -1;
     uint32_t _build_index = 0;
     bool _ready_probe = false;
@@ -115,6 +119,11 @@ private:
     RuntimeProfile::Counter* _init_probe_side_timer = nullptr;
     RuntimeProfile::Counter* _build_side_output_timer = nullptr;
     RuntimeProfile::Counter* _non_equal_join_conjuncts_timer = nullptr;
+
+    // ASOF probe counters
+    RuntimeProfile::Counter* _asof_probe_expr_timer = nullptr;
+    RuntimeProfile::Counter* _asof_probe_hash_chain_timer = nullptr;
+    RuntimeProfile::Counter* _asof_probe_search_timer = nullptr;
 };
 
 class HashJoinProbeOperatorX MOCK_REMOVE(final)
@@ -187,6 +196,10 @@ private:
 
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
+
+    // ASOF JOIN: probe-side expression extracted from MATCH_CONDITION's left child
+    // Prepared against probe child's row_desc directly
+    vectorized::VExprContextSPtr _asof_probe_expr;
 
     vectorized::DataTypes _right_table_data_types;
     vectorized::DataTypes _left_table_data_types;

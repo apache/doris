@@ -377,44 +377,8 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_table_field_id(
 }
 
 Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id(
-        const schema::external::TStructField& table_schema,
-        const FieldDescriptor& parquet_field_desc,
-        std::shared_ptr<TableSchemaChangeHelper::Node>& node, bool& exist_field_id) {
-    auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
-    auto parquet_fields_schema = parquet_field_desc.get_fields_schema();
-    std::map<int32_t, size_t> file_column_id_idx_map;
-    for (size_t idx = 0; idx < parquet_fields_schema.size(); idx++) {
-        if (parquet_fields_schema[idx].field_id == -1) {
-            exist_field_id = false;
-            return Status::OK();
-        } else {
-            file_column_id_idx_map.emplace(parquet_fields_schema[idx].field_id, idx);
-        }
-    }
-
-    for (const auto& table_field : table_schema.fields) {
-        const auto& table_column_name = table_field.field_ptr->name;
-
-        if (file_column_id_idx_map.contains(table_field.field_ptr->id)) {
-            auto file_column_idx = file_column_id_idx_map[table_field.field_ptr->id];
-            std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
-            RETURN_IF_ERROR(by_parquet_field_id(*table_field.field_ptr,
-                                                parquet_fields_schema[file_column_idx], field_node,
-                                                exist_field_id));
-            struct_node->add_children(table_column_name,
-                                      parquet_fields_schema[file_column_idx].name, field_node);
-        } else {
-            struct_node->add_not_exist_children(table_column_name);
-        }
-    }
-
-    node = struct_node;
-    return Status::OK();
-}
-
-Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id(
         const schema::external::TField& table_schema, const FieldSchema& parquet_field,
-        std::shared_ptr<TableSchemaChangeHelper::Node>& node, bool& exist_field_id) {
+        const bool exist_field_id, std::shared_ptr<TableSchemaChangeHelper::Node>& node) {
     switch (table_schema.type.type) {
     case TPrimitiveType::MAP: {
         if (parquet_field.data_type->get_primitive_type() != TYPE_MAP) [[unlikely]] {
@@ -433,11 +397,11 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id(
         std::shared_ptr<TableSchemaChangeHelper::Node> value_node = nullptr;
 
         RETURN_IF_ERROR(by_parquet_field_id(*table_schema.nestedField.map_field.key_field.field_ptr,
-                                            parquet_field.children[0], key_node, exist_field_id));
+                                            parquet_field.children[0], exist_field_id, key_node));
 
         RETURN_IF_ERROR(
                 by_parquet_field_id(*table_schema.nestedField.map_field.value_field.field_ptr,
-                                    parquet_field.children[1], value_node, exist_field_id));
+                                    parquet_field.children[1], exist_field_id, value_node));
 
         node = std::make_shared<TableSchemaChangeHelper::MapNode>(key_node, value_node);
         break;
@@ -456,7 +420,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id(
         std::shared_ptr<TableSchemaChangeHelper::Node> element_node = nullptr;
         RETURN_IF_ERROR(
                 by_parquet_field_id(*table_schema.nestedField.array_field.item_field.field_ptr,
-                                    parquet_field.children[0], element_node, exist_field_id));
+                                    parquet_field.children[0], exist_field_id, element_node));
 
         node = std::make_shared<TableSchemaChangeHelper::ArrayNode>(element_node);
         break;
@@ -470,27 +434,56 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id(
 
         auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
 
-        std::map<int32_t, size_t> file_column_id_idx_map;
-        for (size_t idx = 0; idx < parquet_field.children.size(); idx++) {
-            if (parquet_field.children[idx].field_id == -1) {
-                exist_field_id = false;
-                return Status::OK();
-            } else {
+        if (exist_field_id) {
+            std::map<int32_t, size_t> file_column_id_idx_map;
+            for (size_t idx = 0; idx < parquet_field.children.size(); idx++) {
+                DCHECK_NE(parquet_field.children[idx].field_id, -1);
                 file_column_id_idx_map.emplace(parquet_field.children[idx].field_id, idx);
             }
-        }
 
-        for (const auto& table_field : table_schema.nestedField.struct_field.fields) {
-            const auto& table_column_name = table_field.field_ptr->name;
-            if (file_column_id_idx_map.contains(table_field.field_ptr->id)) {
-                const auto& file_field = parquet_field.children.at(
-                        file_column_id_idx_map[table_field.field_ptr->id]);
-                std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
-                RETURN_IF_ERROR(by_parquet_field_id(*table_field.field_ptr, file_field, field_node,
-                                                    exist_field_id));
-                struct_node->add_children(table_column_name, file_field.name, field_node);
-            } else {
-                struct_node->add_not_exist_children(table_column_name);
+            for (const auto& table_field : table_schema.nestedField.struct_field.fields) {
+                const auto& table_column_name = table_field.field_ptr->name;
+                if (file_column_id_idx_map.contains(table_field.field_ptr->id)) {
+                    const auto& file_field = parquet_field.children.at(
+                            file_column_id_idx_map[table_field.field_ptr->id]);
+                    std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
+                    RETURN_IF_ERROR(by_parquet_field_id(*table_field.field_ptr, file_field,
+                                                        exist_field_id, field_node));
+                    struct_node->add_children(table_column_name, file_field.name, field_node);
+                } else {
+                    struct_node->add_not_exist_children(table_column_name);
+                }
+            }
+        } else {
+            std::map<std::string, size_t> file_column_idx_map;
+            for (size_t idx = 0; idx < parquet_field.children.size(); idx++) {
+                file_column_idx_map.emplace(parquet_field.children[idx].name, idx);
+            }
+
+            for (const auto& table_field : table_schema.nestedField.struct_field.fields) {
+                const auto& table_column_name = table_field.field_ptr->name;
+                if (!table_field.field_ptr->__isset.name_mapping ||
+                    table_field.field_ptr->name_mapping.size() == 0) {
+                    return Status::DataQualityError(
+                            "name_mapping must be set when read missing field id data file.");
+                }
+
+                auto have_mapping = false;
+                for (const auto& mapped_name : table_field.field_ptr->name_mapping) {
+                    if (file_column_idx_map.contains(mapped_name)) {
+                        std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
+                        const auto& file_field =
+                                parquet_field.children.at(file_column_idx_map.at(mapped_name));
+                        RETURN_IF_ERROR(by_parquet_field_id(*table_field.field_ptr, file_field,
+                                                            exist_field_id, field_node));
+                        struct_node->add_children(table_column_name, file_field.name, field_node);
+                        have_mapping = true;
+                        break;
+                    }
+                }
+                if (!have_mapping) {
+                    struct_node->add_not_exist_children(table_column_name);
+                }
             }
         }
         node = struct_node;
@@ -505,45 +498,9 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id(
 }
 
 Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id(
-        const schema::external::TStructField& table_schema, const orc::Type* orc_root,
-        const std::string& field_id_attribute_key,
-        std::shared_ptr<TableSchemaChangeHelper::Node>& node, bool& exist_field_id) {
-    auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
-
-    std::map<int32_t, size_t> file_column_id_idx_map;
-    for (size_t idx = 0; idx < orc_root->getSubtypeCount(); idx++) {
-        if (orc_root->getSubtype(idx)->hasAttributeKey(field_id_attribute_key)) {
-            auto field_id =
-                    std::stoi(orc_root->getSubtype(idx)->getAttributeValue(field_id_attribute_key));
-            file_column_id_idx_map.emplace(field_id, idx);
-        } else {
-            exist_field_id = false;
-            return Status::OK();
-        }
-    }
-
-    for (const auto& table_field : table_schema.fields) {
-        const auto& table_column_name = table_field.field_ptr->name;
-        if (file_column_id_idx_map.contains(table_field.field_ptr->id)) {
-            auto file_field_idx = file_column_id_idx_map[table_field.field_ptr->id];
-            const auto& file_field = orc_root->getSubtype(file_field_idx);
-            std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
-            RETURN_IF_ERROR(by_orc_field_id(*table_field.field_ptr, file_field,
-                                            field_id_attribute_key, field_node, exist_field_id));
-            struct_node->add_children(table_column_name, orc_root->getFieldName(file_field_idx),
-                                      field_node);
-        } else {
-            struct_node->add_not_exist_children(table_column_name);
-        }
-    }
-    node = struct_node;
-    return Status::OK();
-}
-
-Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id(
         const schema::external::TField& table_schema, const orc::Type* orc_root,
-        const std::string& field_id_attribute_key,
-        std::shared_ptr<TableSchemaChangeHelper::Node>& node, bool& exist_field_id) {
+        const std::string& field_id_attribute_key, const bool exist_field_id,
+        std::shared_ptr<TableSchemaChangeHelper::Node>& node) {
     switch (table_schema.type.type) {
     case TPrimitiveType::MAP: {
         if (orc_root->getKind() != orc::TypeKind::MAP) [[unlikely]] {
@@ -562,12 +519,12 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id(
         std::shared_ptr<TableSchemaChangeHelper::Node> value_node = nullptr;
 
         RETURN_IF_ERROR(by_orc_field_id(*table_schema.nestedField.map_field.key_field.field_ptr,
-                                        orc_root->getSubtype(0), field_id_attribute_key, key_node,
-                                        exist_field_id));
+                                        orc_root->getSubtype(0), field_id_attribute_key,
+                                        exist_field_id, key_node));
 
         RETURN_IF_ERROR(by_orc_field_id(*table_schema.nestedField.map_field.value_field.field_ptr,
-                                        orc_root->getSubtype(1), field_id_attribute_key, value_node,
-                                        exist_field_id));
+                                        orc_root->getSubtype(1), field_id_attribute_key,
+                                        exist_field_id, value_node));
 
         node = std::make_shared<TableSchemaChangeHelper::MapNode>(key_node, value_node);
         break;
@@ -586,7 +543,7 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id(
         std::shared_ptr<TableSchemaChangeHelper::Node> element_node = nullptr;
         RETURN_IF_ERROR(by_orc_field_id(*table_schema.nestedField.array_field.item_field.field_ptr,
                                         orc_root->getSubtype(0), field_id_attribute_key,
-                                        element_node, exist_field_id));
+                                        exist_field_id, element_node));
 
         node = std::make_shared<TableSchemaChangeHelper::ArrayNode>(element_node);
         break;
@@ -597,9 +554,69 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id(
         }
         MOCK_REMOVE(DCHECK(table_schema.__isset.nestedField));
         MOCK_REMOVE(DCHECK(table_schema.nestedField.__isset.struct_field));
-        RETURN_IF_ERROR(by_orc_field_id(table_schema.nestedField.struct_field, orc_root,
-                                        field_id_attribute_key, node, exist_field_id));
 
+        auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
+        if (exist_field_id) {
+            std::map<int32_t, size_t> file_column_id_idx_map;
+            for (size_t idx = 0; idx < orc_root->getSubtypeCount(); idx++) {
+                auto field_id = std::stoi(
+                        orc_root->getSubtype(idx)->getAttributeValue(field_id_attribute_key));
+                file_column_id_idx_map.emplace(field_id, idx);
+            }
+
+            for (const auto& table_field : table_schema.nestedField.struct_field.fields) {
+                const auto& table_column_name = table_field.field_ptr->name;
+                if (file_column_id_idx_map.contains(table_field.field_ptr->id)) {
+                    auto file_field_idx = file_column_id_idx_map[table_field.field_ptr->id];
+                    const auto& file_field = orc_root->getSubtype(file_field_idx);
+                    std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
+                    RETURN_IF_ERROR(by_orc_field_id(*table_field.field_ptr, file_field,
+                                                    field_id_attribute_key, exist_field_id,
+                                                    field_node));
+                    struct_node->add_children(table_column_name,
+                                              orc_root->getFieldName(file_field_idx), field_node);
+                } else {
+                    struct_node->add_not_exist_children(table_column_name);
+                }
+            }
+        } else {
+            std::map<std::string, size_t> file_column_idx_map;
+
+            for (size_t idx = 0; idx < orc_root->getSubtypeCount(); idx++) {
+                file_column_idx_map.emplace(orc_root->getFieldName(idx), idx);
+            }
+
+            for (const auto& table_field : table_schema.nestedField.struct_field.fields) {
+                const auto& table_column_name = table_field.field_ptr->name;
+                if (!table_field.field_ptr->__isset.name_mapping ||
+                    table_field.field_ptr->name_mapping.size() == 0) {
+                    return Status::DataQualityError(
+                            "name_mapping must be set when read missing field id data file.");
+                }
+                auto have_mapping = false;
+                for (const auto& mapped_name : table_field.field_ptr->name_mapping) {
+                    if (file_column_idx_map.contains(mapped_name)) {
+                        std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
+                        auto file_field_idx = file_column_idx_map.at(mapped_name);
+                        const auto& file_field = orc_root->getSubtype(file_field_idx);
+
+                        RETURN_IF_ERROR(by_orc_field_id(*table_field.field_ptr, file_field,
+                                                        field_id_attribute_key, exist_field_id,
+                                                        field_node));
+                        struct_node->add_children(table_column_name,
+                                                  orc_root->getFieldName(file_field_idx),
+                                                  field_node);
+                        have_mapping = true;
+                        break;
+                    }
+                }
+                if (!have_mapping) {
+                    struct_node->add_not_exist_children(table_column_name);
+                }
+            }
+        }
+
+        node = struct_node;
         break;
     }
     default: {

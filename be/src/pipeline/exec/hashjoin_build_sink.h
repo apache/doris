@@ -39,6 +39,9 @@ public:
     Status terminate(RuntimeState* state) override;
     Status process_build_block(RuntimeState* state, vectorized::Block& block);
 
+    // Build ASOF JOIN pre-sorted index for O(log K) lookup
+    Status build_asof_index(vectorized::Block& block);
+
     void init_short_circuit_for_probe();
 
     bool build_unique() const;
@@ -96,6 +99,12 @@ protected:
     RuntimeProfile::Counter* _build_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::Counter* _build_arena_memory_usage = nullptr;
+
+    // ASOF index build counters
+    RuntimeProfile::Counter* _asof_index_total_timer = nullptr;
+    RuntimeProfile::Counter* _asof_index_expr_timer = nullptr;
+    RuntimeProfile::Counter* _asof_index_sort_timer = nullptr;
+    RuntimeProfile::Counter* _asof_index_group_timer = nullptr;
 };
 
 class HashJoinBuildSinkOperatorX MOCK_REMOVE(final)
@@ -183,6 +192,11 @@ private:
     // if build side has variant column and need output variant column
     // need to finalize variant column to speed up the join op
     bool _need_finalize_variant_column = false;
+
+    // ASOF JOIN: build-side expression extracted from MATCH_CONDITION's right child
+    // Prepared against build child's row_desc directly (no intermediate tuple needed)
+    vectorized::VExprContextSPtr _asof_build_side_expr;
+    TExprOpcode::type _asof_opcode = TExprOpcode::INVALID_OPCODE;
 
     bool _use_shared_hash_table = false;
     std::atomic<bool> _signaled = false;

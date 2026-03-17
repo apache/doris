@@ -101,10 +101,14 @@ public class HashJoinNode extends JoinNodeBase {
         }
         this.distrMode = DistributionMode.NONE;
         this.otherJoinConjuncts = otherJoinConjuncts;
+        this.matchCondition = null;
     }
 
+    private final Expr matchCondition;
+
     public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, JoinOperator joinOp,
-            List<Expr> eqJoinConjuncts, List<Expr> otherJoinConjuncts, List<Expr> markJoinConjuncts,
+            List<Expr> eqJoinConjuncts, List<Expr> otherJoinConjuncts, Expr matchCondition,
+            List<Expr> markJoinConjuncts,
             List<Expr> srcToOutputList, TupleDescriptor intermediateTuple,
             TupleDescriptor outputTuple, boolean isMarkJoin) {
         super(id, "HASH JOIN", StatisticalType.HASH_JOIN_NODE, joinOp, isMarkJoin);
@@ -131,6 +135,7 @@ public class HashJoinNode extends JoinNodeBase {
         }
         this.distrMode = DistributionMode.NONE;
         this.otherJoinConjuncts = otherJoinConjuncts;
+        this.matchCondition = matchCondition;
         this.markJoinConjuncts = markJoinConjuncts;
         children.add(outer);
         children.add(inner);
@@ -216,6 +221,11 @@ public class HashJoinNode extends JoinNodeBase {
         for (Expr e : otherJoinConjuncts) {
             msg.hash_join_node.addToOtherJoinConjuncts(e.treeToThrift());
         }
+        if (matchCondition != null) {
+            Preconditions.checkState(joinOp == JoinOperator.ASOF_LEFT_OUTER_JOIN
+                    || joinOp == JoinOperator.ASOF_LEFT_INNER_JOIN, "match condition is not allowed in " + joinOp);
+            msg.hash_join_node.setMatchCondition(matchCondition.treeToThrift());
+        }
 
         if (markJoinConjuncts != null) {
             if (eqJoinConjuncts.isEmpty()) {
@@ -275,6 +285,10 @@ public class HashJoinNode extends JoinNodeBase {
         if (!otherJoinConjuncts.isEmpty()) {
             output.append(detailPrefix).append("other join predicates: ")
                     .append(getExplainString(otherJoinConjuncts)).append("\n");
+        }
+        if (matchCondition != null) {
+            output.append(detailPrefix).append("match condition: ")
+                    .append(matchCondition.toSql()).append("\n");
         }
         if (markJoinConjuncts != null && !markJoinConjuncts.isEmpty()) {
             output.append(detailPrefix).append("mark join predicates: ")
