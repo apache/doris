@@ -27,6 +27,7 @@
 #include <utility>
 
 #include "exec/schema_scanner/schema_active_queries_scanner.h"
+#include "exec/schema_scanner/schema_authentication_integrations_scanner.h"
 #include "exec/schema_scanner/schema_backend_active_tasks.h"
 #include "exec/schema_scanner/schema_backend_configuration_scanner.h"
 #include "exec/schema_scanner/schema_backend_kerberos_ticket_cache.h"
@@ -259,6 +260,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaClusterSnapshotPropertiesScanner::create_unique();
     case TSchemaTableType::SCH_COLUMN_DATA_SIZES:
         return SchemaColumnDataSizesScanner::create_unique();
+    case TSchemaTableType::SCH_AUTHENTICATION_INTEGRATIONS:
+        return SchemaAuthenticationIntegrationsScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

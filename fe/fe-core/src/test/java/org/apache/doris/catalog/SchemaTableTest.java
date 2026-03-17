@@ -92,5 +92,15 @@ public class SchemaTableTest {
         SchemaTable viewDependency = (SchemaTable) SchemaTable.TABLE_MAP.get("view_dependency");
         Assertions.assertFalse(viewDependency.shouldFetchAllFe());
         Assertions.assertFalse(viewDependency.shouldAddAgg());
+
+        SchemaTable authenticationIntegrations =
+                (SchemaTable) SchemaTable.TABLE_MAP.get("authentication_integrations");
+        Assertions.assertFalse(authenticationIntegrations.shouldFetchAllFe());
+        Assertions.assertFalse(authenticationIntegrations.shouldAddAgg());
+        Assertions.assertEquals(8, authenticationIntegrations.getFullSchema().size());
+        Assertions.assertEquals("CREATE_USER", authenticationIntegrations.getFullSchema().get(4).getName());
+        Assertions.assertEquals("CREATE_TIME", authenticationIntegrations.getFullSchema().get(5).getName());
+        Assertions.assertEquals("ALTER_USER", authenticationIntegrations.getFullSchema().get(6).getName());
+        Assertions.assertEquals("MODIFY_TIME", authenticationIntegrations.getFullSchema().get(7).getName());
     }
 }

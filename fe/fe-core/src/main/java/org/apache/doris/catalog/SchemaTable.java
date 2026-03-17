@@ -792,6 +792,17 @@ public class SchemaTable extends Table {
                             .column("MAX_RESERVED_SNAPSHOTS", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("SNAPSHOT_INTERVAL_SECONDS", ScalarType.createType(PrimitiveType.BIGINT))
                             .build()))
+            .put("authentication_integrations",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "authentication_integrations", TableType.SCHEMA,
+                        builder().column("NAME", ScalarType.createVarchar(256))
+                            .column("TYPE", ScalarType.createVarchar(64))
+                            .column("PROPERTIES", ScalarType.createStringType())
+                            .column("COMMENT", ScalarType.createStringType())
+                            .column("CREATE_USER", ScalarType.createStringType())
+                            .column("CREATE_TIME", ScalarType.createStringType())
+                            .column("ALTER_USER", ScalarType.createStringType())
+                            .column("MODIFY_TIME", ScalarType.createStringType())
+                            .build()))
             .build();
 
     private boolean fetchAllFe = false;
