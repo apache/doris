@@ -18,6 +18,8 @@
 #include "storage/index/ann/faiss_ann_index.h"
 
 #include <faiss/index_io.h>
+#include <faiss/invlists/OnDiskInvertedLists.h>
+#include <faiss/invlists/OnDiskInvertedListsV2.h>
 #include <omp.h>
 #include <pthread.h>
 
@@ -50,6 +52,8 @@
 #include "faiss/impl/FaissException.h"
 #include "faiss/impl/IDSelector.h"
 #include "faiss/impl/io.h"
+#include "io/io_common.h"
+#include "storage/cache/page_cache.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_index_files.h"
 #include "storage/index/ann/ann_search_params.h"
@@ -63,6 +67,13 @@ namespace {
 
 std::mutex g_omp_thread_mutex;
 int g_index_threads_in_use = 0;
+
+struct IvfOnDiskCacheStats {
+    int64_t hit_cnt = 0;
+    int64_t miss_cnt = 0;
+};
+
+thread_local IvfOnDiskCacheStats g_ivf_on_disk_cache_stats;
 
 // Guard that ensures the total OpenMP threads used by concurrent index builds
 // never exceed the configured omp_threads_limit.
@@ -244,6 +255,145 @@ public:
     lucene::store::IndexInput* _input = nullptr;
 };
 
+/**
+ * RandomAccessReader backed by a CLucene IndexInput with block-level caching.
+ *
+ * Each read_at() request is fulfilled block by block.  Blocks are cached in
+ * Doris's global StoragePageCache (INDEX_PAGE type) so that repeated reads
+ * to the same region (very common during IVF search) hit cheap memcpy paths
+ * instead of going through the CLucene I/O stack.
+ *
+ * Thread-safety: cache hits are lock-free (the LRU cache is internally
+ * thread-safe and the returned PageCacheHandle pins the data).  Cache misses
+ * are serialised by _io_mutex because the underlying CLucene IndexInput is
+ * not thread-safe (seek + readBytes).
+ */
+struct CachedRandomAccessReader : faiss::RandomAccessReader {
+    static constexpr size_t kDefaultBlockSize = 256 * 1024; // 256 KB
+
+    /**
+     * @param input           CLucene IndexInput for the ivfdata sub-file.
+     *                        The reader clones it (caller may close original).
+     * @param cache_key_prefix  Unique string identifying this ivfdata file,
+     *                          e.g. the index-file path from IndexFileReader.
+     * @param file_size       Total byte length of the ivfdata sub-file.
+     * @param block_size      Cache block size (default 256 KB).
+     */
+    CachedRandomAccessReader(lucene::store::IndexInput* input, std::string cache_key_prefix,
+                             size_t file_size, size_t block_size = kDefaultBlockSize)
+            : _input(input->clone()),
+              _cache_key_prefix(std::move(cache_key_prefix)),
+              _file_size(file_size),
+              _block_size(block_size) {
+        // IndexFileReader::init() called _stream->setIoContext(io_ctx) where
+        // io_ctx.file_cache_stats points into BlockReader::_stats (a value member
+        // inside BlockReader).  CachedRandomAccessReader outlives the BlockReader,
+        // so that pointer becomes dangling when BlockReader is freed.  The cloned
+        // CSIndexInput's _io_ctx is nullptr, meaning CSIndexInput::readInternal()
+        // never calls base->setIoContext(), leaving the stale file_cache_stats on
+        // the shared base FSIndexInput.  Fix: give the clone a non-null _io_ctx
+        // that owns no short-lived pointers.  CSIndexInput::readInternal() will
+        // then transiently set _local_io_ctx (file_cache_stats=nullptr) on the
+        // base FSIndexInput before each read and clear it after, preventing UAF.
+        _input->setIoContext(&_local_io_ctx);
+    }
+
+    ~CachedRandomAccessReader() override {
+        if (_input != nullptr) {
+            _input->close();
+            _CLDELETE(_input);
+        }
+    }
+
+    void read_at(size_t offset, void* ptr, size_t nbytes) const override {
+        if (nbytes == 0) {
+            return;
+        }
+        auto* dst = static_cast<uint8_t*>(ptr);
+        size_t remaining = nbytes;
+        size_t cur_offset = offset;
+
+        while (remaining > 0) {
+            // Which block does cur_offset fall into?
+            const size_t block_no = cur_offset / _block_size;
+            const size_t block_start = block_no * _block_size;
+            const size_t offset_in_block = cur_offset - block_start;
+            const size_t can_read = std::min(remaining, _block_size - offset_in_block);
+
+            auto* cache = StoragePageCache::instance();
+            StoragePageCache::CacheKey cache_key(_cache_key_prefix, _file_size,
+                                                 static_cast<int64_t>(block_start));
+            PageCacheHandle handle;
+
+            if (cache && cache->lookup(cache_key, &handle, segment_v2::INDEX_PAGE)) {
+                // Cache hit – just memcpy
+                Slice data = handle.data();
+                ::memcpy(dst, data.data + offset_in_block, can_read);
+                ++g_ivf_on_disk_cache_stats.hit_cnt;
+            } else {
+                // Cache miss – read the whole block from CLucene under a lock.
+                const size_t actual_block_size =
+                        std::min(_block_size, _file_size > block_start ? _file_size - block_start
+                                                                       : static_cast<size_t>(0));
+
+                auto page = std::make_unique<DataPage>(actual_block_size, /*use_cache=*/true,
+                                                       segment_v2::INDEX_PAGE);
+
+                const int64_t fetch_start_ns = MonotonicNanos();
+                {
+                    std::lock_guard<std::mutex> lock(_io_mutex);
+                    _read_from_input(block_start, page->data(), actual_block_size);
+                }
+                const int64_t fetch_costs_ns = MonotonicNanos() - fetch_start_ns;
+
+                ::memcpy(dst, page->data() + offset_in_block, can_read);
+
+                if (cache) {
+                    cache->insert(cache_key, page.get(), &handle, segment_v2::INDEX_PAGE);
+                    page.release(); // cache owns the page now
+                }
+                ++g_ivf_on_disk_cache_stats.miss_cnt;
+                DorisMetrics::instance()->ann_ivf_on_disk_fetch_page_cnt->increment(1);
+                double fetch_costs_ms = static_cast<double>(fetch_costs_ns) / 1000.0;
+                DorisMetrics::instance()->ann_ivf_on_disk_fetch_page_costs_ms->increment(
+                        static_cast<int64_t>(fetch_costs_ms));
+            }
+
+            dst += can_read;
+            cur_offset += can_read;
+            remaining -= can_read;
+        }
+    }
+
+private:
+    void _read_from_input(size_t offset, char* buf, size_t nbytes) const {
+        _input->seek(static_cast<int64_t>(offset));
+        const size_t kMaxChunk = static_cast<size_t>(std::numeric_limits<Int32>::max());
+        size_t done = 0;
+        while (done < nbytes) {
+            const size_t to_read = std::min(nbytes - done, kMaxChunk);
+            try {
+                _input->readBytes(reinterpret_cast<uint8_t*>(buf + done), cast_set<Int32>(to_read));
+            } catch (const std::exception& e) {
+                throw doris::Exception(doris::ErrorCode::IO_ERROR,
+                                       "CachedRandomAccessReader::read_at failed: {}", e.what());
+            }
+            done += to_read;
+        }
+    }
+
+    mutable std::mutex _io_mutex;
+    // Safe local IOContext with file_cache_stats=nullptr.  Its address is passed
+    // to the cloned CSIndexInput via setIoContext() in the constructor so that
+    // CSIndexInput::readInternal() installs it on the base FSIndexInput for the
+    // duration of each read, preventing access to any expired pointer.
+    io::IOContext _local_io_ctx;
+    mutable lucene::store::IndexInput* _input = nullptr;
+    std::string _cache_key_prefix;
+    size_t _file_size;
+    size_t _block_size;
+};
+
 doris::Status FaissVectorIndex::train(Int64 n, const float* vec) {
     DCHECK(vec != nullptr);
     DCHECK(_index != nullptr);
@@ -353,8 +503,13 @@ void FaissVectorIndex::build(const FaissBuildParameter& params) {
         hnsw_index->hnsw.efConstruction = params.ef_construction;
 
         _index = std::move(hnsw_index);
-    } else if (params.index_type == FaissBuildParameter::IndexType::IVF) {
-        set_type(AnnIndexType::IVF);
+    } else if (params.index_type == FaissBuildParameter::IndexType::IVF ||
+               params.index_type == FaissBuildParameter::IndexType::IVF_ON_DISK) {
+        if (params.index_type == FaissBuildParameter::IndexType::IVF) {
+            set_type(AnnIndexType::IVF);
+        } else {
+            set_type(AnnIndexType::IVF_ON_DISK);
+        }
         std::unique_ptr<faiss::Index> ivf_index;
         if (params.metric_type == FaissBuildParameter::MetricType::L2) {
             _quantizer = std::make_unique<faiss::IndexFlat>(params.dim, faiss::METRIC_L2);
@@ -419,6 +574,8 @@ void FaissVectorIndex::build(const FaissBuildParameter& params) {
 doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
                                                 const segment_v2::IndexSearchParameters& params,
                                                 segment_v2::IndexSearchResult& result) {
+    const int64_t cache_hit_cnt_before = g_ivf_on_disk_cache_stats.hit_cnt;
+    const int64_t cache_miss_cnt_before = g_ivf_on_disk_cache_stats.miss_cnt;
     std::unique_ptr<float[]> distances_ptr;
     std::unique_ptr<std::vector<faiss::idx_t>> labels_ptr;
     {
@@ -455,7 +612,7 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
         param->bounded_queue = hnsw_params->bounded_queue;
         param->sel = id_sel.get();
         search_param.reset(param);
-    } else if (_index_type == AnnIndexType::IVF) {
+    } else if (_index_type == AnnIndexType::IVF || _index_type == AnnIndexType::IVF_ON_DISK) {
         const IVFSearchParameters* ivf_params = dynamic_cast<const IVFSearchParameters*>(&params);
         if (ivf_params == nullptr) {
             return doris::Status::InvalidArgument(
@@ -471,7 +628,12 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
 
     {
         SCOPED_RAW_TIMER(&result.engine_search_ns);
-        _index->search(1, query_vec, k, distances, labels, search_param.get());
+        try {
+            _index->search(1, query_vec, k, distances, labels, search_param.get());
+        } catch (faiss::FaissException& e) {
+            return doris::Status::RuntimeError("exception occurred during ann topn search: {}",
+                                               e.what());
+        }
     }
     {
         SCOPED_RAW_TIMER(&result.engine_convert_ns);
@@ -505,6 +667,11 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
                 << "Row ids size: " << result.row_ids->size()
                 << ", roaring size: " << result.roaring->cardinality();
     }
+    if (_index_type == AnnIndexType::IVF_ON_DISK) {
+        result.ivf_on_disk_cache_hit_cnt = g_ivf_on_disk_cache_stats.hit_cnt - cache_hit_cnt_before;
+        result.ivf_on_disk_cache_miss_cnt =
+                g_ivf_on_disk_cache_stats.miss_cnt - cache_miss_cnt_before;
+    }
     // distance/row_ids conversion above already timed via SCOPED_RAW_TIMER
     return doris::Status::OK();
 }
@@ -516,6 +683,8 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
 doris::Status FaissVectorIndex::range_search(const float* query_vec, const float& radius,
                                              const segment_v2::IndexSearchParameters& params,
                                              segment_v2::IndexSearchResult& result) {
+    const int64_t cache_hit_cnt_before = g_ivf_on_disk_cache_stats.hit_cnt;
+    const int64_t cache_miss_cnt_before = g_ivf_on_disk_cache_stats.miss_cnt;
     DCHECK(_index != nullptr);
     DCHECK(query_vec != nullptr);
     DCHECK(params.roaring != nullptr)
@@ -560,15 +729,22 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
     {
         // Engine search: FAISS range_search
         SCOPED_RAW_TIMER(&result.engine_search_ns);
-        if (_metric == AnnIndexMetric::L2) {
-            if (radius <= 0) {
-                _index->range_search(1, query_vec, 0.0f, &native_search_result, search_param.get());
-            } else {
-                _index->range_search(1, query_vec, radius * radius, &native_search_result,
+        try {
+            if (_metric == AnnIndexMetric::L2) {
+                if (radius <= 0) {
+                    _index->range_search(1, query_vec, 0.0f, &native_search_result,
+                                         search_param.get());
+                } else {
+                    _index->range_search(1, query_vec, radius * radius, &native_search_result,
+                                         search_param.get());
+                }
+            } else if (_metric == AnnIndexMetric::IP) {
+                _index->range_search(1, query_vec, radius, &native_search_result,
                                      search_param.get());
             }
-        } else if (_metric == AnnIndexMetric::IP) {
-            _index->range_search(1, query_vec, radius, &native_search_result, search_param.get());
+        } catch (faiss::FaissException& e) {
+            return doris::Status::RuntimeError("exception occurred during ann range search: {}",
+                                               e.what());
         }
     }
 
@@ -669,41 +845,183 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
         }
     }
 
+    if (_index_type == AnnIndexType::IVF_ON_DISK) {
+        result.ivf_on_disk_cache_hit_cnt = g_ivf_on_disk_cache_stats.hit_cnt - cache_hit_cnt_before;
+        result.ivf_on_disk_cache_miss_cnt =
+                g_ivf_on_disk_cache_stats.miss_cnt - cache_miss_cnt_before;
+    }
+
     return Status::OK();
 }
 
 doris::Status FaissVectorIndex::save(lucene::store::Directory* dir) {
     auto start_time = std::chrono::high_resolution_clock::now();
 
-    lucene::store::IndexOutput* idx_output = dir->createOutput(faiss_index_fila_name);
-    auto writer = std::make_unique<FaissIndexWriter>(idx_output);
-    faiss::write_index(_index.get(), writer.get());
+    if (_index_type == AnnIndexType::IVF_ON_DISK) {
+        // IVF_ON_DISK: write ivf data to a separate file, then write index metadata.
+        //
+        // Why do we replace invlists here in save() instead of at build() time?
+        // During build/train/add, IndexIVF needs a writable ArrayInvertedLists to
+        // receive vectors via add_entries(). OnDiskInvertedListsV2 inherits from
+        // ReadOnlyInvertedLists and does not support writes. The original
+        // OnDiskInvertedLists does support writes but requires mmap on a real file,
+        // which is unavailable at build time (Directory is only passed to save()).
+        // So the standard faiss pattern is: build in-memory with ArrayInvertedLists,
+        // then convert to on-disk format at serialization time. The replace_invlists
+        // call in Step 2 is purely a serialization format switch (to emit "ilod"
+        // fourcc instead of "ilar"), not a runtime data structure change.
+        //
+        // Step 1: The in-memory index has ArrayInvertedLists. Write them to ann.ivfdata
+        //         by converting to OnDiskInvertedLists format:
+        //         For each list: [codes: capacity*code_size][ids: capacity*sizeof(idx_t)]
+        auto* ivf = dynamic_cast<faiss::IndexIVF*>(_index.get());
+        DCHECK(ivf != nullptr);
+        auto* ails = dynamic_cast<faiss::ArrayInvertedLists*>(ivf->invlists);
+        DCHECK(ails != nullptr);
+
+        const size_t nlist = ails->nlist;
+        const size_t code_size = ails->code_size;
+
+        // Build OnDiskOneList metadata and write data to ann.ivfdata
+        std::vector<faiss::OnDiskOneList> lists(nlist);
+        lucene::store::IndexOutput* ivfdata_output = dir->createOutput(faiss_ivfdata_file_name);
+        size_t offset = 0;
+        for (size_t i = 0; i < nlist; i++) {
+            size_t list_size = ails->list_size(i);
+            lists[i].size = list_size;
+            lists[i].capacity = list_size;
+            lists[i].offset = offset;
+
+            if (list_size > 0) {
+                // Write codes
+                const uint8_t* codes = ails->get_codes(i);
+                size_t codes_bytes = list_size * code_size;
+                ivfdata_output->writeBytes(reinterpret_cast<const uint8_t*>(codes),
+                                           cast_set<Int32>(codes_bytes));
+
+                // Write ids
+                const faiss::idx_t* ids = ails->get_ids(i);
+                size_t ids_bytes = list_size * sizeof(faiss::idx_t);
+                ivfdata_output->writeBytes(reinterpret_cast<const uint8_t*>(ids),
+                                           cast_set<Int32>(ids_bytes));
+            }
+
+            offset += list_size * (code_size + sizeof(faiss::idx_t));
+        }
+        size_t totsize = offset;
+        ivfdata_output->close();
+        delete ivfdata_output;
+
+        // Step 2: Replace ArrayInvertedLists with OnDiskInvertedLists so that
+        //         write_index serializes in "ilod" format (metadata only).
+        auto* od = new faiss::OnDiskInvertedLists();
+        od->nlist = nlist;
+        od->code_size = code_size;
+        od->lists = std::move(lists);
+        od->totsize = totsize;
+        od->ptr = nullptr;
+        od->read_only = true;
+        // filename is not used during load (we use separate ivfdata file),
+        // but write it for format completeness.
+        od->filename = faiss_ivfdata_file_name;
+        ivf->replace_invlists(od, true);
+
+        // Step 3: Write index metadata to ann.faiss (includes "ilod" fourcc)
+        lucene::store::IndexOutput* idx_output = dir->createOutput(faiss_index_fila_name);
+        auto writer = std::make_unique<FaissIndexWriter>(idx_output);
+        faiss::write_index(_index.get(), writer.get());
+
+    } else {
+        // HNSW / IVF: write the full index to ann.faiss
+        lucene::store::IndexOutput* idx_output = dir->createOutput(faiss_index_fila_name);
+        auto writer = std::make_unique<FaissIndexWriter>(idx_output);
+        faiss::write_index(_index.get(), writer.get());
+    }
 
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
     LOG_INFO(fmt::format("Faiss index saved to {}, {}, rows {}, cost {} ms", dir->toString(),
                          faiss_index_fila_name, _index->ntotal, duration.count()));
+
     return doris::Status::OK();
 }
 
 doris::Status FaissVectorIndex::load(lucene::store::Directory* dir) {
     auto start_time = std::chrono::high_resolution_clock::now();
-    lucene::store::IndexInput* idx_input = nullptr;
-    try {
-        idx_input = dir->openInput(faiss_index_fila_name);
-    } catch (const CLuceneError& e) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                "Failed to open index file: {}, error: {}", faiss_index_fila_name, e.what());
+
+    if (_index_type == AnnIndexType::IVF_ON_DISK) {
+        // IVF_ON_DISK load:
+        // 1. Read index metadata from ann.faiss with IO_FLAG_SKIP_IVF_DATA.
+        //    This reads "ilod" metadata (lists[], slots[], etc.) without mmap.
+        // 2. Replace the OnDiskInvertedLists with OnDiskInvertedListsV2.
+        // 3. Open ann.ivfdata via CLucene IndexInput and bind as RandomAccessReader.
+        lucene::store::IndexInput* idx_input = nullptr;
+        try {
+            idx_input = dir->openInput(faiss_index_fila_name);
+        } catch (const CLuceneError& e) {
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "Failed to open index file: {}, error: {}", faiss_index_fila_name, e.what());
+        }
+
+        auto reader = std::make_unique<FaissIndexReader>(idx_input);
+        faiss::Index* idx = faiss::read_index(reader.get(), faiss::IO_FLAG_SKIP_IVF_DATA);
+
+        // Replace OnDiskInvertedLists (metadata-only) with V2
+        faiss::OnDiskInvertedListsV2* v2 = faiss::replace_ondisk_invlists_with_v2(idx);
+
+        // Open ann.ivfdata and bind the cached random access reader
+        lucene::store::IndexInput* ivfdata_input = nullptr;
+        try {
+            ivfdata_input = dir->openInput(faiss_ivfdata_file_name);
+        } catch (const CLuceneError& e) {
+            delete idx;
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "Failed to open ivfdata file: {}, error: {}", faiss_ivfdata_file_name,
+                    e.what());
+        }
+        const size_t ivfdata_size = static_cast<size_t>(ivfdata_input->length());
+        v2->set_reader(std::make_unique<CachedRandomAccessReader>(
+                ivfdata_input, _ivfdata_cache_key_prefix, ivfdata_size));
+
+        // Plug Doris's tracked allocator so that iterator buffers are
+        // accounted in the MemTracker hierarchy.
+        faiss::MemoryAllocator mem_alloc;
+        mem_alloc.alloc = [](size_t nbytes) -> void* { return Allocator<false>().alloc(nbytes); };
+        mem_alloc.free = [](void* ptr, size_t nbytes) { Allocator<false>().free(ptr, nbytes); };
+        v2->set_allocator(std::move(mem_alloc));
+
+        // Close the original input (CachedRandomAccessReader cloned it)
+        ivfdata_input->close();
+        _CLDELETE(ivfdata_input);
+
+        auto end_time = std::chrono::high_resolution_clock::now();
+        auto duration =
+                std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        VLOG_DEBUG << fmt::format("Load IVF_ON_DISK index from {} costs {} ms, rows {}",
+                                  dir->getObjectName(), duration.count(), idx->ntotal);
+        _index.reset(idx);
+        DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(_index->ntotal);
+    } else {
+        // HNSW / IVF: load the full index from ann.faiss
+        lucene::store::IndexInput* idx_input = nullptr;
+        try {
+            idx_input = dir->openInput(faiss_index_fila_name);
+        } catch (const CLuceneError& e) {
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "Failed to open index file: {}, error: {}", faiss_index_fila_name, e.what());
+        }
+
+        auto reader = std::make_unique<FaissIndexReader>(idx_input);
+        faiss::Index* idx = faiss::read_index(reader.get());
+        auto end_time = std::chrono::high_resolution_clock::now();
+        auto duration =
+                std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        VLOG_DEBUG << fmt::format("Load index from {} costs {} ms, rows {}", dir->getObjectName(),
+                                  duration.count(), idx->ntotal);
+        _index.reset(idx);
+        DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(_index->ntotal);
     }
 
-    auto reader = std::make_unique<FaissIndexReader>(idx_input);
-    faiss::Index* idx = faiss::read_index(reader.get());
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-    VLOG_DEBUG << fmt::format("Load index from {} costs {} ms, rows {}", dir->getObjectName(),
-                              duration.count(), idx->ntotal);
-    _index.reset(idx);
-    DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(_index->ntotal);
     return doris::Status::OK();
 }
 

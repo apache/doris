@@ -76,8 +76,7 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
         try {
             RETURN_IF_ERROR(
                     _index_file_reader->init(config::inverted_index_read_buffer_size, io_ctx));
-            Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> compound_dir;
-            compound_dir = _index_file_reader->open(&_index_meta, io_ctx);
+            auto compound_dir = _index_file_reader->open(&_index_meta, io_ctx);
             if (!compound_dir.has_value()) {
                 return Status::IOError("Failed to open index file: {}",
                                        compound_dir.error().to_string());
@@ -85,7 +84,20 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
             _vector_index = std::make_unique<FaissVectorIndex>();
             _vector_index->set_metric(_metric_type);
             _vector_index->set_type(_index_type);
+            // Provide a cache key prefix so IVF_ON_DISK can cache ivfdata
+            // blocks in StoragePageCache. Use cache_key (which includes
+            // index_id) rather than file_path, because the idx file is a
+            // compound file shared by multiple indexes.
+            static_cast<FaissVectorIndex*>(_vector_index.get())
+                    ->set_ivfdata_cache_key_prefix(
+                            _index_file_reader->get_index_file_cache_key(&_index_meta));
             RETURN_IF_ERROR(_vector_index->load(compound_dir->get()));
+            // Keep the compound directory alive. For IVF_ON_DISK the
+            // CachedRandomAccessReader holds a cloned CSIndexInput whose
+            // `base` raw pointer references the compound reader's underlying
+            // stream. Destroying the directory would make `base` dangling.
+            // For other types this is harmless (just holds a file handle).
+            _compound_dir = std::move(*compound_dir);
         } catch (CLuceneError& err) {
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError occur when open ann idx file, error msg: {}", err.what());
@@ -102,6 +114,9 @@ Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnInde
         double load_costs_ms = static_cast<double>(stats->load_index_costs_ns.value()) / 1000.0;
         DorisMetrics::instance()->ann_index_load_costs_ms->increment(
                 static_cast<int64_t>(load_costs_ms));
+        if (_index_type == AnnIndexType::IVF_ON_DISK) {
+            stats->ivf_on_disk_load_costs_ns.update(stats->load_index_costs_ns.value());
+        }
     }
 #endif
     {
@@ -125,7 +140,7 @@ Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnInde
             stats->engine_search_ns.update(index_search_result.engine_search_ns);
             stats->engine_convert_ns.update(index_search_result.engine_convert_ns);
             stats->engine_prepare_ns.update(index_search_result.engine_prepare_ns);
-        } else if (_index_type == AnnIndexType::IVF) {
+        } else if (_index_type == AnnIndexType::IVF || _index_type == AnnIndexType::IVF_ON_DISK) {
             IVFSearchParameters ivf_search_params;
             ivf_search_params.roaring = param->roaring;
             ivf_search_params.rows_of_segment = param->rows_of_segment;
@@ -136,14 +151,24 @@ Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnInde
             stats->engine_search_ns.update(index_search_result.engine_search_ns);
             stats->engine_convert_ns.update(index_search_result.engine_convert_ns);
             stats->engine_prepare_ns.update(index_search_result.engine_prepare_ns);
+            if (_index_type == AnnIndexType::IVF_ON_DISK) {
+                stats->ivf_on_disk_cache_hit_cnt.update(
+                        index_search_result.ivf_on_disk_cache_hit_cnt);
+                stats->ivf_on_disk_cache_miss_cnt.update(
+                        index_search_result.ivf_on_disk_cache_miss_cnt);
+                DorisMetrics::instance()->ann_ivf_on_disk_cache_hit_cnt->increment(
+                        index_search_result.ivf_on_disk_cache_hit_cnt);
+                DorisMetrics::instance()->ann_ivf_on_disk_cache_miss_cnt->increment(
+                        index_search_result.ivf_on_disk_cache_miss_cnt);
+            }
         } else {
             throw Exception(Status::NotSupported("Unsupported index type: {}",
                                                  ann_index_type_to_string(_index_type)));
         }
 
-        DCHECK(index_search_result.roaring != nullptr);
-        DCHECK(index_search_result.distances != nullptr);
-        DCHECK(index_search_result.row_ids != nullptr);
+        DORIS_CHECK(index_search_result.roaring != nullptr);
+        DORIS_CHECK(index_search_result.distances != nullptr);
+        DORIS_CHECK(index_search_result.row_ids != nullptr);
         param->distance = std::make_unique<std::vector<float>>();
         {
             SCOPED_TIMER(&(stats->result_process_costs_ns));
@@ -155,6 +180,13 @@ Status AnnIndexReader::query(io::IOContext* io_ctx, AnnTopNParam* param, AnnInde
     double search_costs_ms = static_cast<double>(stats->search_costs_ns.value()) / 1000.0;
     DorisMetrics::instance()->ann_index_search_costs_ms->increment(
             static_cast<int64_t>(search_costs_ms));
+    if (_index_type == AnnIndexType::IVF_ON_DISK) {
+        stats->ivf_on_disk_search_costs_ns.update(stats->search_costs_ns.value());
+        stats->ivf_on_disk_search_cnt.update(1);
+        DorisMetrics::instance()->ann_ivf_on_disk_search_costs_ms->increment(
+                static_cast<int64_t>(search_costs_ms));
+        DorisMetrics::instance()->ann_ivf_on_disk_search_cnt->increment(1);
+    }
     return Status::OK();
 }
 
@@ -170,6 +202,9 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
         double load_costs_ms = static_cast<double>(stats->load_index_costs_ns.value()) / 1000.0;
         DorisMetrics::instance()->ann_index_load_costs_ms->increment(
                 static_cast<int64_t>(load_costs_ms));
+        if (_index_type == AnnIndexType::IVF_ON_DISK) {
+            stats->ivf_on_disk_load_costs_ns.update(stats->load_index_costs_ns.value());
+        }
     }
 #endif
     {
@@ -185,7 +220,7 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
             hnsw_param->check_relative_distance = custom_params.hnsw_check_relative_distance;
             hnsw_param->bounded_queue = custom_params.hnsw_bounded_queue;
             search_param = std::move(hnsw_param);
-        } else if (_index_type == AnnIndexType::IVF) {
+        } else if (_index_type == AnnIndexType::IVF || _index_type == AnnIndexType::IVF_ON_DISK) {
             auto ivf_param = std::make_unique<segment_v2::IVFSearchParameters>();
             ivf_param->nprobe = custom_params.ivf_nprobe;
             search_param = std::move(ivf_param);
@@ -204,6 +239,14 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
         stats->engine_prepare_ns.update(search_result.engine_prepare_ns);
         stats->engine_search_ns.update(search_result.engine_search_ns);
         stats->engine_convert_ns.update(search_result.engine_convert_ns);
+        if (_index_type == AnnIndexType::IVF_ON_DISK) {
+            stats->ivf_on_disk_cache_hit_cnt.update(search_result.ivf_on_disk_cache_hit_cnt);
+            stats->ivf_on_disk_cache_miss_cnt.update(search_result.ivf_on_disk_cache_miss_cnt);
+            DorisMetrics::instance()->ann_ivf_on_disk_cache_hit_cnt->increment(
+                    search_result.ivf_on_disk_cache_hit_cnt);
+            DorisMetrics::instance()->ann_ivf_on_disk_cache_miss_cnt->increment(
+                    search_result.ivf_on_disk_cache_miss_cnt);
+        }
 
         DCHECK(search_result.roaring != nullptr);
         result->roaring = search_result.roaring;
@@ -241,6 +284,13 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
     double search_costs_ms = static_cast<double>(stats->search_costs_ns.value()) / 1000.0;
     DorisMetrics::instance()->ann_index_search_costs_ms->increment(
             static_cast<int64_t>(search_costs_ms));
+    if (_index_type == AnnIndexType::IVF_ON_DISK) {
+        stats->ivf_on_disk_search_costs_ns.update(stats->search_costs_ns.value());
+        stats->ivf_on_disk_search_cnt.update(1);
+        DorisMetrics::instance()->ann_ivf_on_disk_search_costs_ms->increment(
+                static_cast<int64_t>(search_costs_ms));
+        DorisMetrics::instance()->ann_ivf_on_disk_search_cnt->increment(1);
+    }
 
     return Status::OK();
 }

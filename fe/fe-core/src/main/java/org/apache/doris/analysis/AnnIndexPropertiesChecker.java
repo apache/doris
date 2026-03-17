@@ -34,8 +34,9 @@ public class AnnIndexPropertiesChecker {
             switch (key) {
                 case "index_type":
                     type = properties.get(key);
-                    if (!type.equals("hnsw") && !type.equals("ivf")) {
-                        throw new AnalysisException("only support ann index with type hnsw or ivf, got: " + type);
+                    if (!type.equals("hnsw") && !type.equals("ivf") && !type.equals("ivf_on_disk")) {
+                        throw new AnalysisException(
+                                "only support ann index with type hnsw, ivf or ivf_on_disk, got: " + type);
                     }
                     break;
                 case "metric_type":
@@ -138,9 +139,9 @@ public class AnnIndexPropertiesChecker {
             }
         }
 
-        if (type != null && type.equals("ivf")) {
+        if (type != null && (type.equals("ivf") || type.equals("ivf_on_disk"))) {
             if (nlist == 0) {
-                throw new AnalysisException("nlist of ann index must be specified for ivf type");
+                throw new AnalysisException("nlist of ann index must be specified for ivf/ivf_on_disk type");
             }
         }
 

@@ -51,6 +51,8 @@ std::string ann_index_type_to_string(AnnIndexType type) {
         return "hnsw";
     case AnnIndexType::IVF:
         return "ivf";
+    case AnnIndexType::IVF_ON_DISK:
+        return "ivf_on_disk";
     default:
         return "unknown";
     }
@@ -61,6 +63,8 @@ AnnIndexType string_to_ann_index_type(const std::string& type) {
         return AnnIndexType::HNSW;
     } else if (type == "ivf") {
         return AnnIndexType::IVF;
+    } else if (type == "ivf_on_disk") {
+        return AnnIndexType::IVF_ON_DISK;
     } else {
         return AnnIndexType::UNKNOWN;
     }

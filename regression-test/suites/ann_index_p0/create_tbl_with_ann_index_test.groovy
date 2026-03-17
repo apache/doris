@@ -294,4 +294,66 @@ suite("create_tbl_with_ann_index_test") {
         );
     """
 
+    // 成功创建 IVF_ON_DISK 索引 - l2_distance
+    sql "drop table if exists ann_tbl15"
+    sql """
+        CREATE TABLE ann_tbl15 (
+            id INT NOT NULL COMMENT "",
+            vec ARRAY<FLOAT> NOT NULL COMMENT "",
+            INDEX ann_idx15 (vec) USING ANN PROPERTIES(
+                "index_type" = "ivf_on_disk",
+                "metric_type" = "l2_distance",
+                "dim" = "128",
+                "nlist" = "128"
+            )
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id) COMMENT "OLAP"
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+
+    // 成功创建 IVF_ON_DISK 索引 - inner_product
+    sql "drop table if exists ann_tbl16"
+    sql """
+        CREATE TABLE ann_tbl16 (
+            id INT NOT NULL COMMENT "",
+            vec ARRAY<FLOAT> NOT NULL COMMENT "",
+            INDEX ann_idx16 (vec) USING ANN PROPERTIES(
+                "index_type" = "ivf_on_disk",
+                "metric_type" = "inner_product",
+                "dim" = "128",
+                "nlist" = "64"
+            )
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id) COMMENT "OLAP"
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+
+    // IVF_ON_DISK 缺少 nlist
+    sql "drop table if exists ann_tbl17"
+    test {
+        sql """
+            CREATE TABLE ann_tbl17 (
+                id INT NOT NULL COMMENT "",
+                vec ARRAY<FLOAT> NOT NULL COMMENT "",
+                INDEX ann_idx17 (vec) USING ANN PROPERTIES(
+                    "index_type" = "ivf_on_disk",
+                    "metric_type" = "l2_distance",
+                    "dim" = "128"
+                )
+            ) ENGINE=OLAP
+            DUPLICATE KEY(id) COMMENT "OLAP"
+            DISTRIBUTED BY HASH(id) BUCKETS 2
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        exception "nlist of ann index must be specified for ivf/ivf_on_disk type"
+    }
+
 }

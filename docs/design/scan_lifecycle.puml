@@ -1,0 +1,199 @@
+@startuml scan_lifecycle
+skinparam classAttributeIconSize 0
+skinparam defaultFontSize 12
+skinparam linetype ortho
+skinparam ArrowColor #444444
+skinparam ClassBorderColor #888888
+skinparam NoteBackgroundColor #FFFDE7
+skinparam NoteBorderColor #F9A825
+
+' ──────────────────────────────────────────
+' Pipeline 执行层
+' ──────────────────────────────────────────
+package "Pipeline Execution" #EEF2FF {
+  class PipelineTask {
+    +close()
+  }
+  class ScanLocalState {
+    +close()
+  }
+}
+
+' ──────────────────────────────────────────
+' Scan 层
+' ──────────────────────────────────────────
+package "Scan Layer" #E8F5E9 {
+  class OlapScanner {
+    -unique_ptr<TabletReader> _tablet_reader
+  }
+  class BlockReader {
+    -TabletSchemaSPtr _tablet_schema
+    -VCollectIterator _vcollect_iter
+  }
+  class VCollectIterator {
+    -list<unique_ptr<LevelIterator>> _children
+    -unique_ptr<LevelIterator> _inner_iter
+  }
+  class "Level0Iterator" as L0 {
+    -RowsetReaderSharedPtr _rs_reader
+  }
+}
+
+' ──────────────────────────────────────────
+' Rowset 层
+' ──────────────────────────────────────────
+package "Rowset / Schema Layer" #FFF3E0 {
+  class BetaRowsetReader {
+    -BetaRowsetSharedPtr _rowset
+    -SchemaSPtr _input_schema
+    -SchemaSPtr _output_schema
+    -unique_ptr<RowwiseIterator> _iterator
+    --
+    ~BetaRowsetReader(): _rowset->release()
+  }
+  class Schema {
+    -vector<StorageField*> _cols
+    --
+    ~Schema(): for col in _cols: delete col
+  }
+  class StorageField {
+    -TabletColumn _desc
+    -vector<unique_ptr<StorageField>> _sub_fields
+  }
+  class ArrayField extends StorageField {
+  }
+  class TabletColumn <<MetadataAdder<TabletColumn>>> {
+    ... 大量 PB 字段 ...
+    --
+    ~TabletColumn() = default
+    (inherited ~MetadataAdder<>:
+     add_mem_size / add_num)
+  }
+}
+
+' ──────────────────────────────────────────
+' Segment 层
+' ──────────────────────────────────────────
+package "Segment Layer" #E3F2FD {
+  class SegmentIterator {
+    -shared_ptr<Segment> _segment
+    -vector<unique_ptr<IndexIterator>> _index_iterators
+    -SchemaSPtr _schema
+  }
+  class Segment {
+    -vector<shared_ptr<ColumnReader>> _column_readers
+  }
+  class ColumnReader {
+    -unordered_map<int64_t, IndexReaderPtr> _index_readers
+  }
+}
+
+' ──────────────────────────────────────────
+' ANN Index 层
+' ──────────────────────────────────────────
+package "ANN Index Layer" #FCE4EC {
+  class AnnIndexIterator {
+    -shared_ptr<AnnIndexReader> _reader
+  }
+  class AnnIndexReader {
+    -shared_ptr<IndexFileReader> _index_file_reader
+    .. 声明/析构顺序 (关键!) ..
+    -unique_ptr<DorisCompoundReader> _compound_dir    ① 先声明→后析构 ✅
+    -unique_ptr<VectorIndex> _vector_index            ② 后声明→先析构 ✅
+  }
+  class FaissVectorIndex {
+    -faiss::Index* _index
+    -unique_ptr<RandomAccessReader> _reader
+  }
+  class CachedRandomAccessReader {
+    -IndexInput* _input     ← clone() 自 compound_dir.stream
+    --
+    ~CachedRandomAccessReader():
+      _input->close()    ← base 必须仍有效!
+      _CLDELETE(_input)
+  }
+  class IndexFileReader {
+    -io::FileSystemSPtr _fs
+    -string _index_path_prefix
+    --
+    open() → DorisCompoundReader
+  }
+  class DorisCompoundReader {
+    -IndexInput* stream    ← 底层文件流 (共享 base 指针)
+    -EntriesType _entries  ← 子文件元数据
+  }
+}
+
+' ──────────────────────────────────────────
+' 关系
+' ──────────────────────────────────────────
+
+PipelineTask --> ScanLocalState : calls close()
+
+ScanLocalState "1" *-down- "1" OlapScanner           : unique_ptr\n[owns, RAII]
+OlapScanner    "1" *-down- "1" BlockReader            : unique_ptr<TabletReader>\n[owns]
+BlockReader    "1" *-down- "1" VCollectIterator       : value member\n[owns]
+VCollectIterator "1" *-down- "N" L0                  : unique_ptr<LevelIterator>\n[owns]
+L0             "1" o-down- "1" BetaRowsetReader       : shared_ptr\n(RowsetReaderSharedPtr)
+
+BetaRowsetReader "1" o-right- "1" Schema             : shared_ptr<const Schema>\n(SchemaSPtr)
+BetaRowsetReader "1" *-down- "1" SegmentIterator      : unique_ptr<RowwiseIterator>\n[owns]
+
+Schema         "1" *-down- "N" StorageField           : raw ptr[]\n(delete in ~Schema)
+StorageField   "1" *-down- "1" TabletColumn           : value member _desc\n[内嵌 TabletColumn 拷贝]
+ArrayField     "1" *-down- "N" StorageField           : unique_ptr\n_sub_fields[]
+
+SegmentIterator "1" o-right- "1" Segment              : shared_ptr
+SegmentIterator "1" *-down- "N" AnnIndexIterator      : unique_ptr<IndexIterator>
+Segment        "1" *-down- "N" ColumnReader           : shared_ptr
+
+ColumnReader   "1" o-down- "1" AnnIndexReader         : shared_ptr\n_index_readers[id]
+AnnIndexIterator "1" o-down- "1" AnnIndexReader       : shared_ptr\n(AnnIndexReader 引用计数 ≥ 2)
+
+AnnIndexReader "1" o-right- "1" IndexFileReader       : shared_ptr
+AnnIndexReader "1" *-down- "1" DorisCompoundReader    : unique_ptr ①\n后析构 (FIXED)
+AnnIndexReader "1" *-down- "1" FaissVectorIndex       : unique_ptr<VectorIndex> ②\n先析构 (FIXED)
+FaissVectorIndex "1" *-down- "1" CachedRandomAccessReader : unique_ptr
+
+IndexFileReader ..> DorisCompoundReader                : open() 创建并转移所有权\n→ AnnIndexReader::_compound_dir
+CachedRandomAccessReader -[#CC0000,thickness=2]-> DorisCompoundReader : ⚠ _input->base\n裸指针依赖\n(CSIndexInput::base)
+
+' ──────────────────────────────────────────
+' 注释
+' ──────────────────────────────────────────
+note right of AnnIndexReader
+  **★ 析构顺序关键 ★**
+  C++ 按成员声明的**逆序**析构
+  ② _vector_index 先析构
+     → ~FaissVectorIndex()
+     → ~CachedRandomAccessReader()
+     → _input->close()   ← base 指针仍有效 ✅
+  ① _compound_dir 后析构
+     → 释放底层 stream   ✅
+
+  **BUGGY (06024d64448):**
+  声明顺序 _vector_index 在前, _compound_dir 在后
+  → _compound_dir 先析构, stream 被释放
+  → ~CachedRandomAccessReader 写入悬空 base
+  → jemalloc 堆元数据损坏
+  → 后续 ~TabletColumn() 触发 SIGSEGV
+end note
+
+note bottom of TabletColumn
+  **CRASH SITE** (commit 06024d64448)
+  je_arena_dalloc_promoted → SIGSEGV
+  jemalloc 在释放 TabletColumn 内存时
+  检测到堆元数据已被上游 UAF 损坏
+  (损坏发生在 ~CachedRandomAccessReader,
+   崩溃延迟显现于此处)
+end note
+
+note right of CachedRandomAccessReader
+  _input = original_input->clone()
+  CLucene CSIndexInput 内部持有
+  raw ptr **base** → compound_dir 的 stream
+  ~CachedRandomAccessReader 必须在
+  DorisCompoundReader 析构**之前**执行
+end note
+
+@enduml
