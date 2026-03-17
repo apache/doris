@@ -519,10 +519,10 @@ void SegmentIterator::_init_segment_prefetchers() {
     LOG_IF(INFO, config::enable_segment_prefetch_verbose_log) << fmt::format(
             "[verbose] SegmentIterator _init_segment_prefetchers, is_query={}, enable_prefetch={}, "
             "_row_bitmap.isEmpty()={}, row_bitmap.cardinality()={}, tablet={}, rowset={}, "
-            "segment={}, predicate_column_ids={}, common_expr_column_ids={}",
+            "segment={}, predicate_column_ids={}, non_predicate_column_ids={}",
             is_query, enable_prefetch, _row_bitmap.isEmpty(), _row_bitmap.cardinality(),
             _opts.tablet_id, _opts.rowset_id.to_string(), segment_id(),
-            fmt::join(_predicate_column_ids, ","), fmt::join(_common_expr_column_ids, ","));
+            fmt::join(_predicate_column_ids, ","), fmt::join(_non_predicate_column_ids, ","));
     if (enable_prefetch && !_row_bitmap.isEmpty()) {
         int window_size =
                 1 + (is_query ? config::query_segment_file_cache_prefetch_block_size
