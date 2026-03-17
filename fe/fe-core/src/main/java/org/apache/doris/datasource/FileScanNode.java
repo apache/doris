@@ -66,6 +66,13 @@ import java.util.stream.Collectors;
  * Base class for External File Scan, including external query and load.
  */
 public abstract class FileScanNode extends ExternalScanNode {
+    public static final long TINY_SPLIT_FILE_SIZE = 2 * 1024 * 1024; // 2MB
+    public static final long SMALL_SPLIT_FILE_SIZE = 4 * 1024 * 1024; // 4MB
+    public static final long MEDIUM_SPLIT_FILE_SIZE = 8 * 1024 * 1024; // 8MB
+    public static final long LARGE_SPLIT_FILE_SIZE = 16 * 1024 * 1024; // 16MB
+    public static final long HUGE_SPLIT_FILE_SIZE = 32 * 1024 * 1024; // 32MB
+    public static final long DEFAULT_SPLIT_SIZE = 64 * 1024 * 1024; // 64MB
+
     // For explain
     protected long totalFileSize = 0;
     protected long totalPartitionNum = 0;

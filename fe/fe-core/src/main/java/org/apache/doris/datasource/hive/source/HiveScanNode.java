@@ -360,22 +360,27 @@ public class HiveScanNode extends FileQueryScanNode {
         }
         long result = sessionVariable.getMaxInitialSplitSize();
         long totalFileSize = 0;
-        boolean exceedInitialThreshold = false;
         for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
             if (fileCacheValue.getFiles() == null) {
                 continue;
             }
             for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
                 totalFileSize += status.getLength();
-                if (!exceedInitialThreshold
-                        && totalFileSize >= sessionVariable.getMaxSplitSize()
-                                * sessionVariable.getMaxInitialSplitNum()) {
-                    exceedInitialThreshold = true;
-                }
             }
         }
-        result = exceedInitialThreshold ? sessionVariable.getMaxSplitSize() : result;
-        result = applyMaxFileSplitNumLimit(result, totalFileSize);
+        if (totalFileSize <= Config.file_size_range_to_decide_split_size[0]) {
+            result = TINY_SPLIT_FILE_SIZE;
+        } else if (totalFileSize <= Config.file_size_range_to_decide_split_size[1]) {
+            result = SMALL_SPLIT_FILE_SIZE;
+        } else if (totalFileSize <= Config.file_size_range_to_decide_split_size[2]) {
+            result = MEDIUM_SPLIT_FILE_SIZE;
+        } else if (totalFileSize <= Config.file_size_range_to_decide_split_size[3]) {
+            result = LARGE_SPLIT_FILE_SIZE;
+        } else if (totalFileSize <= Config.file_size_range_to_decide_split_size[4]) {
+            result = HUGE_SPLIT_FILE_SIZE;
+        } else {
+            result = DEFAULT_SPLIT_SIZE;
+        }
         return result;
     }
 
