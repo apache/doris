@@ -376,20 +376,21 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                     List<SnapshotSplit> lastSnapshotSplits =
                             recalculateRemainingSplits(chunkHighWatermarkMap, snapshotSplits);
                     if (this.remainingSplits.isEmpty()) {
-                        currentOffset = new JdbcOffset();
                         if (!lastSnapshotSplits.isEmpty()) {
+                            currentOffset = new JdbcOffset();
                             currentOffset.setSplits(lastSnapshotSplits);
+                        } else if (!isSnapshotOnlyMode()) {
+                            // initial mode: rebuild binlog split for snapshot-to-binlog transition
+                            currentOffset = new JdbcOffset();
+                            BinlogSplit binlogSplit = new BinlogSplit();
+                            binlogSplit.setFinishedSplits(finishedSplits);
+                            currentOffset.setSplits(Collections.singletonList(binlogSplit));
                         } else {
-                            if (!isSnapshotOnlyMode()) {
-                                // initial mode: rebuild binlog split for snapshot-to-binlog transition
-                                BinlogSplit binlogSplit = new BinlogSplit();
-                                binlogSplit.setFinishedSplits(finishedSplits);
-                                currentOffset.setSplits(Collections.singletonList(binlogSplit));
-                            } else {
-                                // snapshot-only mode: all splits finished, restore from finishedSplits
-                                // so snapshotSplit() works correctly and hasReachedEnd() can detect completion
-                                currentOffset.setSplits(new ArrayList<>(finishedSplits));
-                            }
+                            // snapshot-only completed: leave currentOffset as null,
+                            // hasReachedEnd() detects completion via finishedSplits
+                            log.info("Replaying offset provider for job {}: snapshot-only mode completed,"
+                                    + " finishedSplits={}, skip currentOffset restoration",
+                                    getJobId(), finishedSplits.size());
                         }
                     }
                 }
@@ -557,8 +558,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     @Override
     public boolean hasReachedEnd() {
         return isSnapshotOnlyMode()
-                && currentOffset != null
-                && currentOffset.snapshotSplit()
+                && CollectionUtils.isNotEmpty(finishedSplits)
                 && remainingSplits.isEmpty();
     }
 
