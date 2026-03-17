@@ -41,6 +41,7 @@ const std::string PARAM_COMPACTION_BASE = "base";
 const std::string PARAM_COMPACTION_CUMULATIVE = "cumulative";
 const std::string PARAM_COMPACTION_FULL = "full";
 const std::string PARAM_COMPACTION_REMOTE = "remote";
+const std::string PARAM_COMPACTION_FORCE = "force";
 
 /// This action is used for viewing the compaction status.
 /// See compaction-action.md for details.

@@ -148,13 +148,22 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
         return Status::NotSupported("The remote = '{}' is not supported", param_remote);
     }
 
+    // "force" = "true" means skip permit limiter when submitting full compaction to thread pool
+    bool force = false;
+    std::string param_force = req->param(PARAM_COMPACTION_FORCE);
+    if (param_force == "true") {
+        force = true;
+    } else if (!param_force.empty() && param_force != "false") {
+        return Status::NotSupported("The force = '{}' is not supported", param_force);
+    }
+
     if (tablet_id == 0 && table_id != 0) {
         std::vector<TabletSharedPtr> tablet_vec = _engine.tablet_manager()->get_all_tablet(
                 [table_id](Tablet* tablet) -> bool { return tablet->get_table_id() == table_id; });
         for (const auto& tablet : tablet_vec) {
             tablet->set_last_full_compaction_schedule_time(UnixMillis());
             RETURN_IF_ERROR(
-                    _engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION, false));
+                    _engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION, force));
         }
     } else {
         // 2. fetch the tablet by tablet_id
@@ -180,7 +189,7 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
             // 3. submit full compaction task to thread pool
             tablet->set_last_full_compaction_schedule_time(UnixMillis());
             RETURN_IF_ERROR(
-                    _engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION, false));
+                    _engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION, force));
         } else {
             // 3. execute base/cumulative compaction task in a detached thread
             std::packaged_task<Status()> task([this, tablet, compaction_type, fetch_from_remote]() {
