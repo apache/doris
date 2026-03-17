@@ -25,7 +25,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
-import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.util.DateUtils;
 
 import com.google.common.base.Preconditions;
@@ -90,29 +89,27 @@ public class DateLiteral extends LiteralExpr {
     private static final int MAX_MICROSECOND = 999999;
 
     private static List<DateTimeFormatter> formatterList = null;
-    /*
-     *  The datekey type is widely used in data warehouses
-     *  For example, 20121229 means '2012-12-29'
-     *  and data in the form of 'yyyymmdd' is generally called the datekey type.
-     */
-    private static DateTimeFormatter DATEKEY_FORMATTER = null;
-    // 'yyyymmddHHMMss'
-    private static DateTimeFormatter DATETIMEKEY_FORMATTER = null;
 
-    private static Map<String, Integer> MONTH_NAME_DICT = Maps.newHashMap();
-    private static Map<String, Integer> MONTH_ABBR_NAME_DICT = Maps.newHashMap();
-    private static Map<String, Integer> WEEK_DAY_NAME_DICT = Maps.newHashMap();
+    private static final Map<String, Integer> MONTH_NAME_DICT = Maps.newHashMap();
+    private static final Map<String, Integer> MONTH_ABBR_NAME_DICT = Maps.newHashMap();
+    private static final Map<String, Integer> WEEK_DAY_NAME_DICT = Maps.newHashMap();
     private static Set<Character> TIME_PART_SET = Sets.newHashSet();
-    private static String MICRO_SECOND_FORMATTER = "%f";
+    private static final String MICRO_SECOND_FORMATTER = "%f";
     private static final int[] DAYS_IN_MONTH = new int[]{0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
     private static final WeekFields weekFields = WeekFields.of(DayOfWeek.SUNDAY, 7);
 
     static {
         try {
-            DATEKEY_FORMATTER = formatBuilder("%Y%m%d").toFormatter()
-                .withResolverStyle(ResolverStyle.STRICT);
-            DATETIMEKEY_FORMATTER = formatBuilder("%Y%m%d%H%i%s").toFormatter()
-                .withResolverStyle(ResolverStyle.STRICT);
+            /*
+             *  The datekey type is widely used in data warehouses
+             *  For example, 20121229 means '2012-12-29'
+             *  and data in the form of 'yyyymmdd' is generally called the datekey type.
+             */
+            DateTimeFormatter dateKeyFmt = formatBuilder("%Y%m%d").toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
+            // 'yyyymmddHHMMss'
+            DateTimeFormatter datetimeKeyFmt = formatBuilder("%Y%m%d%H%i%s").toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
             formatterList = Lists.newArrayList(
                 formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
                     .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
@@ -126,7 +123,7 @@ public class DateLiteral extends LiteralExpr {
                 formatBuilder("%Y%m%d%H%i%s")
                     .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
                     .toFormatter().withResolverStyle(ResolverStyle.STRICT),
-                DATETIMEKEY_FORMATTER, DATEKEY_FORMATTER);
+                    datetimeKeyFmt, dateKeyFmt);
             TIME_PART_SET = "HhIiklrSsTp".chars().mapToObj(c -> (char) c).collect(Collectors.toSet());
         } catch (AnalysisException e) {
             LOG.error("invalid date format", e);
@@ -634,22 +631,6 @@ public class DateLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForQuery(FormatOptions options) {
-        if (!type.isTimeStampTz()) {
-            return getStringValue();
-        }
-        try {
-            String offset = DateUtils.getTimeZone().getRules().getOffset(java.time.Instant.now()).toString();
-            DateLiteral dateLiteral = new DateLiteral(getStringValue(),
-                    ScalarType.createDatetimeV2Type(((ScalarType) type).getScalarScale()));
-            return dateLiteral.getStringValue() + offset;
-        } catch (Exception e) {
-            LOG.warn("generate timestamptz({})'s string value for query failed. ", getStringValue(), e);
-            return getStringValue();
-        }
-    }
-
-    @Override
     public String getStringValue() {
         char[] dateTimeChars = new char[26]; // Enough to hold "YYYY-MM-DD HH:MM:SS.mmmmmm"
 
@@ -728,17 +709,12 @@ public class DateLiteral extends LiteralExpr {
         return new String(dateTimeChars, 0, 19);
     }
 
-    @Override
-    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
-        return options.getNestedStringWrapper() + getStringValueForQuery(options) + options.getNestedStringWrapper();
-    }
-
     public void roundFloor(int newScale) {
         microsecond = Double.valueOf(microsecond / (int) (Math.pow(10, 6 - newScale))
             * (Math.pow(10, 6 - newScale))).longValue();
     }
 
-    public String convertToString(PrimitiveType type) {
+    private String convertToString(PrimitiveType type) {
         if (type == PrimitiveType.DATE || type == PrimitiveType.DATEV2) {
             return String.format("%04d-%02d-%02d", year, month, day);
         } else if (type == PrimitiveType.DATETIMEV2 || type == PrimitiveType.TIMESTAMPTZ) {

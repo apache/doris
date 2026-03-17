@@ -26,7 +26,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NameFormatUtils;
 import org.apache.doris.common.TreeNode;
-import org.apache.doris.foundation.format.FormatOptions;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
@@ -390,35 +389,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
 
     public String getStringValue() {
         return "";
-    }
-
-    /**
-     * This method is used for constant fold of query in FE,
-     * for different serde dialect(hive, presto, doris).
-     */
-    public String getStringValueForQuery(FormatOptions options) {
-        return getStringValue();
-    }
-
-    /**
-     * This method is to return the string value of this expr in a complex type for query
-     * It is only used for "getStringValueForQuery()"
-     * For most of the integer types, it is same as getStringValueForQuery().
-     * But for others like StringLiteral and DateLiteral, it should be wrapped with quotations.
-     * eg: 1,2,abc,[1,2,3],["abc","def"],{10:20},{"abc":20}
-     */
-    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
-        return getStringValueForQuery(options);
-    }
-
-    /**
-     * This method is to return the string value of this expr for stream load.
-     * so there is a little different from "getStringValueForQuery()".
-     * eg, for NullLiteral, it should be "\N" for stream load, but "null" for FE constant
-     * for StructLiteral, the value should not contain sub column's name.
-     */
-    public String getStringValueForStreamLoad(FormatOptions options) {
-        return getStringValueForQuery(options);
     }
 
     /**
