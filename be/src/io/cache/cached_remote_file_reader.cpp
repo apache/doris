@@ -546,27 +546,34 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                 }
             }
             if (!st || block_state != FileBlock::State::DOWNLOADED) {
-                if (block_state == FileBlock::State::DOWNLOADED && st.is<ErrorCode::NOT_FOUND>()) {
-                    need_self_heal = true;
-                    g_read_cache_self_heal_on_not_found << 1;
-                    LOG_EVERY_N(WARNING, 100)
-                            << "Cache block file is missing, will self-heal by clearing cache "
-                               "hash. "
-                            << "path=" << path().native() << ", hash=" << _cache_hash.to_string()
-                            << ", offset=" << left << ", err=" << st.msg();
+                if (is_dryrun) [[unlikely]] {
+                    // dryrun mode uses a null buffer, skip actual remote IO
+                } else {
+                    if (block_state == FileBlock::State::DOWNLOADED &&
+                        st.is<ErrorCode::NOT_FOUND>()) {
+                        need_self_heal = true;
+                        g_read_cache_self_heal_on_not_found << 1;
+                        LOG_EVERY_N(WARNING, 100)
+                                << "Cache block file is missing, will self-heal by clearing cache "
+                                   "hash. "
+                                << "path=" << path().native()
+                                << ", hash=" << _cache_hash.to_string() << ", offset=" << left
+                                << ", err=" << st.msg();
+                    }
+                    LOG(WARNING) << "Read data failed from file cache downloaded by others. err="
+                                 << st.msg() << ", block state=" << block_state;
+                    size_t bytes_read {0};
+                    stats.hit_cache = false;
+                    stats.from_peer_cache = false;
+                    s3_read_counter << 1;
+                    SCOPED_RAW_TIMER(&stats.remote_read_timer);
+                    RETURN_IF_ERROR(_remote_file_reader->read_at(
+                            current_offset,
+                            Slice(result.data + (current_offset - offset), read_size),
+                            &bytes_read));
+                    indirect_read_bytes += read_size;
+                    DCHECK(bytes_read == read_size);
                 }
-                LOG(WARNING) << "Read data failed from file cache downloaded by others. err="
-                             << st.msg() << ", block state=" << block_state;
-                size_t bytes_read {0};
-                stats.hit_cache = false;
-                stats.from_peer_cache = false;
-                s3_read_counter << 1;
-                SCOPED_RAW_TIMER(&stats.remote_read_timer);
-                RETURN_IF_ERROR(_remote_file_reader->read_at(
-                        current_offset, Slice(result.data + (current_offset - offset), read_size),
-                        &bytes_read));
-                indirect_read_bytes += read_size;
-                DCHECK(bytes_read == read_size);
             }
         }
         *bytes_read += read_size;
