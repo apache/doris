@@ -163,6 +163,13 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
         }
     }
 
+    // Skip stale tablet cache check for STOP_TOKEN: it is a lock marker used by schema change
+    // to block concurrent compactions during delete bitmap recalculation on MOW tables, not an
+    // actual compaction job. Its compaction_cnt fields carry no semantic meaning and are never
+    // read back; uniqueness is enforced separately (same-BE: _active_compaction_stop_tokens map;
+    // cross-BE: the JOB_TABLET_BUSY conflict check below). Applying the stale cache check here
+    // would cause spurious STALE_TABLET_CACHE failures when another BE advances the tablet's
+    // cumulative_compaction_cnt concurrently (see #61380).
     if (compaction.type() != TabletCompactionJobPB::STOP_TOKEN &&
         (compaction.base_compaction_cnt() < stats.base_compaction_cnt() ||
          compaction.cumulative_compaction_cnt() < stats.cumulative_compaction_cnt())) {
