@@ -100,6 +100,7 @@ import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
 import org.apache.doris.nereids.rules.rewrite.InitJoinOrder;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
+import org.apache.doris.nereids.rules.rewrite.IvmRewriteMtmvPlan;
 import org.apache.doris.nereids.rules.rewrite.JoinExtractOrFromCaseWhen;
 import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
@@ -901,6 +902,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             ),
                             topic("process limit session variables",
                                     custom(RuleType.ADD_DEFAULT_LIMIT, AddDefaultLimit::new)
+                            ),
+                            topic("rewrite mtmv define plan for ivm",
+                                    custom(RuleType.IVM_REWRITE_MTMV_PLAN, IvmRewriteMtmvPlan::new)
                             ),
                             topic("record query tmp plan for mv pre rewrite",
                                     custom(RuleType.RECORD_PLAN_FOR_MV_PRE_REWRITE, RecordPlanForMvPreRewrite::new)

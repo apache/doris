@@ -46,6 +46,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
@@ -409,16 +410,15 @@ public class MTMVPlanUtil {
         DistributionDescriptor distribution = new DistributionDescriptor(defaultDistributionInfo.getType().equals(
                 DistributionInfoType.HASH), defaultDistributionInfo.getAutoBucket(),
                 defaultDistributionInfo.getBucketNum(), Lists.newArrayList(mtmv.getDistributionColumnNames()));
-        return analyzeQuery(ctx, mtmv.getMvProperties(), querySql, mtmvPartitionDefinition, distribution, null,
-                mtmv.getTableProperty().getProperties(), keys, logicalPlan);
+        return analyzeQuery(ctx, mtmv.getMvProperties(), mtmvPartitionDefinition, distribution, null,
+                mtmv.getTableProperty().getProperties(), keys, logicalPlan,
+                mtmv.getRefreshInfo().getRefreshMethod() ==  RefreshMethod.INCREMENTAL);
     }
 
     public static MTMVAnalyzeQueryInfo analyzeQuery(ConnectContext ctx, Map<String, String> mvProperties,
-            String querySql,
             MTMVPartitionDefinition mvPartitionDefinition, DistributionDescriptor distribution,
             List<SimpleColumnDefinition> simpleColumnDefinitions, Map<String, String> properties, List<String> keys,
-            LogicalPlan
-                    logicalQuery) throws UserException {
+            LogicalPlan logicalQuery, boolean enableIvmRewrite) throws UserException {
         try (StatementContext statementContext = ctx.getStatementContext()) {
             NereidsPlanner planner = new NereidsPlanner(statementContext);
             // this is for expression column name infer when not use alias
@@ -432,17 +432,21 @@ public class MTMVPlanUtil {
             try {
                 // must disable constant folding by be, because be constant folding may return wrong type
                 ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, "false");
+                if (enableIvmRewrite) {
+                    ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_IVM_REWRITE_IN_NEREIDS, "true");
+                }
                 plan = planner.planWithLock(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
             } finally {
                 // after operate, roll back the disable rules
                 ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
                 statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
             }
+            Plan analyzedPlan = planner.getAnalyzedPlan();
             // can not contain Random function
-            analyzeExpressions(planner.getAnalyzedPlan(), mvProperties);
+            analyzeExpressions(analyzedPlan, mvProperties);
             // can not contain partition or tablets
             boolean containTableQueryOperator = MaterializedViewUtils.containTableQueryOperator(
-                    planner.getAnalyzedPlan());
+                    analyzedPlan);
             if (containTableQueryOperator) {
                 throw new AnalysisException("can not contain invalid expression");
             }

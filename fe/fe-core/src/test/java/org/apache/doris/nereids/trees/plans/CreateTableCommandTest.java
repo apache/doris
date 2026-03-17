@@ -40,6 +40,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.FixedRangePartition;
 import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
@@ -1131,6 +1132,22 @@ public class CreateTableCommandTest extends TestWithFeService {
         System.out.println(ex.getMessage());
         Assertions.assertTrue(ex.getMessage().contains("MTMV do not support varbinary type"));
         Assertions.assertTrue(ex.getMessage().contains("vb"));
+    }
+
+    @Test
+    public void testCreateMTMVWithIncrementRefreshMethod() throws Exception {
+        String mv = "CREATE MATERIALIZED VIEW mtmv_increment\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT 1 AS k1;";
+
+        LogicalPlan plan = new NereidsParser().parseSingle(mv);
+        Assertions.assertTrue(plan instanceof CreateMTMVCommand);
+        CreateMTMVCommand cmd = (CreateMTMVCommand) plan;
+
+        Assertions.assertEquals(RefreshMethod.INCREMENTAL,
+                cmd.getCreateMTMVInfo().getRefreshInfo().getRefreshMethod());
     }
 
     @Test
