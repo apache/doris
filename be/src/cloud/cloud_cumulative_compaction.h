@@ -40,7 +40,9 @@ public:
 
     int64_t get_input_rowsets_bytes() const { return _input_rowsets_total_size; }
     int64_t get_input_num_rows() const { return _input_row_num; }
-    CompactionProfileType profile_type() const override { return CompactionProfileType::CUMULATIVE; }
+    CompactionProfileType profile_type() const override {
+        return CompactionProfileType::CUMULATIVE;
+    }
 
 private:
     Status pick_rowsets_to_compact();

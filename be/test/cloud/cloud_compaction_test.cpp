@@ -240,7 +240,9 @@ public:
 
     std::string_view compaction_name() const override { return "test_compaction"; }
 
-    CompactionProfileType profile_type() const override { return CompactionProfileType::CUMULATIVE; }
+    CompactionProfileType profile_type() const override {
+        return CompactionProfileType::CUMULATIVE;
+    }
 };
 
 TEST_F(CloudCompactionTest, test_set_storage_resource_from_input_rowsets) {

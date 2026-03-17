@@ -134,7 +134,7 @@ public:
                              std::vector<std::shared_ptr<CloudCumulativeCompaction>>& res);
 
     Status submit_compaction_task(const CloudTabletSPtr& tablet, CompactionType compaction_type,
-                                      TriggerMethod trigger_method = TriggerMethod::BACKGROUND);
+                                  TriggerMethod trigger_method = TriggerMethod::BACKGROUND);
 
     Status get_compaction_status_json(std::string* result);
 
@@ -201,11 +201,11 @@ private:
                                                                   bool check_score);
     Status _adjust_compaction_thread_num();
     Status _submit_base_compaction_task(const CloudTabletSPtr& tablet,
-                                          TriggerMethod trigger_method);
+                                        TriggerMethod trigger_method);
     Status _submit_cumulative_compaction_task(const CloudTabletSPtr& tablet,
-                                                TriggerMethod trigger_method);
+                                              TriggerMethod trigger_method);
     Status _submit_full_compaction_task(const CloudTabletSPtr& tablet,
-                                          TriggerMethod trigger_method);
+                                        TriggerMethod trigger_method);
     Status _request_tablet_global_compaction_lock(ReaderType compaction_type,
                                                   const CloudTabletSPtr& tablet,
                                                   std::shared_ptr<CloudCompactionMixin> compaction);

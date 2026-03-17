@@ -49,7 +49,6 @@
 
 #include "agent/utils.h"
 #include "common/config.h"
-#include "service/backend_options.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
@@ -59,6 +58,7 @@
 #include "io/fs/path.h"
 #include "runtime/memory/cache_manager.h"
 #include "runtime/memory/global_memory_arbitrator.h"
+#include "service/backend_options.h"
 #include "storage/compaction/cold_data_compaction.h"
 #include "storage/compaction/compaction_permit_limiter.h"
 #include "storage/compaction/cumulative_compaction.h"
@@ -1145,11 +1145,10 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                       << ", max_threads: " << thread_pool->max_threads()
                       << ", min_threads: " << thread_pool->min_threads()
                       << ", num_total_queued_tasks: " << thread_pool->get_queue_size();
-        auto status = thread_pool->submit_func(
-                [=, compaction = std::move(compaction), this]() {
-                    _handle_compaction(std::move(tablet), std::move(compaction), compaction_type,
-                                       permits, force);
-                });
+        auto status = thread_pool->submit_func([=, compaction = std::move(compaction), this]() {
+            _handle_compaction(std::move(tablet), std::move(compaction), compaction_type, permits,
+                               force);
+        });
         if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) [[likely]] {
             DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
                     _cumu_compaction_thread_pool->get_queue_size());
@@ -1290,8 +1289,7 @@ void StorageEngine::_handle_compaction(TabletSharedPtr tablet,
 }
 
 Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                             bool force, bool eager,
-                                             TriggerMethod trigger_method) {
+                                             bool force, bool eager, TriggerMethod trigger_method) {
     if (!eager) {
         DCHECK(compaction_type == CompactionType::BASE_COMPACTION ||
                compaction_type == CompactionType::CUMULATIVE_COMPACTION);

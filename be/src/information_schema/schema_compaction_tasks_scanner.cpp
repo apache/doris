@@ -158,7 +158,7 @@ Status SchemaCompactionTasksScanner::_fill_block_impl(Block* block) {
         for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             strs_storage[i - fill_idx_begin] = to_string(_tasks[i].compaction_type);
             strs[i - fill_idx_begin] = StringRef(strs_storage[i - fill_idx_begin].c_str(),
-                                                  strs_storage[i - fill_idx_begin].size());
+                                                 strs_storage[i - fill_idx_begin].size());
             datas[i - fill_idx_begin] = strs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, datas));
@@ -170,7 +170,7 @@ Status SchemaCompactionTasksScanner::_fill_block_impl(Block* block) {
         for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             strs_storage[i - fill_idx_begin] = to_string(_tasks[i].status);
             strs[i - fill_idx_begin] = StringRef(strs_storage[i - fill_idx_begin].c_str(),
-                                                  strs_storage[i - fill_idx_begin].size());
+                                                 strs_storage[i - fill_idx_begin].size());
             datas[i - fill_idx_begin] = strs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 6, datas));
@@ -182,7 +182,7 @@ Status SchemaCompactionTasksScanner::_fill_block_impl(Block* block) {
         for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             strs_storage[i - fill_idx_begin] = to_string(_tasks[i].trigger_method);
             strs[i - fill_idx_begin] = StringRef(strs_storage[i - fill_idx_begin].c_str(),
-                                                  strs_storage[i - fill_idx_begin].size());
+                                                 strs_storage[i - fill_idx_begin].size());
             datas[i - fill_idx_begin] = strs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 7, datas));
@@ -296,7 +296,7 @@ Status SchemaCompactionTasksScanner::_fill_block_impl(Block* block) {
         std::vector<StringRef> strs(fill_tasks_num);
         for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             strs[i - fill_idx_begin] = StringRef(_tasks[i].input_version_range.c_str(),
-                                                  _tasks[i].input_version_range.size());
+                                                 _tasks[i].input_version_range.size());
             datas[i - fill_idx_begin] = strs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 17, datas));
@@ -350,8 +350,8 @@ Status SchemaCompactionTasksScanner::_fill_block_impl(Block* block) {
     {
         std::vector<StringRef> strs(fill_tasks_num);
         for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
-            strs[i - fill_idx_begin] = StringRef(_tasks[i].output_version.c_str(),
-                                                  _tasks[i].output_version.size());
+            strs[i - fill_idx_begin] =
+                    StringRef(_tasks[i].output_version.c_str(), _tasks[i].output_version.size());
             datas[i - fill_idx_begin] = strs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 23, datas));
@@ -405,8 +405,8 @@ Status SchemaCompactionTasksScanner::_fill_block_impl(Block* block) {
     {
         std::vector<StringRef> strs(fill_tasks_num);
         for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
-            strs[i - fill_idx_begin] = StringRef(_tasks[i].status_msg.c_str(),
-                                                  _tasks[i].status_msg.size());
+            strs[i - fill_idx_begin] =
+                    StringRef(_tasks[i].status_msg.c_str(), _tasks[i].status_msg.size());
             datas[i - fill_idx_begin] = strs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 29, datas));

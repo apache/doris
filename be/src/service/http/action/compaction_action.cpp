@@ -157,9 +157,9 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
                 [table_id](Tablet* tablet) -> bool { return tablet->get_table_id() == table_id; });
         for (const auto& tablet : tablet_vec) {
             tablet->set_last_full_compaction_schedule_time(UnixMillis());
-            RETURN_IF_ERROR(_engine.submit_compaction_task(
-                    tablet, CompactionType::FULL_COMPACTION, false, /*eager=*/true,
-                    TriggerMethod::MANUAL));
+            RETURN_IF_ERROR(_engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION,
+                                                           false, /*eager=*/true,
+                                                           TriggerMethod::MANUAL));
         }
     } else {
         // 2. fetch the tablet by tablet_id
@@ -172,9 +172,9 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
             return Status::NotSupported("tablet should do compaction locally");
         }
         DBUG_EXECUTE_IF("CompactionAction._handle_run_compaction.submit_cumu_task", {
-            RETURN_IF_ERROR(_engine.submit_compaction_task(
-                    tablet, CompactionType::CUMULATIVE_COMPACTION, false, /*eager=*/true,
-                    TriggerMethod::MANUAL));
+            RETURN_IF_ERROR(
+                    _engine.submit_compaction_task(tablet, CompactionType::CUMULATIVE_COMPACTION,
+                                                   false, /*eager=*/true, TriggerMethod::MANUAL));
             LOG(INFO) << "Manual debug compaction task is successfully triggered";
             *json_result =
                     R"({"status": "Success", "msg": "debug compaction task is successfully triggered. Table id: )" +

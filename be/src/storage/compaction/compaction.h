@@ -35,11 +35,11 @@
 #include "common/status.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
+#include "storage/compaction/compaction_task_tracker.h"
 #include "storage/merger.h"
 #include "storage/olap_common.h"
 #include "storage/rowid_conversion.h"
 #include "storage/rowset/pending_rowset_helper.h"
-#include "storage/compaction/compaction_task_tracker.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/tablet/tablet_fwd.h"
 

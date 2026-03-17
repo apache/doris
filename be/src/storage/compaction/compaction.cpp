@@ -17,8 +17,6 @@
 
 #include "storage/compaction/compaction.h"
 
-#include "storage/compaction/compaction_task_tracker.h"
-
 #include <fmt/format.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
@@ -55,6 +53,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "storage/compaction/collection_statistics.h"
+#include "storage/compaction/compaction_task_tracker.h"
 #include "storage/compaction/cumulative_compaction.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
@@ -185,9 +184,8 @@ void Compaction::submit_profile_record(bool success, int64_t start_time_ms,
     CompletionStats stats;
     // Fill input_version_range from input rowsets
     if (!_input_rowsets.empty()) {
-        stats.input_version_range =
-                fmt::format("[{}-{}]", _input_rowsets.front()->start_version(),
-                            _input_rowsets.back()->end_version());
+        stats.input_version_range = fmt::format("[{}-{}]", _input_rowsets.front()->start_version(),
+                                                _input_rowsets.back()->end_version());
     }
     stats.end_time_ms = UnixMillis();
     stats.merged_rows = _stats.merged_rows;
@@ -605,20 +603,20 @@ Status CompactionMixin::execute_compact() {
         data_dir->disks_compaction_num_increment(-1);
     };
 
-    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(
-            ({
-                impl_status = execute_compact_impl(permits);
-                impl_status;
-            }),
-            ([&](const doris::Exception& ex) {
-                on_failure(ex);
-                // Use the captured Status message if Exception has no message
-                std::string msg = ex.what();
-                if (msg.empty() && !impl_status.ok()) {
-                    msg = impl_status.to_string();
-                }
-                submit_profile_record(false, profile_start_time_ms, msg);
-            }));
+    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(({
+                                            impl_status = execute_compact_impl(permits);
+                                            impl_status;
+                                        }),
+                                        ([&](const doris::Exception& ex) {
+                                            on_failure(ex);
+                                            // Use the captured Status message if Exception has no message
+                                            std::string msg = ex.what();
+                                            if (msg.empty() && !impl_status.ok()) {
+                                                msg = impl_status.to_string();
+                                            }
+                                            submit_profile_record(false, profile_start_time_ms,
+                                                                  msg);
+                                        }));
     // Only reached on success
     _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
     data_dir->disks_compaction_score_increment(-permits);

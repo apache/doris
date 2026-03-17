@@ -56,8 +56,8 @@
 #include "io/hdfs_util.h"
 #include "io/io_common.h"
 #include "load/memtable/memtable_flush_executor.h"
-#include "service/backend_options.h"
 #include "runtime/memory/cache_manager.h"
+#include "service/backend_options.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/storage_policy.h"
@@ -795,7 +795,7 @@ Status CloudStorageEngine::_request_tablet_global_compaction_lock(
 }
 
 Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& tablet,
-                                                         TriggerMethod trigger_method) {
+                                                        TriggerMethod trigger_method) {
     using namespace std::chrono;
     {
         std::lock_guard lock(_compaction_mtx);
@@ -895,7 +895,7 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
 }
 
 Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletSPtr& tablet,
-                                                               TriggerMethod trigger_method) {
+                                                              TriggerMethod trigger_method) {
     using namespace std::chrono;
     {
         std::lock_guard lock(_compaction_mtx);
@@ -1085,7 +1085,7 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
 }
 
 Status CloudStorageEngine::_submit_full_compaction_task(const CloudTabletSPtr& tablet,
-                                                         TriggerMethod trigger_method) {
+                                                        TriggerMethod trigger_method) {
     using namespace std::chrono;
     {
         std::lock_guard lock(_compaction_mtx);

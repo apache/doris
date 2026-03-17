@@ -77,8 +77,7 @@ protected:
     }
 
     // Helper to find a task by ID in a vector
-    const CompactionTaskInfo* find_task(const std::vector<CompactionTaskInfo>& tasks,
-                                        int64_t id) {
+    const CompactionTaskInfo* find_task(const std::vector<CompactionTaskInfo>& tasks, int64_t id) {
         for (const auto& t : tasks) {
             if (t.compaction_id == id) return &t;
         }
@@ -226,8 +225,8 @@ TEST_F(CompactionTaskTrackerTest, FallbackRecord_NoRegister) {
     EXPECT_EQ(task->status, CompactionTaskStatus::FINISHED);
     EXPECT_EQ(task->trigger_method, TriggerMethod::BACKGROUND); // default
     EXPECT_EQ(task->scheduled_time_ms, cs.end_time_ms);         // fallback
-    EXPECT_EQ(task->compaction_score, 0);                        // not available
-    EXPECT_EQ(task->merged_rows, 100);                           // completion stats present
+    EXPECT_EQ(task->compaction_score, 0);                       // not available
+    EXPECT_EQ(task->merged_rows, 100);                          // completion stats present
 }
 
 TEST_F(CompactionTaskTrackerTest, FallbackRecord_FailWithStatusMsg) {

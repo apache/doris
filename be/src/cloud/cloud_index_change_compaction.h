@@ -45,7 +45,9 @@ public:
 
     bool is_base_compaction() const { return _compact_type == cloud::TabletCompactionJobPB::BASE; }
 
-    CompactionProfileType profile_type() const override { return CompactionProfileType::INDEX_CHANGE; }
+    CompactionProfileType profile_type() const override {
+        return CompactionProfileType::INDEX_CHANGE;
+    }
 
     Status rebuild_tablet_schema() override;
 
