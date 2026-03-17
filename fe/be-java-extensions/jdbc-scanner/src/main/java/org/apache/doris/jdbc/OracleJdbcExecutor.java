@@ -36,6 +36,10 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 
+/**
+ * @deprecated Use {@link OracleTypeHandler} instead.
+ */
+@Deprecated
 public class OracleJdbcExecutor extends BaseJdbcExecutor {
     private static final Logger LOG = Logger.getLogger(OracleJdbcExecutor.class);
     private final CharsetDecoder utf8Decoder = StandardCharsets.UTF_8.newDecoder();

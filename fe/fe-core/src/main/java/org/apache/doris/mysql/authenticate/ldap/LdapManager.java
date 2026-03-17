@@ -21,7 +21,6 @@ import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LdapConfig;
@@ -102,7 +101,7 @@ public class LdapManager {
     }
 
     public boolean checkUserPasswd(String fullName, String passwd) {
-        String userName = ClusterNamespace.getNameFromFullName(fullName);
+        String userName = fullName;
         if (AuthenticateType.getAuthTypeConfig() != AuthenticateType.LDAP || Strings.isNullOrEmpty(userName)
                 || Objects.isNull(passwd)) {
             return false;
@@ -143,7 +142,7 @@ public class LdapManager {
     }
 
     private LdapUserInfo getUserInfoAndUpdateCache(String fulName) throws DdlException {
-        String userName = ClusterNamespace.getNameFromFullName(fulName);
+        String userName = fulName;
         if (Strings.isNullOrEmpty(userName)) {
             return null;
         } else if (!ldapClient.doesUserExist(userName)) {

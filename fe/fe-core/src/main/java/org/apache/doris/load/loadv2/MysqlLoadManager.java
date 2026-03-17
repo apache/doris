@@ -25,7 +25,6 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.LoadException;
@@ -172,7 +171,7 @@ public class MysqlLoadManager {
             throws IOException, UserException {
         LoadJobRowResult loadResult = new LoadJobRowResult();
         List<String> filePaths = dataDesc.getFilePaths();
-        String database = ClusterNamespace.getNameFromFullName(dataDesc.getDbName());
+        String database = dataDesc.getDbName();
         String table = dataDesc.getTableName();
         int oldTimeout = context.getExecTimeoutS();
         int newTimeOut = extractTimeOut(dataDesc);
@@ -239,7 +238,7 @@ public class MysqlLoadManager {
                                                                String loadId) throws IOException, UserException {
         LoadJobRowResult loadResult = new LoadJobRowResult();
         List<String> filePaths = dataDesc.getFilePaths();
-        String database = ClusterNamespace.getNameFromFullName(dataDesc.getDbName());
+        String database = dataDesc.getDbName();
         String table = dataDesc.getTableName();
         int oldTimeout = context.getExecTimeoutS();
         int newTimeOut = extractTimeOut(dataDesc);

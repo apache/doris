@@ -30,7 +30,6 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -1101,7 +1100,7 @@ public class NereidsDataDescription {
             sb.append(" NEGATIVE");
         }
         sb.append(" INTO TABLE ");
-        sb.append(isMysqlLoad ? ClusterNamespace.getNameFromFullName(dbName) + "." + tableName : tableName);
+        sb.append(isMysqlLoad ? dbName + "." + tableName : tableName);
         if (partitionNamesInfo != null) {
             sb.append(" ");
             sb.append(partitionNamesInfo.toSql());

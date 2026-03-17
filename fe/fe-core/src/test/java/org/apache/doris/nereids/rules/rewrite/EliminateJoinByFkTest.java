@@ -49,7 +49,7 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         createTables(
                 "CREATE TABLE IF NOT EXISTS pri (\n"
                         + "    id1 int not null\n"
