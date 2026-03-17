@@ -14,36 +14,35 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/SlotRef.java
+// and modified by Doris
 
-package org.apache.doris.nereids.trees.plans.commands.info;
+package org.apache.doris.info;
 
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.catalog.TableIf;
 
 /**
- * WarmUpItem
+ * BaseTableRefInfo
  */
-public class WarmUpItem {
-    private final TableNameInfo tableNameInfo;
-    private final String partitionName;
+public class BaseTableRefInfo extends TableRefInfo {
+    private TableIf table;
 
-    public WarmUpItem(TableNameInfo tableNameInfo, String partitionName) {
+    public BaseTableRefInfo(TableRefInfo tableRefInfo, TableNameInfo tableNameInfo, TableIf table) {
+        super(tableRefInfo);
+        this.table = table;
         this.tableNameInfo = tableNameInfo;
-        this.partitionName = partitionName;
+        tableAlias = tableNameInfo.getTableAlias();
     }
 
-    public TableNameInfo getTableNameInfo() {
-        return tableNameInfo;
-    }
-
-    public String getPartitionName() {
-        return partitionName;
+    protected BaseTableRefInfo(BaseTableRefInfo other) {
+        super(other);
+        tableNameInfo = other.tableNameInfo;
+        table = other.table;
     }
 
     @Override
-    public String toString() {
-        return "WarmUpItem{"
-            + "tableNameInfo=" + tableNameInfo
-            + ", partitionName='" + partitionName + '\''
-            + '}';
+    public TableRefInfo clone() {
+        return new BaseTableRefInfo(this);
     }
 }

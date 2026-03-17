@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -35,7 +36,6 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
