@@ -43,6 +43,18 @@ public class MetricsTest {
     @BeforeClass
     public static void setUp() {
         FeConstants.runningUnitTest = true;
+        MetricRepo.SYSTEM_METRICS = new SystemMetrics() {
+            @Override
+            protected String getCpuStatPath() {
+                return getClass().getClassLoader().getResource("data/stat_normal").getFile();
+            }
+
+            @Override
+            protected String getSnmpPath() {
+                return getClass().getClassLoader().getResource("data/net_snmp_normal").getFile();
+            }
+        };
+        MetricRepo.SYSTEM_METRICS.update();
         MetricRepo.init();
     }
 

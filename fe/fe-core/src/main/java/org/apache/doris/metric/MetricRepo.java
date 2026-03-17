@@ -77,7 +77,7 @@ public final class MetricRepo {
     public static final DorisMetricRegistry DORIS_METRIC_REGISTER = new DorisMetricRegistry();
 
     public static volatile boolean isInit = false;
-    public static final SystemMetrics SYSTEM_METRICS = new SystemMetrics();
+    public static SystemMetrics SYSTEM_METRICS = new SystemMetrics();
 
     public static final String TABLET_NUM = "tablet_num";
     public static final String TABLET_MAX_COMPACTION_SCORE = "tablet_max_compaction_score";

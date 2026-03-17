@@ -17,8 +17,6 @@
 
 package org.apache.doris.metric;
 
-import org.apache.doris.common.FeConstants;
-
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -122,10 +120,7 @@ public class SystemMetrics {
     }
 
     private void updateSnmpMetrics() {
-        String procFile = "/proc/net/snmp";
-        if (FeConstants.runningUnitTest) {
-            procFile = getClass().getClassLoader().getResource("data/net_snmp_normal").getFile();
-        }
+        String procFile = getSnmpPath();
         try (FileReader fileReader = new FileReader(procFile);
                 BufferedReader br = new BufferedReader(fileReader)) {
             String line = null;
@@ -347,6 +342,10 @@ public class SystemMetrics {
             }
         }
         return 0;
+    }
+
+    protected String getSnmpPath() {
+        return "/proc/net/snmp";
     }
 
     protected String getCpuStatPath() {
