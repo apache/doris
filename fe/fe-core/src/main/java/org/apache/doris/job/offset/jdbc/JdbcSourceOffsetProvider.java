@@ -116,11 +116,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             nextOffset.setSplits(snapshotSplits);
             return nextOffset;
         } else if (currentOffset != null && currentOffset.snapshotSplit()) {
-            if (isSnapshotOnlyMode()) {
-                // snapshot-only mode: all splits done, signal job to stop
-                return null;
-            }
             // initial mode: snapshot to binlog
+            // snapshot-only mode must be intercepted by hasReachedEnd() before reaching here
             BinlogSplit binlogSplit = new BinlogSplit();
             binlogSplit.setFinishedSplits(finishedSplits);
             nextOffset.setSplits(Collections.singletonList(binlogSplit));
