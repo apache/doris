@@ -183,7 +183,7 @@ Status ParallelScannerBuilder::_build_scanners_by_segment(std::list<ScannerSPtr>
         }
 
         // Collect segments into scanners based on rows count instead of one scanner per segment
-        TabletReader::ReadSource partitial_read_source;
+        TabletReadSource partitial_read_source;
         int64_t rows_collected = 0;
 
         for (auto& rs_split : entire_read_source.rs_splits) {
@@ -222,7 +222,7 @@ Status ParallelScannerBuilder::_build_scanners_by_segment(std::list<ScannerSPtr>
                              .delete_bitmap = entire_read_source.delete_bitmap}));
 
                     // Reset for next scanner
-                    partitial_read_source = TabletReader::ReadSource();
+                    partitial_read_source = TabletReadSource();
                     split = RowSetSplits(reader->clone());
                     segment_start = i;
                     rows_collected = 0;
