@@ -28,6 +28,8 @@ import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -38,6 +40,7 @@ import java.util.Set;
  * Minimal orchestration entry point for incremental refresh.
  */
 public class IVMRefreshManager {
+    private static final Logger LOG = LogManager.getLogger(IVMRefreshManager.class);
     private final IVMCapabilityChecker capabilityChecker;
     private final IVMPlanAnalyzer planAnalyzer;
     private final IVMDeltaPlannerDispatcher deltaPlannerDispatcher;
@@ -52,18 +55,21 @@ public class IVMRefreshManager {
         this.deltaExecutor = Objects.requireNonNull(deltaExecutor, "deltaExecutor can not be null");
     }
 
-    @VisibleForTesting
-    IVMRefreshResult doRefresh(MTMV mtmv) {
+    public IVMRefreshResult doRefresh(MTMV mtmv) {
         Objects.requireNonNull(mtmv, "mtmv can not be null");
         IVMRefreshResult precheckResult = precheck(mtmv);
         if (!precheckResult.isSuccess()) {
+            LOG.warn("IVM precheck failed for mv={}, result={}", mtmv.getName(), precheckResult);
             return precheckResult;
         }
         final IVMRefreshContext context;
         try {
             context = buildRefreshContext(mtmv);
         } catch (Exception e) {
-            return IVMRefreshResult.fallback(FallbackReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED, e.getMessage());
+            IVMRefreshResult result = IVMRefreshResult.fallback(
+                    FallbackReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED, e.getMessage());
+            LOG.warn("IVM context build failed for mv={}, result={}", mtmv.getName(), result);
+            return result;
         }
         return doRefreshInternal(context);
     }
@@ -92,14 +98,19 @@ public class IVMRefreshManager {
         IVMPlanAnalysis analysis = planAnalyzer.analyze(context);
         Objects.requireNonNull(analysis, "analysis can not be null");
         if (analysis.isInvalid()) {
-            return IVMRefreshResult.fallback(FallbackReason.PLAN_PATTERN_UNSUPPORTED, analysis.getUnsupportedReason());
+            IVMRefreshResult result = IVMRefreshResult.fallback(
+                    FallbackReason.PLAN_PATTERN_UNSUPPORTED, analysis.getUnsupportedReason());
+            LOG.warn("IVM plan unsupported for mv={}, result={}", context.getMtmv().getName(), result);
+            return result;
         }
 
         IVMCapabilityResult capabilityResult = capabilityChecker.check(context, analysis);
         Objects.requireNonNull(capabilityResult, "capabilityResult can not be null");
         if (!capabilityResult.isIncremental()) {
-            return IVMRefreshResult.fallback(capabilityResult.getFallbackReason(),
-                    capabilityResult.getDetailMessage());
+            IVMRefreshResult result = IVMRefreshResult.fallback(
+                    capabilityResult.getFallbackReason(), capabilityResult.getDetailMessage());
+            LOG.warn("IVM capability check failed for mv={}, result={}", context.getMtmv().getName(), result);
+            return result;
         }
 
         try {
@@ -107,12 +118,11 @@ public class IVMRefreshManager {
             deltaExecutor.execute(context, bundles);
             return IVMRefreshResult.success();
         } catch (Exception e) {
-            return IVMRefreshResult.fallback(FallbackReason.INCREMENTAL_EXECUTION_FAILED, e.getMessage());
+            IVMRefreshResult result = IVMRefreshResult.fallback(
+                    FallbackReason.INCREMENTAL_EXECUTION_FAILED, e.getMessage());
+            LOG.warn("IVM execution failed for mv={}, result={}", context.getMtmv().getName(), result, e);
+            return result;
         }
-    }
-
-    public IVMRefreshResult ivmRefresh(MTMV mtmv) {
-        return doRefresh(mtmv);
     }
 
     private IVMRefreshResult checkStreamSupport(MTMV mtmv) {
