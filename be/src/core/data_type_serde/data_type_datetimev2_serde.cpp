@@ -346,11 +346,6 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
             std::static_pointer_cast<arrow::TimestampType>(array_builder->type());
     const std::string& timezone = timestamp_type->timezone();
     const cctz::time_zone& real_ctz = timezone.empty() ? cctz::utc_time_zone() : ctz;
-    // INT96 (NANO unit) is the Hive/Impala legacy timestamp format. Hive interprets INT96
-    // as local wall-clock time with no timezone conversion. Arrow writes UTC-normalized values,
-    // so we must treat the wall-clock time as UTC (i.e. use utc_time_zone()) to produce the
-    // correct local-time nanoseconds that Hive and Doris's native Parquet reader both expect.
-    const bool is_int96 = (timestamp_type->unit() == arrow::TimeUnit::NANO);
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
             RETURN_IF_ERROR(checkArrowStatus(timestamp_builder.AppendNull(), column.get_name(),
@@ -358,9 +353,7 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
         } else {
             int64_t timestamp = 0;
             DateV2Value<DateTimeV2ValueType> datetime_val = col_data[i];
-            // For INT96, ignore the session timezone so the wall-clock value is stored as-is.
-            const cctz::time_zone& ts_ctz = is_int96 ? cctz::utc_time_zone() : real_ctz;
-            datetime_val.unix_timestamp(&timestamp, ts_ctz);
+            datetime_val.unix_timestamp(&timestamp, real_ctz);
 
             switch (timestamp_type->unit()) {
             case arrow::TimeUnit::NANO: {
