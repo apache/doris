@@ -410,7 +410,6 @@ public class HyperGraph {
          */
         private int addDPHyperNode(Group group) {
             for (Slot slot : group.getLogicalExpression().getPlan().getOutput()) {
-                Preconditions.checkArgument(!slotToHyperNodeMap.containsKey(slot));
                 slotToHyperNodeMap.put(slot, LongBitmap.newBitmap(nodes.size()));
             }
             nodes.add(new DPhyperNode(nodes.size(), group));
@@ -452,11 +451,7 @@ public class HyperGraph {
             long rightSubtreeNodes = rightChildEdgeNodes.second;
             Map<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> requiredNodesToConjuncts =
                     new LinkedHashMap<>();
-            if (join.getHashJoinConjuncts().isEmpty() && join.getOtherJoinConjuncts().isEmpty()
-                    && join.getMarkJoinConjuncts().isEmpty()) {
-                join = join.withJoinType(JoinType.CROSS_JOIN);
-            }
-            if (join.getJoinType().isCrossJoin()) {
+            if (join.getExpressions().isEmpty()) {
                 return addCrossJoin(join, leftChildEdgeNodes, rightChildEdgeNodes);
             } else {
                 Pair<Long, Long> ends = calculateEndsBySlots(join.getInputSlots(), leftSubtreeNodes, rightSubtreeNodes);
