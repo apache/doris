@@ -246,6 +246,10 @@ private:
     // to populate ctx->kinesis_info->cmt_sequence_number after consumption.
     std::map<std::string, std::string> _committed_sequence_numbers;
 
+    // Tracks shards that have been closed (split/merge) during consumption.
+    // FE should remove these shards from its tracking to avoid reassigning them.
+    std::set<std::string> _closed_shard_ids;
+
 public:
     // Returns the MillisBehindLatest snapshot collected during group_consume.
     const std::map<std::string, int64_t>& get_millis_behind_latest() const {
@@ -256,6 +260,9 @@ public:
     const std::map<std::string, std::string>& get_committed_sequence_numbers() const {
         return _committed_sequence_numbers;
     }
+
+    // Returns the set of closed shard IDs detected during group_consume.
+    const std::set<std::string>& get_closed_shard_ids() const { return _closed_shard_ids; }
 
 private:
     // Helper methods

@@ -42,17 +42,26 @@ import java.util.TimeZone;
 /**
  * AWS Kinesis data source properties for Routine Load.
  *
- * Parameters are divided into two categories:
- * 1. AWS Client parameters (aws.*): region, endpoint, credentials, timeouts
- * 2. Kinesis-specific parameters (aws.kinesis.*): stream, shards, positions, API settings
+ * Parameters:
+ * - kinesis_stream: Name of the Kinesis stream (required)
+ * - kinesis_shards: Comma-separated list of shard IDs (optional)
+ * - kinesis_shards_pos: Comma-separated list of positions for each shard (optional)
+ * - aws.region: AWS region (required)
+ * - aws.access_key: AWS access key (optional)
+ * - aws.secret_key: AWS secret key (optional)
+ * - aws.session_key: AWS session token (optional)
+ * - aws.role_arn: IAM role ARN (optional)
+ * - property.kinesis_default_pos: Default position for new shards (optional)
+ * - property.*: Other pass-through parameters for AWS SDK configuration
  *
  * Example usage in SQL:
  * CREATE ROUTINE LOAD my_job ON my_table
  * FROM KINESIS (
  *     "aws.region" = "us-east-1",
- *     "aws.kinesis.stream" = "my-stream",
- *     "aws.access.key" = "AKIAIOSFODNN7EXAMPLE",
- *     "aws.secret.key" = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+ *     "aws.access_key" = "AKIAIOSFODNN7EXAMPLE",
+ *     "aws.secret_key" = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+ *     "kinesis_stream" = "my-stream",
+ *     "property.kinesis_default_pos" = "TRIM_HORIZON"
  * );
  */
 public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
@@ -117,7 +126,6 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
             new ImmutableSet.Builder<String>()
                     .add(KinesisConfiguration.KINESIS_REGION.getName())
                     .add(KinesisConfiguration.KINESIS_STREAM.getName())
-                    .add(KinesisConfiguration.KINESIS_ENDPOINT.getName())
                     .add(KinesisConfiguration.KINESIS_SHARDS.getName())
                     .add(KinesisConfiguration.KINESIS_POSITIONS.getName())
                     .add(KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName())
@@ -125,15 +133,6 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
                     .add(KinesisConfiguration.KINESIS_SECRET_KEY.getName())
                     .add(KinesisConfiguration.KINESIS_SESSION_TOKEN.getName())
                     .add(KinesisConfiguration.KINESIS_ROLE_ARN.getName())
-                    .add(KinesisConfiguration.KINESIS_EXTERNAL_ID.getName())
-                    .add(KinesisConfiguration.KINESIS_PROFILE_NAME.getName())
-                    .add(KinesisConfiguration.KINESIS_CONSUMER_NAME.getName())
-                    .add(KinesisConfiguration.KINESIS_MAX_RECORDS_PER_FETCH.getName())
-                    .add(KinesisConfiguration.KINESIS_FETCH_INTERVAL_MS.getName())
-                    .add(KinesisConfiguration.KINESIS_CONNECTION_TIMEOUT_MS.getName())
-                    .add(KinesisConfiguration.KINESIS_REQUEST_TIMEOUT_MS.getName())
-                    .add(KinesisConfiguration.KINESIS_MAX_RETRIES.getName())
-                    .add(KinesisConfiguration.KINESIS_USE_HTTPS.getName())
                     .build();
 
     public KinesisDataSourceProperties(Map<String, String> dataSourceProperties, boolean multiLoad) {
@@ -159,11 +158,10 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
 
     @Override
     public void convertAndCheckDataSourceProperties() throws UserException {
-        // Check for invalid properties - accept aws.* and aws.kinesis.* parameters
+        // Check for invalid properties - accept property.* parameters as pass-through
         Optional<String> invalidProperty = originalDataSourceProperties.keySet().stream()
                 .filter(key -> !CONFIGURABLE_DATA_SOURCE_PROPERTIES_SET.contains(key))
-                .filter(key -> !key.startsWith("aws.kinesis."))
-                .filter(key -> !key.startsWith("aws."))
+                .filter(key -> !key.startsWith("property."))
                 .findFirst();
         if (invalidProperty.isPresent()) {
             throw new AnalysisException(invalidProperty.get() + " is invalid Kinesis property or cannot be set");
@@ -186,12 +184,11 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
             throw new AnalysisException(KinesisConfiguration.KINESIS_STREAM.getName() + " is a required property");
         }
 
-        // Parse optional endpoint
-        this.endpoint = KinesisConfiguration.KINESIS_ENDPOINT.getParameterValue(
-                originalDataSourceProperties.get(KinesisConfiguration.KINESIS_ENDPOINT.getName()));
-
-        // Parse custom properties (AWS credentials, etc.)
+        // Parse custom properties (property.* parameters)
         analyzeCustomProperties();
+
+        // Parse AWS credentials from direct parameters
+        parseAwsCredentials();
 
         // Validate AWS authentication configuration
         validateAwsAuthConfig();
@@ -207,13 +204,12 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
         List<String> positions = KinesisConfiguration.KINESIS_POSITIONS.getParameterValue(
                 originalDataSourceProperties.get(KinesisConfiguration.KINESIS_POSITIONS.getName()));
         // Get default position from customKinesisProperties (already parsed from "property." prefix)
-        String defaultPositionString = customKinesisProperties.get(
-                KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName());
+        String defaultPositionString = customKinesisProperties.get("kinesis_default_pos");
 
         // Validate that positions and default_position are not both set
         if (CollectionUtils.isNotEmpty(positions) && StringUtils.isNotBlank(defaultPositionString)) {
             throw new AnalysisException("Only one of " + KinesisConfiguration.KINESIS_POSITIONS.getName()
-                    + " and " + KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName() + " can be set.");
+                    + " and property.kinesis_default_pos can be set.");
         }
 
         // For alter operation, shards and positions must be set together
@@ -246,25 +242,44 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
 
     /**
      * Parse and store custom Kinesis properties.
-     * All aws.* and aws.kinesis.* parameters are passed through to BE.
+     * All property.* parameters are passed through to BE.
      */
     private void analyzeCustomProperties() throws AnalysisException {
         this.customKinesisProperties = new HashMap<>();
 
-        // Store all aws.* and aws.kinesis.* parameters
+        // Store all property.* parameters (strip the "property." prefix for BE)
         for (Map.Entry<String, String> entry : originalDataSourceProperties.entrySet()) {
             String key = entry.getKey();
-            if (key.startsWith("aws.kinesis.") || key.startsWith("aws.")) {
-                // Pass through directly to BE
-                customKinesisProperties.put(key, entry.getValue());
+            if (key.startsWith("property.")) {
+                // Strip "property." prefix and pass through to BE
+                String actualKey = key.substring("property.".length());
+                customKinesisProperties.put(actualKey, entry.getValue());
             }
         }
+    }
 
-        // Store default position for later use
-        String defaultPosition = originalDataSourceProperties.get(
-                KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName());
-        if (StringUtils.isNotBlank(defaultPosition)) {
-            customKinesisProperties.put(KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName(), defaultPosition);
+    /**
+     * Parse AWS credentials from direct parameters and add to customKinesisProperties.
+     */
+    private void parseAwsCredentials() {
+        String accessKey = originalDataSourceProperties.get(KinesisConfiguration.KINESIS_ACCESS_KEY.getName());
+        if (StringUtils.isNotBlank(accessKey)) {
+            customKinesisProperties.put("aws.access_key", accessKey);
+        }
+
+        String secretKey = originalDataSourceProperties.get(KinesisConfiguration.KINESIS_SECRET_KEY.getName());
+        if (StringUtils.isNotBlank(secretKey)) {
+            customKinesisProperties.put("aws.secret_key", secretKey);
+        }
+
+        String sessionToken = originalDataSourceProperties.get(KinesisConfiguration.KINESIS_SESSION_TOKEN.getName());
+        if (StringUtils.isNotBlank(sessionToken)) {
+            customKinesisProperties.put("aws.session_key", sessionToken);
+        }
+
+        String roleArn = originalDataSourceProperties.get(KinesisConfiguration.KINESIS_ROLE_ARN.getName());
+        if (StringUtils.isNotBlank(roleArn)) {
+            customKinesisProperties.put("aws.role_arn", roleArn);
         }
     }
 
@@ -277,25 +292,24 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
      * 4. Default credential chain (EC2 instance profile, environment variables, etc.)
      */
     private void validateAwsAuthConfig() throws AnalysisException {
-        String accessKey = customKinesisProperties.get(KinesisConfiguration.KINESIS_ACCESS_KEY.getName());
-        String secretKey = customKinesisProperties.get(KinesisConfiguration.KINESIS_SECRET_KEY.getName());
-        String roleArn = customKinesisProperties.get(KinesisConfiguration.KINESIS_ROLE_ARN.getName());
+        String accessKey = customKinesisProperties.get("aws.access_key");
+        String secretKey = customKinesisProperties.get("aws.secret_key");
+        String roleArn = customKinesisProperties.get("aws.role_arn");
 
         // If access key is provided, secret key must also be provided
         if (StringUtils.isNotBlank(accessKey) && StringUtils.isBlank(secretKey)) {
-            throw new AnalysisException("When " + KinesisConfiguration.KINESIS_ACCESS_KEY.getName()
-                    + " is set, " + KinesisConfiguration.KINESIS_SECRET_KEY.getName() + " must also be set");
+            throw new AnalysisException("When property.aws.access_key is set, property.aws.secret_key "
+                    + "must also be set");
         }
         if (StringUtils.isNotBlank(secretKey) && StringUtils.isBlank(accessKey)) {
-            throw new AnalysisException("When " + KinesisConfiguration.KINESIS_SECRET_KEY.getName()
-                    + " is set, " + KinesisConfiguration.KINESIS_ACCESS_KEY.getName() + " must also be set");
+            throw new AnalysisException("When property.aws.secret_key is set, property.aws.access_key "
+                    + "must also be set");
         }
 
         // If external ID is provided, role ARN must be provided
-        String externalId = customKinesisProperties.get(KinesisConfiguration.KINESIS_EXTERNAL_ID.getName());
+        String externalId = customKinesisProperties.get("aws.external.id");
         if (StringUtils.isNotBlank(externalId) && StringUtils.isBlank(roleArn)) {
-            throw new AnalysisException("When " + KinesisConfiguration.KINESIS_EXTERNAL_ID.getName()
-                    + " is set, " + KinesisConfiguration.KINESIS_ROLE_ARN.getName() + " must also be set");
+            throw new AnalysisException("When property.aws.external.id is set, property.aws.role_arn must also be set");
         }
 
         // Note: We don't require any authentication config because the default credential chain
@@ -381,21 +395,20 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
      * Returns true if position is a timestamp.
      */
     private boolean analyzeKinesisDefaultPositionProperty() throws AnalysisException {
-        customKinesisProperties.putIfAbsent(KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName(), POSITION_LATEST);
-        String defaultPosition = customKinesisProperties.get(KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName());
+        customKinesisProperties.putIfAbsent("kinesis_default_pos", POSITION_LATEST);
+        String defaultPosition = customKinesisProperties.get("kinesis_default_pos");
 
         TimeZone timeZone = TimeUtils.getOrSystemTimeZone(this.getTimezone());
         long timestamp = TimeUtils.timeStringToLong(defaultPosition, timeZone);
         if (timestamp != -1) {
             // This is a datetime format, convert to timestamp
-            customKinesisProperties.put(KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName(),
-                    String.valueOf(timestamp));
+            customKinesisProperties.put("kinesis_default_pos", String.valueOf(timestamp));
             return true;
         } else {
             if (!defaultPosition.equalsIgnoreCase(POSITION_TRIM_HORIZON)
                     && !defaultPosition.equalsIgnoreCase(POSITION_LATEST)) {
-                throw new AnalysisException(KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName()
-                        + " can only be set to TRIM_HORIZON, LATEST, or a datetime string. Got: " + defaultPosition);
+                throw new AnalysisException("property.kinesis_default_pos can only be set to TRIM_HORIZON, "
+                        + "LATEST, or a datetime string. Got: " + defaultPosition);
             }
             return false;
         }

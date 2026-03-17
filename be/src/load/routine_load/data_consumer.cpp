@@ -652,8 +652,8 @@ Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadCon
     s3_conf.endpoint = _endpoint;
 
     // Parse AWS credentials from properties
-    auto it_ak = _custom_properties.find("aws.access.key.id");
-    auto it_sk = _custom_properties.find("aws.secret.access.key");
+    auto it_ak = _custom_properties.find("aws.access.key");
+    auto it_sk = _custom_properties.find("aws.secret.key");
     auto it_token = _custom_properties.find("aws.session.token");
     auto it_role_arn = _custom_properties.find("aws.iam.role.arn");
     auto it_external_id = _custom_properties.find("aws.external.id");
@@ -822,12 +822,10 @@ Status KinesisDataConsumer::group_consume(
                 continue;
             }
 
-            // Call Kinesis GetRecords API
             consumer_watch.start();
 
             Aws::Kinesis::Model::GetRecordsRequest request;
 
-            // Apply all configurations through KinesisConf
             DCHECK(_kinesis_conf != nullptr);
             st = _kinesis_conf->apply_to_get_records_request(request, iter_it->second);
             if (!st.ok()) {
@@ -899,20 +897,25 @@ Status KinesisDataConsumer::group_consume(
 
             // Update shard iterator for next call
             if (next_iterator.empty()) {
-                // Shard is closed (split/merge), remove from active set
+                // Shard is closed (split/merge), mark as closed and remove from active set
                 LOG(INFO) << "Shard closed: " << shard_id << " (split/merge detected)";
-                _shard_iterators.erase(shard_id);
-                it = _consuming_shard_ids.erase(it);
-            } else if (millis_behind == 0 && record_count == 0) {
-                // Shard has caught up with latest data (no lag, no records in this batch)
-                // Similar to Kafka's PARTITION_EOF behavior - remove from active set to allow early exit
-                LOG(INFO) << "Shard caught up with latest data: " << shard_id
-                          << " (MillisBehindLatest=0, no records)";
+                _closed_shard_ids.insert(shard_id);
                 _shard_iterators.erase(shard_id);
                 it = _consuming_shard_ids.erase(it);
             } else {
+                // Update iterator for next consumption
                 _shard_iterators[shard_id] = next_iterator;
-                ++it;
+
+                if (record_count == 0) {
+                    // No records in this batch - shard has caught up with latest data
+                    // Remove from active set for this round (similar to Kafka PARTITION_EOF)
+                    // but keep iterator and progress for next task execution
+                    LOG(INFO) << "Shard has no new data: " << shard_id
+                              << " (MillisBehindLatest=" << millis_behind << ")";
+                    it = _consuming_shard_ids.erase(it);
+                } else {
+                    ++it;
+                }
             }
 
             // Check if all shards are exhausted
@@ -993,8 +996,10 @@ bool KinesisDataConsumer::_is_retriable_error(
 Status KinesisDataConsumer::reset() {
     std::unique_lock<std::mutex> l(_lock);
     _cancelled = false;
-    _shard_iterators.clear();
     _consuming_shard_ids.clear();
+    _shard_iterators.clear();
+    _committed_sequence_numbers.clear();
+    _closed_shard_ids.clear();
     _last_visit_time = time(nullptr);
     LOG(INFO) << "Kinesis consumer reset: " << _id;
     return Status::OK();
@@ -1038,6 +1043,14 @@ bool KinesisDataConsumer::match(std::shared_ptr<StreamLoadContext> ctx) {
 Status KinesisDataConsumer::get_shard_list(std::vector<std::string>* shard_ids) {
     DORIS_CHECK(_kinesis_client);
 
+    // If user specified explicit shards, return those instead of discovering
+    if (!_explicit_shards.empty()) {
+        *shard_ids = _explicit_shards;
+        LOG(INFO) << "Using " << shard_ids->size() << " explicit shards for stream: " << _stream;
+        return Status::OK();
+    }
+
+    // Otherwise, discover all shards in the stream
     Aws::Kinesis::Model::ListShardsRequest request;
 
     // Apply all configurations through KinesisConf

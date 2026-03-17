@@ -35,7 +35,6 @@ public enum KinesisConfiguration {
     /**
      * AWS region where the Kinesis stream is located.
      * Required property.
-     * Example: us-east-1, ap-southeast-1, cn-north-1
      */
     KINESIS_REGION("aws.region", null, value -> value.trim()),
 
@@ -43,19 +42,13 @@ public enum KinesisConfiguration {
      * Name of the Kinesis stream to consume from.
      * Required property.
      */
-    KINESIS_STREAM("aws.kinesis.stream", null, value -> value.trim()),
-
-    /**
-     * Endpoint URL for Kinesis service (optional).
-     * Used for custom endpoints like LocalStack for testing, or VPC endpoints.
-     */
-    KINESIS_ENDPOINT("aws.endpoint", null, value -> value.trim()),
+    KINESIS_STREAM("kinesis_stream", null, value -> value.trim()),
 
     /**
      * Comma-separated list of shard IDs to consume from.
      * If not specified, all shards will be consumed.
      */
-    KINESIS_SHARDS("aws.kinesis.shards", null, shardsString ->
+    KINESIS_SHARDS("kinesis_shards", null, shardsString ->
             Arrays.stream(shardsString.replace(" ", "").split(","))
                     .collect(Collectors.toList())),
 
@@ -63,34 +56,34 @@ public enum KinesisConfiguration {
      * Shard iterator positions (sequence numbers) for each shard.
      * Format: position1,position2,... corresponding to shards order.
      */
-    KINESIS_POSITIONS("aws.kinesis.positions", null,
+    KINESIS_POSITIONS("kinesis_shards_pos", null,
             positionsString -> Splitter.on(",").trimResults().splitToList(positionsString)),
 
     /**
      * Default starting position for new shards.
      * Valid values: TRIM_HORIZON, LATEST, AT_TIMESTAMP
      */
-    KINESIS_DEFAULT_POSITION("aws.kinesis.default.pos", "LATEST", position -> position.trim()),
+    KINESIS_DEFAULT_POSITION("property.kinesis_default_pos", "LATEST", position -> position.trim()),
 
     /**
      * AWS Access Key ID for authentication.
      */
-    KINESIS_ACCESS_KEY("aws.access.key", null, value -> value),
+    KINESIS_ACCESS_KEY("aws.access_key", null, value -> value),
 
     /**
      * AWS Secret Access Key for authentication.
      */
-    KINESIS_SECRET_KEY("aws.secret.key", null, value -> value),
+    KINESIS_SECRET_KEY("aws.secret_key", null, value -> value),
 
     /**
      * AWS Session Token for temporary credentials.
      */
-    KINESIS_SESSION_TOKEN("aws.session.token", null, value -> value),
+    KINESIS_SESSION_TOKEN("aws.session_key", null, value -> value),
 
     /**
      * IAM Role ARN to assume for accessing Kinesis.
      */
-    KINESIS_ROLE_ARN("aws.iam.role.arn", null, value -> value.trim()),
+    KINESIS_ROLE_ARN("aws.role_arn", null, value -> value.trim()),
 
     /**
      * External ID for IAM role assumption.

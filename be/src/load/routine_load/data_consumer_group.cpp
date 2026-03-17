@@ -245,9 +245,7 @@ Status KinesisDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ct
 
     // Start all consumers
     for (auto& consumer : _consumers) {
-        if (!_thread_pool.offer(std::bind<void>(
-                    &KinesisDataConsumerGroup::actual_consume, this, consumer, &_queue,
-                    ctx->max_interval_s * 1000, [this, &result_st](const Status& st) {
+        if (!_thread_pool.offer([this, consumer, capture0 = &_queue, capture1 = ctx->max_interval_s * 1000, capture2 = [this, &result_st](const Status& st) {
                         std::unique_lock<std::mutex> lock(_mutex);
                         _counter--;
                         VLOG_CRITICAL << "kinesis group counter is: " << _counter
@@ -261,7 +259,7 @@ Status KinesisDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ct
                         if (result_st.ok() && !st.ok()) {
                             result_st = st;
                         }
-                    }))) {
+                    }] { actual_consume(consumer, capture0, capture1, capture2); })) {
             LOG(WARNING) << "failed to submit kinesis data consumer: " << consumer->id()
                          << ", group id: " << _grp_id;
             return Status::InternalError("failed to submit kinesis data consumer");
@@ -322,12 +320,16 @@ Status KinesisDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ct
                 return result_st;
             }
             RETURN_IF_ERROR(kinesis_pipe->finish());
-            // Collect committed sequence numbers from all consumers
+            // Collect committed sequence numbers and closed shards from all consumers
             for (auto& consumer : _consumers) {
                 auto kinesis_consumer = std::static_pointer_cast<KinesisDataConsumer>(consumer);
                 for (auto& [shard_id, seq_num] :
                      kinesis_consumer->get_committed_sequence_numbers()) {
                     ctx->kinesis_info->cmt_sequence_number[shard_id] = seq_num;
+                }
+                // Collect closed shards to notify FE
+                for (auto& shard_id : kinesis_consumer->get_closed_shard_ids()) {
+                    ctx->kinesis_info->closed_shard_ids.insert(shard_id);
                 }
             }
             ctx->receive_bytes = ctx->max_batch_size - left_bytes;

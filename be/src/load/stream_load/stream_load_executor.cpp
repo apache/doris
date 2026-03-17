@@ -450,6 +450,9 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
         if (!ctx->kinesis_info->millis_behind_latest.empty()) {
             kinesis_progress.__set_shardMillsBehindLatest(ctx->kinesis_info->millis_behind_latest);
         }
+        if (!ctx->kinesis_info->closed_shard_ids.empty()) {
+            kinesis_progress.__set_closedShardIds(ctx->kinesis_info->closed_shard_ids);
+        }
 
         rl_attach.kinesisRLTaskProgress = kinesis_progress;
         rl_attach.__isset.kinesisRLTaskProgress = true;

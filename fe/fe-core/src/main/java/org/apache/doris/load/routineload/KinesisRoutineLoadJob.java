@@ -35,7 +35,6 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.kinesis.KinesisUtil;
-import org.apache.doris.load.routineload.kinesis.KinesisConfiguration;
 import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 import org.apache.doris.nereids.load.NereidsImportColumnDesc;
 import org.apache.doris.nereids.load.NereidsLoadTaskInfo;
@@ -185,9 +184,8 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         }
 
         // Handle default position
-        if (convertedCustomProperties.containsKey(KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName())) {
-            kinesisDefaultPosition = convertedCustomProperties.get(
-                    KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName());
+        if (convertedCustomProperties.containsKey("kinesis_default_pos")) {
+            kinesisDefaultPosition = convertedCustomProperties.get("kinesis_default_pos");
             // Keep it in convertedCustomProperties so BE can use it
         }
     }
@@ -555,11 +553,11 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         // Mask sensitive information
         Map<String, String> maskedProperties = new HashMap<>(customProperties);
-        if (maskedProperties.containsKey(KinesisConfiguration.KINESIS_SECRET_KEY.getName())) {
-            maskedProperties.put(KinesisConfiguration.KINESIS_SECRET_KEY.getName(), "******");
+        if (maskedProperties.containsKey("aws.secret_key")) {
+            maskedProperties.put("aws.secret_key", "******");
         }
-        if (maskedProperties.containsKey(KinesisConfiguration.KINESIS_SESSION_TOKEN.getName())) {
-            maskedProperties.put(KinesisConfiguration.KINESIS_SESSION_TOKEN.getName(), "******");
+        if (maskedProperties.containsKey("aws.session_key")) {
+            maskedProperties.put("aws.session_key", "******");
         }
         return gson.toJson(maskedProperties);
     }
@@ -580,8 +578,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         Map<String, String> ret = new HashMap<>();
         customProperties.forEach((k, v) -> {
             // Mask sensitive values
-            if (k.equals(KinesisConfiguration.KINESIS_SECRET_KEY.getName())
-                    || k.equals(KinesisConfiguration.KINESIS_SESSION_TOKEN.getName())) {
+            if (k.equals("aws.secret_key") || k.equals("aws.session_key")) {
                 ret.put("property." + k, "******");
             } else {
                 ret.put("property." + k, v);

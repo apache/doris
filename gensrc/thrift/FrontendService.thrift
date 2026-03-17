@@ -626,6 +626,9 @@ struct TKinesisRLTaskProgress {
     // Indicates how far behind the consumer is from the tip of the stream.
     // 0 means the consumer has caught up; absent means unknown.
     2: optional map<string,i64> shardMillsBehindLatest
+    // Set of shard IDs that have been closed (split/merge) during consumption.
+    // FE should remove these shards from tracking.
+    3: optional set<string> closedShardIds
 }
 
 struct TRLTaskTxnCommitAttachment {

@@ -76,6 +76,10 @@ public class KinesisProgress extends RoutineLoadProgress {
     // Not persisted — refreshed every task commit. Used only for lag display and scheduling.
     private ConcurrentMap<String, Long> shardIdToMillsBehindLatest = Maps.newConcurrentMap();
 
+    // Set of shard IDs that have been closed (split/merge) during consumption.
+    // Not persisted — only used during task commit to remove closed shards from tracking.
+    private java.util.Set<String> closedShardIds = new java.util.HashSet<>();
+
     private ReentrantLock lock = new ReentrantLock(true);
 
     public KinesisProgress() {
@@ -91,6 +95,9 @@ public class KinesisProgress extends RoutineLoadProgress {
         if (tKinesisRLTaskProgress.isSetShardMillsBehindLatest()) {
             this.shardIdToMillsBehindLatest = new ConcurrentHashMap<>(
                     tKinesisRLTaskProgress.getShardMillsBehindLatest());
+        }
+        if (tKinesisRLTaskProgress.isSetClosedShardIds()) {
+            this.closedShardIds = new java.util.HashSet<>(tKinesisRLTaskProgress.getClosedShardIds());
         }
     }
 
@@ -151,6 +158,13 @@ public class KinesisProgress extends RoutineLoadProgress {
      */
     public ConcurrentMap<String, Long> getShardIdToMillsBehindLatest() {
         return shardIdToMillsBehindLatest;
+    }
+
+    /**
+     * Get the set of closed shard IDs.
+     */
+    public java.util.Set<String> getClosedShardIds() {
+        return closedShardIds;
     }
 
     /**
@@ -273,6 +287,15 @@ public class KinesisProgress extends RoutineLoadProgress {
             newProgress.shardIdToSequenceNumber.forEach((shardId, newSeqNum) -> {
                 this.shardIdToSequenceNumber.put(shardId, newSeqNum);
             });
+
+            // Remove closed shards from tracking
+            if (newProgress.getClosedShardIds() != null) {
+                for (String closedShardId : newProgress.getClosedShardIds()) {
+                    this.shardIdToSequenceNumber.remove(closedShardId);
+                    this.shardIdToMillsBehindLatest.remove(closedShardId);
+                    LOG.info("Removed closed shard from progress: {}", closedShardId);
+                }
+            }
         } finally {
             lock.unlock();
         }

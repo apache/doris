@@ -128,6 +128,8 @@ public:
     std::map<std::string, std::string> cmt_sequence_number;
     // shard_id -> millisBehindLatest from the last GetRecords call
     std::map<std::string, int64_t> millis_behind_latest;
+    // Set of shard IDs that have been closed (split/merge) during consumption
+    std::set<std::string> closed_shard_ids;
     // AWS credentials and custom Kinesis properties
     std::map<std::string, std::string> properties;
 };
