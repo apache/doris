@@ -104,6 +104,16 @@ public:
 
     bool count_read_rows() override { return _file_format_reader->count_read_rows(); }
 
+    void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override {
+        _file_format_reader->set_condition_cache_context(std::move(ctx));
+    }
+
+    bool has_delete_operations() const override {
+        return _file_format_reader->has_delete_operations();
+    }
+
+    int64_t get_total_rows() const override { return _file_format_reader->get_total_rows(); }
+
 protected:
     std::string _table_format;                          // hudi, iceberg, paimon
     std::unique_ptr<GenericReader> _file_format_reader; // parquet, orc
@@ -383,31 +393,18 @@ public:
                                         const schema::external::TStructField& file_schema,
                                         std::shared_ptr<TableSchemaChangeHelper::Node>& node);
 
-        //for iceberg parquet: Use the field id in the `table schema` and the parquet file to match columns.
-        static Status by_parquet_field_id(const schema::external::TStructField& table_schema,
-                                          const FieldDescriptor& parquet_field_desc,
-                                          std::shared_ptr<TableSchemaChangeHelper::Node>& node,
-                                          bool& exist_field_id);
-
         // for iceberg parquet
         static Status by_parquet_field_id(const schema::external::TField& table_schema,
                                           const FieldSchema& parquet_field,
-                                          std::shared_ptr<TableSchemaChangeHelper::Node>& node,
-                                          bool& exist_field_id);
-
-        // for iceberg orc : Use the field id in the `table schema` and the orc file to match columns.
-        static Status by_orc_field_id(const schema::external::TStructField& table_schema,
-                                      const orc::Type* orc_root,
-                                      const std::string& field_id_attribute_key,
-                                      std::shared_ptr<TableSchemaChangeHelper::Node>& node,
-                                      bool& exist_field_id);
+                                          const bool exist_field_id,
+                                          std::shared_ptr<TableSchemaChangeHelper::Node>& node);
 
         // for iceberg orc
         static Status by_orc_field_id(const schema::external::TField& table_schema,
                                       const orc::Type* orc_root,
                                       const std::string& field_id_attribute_key,
-                                      std::shared_ptr<TableSchemaChangeHelper::Node>& node,
-                                      bool& exist_field_id);
+                                      const bool exist_field_id,
+                                      std::shared_ptr<TableSchemaChangeHelper::Node>& node);
     };
 };
 

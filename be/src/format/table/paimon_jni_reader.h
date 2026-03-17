@@ -24,7 +24,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "format/jni_reader.h"
+#include "format/jni/jni_reader.h"
 #include "storage/olap_scan_common.h"
 
 namespace doris {

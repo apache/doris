@@ -19,7 +19,6 @@ package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
@@ -98,8 +97,7 @@ public class RestBaseController extends BaseController {
         String userInfo = null;
         if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
             ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
-            userInfo = ClusterNamespace.getNameFromFullName(authInfo.fullUserName)
-                    + ":" + authInfo.password;
+            userInfo = authInfo.fullUserName + ":" + authInfo.password;
         }
         try {
             urlObj = new URI(urlStr);
@@ -191,10 +189,6 @@ public class RestBaseController extends BaseController {
         response.setHeader(MetaHelper.X_IMAGE_SIZE, imageFile.length() + "");
         response.setHeader(MetaHelper.X_IMAGE_MD5, DigestUtils.md5Hex(new FileInputStream(imageFile)));
         getFile(request, response, imageFile, imageFile.getName());
-    }
-
-    public String getFullDbName(String dbName) {
-        return ClusterNamespace.getNameFromFullName(dbName);
     }
 
     public boolean needRedirect(String scheme) {

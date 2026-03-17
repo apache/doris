@@ -648,6 +648,8 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, const TabletMetaPB& in) 
     out->set_time_series_compaction_empty_rowsets_threshold(
             in.time_series_compaction_empty_rowsets_threshold());
     out->set_time_series_compaction_level_threshold(in.time_series_compaction_level_threshold());
+    out->set_vertical_compaction_num_columns_per_group(
+            in.vertical_compaction_num_columns_per_group());
     out->set_index_id(in.index_id());
     out->set_is_in_memory(in.is_in_memory());
     out->set_is_persistent(in.is_persistent());
@@ -725,6 +727,8 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
     out->set_time_series_compaction_empty_rowsets_threshold(
             in.time_series_compaction_empty_rowsets_threshold());
     out->set_time_series_compaction_level_threshold(in.time_series_compaction_level_threshold());
+    out->set_vertical_compaction_num_columns_per_group(
+            in.vertical_compaction_num_columns_per_group());
     out->set_index_id(in.index_id());
     out->set_is_in_memory(in.is_in_memory());
     out->set_is_persistent(in.is_persistent());
@@ -809,6 +813,8 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
     out->set_time_series_compaction_empty_rowsets_threshold(
             in.time_series_compaction_empty_rowsets_threshold());
     out->set_time_series_compaction_level_threshold(in.time_series_compaction_level_threshold());
+    out->set_vertical_compaction_num_columns_per_group(
+            in.vertical_compaction_num_columns_per_group());
     out->set_index_id(in.index_id());
     out->set_is_in_memory(in.is_in_memory());
     out->set_is_persistent(in.is_persistent());
@@ -886,6 +892,8 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
     out->set_time_series_compaction_empty_rowsets_threshold(
             in.time_series_compaction_empty_rowsets_threshold());
     out->set_time_series_compaction_level_threshold(in.time_series_compaction_level_threshold());
+    out->set_vertical_compaction_num_columns_per_group(
+            in.vertical_compaction_num_columns_per_group());
     out->set_index_id(in.index_id());
     out->set_is_in_memory(in.is_in_memory());
     out->set_is_persistent(in.is_persistent());

@@ -40,14 +40,14 @@ public class PrimaryKeyConstraint extends Constraint implements GsonPostProcessa
 
     // record the foreign table which references the primary key
     @SerializedName(value = "ft")
-    private final Set<TableIdentifier> foreignTables = new HashSet<>();
+    private Set<TableIdentifier> foreignTables = new HashSet<>();
 
     // qualified name strings kept for backward-compatible deserialization
     @SerializedName(value = "ftn")
-    private final Set<String> foreignTableNameStrs = new HashSet<>();
+    private Set<String> foreignTableNameStrs = new HashSet<>();
 
     @SerializedName(value = "ftni")
-    private final List<TableNameInfo> foreignTableInfos = new ArrayList<>();
+    private List<TableNameInfo> foreignTableInfos = new ArrayList<>();
 
     public PrimaryKeyConstraint(String name, Set<String> columns) {
         super(ConstraintType.PRIMARY_KEY, name);
@@ -116,6 +116,15 @@ public class PrimaryKeyConstraint extends Constraint implements GsonPostProcessa
 
     @Override
     public void gsonPostProcess() throws IOException {
+        if (foreignTables == null) {
+            foreignTables = new HashSet<>();
+        }
+        if (foreignTableNameStrs == null) {
+            foreignTableNameStrs = new HashSet<>();
+        }
+        if (foreignTableInfos == null) {
+            foreignTableInfos = new ArrayList<>();
+        }
         if (foreignTableInfos.isEmpty() && !foreignTableNameStrs.isEmpty()) {
             for (String qualifiedName : foreignTableNameStrs) {
                 foreignTableInfos.add(new TableNameInfo(qualifiedName));
