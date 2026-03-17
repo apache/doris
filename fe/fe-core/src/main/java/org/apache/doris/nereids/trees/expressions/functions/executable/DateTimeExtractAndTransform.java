@@ -768,8 +768,6 @@ public class DateTimeExtractAndTransform {
             hourValue = hourValue > 0 ? 838 : -838;
             minuteValue = 59;
             secondValue = 59;
-        } else if (Math.abs(hourValue) == 838 && secondValue > 59) {
-            secondValue = 59;
         }
 
         return new TimeV2Literal((int) Math.abs(hourValue), (int) minuteValue,
