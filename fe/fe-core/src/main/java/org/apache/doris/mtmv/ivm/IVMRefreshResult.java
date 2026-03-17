@@ -35,14 +35,10 @@ public class IVMRefreshResult {
         return new IVMRefreshResult(true, null, null);
     }
 
-    public static IVMRefreshResult fallback(FallbackReason fallbackReason) {
-        return fallback(fallbackReason, null);
-    }
-
     public static IVMRefreshResult fallback(FallbackReason fallbackReason, String detailMessage) {
         return new IVMRefreshResult(false,
                 Objects.requireNonNull(fallbackReason, "fallbackReason can not be null"),
-                detailMessage);
+                Objects.requireNonNull(detailMessage, "detailMessage can not be null"));
     }
 
     public boolean isSuccess() {
@@ -55,5 +51,17 @@ public class IVMRefreshResult {
 
     public String getDetailMessage() {
         return detailMessage;
+    }
+
+    @Override
+    public String toString() {
+        if (success) {
+            return "IVMRefreshResult{success=true}";
+        }
+        return "IVMRefreshResult{"
+                + "success=false"
+                + ", fallbackReason=" + fallbackReason
+                + ", detailMessage='" + detailMessage + '\''
+                + '}';
     }
 }
