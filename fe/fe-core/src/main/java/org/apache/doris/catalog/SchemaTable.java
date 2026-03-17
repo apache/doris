@@ -412,7 +412,8 @@ public class SchemaTable extends Table {
                                     .column("CHARACTER_SET_CLIENT", ScalarType.createVarchar(32))
                                     .column("COLLATION_CONNECTION", ScalarType.createVarchar(32))
                                     .column("DATABASE_COLLATION", ScalarType.createVarchar(32)).build()))
-            .put("be_compaction_tasks", new SchemaTable(SystemIdGenerator.getNextId(), "be_compaction_tasks", TableType.SCHEMA,
+            .put("be_compaction_tasks", new SchemaTable(SystemIdGenerator.getNextId(),
+                    "be_compaction_tasks", TableType.SCHEMA,
                     builder().column("BACKEND_ID", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("COMPACTION_ID", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("TABLE_ID", ScalarType.createType(PrimitiveType.BIGINT))
