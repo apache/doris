@@ -17,7 +17,6 @@
 
 package org.apache.doris.common;
 
-import it.unimi.dsi.fastutil.HashCommon;
 import it.unimi.dsi.fastutil.longs.AbstractLong2LongMap;
 import it.unimi.dsi.fastutil.longs.Long2LongFunction;
 import it.unimi.dsi.fastutil.longs.Long2LongMap;
@@ -86,8 +85,18 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
                 + "It is fixed at 0.");
     }
 
+    /** Murmur3 64-bit finalizer for segment selection. */
+    private static long mix(long x) {
+        x ^= x >>> 33;
+        x *= 0xff51afd7ed558ccdL;
+        x ^= x >>> 33;
+        x *= 0xc4ceb9fe1a85ec53L;
+        x ^= x >>> 33;
+        return x;
+    }
+
     private Segment segmentFor(long key) {
-        return segments[(int) (HashCommon.mix(key) >>> (64 - segmentBits)) & segmentMask];
+        return segments[(int) (mix(key) >>> (64 - segmentBits)) & segmentMask];
     }
 
     // ---- Read operations (read-lock) ----
@@ -103,12 +112,11 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
         }
     }
 
-    @Override
     public long getOrDefault(long key, long defaultValue) {
         Segment seg = segmentFor(key);
         seg.lock.readLock().lock();
         try {
-            return seg.map.getOrDefault(key, defaultValue);
+            return seg.map.containsKey(key) ? seg.map.get(key) : defaultValue;
         } finally {
             seg.lock.readLock().unlock();
         }
@@ -193,34 +201,42 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
         }
     }
 
-    @Override
     public long putIfAbsent(long key, long value) {
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
-            return seg.map.putIfAbsent(key, value);
+            if (seg.map.containsKey(key)) {
+                return seg.map.get(key);
+            }
+            seg.map.put(key, value);
+            return defaultReturnValue();
         } finally {
             seg.lock.writeLock().unlock();
         }
     }
 
-    @Override
     public boolean replace(long key, long oldValue, long newValue) {
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
-            return seg.map.replace(key, oldValue, newValue);
+            if (seg.map.containsKey(key) && seg.map.get(key) == oldValue) {
+                seg.map.put(key, newValue);
+                return true;
+            }
+            return false;
         } finally {
             seg.lock.writeLock().unlock();
         }
     }
 
-    @Override
     public long replace(long key, long value) {
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
-            return seg.map.replace(key, value);
+            if (seg.map.containsKey(key)) {
+                return seg.map.put(key, value);
+            }
+            return defaultReturnValue();
         } finally {
             seg.lock.writeLock().unlock();
         }
@@ -266,7 +282,6 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
     }
 
     // ---- Atomic compound operations ----
-    // Override ALL compound methods from both Long2LongMap and Map interfaces.
 
     /**
      * Atomically adds the given increment to the value associated with the key.
@@ -286,7 +301,6 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
         }
     }
 
-    @Override
     public long computeIfAbsent(long key, LongUnaryOperator mappingFunction) {
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();
@@ -302,7 +316,6 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
         }
     }
 
-    @Override
     public long computeIfAbsent(long key, Long2LongFunction mappingFunction) {
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();
@@ -337,7 +350,6 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
         }
     }
 
-    @Override
     public long computeIfPresent(long key,
             BiFunction<? super Long, ? super Long, ? extends Long> remappingFunction) {
         Segment seg = segmentFor(key);
@@ -360,7 +372,6 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
         }
     }
 
-    @Override
     public long compute(long key, BiFunction<? super Long, ? super Long, ? extends Long> remappingFunction) {
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();
@@ -379,7 +390,6 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
         }
     }
 
-    @Override
     public long merge(long key, long value,
             BiFunction<? super Long, ? super Long, ? extends Long> remappingFunction) {
         Segment seg = segmentFor(key);
@@ -403,7 +413,6 @@ public class ConcurrentLong2LongHashMap extends AbstractLong2LongMap {
         }
     }
 
-    @Override
     public long mergeLong(long key, long value, LongBinaryOperator remappingFunction) {
         Segment seg = segmentFor(key);
         seg.lock.writeLock().lock();

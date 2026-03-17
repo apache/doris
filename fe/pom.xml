@@ -431,7 +431,6 @@ under the License.
         <awssdk.version>2.29.52</awssdk.version>
         <s3tables.catalog.version>0.1.4</s3tables.catalog.version>
         <mockito.version>4.11.0</mockito.version>
-        <fastutil.version>8.5.18</fastutil.version>
     </properties>
     <profiles>
         <profile>
@@ -1863,12 +1862,6 @@ under the License.
                 <groupId>org.mockito</groupId>
                 <artifactId>mockito-inline</artifactId>
                 <version>${mockito.version}</version>
-            </dependency>
-            <!-- fastutil for memory-efficient primitive collections -->
-            <dependency>
-                <groupId>it.unimi.dsi</groupId>
-                <artifactId>fastutil-core</artifactId>
-                <version>${fastutil.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
