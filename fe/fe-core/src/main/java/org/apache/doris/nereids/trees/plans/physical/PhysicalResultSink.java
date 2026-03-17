@@ -25,6 +25,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -63,8 +64,8 @@ public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CH
     public PhysicalResultSink<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "PhysicalResultSink's children size must be 1, but real is %s", children.size());
-        return new PhysicalResultSink<>(outputExprs, groupExpression, getLogicalProperties(),
-                physicalProperties, statistics, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalResultSink<>(outputExprs, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, children.get(0)));
     }
 
     @Override
@@ -79,8 +80,8 @@ public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CH
 
     @Override
     public PhysicalResultSink<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalResultSink<>(outputExprs, groupExpression, getLogicalProperties(),
-                physicalProperties, statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalResultSink<>(outputExprs, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     @Override
@@ -88,15 +89,15 @@ public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CH
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "PhysicalResultSink's children size must be 1, but real is %s", children.size());
-        return new PhysicalResultSink<>(outputExprs, groupExpression, logicalProperties.get(),
-                physicalProperties, statistics, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalResultSink<>(outputExprs, groupExpression,
+                logicalProperties.get(), physicalProperties, statistics, children.get(0)));
     }
 
     @Override
     public PhysicalResultSink<Plan> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalResultSink<>(outputExprs, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalResultSink<>(outputExprs, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     @Override

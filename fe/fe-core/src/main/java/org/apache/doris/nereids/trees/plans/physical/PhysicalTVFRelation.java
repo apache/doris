@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -66,22 +67,22 @@ public class PhysicalTVFRelation extends PhysicalRelation implements TVFRelation
 
     @Override
     public PhysicalTVFRelation withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalTVFRelation(relationId, function, operativeSlots, groupExpression, getLogicalProperties(),
-                physicalProperties, statistics);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalTVFRelation(relationId, function, operativeSlots,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalTVFRelation(relationId, function, operativeSlots, groupExpression,
-                logicalProperties.get(), physicalProperties, statistics);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalTVFRelation(relationId, function, operativeSlots,
+                groupExpression, logicalProperties.get(), physicalProperties, statistics));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalTVFRelation(relationId, function, operativeSlots, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statistics);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalTVFRelation(relationId, function, operativeSlots,
+                Optional.empty(), getLogicalProperties(), physicalProperties, statistics));
     }
 
     public List<Slot> getOperativeSlots() {
