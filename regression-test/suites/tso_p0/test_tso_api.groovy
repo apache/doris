@@ -23,6 +23,7 @@ suite("test_tso_api") {
     logger.info("${ret}")
     try {
         sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_feature_tso' = 'true')"
+        sleep(1000)
         def currentTime = System.currentTimeMillis()
 
         // Test TSO API endpoint

@@ -22,6 +22,7 @@ suite("test_tso_rowset_commit_tso") {
     logger.info("${ret}")
     try {
         sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_feature_tso' = 'true')"
+        sleep(1000)
         def url = String.format("http://%s/api/tso", context.config.feHttpAddress)
         def tsoResp = Http.GET(url, true)
         if (tsoResp.code != 0) {
@@ -50,7 +51,7 @@ suite("test_tso_rowset_commit_tso") {
             def rowsets = sql_return_maparray """
                 select COMMIT_TSO from information_schema.rowsets
                 where TABLET_ID = ${tabletId}
-                order by END_VERSION desc limit 1
+                order by TXN_ID desc limit 1
             """
             if (rowsets.size() > 0) {
                 commitTso = ((Number) rowsets[0]["COMMIT_TSO"]).longValue()
@@ -62,7 +63,7 @@ suite("test_tso_rowset_commit_tso") {
         }
 
         assertTrue(commitTso > 0)
-        assertTrue(commitTso <= ((Number) tsoResp.data.current_tso).longValue())
+        assertTrue(commitTso >= ((Number) tsoResp.data.current_tso).longValue())
 
         sql """DROP TABLE IF EXISTS ${tableName}"""
     } finally {
