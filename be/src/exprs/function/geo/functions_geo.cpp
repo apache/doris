@@ -833,14 +833,20 @@ struct StDimension {
             }
             int dim = -1;
             switch (shape->type()) {
-                case GEO_SHAPE_POINT:         dim = 0; break;
-                case GEO_SHAPE_LINE_STRING:   dim = 1; break;
-                case GEO_SHAPE_POLYGON:
-                case GEO_SHAPE_MULTI_POLYGON: dim = 2; break;
-                default:
-                    null_map_data[row] = 1;
-                    res->insert_default();
-                    continue;
+            case GEO_SHAPE_POINT:
+                dim = 0;
+                break;
+            case GEO_SHAPE_LINE_STRING:
+                dim = 1;
+                break;
+            case GEO_SHAPE_POLYGON:
+            case GEO_SHAPE_MULTI_POLYGON:
+                dim = 2;
+                break;
+            default:
+                null_map_data[row] = 1;
+                res->insert_default();
+                continue;
             }
             res->insert_value(dim);
         }
@@ -1018,7 +1024,7 @@ void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StAsBinary>>();
     factory.register_function<GeoFunction<StLength>>();
     factory.register_function<GeoFunction<StGeometryType>>();
-	factory.register_function<GeoFunction<StCoordDim>>();
+    factory.register_function<GeoFunction<StCoordDim>>();
     factory.register_function<GeoFunction<StDimension>>();
     factory.register_function<GeoFunction<StDistance>>();
 }
