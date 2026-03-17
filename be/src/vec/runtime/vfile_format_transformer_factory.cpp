@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "vec/runtime/vcsv_transformer.h"
+#include "vec/runtime/vjni_format_transformer.h"
 #include "vec/runtime/vorc_transformer.h"
 #include "vec/runtime/vparquet_transformer.h"
 
@@ -32,6 +33,28 @@ Status create_tvf_format_transformer(const TTVFTableSink& tvf_sink, RuntimeState
                                      io::FileWriter* file_writer,
                                      const VExprContextSPtrs& output_vexpr_ctxs,
                                      std::unique_ptr<VFileFormatTransformer>* result) {
+    // JNI writer path: delegate to Java-side writer
+    if (tvf_sink.__isset.writer_type && tvf_sink.writer_type == TTVFWriterType::JNI) {
+        if (!tvf_sink.__isset.writer_class) {
+            return Status::InternalError("writer_class is required when writer_type is JNI");
+        }
+        std::map<std::string, std::string> writer_params;
+        if (tvf_sink.__isset.properties) {
+            writer_params = tvf_sink.properties;
+        }
+        writer_params["file_path"] = tvf_sink.file_path;
+        if (tvf_sink.__isset.column_separator) {
+            writer_params["column_separator"] = tvf_sink.column_separator;
+        }
+        if (tvf_sink.__isset.line_delimiter) {
+            writer_params["line_delimiter"] = tvf_sink.line_delimiter;
+        }
+        result->reset(new VJniFormatTransformer(state, output_vexpr_ctxs, tvf_sink.writer_class,
+                                                std::move(writer_params)));
+        return Status::OK();
+    }
+
+    // Native writer path
     TFileFormatType::type format = tvf_sink.file_format;
     switch (format) {
     case TFileFormatType::FORMAT_CSV_PLAIN: {

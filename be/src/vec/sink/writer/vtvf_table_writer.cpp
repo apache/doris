@@ -87,21 +87,28 @@ Status VTVFTableWriter::close(Status status) {
 }
 
 Status VTVFTableWriter::_create_file_writer(const std::string& file_name) {
-    TFileType::type file_type = _tvf_sink.file_type;
-    std::map<std::string, std::string> properties;
-    if (_tvf_sink.__isset.properties) {
-        properties = _tvf_sink.properties;
+    bool use_jni = _tvf_sink.__isset.writer_type && _tvf_sink.writer_type == TTVFWriterType::JNI;
+
+    if (!use_jni) {
+        // Native path: create file writer via FileFactory
+        TFileType::type file_type = _tvf_sink.file_type;
+        std::map<std::string, std::string> properties;
+        if (_tvf_sink.__isset.properties) {
+            properties = _tvf_sink.properties;
+        }
+
+        _file_writer_impl = DORIS_TRY(FileFactory::create_file_writer(
+                file_type, _state->exec_env(), {}, properties, file_name,
+                {.write_file_cache = false, .sync_file_data = false}));
     }
 
-    _file_writer_impl = DORIS_TRY(FileFactory::create_file_writer(
-            file_type, _state->exec_env(), {}, properties, file_name,
-            {.write_file_cache = false, .sync_file_data = false}));
-
-    RETURN_IF_ERROR(create_tvf_format_transformer(_tvf_sink, _state, _file_writer_impl.get(),
+    // Factory creates either JNI or native transformer
+    RETURN_IF_ERROR(create_tvf_format_transformer(_tvf_sink, _state,
+                                                  use_jni ? nullptr : _file_writer_impl.get(),
                                                   _vec_output_expr_ctxs, &_vfile_writer));
 
     VLOG_DEBUG << "TVF table writer created file: " << file_name
-               << ", format=" << _tvf_sink.file_format
+               << ", format=" << _tvf_sink.file_format << ", use_jni=" << use_jni
                << ", query_id=" << print_id(_state->query_id());
 
     return _vfile_writer->open();
