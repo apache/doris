@@ -350,7 +350,7 @@ struct CachedRandomAccessReader : faiss::RandomAccessReader {
                 ::memcpy(dst, page->data() + offset_in_block, can_read);
 
                 if (cache) {
-                    cache->insert(cache_key, page.get(), &handle, segment_v2::INDEX_PAGE);
+                    cache->insert(cache_key, page.get(), &handle, segment_v2::DATA_PAGE);
                     page.release(); // cache owns the page now
                 }
                 ++g_ivf_on_disk_cache_stats.miss_cnt;
