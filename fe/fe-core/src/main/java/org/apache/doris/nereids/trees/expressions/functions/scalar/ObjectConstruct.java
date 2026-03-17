@@ -98,6 +98,7 @@ public class ObjectConstruct extends ScalarFunction
     @Override
     public Expression rewriteWhenAnalyze() {
         // V1: Delegate to json_object (does NOT skip NULL-valued keys)
+        // JsonObject.rewriteWhenAnalyze() will automatically wrap non-JSON values in ToJson
         return new JsonObject(children().toArray(new Expression[0]));
     }
 }

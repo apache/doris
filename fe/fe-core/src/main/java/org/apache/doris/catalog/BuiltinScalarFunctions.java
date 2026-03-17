@@ -385,9 +385,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NormalizeJson
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NotNullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullifzero;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullOrEmpty;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullifzero;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ObjectConstruct;
@@ -533,8 +533,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIso8601;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ToVarcharFn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToSeconds;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToVarcharFn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TopLevelDomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Translate;
@@ -873,7 +873,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonbExtractIsnull.class, "jsonb_extract_isnull"),
             scalar(JsonbExtractString.class, "jsonb_extract_string", "json_extract_string", "get_json_string"),
             scalar(JsonbParse.class, "jsonb_parse", "json_parse", "parse_json"),
-            scalar(JsonbParseErrorToNull.class, "jsonb_parse_error_to_null", "json_parse_error_to_null", "try_parse_json"),
+            scalar(JsonbParseErrorToNull.class, "jsonb_parse_error_to_null",
+                    "json_parse_error_to_null", "try_parse_json"),
             scalar(JsonbParseErrorToValue.class, "jsonb_parse_error_to_value", "json_parse_error_to_value"),
             scalar(JsonSearch.class, "json_search"),
             scalar(JsonbValid.class, "json_valid", "jsonb_valid", "check_json"),
