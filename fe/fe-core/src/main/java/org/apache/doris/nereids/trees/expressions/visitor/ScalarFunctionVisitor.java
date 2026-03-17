@@ -498,6 +498,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKB;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StCoordDim;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StDimension;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomfromtext;
@@ -2366,6 +2368,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStGeometryType(StGeometryType stGeometryType, C context) {
         return visitScalarFunction(stGeometryType, context);
+    }
+
+    default R visitStCoordDim(StCoordDim stCoordDim, C context) {
+        return visitScalarFunction(stCoordDim, context);
+    }
+
+    default R visitStDimension(StDimension stDimension, C context) {
+        return visitScalarFunction(stDimension, context);
     }
 
     default R visitStDistance(StDistance stDistance, C context) {
