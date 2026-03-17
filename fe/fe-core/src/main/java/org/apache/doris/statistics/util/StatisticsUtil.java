@@ -1358,8 +1358,7 @@ public class StatisticsUtil {
      * ratio * ndv >= skewValueThreshold (10x average).
      * Used by ChildrenPropertiesRegulator, SkewJoin and other non-shuffle-prune rules.
      */
-    public static Map<Literal, Float> getHotValuesWithOriginalThreshold(
-            Map<Literal, Float> hotValues, double ndv) {
+    public static Map<Literal, Float> getHotValuesWithOriginalThreshold(Map<Literal, Float> hotValues, double ndv) {
         if (hotValues == null || hotValues.isEmpty()) {
             return null;
         }

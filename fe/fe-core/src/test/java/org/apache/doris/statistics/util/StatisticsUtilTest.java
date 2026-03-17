@@ -580,8 +580,9 @@ class StatisticsUtilTest {
     @Test
     void testGetHotValues() {
         String value1 = "1234 :0.35 ;222 :0.34";
-        Map<Literal, Float> hotValues = StatisticsUtil.getHotValues(value1, Type.INT, 0.01);
-        Assertions.assertEquals(2, hotValues.size());
+        Map<Literal, Float> hotValues = StatisticsUtil.getHotValues(value1, Type.INT);
+        Map<Literal, Float> hotValuesAfterFilter = StatisticsUtil.getHotValuesWithOriginalThreshold(hotValues, 100);
+        Assertions.assertEquals(2, hotValuesAfterFilter.size());
 
         int i = 0;
         for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
@@ -596,7 +597,8 @@ class StatisticsUtilTest {
         }
 
         String value2 = "1234 :0.34";
-        hotValues = StatisticsUtil.getHotValues(value2, Type.INT, 0.01);
+        hotValues = StatisticsUtil.getHotValues(value2, Type.INT);
+        hotValuesAfterFilter = StatisticsUtil.getHotValuesWithOriginalThreshold(hotValues, 100);
         Assertions.assertEquals(1, hotValues.size());
 
         for (Map.Entry<Literal, Float> entry : hotValues.entrySet()) {
