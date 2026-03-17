@@ -397,6 +397,15 @@ enum TFileContent {
     EQUALITY_DELETES = 2
 }
 
+struct TIcebergColumnStats {
+    1: optional map<i32, i64> column_sizes
+    2: optional map<i32, i64> value_counts
+    3: optional map<i32, i64> null_value_counts
+    4: optional map<i32, i64> nan_value_counts
+    5: optional map<i32, binary> lower_bounds;
+    6: optional map<i32, binary> upper_bounds;
+}
+
 struct TIcebergCommitData {
     1: optional string file_path
     2: optional i64 row_count
@@ -404,6 +413,7 @@ struct TIcebergCommitData {
     4: optional TFileContent file_content
     5: optional list<string> partition_values 
     6: optional list<string> referenced_data_files
+    7: optional TIcebergColumnStats column_stats
 }
 
 struct TSortField {
@@ -431,6 +441,7 @@ struct TIcebergTableSink {
     // Key: partition column name, Value: partition value as string
     // When set, BE should use these values directly instead of computing from data
     15: optional map<string, string> static_partition_values;
+    16: optional PlanNodes.TSortInfo sort_info;
 }
 
 enum TDictLayoutType {

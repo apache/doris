@@ -15,19 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "iceberg_table_sink_operator.h"
+#pragma once
 
-#include "common/status.h"
+#include <parquet/statistics.h>
 
-namespace doris::pipeline {
-#include "common/compile_check_begin.h"
-Status IcebergTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(Base::init(state, info));
-    SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_init_timer);
-    auto& p = _parent->cast<Parent>();
-    RETURN_IF_ERROR(_writer->init_properties(p._pool, p._row_desc));
-    return Status::OK();
-}
+#include "vec/core/types.h"
+#include "vec/exec/format/parquet/schema_desc.h"
 
-} // namespace doris::pipeline
+namespace doris::vectorized::parquet_utils {
+
+void merge_stats(const std::shared_ptr<::parquet::Statistics>& left,
+                 const std::shared_ptr<::parquet::Statistics>& right);
+
+} // namespace doris::vectorized::parquet_utils
