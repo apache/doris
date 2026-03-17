@@ -1258,7 +1258,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
-    public boolean isSourceFullyConsumed() {
+    public boolean hasReachedEnd() {
         return offsetProvider != null && offsetProvider.hasReachedEnd();
     }
 
