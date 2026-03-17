@@ -18,14 +18,21 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVRefreshContext;
+import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVPlanUtil;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Minimal orchestration entry point for incremental refresh.
@@ -48,6 +55,10 @@ public class IVMRefreshManager {
     @VisibleForTesting
     IVMRefreshResult doRefresh(MTMV mtmv) {
         Objects.requireNonNull(mtmv, "mtmv can not be null");
+        IVMRefreshResult precheckResult = precheck(mtmv);
+        if (!precheckResult.isSuccess()) {
+            return precheckResult;
+        }
         final IVMRefreshContext context;
         try {
             context = buildRefreshContext(mtmv);
@@ -55,6 +66,16 @@ public class IVMRefreshManager {
             return IVMRefreshResult.fallback(FallbackReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED, e.getMessage());
         }
         return doRefreshInternal(context);
+    }
+
+    @VisibleForTesting
+    IVMRefreshResult precheck(MTMV mtmv) {
+        Objects.requireNonNull(mtmv, "mtmv can not be null");
+        if (mtmv.getIvmInfo().isBinlogBroken()) {
+            return IVMRefreshResult.fallback(FallbackReason.BINLOG_BROKEN,
+                    "Stream binlog is marked as broken");
+        }
+        return checkStreamSupport(mtmv);
     }
 
     @VisibleForTesting
@@ -92,5 +113,47 @@ public class IVMRefreshManager {
 
     public IVMRefreshResult ivmRefresh(MTMV mtmv) {
         return doRefresh(mtmv);
+    }
+
+    private IVMRefreshResult checkStreamSupport(MTMV mtmv) {
+        MTMVRelation relation = mtmv.getRelation();
+        if (relation == null) {
+            return IVMRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
+                    "No base table relation found for incremental refresh");
+        }
+        Set<BaseTableInfo> baseTables = relation.getBaseTablesOneLevelAndFromView();
+        if (baseTables == null || baseTables.isEmpty()) {
+            return IVMRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
+                    "No base tables found for incremental refresh");
+        }
+        Map<BaseTableInfo, IVMStreamRef> baseTableStreams = mtmv.getIvmInfo().getBaseTableStreams();
+        if (baseTableStreams == null || baseTableStreams.isEmpty()) {
+            return IVMRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
+                    "No stream bindings are registered for this materialized view");
+        }
+        for (BaseTableInfo baseTableInfo : baseTables) {
+            IVMStreamRef streamRef = baseTableStreams.get(baseTableInfo);
+            if (streamRef == null) {
+                return IVMRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
+                        "No stream binding found for base table: " + baseTableInfo);
+            }
+            if (streamRef.getStreamType() != StreamType.OLAP) {
+                return IVMRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
+                        "Only OLAP base table streams are supported for incremental refresh: " + baseTableInfo);
+            }
+            final TableIf table;
+            try {
+                table = MTMVUtil.getTable(baseTableInfo);
+            } catch (Exception e) {
+                return IVMRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
+                        "Failed to resolve base table metadata for incremental refresh: "
+                                + baseTableInfo + ", reason=" + e.getMessage());
+            }
+            if (!(table instanceof OlapTable)) {
+                return IVMRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
+                        "Only OLAP base tables are supported for incremental refresh: " + baseTableInfo);
+            }
+        }
+        return IVMRefreshResult.success();
     }
 }
