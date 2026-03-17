@@ -17,29 +17,36 @@
 
 package org.apache.doris.mtmv.ivm;
 
-import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.mtmv.MTMVRefreshContext;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.Objects;
-import java.util.Set;
 
 /**
  * Shared immutable context for one FE-side incremental refresh attempt.
  */
 public class IVMRefreshContext {
-    private final TableNameInfo mvName;
-    private final Set<TableNameInfo> changedBaseTables;
+    private final MTMV mtmv;
+    private final ConnectContext connectContext;
+    private final MTMVRefreshContext mtmvRefreshContext;
 
-    public IVMRefreshContext(TableNameInfo mvName, Set<TableNameInfo> changedBaseTables) {
-        this.mvName = Objects.requireNonNull(mvName, "mvName can not be null");
-        this.changedBaseTables = Objects.requireNonNull(changedBaseTables, "changedBaseTables can not be null");
+    public IVMRefreshContext(MTMV mtmv, ConnectContext connectContext, MTMVRefreshContext mtmvRefreshContext) {
+        this.mtmv = Objects.requireNonNull(mtmv, "mtmv can not be null");
+        this.connectContext = Objects.requireNonNull(connectContext, "connectContext can not be null");
+        this.mtmvRefreshContext = Objects.requireNonNull(mtmvRefreshContext, "mtmvRefreshContext can not be null");
     }
 
-    public TableNameInfo getMvName() {
-        return mvName;
+    public MTMV getMtmv() {
+        return mtmv;
     }
 
-    public Set<TableNameInfo> getChangedBaseTables() {
-        return changedBaseTables;
+    public ConnectContext getConnectContext() {
+        return connectContext;
+    }
+
+    public MTMVRefreshContext getMtmvRefreshContext() {
+        return mtmvRefreshContext;
     }
 
     @Override
@@ -51,20 +58,21 @@ public class IVMRefreshContext {
             return false;
         }
         IVMRefreshContext that = (IVMRefreshContext) o;
-        return Objects.equals(mvName, that.mvName)
-                && Objects.equals(changedBaseTables, that.changedBaseTables);
+        return Objects.equals(mtmv, that.mtmv)
+                && Objects.equals(connectContext, that.connectContext)
+                && Objects.equals(mtmvRefreshContext, that.mtmvRefreshContext);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mvName, changedBaseTables);
+        return Objects.hash(mtmv, connectContext, mtmvRefreshContext);
     }
 
     @Override
     public String toString() {
         return "IVMRefreshContext{"
-                + "mvName=" + mvName
-                + ", changedBaseTables=" + changedBaseTables
+                + "mtmv=" + mtmv.getName()
+                + ", mtmvRefreshContext=" + mtmvRefreshContext
                 + '}';
     }
 }
