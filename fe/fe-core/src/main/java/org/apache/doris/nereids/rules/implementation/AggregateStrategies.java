@@ -565,8 +565,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         Map<Class<? extends AggregateFunction>, PushDownAggOp> supportedAgg = PushDownAggOp.supportedFunctions();
 
         boolean containsCount = false;
-        boolean containsCountStar = false;
-        Set<SlotReference> countNullableSlots = new HashSet<>();
+        Set<SlotReference> checkNullSlots = new HashSet<>();
         Set<Expression> expressionAfterProject = new HashSet<>();
 
         // Single loop through aggregateFunctions to handle multiple logic
@@ -581,19 +580,15 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             // Check if contains Count function
             if (functionClass.equals(Count.class)) {
                 containsCount = true;
-                Count countFunc = (Count) function;
-                if (countFunc.isCountStar()) {
-                    containsCountStar = true;
-                }
                 if (!function.getArguments().isEmpty()) {
                     Expression arg0 = function.getArguments().get(0);
                     if (arg0 instanceof SlotReference) {
-                        countNullableSlots.add((SlotReference) arg0);
+                        checkNullSlots.add((SlotReference) arg0);
                         expressionAfterProject.add(arg0);
                     } else if (arg0 instanceof Cast) {
                         Expression child0 = arg0.child(0);
                         if (child0 instanceof SlotReference) {
-                            countNullableSlots.add((SlotReference) child0);
+                            checkNullSlots.add((SlotReference) child0);
                             expressionAfterProject.add(arg0);
                         }
                     }
@@ -657,7 +652,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 if (argument instanceof SlotReference) {
                     // Argument is valid, continue
                     if (needCheckSlotNull) {
-                        countNullableSlots.add((SlotReference) argument);
+                        checkNullSlots.add((SlotReference) argument);
                     }
                 } else if (argument instanceof Cast) {
                     boolean castMatch = argument.child(0) instanceof SlotReference
@@ -667,7 +662,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         return canNotPush;
                     } else {
                         if (needCheckSlotNull) {
-                            countNullableSlots.add((SlotReference) argument.child(0));
+                            checkNullSlots.add((SlotReference) argument.child(0));
                         }
                     }
                 } else {
@@ -677,51 +672,19 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             argumentsOfAggregateFunction = processedExpressions;
         }
 
+        Set<PushDownAggOp> pushDownAggOps = functionClasses.stream()
+                .map(supportedAgg::get)
+                .collect(Collectors.toSet());
+
+        PushDownAggOp mergeOp = pushDownAggOps.size() == 1
+                ? pushDownAggOps.iterator().next()
+                : PushDownAggOp.MIX;
+
         Set<SlotReference> aggUsedSlots =
                 ExpressionUtils.collect(argumentsOfAggregateFunction, SlotReference.class::isInstance);
 
         List<SlotReference> usedSlotInTable = (List<SlotReference>) Project.findProject(aggUsedSlots,
                 logicalScan.getOutput());
-
-        boolean hasCountNullable = false;
-        for (SlotReference slot : usedSlotInTable) {
-            if (!slot.getOriginalColumn().isPresent()) {
-                continue;
-            }
-            Column column = slot.getOriginalColumn().get();
-            if (countNullableSlots.contains(slot) && column.isAllowNull()) {
-                hasCountNullable = true;
-                break;
-            }
-        }
-
-        if (containsCountStar && hasCountNullable) {
-            return canNotPush;
-        }
-
-        boolean hasMinMax = functionClasses.stream()
-                .anyMatch(c -> c.equals(Min.class) || c.equals(Max.class));
-
-        if (hasCountNullable && hasMinMax) {
-            return canNotPush;
-        }
-
-        Set<PushDownAggOp> pushDownAggOps = new HashSet<>();
-        for (Class<? extends AggregateFunction> functionClass : functionClasses) {
-            if (functionClass.equals(Count.class)) {
-                if (hasCountNullable) {
-                    pushDownAggOps.add(PushDownAggOp.COUNT_NULL);
-                } else {
-                    pushDownAggOps.add(PushDownAggOp.COUNT);
-                }
-            } else {
-                pushDownAggOps.add(supportedAgg.get(functionClass));
-            }
-        }
-
-        PushDownAggOp mergeOp = pushDownAggOps.size() == 1
-                ? pushDownAggOps.iterator().next()
-                : PushDownAggOp.MIX;
 
         for (SlotReference slot : usedSlotInTable) {
             Column column = slot.getOriginalColumn().get();
@@ -737,6 +700,14 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     return canNotPush;
                 }
                 if (colType.isCharFamily() && column.getType().getLength() > 512 && !enablePushDownStringMinMax()) {
+                    return canNotPush;
+                }
+            }
+            if (mergeOp == PushDownAggOp.COUNT || mergeOp == PushDownAggOp.MIX) {
+                // NULL value behavior in `count` function is zero, so
+                // we should not use row_count to speed up query. the col
+                // must be not null
+                if (column.isAllowNull() && checkNullSlots.contains(slot)) {
                     return canNotPush;
                 }
             }
@@ -760,11 +731,6 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             }
 
         } else if (logicalScan instanceof LogicalFileScan) {
-            // COUNT_NULL requires reading nullmaps from segment files, which is not supported
-            // by external file scans (parquet/orc etc.), so we refuse to push it down here.
-            if (mergeOp == PushDownAggOp.COUNT_NULL) {
-                return canNotPush;
-            }
             Rule rule = (logicalScan instanceof LogicalHudiScan) ? new LogicalHudiScanToPhysicalHudiScan().build()
                     : new LogicalFileScanToPhysicalFileScan().build();
             PhysicalFileScan physicalScan = (PhysicalFileScan) rule.transform(logicalScan, cascadesContext)

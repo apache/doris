@@ -25,7 +25,6 @@
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
-#include "core/column/column_nullable.h"
 #include "core/data_type/data_type.h"
 #include "storage/cache/schema_cache.h"
 #include "storage/field.h"
@@ -46,19 +45,6 @@ using namespace ErrorCode;
 Status VStatisticsIterator::init(const StorageReadOptions& opts) {
     if (!_init) {
         _push_down_agg_type_opt = opts.push_down_agg_type_opt;
-        _tablet_schema = opts.tablet_schema;
-
-        // COUNT_NULL needs to actually read nullmap pages, so the column iterators must be
-        // fully initialized with a valid ColumnIteratorOptions (file_reader, stats, io_ctx).
-        // Other agg types (COUNT, MINMAX, MIX) only use zone-map metadata and never open
-        // pages, so they do not need init.
-        const bool need_iter_init = (_push_down_agg_type_opt == TPushAggOp::COUNT_NULL);
-        ColumnIteratorOptions iter_opts {
-                .use_page_cache = opts.use_page_cache,
-                .file_reader = _segment->file_reader().get(),
-                .stats = opts.stats,
-                .io_ctx = opts.io_ctx,
-        };
 
         for (size_t i = 0; i < _schema.num_column_ids(); i++) {
             auto cid = _schema.column_id(i);
@@ -66,16 +52,6 @@ Status VStatisticsIterator::init(const StorageReadOptions& opts) {
             if (_column_iterators_map.count(unique_id) < 1) {
                 RETURN_IF_ERROR(_segment->new_column_iterator(
                         opts.tablet_schema->column(cid), &_column_iterators_map[unique_id], &opts));
-                if (need_iter_init) {
-                    RETURN_IF_ERROR(_column_iterators_map[unique_id]->init(iter_opts));
-                    // Seek to ordinal 0 once during init so that the page iterator
-                    // is properly positioned for sequential read_null_map() calls
-                    // in next_batch(). We must NOT seek again in next_batch() —
-                    // doing so would reset the iterator to ordinal 0 on every batch
-                    // and cause rows to be re-read/double-counted for segments
-                    // larger than MAX_ROW_SIZE_IN_COUNT (65535) rows.
-                    RETURN_IF_ERROR(_column_iterators_map[unique_id]->seek_to_ordinal(0));
-                }
             }
             _column_iterators.push_back(_column_iterators_map[unique_id].get());
         }
@@ -99,33 +75,6 @@ Status VStatisticsIterator::next_batch(Block* block) {
         if (_push_down_agg_type_opt == TPushAggOp::COUNT) {
             for (auto& column : columns) {
                 column->insert_many_defaults(size);
-            }
-        } else if (_push_down_agg_type_opt == TPushAggOp::COUNT_NULL) {
-            for (int i = 0; i < (int)columns.size(); ++i) {
-                auto& column = columns[i];
-                auto cid = _schema.column_id(i);
-                auto& tablet_column = _tablet_schema->column(cid);
-
-                if (tablet_column.is_nullable()) {
-                    auto& nullable_col = assert_cast<ColumnNullable&>(*column);
-                    auto& nested_col = nullable_col.get_nested_column();
-
-                    // Read the real nullmap for this column from the current position.
-                    // Do NOT seek back to ordinal 0 here: the column iterator already
-                    // starts at ordinal 0 after init(), and each call to read_null_map
-                    // advances it sequentially. Seeking to 0 on every next_batch() call
-                    // would cause large segments (> MAX_ROW_SIZE_IN_COUNT rows) to have
-                    // their first portion re-read and counted multiple times, producing
-                    // a result higher than the true non-null count.
-                    size_t read_rows = size;
-                    auto& null_map_data = nullable_col.get_null_map_data();
-                    RETURN_IF_ERROR(_column_iterators[i]->read_null_map(&read_rows, null_map_data));
-
-                    // nested column needs one default value per row
-                    nested_col.insert_many_defaults(size);
-                } else {
-                    column->insert_many_defaults(size);
-                }
             }
         } else {
             for (int i = 0; i < columns.size(); ++i) {
