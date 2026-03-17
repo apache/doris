@@ -20,6 +20,7 @@
 #include <faiss/index_io.h>
 #include <faiss/invlists/OnDiskInvertedLists.h>
 #include <faiss/invlists/OnDiskInvertedListsV2.h>
+#include <gen_cpp/segment_v2.pb.h>
 #include <omp.h>
 #include <pthread.h>
 
@@ -325,7 +326,7 @@ struct CachedRandomAccessReader : faiss::RandomAccessReader {
                                                  static_cast<int64_t>(block_start));
             PageCacheHandle handle;
 
-            if (cache && cache->lookup(cache_key, &handle, segment_v2::INDEX_PAGE)) {
+            if (cache && cache->lookup(cache_key, &handle, segment_v2::DATA_PAGE)) {
                 // Cache hit – just memcpy
                 Slice data = handle.data();
                 ::memcpy(dst, data.data + offset_in_block, can_read);
@@ -337,7 +338,7 @@ struct CachedRandomAccessReader : faiss::RandomAccessReader {
                                                                        : static_cast<size_t>(0));
 
                 auto page = std::make_unique<DataPage>(actual_block_size, /*use_cache=*/true,
-                                                       segment_v2::INDEX_PAGE);
+                                                       segment_v2::DATA_PAGE);
 
                 const int64_t fetch_start_ns = MonotonicNanos();
                 {
