@@ -38,6 +38,101 @@ export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 HADOOP_DEPS_NAME="hadoop-deps"
 . "${DORIS_HOME}/env.sh"
 
+# ===== Build Profile =====
+if [[ "${DORIS_BUILD_PROFILE}" == "1" ]]; then
+    _BP_LOG="${DORIS_HOME}/.build_profile.jsonl"
+    _BP_START=$(date +%s)
+    _BP_USER=$(whoami)
+    _BP_DIR=$(pwd)
+    _BP_ARGS="$*"
+    _BP_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+
+    # Auto-detect base branch: find the closest remote main branch to HEAD
+    _bp_detect_base_branch() {
+        local min_count=999999 best="unknown"
+        while read -r ref; do
+            local count
+            count=$(git rev-list --count HEAD ^"${ref}" 2>/dev/null) || continue
+            if [[ "${count}" -lt "${min_count}" ]]; then
+                min_count="${count}"
+                best="${ref#origin/}"
+            fi
+        done < <(git branch -r | grep -oE 'origin/(master|branch-[0-9.]+|branch-selectdb-doris-[0-9.]+)$')
+        echo "${best}"
+    }
+    _BP_BASE_BRANCH=$(_bp_detect_base_branch)
+
+    # Read last_build_time from log (0 for first build)
+    _BP_LAST_TIME=0
+    if [[ -f "${_BP_LOG}" ]]; then
+        _BP_LAST_TIME=$(tail -1 "${_BP_LOG}" | python3 -c \
+            "import sys,json; print(json.load(sys.stdin).get('start_time',0))" 2>/dev/null || echo 0)
+    fi
+
+    # Collect modified files: git diff + untracked, filtered by mtime > last_build_time
+    _bp_collect_files() {
+        while IFS= read -r f; do
+            [[ -z "$f" || ! -f "$f" ]] && continue
+            local mtime
+            if [[ "$(uname -s)" == "Darwin" ]]; then
+                mtime=$(stat -f %m "$f")
+            else
+                mtime=$(stat -c %Y "$f")
+            fi
+            [[ "$mtime" -gt "$_BP_LAST_TIME" ]] && echo "$f"
+        done < <(git diff --name-only 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null)
+    }
+
+    # Collect file list before build starts (avoid interference from generated files)
+    _BP_FILES=$(_bp_collect_files)
+
+    # Write record (pass data via env vars + stdin to avoid quoting issues)
+    _bp_write_record() {
+        local exit_code=${1:-$?}
+        local end_time
+        end_time=$(date +%s)
+        local load_avg
+        load_avg=$(uptime | grep -oE 'load average[s]?: .*' | sed 's/load average[s]\?: //')
+
+        echo "${_BP_FILES}" | \
+        _BP_USER="${_BP_USER}" \
+        _BP_DIR="${_BP_DIR}" \
+        _BP_BASE_BRANCH="${_BP_BASE_BRANCH}" \
+        _BP_COMMIT="${_BP_COMMIT}" \
+        _BP_ARGS="${_BP_ARGS}" \
+        _BP_START="${_BP_START}" \
+        _BP_EXIT_CODE="${exit_code}" \
+        _BP_END_TIME="${end_time}" \
+        _BP_LOAD_AVG="${load_avg}" \
+        python3 -c "
+import json, os, sys
+
+files = [line.strip() for line in sys.stdin if line.strip()]
+start = int(os.environ['_BP_START'])
+end = int(os.environ['_BP_END_TIME'])
+record = {
+    'user': os.environ['_BP_USER'],
+    'build_dir': os.environ['_BP_DIR'],
+    'base_branch': os.environ['_BP_BASE_BRANCH'],
+    'commit': os.environ['_BP_COMMIT'],
+    'args': os.environ.get('_BP_ARGS', ''),
+    'files': files,
+    'start_time': start,
+    'end_time': end,
+    'duration_sec': end - start,
+    'exit_code': int(os.environ['_BP_EXIT_CODE']),
+    'load_avg': os.environ['_BP_LOAD_AVG'],
+}
+print(json.dumps(record))
+" >> "${_BP_LOG}"
+    }
+
+    # Capture interrupt and error signals
+    trap '_bp_write_record 130; exit 130' INT TERM
+    trap '_bp_write_record $?; exit $?' ERR
+fi
+# ===== End Build Profile =====
+
 # Check args
 usage() {
     echo "
@@ -1087,6 +1182,10 @@ echo "***************************************"
 
 if [[ -n "${DORIS_POST_BUILD_HOOK}" ]]; then
     eval "${DORIS_POST_BUILD_HOOK}"
+fi
+
+if [[ "${DORIS_BUILD_PROFILE}" == "1" ]]; then
+    _bp_write_record 0
 fi
 
 exit 0
