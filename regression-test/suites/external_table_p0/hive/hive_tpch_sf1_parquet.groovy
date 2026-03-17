@@ -18,10 +18,12 @@
 suite("test_catalog_hive_parquet", "p0,external") {
 
     String enable_file_cache_for_external_table = "false"
+    String enable_condition_cache = "false"
 
     def q01 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=false"""
         sql """set enable_cost_based_join_reorder=false"""
@@ -53,6 +55,7 @@ order by
     def q02 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=2"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
@@ -103,6 +106,7 @@ limit 100;
     def q03 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
@@ -137,6 +141,7 @@ limit 10;
     def q04 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=1"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
@@ -167,6 +172,7 @@ order by
     def q05 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
@@ -189,6 +195,7 @@ order by revenue desc;
     def q06 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=1"""
         sql """set disable_join_reorder=false"""
         sql """set enable_cost_based_join_reorder=false"""
@@ -208,6 +215,7 @@ where
     def q07 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=4"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
@@ -249,6 +257,7 @@ order by
     def q08 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=1"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
@@ -296,6 +305,7 @@ order by
     def q09 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=4"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
@@ -329,6 +339,7 @@ order by
     def q10 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
@@ -372,6 +383,7 @@ limit 20;
     def q11 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=2"""
         sql """set disable_join_reorder=false"""
         sql """set enable_cost_based_join_reorder=false"""
@@ -409,6 +421,7 @@ order by
     def q12 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=2"""
         sql """set disable_join_reorder=false"""
         sql """set enable_cost_based_join_reorder=true"""
@@ -446,6 +459,7 @@ order by
     def q13 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=4"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
@@ -476,6 +490,7 @@ order by
     def q14 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
@@ -499,6 +514,7 @@ where
     def q15 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=false"""
         sql """set enable_cost_based_join_reorder=true"""
@@ -539,6 +555,7 @@ order by
     def q16 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=false"""
         sql """set enable_cost_based_join_reorder=true"""
@@ -579,6 +596,7 @@ order by
     def q17 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=1"""
         sql """set disable_join_reorder=false"""
         sql """set enable_cost_based_join_reorder=true"""
@@ -608,6 +626,7 @@ where
     def q18 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=false"""
@@ -656,6 +675,7 @@ limit 100;
     def q19 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=false"""
         sql """set enable_cost_based_join_reorder=false"""
@@ -701,6 +721,7 @@ where
     def q20 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=true"""
@@ -736,6 +757,7 @@ order by s_name;
     def q21 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=true"""
         sql """set enable_cost_based_join_reorder=true"""
@@ -777,6 +799,7 @@ limit 100;
     def q22 = { 
         sql """set exec_mem_limit=8589934592"""
         sql """set enable_file_cache_for_external_table=${enable_file_cache_for_external_table}"""
+        sql """set enable_condition_cache=${enable_condition_cache}"""
         sql """set parallel_pipeline_task_num=8"""
         sql """set disable_join_reorder=false"""
         sql """set enable_cost_based_join_reorder=true"""
@@ -854,41 +877,50 @@ order by
         return;
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
-        String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-        String catalog_name = "test_catalog_${hivePrefix}_parquet"
-        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    for (String enable_lazy_mat : ["true", "false"]) {
+        sql """set enable_orc_lazy_materialization=${enable_lazy_mat}"""
+        for (String hivePrefix : ["hive2", "hive3"]) {
+            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String catalog_name = "test_catalog_${hivePrefix}_parquet"
+            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
 
-        sql """drop catalog if exists ${catalog_name}"""
-        sql """create catalog if not exists ${catalog_name} properties (
-            "type"="hms",
-            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
-        );"""
-        sql """switch ${catalog_name}"""
-        sql """use `tpch1_parquet`"""
+            sql """drop catalog if exists ${catalog_name}"""
+            sql """create catalog if not exists ${catalog_name} properties (
+                "type"="hms",
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+            );"""
+            sql """switch ${catalog_name}"""
+            sql """use `tpch1_parquet`"""
 
-        // without file cache
-        enable_file_cache_for_external_table = "false"
-        def startTime = System.currentTimeMillis()
-        run_tpch()
-        def without_cache_time = System.currentTimeMillis() - startTime
+            // without file cache
+            enable_file_cache_for_external_table = "false"
+            enable_condition_cache = "false"
+            def startTime = System.currentTimeMillis()
+            println("""running tpch parquet: (enable_file_cache_for_external_table, enable_condition_cache): ${enable_file_cache_for_external_table}, ${enable_condition_cache}""")
+            run_tpch()
+            def without_cache_time = System.currentTimeMillis() - startTime
 
-        // with file cache, run the first time
-        enable_file_cache_for_external_table = "true"
-        startTime = System.currentTimeMillis()
-        run_tpch()
-        def with_cache_first_time = System.currentTimeMillis() - startTime
+            // with file cache, run the first time
+            enable_file_cache_for_external_table = "true"
+            enable_condition_cache = "true"
+            startTime = System.currentTimeMillis()
+            println("""running tpch parquet: (enable_file_cache_for_external_table, enable_condition_cache): ${enable_file_cache_for_external_table}, ${enable_condition_cache}""")
+            run_tpch()
+            def with_cache_first_time = System.currentTimeMillis() - startTime
 
-        // with file cache, run the second time
-        enable_file_cache_for_external_table = "true"
-        startTime = System.currentTimeMillis()
-        run_tpch()
-        def with_cache_second_time = System.currentTimeMillis() - startTime
+            // with file cache, run the second time
+            enable_file_cache_for_external_table = "true"
+            enable_condition_cache = "true"
+            startTime = System.currentTimeMillis()
+            println("""running tpch parquet: (enable_file_cache_for_external_table, enable_condition_cache): ${enable_file_cache_for_external_table}, ${enable_condition_cache}""")
+            run_tpch()
+            def with_cache_second_time = System.currentTimeMillis() - startTime
 
-        println("""tpch parquet running time(disable, enable, enable): ${without_cache_time}ms, ${with_cache_first_time}ms, ${with_cache_second_time}ms""")
+            println("""tpch parquet running time(disable, enable, enable): ${without_cache_time}ms, ${with_cache_first_time}ms, ${with_cache_second_time}ms""")
 
-        sql """drop catalog if exists ${catalog_name}"""
+            sql """drop catalog if exists ${catalog_name}"""
+        }
     }
 }
 

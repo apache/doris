@@ -25,7 +25,6 @@ import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageType;
 import org.apache.doris.cloud.storage.RemoteBase;
 import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.datasource.InternalCatalog;
@@ -150,8 +149,7 @@ public class CopyIntoAction extends RestBaseController {
             String host = request.getHeader("Host");
             boolean isInternal = Strings.isNullOrEmpty(eh) ? internalEndpoint(host)
                     : eh.equals(internal) || (!eh.equals(external));
-            String mysqlUserName = ClusterNamespace
-                    .getNameFromFullName(ConnectContext.get().getCurrentUserIdentity().getQualifiedUser());
+            String mysqlUserName = ConnectContext.get().getCurrentUserIdentity().getQualifiedUser();
 
             String userId = Env.getCurrentEnv().getAuth().getUserId(mysqlUserName);
             LOG.info("receive Presigned url request [ user [{}]] for filename [{}], isInternal [{}], userId [{}]",

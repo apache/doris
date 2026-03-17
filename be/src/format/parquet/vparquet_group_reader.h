@@ -176,10 +176,17 @@ public:
     int64_t lazy_read_filtered_rows() const { return _lazy_read_filtered_rows; }
     int64_t predicate_filter_time() const { return _predicate_filter_time; }
     int64_t dict_filter_rewrite_time() const { return _dict_filter_rewrite_time; }
+    int64_t condition_cache_filtered_rows() const { return _condition_cache_filtered_rows; }
 
     ParquetColumnReader::ColumnStatistics merged_column_statistics();
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
     int64_t get_remaining_rows() { return _remaining_rows; }
+
+    // Filters read_ranges by removing row chunks whose condition cache granules are all-false.
+    // Pure algorithm, exposed as static for testability.
+    static RowRanges filter_ranges_by_cache(const RowRanges& read_ranges,
+                                            const std::vector<bool>& cache, int64_t first_row,
+                                            int64_t base_granule = 0);
 
     void set_row_id_column_iterator(
             const std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>&
@@ -194,6 +201,10 @@ public:
     void set_col_name_to_block_idx(
             std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
         _col_name_to_block_idx = col_name_to_block_idx;
+    }
+
+    void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) {
+        _condition_cache_ctx = std::move(ctx);
     }
 
 protected:
@@ -232,7 +243,10 @@ private:
     bool is_dictionary_encoded(const tparquet::ColumnMetaData& column_metadata);
     Status _rewrite_dict_predicates();
     Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
-    void _convert_dict_cols_to_string_cols(Block* block);
+    Status _convert_dict_cols_to_string_cols(Block* block);
+    void _filter_read_ranges_by_condition_cache();
+    void _mark_condition_cache_granules(const uint8_t* filter_data, size_t num_rows,
+                                        int64_t batch_seq_start);
 
     Status _get_current_batch_row_id(size_t read_rows);
     Status _fill_row_id_columns(Block* block, size_t read_rows, bool is_current_row_ids);
@@ -255,8 +269,10 @@ private:
     int64_t _lazy_read_filtered_rows = 0;
     int64_t _predicate_filter_time = 0;
     int64_t _dict_filter_rewrite_time = 0;
+    int64_t _condition_cache_filtered_rows = 0;
     // If continuous batches are skipped, we can cache them to skip a whole page
     size_t _cached_filtered_rows = 0;
+    std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     std::unique_ptr<IColumn::Filter> _pos_delete_filter_ptr;
     int64_t _total_read_rows = 0;
     const TupleDescriptor* _tuple_descriptor = nullptr;

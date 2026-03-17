@@ -87,7 +87,7 @@ TEST(TimezoneUtilsTest, ParseOffset) {
 TEST(TimezoneUtilsTest, LoadOffsets) {
     TimezoneUtils::clear_timezone_caches();
     TimezoneUtils::load_offsets_to_cache();
-    EXPECT_EQ(TimezoneUtils::cache_size(), (13 + 15) * 2);
+    EXPECT_EQ(TimezoneUtils::cache_size(), (13 + 15) * 3);
 
     TimezoneUtils::load_timezones_to_cache();
     EXPECT_GE(TimezoneUtils::cache_size(), 100);

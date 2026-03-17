@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -313,7 +312,7 @@ public interface TableIf {
 
     default List<String> getFullQualifiers() {
         return ImmutableList.of(getDatabase().getCatalog().getName(),
-                ClusterNamespace.getNameFromFullName(getDatabase().getFullName()),
+                getDatabase().getFullName(),
                 getName());
     }
 
@@ -324,7 +323,7 @@ public interface TableIf {
             return "null.null." + getName();
         } else {
             return db.getCatalog().getName()
-                    + "." + ClusterNamespace.getNameFromFullName(db.getFullName())
+                    + "." + db.getFullName()
                     + "." + getName();
         }
     }

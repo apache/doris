@@ -85,8 +85,7 @@ public class UploadAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
         }
 
-        String fullDbName = getFullDbName(dbName);
-        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.LOAD);
+        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), dbName, tblName, PrivPredicate.LOAD);
 
         String columnSeparator = request.getParameter(PARAM_COLUMN_SEPARATOR);
         if (Strings.isNullOrEmpty(columnSeparator)) {
@@ -142,8 +141,7 @@ public class UploadAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
         }
 
-        String fullDbName = getFullDbName(dbName);
-        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.LOAD);
+        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), dbName, tblName, PrivPredicate.LOAD);
 
         String fileIdStr = request.getParameter(PARAM_FILE_ID);
         if (Strings.isNullOrEmpty(fileIdStr)) {
@@ -198,8 +196,7 @@ public class UploadAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
         }
 
-        String fullDbName = getFullDbName(dbName);
-        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.LOAD);
+        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), dbName, tblName, PrivPredicate.LOAD);
 
         String fileIdStr = request.getParameter(PARAM_FILE_ID);
         String fileUUIDStr = request.getParameter(PARAM_FILE_UUID);
@@ -242,8 +239,7 @@ public class UploadAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
         }
 
-        String fullDbName = getFullDbName(dbName);
-        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.LOAD);
+        checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), dbName, tblName, PrivPredicate.LOAD);
 
         String fileIdStr = request.getParameter(PARAM_FILE_ID);
         if (Strings.isNullOrEmpty(fileIdStr)) {

@@ -337,9 +337,7 @@ under the License.
         <generex.version>1.0.1</generex.version>
         <jetty-servlet.version>11.0.26</jetty-servlet.version>
         <jetty-websocket.version>9.4.58.v20250814</jetty-websocket.version>
-        <logging-interceptor.version>4.12.0</logging-interceptor.version>
-        <okhttp.version>4.9.3</okhttp.version>
-        <okio.version>3.4.0</okio.version>
+        <okhttp.version>5.3.2</okhttp.version>
         <snakeyaml.version>2.0</snakeyaml.version>
         <validation-api.version>2.0.1.Final</validation-api.version>
         <zjsonpatch.version>0.2.3</zjsonpatch.version>
@@ -431,6 +429,7 @@ under the License.
         <awssdk.version>2.29.52</awssdk.version>
         <s3tables.catalog.version>0.1.4</s3tables.catalog.version>
         <mockito.version>4.11.0</mockito.version>
+        <fastutil.version>8.5.18</fastutil.version>
     </properties>
     <profiles>
         <profile>
@@ -753,18 +752,6 @@ under the License.
                     <exclusion>
                         <groupId>org.slf4j</groupId>
                         <artifactId>slf4j-reload4j</artifactId>
-                    </exclusion>
-                </exclusions>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.hadoop</groupId>
-                <artifactId>hadoop-aliyun</artifactId>
-                <version>${hadoop.version}</version>
-                <exclusions>
-                    <!-- pls confirm if this is a mandatory dependency  -->
-                    <exclusion>
-                        <groupId>org.ini4j</groupId>
-                        <artifactId>ini4j</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
@@ -1133,14 +1120,8 @@ under the License.
             <!-- https://mvnrepository.com/artifact/com.squareup.okhttp3/okhttp -->
             <dependency>
                 <groupId>com.squareup.okhttp3</groupId>
-                <artifactId>okhttp</artifactId>
+                <artifactId>okhttp-jvm</artifactId>
                 <version>${okhttp.version}</version>
-            </dependency>
-            <!-- https://mvnrepository.com/artifact/com.squareup.okio/okio -->
-            <dependency>
-                <groupId>com.squareup.okio</groupId>
-                <artifactId>okio</artifactId>
-                <version>${okio.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.yaml/snakeyaml -->
             <dependency>
@@ -1375,6 +1356,14 @@ under the License.
                         <groupId>org.ini4j</groupId>
                         <artifactId>ini4j</artifactId>
                     </exclusion>
+                    <exclusion>
+                        <groupId>com.squareup.okhttp3</groupId>
+                        <artifactId>okhttp</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>com.squareup.okio</groupId>
+                        <artifactId>okio</artifactId>
+                    </exclusion>
                 </exclusions>
             </dependency>
             <dependency>
@@ -1546,11 +1535,6 @@ under the License.
                 <groupId>hu.webarticum</groupId>
                 <artifactId>tree-printer</artifactId>
                 <version>${tree-printer.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.hamcrest</groupId>
-                <artifactId>hamcrest</artifactId>
-                <version>${hamcrest.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.httpcomponents</groupId>
@@ -1752,6 +1736,14 @@ under the License.
                         <artifactId>re2j</artifactId>
                         <groupId>io.trino</groupId>
                     </exclusion>
+                    <exclusion>
+                        <groupId>com.squareup.okhttp3</groupId>
+                        <artifactId>okhttp</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>com.squareup.okio</groupId>
+                        <artifactId>okio</artifactId>
+                    </exclusion>
                 </exclusions>
             </dependency>
             <dependency>
@@ -1863,6 +1855,12 @@ under the License.
                 <artifactId>mockito-inline</artifactId>
                 <version>${mockito.version}</version>
             </dependency>
+            <!-- fastutil for memory-efficient primitive collections -->
+            <dependency>
+                <groupId>it.unimi.dsi</groupId>
+                <artifactId>fastutil-core</artifactId>
+                <version>${fastutil.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
     <dependencies>
@@ -1913,7 +1911,6 @@ under the License.
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>
         </dependency>
-
     </dependencies>
     <reporting>
         <plugins>

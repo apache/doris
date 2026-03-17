@@ -845,11 +845,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 table instanceof JdbcExternalTable, context.getScanContext());
         jdbcScanNode.setNereidsId(jdbcScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(jdbcScan.getId(), jdbcScanNode.getId());
+
+        TableNameInfo tableNameInfo = new TableNameInfo(null, "", "");
+        TableRefInfo ref = new TableRefInfo(tableNameInfo, null, null);
+        BaseTableRefInfo tableRefInfo = new BaseTableRefInfo(ref, tableNameInfo, table);
+        tupleDescriptor.setRef(tableRefInfo);
+        if (jdbcScan.getStats() != null) {
+            jdbcScanNode.setCardinality((long) jdbcScan.getStats().getRowCount());
+        }
         Utils.execWithUncheckedException(jdbcScanNode::init);
         context.addScanNode(jdbcScanNode, jdbcScan);
         translateRuntimeFilter(jdbcScan, jdbcScanNode, context);
         DataPartition dataPartition = DataPartition.RANDOM;
-        PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), jdbcScanNode, dataPartition);
+        PlanFragment planFragment = createPlanFragment(jdbcScanNode, dataPartition, jdbcScan);
         context.addPlanFragment(planFragment);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), jdbcScan);
         return planFragment;
@@ -1350,6 +1358,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             case MIX:
                 pushAggOp = TPushAggOp.MIX;
                 break;
+            case COUNT_NULL:
+                pushAggOp = TPushAggOp.COUNT_NULL;
+                break;
             default:
                 throw new AnalysisException("Unsupported storage layer aggregate: "
                         + storageLayerAggregate.getAggOp());
@@ -1648,9 +1659,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 joinOperator = JoinOperator.NULL_AWARE_LEFT_SEMI_JOIN;
             }
         }
+        Expr matchCondition = null;
+        if (joinType.isAsofJoin()) {
+            Preconditions.checkState(hashJoin.getOtherJoinConjuncts().size() == 1,
+                    String.format("asof join's match condition is invalid %s", hashJoin.getOtherJoinConjuncts()));
+            matchCondition = ExpressionTranslator.translate(hashJoin.getOtherJoinConjuncts().get(0), context);
+        }
 
         HashJoinNode hashJoinNode = new HashJoinNode(context.nextPlanNodeId(), leftPlanRoot,
-                rightPlanRoot, joinOperator, execEqConjuncts, Lists.newArrayList(),
+                rightPlanRoot, joinOperator, execEqConjuncts, Lists.newArrayList(), matchCondition,
                 markConjuncts, hashJoin.isMarkJoin());
         hashJoinNode.setNereidsId(hashJoin.getId());
         context.getNereidsIdToPlanNodeIdMap().put(hashJoin.getId(), hashJoinNode.getId());
@@ -1798,7 +1815,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         // set slots as nullable for outer join
-        if (joinType == JoinType.LEFT_OUTER_JOIN || joinType == JoinType.FULL_OUTER_JOIN) {
+        if (joinType == JoinType.LEFT_OUTER_JOIN || joinType == JoinType.ASOF_LEFT_OUTER_JOIN
+                || joinType == JoinType.FULL_OUTER_JOIN) {
             for (SlotDescriptor sd : rightIntermediateSlotDescriptor) {
                 sd.setIsNullable(true);
                 SlotRef slotRef = new SlotRef(sd);
@@ -1806,7 +1824,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 context.addExprIdSlotRefPair(exprId, slotRef);
             }
         }
-        if (joinType == JoinType.RIGHT_OUTER_JOIN || joinType == JoinType.FULL_OUTER_JOIN) {
+        if (joinType == JoinType.RIGHT_OUTER_JOIN || joinType == JoinType.ASOF_RIGHT_OUTER_JOIN
+                || joinType == JoinType.FULL_OUTER_JOIN) {
             for (SlotDescriptor sd : leftIntermediateSlotDescriptor) {
                 sd.setIsNullable(true);
                 SlotRef slotRef = new SlotRef(sd);
@@ -1817,7 +1836,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         // Constant expr will cause be crash.
         // But EliminateJoinCondition and Expression Rewrite already eliminate true literal.
-        List<Expr> otherJoinConjuncts = hashJoin.getOtherJoinConjuncts()
+        // asof's other conjunct is actually match_condition, and be translated as hash conjuncts already
+        List<Expr> otherJoinConjuncts = joinType.isAsofJoin() ? ImmutableList.of() :
+                hashJoin.getOtherJoinConjuncts()
                 .stream()
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
@@ -1971,7 +1992,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         // set slots as nullable for outer join
-        if (joinType == JoinType.LEFT_OUTER_JOIN || joinType == JoinType.FULL_OUTER_JOIN) {
+        if (joinType == JoinType.LEFT_OUTER_JOIN || joinType == JoinType.ASOF_LEFT_OUTER_JOIN
+                || joinType == JoinType.FULL_OUTER_JOIN) {
             for (SlotDescriptor sd : rightIntermediateSlotDescriptor) {
                 sd.setIsNullable(true);
                 SlotRef slotRef = new SlotRef(sd);
@@ -1979,7 +2001,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 context.addExprIdSlotRefPair(exprId, slotRef);
             }
         }
-        if (joinType == JoinType.RIGHT_OUTER_JOIN || joinType == JoinType.FULL_OUTER_JOIN) {
+        if (joinType == JoinType.RIGHT_OUTER_JOIN || joinType == JoinType.ASOF_RIGHT_OUTER_JOIN
+                || joinType == JoinType.FULL_OUTER_JOIN) {
             for (SlotDescriptor sd : leftIntermediateSlotDescriptor) {
                 sd.setIsNullable(true);
                 SlotRef slotRef = new SlotRef(sd);
@@ -2756,7 +2779,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         materializeNode.setLazyColumns(materialize.getLazyColumns());
         materializeNode.setLocations(materialize.getLazySlotLocations());
-        materializeNode.setIdxs(materialize.getlazyTableIdxs());
+        materializeNode.setColumnIdxsLists(materialize.getLazyBaseColumnIndices());
 
         List<Boolean> rowStoreFlags = new ArrayList<>();
         for (Relation relation : materialize.getRelations()) {

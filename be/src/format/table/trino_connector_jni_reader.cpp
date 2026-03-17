@@ -15,11 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/table/trino_connector_jni_reader.h"
+#include "trino_connector_jni_reader.h"
 
 #include <map>
 
 #include "core/types.h"
+#include "format/jni/jni_data_bridge.h"
 #include "runtime/descriptors.h"
 #include "util/jni-util.h"
 
@@ -37,46 +38,60 @@ const std::string TrinoConnectorJniReader::TRINO_CONNECTOR_OPTION_PREFIX = "trin
 TrinoConnectorJniReader::TrinoConnectorJniReader(
         const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
         RuntimeProfile* profile, const TFileRangeDesc& range)
-        : JniReader(file_slot_descs, state, profile) {
-    std::vector<std::string> column_names;
-    std::vector<std::string> column_types;
-    for (const auto& desc : _file_slot_descs) {
-        std::string field = desc->col_name();
-        column_names.emplace_back(field);
-        column_types.emplace_back(JniConnector::get_jni_type_with_different_string(desc->type()));
-    }
-    std::map<String, String> params = {
-            {"catalog_name", range.table_format_params.trino_connector_params.catalog_name},
-            {"db_name", range.table_format_params.trino_connector_params.db_name},
-            {"table_name", range.table_format_params.trino_connector_params.table_name},
-            {"trino_connector_split",
-             range.table_format_params.trino_connector_params.trino_connector_split},
-            {"trino_connector_table_handle",
-             range.table_format_params.trino_connector_params.trino_connector_table_handle},
-            {"trino_connector_column_handles",
-             range.table_format_params.trino_connector_params.trino_connector_column_handles},
-            {"trino_connector_column_metadata",
-             range.table_format_params.trino_connector_params.trino_connector_column_metadata},
-            {"trino_connector_predicate",
-             range.table_format_params.trino_connector_params.trino_connector_predicate},
-            {"trino_connector_trascation_handle",
-             range.table_format_params.trino_connector_params.trino_connector_trascation_handle},
-            {"required_fields", join(column_names, ",")},
-            {"columns_types", join(column_types, "#")}};
-
-    // Used to create trino connector options
-    for (const auto& kv :
-         range.table_format_params.trino_connector_params.trino_connector_options) {
-        params[TRINO_CONNECTOR_OPTION_PREFIX + kv.first] = kv.second;
-    }
-    _jni_connector = std::make_unique<JniConnector>(
-            "org/apache/doris/trinoconnector/TrinoConnectorJniScanner", params, column_names);
-}
+        : JniReader(
+                  file_slot_descs, state, profile,
+                  "org/apache/doris/trinoconnector/TrinoConnectorJniScanner",
+                  [&]() {
+                      std::vector<std::string> column_names;
+                      std::vector<std::string> column_types;
+                      for (const auto& desc : file_slot_descs) {
+                          column_names.emplace_back(desc->col_name());
+                          column_types.emplace_back(
+                                  JniDataBridge::get_jni_type_with_different_string(desc->type()));
+                      }
+                      std::map<String, String> params = {
+                              {"catalog_name",
+                               range.table_format_params.trino_connector_params.catalog_name},
+                              {"db_name", range.table_format_params.trino_connector_params.db_name},
+                              {"table_name",
+                               range.table_format_params.trino_connector_params.table_name},
+                              {"trino_connector_split",
+                               range.table_format_params.trino_connector_params
+                                       .trino_connector_split},
+                              {"trino_connector_table_handle",
+                               range.table_format_params.trino_connector_params
+                                       .trino_connector_table_handle},
+                              {"trino_connector_column_handles",
+                               range.table_format_params.trino_connector_params
+                                       .trino_connector_column_handles},
+                              {"trino_connector_column_metadata",
+                               range.table_format_params.trino_connector_params
+                                       .trino_connector_column_metadata},
+                              {"trino_connector_predicate",
+                               range.table_format_params.trino_connector_params
+                                       .trino_connector_predicate},
+                              {"trino_connector_trascation_handle",
+                               range.table_format_params.trino_connector_params
+                                       .trino_connector_trascation_handle},
+                              {"required_fields", join(column_names, ",")},
+                              {"columns_types", join(column_types, "#")}};
+                      for (const auto& kv : range.table_format_params.trino_connector_params
+                                                    .trino_connector_options) {
+                          params[TRINO_CONNECTOR_OPTION_PREFIX + kv.first] = kv.second;
+                      }
+                      return params;
+                  }(),
+                  [&]() {
+                      std::vector<std::string> names;
+                      for (const auto& desc : file_slot_descs) {
+                          names.emplace_back(desc->col_name());
+                      }
+                      return names;
+                  }()) {}
 
 Status TrinoConnectorJniReader::init_reader() {
-    RETURN_IF_ERROR(_jni_connector->init());
     RETURN_IF_ERROR(_set_spi_plugins_dir());
-    return _jni_connector->open(_state, _profile);
+    return open(_state, _profile);
 }
 
 Status TrinoConnectorJniReader::_set_spi_plugins_dir() {
