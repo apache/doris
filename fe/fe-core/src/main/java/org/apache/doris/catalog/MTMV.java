@@ -44,6 +44,7 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mtmv.ivm.IVMInfo;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.qe.ConnectContext;
 
@@ -87,6 +88,8 @@ public class MTMV extends OlapTable {
     private MTMVPartitionInfo mvPartitionInfo;
     @SerializedName("rs")
     private MTMVRefreshSnapshot refreshSnapshot;
+    @SerializedName("ii")
+    private IVMInfo ivmInfo;
     // Should update after every fresh, not persist
     // Cache with SessionVarGuardExpr: used when query session variables differ from MV creation variables
     private MTMVCache cacheWithGuard;
@@ -122,6 +125,7 @@ public class MTMV extends OlapTable {
         this.mvPartitionInfo = params.mvPartitionInfo;
         this.relation = params.relation;
         this.refreshSnapshot = new MTMVRefreshSnapshot();
+        this.ivmInfo = new IVMInfo();
         this.envInfo = new EnvInfo(-1L, -1L);
         this.sessionVariables = params.sessionVariables;
         mvRwLock = new ReentrantReadWriteLock(true);
@@ -477,6 +481,10 @@ public class MTMV extends OlapTable {
         }
     }
 
+    public IVMInfo getIvmInfo() {
+        return ivmInfo;
+    }
+
     public long getSchemaChangeVersion() {
         readMvLock();
         try {
@@ -685,6 +693,9 @@ public class MTMV extends OlapTable {
         super.gsonPostProcess();
         if (sessionVariables == null) {
             sessionVariables = Maps.newHashMap();
+        }
+        if (ivmInfo == null) {
+            ivmInfo = new IVMInfo();
         }
         Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = refreshSnapshot.getPartitionSnapshots();
         compatiblePctSnapshot(partitionSnapshots);
