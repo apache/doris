@@ -46,6 +46,7 @@
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
+#include "load/routine_load/kinesis_conf.h"
 #include "runtime/exec_env.h"
 #include "runtime/small_file_mgr.h"
 #include "service/backend_options.h"
@@ -594,6 +595,39 @@ Status KinesisDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
     _custom_properties.insert(ctx->kinesis_info->properties.begin(),
                               ctx->kinesis_info->properties.end());
 
+    // Create KinesisConf and configure it
+    _kinesis_conf = std::make_unique<KinesisConf>();
+    std::string errstr;
+
+    // Parse and categorize aws.kinesis.* properties into three types
+    for (auto& item : _custom_properties) {
+        if (starts_with(item.first, "aws.kinesis.")) {
+            std::string conf_key = item.first.substr(12); // Remove "aws.kinesis." prefix
+
+            // Type 2: Frequently-used parameters (explicit members)
+            if (conf_key == "shards") {
+                std::vector<std::string> parts = absl::StrSplit(item.second, ",", absl::SkipWhitespace());
+                _explicit_shards = std::move(parts);
+                VLOG_NOTICE << "Set explicit shards: " << item.second;
+            } else if (conf_key == "default.pos") {
+                _default_position = item.second;
+                VLOG_NOTICE << "Set default position: " << item.second;
+            } else if (starts_with(conf_key, "shards.pos.")) {
+                std::string shard_id = conf_key.substr(11); // Remove "shards.pos." prefix
+                _shard_positions[shard_id] = item.second;
+                VLOG_NOTICE << "Set shard position: " << shard_id << " = " << item.second;
+            }
+            // Type 3: Less-frequently-used API parameters (KinesisConf determines which API)
+            else {
+                KinesisConf::ConfResult res = _kinesis_conf->set(conf_key, item.second, errstr);
+                if (res == KinesisConf::CONF_INVALID) {
+                    return Status::InternalError("Failed to set '{}': {}", conf_key, errstr);
+                }
+                // CONF_UNKNOWN is acceptable (parameter will be ignored)
+            }
+        }
+    }
+
     // Create AWS Kinesis client
     RETURN_IF_ERROR(_create_kinesis_client(ctx));
 
@@ -718,20 +752,14 @@ Status KinesisDataConsumer::_get_shard_iterator(const std::string& shard_id,
                                                 const std::string& sequence_number,
                                                 std::string* iterator) {
     Aws::Kinesis::Model::GetShardIteratorRequest request;
-    request.SetStreamName(_stream);
-    request.SetShardId(shard_id);
 
-    // Determine iterator type based on sequence number
-    if (sequence_number.empty() || sequence_number == "TRIM_HORIZON" || sequence_number == "-2") {
-        // Start from oldest record in shard
-        request.SetShardIteratorType(Aws::Kinesis::Model::ShardIteratorType::TRIM_HORIZON);
-    } else if (sequence_number == "LATEST" || sequence_number == "-1") {
-        // Start from newest record (records arriving after iterator creation)
-        request.SetShardIteratorType(Aws::Kinesis::Model::ShardIteratorType::LATEST);
-    } else {
-        // Resume from specific sequence number
-        request.SetShardIteratorType(Aws::Kinesis::Model::ShardIteratorType::AFTER_SEQUENCE_NUMBER);
-        request.SetStartingSequenceNumber(sequence_number);
+    // Apply all configurations through KinesisConf
+    DCHECK(_kinesis_conf != nullptr);
+    Status st = _kinesis_conf->apply_to_get_shard_iterator_request(request, _stream, shard_id,
+                                                                     sequence_number);
+    if (!st.ok()) {
+        return Status::InternalError("Failed to apply Kinesis config to GetShardIteratorRequest: {}",
+                                     st.to_string());
     }
 
     auto outcome = _kinesis_client->GetShardIterator(request);
@@ -751,7 +779,6 @@ Status KinesisDataConsumer::group_consume(
         int64_t max_running_time_ms) {
     static constexpr int MAX_RETRY_TIMES_FOR_TRANSPORT_FAILURE = 3;
     static constexpr int RATE_LIMIT_BACKOFF_MS = 1000;         // 1 second
-    static constexpr int KINESIS_GET_RECORDS_LIMIT = 1000;     // Max 10000
     static constexpr int INTER_SHARD_SLEEP_MS = 10;            // Small sleep between shards
     static constexpr int MIN_INTERVAL_BETWEEN_ROUNDS_MS = 200; // Min 200ms between rounds
 
@@ -799,8 +826,15 @@ Status KinesisDataConsumer::group_consume(
             consumer_watch.start();
 
             Aws::Kinesis::Model::GetRecordsRequest request;
-            request.SetShardIterator(iter_it->second);
-            request.SetLimit(KINESIS_GET_RECORDS_LIMIT);
+
+            // Apply all configurations through KinesisConf
+            DCHECK(_kinesis_conf != nullptr);
+            st = _kinesis_conf->apply_to_get_records_request(request, iter_it->second);
+            if (!st.ok()) {
+                LOG(WARNING) << "Failed to apply Kinesis config to GetRecordsRequest: " << st;
+                done = true;
+                break;
+            }
 
             auto outcome = _kinesis_client->GetRecords(request);
             consumer_watch.stop();
@@ -1005,7 +1039,15 @@ Status KinesisDataConsumer::get_shard_list(std::vector<std::string>* shard_ids) 
     DORIS_CHECK(_kinesis_client);
 
     Aws::Kinesis::Model::ListShardsRequest request;
-    request.SetStreamName(_stream);
+
+    // Apply all configurations through KinesisConf
+    DCHECK(_kinesis_conf != nullptr);
+    Status st = _kinesis_conf->apply_to_list_shards_request(request, _stream);
+    if (!st.ok()) {
+        return Status::InternalError("Failed to apply Kinesis config to ListShardsRequest: {}",
+                                     st.to_string());
+    }
+
     auto outcome = _kinesis_client->ListShards(request);
     if (!outcome.IsSuccess()) {
         auto& error = outcome.GetError();

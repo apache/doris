@@ -26,12 +26,9 @@ import java.util.stream.Collectors;
 /**
  * Configuration enum for AWS Kinesis data source properties.
  *
- * AWS Kinesis is a managed real-time data streaming service from AWS.
- * The main concepts in Kinesis are:
- * - Stream: Similar to Kafka topic, a named stream for data records
- * - Shard: Similar to Kafka partition, the base throughput unit of a stream
- * - Sequence Number: Similar to Kafka offset, a unique identifier for each record within a shard
- * - Consumer: Application that reads from a stream
+ * Parameters are divided into two categories:
+ * 1. AWS Client parameters (aws.*): region, endpoint, credentials, timeouts
+ * 2. Kinesis-specific parameters (aws.kinesis.*): stream, shards, positions, API settings
  */
 public enum KinesisConfiguration {
 
@@ -40,129 +37,105 @@ public enum KinesisConfiguration {
      * Required property.
      * Example: us-east-1, ap-southeast-1, cn-north-1
      */
-    KINESIS_REGION("kinesis_region", null, value -> value.trim()),
+    KINESIS_REGION("aws.region", null, value -> value.trim()),
 
     /**
      * Name of the Kinesis stream to consume from.
      * Required property.
      */
-    KINESIS_STREAM("kinesis_stream", null, value -> value.trim()),
+    KINESIS_STREAM("aws.kinesis.stream", null, value -> value.trim()),
 
     /**
      * Endpoint URL for Kinesis service (optional).
      * Used for custom endpoints like LocalStack for testing, or VPC endpoints.
-     * If not specified, the default AWS endpoint for the region will be used.
      */
-    KINESIS_ENDPOINT("kinesis_endpoint", null, value -> value.trim()),
+    KINESIS_ENDPOINT("aws.endpoint", null, value -> value.trim()),
 
     /**
      * Comma-separated list of shard IDs to consume from.
      * If not specified, all shards will be consumed.
-     * Example: shardId-000000000000,shardId-000000000001
      */
-    KINESIS_SHARDS("kinesis_shards", null, shardsString ->
+    KINESIS_SHARDS("aws.kinesis.shards", null, shardsString ->
             Arrays.stream(shardsString.replace(" ", "").split(","))
                     .collect(Collectors.toList())),
 
     /**
      * Shard iterator positions (sequence numbers) for each shard.
      * Format: position1,position2,... corresponding to shards order.
-     * Special values:
-     * - TRIM_HORIZON: Start from the oldest record
-     * - LATEST: Start from the newest record
-     * - AT_TIMESTAMP: Start from a specific timestamp
-     * - Specific sequence number
      */
-    KINESIS_POSITIONS("kinesis_positions", null,
+    KINESIS_POSITIONS("aws.kinesis.positions", null,
             positionsString -> Splitter.on(",").trimResults().splitToList(positionsString)),
 
     /**
      * Default starting position for new shards.
      * Valid values: TRIM_HORIZON, LATEST, AT_TIMESTAMP
-     * Default: LATEST
      */
-    KINESIS_DEFAULT_POSITION("kinesis_default_position", "LATEST", position -> position.trim()),
+    KINESIS_DEFAULT_POSITION("aws.kinesis.default.pos", "LATEST", position -> position.trim()),
 
     /**
      * AWS Access Key ID for authentication.
-     * Can be omitted if using IAM role, EC2 instance profile, or environment variables.
      */
-    KINESIS_ACCESS_KEY("kinesis_access_key", null, value -> value),
+    KINESIS_ACCESS_KEY("aws.access.key", null, value -> value),
 
     /**
      * AWS Secret Access Key for authentication.
-     * Can be omitted if using IAM role, EC2 instance profile, or environment variables.
      */
-    KINESIS_SECRET_KEY("kinesis_secret_key", null, value -> value),
+    KINESIS_SECRET_KEY("aws.secret.key", null, value -> value),
 
     /**
      * AWS Session Token for temporary credentials.
-     * Used with STS assume role.
      */
-    KINESIS_SESSION_TOKEN("kinesis_session_token", null, value -> value),
+    KINESIS_SESSION_TOKEN("aws.session.token", null, value -> value),
 
     /**
      * IAM Role ARN to assume for accessing Kinesis.
-     * Useful for cross-account access.
      */
-    KINESIS_ROLE_ARN("kinesis_role_arn", null, value -> value.trim()),
+    KINESIS_ROLE_ARN("aws.iam.role.arn", null, value -> value.trim()),
 
     /**
      * External ID for IAM role assumption.
-     * Additional security measure for cross-account access.
      */
-    KINESIS_EXTERNAL_ID("kinesis_external_id", null, value -> value.trim()),
+    KINESIS_EXTERNAL_ID("aws.external.id", null, value -> value.trim()),
 
     /**
      * AWS Profile name to use from credentials file.
-     * If not specified, uses default profile or environment credentials.
      */
-    KINESIS_PROFILE_NAME("kinesis_profile_name", null, value -> value.trim()),
+    KINESIS_PROFILE_NAME("aws.profile.name", null, value -> value.trim()),
 
     /**
      * Consumer name for enhanced fan-out (EFO).
-     * When specified, uses dedicated throughput via SubscribeToShard API.
-     * Provides ~2MB/sec per shard with lower latency (~70ms).
      */
-    KINESIS_CONSUMER_NAME("kinesis_consumer_name", null, value -> value.trim()),
+    KINESIS_CONSUMER_NAME("aws.kinesis.consumer.name", null, value -> value.trim()),
 
     /**
      * Maximum records per GetRecords call.
-     * Default: 10000 (Kinesis limit)
-     * Higher values improve throughput but increase memory usage.
      */
-    KINESIS_MAX_RECORDS_PER_FETCH("kinesis_max_records_per_fetch", 10000, Integer::parseInt),
+    KINESIS_MAX_RECORDS_PER_FETCH("aws.kinesis.max_records", 10000, Integer::parseInt),
 
     /**
      * Interval between GetRecords calls in milliseconds.
-     * Default: 200ms (to stay within Kinesis 5 calls/sec limit per shard)
      */
-    KINESIS_FETCH_INTERVAL_MS("kinesis_fetch_interval_ms", 200, Integer::parseInt),
+    KINESIS_FETCH_INTERVAL_MS("aws.kinesis.fetch_interval_ms", 200, Integer::parseInt),
 
     /**
      * Connection timeout in milliseconds.
-     * Default: 10000 (10 seconds)
      */
-    KINESIS_CONNECTION_TIMEOUT_MS("kinesis_connection_timeout_ms", 10000, Integer::parseInt),
+    KINESIS_CONNECTION_TIMEOUT_MS("aws.connection.timeout.ms", 10000, Integer::parseInt),
 
     /**
      * Request timeout in milliseconds.
-     * Default: 10000 (10 seconds)
      */
-    KINESIS_REQUEST_TIMEOUT_MS("kinesis_request_timeout_ms", 10000, Integer::parseInt),
+    KINESIS_REQUEST_TIMEOUT_MS("aws.request.timeout.ms", 10000, Integer::parseInt),
 
     /**
      * Max number of retry attempts for Kinesis API calls.
-     * Default: 3
      */
-    KINESIS_MAX_RETRIES("kinesis_max_retries", 3, Integer::parseInt),
+    KINESIS_MAX_RETRIES("aws.kinesis.max_retries", 3, Integer::parseInt),
 
     /**
      * Use HTTPS for Kinesis endpoint.
-     * Default: true
-     * Set to false only for local testing (e.g., LocalStack).
      */
-    KINESIS_USE_HTTPS("kinesis_use_https", true, Boolean::parseBoolean);
+    KINESIS_USE_HTTPS("aws.kinesis.use_https", true, Boolean::parseBoolean);
 
     private final String name;
     private final Object defaultValue;

@@ -28,6 +28,8 @@
 #include <ctime>
 #include <map>
 #include <memory>
+
+#include "load/routine_load/kinesis_conf.h"
 #include <mutex>
 #include <ostream>
 #include <string>
@@ -204,10 +206,24 @@ public:
     Status get_shard_list(std::vector<std::string>* shard_ids);
 
 private:
-    // Configuration
+    // Configuration - Basic AWS settings
     std::string _region;
     std::string _stream;
     std::string _endpoint; // Optional custom endpoint (e.g., LocalStack)
+
+    // Type 1: Doris-internal parameters (not passed to AWS SDK)
+    std::unordered_map<std::string, std::string> _doris_internal_properties;
+
+    // Type 2: Frequently-used AWS parameters (explicit members for performance)
+    // These are parsed from aws.kinesis.* properties during init()
+    std::vector<std::string> _explicit_shards;     // aws.kinesis.shards (comma-separated)
+    std::string _default_position;                  // aws.kinesis.default.pos (LATEST/TRIM_HORIZON)
+    std::map<std::string, std::string> _shard_positions; // aws.kinesis.shards.pos (shard_id:position)
+
+    // Type 3: Less-frequently-used AWS API parameters (wrapped in KinesisConf)
+    std::unique_ptr<KinesisConf> _kinesis_conf;
+
+    // AWS credentials and other properties
     std::unordered_map<std::string, std::string> _custom_properties;
 
     // Active shards being consumed

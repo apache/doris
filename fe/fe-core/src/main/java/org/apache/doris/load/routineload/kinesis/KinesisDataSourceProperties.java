@@ -42,25 +42,20 @@ import java.util.TimeZone;
 /**
  * AWS Kinesis data source properties for Routine Load.
  *
- * Kinesis is AWS's managed streaming data service, similar to Apache Kafka.
- * Key differences from Kafka:
- * - Uses shards instead of partitions
- * - Uses sequence numbers instead of offsets
- * - Requires AWS authentication (IAM, access keys, etc.)
- * - Region-specific endpoints
+ * Parameters are divided into two categories:
+ * 1. AWS Client parameters (aws.*): region, endpoint, credentials, timeouts
+ * 2. Kinesis-specific parameters (aws.kinesis.*): stream, shards, positions, API settings
  *
  * Example usage in SQL:
  * CREATE ROUTINE LOAD my_job ON my_table
  * FROM KINESIS (
- *     "kinesis_region" = "us-east-1",
- *     "kinesis_stream" = "my-stream",
- *     "kinesis_access_key" = "AKIAIOSFODNN7EXAMPLE",
- *     "kinesis_secret_key" = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+ *     "aws.region" = "us-east-1",
+ *     "aws.kinesis.stream" = "my-stream",
+ *     "aws.access.key" = "AKIAIOSFODNN7EXAMPLE",
+ *     "aws.secret.key" = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
  * );
  */
 public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
-
-    private static final String CUSTOM_KINESIS_PROPERTY_PREFIX = "property.";
 
     /**
      * List of shard IDs with their starting sequence numbers.
@@ -164,10 +159,11 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
 
     @Override
     public void convertAndCheckDataSourceProperties() throws UserException {
-        // Check for invalid properties
+        // Check for invalid properties - accept aws.* and aws.kinesis.* parameters
         Optional<String> invalidProperty = originalDataSourceProperties.keySet().stream()
                 .filter(key -> !CONFIGURABLE_DATA_SOURCE_PROPERTIES_SET.contains(key))
-                .filter(key -> !key.startsWith(CUSTOM_KINESIS_PROPERTY_PREFIX))
+                .filter(key -> !key.startsWith("aws.kinesis."))
+                .filter(key -> !key.startsWith("aws."))
                 .findFirst();
         if (invalidProperty.isPresent()) {
             throw new AnalysisException(invalidProperty.get() + " is invalid Kinesis property or cannot be set");
@@ -250,50 +246,25 @@ public class KinesisDataSourceProperties extends AbstractDataSourceProperties {
 
     /**
      * Parse and store custom Kinesis properties.
+     * All aws.* and aws.kinesis.* parameters are passed through to BE.
      */
     private void analyzeCustomProperties() throws AnalysisException {
         this.customKinesisProperties = new HashMap<>();
+
+        // Store all aws.* and aws.kinesis.* parameters
         for (Map.Entry<String, String> entry : originalDataSourceProperties.entrySet()) {
-            if (entry.getKey().startsWith(CUSTOM_KINESIS_PROPERTY_PREFIX)) {
-                String propertyKey = entry.getKey();
-                String propertyValue = entry.getValue();
-                String[] propertyKeyParts = propertyKey.split("\\.", 2);
-                if (propertyKeyParts.length < 2 || propertyKeyParts[1].isEmpty()) {
-                    throw new AnalysisException("Kinesis property key format is invalid: " + propertyKey);
-                }
-                this.customKinesisProperties.put(propertyKeyParts[1], propertyValue);
+            String key = entry.getKey();
+            if (key.startsWith("aws.kinesis.") || key.startsWith("aws.")) {
+                // Pass through directly to BE
+                customKinesisProperties.put(key, entry.getValue());
             }
         }
-
-        // Store AWS credentials in custom properties for later use
-        storeCredentialInCustomProperties(KinesisConfiguration.KINESIS_ACCESS_KEY.getName());
-        storeCredentialInCustomProperties(KinesisConfiguration.KINESIS_SECRET_KEY.getName());
-        storeCredentialInCustomProperties(KinesisConfiguration.KINESIS_SESSION_TOKEN.getName());
-        storeCredentialInCustomProperties(KinesisConfiguration.KINESIS_ROLE_ARN.getName());
-        storeCredentialInCustomProperties(KinesisConfiguration.KINESIS_EXTERNAL_ID.getName());
-        storeCredentialInCustomProperties(KinesisConfiguration.KINESIS_PROFILE_NAME.getName());
-        storeCredentialInCustomProperties(KinesisConfiguration.KINESIS_CONSUMER_NAME.getName());
-
-        // Store connection settings
-        storeCredentialInCustomProperties(KinesisConfiguration.KINESIS_MAX_RECORDS_PER_FETCH.getName());
-        storeCredentialInCustomProperties(KinesisConfiguration.KINESIS_FETCH_INTERVAL_MS.getName());
-        storeCredentialInCustomProperties(KinesisConfiguration.KINESIS_CONNECTION_TIMEOUT_MS.getName());
-        storeCredentialInCustomProperties(KinesisConfiguration.KINESIS_REQUEST_TIMEOUT_MS.getName());
-        storeCredentialInCustomProperties(KinesisConfiguration.KINESIS_MAX_RETRIES.getName());
-        storeCredentialInCustomProperties(KinesisConfiguration.KINESIS_USE_HTTPS.getName());
 
         // Store default position for later use
         String defaultPosition = originalDataSourceProperties.get(
                 KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName());
         if (StringUtils.isNotBlank(defaultPosition)) {
             customKinesisProperties.put(KinesisConfiguration.KINESIS_DEFAULT_POSITION.getName(), defaultPosition);
-        }
-    }
-
-    private void storeCredentialInCustomProperties(String key) {
-        String value = originalDataSourceProperties.get(key);
-        if (StringUtils.isNotBlank(value)) {
-            customKinesisProperties.put(key, value);
         }
     }
 
