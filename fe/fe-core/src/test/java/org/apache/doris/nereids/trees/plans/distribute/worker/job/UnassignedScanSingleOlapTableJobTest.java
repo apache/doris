@@ -31,6 +31,7 @@ import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TPaloScanRange;
@@ -85,6 +86,7 @@ public class UnassignedScanSingleOlapTableJobTest {
                 .thenReturn(Arrays.asList(partitionOne, partitionTwo));
         Mockito.when(olapScanNode.getSelectedIndexId()).thenReturn(selectedIndexId);
         Mockito.when(olapScanNode.getOlapTable()).thenReturn(olapTable);
+        Mockito.when(olapScanNode.getScanContext()).thenReturn(ScanContext.EMPTY);
         Mockito.when(olapScanNode.getScanTabletIds())
                 .thenReturn(new ArrayList<>(tabletToPartition.keySet()));
 
@@ -192,6 +194,7 @@ public class UnassignedScanSingleOlapTableJobTest {
                 .thenReturn(ImmutableList.of(partitionOne));
         Mockito.when(olapScanNode.getSelectedIndexId()).thenReturn(selectedIndexId);
         Mockito.when(olapScanNode.getOlapTable()).thenReturn(olapTable);
+        Mockito.when(olapScanNode.getScanContext()).thenReturn(ScanContext.EMPTY);
         Mockito.when(olapScanNode.getScanTabletIds())
                 .thenReturn(new ArrayList<>(ImmutableList.of(1L, 2L, 3L, 4L, 5L, 6L)));
 
@@ -255,6 +258,7 @@ public class UnassignedScanSingleOlapTableJobTest {
                 .thenReturn(Arrays.asList(partitionOne, partitionTwo));
         Mockito.when(olapScanNode.getSelectedIndexId()).thenReturn(selectedIndexId);
         Mockito.when(olapScanNode.getOlapTable()).thenReturn(olapTable);
+        Mockito.when(olapScanNode.getScanContext()).thenReturn(ScanContext.EMPTY);
         Mockito.when(olapScanNode.getScanTabletIds())
                 .thenReturn(new ArrayList<>(ImmutableList.of(1L, 2L, 3L, 4L, 5L, 6L)));
 
