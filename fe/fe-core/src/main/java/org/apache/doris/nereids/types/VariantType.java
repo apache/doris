@@ -54,6 +54,7 @@ public class VariantType extends PrimitiveType {
     private final boolean enableVariantDocMode;
     private final long variantDocMaterializationMinRows;
     private final int variantDocShardCount;
+    private final boolean enableNestedGroup;
 
     /**
      * Creates a Variant type without predefined fields and only configures the max subcolumn limit.
@@ -69,6 +70,7 @@ public class VariantType extends PrimitiveType {
         this.enableVariantDocMode = false;
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
+        this.enableNestedGroup = false;
     }
 
     /**
@@ -83,6 +85,7 @@ public class VariantType extends PrimitiveType {
         this.enableVariantDocMode = false;
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
+        this.enableNestedGroup = false;
     }
 
     /**
@@ -99,7 +102,8 @@ public class VariantType extends PrimitiveType {
     public VariantType(List<VariantField> fields, int variantMaxSubcolumnsCount,
             boolean enableTypedPathsToSparse, int variantMaxSparseColumnStatisticsSize,
             int variantSparseHashShardCount, boolean enableVariantDocMode,
-            long variantDocMaterializationMinRows, int variantDocShardCount) {
+            long variantDocMaterializationMinRows, int variantDocShardCount,
+            boolean enableNestedGroup) {
         this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.enableTypedPathsToSparse = enableTypedPathsToSparse;
@@ -108,6 +112,7 @@ public class VariantType extends PrimitiveType {
         this.enableVariantDocMode = enableVariantDocMode;
         this.variantDocMaterializationMinRows = variantDocMaterializationMinRows;
         this.variantDocShardCount = variantDocShardCount;
+        this.enableNestedGroup = enableNestedGroup;
     }
 
     @Override
@@ -116,7 +121,7 @@ public class VariantType extends PrimitiveType {
                                 .collect(Collectors.toList()), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                                     variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                                     enableVariantDocMode, variantDocMaterializationMinRows,
-                                    variantDocShardCount);
+                                    variantDocShardCount, enableNestedGroup);
     }
 
     @Override
@@ -125,13 +130,23 @@ public class VariantType extends PrimitiveType {
                 .map(VariantField::toCatalogDataType)
                 .collect(Collectors.toCollection(ArrayList::new)), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                      variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
-                     variantDocMaterializationMinRows, variantDocShardCount);
+                     variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup);
         return type;
     }
 
     @Override
     public boolean acceptsType(DataType other) {
         return other instanceof VariantType;
+    }
+
+    @Override
+    public boolean isAssignableFrom(DataType targetDataType) {
+        // Any VariantType is assignable to any other VariantType,
+        // regardless of property differences (maxSubcolumns, etc.)
+        if (targetDataType instanceof VariantType) {
+            return true;
+        }
+        return super.isAssignableFrom(targetDataType);
     }
 
     @Override

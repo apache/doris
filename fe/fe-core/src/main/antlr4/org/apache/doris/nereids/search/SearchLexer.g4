@@ -63,6 +63,7 @@ IN_LPAREN    : [Ii][Nn] '(' -> pushMode(LIST_MODE) ;
 ANY_LPAREN   : [Aa][Nn][Yy] '(' -> pushMode(STRING_MODE) ;
 ALL_LPAREN   : [Aa][Ll][Ll] '(' -> pushMode(STRING_MODE) ;
 EXACT_LPAREN : [Ee][Xx][Aa][Cc][Tt] '(' -> pushMode(STRING_MODE) ;
+NESTED_LPAREN : [Nn][Ee][Ss][Tt][Ee][Dd] [ \t\r\n\u3000]* '(' -> pushMode(NESTED_PATH_MODE) ;
 
 WS : [ \t\r\n\u3000]+ -> skip ;
 
@@ -94,3 +95,21 @@ mode STRING_MODE;
 
 STRING_CONTENT : (ESCAPED_CHAR | NON_ESCAPED)+ ;
 STRING_RPAREN : ')' -> popMode ;
+
+// ============== Nested path lexer rules ==============
+
+mode NESTED_PATH_MODE;
+
+fragment NESTED_PATH_START_CHAR
+    : ~[ \t\r\n\u3000,+\-!():^[\]"{}~*?\\/,]
+    ;
+
+fragment NESTED_PATH_CHAR
+    : NESTED_PATH_START_CHAR
+    | [0-9]
+    ;
+
+NESTED_PATH : NESTED_PATH_START_CHAR NESTED_PATH_CHAR* ('.' NESTED_PATH_START_CHAR NESTED_PATH_CHAR*)* ;
+NESTED_COMMA : ',' -> popMode ;
+
+NESTED_PATH_WS : [ \t\r\n\u3000]+ -> skip ;

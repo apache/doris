@@ -57,6 +57,14 @@ public:
         /// "k1" is nested and has anonymous_array_level = 0.
         /// "k2" and "k3" are not nested and have anonymous_array_level = 2.
         UInt8 anonymous_array_level = 0;
+
+        /// Get the total array depth for this part.
+        /// Used for NestedGroup offset indexing.
+        /// If is_nested (array<object>), the depth is anonymous_array_level + 1
+        /// Otherwise it's just the anonymous_array_level.
+        UInt8 get_array_depth() const {
+            return is_nested ? (anonymous_array_level + 1) : anonymous_array_level;
+        }
     };
     using Parts = std::vector<Part>;
     PathInData() = default;
@@ -94,6 +102,9 @@ public:
     PathInData copy_pop_front() const;
     PathInData copy_pop_nfront(size_t n) const;
     PathInData copy_pop_back() const;
+    static bool try_strip_prefix(const std::string& name, const std::string& prefix_dot,
+                                 std::string* out);
+    static PathInData append(const PathInData& base, std::string_view suffix);
     void to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_unique_id) const;
     void from_protobuf(const segment_v2::ColumnPathInfo& pb);
 

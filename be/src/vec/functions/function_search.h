@@ -40,6 +40,8 @@ namespace doris::vectorized {
 
 using namespace doris::segment_v2;
 
+class IndexExecContext;
+
 struct FieldReaderBinding {
     std::string logical_field_name;
     std::string stored_field_name;
@@ -168,6 +170,22 @@ public:
                     data_type_with_names,
             std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
             InvertedIndexResultBitmap& bitmap_result, bool enable_cache = true) const;
+
+    Status evaluate_inverted_index_with_search_param(
+            const TSearchParam& search_param,
+            const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
+                    data_type_with_names,
+            std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
+            InvertedIndexResultBitmap& bitmap_result, bool enable_cache,
+            const IndexExecContext* index_exec_ctx,
+            const std::unordered_map<std::string, int>& field_name_to_column_id) const;
+
+    Status evaluate_nested_query(
+            const TSearchParam& search_param, const TSearchClause& nested_clause,
+            const std::shared_ptr<IndexQueryContext>& context, FieldReaderResolver& resolver,
+            uint32_t num_rows, const IndexExecContext* index_exec_ctx,
+            const std::unordered_map<std::string, int>& field_name_to_column_id,
+            std::shared_ptr<roaring::Roaring>& result_bitmap) const;
 
     // Public methods for testing
     enum class ClauseTypeCategory {

@@ -99,7 +99,7 @@ void ParquetOutputStream::set_written_len(int64_t written_len) {
 }
 
 void ParquetBuildHelper::build_compression_type(
-        parquet::WriterProperties::Builder& builder,
+        ::parquet::WriterProperties::Builder& builder,
         const TParquetCompressionType::type& compression_type) {
     switch (compression_type) {
     case TParquetCompressionType::SNAPPY: {
@@ -140,19 +140,19 @@ void ParquetBuildHelper::build_compression_type(
     }
 }
 
-void ParquetBuildHelper::build_version(parquet::WriterProperties::Builder& builder,
+void ParquetBuildHelper::build_version(::parquet::WriterProperties::Builder& builder,
                                        const TParquetVersion::type& parquet_version) {
     switch (parquet_version) {
     case TParquetVersion::PARQUET_1_0: {
-        builder.version(parquet::ParquetVersion::PARQUET_1_0);
+        builder.version(::parquet::ParquetVersion::PARQUET_1_0);
         break;
     }
     case TParquetVersion::PARQUET_2_LATEST: {
-        builder.version(parquet::ParquetVersion::PARQUET_2_LATEST);
+        builder.version(::parquet::ParquetVersion::PARQUET_2_LATEST);
         break;
     }
     default:
-        builder.version(parquet::ParquetVersion::PARQUET_1_0);
+        builder.version(::parquet::ParquetVersion::PARQUET_1_0);
     }
 }
 
@@ -190,7 +190,7 @@ Status VParquetTransformer::_parse_properties() {
         arrow::MemoryPool* pool = ExecEnv::GetInstance()->arrow_memory_pool();
 
         //build parquet writer properties
-        parquet::WriterProperties::Builder builder;
+        ::parquet::WriterProperties::Builder builder;
         ParquetBuildHelper::build_compression_type(builder, _parquet_options.compression_type);
         ParquetBuildHelper::build_version(builder, _parquet_options.parquet_version);
         if (_parquet_options.parquet_disable_dictionary) {
@@ -199,19 +199,19 @@ Status VParquetTransformer::_parse_properties() {
             builder.enable_dictionary();
         }
         builder.created_by(
-                fmt::format("{}({})", doris::get_short_version(), parquet::DEFAULT_CREATED_BY));
+                fmt::format("{}({})", doris::get_short_version(), ::parquet::DEFAULT_CREATED_BY));
         builder.max_row_group_length(std::numeric_limits<int64_t>::max());
         builder.memory_pool(pool);
         _parquet_writer_properties = builder.build();
 
         //build arrow  writer properties
-        parquet::ArrowWriterProperties::Builder arrow_builder;
+        ::parquet::ArrowWriterProperties::Builder arrow_builder;
         if (_parquet_options.enable_int96_timestamps) {
             arrow_builder.enable_deprecated_int96_timestamps();
         }
         arrow_builder.store_schema();
         _arrow_properties = arrow_builder.build();
-    } catch (const parquet::ParquetException& e) {
+    } catch (const ::parquet::ParquetException& e) {
         return Status::InternalError("parquet writer parse properties error: {}", e.what());
     }
     return Status::OK();
@@ -273,7 +273,7 @@ Status VParquetTransformer::write(const Block& block) {
 
 arrow::Status VParquetTransformer::_open_file_writer() {
     ARROW_ASSIGN_OR_RAISE(_writer,
-                          parquet::arrow::FileWriter::Open(
+                          ::parquet::arrow::FileWriter::Open(
                                   *_arrow_schema, ExecEnv::GetInstance()->arrow_memory_pool(),
                                   _outstream, _parquet_writer_properties, _arrow_properties));
     return arrow::Status::OK();
@@ -284,7 +284,7 @@ Status VParquetTransformer::open() {
     RETURN_IF_ERROR(_parse_schema());
     try {
         RETURN_DORIS_STATUS_IF_ERROR(_open_file_writer());
-    } catch (const parquet::ParquetStatusException& e) {
+    } catch (const ::parquet::ParquetStatusException& e) {
         LOG(WARNING) << "parquet file writer open error: " << e.what();
         return Status::InternalError("parquet file writer open error: {}", e.what());
     }
