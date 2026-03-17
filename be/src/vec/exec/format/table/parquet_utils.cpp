@@ -40,7 +40,7 @@ namespace {
 
 template <typename ColumnType, typename T>
 void insert_numeric_impl(MutableColumnPtr& column, T value) {
-    if (auto* nullable_column = check_and_get_column<ColumnNullable>(*column)) {
+    if (auto* nullable_column = check_and_get_column<ColumnNullable>(column.get())) {
         auto& nested = nullable_column->get_nested_column();
         assert_cast<ColumnType&>(nested).insert_value(value);
         nullable_column->push_false_to_nullmap(1);
@@ -68,7 +68,7 @@ void insert_bool(MutableColumnPtr& column, bool value) {
 }
 
 void insert_string(MutableColumnPtr& column, const std::string& value) {
-    if (auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
+    if (auto* nullable = check_and_get_column<ColumnNullable>(column.get())) {
         nullable->get_null_map_data().push_back(0);
         auto& nested = nullable->get_nested_column();
         assert_cast<ColumnString&>(nested).insert_data(value.c_str(), value.size());
@@ -78,7 +78,7 @@ void insert_string(MutableColumnPtr& column, const std::string& value) {
 }
 
 void insert_null(MutableColumnPtr& column) {
-    if (auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
+    if (auto* nullable = check_and_get_column<ColumnNullable>(column.get())) {
         nullable->get_null_map_data().push_back(1);
         nullable->get_nested_column().insert_default();
     } else {
