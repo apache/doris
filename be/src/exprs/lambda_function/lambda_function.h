@@ -23,7 +23,7 @@
 #include "exprs/vexpr_context.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 class VExpr;
 class LambdaFunction {
 public:
@@ -36,7 +36,7 @@ public:
         return Status::OK();
     }
 
-    virtual doris::Status execute(VExprContext* context, const doris::vectorized::Block* block,
+    virtual doris::Status execute(VExprContext* context, const doris::Block* block,
                                   Selector* selector, size_t count, ColumnPtr& result_column,
                                   const DataTypePtr& result_type,
                                   const VExprSPtrs& children) const = 0;
@@ -46,4 +46,4 @@ public:
 
 using LambdaFunctionPtr = std::shared_ptr<LambdaFunction>;
 
-} // namespace doris::vectorized
+} // namespace doris

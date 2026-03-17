@@ -64,16 +64,15 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type.h"
 #include "exec/common/variant_util.h"
-#include "exec/connector/vjdbc_connector.h"
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/rowid_fetcher.h"
 #include "exec/sink/writer/varrow_flight_result_writer.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
 #include "exprs/function/dictionary_factory.h"
 #include "format/arrow/arrow_row_batch.h"
-#include "format/avro/avro_jni_reader.h"
 #include "format/csv/csv_reader.h"
 #include "format/generic_reader.h"
+#include "format/jni/jni_reader.h"
 #include "format/json/new_json_reader.h"
 #include "format/native/native_reader.h"
 #include "format/orc/vorc_reader.h"
@@ -121,6 +120,7 @@
 #include "util/async_io.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
+#include "util/jdbc_utils.h"
 #include "util/jsonb/serialize.h"
 #include "util/md5.h"
 #include "util/network_util.h"
@@ -652,9 +652,9 @@ void PInternalService::fetch_data(google::protobuf::RpcController* controller,
                                   google::protobuf::Closure* done) {
     // fetch_data is a light operation which will put a request rather than wait inplace when there's no data ready.
     // when there's data ready, use brpc to send. there's queue in brpc service. won't take it too long.
-    auto ctx = vectorized::GetResultBatchCtx::create_shared(result, done);
+    auto ctx = GetResultBatchCtx::create_shared(result, done);
     TUniqueId unique_id = UniqueId(request->finst_id()).to_thrift(); // query_id or instance_id
-    std::shared_ptr<vectorized::MySQLResultBlockBuffer> buffer;
+    std::shared_ptr<MySQLResultBlockBuffer> buffer;
     Status st = ExecEnv::GetInstance()->result_mgr()->find_buffer(unique_id, buffer);
     if (!st.ok()) {
         LOG(WARNING) << "Result buffer not found! finst ID: " << print_id(unique_id);
@@ -670,9 +670,9 @@ void PInternalService::fetch_arrow_data(google::protobuf::RpcController* control
                                         PFetchArrowDataResult* result,
                                         google::protobuf::Closure* done) {
     bool ret = _arrow_flight_work_pool.try_offer([request, result, done]() {
-        auto ctx = vectorized::GetArrowResultBatchCtx::create_shared(result, done);
+        auto ctx = GetArrowResultBatchCtx::create_shared(result, done);
         TUniqueId unique_id = UniqueId(request->finst_id()).to_thrift(); // query_id or instance_id
-        std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> arrow_buffer;
+        std::shared_ptr<ArrowFlightResultBlockBuffer> arrow_buffer;
         auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(unique_id, arrow_buffer);
         if (!st.ok()) {
             LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(unique_id);
@@ -822,7 +822,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         // might asynchronouslly access the profile
         std::unique_ptr<RuntimeProfile> profile =
                 std::make_unique<RuntimeProfile>("FetchTableSchema");
-        std::unique_ptr<vectorized::GenericReader> reader(nullptr);
+        std::unique_ptr<GenericReader> reader(nullptr);
         auto io_ctx = std::make_shared<io::IOContext>();
         auto file_cache_statis = std::make_shared<io::FileCacheStatistics>();
         auto file_reader_stats = std::make_shared<io::FileReaderStats>();
@@ -839,36 +839,31 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
-            reader = vectorized::CsvReader::create_unique(nullptr, profile.get(), nullptr, params,
-                                                          range, file_slots, io_ctx.get(), io_ctx);
+            reader = CsvReader::create_unique(nullptr, profile.get(), nullptr, params, range,
+                                              file_slots, io_ctx.get(), io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_TEXT: {
-            reader = vectorized::TextReader::create_unique(nullptr, profile.get(), nullptr, params,
-                                                           range, file_slots, io_ctx.get());
+            reader = TextReader::create_unique(nullptr, profile.get(), nullptr, params, range,
+                                               file_slots, io_ctx.get());
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
-            reader = vectorized::ParquetReader::create_unique(params, range, io_ctx, nullptr);
+            reader = ParquetReader::create_unique(params, range, io_ctx, nullptr);
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            reader = vectorized::OrcReader::create_unique(params, range, "", io_ctx);
+            reader = OrcReader::create_unique(params, range, "", io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_NATIVE: {
-            reader = vectorized::NativeReader::create_unique(profile.get(), params, range,
-                                                             io_ctx.get(), nullptr);
+            reader = NativeReader::create_unique(profile.get(), params, range, io_ctx.get(),
+                                                 nullptr);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
-            reader = vectorized::NewJsonReader::create_unique(profile.get(), params, range,
-                                                              file_slots, io_ctx.get(), io_ctx);
-            break;
-        }
-        case TFileFormatType::FORMAT_AVRO: {
-            reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
-                                                              file_slots);
+            reader = NewJsonReader::create_unique(profile.get(), params, range, file_slots,
+                                                  io_ctx.get(), io_ctx);
             break;
         }
         default:
@@ -889,7 +884,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             return;
         }
         std::vector<std::string> col_names;
-        std::vector<vectorized::DataTypePtr> col_types;
+        std::vector<DataTypePtr> col_types;
         st = reader->get_parsed_schema(&col_names, &col_types);
         if (!st.ok()) {
             LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
@@ -919,7 +914,7 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
     bool ret = _arrow_flight_work_pool.try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         std::shared_ptr<arrow::Schema> schema;
-        std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> buffer;
+        std::shared_ptr<ArrowFlightResultBlockBuffer> buffer;
         auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(
                 UniqueId(request->finst_id()).to_thrift(), buffer);
         if (!st.ok()) {
@@ -990,7 +985,6 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
                 fmt::format("InternalService::test_jdbc_connection"));
         SCOPED_ATTACH_TASK(mem_tracker);
         TTableDescriptor table_desc;
-        vectorized::JdbcConnectorParam jdbc_param;
         Status st = Status::OK();
         {
             const uint8_t* buf = (const uint8_t*)request->jdbc_table().data();
@@ -1003,35 +997,96 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
             }
         }
         TJdbcTable jdbc_table = (table_desc.jdbcTable);
-        jdbc_param.catalog_id = jdbc_table.catalog_id;
-        jdbc_param.driver_class = jdbc_table.jdbc_driver_class;
-        jdbc_param.driver_path = jdbc_table.jdbc_driver_url;
-        jdbc_param.driver_checksum = jdbc_table.jdbc_driver_checksum;
-        jdbc_param.jdbc_url = jdbc_table.jdbc_url;
-        jdbc_param.user = jdbc_table.jdbc_user;
-        jdbc_param.passwd = jdbc_table.jdbc_password;
-        jdbc_param.query_string = request->query_str();
-        jdbc_param.table_type = static_cast<TOdbcTableType::type>(request->jdbc_table_type());
-        jdbc_param.use_transaction = false;
-        jdbc_param.connection_pool_min_size = jdbc_table.connection_pool_min_size;
-        jdbc_param.connection_pool_max_size = jdbc_table.connection_pool_max_size;
-        jdbc_param.connection_pool_max_life_time = jdbc_table.connection_pool_max_life_time;
-        jdbc_param.connection_pool_max_wait_time = jdbc_table.connection_pool_max_wait_time;
-        jdbc_param.connection_pool_keep_alive = jdbc_table.connection_pool_keep_alive;
 
-        std::unique_ptr<vectorized::JdbcConnector> jdbc_connector;
-        jdbc_connector.reset(new (std::nothrow) vectorized::JdbcConnector(jdbc_param));
+        // Resolve driver URL to absolute file:// path
+        std::string driver_url;
+        st = JdbcUtils::resolve_driver_url(jdbc_table.jdbc_driver_url, &driver_url);
+        if (!st.ok()) {
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
 
-        st = jdbc_connector->test_connection();
+        // Build params for JdbcConnectionTester
+        std::map<std::string, std::string> params;
+        params["jdbc_url"] = jdbc_table.jdbc_url;
+        params["jdbc_user"] = jdbc_table.jdbc_user;
+        params["jdbc_password"] = jdbc_table.jdbc_password;
+        params["jdbc_driver_class"] = jdbc_table.jdbc_driver_class;
+        params["jdbc_driver_url"] = driver_url;
+        params["query_sql"] = request->query_str();
+        params["catalog_id"] = std::to_string(jdbc_table.catalog_id);
+        params["connection_pool_min_size"] = std::to_string(jdbc_table.connection_pool_min_size);
+        params["connection_pool_max_size"] = std::to_string(jdbc_table.connection_pool_max_size);
+        params["connection_pool_max_wait_time"] =
+                std::to_string(jdbc_table.connection_pool_max_wait_time);
+        params["connection_pool_max_life_time"] =
+                std::to_string(jdbc_table.connection_pool_max_life_time);
+        params["connection_pool_keep_alive"] =
+                jdbc_table.connection_pool_keep_alive ? "true" : "false";
+        params["clean_datasource"] = "true";
+        // Map jdbc_table_type (TOdbcTableType enum value) to string name
+        // for JdbcTypeHandlerFactory to select the correct type handler.
+        // This ensures the right validation query is used (e.g. Oracle: "SELECT 1 FROM dual").
+        if (request->has_jdbc_table_type()) {
+            std::string type_name;
+            switch (request->jdbc_table_type()) {
+            case 0:
+                type_name = "MYSQL";
+                break;
+            case 1:
+                type_name = "ORACLE";
+                break;
+            case 2:
+                type_name = "POSTGRESQL";
+                break;
+            case 3:
+                type_name = "SQLSERVER";
+                break;
+            case 6:
+                type_name = "CLICKHOUSE";
+                break;
+            case 7:
+                type_name = "SAP_HANA";
+                break;
+            case 8:
+                type_name = "TRINO";
+                break;
+            case 9:
+                type_name = "PRESTO";
+                break;
+            case 10:
+                type_name = "OCEANBASE";
+                break;
+            case 11:
+                type_name = "OCEANBASE_ORACLE";
+                break;
+            case 13:
+                type_name = "DB2";
+                break;
+            case 14:
+                type_name = "GBASE";
+                break;
+            default:
+                break;
+            }
+            if (!type_name.empty()) {
+                params["table_type"] = type_name;
+            }
+        }
+        // required_fields and columns_types are required by JniReader
+        params["required_fields"] = "result";
+        params["columns_types"] = "int";
+
+        // Use JniReader to create JdbcConnectionTester, which tests
+        // the connection in its open() method.
+        auto jni_reader =
+                std::make_unique<JniReader>("org/apache/doris/jdbc/JdbcConnectionTester", params);
+        st = jni_reader->open(nullptr, nullptr);
         st.to_protobuf(result->mutable_status());
 
-        Status clean_st = jdbc_connector->clean_datasource();
-        if (!clean_st.ok()) {
-            LOG(WARNING) << "Failed to clean JDBC datasource: " << clean_st.msg();
-        }
-        Status close_st = jdbc_connector->close();
+        Status close_st = jni_reader->close();
         if (!close_st.ok()) {
-            LOG(WARNING) << "Failed to close JDBC connector: " << close_st.msg();
+            LOG(WARNING) << "Failed to close JDBC connection tester: " << close_st.msg();
         }
     });
 
@@ -1204,8 +1259,7 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
             if (!schemas.empty() && st.ok()) {
                 // merge all
                 TabletSchemaSPtr merged_schema;
-                st = vectorized::variant_util::get_least_common_schema(schemas, nullptr,
-                                                                       merged_schema);
+                st = variant_util::get_least_common_schema(schemas, nullptr, merged_schema);
                 if (!st.ok()) {
                     LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
                     st = Status::InternalError("Failed to get least common schema: {}",
@@ -1240,15 +1294,16 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                     }
                     auto tablet = res.value();
                     auto rowsets = tablet->get_snapshot_rowset();
-                    auto schema = vectorized::variant_util::VariantCompactionUtil::
-                            calculate_variant_extended_schema(rowsets, tablet->tablet_schema());
+                    auto schema =
+                            variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+                                    rowsets, tablet->tablet_schema());
                     tablet_schemas.push_back(schema);
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
                     TabletSchemaSPtr merged_schema;
-                    st = vectorized::variant_util::get_least_common_schema(tablet_schemas, nullptr,
-                                                                           merged_schema);
+                    st = variant_util::get_least_common_schema(tablet_schemas, nullptr,
+                                                               merged_schema);
                     if (!st.ok()) {
                         LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
                         st = Status::InternalError("Failed to get least common schema: {}",
@@ -2182,14 +2237,14 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
         return;
     }
 
-    doris::pipeline::TaskScheduler* exec_sched = nullptr;
-    vectorized::ScannerScheduler* scan_sched = nullptr;
-    vectorized::ScannerScheduler* remote_scan_sched = nullptr;
+    doris::TaskScheduler* exec_sched = nullptr;
+    ScannerScheduler* scan_sched = nullptr;
+    ScannerScheduler* remote_scan_sched = nullptr;
     wg->get_query_scheduler(&exec_sched, &scan_sched, &remote_scan_sched);
     DCHECK(remote_scan_sched);
 
     st = remote_scan_sched->submit_scan_task(
-            vectorized::SimplifiedScanTask(
+            SimplifiedScanTask(
                     [request, response, done]() {
                         SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
                         signal::set_signal_task_id(request->query_id());

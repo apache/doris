@@ -42,11 +42,11 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 
-namespace doris::vectorized {
+namespace doris {
 class DataTypeDateTime;
 class DataTypeDateV2;
 class DataTypeDateTimeV2;
-} // namespace doris::vectorized
+} // namespace doris
 
 namespace doris {
 #include "common/compile_check_avoid_begin.h"
@@ -1805,19 +1805,19 @@ struct DateTraits {};
 template <>
 struct DateTraits<int64_t> {
     using T = VecDateTimeValue;
-    using DateType = vectorized::DataTypeDateTime;
+    using DateType = DataTypeDateTime;
 };
 
 template <>
 struct DateTraits<uint32_t> {
     using T = DateV2Value<DateV2ValueType>;
-    using DateType = vectorized::DataTypeDateV2;
+    using DateType = DataTypeDateV2;
 };
 
 template <>
 struct DateTraits<uint64_t> {
     using T = DateV2Value<DateTimeV2ValueType>;
-    using DateType = vectorized::DataTypeDateTimeV2;
+    using DateType = DataTypeDateTimeV2;
 };
 #include "common/compile_check_avoid_end.h"
 } // namespace doris

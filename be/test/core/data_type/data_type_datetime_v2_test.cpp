@@ -36,7 +36,7 @@
 #include "testutil/test_util.h"
 #include "util/date_func.h"
 
-namespace doris::vectorized {
+namespace doris {
 static std::string test_data_dir;
 static std::string test_result_dir;
 
@@ -886,4 +886,4 @@ TEST_F(DataTypeDateTimeV2Test, GetFieldWithDataTypeTest) {
               field_datetime_v2);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

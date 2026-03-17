@@ -44,7 +44,7 @@
 #include "runtime/runtime_state.h"
 #include "util/timezone_utils.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 PaimonPredicateConverter::PaimonPredicateConverter(
@@ -656,4 +656,4 @@ std::optional<paimon::FieldType> PaimonPredicateConverter::_to_paimon_field_type
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

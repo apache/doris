@@ -29,7 +29,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 struct AggregateFunctionMapAggDataV2 {
@@ -296,6 +296,6 @@ protected:
     using IAggregateFunction::argument_types;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

@@ -44,8 +44,8 @@ VariantStatsCaculator::VariantStatsCaculator(SegmentFooterPB* footer,
     }
 }
 
-Status VariantStatsCaculator::calculate_variant_stats(const vectorized::Block* block,
-                                                      size_t row_pos, size_t num_rows) {
+Status VariantStatsCaculator::calculate_variant_stats(const Block* block, size_t row_pos,
+                                                      size_t num_rows) {
     for (size_t i = 0; i < block->columns(); ++i) {
         const TabletColumn& tablet_column = _tablet_schema->column(_column_ids[i]);
         // Only process sub columns and sparse columns during compaction
@@ -84,7 +84,7 @@ Status VariantStatsCaculator::calculate_variant_stats(const vectorized::Block* b
     return Status::OK();
 }
 
-void VariantStatsCaculator::_calculate_sparse_column_stats(const vectorized::IColumn& column,
+void VariantStatsCaculator::_calculate_sparse_column_stats(const IColumn& column,
                                                            ColumnMetaPB* column_meta,
                                                            size_t max_sparse_column_statistics_size,
                                                            size_t row_pos, size_t num_rows) {
@@ -92,18 +92,18 @@ void VariantStatsCaculator::_calculate_sparse_column_stats(const vectorized::ICo
     VariantStatisticsPB* stats = column_meta->mutable_variant_statistics();
 
     // Use the same logic as the original calculate_variant_stats function
-    vectorized::variant_util::VariantCompactionUtil::calculate_variant_stats(
+    variant_util::VariantCompactionUtil::calculate_variant_stats(
             column, stats, max_sparse_column_statistics_size, row_pos, num_rows);
 
     VLOG_DEBUG << "Sparse column stats updated, non-null size count: "
                << stats->sparse_column_non_null_size_size();
 }
 
-void VariantStatsCaculator::_calculate_sub_column_stats(const vectorized::IColumn& column,
+void VariantStatsCaculator::_calculate_sub_column_stats(const IColumn& column,
                                                         ColumnMetaPB* column_meta, size_t row_pos,
                                                         size_t num_rows) {
     // For sub columns, we need to calculate the non-null count
-    const auto& nullable_column = assert_cast<const vectorized::ColumnNullable&>(column);
+    const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
     const auto& null_data = nullable_column.get_null_map_data();
     const int8_t* start = reinterpret_cast<const int8_t*>(null_data.data()) + row_pos;
 

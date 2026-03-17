@@ -19,7 +19,7 @@
 
 #include "exprs/function/ai/ai_functions.h"
 
-namespace doris::vectorized {
+namespace doris {
 class FunctionAITranslate : public AIFunction<FunctionAITranslate> {
 public:
     static constexpr auto name = "ai_translate";
@@ -42,4 +42,4 @@ public:
                         std::string& prompt) const override;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

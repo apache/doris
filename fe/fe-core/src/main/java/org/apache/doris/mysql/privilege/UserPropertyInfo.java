@@ -17,11 +17,9 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
@@ -32,7 +30,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
-public class UserPropertyInfo implements Writable, GsonPostProcessable {
+public class UserPropertyInfo implements Writable {
 
     @SerializedName("u")
     private String user;
@@ -58,11 +56,6 @@ public class UserPropertyInfo implements Writable, GsonPostProcessable {
 
     public static UserPropertyInfo read(DataInput in) throws IOException {
         return GsonUtils.GSON.fromJson(Text.readString(in), UserPropertyInfo.class);
-    }
-
-    @Override
-    public void gsonPostProcess() throws IOException {
-        user = ClusterNamespace.getNameFromFullName(user);
     }
 
     @Override

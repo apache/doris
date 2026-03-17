@@ -22,7 +22,6 @@
 #include "exec/scan/task_executor/tools/simulator/simulation_split.h"
 
 namespace doris {
-namespace vectorized {
 
 SimulationTask::SimulationTask(TimeSharingTaskExecutor& executor,
                                const SimulationController::TasksSpecification& spec,
@@ -142,5 +141,4 @@ bool SimulationTask::is_killed() const {
     return _killed.load();
 }
 
-} // namespace vectorized
 } // namespace doris

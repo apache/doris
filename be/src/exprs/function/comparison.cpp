@@ -20,7 +20,7 @@
 
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 void register_function_comparison_equals(SimpleFunctionFactory& factory);
 void register_function_comparison_greater(SimpleFunctionFactory& factory);
 void register_function_comparison_less(SimpleFunctionFactory& factory);
@@ -30,4 +30,4 @@ void register_function_comparison(SimpleFunctionFactory& factory) {
     register_function_comparison_greater(factory);
     register_function_comparison_less(factory);
 }
-} // namespace doris::vectorized
+} // namespace doris

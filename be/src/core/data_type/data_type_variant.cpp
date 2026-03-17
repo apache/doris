@@ -40,12 +40,10 @@
 #include "util/string_util.h"
 
 namespace doris {
-namespace vectorized {
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 DataTypeVariant::DataTypeVariant(int32_t max_subcolumns_count)
@@ -248,4 +246,4 @@ MutableColumnPtr DataTypeVariant::create_column() const {
     return ColumnVariant::create(_max_subcolumns_count);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

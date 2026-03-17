@@ -493,13 +493,34 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
     }
 
     /**
-     * Add virtual column to olap scan with optional score range info.
-     * @param virtualColumns generated virtual columns
-     * @param scoreRangeInfo optional score range filter info for BM25 range queries
-     * @return scan with virtual columns and optional score range info
+     * Append additional virtual columns to existing ones.
+     * Unlike {@link #withVirtualColumns} which replaces, this merges existing + new.
      */
-    public LogicalOlapScan withVirtualColumnsAndTopN(
-            List<NamedExpression> virtualColumns,
+    public LogicalOlapScan appendVirtualColumns(List<NamedExpression> additionalVirtualColumns) {
+        LogicalProperties logicalProperties = getLogicalProperties();
+        List<Slot> output = Lists.newArrayList(logicalProperties.getOutput());
+        output.addAll(additionalVirtualColumns.stream().map(NamedExpression::toSlot)
+                .collect(Collectors.toList()));
+        logicalProperties = new LogicalProperties(() -> output, this::computeDataTrait);
+        List<NamedExpression> mergedVirtualColumns = ImmutableList.<NamedExpression>builder()
+                .addAll(this.virtualColumns)
+                .addAll(additionalVirtualColumns)
+                .build();
+        return new LogicalOlapScan(relationId, (Table) table, qualifier,
+                groupExpression, Optional.of(logicalProperties),
+                selectedPartitionIds, partitionPruned, selectedTabletIds,
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
+                manuallySpecifiedTabletIds, operativeSlots, mergedVirtualColumns, scoreOrderKeys, scoreLimit,
+                scoreRangeInfo, annOrderKeys, annLimit, tableAlias);
+    }
+
+    /**
+     * Append additional virtual columns with topN info.
+     * Merges existing virtual columns with the new ones.
+     */
+    public LogicalOlapScan appendVirtualColumnsAndTopN(
+            List<NamedExpression> additionalVirtualColumns,
             List<OrderKey> annOrderKeys,
             Optional<Long> annLimit,
             List<OrderKey> scoreOrderKeys,
@@ -507,14 +528,19 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
             Optional<ScoreRangeInfo> scoreRangeInfo) {
         LogicalProperties logicalProperties = getLogicalProperties();
         List<Slot> output = Lists.newArrayList(logicalProperties.getOutput());
-        output.addAll(virtualColumns.stream().map(NamedExpression::toSlot).collect(Collectors.toList()));
+        output.addAll(additionalVirtualColumns.stream().map(NamedExpression::toSlot)
+                .collect(Collectors.toList()));
         logicalProperties = new LogicalProperties(() -> output, this::computeDataTrait);
+        List<NamedExpression> mergedVirtualColumns = ImmutableList.<NamedExpression>builder()
+                .addAll(this.virtualColumns)
+                .addAll(additionalVirtualColumns)
+                .build();
         return new LogicalOlapScan(relationId, (Table) table, qualifier,
                 groupExpression, Optional.of(logicalProperties),
                 selectedPartitionIds, partitionPruned, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
-                manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
+                manuallySpecifiedTabletIds, operativeSlots, mergedVirtualColumns, scoreOrderKeys, scoreLimit,
                 scoreRangeInfo, annOrderKeys, annLimit, tableAlias);
     }
 
@@ -767,6 +793,13 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
             // unique key will also be read. As a result, the uniqueness of the unique key cannot be guaranteed.
             if (ConnectContext.get().getSessionVariable().skipDeleteBitmap
                     && getTable().getKeysType() == KeysType.UNIQUE_KEYS) {
+                return;
+            }
+            // When readMorAsDup is enabled, MOR tables are read as DUP, so uniqueness cannot be guaranteed.
+            if (getTable().getKeysType() == KeysType.UNIQUE_KEYS
+                    && getTable().isMorTable()
+                    && ConnectContext.get().getSessionVariable().isReadMorAsDupEnabled(
+                        getTable().getQualifiedDbName(), getTable().getName())) {
                 return;
             }
             ImmutableSet.Builder<Slot> uniqSlots = ImmutableSet.builderWithExpectedSize(outputSet.size());

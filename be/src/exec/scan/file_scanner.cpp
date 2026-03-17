@@ -47,7 +47,6 @@
 #include "core/data_type/data_type_string.h"
 #include "core/string_ref.h"
 #include "exec/common/stringop_substring.h"
-#include "exec/operator/file_scan_operator.h"
 #include "exec/rowid_fetcher.h"
 #include "exec/scan/scan_node.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -58,7 +57,6 @@
 #include "exprs/vexpr_fwd.h"
 #include "exprs/vslot_ref.h"
 #include "format/arrow/arrow_stream_reader.h"
-#include "format/avro/avro_jni_reader.h"
 #include "format/csv/csv_reader.h"
 #include "format/json/new_json_reader.h"
 #include "format/native/native_reader.h"
@@ -68,7 +66,7 @@
 #include "format/table/hudi_jni_reader.h"
 #include "format/table/hudi_reader.h"
 #include "format/table/iceberg_reader.h"
-#include "format/table/lakesoul_jni_reader.h"
+#include "format/table/jdbc_jni_reader.h"
 #include "format/table/max_compute_jni_reader.h"
 #include "format/table/paimon_cpp_reader.h"
 #include "format/table/paimon_jni_reader.h"
@@ -83,27 +81,23 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
-#include "storage/segment/column_reader.h"
 
 namespace cctz {
 class time_zone;
 } // namespace cctz
 namespace doris {
-namespace vectorized {
 class ShardedKVCache;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 const std::string FileScanner::FileReadBytesProfile = "FileReadBytes";
 const std::string FileScanner::FileReadTimeProfile = "FileReadTime";
 
-FileScanner::FileScanner(RuntimeState* state, pipeline::FileScanLocalState* local_state,
-                         int64_t limit,
-                         std::shared_ptr<vectorized::SplitSourceConnector> split_source,
+FileScanner::FileScanner(RuntimeState* state, FileScanLocalState* local_state, int64_t limit,
+                         std::shared_ptr<SplitSourceConnector> split_source,
                          RuntimeProfile* profile, ShardedKVCache* kv_cache,
                          const std::unordered_map<std::string, int>* colname_to_slot_id)
         : Scanner(state, local_state, limit, profile),
@@ -178,12 +172,11 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
                                               std::vector<TupleId>({_input_tuple_desc->id()})));
         // prepare pre filters
         if (_params->__isset.pre_filter_exprs_list) {
-            RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_trees(
-                    _params->pre_filter_exprs_list, _pre_conjunct_ctxs));
+            RETURN_IF_ERROR(doris::VExpr::create_expr_trees(_params->pre_filter_exprs_list,
+                                                            _pre_conjunct_ctxs));
         } else if (_params->__isset.pre_filter_exprs) {
             VExprContextSPtr context;
-            RETURN_IF_ERROR(
-                    doris::vectorized::VExpr::create_expr_tree(_params->pre_filter_exprs, context));
+            RETURN_IF_ERROR(doris::VExpr::create_expr_tree(_params->pre_filter_exprs, context));
             _pre_conjunct_ctxs.emplace_back(context);
         }
 
@@ -661,7 +654,7 @@ Status FileScanner::_fill_missing_columns(size_t rows) {
             // no default column, fill with null
             auto mutable_column = _src_block_ptr->get_by_position(_src_block_name_to_idx[kv.first])
                                           .column->assume_mutable();
-            auto* nullable_column = static_cast<vectorized::ColumnNullable*>(mutable_column.get());
+            auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
             nullable_column->insert_many_defaults(rows);
         } else {
             // fill with default value
@@ -701,8 +694,8 @@ Status FileScanner::_pre_filter_src_block() {
         SCOPED_TIMER(_pre_filter_timer);
         auto origin_column_num = _src_block_ptr->columns();
         auto old_rows = _src_block_ptr->rows();
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_pre_conjunct_ctxs, _src_block_ptr,
-                                                               origin_column_num));
+        RETURN_IF_ERROR(
+                VExprContext::filter_block(_pre_conjunct_ctxs, _src_block_ptr, origin_column_num));
         _counter.num_rows_unselected += old_rows - _src_block_ptr->rows();
     }
     return Status::OK();
@@ -720,7 +713,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
 
     int ctx_idx = 0;
     size_t rows = _src_block_ptr->rows();
-    auto filter_column = vectorized::ColumnUInt8::create(rows, 1);
+    auto filter_column = ColumnUInt8::create(rows, 1);
     auto& filter_map = filter_column->get_data();
 
     // After convert, the column_ptr should be copied into output block.
@@ -757,7 +750,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
     for (int j = 0; j < mutable_output_columns.size(); ++j) {
         auto* slot_desc = _output_tuple_desc->slots()[j];
         int dest_index = ctx_idx;
-        vectorized::ColumnPtr column_ptr;
+        ColumnPtr column_ptr;
 
         auto& ctx = _dest_vexpr_ctx[dest_index];
         // PT1 => dest primitive type
@@ -769,8 +762,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
         // is likely to be nullable
         if (LIKELY(column_ptr->is_nullable())) {
-            const auto* nullable_column =
-                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            const auto* nullable_column = reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             for (int i = 0; i < rows; ++i) {
                 if (filter_map[i] && nullable_column->is_null_at(i)) {
                     // skip checks for non-mentioned columns in flexible partial update
@@ -824,10 +816,9 @@ Status FileScanner::_convert_to_output_block(Block* block) {
 
     size_t dest_size = block->columns();
     // do filter
-    block->insert(vectorized::ColumnWithTypeAndName(std::move(filter_column),
-                                                    std::make_shared<vectorized::DataTypeUInt8>(),
-                                                    "filter column"));
-    RETURN_IF_ERROR(vectorized::Block::filter_block(block, dest_size, dest_size));
+    block->insert(ColumnWithTypeAndName(std::move(filter_column), std::make_shared<DataTypeUInt8>(),
+                                        "filter column"));
+    RETURN_IF_ERROR(Block::filter_block(block, dest_size, dest_size));
 
     _counter.num_rows_filtered += rows - block->rows();
     return Status::OK();
@@ -900,9 +891,9 @@ void FileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int le
 
 Status FileScanner::_create_row_id_column_iterator() {
     auto& id_file_map = _state->get_id_file_map();
-    auto file_id = id_file_map->get_file_mapping_id(std::make_shared<FileMapping>(
-            ((pipeline::FileScanLocalState*)_local_state)->parent_id(), _current_range,
-            _should_enable_file_meta_cache()));
+    auto file_id = id_file_map->get_file_mapping_id(
+            std::make_shared<FileMapping>(((FileScanLocalState*)_local_state)->parent_id(),
+                                          _current_range, _should_enable_file_meta_cache()));
     _row_id_column_iterator_pair.first = std::make_shared<RowIdColumnIteratorV2>(
             IdManager::ID_VERSION, BackendOptions::get_backend_id(), file_id);
     return Status::OK();
@@ -1016,17 +1007,21 @@ Status FileScanner::_get_next_reader() {
                                                            range.table_format_params.hudi_params,
                                                            _file_slot_descs, _state, _profile);
                 init_status = ((HudiJniReader*)_cur_reader.get())->init_reader();
-            } else if (range.__isset.table_format_params &&
-                       range.table_format_params.table_format_type == "lakesoul") {
-                _cur_reader =
-                        LakeSoulJniReader::create_unique(range.table_format_params.lakesoul_params,
-                                                         _file_slot_descs, _state, _profile);
-                init_status = ((LakeSoulJniReader*)_cur_reader.get())->init_reader();
+
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "trino_connector") {
                 _cur_reader = TrinoConnectorJniReader::create_unique(_file_slot_descs, _state,
                                                                      _profile, range);
                 init_status = ((TrinoConnectorJniReader*)(_cur_reader.get()))->init_reader();
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "jdbc") {
+                // Extract jdbc params from table_format_params
+                std::map<std::string, std::string> jdbc_params(
+                        range.table_format_params.jdbc_params.begin(),
+                        range.table_format_params.jdbc_params.end());
+                _cur_reader = JdbcJniReader::create_unique(_file_slot_descs, _state, _profile,
+                                                           jdbc_params);
+                init_status = ((JdbcJniReader*)(_cur_reader.get()))->init_reader();
             }
             // Set col_name_to_block_idx for JNI readers to avoid repeated map creation
             if (_cur_reader) {
@@ -1114,17 +1109,7 @@ Status FileScanner::_get_next_reader() {
                                   ->init_reader(_col_default_value_ctx, _is_load);
             break;
         }
-        case TFileFormatType::FORMAT_AVRO: {
-            _cur_reader = AvroJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs,
-                                                       range);
-            init_status = ((AvroJNIReader*)(_cur_reader.get()))->init_reader();
-            // Set col_name_to_block_idx for JNI readers to avoid repeated map creation
-            if (_cur_reader) {
-                static_cast<JniReader*>(_cur_reader.get())
-                        ->set_col_name_to_block_idx(&_src_block_name_to_idx);
-            }
-            break;
-        }
+
         case TFileFormatType::FORMAT_WAL: {
             _cur_reader = WalReader::create_unique(_state);
             init_status = ((WalReader*)(_cur_reader.get()))->init_reader(_output_tuple_desc);
@@ -1217,7 +1202,7 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
 
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> slot_id_to_predicates =
             _local_state
-                    ? _local_state->cast<pipeline::FileScanLocalState>()._slot_id_to_predicates
+                    ? _local_state->cast<FileScanLocalState>()._slot_id_to_predicates
                     : phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> {};
     if (range.__isset.table_format_params &&
         range.table_format_params.table_format_type == "iceberg") {
@@ -1537,10 +1522,9 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
             [&]() -> Status {
                 switch (format_type) {
                 case TFileFormatType::FORMAT_PARQUET: {
-                    std::unique_ptr<vectorized::ParquetReader> parquet_reader =
-                            vectorized::ParquetReader::create_unique(
-                                    _profile, *_params, range, 1, &_state->timezone_obj(),
-                                    _io_ctx.get(), _state, file_meta_cache_ptr, false);
+                    std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
+                            _profile, *_params, range, 1, &_state->timezone_obj(), _io_ctx.get(),
+                            _state, file_meta_cache_ptr, false);
 
                     RETURN_IF_ERROR(parquet_reader->read_by_rows(row_ids));
                     RETURN_IF_ERROR(
@@ -1548,10 +1532,9 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
                     break;
                 }
                 case TFileFormatType::FORMAT_ORC: {
-                    std::unique_ptr<vectorized::OrcReader> orc_reader =
-                            vectorized::OrcReader::create_unique(
-                                    _profile, _state, *_params, range, 1, _state->timezone(),
-                                    _io_ctx.get(), file_meta_cache_ptr, false);
+                    std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
+                            _profile, _state, *_params, range, 1, _state->timezone(), _io_ctx.get(),
+                            file_meta_cache_ptr, false);
 
                     RETURN_IF_ERROR(orc_reader->read_by_rows(row_ids));
                     RETURN_IF_ERROR(_init_orc_reader(std::move(orc_reader), file_meta_cache_ptr));
@@ -1703,11 +1686,11 @@ Status FileScanner::_init_expr_ctxes() {
 
     // set column name to default value expr map
     for (auto* slot_desc : _real_tuple_desc->slots()) {
-        vectorized::VExprContextSPtr ctx;
+        VExprContextSPtr ctx;
         auto it = _params->default_value_of_src_slot.find(slot_desc->id());
         if (it != std::end(_params->default_value_of_src_slot)) {
             if (!it->second.nodes.empty()) {
-                RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(it->second, ctx));
+                RETURN_IF_ERROR(VExpr::create_expr_tree(it->second, ctx));
                 RETURN_IF_ERROR(ctx->prepare(_state, *_default_val_row_desc));
                 RETURN_IF_ERROR(ctx->open(_state));
             }
@@ -1727,9 +1710,9 @@ Status FileScanner::_init_expr_ctxes() {
                                              slot_desc->id(), slot_desc->col_name());
             }
 
-            vectorized::VExprContextSPtr ctx;
+            VExprContextSPtr ctx;
             if (!it->second.nodes.empty()) {
-                RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(it->second, ctx));
+                RETURN_IF_ERROR(VExpr::create_expr_tree(it->second, ctx));
                 RETURN_IF_ERROR(ctx->prepare(_state, *_src_row_desc));
                 RETURN_IF_ERROR(ctx->open(_state));
             }
@@ -1777,8 +1760,7 @@ void FileScanner::try_stop() {
 }
 
 void FileScanner::update_realtime_counters() {
-    pipeline::FileScanLocalState* local_state =
-            static_cast<pipeline::FileScanLocalState*>(_local_state);
+    FileScanLocalState* local_state = static_cast<FileScanLocalState*>(_local_state);
 
     COUNTER_UPDATE(local_state->_scan_bytes, _file_reader_stats->read_bytes);
     COUNTER_UPDATE(local_state->_scan_rows, _file_reader_stats->read_rows);
@@ -1839,8 +1821,7 @@ void FileScanner::_collect_profile_before_close() {
         _cur_reader->collect_profile_before_close();
     }
 
-    pipeline::FileScanLocalState* local_state =
-            static_cast<pipeline::FileScanLocalState*>(_local_state);
+    FileScanLocalState* local_state = static_cast<FileScanLocalState*>(_local_state);
     COUNTER_UPDATE(local_state->_scan_bytes, _file_reader_stats->read_bytes);
     COUNTER_UPDATE(local_state->_scan_rows, _file_reader_stats->read_rows);
 
@@ -1852,4 +1833,4 @@ void FileScanner::_collect_profile_before_close() {
     DorisMetrics::instance()->query_scan_rows->increment(_file_reader_stats->read_rows);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

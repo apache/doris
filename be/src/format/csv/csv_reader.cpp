@@ -54,16 +54,14 @@
 
 namespace doris {
 class RuntimeProfile;
-namespace vectorized {
 class IColumn;
-} // namespace vectorized
 namespace io {
 struct IOContext;
 enum class FileCachePolicy : uint8_t;
 } // namespace io
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
@@ -204,7 +202,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
     _split_values.reserve(_file_slot_descs.size());
     _init_system_properties();
     _init_file_description();
-    _serdes = vectorized::create_data_type_serdes(_file_slot_descs);
+    _serdes = create_data_type_serdes(_file_slot_descs);
 }
 
 void CsvReader::_init_system_properties() {
@@ -848,4 +846,4 @@ Status CsvReader::close() {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

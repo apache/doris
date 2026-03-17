@@ -52,10 +52,9 @@ public class StorageTypeCheckAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("No database selected");
         }
 
-        String fullDbName = getFullDbName(dbName);
         Database db;
         try {
-            db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+            db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }

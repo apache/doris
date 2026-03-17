@@ -60,14 +60,12 @@
 namespace doris {
 class FunctionContext;
 
-namespace vectorized {
 namespace NumberTraits {
 struct Error;
 } // namespace NumberTraits
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 size_t count_true_with_notnull(const ColumnPtr& col) {
     if (col->only_null()) {
@@ -548,4 +546,4 @@ void register_function_if(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIf>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

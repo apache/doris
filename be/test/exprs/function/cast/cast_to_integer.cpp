@@ -32,7 +32,7 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_test.h"
 
-namespace doris::vectorized {
+namespace doris {
 using namespace ut_type;
 
 struct FunctionCastToIntTest : public FunctionCastTest {
@@ -2316,4 +2316,4 @@ TEST_F(FunctionCastToIntTest, test_from_time) {
     from_time_test_func<TYPE_BIGINT>();
     from_time_test_func<TYPE_LARGEINT>();
 }
-} // namespace doris::vectorized
+} // namespace doris

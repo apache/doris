@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 
@@ -218,7 +218,7 @@ public class CopyProperties {
 
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("(").append(new PrintableMap<>(properties, "=", true, false)).append(") ");
+        sb.append("(").append(new DatasourcePrintableMap<>(properties, "=", true, false)).append(") ");
         return sb.toString();
     }
 

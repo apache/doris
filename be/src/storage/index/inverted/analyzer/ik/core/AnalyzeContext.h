@@ -82,7 +82,7 @@ public:
         SURROGATE_PAIR_SEGMENTER
     };
     const CharacterUtil::TypedRuneArray& getTypedRuneArray() const { return typed_runes_; }
-    explicit AnalyzeContext(vectorized::Arena& arena, std::shared_ptr<Configuration> config);
+    explicit AnalyzeContext(Arena& arena, std::shared_ptr<Configuration> config);
     virtual ~AnalyzeContext();
 
     void reset();

@@ -43,7 +43,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class FunctionArrayShuffle : public IFunction {
@@ -119,4 +119,4 @@ void register_function_array_shuffle(SimpleFunctionFactory& factory) {
     factory.register_alias("array_shuffle", "shuffle");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -23,7 +23,7 @@
 #include "core/data_type/primitive_type.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(CheckAndGetColumnPtrTest, stdtest) {
     {
@@ -169,4 +169,4 @@ TEST(CheckAndGetColumnPtrTest, cast_to_column_mut) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

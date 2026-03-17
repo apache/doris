@@ -80,6 +80,10 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         boolean toLeft = false;
         boolean toRight = false;
         boolean pushHere = false;
+        if (join.getJoinType().isAsofJoin()) {
+            // do nothing for asof join
+            return join;
+        }
         if (context.getAggFunctions().isEmpty()) {
             // select t1.v from t1 join t2 on t1.id = t2.id group by t1.v, t2.v
             // if no agg function, try to push agg to the child which contains all group keys

@@ -19,7 +19,7 @@
 
 #include "exprs/vexpr.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class VirtualSlotRef MOCK_REMOVE(final) : public VExpr {
     ENABLE_FACTORY_CREATOR(VirtualSlotRef);
@@ -130,4 +130,4 @@ private:
     DataTypePtr _column_data_type;               ///< Data type of the column
 };
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

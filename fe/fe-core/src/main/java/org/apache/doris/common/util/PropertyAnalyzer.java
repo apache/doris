@@ -161,6 +161,9 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION = "enable_single_replica_compaction";
 
+    public static final String PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP =
+            "vertical_compaction_num_columns_per_group";
+
     public static final String PROPERTIES_STORE_ROW_COLUMN = "store_row_column"; // deprecated
 
     public static final String PROPERTIES_ROW_STORE_COLUMNS = "row_store_columns";
@@ -237,6 +240,11 @@ public class PropertyAnalyzer {
     public static final int PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE
             = Config.group_commit_data_bytes_default_value;
 
+    public static final String PROPERTIES_GROUP_COMMIT_MODE = "group_commit_mode";
+    public static final String GROUP_COMMIT_MODE_OFF = "off_mode";
+    public static final String GROUP_COMMIT_MODE_ASYNC = "async_mode";
+    public static final String GROUP_COMMIT_MODE_SYNC = "sync_mode";
+
     public static final String PROPERTIES_ENABLE_MOW_LIGHT_DELETE =
             "enable_mow_light_delete";
     public static final boolean PROPERTIES_ENABLE_MOW_LIGHT_DELETE_DEFAULT_VALUE
@@ -255,6 +263,7 @@ public class PropertyAnalyzer {
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
     public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
     public static final long TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE = 1;
+    public static final int VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP_DEFAULT_VALUE = 5;
 
     public static final String PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT = "variant_max_subcolumns_count";
 
@@ -1857,11 +1866,11 @@ public class PropertyAnalyzer {
      * 1000
      *
      * @param properties
-     * @param defaultValue
      * @return
      * @throws AnalysisException
      */
-    public static int analyzeGroupCommitIntervalMs(Map<String, String> properties) throws AnalysisException {
+    public static int analyzeGroupCommitIntervalMs(Map<String, String> properties, boolean removeProperty)
+            throws AnalysisException {
         int groupCommitIntervalMs = PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE;
         if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_INTERVAL_MS)) {
             String groupIntervalCommitMsStr = properties.get(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
@@ -1870,27 +1879,57 @@ public class PropertyAnalyzer {
             } catch (Exception e) {
                 throw new AnalysisException("parse group_commit_interval_ms format error");
             }
+            if (groupCommitIntervalMs <= 0) {
+                throw new AnalysisException("group_commit_interval_ms must be greater than 0");
+            }
 
-            properties.remove(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+            if (removeProperty) {
+                properties.remove(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+            }
         }
 
         return groupCommitIntervalMs;
     }
 
-    public static int analyzeGroupCommitDataBytes(Map<String, String> properties) throws AnalysisException {
+    public static int analyzeGroupCommitDataBytes(Map<String, String> properties, boolean removeProperty)
+            throws AnalysisException {
         int groupCommitDataBytes = PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE;
         if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_DATA_BYTES)) {
             String groupIntervalCommitDataBytesStr = properties.get(PROPERTIES_GROUP_COMMIT_DATA_BYTES);
             try {
                 groupCommitDataBytes = Integer.parseInt(groupIntervalCommitDataBytesStr);
             } catch (Exception e) {
-                throw new AnalysisException("parse group_commit_interval_ms format error");
+                throw new AnalysisException("parse group_commit_data_bytes format error");
+            }
+            if (groupCommitDataBytes <= 0) {
+                throw new AnalysisException("group_commit_data_bytes must be greater than 0");
             }
 
-            properties.remove(PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+            if (removeProperty) {
+                properties.remove(PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+            }
         }
 
         return groupCommitDataBytes;
+    }
+
+    public static String analyzeGroupCommitMode(Map<String, String> properties, boolean removeProperty)
+            throws AnalysisException {
+        String groupCommitMode = GROUP_COMMIT_MODE_OFF;
+        if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_MODE)) {
+            groupCommitMode = properties.get(PROPERTIES_GROUP_COMMIT_MODE);
+            if (!groupCommitMode.equalsIgnoreCase(GROUP_COMMIT_MODE_OFF)
+                    && !groupCommitMode.equalsIgnoreCase(GROUP_COMMIT_MODE_ASYNC)
+                    && !groupCommitMode.equalsIgnoreCase(GROUP_COMMIT_MODE_SYNC)) {
+                throw new AnalysisException("Invalid group_commit_mode: " + groupCommitMode
+                        + ". Valid values: " + GROUP_COMMIT_MODE_OFF + ", " + GROUP_COMMIT_MODE_ASYNC
+                        + ", " + GROUP_COMMIT_MODE_SYNC);
+            }
+            if (removeProperty) {
+                properties.remove(PROPERTIES_GROUP_COMMIT_MODE);
+            }
+        }
+        return groupCommitMode.toLowerCase();
     }
 
     /**
@@ -2238,5 +2277,28 @@ public class PropertyAnalyzer {
             return TEncryptionAlgorithm.PLAINTEXT;
         }
         throw new AnalysisException("Invalid tde algorithm: " + name + ", only support AES256 and SM4 currently");
+    }
+
+    public static Integer analyzeVerticalCompactionNumColumnsPerGroup(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP_DEFAULT_VALUE;
+        }
+        String value = properties.get(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
+        if (null == value) {
+            return VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP_DEFAULT_VALUE;
+        }
+        properties.remove(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
+        try {
+            int num = Integer.parseInt(value);
+            if (num < 1 || num > 50) {
+                throw new AnalysisException(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP
+                        + " must be between 1 and 50");
+            }
+            return num;
+        } catch (NumberFormatException e) {
+            throw new AnalysisException(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP
+                    + " must be a valid integer");
+        }
     }
 }

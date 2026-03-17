@@ -41,7 +41,7 @@ enum {
     DIVISOR_FOR_NANO = 1000000000
 };
 
-namespace doris::vectorized {
+namespace doris {
 static const int64_t micro_to_nano_second = 1000;
 #include "common/compile_check_begin.h"
 
@@ -444,8 +444,7 @@ Status DataTypeDateTimeV2SerDe::write_column_to_mysql_binary(const IColumn& colu
 Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
                                                     const IColumn& column, const NullMap* null_map,
                                                     orc::ColumnVectorBatch* orc_col_batch,
-                                                    int64_t start, int64_t end,
-                                                    vectorized::Arena& arena,
+                                                    int64_t start, int64_t end, Arena& arena,
                                                     const FormatOptions& options) const {
     const auto& col_data = assert_cast<const ColumnDateTimeV2&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::TimestampVectorBatch*>(orc_col_batch);
@@ -513,7 +512,7 @@ void DataTypeDateTimeV2SerDe::write_one_cell_to_binary(const IColumn& src_column
            data_ref.size);
 }
 
-std::string DataTypeDateTimeV2SerDe::to_olap_string(const vectorized::Field& field) const {
+std::string DataTypeDateTimeV2SerDe::to_olap_string(const Field& field) const {
     return CastToString::from_datetimev2(field.get<TYPE_DATETIMEV2>());
 }
 
@@ -569,4 +568,4 @@ template Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch<DataType
         const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col) const;
 template Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal256>(
         const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
-} // namespace doris::vectorized
+} // namespace doris

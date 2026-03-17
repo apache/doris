@@ -32,7 +32,7 @@
 #include "core/field.h"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class IColumn;
 class DataTypeFixedLengthObject final : public IDataType {
@@ -76,4 +76,4 @@ public:
     };
 };
 
-} // namespace doris::vectorized
+} // namespace doris

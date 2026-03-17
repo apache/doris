@@ -52,7 +52,7 @@ class RowDescriptor;
 class RuntimeState;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 using namespace doris::segment_v2;
@@ -224,4 +224,4 @@ std::string VMatchPredicate::debug_string() const {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

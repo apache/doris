@@ -20,7 +20,7 @@
 #include "core/data_type/data_type_number.h"
 #include "exprs/aggregate/agg_function_test.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct AggregateFunctionAvgTest : public AggregateFunctiontest {};
 
@@ -31,4 +31,4 @@ TEST_F(AggregateFunctionAvgTest, test_int64) {
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3})}),
             ColumnHelper::create_column_with_name<DataTypeFloat64>({2}));
 }
-} // namespace doris::vectorized
+} // namespace doris

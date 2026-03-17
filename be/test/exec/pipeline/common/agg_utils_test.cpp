@@ -24,7 +24,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 class AggregatedDataVariantsTest : public testing::Test {
 protected:
@@ -68,7 +68,7 @@ TEST_F(AggregateDataContainerTest, IteratorOperations) {
 
     // Add some test data
     std::vector<uint32_t> test_keys = {1, 2, 3, 4, 5};
-    std::vector<vectorized::AggregateDataPtr> test_data;
+    std::vector<AggregateDataPtr> test_data;
 
     for (auto key : test_keys) {
         test_data.push_back(container.append_data(key));
@@ -199,136 +199,126 @@ TEST_F(AggregateDataContainerTest, LargeData) {
 }
 
 TEST_F(AggregatedDataVariantsTest, TestWithoutKey) {
-    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeInt32>()};
+    std::vector<DataTypePtr> types {std::make_shared<DataTypeInt32>()};
     _variants->init(types, HashKeyType::without_key);
     ASSERT_TRUE(std::holds_alternative<std::monostate>(_variants->method_variant));
 }
 
 TEST_F(AggregatedDataVariantsTest, TestSerializedKey) {
-    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeString>()};
+    std::vector<DataTypePtr> types {std::make_shared<DataTypeString>()};
     _variants->init(types, HashKeyType::serialized);
-    ASSERT_TRUE(std::holds_alternative<vectorized::MethodSerialized<AggregatedDataWithStringKey>>(
+    ASSERT_TRUE(std::holds_alternative<MethodSerialized<AggregatedDataWithStringKey>>(
             _variants->method_variant));
 }
 
 TEST_F(AggregatedDataVariantsTest, TestStringKey) {
-    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeString>()};
+    std::vector<DataTypePtr> types {std::make_shared<DataTypeString>()};
 
     // Test string key
     _variants->init(types, HashKeyType::string_key);
-    auto value = std::holds_alternative<
-            vectorized::MethodStringNoCache<AggregatedDataWithShortStringKey>>(
+    auto value = std::holds_alternative<MethodStringNoCache<AggregatedDataWithShortStringKey>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 }
 
 TEST_F(AggregatedDataVariantsTest, TestNumericKeys) {
-    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeInt32>()};
+    std::vector<DataTypePtr> types {std::make_shared<DataTypeInt32>()};
 
     // Test int8 key
     _variants->init(types, HashKeyType::int8_key);
-    auto value = std::holds_alternative<
-            vectorized::MethodOneNumber<vectorized::UInt8, AggData<vectorized::UInt8>>>(
+    auto value = std::holds_alternative<MethodOneNumber<UInt8, AggData<UInt8>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int16 key
     _variants->init(types, HashKeyType::int16_key);
-    value = std::holds_alternative<
-            vectorized::MethodOneNumber<vectorized::UInt16, AggData<vectorized::UInt16>>>(
+    value = std::holds_alternative<MethodOneNumber<UInt16, AggData<UInt16>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int32 key
     _variants->init(types, HashKeyType::int32_key);
-    value = std::holds_alternative<
-            vectorized::MethodOneNumber<vectorized::UInt32, AggData<vectorized::UInt32>>>(
+    value = std::holds_alternative<MethodOneNumber<UInt32, AggData<UInt32>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int32 key phase2
     _variants->init(types, HashKeyType::int32_key_phase2);
-    value = std::holds_alternative<
-            vectorized::MethodOneNumber<vectorized::UInt32, AggregatedDataWithUInt32KeyPhase2>>(
+    value = std::holds_alternative<MethodOneNumber<UInt32, AggregatedDataWithUInt32KeyPhase2>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int64 key
     _variants->init(types, HashKeyType::int64_key);
-    value = std::holds_alternative<
-            vectorized::MethodOneNumber<vectorized::UInt64, AggData<vectorized::UInt64>>>(
+    value = std::holds_alternative<MethodOneNumber<UInt64, AggData<UInt64>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int64 key phase2
     _variants->init(types, HashKeyType::int64_key_phase2);
-    value = std::holds_alternative<
-            vectorized::MethodOneNumber<vectorized::UInt64, AggregatedDataWithUInt64KeyPhase2>>(
+    value = std::holds_alternative<MethodOneNumber<UInt64, AggregatedDataWithUInt64KeyPhase2>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int128 key
     _variants->init(types, HashKeyType::int128_key);
-    value = std::holds_alternative<
-            vectorized::MethodOneNumber<vectorized::UInt128, AggData<vectorized::UInt128>>>(
+    value = std::holds_alternative<MethodOneNumber<UInt128, AggData<UInt128>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test int256 key
     _variants->init(types, HashKeyType::int256_key);
-    value = std::holds_alternative<
-            vectorized::MethodOneNumber<vectorized::UInt256, AggData<vectorized::UInt256>>>(
+    value = std::holds_alternative<MethodOneNumber<UInt256, AggData<UInt256>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 }
 
 TEST_F(AggregatedDataVariantsTest, TestNullableKeys) {
-    auto nullable_type = std::make_shared<vectorized::DataTypeNullable>(
-            std::make_shared<vectorized::DataTypeInt32>());
-    std::vector<vectorized::DataTypePtr> types {nullable_type};
+    auto nullable_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    std::vector<DataTypePtr> types {nullable_type};
 
     // Test nullable int32
     _variants->init(types, HashKeyType::int32_key);
-    auto value = std::holds_alternative<vectorized::MethodSingleNullableColumn<
-            vectorized::MethodOneNumber<vectorized::UInt32, AggDataNullable<vectorized::UInt32>>>>(
+    auto value = std::holds_alternative<
+            MethodSingleNullableColumn<MethodOneNumber<UInt32, AggDataNullable<UInt32>>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 
     // Test nullable string
     _variants->init(types, HashKeyType::string_key);
-    value = std::holds_alternative<vectorized::MethodSingleNullableColumn<
-            vectorized::MethodStringNoCache<AggregatedDataWithNullableShortStringKey>>>(
+    value = std::holds_alternative<MethodSingleNullableColumn<
+            MethodStringNoCache<AggregatedDataWithNullableShortStringKey>>>(
             _variants->method_variant);
     ASSERT_TRUE(value);
 }
 
 TEST_F(AggregatedDataVariantsTest, TestFixedKeys) {
-    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeInt32>(),
-                                                std::make_shared<vectorized::DataTypeInt32>()};
+    std::vector<DataTypePtr> types {std::make_shared<DataTypeInt32>(),
+                                    std::make_shared<DataTypeInt32>()};
 
     // Test fixed64
     _variants->init(types, HashKeyType::fixed64);
-    ASSERT_TRUE(std::holds_alternative<vectorized::MethodKeysFixed<AggData<vectorized::UInt64>>>(
-            _variants->method_variant));
+    ASSERT_TRUE(
+            std::holds_alternative<MethodKeysFixed<AggData<UInt64>>>(_variants->method_variant));
 
     // Test fixed128
     _variants->init(types, HashKeyType::fixed128);
-    ASSERT_TRUE(std::holds_alternative<vectorized::MethodKeysFixed<AggData<vectorized::UInt128>>>(
-            _variants->method_variant));
+    ASSERT_TRUE(
+            std::holds_alternative<MethodKeysFixed<AggData<UInt128>>>(_variants->method_variant));
 
     // Test fixed136
     _variants->init(types, HashKeyType::fixed136);
-    ASSERT_TRUE(std::holds_alternative<vectorized::MethodKeysFixed<AggData<vectorized::UInt136>>>(
-            _variants->method_variant));
+    ASSERT_TRUE(
+            std::holds_alternative<MethodKeysFixed<AggData<UInt136>>>(_variants->method_variant));
 
     // Test fixed256
     _variants->init(types, HashKeyType::fixed256);
-    ASSERT_TRUE(std::holds_alternative<vectorized::MethodKeysFixed<AggData<vectorized::UInt256>>>(
-            _variants->method_variant));
+    ASSERT_TRUE(
+            std::holds_alternative<MethodKeysFixed<AggData<UInt256>>>(_variants->method_variant));
 }
 
 TEST_F(AggregatedDataVariantsTest, TestInvalidKeyType) {
-    std::vector<vectorized::DataTypePtr> types {std::make_shared<vectorized::DataTypeInt32>()};
+    std::vector<DataTypePtr> types {std::make_shared<DataTypeInt32>()};
     ASSERT_THROW(_variants->init(types, static_cast<HashKeyType>(-1)), Exception);
 }
-} // namespace doris::pipeline
+} // namespace doris

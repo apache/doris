@@ -35,7 +35,6 @@
 
 namespace doris {
 
-namespace vectorized {
 #include "common/compile_check_begin.h"
 class DataTypeQuantileStateSerDe : public DataTypeSerDe {
 public:
@@ -68,15 +67,17 @@ public:
     }
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override {
-        return Status::NotSupported("deserialize_one_cell_from_text with type " +
-                                    column.get_name());
+        auto& data_column = assert_cast<ColumnQuantileState&>(column);
+        QuantileState quantile_state(slice);
+        data_column.insert_value(std::move(quantile_state));
+        return Status::OK();
     }
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                uint64_t* num_deserialized,
                                                const FormatOptions& options) const override {
-        return Status::NotSupported("deserialize_column_from_text_vector with type " +
-                                    column.get_name());
+        DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
+        return Status::OK();
     }
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
@@ -140,7 +141,7 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override {
         auto& col_data = assert_cast<const ColumnQuantileState&>(column);
         orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
@@ -192,5 +193,4 @@ public:
     }
 };
 #include "common/compile_check_end.h"
-} // namespace vectorized
 } // namespace doris

@@ -34,7 +34,7 @@
 #include "storage/segment/variant/variant_column_writer_impl.h"
 #include "testutil/variant_util.h"
 
-using namespace doris::vectorized;
+using namespace doris;
 
 using namespace doris::segment_v2;
 
@@ -68,7 +68,7 @@ void construct_subcolumn(TabletSchemaSPtr schema, const FieldType& type, int32_t
     subcol.set_is_nullable(true);
     subcol.set_unique_id(-1);
     subcol.set_parent_unique_id(col_unique_id);
-    vectorized::PathInData col_path(path);
+    PathInData col_path(path);
     subcol.set_path_info(col_path);
     subcol.set_name(col_path.get_path());
 
@@ -95,7 +95,7 @@ void construct_subcolumn(TabletSchemaSPtr schema, const FieldType& type, int32_t
 //     subcol.set_is_nullable(true);
 //     subcol.set_unique_id(-1);
 //     subcol.set_parent_unique_id(col_unique_id);
-//     vectorized::PathInData col_path(path);
+//     PathInData col_path(path);
 //     subcol.set_path_info(col_path);
 //     subcol.set_name(col_path.get_path());
 //     schema->append_column(subcol);
@@ -132,7 +132,7 @@ TEST_F(SchemaUtilTest, TestInheritIndex) {
     extracted_column.set_name("extracted_col");
     extracted_column.set_unique_id(2);
     extracted_column.set_parent_unique_id(1); // Set parent column id
-    vectorized::PathInData path("parent.path");
+    PathInData path("parent.path");
     extracted_column.set_path_info(path);
 
     result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, extracted_column);
@@ -146,7 +146,7 @@ TEST_F(SchemaUtilTest, TestInheritIndex) {
     TabletColumn empty_array_column;
     empty_array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
     empty_array_column.set_name("empty_array");
-    vectorized::PathInData pat("parent.a");
+    PathInData pat("parent.a");
     empty_array_column.set_path_info(pat);
     empty_array_column.set_unique_id(3);
     // No subcolumns added, so get_sub_columns() will be empty
@@ -160,7 +160,7 @@ TEST_F(SchemaUtilTest, TestInheritIndex) {
     array_column.set_name("array_with_subcolumns");
     array_column.set_unique_id(4);
     array_column.set_parent_unique_id(1); // Set parent column id
-    vectorized::PathInData path1("parent.a");
+    PathInData path1("parent.a");
     array_column.set_path_info(path1);
 
     // Add subcolumn to array
@@ -210,7 +210,7 @@ TEST_F(SchemaUtilTest, TestInheritIndex) {
     hll_column.set_name("hll_col");
     hll_column.set_unique_id(7);
     hll_column.set_parent_unique_id(1); // Set parent column id
-    vectorized::PathInData decimal_path("parent.hll");
+    PathInData decimal_path("parent.hll");
     hll_column.set_path_info(decimal_path);
     result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, hll_column);
     EXPECT_FALSE(result);
@@ -287,7 +287,7 @@ TEST_F(SchemaUtilTest, test_multiple_index_inheritance) {
     construct_subcolumn(tablet_schema, FieldType::OLAP_FIELD_TYPE_STRING, 1, "v1.name",
                         &subcolumns);
 
-    vectorized::variant_util::inherit_column_attributes(tablet_schema);
+    variant_util::inherit_column_attributes(tablet_schema);
 
     const auto& subcol = subcolumns[0];
     auto inherited_indexes = tablet_schema->inverted_indexs(subcol);
@@ -604,7 +604,7 @@ TEST_F(SchemaUtilTest, TestColumnCasting) {
     auto dst_type = std::make_shared<DataTypeInt64>();
 
     auto column = ColumnInt32::create();
-    column->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(42));
+    column->insert(Field::create_field<PrimitiveType::TYPE_INT>(42));
 
     ColumnWithTypeAndName src_col;
     src_col.type = src_type;
@@ -658,10 +658,10 @@ TEST_F(SchemaUtilTest, TestGetColumnByType) {
 
 //TEST_F(SchemaUtilTest, TestGetSortedSubcolumns) {
 //    // Create test subcolumns
-//    vectorized::ColumnVariant::Subcolumns subcolumns;
+//    ColumnVariant::Subcolumns subcolumns;
 //
 //    auto create_subcolumn = [](const std::string& path) {
-//        auto subcol = std::make_shared<vectorized::ColumnVariant::Subcolumn>();
+//        auto subcol = std::make_shared<ColumnVariant::Subcolumn>();
 //        subcol->path = path;
 //        return subcol;
 //    };
@@ -710,8 +710,7 @@ TEST_F(SchemaUtilTest, TestParseVariantColumns) {
     auto variant_type = std::make_shared<DataTypeVariant>(10);
     auto variant_column = ColumnVariant::create(10);
     auto root_column = ColumnString::create();
-    root_column->insert(
-            vectorized::Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 1, 'b': 'test'}"));
+    root_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 1, 'b': 'test'}"));
     variant_column->create_root(std::make_shared<DataTypeString>(), root_column->get_ptr());
 
     block.insert({variant_column->get_ptr(), variant_type, "variant_col"});
@@ -824,10 +823,8 @@ TEST_F(SchemaUtilTest, TestCastColumnWithExecuteFailure) {
     // Insert some test dataset
     auto nested_array =
             ColumnArray::create(ColumnIPv4::create(), ColumnArray::ColumnOffsets::create());
-    nested_array->insert(
-            vectorized::Field::create_field<PrimitiveType::TYPE_ARRAY>(Array(IPv4(1))));
-    nested_array->insert(
-            vectorized::Field::create_field<PrimitiveType::TYPE_ARRAY>(Array(IPv4(2))));
+    nested_array->insert(Field::create_field<PrimitiveType::TYPE_ARRAY>(Array(IPv4(1))));
+    nested_array->insert(Field::create_field<PrimitiveType::TYPE_ARRAY>(Array(IPv4(2))));
 
     ColumnWithTypeAndName src_col;
     src_col.type = complex_type;
@@ -984,7 +981,7 @@ TEST_F(SchemaUtilTest, TestUpdateLeastCommonSchema2) {
     sub_col1.set_name("test_variant.field1");
     sub_col1.set_type(FieldType::OLAP_FIELD_TYPE_INT);
     sub_col1.set_parent_unique_id(1);
-    vectorized::PathInData path1("test_variant.field1");
+    PathInData path1("test_variant.field1");
     sub_col1.set_path_info(path1);
     variant_col.add_sub_column(sub_col1);
 
@@ -992,7 +989,7 @@ TEST_F(SchemaUtilTest, TestUpdateLeastCommonSchema2) {
     sub_col2.set_name("test_variant.field2");
     sub_col2.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     sub_col2.set_parent_unique_id(1);
-    vectorized::PathInData path2("test_variant.field2");
+    PathInData path2("test_variant.field2");
     sub_col2.set_path_info(path2);
     variant_col.add_sub_column(sub_col2);
 
@@ -1016,7 +1013,7 @@ TEST_F(SchemaUtilTest, TestUpdateLeastCommonSchema2) {
     sub_col3.set_name("test_variant.field3");
     sub_col3.set_type(FieldType::OLAP_FIELD_TYPE_INT);
     sub_col3.set_parent_unique_id(1);
-    vectorized::PathInData path3("test_variant.field3");
+    PathInData path3("test_variant.field3");
     sub_col3.set_path_info(path3);
     variant_col2.add_sub_column(sub_col3);
 
@@ -1085,14 +1082,14 @@ TEST_F(SchemaUtilTest, TestUpdateLeastCommonSchema3) {
     sparse_col1.set_name("test_variant.sparse1");
     sparse_col1.set_type(FieldType::OLAP_FIELD_TYPE_INT);
     sparse_col1.set_parent_unique_id(1);
-    vectorized::PathInData path1("test_variant.sparse1");
+    PathInData path1("test_variant.sparse1");
     sparse_col1.set_path_info(path1);
 
     TabletColumn sparse_col2;
     sparse_col2.set_name("test_variant.sparse2");
     sparse_col2.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     sparse_col2.set_parent_unique_id(1);
-    vectorized::PathInData path2("test_variant.sparse2");
+    PathInData path2("test_variant.sparse2");
     sparse_col2.set_path_info(path2);
 
     common_schema->append_column(variant_col);
@@ -1116,14 +1113,14 @@ TEST_F(SchemaUtilTest, TestUpdateLeastCommonSchema3) {
     sparse_col3.set_name("test_variant.sparse3");
     sparse_col3.set_type(FieldType::OLAP_FIELD_TYPE_INT);
     sparse_col3.set_parent_unique_id(1);
-    vectorized::PathInData path3("test_variant.sparse3");
+    PathInData path3("test_variant.sparse3");
     sparse_col3.set_path_info(path3);
 
     TabletColumn sparse_col4;
     sparse_col4.set_name("test_variant.sparse4");
     sparse_col4.set_type(FieldType::OLAP_FIELD_TYPE_DOUBLE);
     sparse_col4.set_parent_unique_id(1);
-    vectorized::PathInData path4("test_variant.sparse4");
+    PathInData path4("test_variant.sparse4");
     sparse_col4.set_path_info(path4);
 
     schema2->append_column(variant_col2);
@@ -1183,7 +1180,7 @@ TEST_F(SchemaUtilTest, TestGetCompactionSchema) {
 
 TEST_F(SchemaUtilTest, TestGetSortedSubcolumns) {
     // Create test subcolumns
-    vectorized::ColumnVariant::Subcolumns subcolumns;
+    ColumnVariant::Subcolumns subcolumns;
     auto obj = VariantUtil::construct_dst_varint_column();
 
     auto sorted = variant_util::get_sorted_subcolumns(obj->get_subcolumns());
@@ -1223,12 +1220,9 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
     auto root_column = ColumnString::create();
 
     // Add some test JSON data
-    root_column->insert(
-            vectorized::Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 1, 'b': 'test'}"));
-    root_column->insert(
-            vectorized::Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 2, 'c': [1,2,3]}"));
-    root_column->insert(
-            vectorized::Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 3, 'd': {'x': 1}}"));
+    root_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 1, 'b': 'test'}"));
+    root_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 2, 'c': [1,2,3]}"));
+    root_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 3, 'd': {'x': 1}}"));
 
     variant_column->create_root(std::make_shared<DataTypeString>(), root_column->get_ptr());
     block.insert({variant_column->get_ptr(), variant_type, "variant_col"});
@@ -1243,7 +1237,7 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
     // Test parsing from JSONB to variant
     auto jsonb_type = std::make_shared<DataTypeJsonb>();
     auto jsonb_column = ColumnString::create();
-    jsonb_column->insert(vectorized::Field::create_field<PrimitiveType::TYPE_STRING>("{'x': 1}"));
+    jsonb_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'x': 1}"));
 
     auto variant_column2 = ColumnVariant::create(10);
     variant_column2->create_root(jsonb_type, jsonb_column->get_ptr());
@@ -1273,7 +1267,7 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsWithNulls) {
     auto string_type = make_nullable(std::make_shared<DataTypeString>());
 
     auto string_column = ColumnString::create();
-    string_column->insert(vectorized::Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 1}"));
+    string_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'a': 1}"));
     auto nullable_string = make_nullable(string_column->get_ptr());
 
     auto variant_column = ColumnVariant::create(10);
@@ -1337,20 +1331,20 @@ TEST_F(SchemaUtilTest, get_compaction_nested_columns) {
     TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
     schema->append_column(variant);
 
-    std::unordered_set<vectorized::PathInData, vectorized::PathInData::Hash> nested_paths;
-    vectorized::PathInData path1("profile.address");
-    vectorized::PathInData path2("profile.phone");
+    std::unordered_set<PathInData, PathInData::Hash> nested_paths;
+    PathInData path1("profile.address");
+    PathInData path2("profile.phone");
     nested_paths.insert(path1);
     nested_paths.insert(path2);
 
     TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
     TabletSchema::PathsSetInfo paths_set_info;
 
-    doris::vectorized::variant_util::PathToDataTypes path_to_data_types;
-    path_to_data_types[path1] = {std::make_shared<vectorized::DataTypeInt32>(),
-                                 std::make_shared<vectorized::DataTypeString>()};
-    path_to_data_types[path2] = {std::make_shared<vectorized::DataTypeString>(),
-                                 std::make_shared<vectorized::DataTypeString>()};
+    doris::variant_util::PathToDataTypes path_to_data_types;
+    path_to_data_types[path1] = {std::make_shared<DataTypeInt32>(),
+                                 std::make_shared<DataTypeString>()};
+    path_to_data_types[path2] = {std::make_shared<DataTypeString>(),
+                                 std::make_shared<DataTypeString>()};
     TabletColumnPtr parent_column = std::make_shared<TabletColumn>(variant);
 
     Status st = variant_util::VariantCompactionUtil::get_compaction_nested_columns(
@@ -1367,8 +1361,8 @@ TEST_F(SchemaUtilTest, get_compaction_nested_columns) {
         }
     }
 
-    std::unordered_set<vectorized::PathInData, vectorized::PathInData::Hash> bad_nested_paths;
-    bad_nested_paths.insert(vectorized::PathInData("not_exist"));
+    std::unordered_set<PathInData, PathInData::Hash> bad_nested_paths;
+    bad_nested_paths.insert(PathInData("not_exist"));
     TabletSchemaSPtr bad_output_schema = std::make_shared<TabletSchema>();
     TabletSchema::PathsSetInfo bad_paths_set_info;
     Status st2 = variant_util::VariantCompactionUtil::get_compaction_nested_columns(
@@ -1391,7 +1385,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_subpaths) {
     TabletSchema::PathsSetInfo paths_set_info;
     paths_set_info.sub_path_set.insert("a");
     paths_set_info.sub_path_set.insert("b");
-    doris::vectorized::variant_util::PathToDataTypes path_to_data_types;
+    doris::variant_util::PathToDataTypes path_to_data_types;
     std::unordered_set<std::string> sparse_paths;
     TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
 
@@ -1404,10 +1398,8 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_subpaths) {
 
     output_schema = std::make_shared<TabletSchema>();
     path_to_data_types.clear();
-    path_to_data_types[vectorized::PathInData("a")] = {
-            std::make_shared<vectorized::DataTypeInt32>()};
-    path_to_data_types[vectorized::PathInData("b")] = {
-            std::make_shared<vectorized::DataTypeString>()};
+    path_to_data_types[PathInData("a")] = {std::make_shared<DataTypeInt32>()};
+    path_to_data_types[PathInData("b")] = {std::make_shared<DataTypeString>()};
     variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
             paths_set_info, parent_column, schema, path_to_data_types, sparse_paths, output_schema);
     EXPECT_EQ(output_schema->num_columns(), 2);
@@ -1476,7 +1468,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_advanced) {
     paths_set_info.sub_path_set.insert("b");
     paths_set_info.sub_path_set.insert("c");
     paths_set_info.sub_path_set.insert("d");
-    doris::vectorized::variant_util::PathToDataTypes path_to_data_types;
+    doris::variant_util::PathToDataTypes path_to_data_types;
     std::unordered_set<std::string> sparse_paths;
     TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
 
@@ -1493,10 +1485,8 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_advanced) {
 
     output_schema = std::make_shared<TabletSchema>();
     path_to_data_types.clear();
-    path_to_data_types[vectorized::PathInData("a")] = {
-            std::make_shared<vectorized::DataTypeInt32>()};
-    path_to_data_types[vectorized::PathInData("b")] = {
-            std::make_shared<vectorized::DataTypeString>()};
+    path_to_data_types[PathInData("a")] = {std::make_shared<DataTypeInt32>()};
+    path_to_data_types[PathInData("b")] = {std::make_shared<DataTypeString>()};
     variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
             paths_set_info, parent_column, schema, path_to_data_types, sparse_paths, output_schema);
     EXPECT_EQ(output_schema->num_columns(), 4);
@@ -1559,12 +1549,10 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
 
     TabletColumnPtr parent_column = target->columns().front();
     // Build path -> data types
-    doris::vectorized::variant_util::PathToDataTypes path_to_data_types;
-    path_to_data_types[vectorized::PathInData("a")] = {
-            std::make_shared<vectorized::DataTypeInt32>(),
-            std::make_shared<vectorized::DataTypeInt64>()}; // -> BIGINT
-    path_to_data_types[vectorized::PathInData("b")] = {
-            std::make_shared<vectorized::DataTypeString>()}; // -> STRING
+    doris::variant_util::PathToDataTypes path_to_data_types;
+    path_to_data_types[PathInData("a")] = {std::make_shared<DataTypeInt32>(),
+                                           std::make_shared<DataTypeInt64>()};  // -> BIGINT
+    path_to_data_types[PathInData("b")] = {std::make_shared<DataTypeString>()}; // -> STRING
 
     TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
     TabletSchema::PathsSetInfo paths_set_info;
@@ -1601,177 +1589,177 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
 TEST_F(SchemaUtilTest, has_different_structure_in_same_path_indirect) {
     // Test case 1: Same structure and same length - should not detect ambiguity
     {
-        vectorized::PathsInData paths;
-        vectorized::PathInDataBuilder builder1;
+        PathsInData paths;
+        PathInDataBuilder builder1;
         builder1.append("a", false).append("b", false).append("c", false);
         paths.emplace_back(builder1.build());
 
-        vectorized::PathInDataBuilder builder2;
+        PathInDataBuilder builder2;
         builder2.append("a", false).append("b", false).append("c", false);
         paths.emplace_back(builder2.build());
 
-        auto status = vectorized::variant_util::check_variant_has_no_ambiguous_paths(paths);
+        auto status = variant_util::check_variant_has_no_ambiguous_paths(paths);
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
 
     // Test case 2: Different keys at same position - should not detect ambiguity (different keys)
     {
-        vectorized::PathsInData paths;
-        vectorized::PathInDataBuilder builder1;
+        PathsInData paths;
+        PathInDataBuilder builder1;
         builder1.append("a", false).append("b", false).append("c", false);
         paths.emplace_back(builder1.build());
 
-        vectorized::PathInDataBuilder builder2;
+        PathInDataBuilder builder2;
         builder2.append("a", false).append("d", false).append("c", false);
         paths.emplace_back(builder2.build());
 
-        auto status = vectorized::variant_util::check_variant_has_no_ambiguous_paths(paths);
+        auto status = variant_util::check_variant_has_no_ambiguous_paths(paths);
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
 
     // Test case 3: Same keys but different nested structure - should detect ambiguity
     {
-        vectorized::PathsInData paths;
-        vectorized::PathInDataBuilder builder1;
+        PathsInData paths;
+        PathInDataBuilder builder1;
         builder1.append("a", false).append("b", true);
         paths.emplace_back(builder1.build());
 
-        vectorized::PathInDataBuilder builder2;
+        PathInDataBuilder builder2;
         builder2.append("a", false).append("b", false);
         paths.emplace_back(builder2.build());
 
-        auto status = vectorized::variant_util::check_variant_has_no_ambiguous_paths(paths);
+        auto status = variant_util::check_variant_has_no_ambiguous_paths(paths);
         EXPECT_FALSE(status.ok());
         EXPECT_TRUE(status.to_string().find("Ambiguous paths") != std::string::npos);
     }
 
     // Test case 4: Same keys but different anonymous array levels - should detect ambiguity
     {
-        vectorized::PathsInData paths;
-        vectorized::PathInDataBuilder builder1;
+        PathsInData paths;
+        PathInDataBuilder builder1;
         builder1.append("a", true).append("b", false);
         paths.emplace_back(builder1.build());
 
-        vectorized::PathInDataBuilder builder2;
+        PathInDataBuilder builder2;
         builder2.append("a", false).append("b", false);
         paths.emplace_back(builder2.build());
 
-        auto status = vectorized::variant_util::check_variant_has_no_ambiguous_paths(paths);
+        auto status = variant_util::check_variant_has_no_ambiguous_paths(paths);
         EXPECT_FALSE(status.ok());
         EXPECT_TRUE(status.to_string().find("Ambiguous paths") != std::string::npos);
     }
 
     // Test case 5: Same keys but different nested and anonymous levels - should detect ambiguity
     {
-        vectorized::PathsInData paths;
-        vectorized::PathInDataBuilder builder1;
+        PathsInData paths;
+        PathInDataBuilder builder1;
         builder1.append("a", true).append("b", true);
         paths.emplace_back(builder1.build());
 
-        vectorized::PathInDataBuilder builder2;
+        PathInDataBuilder builder2;
         builder2.append("a", false).append("b", false);
         paths.emplace_back(builder2.build());
 
-        auto status = vectorized::variant_util::check_variant_has_no_ambiguous_paths(paths);
+        auto status = variant_util::check_variant_has_no_ambiguous_paths(paths);
         EXPECT_FALSE(status.ok());
         EXPECT_TRUE(status.to_string().find("Ambiguous paths") != std::string::npos);
     }
 
     // Test case 6: Different lengths - should not detect ambiguity (new behavior: only check same length paths)
     {
-        vectorized::PathsInData paths;
-        vectorized::PathInDataBuilder builder1;
+        PathsInData paths;
+        PathInDataBuilder builder1;
         builder1.append("a", false).append("b", false).append("c", false);
         paths.emplace_back(builder1.build());
 
-        vectorized::PathInDataBuilder builder2;
+        PathInDataBuilder builder2;
         builder2.append("a", false).append("b", false);
         paths.emplace_back(builder2.build());
 
-        auto status = vectorized::variant_util::check_variant_has_no_ambiguous_paths(paths);
+        auto status = variant_util::check_variant_has_no_ambiguous_paths(paths);
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
 
     // Test case 7: Different lengths with structure difference - should not detect ambiguity
     {
-        vectorized::PathsInData paths;
-        vectorized::PathInDataBuilder builder1;
+        PathsInData paths;
+        PathInDataBuilder builder1;
         builder1.append("a", false).append("b", true).append("c", false);
         paths.emplace_back(builder1.build());
 
-        vectorized::PathInDataBuilder builder2;
+        PathInDataBuilder builder2;
         builder2.append("a", false).append("b", false);
         paths.emplace_back(builder2.build());
 
-        auto status = vectorized::variant_util::check_variant_has_no_ambiguous_paths(paths);
+        auto status = variant_util::check_variant_has_no_ambiguous_paths(paths);
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
 
     // Test case 8: Complex nested structure difference with same length - should detect ambiguity
     {
-        vectorized::PathsInData paths;
-        vectorized::PathInDataBuilder builder1;
+        PathsInData paths;
+        PathInDataBuilder builder1;
         builder1.append("user", false).append("address", true).append("street", false);
         paths.emplace_back(builder1.build());
 
-        vectorized::PathInDataBuilder builder2;
+        PathInDataBuilder builder2;
         builder2.append("user", false).append("address", false).append("street", false);
         paths.emplace_back(builder2.build());
 
-        auto status = vectorized::variant_util::check_variant_has_no_ambiguous_paths(paths);
+        auto status = variant_util::check_variant_has_no_ambiguous_paths(paths);
         EXPECT_FALSE(status.ok());
         EXPECT_TRUE(status.to_string().find("Ambiguous paths") != std::string::npos);
     }
 
     // Test case 9: Multiple paths with different lengths - should not detect ambiguity
     {
-        vectorized::PathsInData paths;
-        vectorized::PathInDataBuilder builder1;
+        PathsInData paths;
+        PathInDataBuilder builder1;
         builder1.append("config", false).append("database", false).append("host", false);
         paths.emplace_back(builder1.build());
 
-        vectorized::PathInDataBuilder builder2;
+        PathInDataBuilder builder2;
         builder2.append("config", false).append("database", false);
         paths.emplace_back(builder2.build());
 
-        vectorized::PathInDataBuilder builder3;
+        PathInDataBuilder builder3;
         builder3.append("config", false);
         paths.emplace_back(builder3.build());
 
-        auto status = vectorized::variant_util::check_variant_has_no_ambiguous_paths(paths);
+        auto status = variant_util::check_variant_has_no_ambiguous_paths(paths);
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
 
     // Test case 10: Empty paths - should not detect ambiguity
     {
-        vectorized::PathsInData paths;
-        auto status = vectorized::variant_util::check_variant_has_no_ambiguous_paths(paths);
+        PathsInData paths;
+        auto status = variant_util::check_variant_has_no_ambiguous_paths(paths);
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
 
     // Test case 11: Single path - should not detect ambiguity
     {
-        vectorized::PathsInData paths;
-        vectorized::PathInDataBuilder builder1;
+        PathsInData paths;
+        PathInDataBuilder builder1;
         builder1.append("single", false).append("path", false);
         paths.emplace_back(builder1.build());
 
-        auto status = vectorized::variant_util::check_variant_has_no_ambiguous_paths(paths);
+        auto status = variant_util::check_variant_has_no_ambiguous_paths(paths);
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
 
     // Test case 12: we have path like '{"a.b": "UPPER CASE", "a.c": "lower case", "a" : {"b" : 123}, "a" : {"c" : 456}}'
     {
-        vectorized::PathsInData paths;
-        vectorized::PathInDataBuilder builder1;
+        PathsInData paths;
+        PathInDataBuilder builder1;
         builder1.append("a", false).append("b", false);
         paths.emplace_back(builder1.build());
 
-        vectorized::PathInDataBuilder builder2;
+        PathInDataBuilder builder2;
         builder2.append("a.b", false);
         paths.emplace_back(builder2.build());
 
-        auto status = vectorized::variant_util::check_variant_has_no_ambiguous_paths(paths);
+        auto status = variant_util::check_variant_has_no_ambiguous_paths(paths);
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
 }
@@ -1800,8 +1788,7 @@ TEST_F(SchemaUtilTest, check_path_conflicts_with_existing) {
         std::vector<TabletSchemaSPtr> schemas = {tablet_schema};
         TabletSchemaSPtr output_schema;
 
-        auto status = vectorized::variant_util::get_least_common_schema(schemas, nullptr,
-                                                                        output_schema, false);
+        auto status = variant_util::get_least_common_schema(schemas, nullptr, output_schema, false);
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
 
@@ -1824,8 +1811,7 @@ TEST_F(SchemaUtilTest, check_path_conflicts_with_existing) {
         std::vector<TabletSchemaSPtr> schemas = {tablet_schema};
         TabletSchemaSPtr output_schema;
 
-        auto status = vectorized::variant_util::get_least_common_schema(schemas, nullptr,
-                                                                        output_schema, false);
+        auto status = variant_util::get_least_common_schema(schemas, nullptr, output_schema, false);
         // This should succeed since we don't have conflicting paths in this simple case
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
@@ -1859,35 +1845,33 @@ TEST_F(SchemaUtilTest, check_path_conflicts_with_existing) {
         std::vector<TabletSchemaSPtr> schemas = {tablet_schema1, tablet_schema2};
         TabletSchemaSPtr output_schema;
 
-        auto status = vectorized::variant_util::get_least_common_schema(schemas, nullptr,
-                                                                        output_schema, false);
+        auto status = variant_util::get_least_common_schema(schemas, nullptr, output_schema, false);
         // This should succeed since the paths are the same and we're just checking for structure conflicts
         EXPECT_TRUE(status.ok()) << status.to_string();
     }
 }
 
 TEST_F(SchemaUtilTest, parse_and_materialize_variant_columns_ambiguous_paths) {
-    using namespace doris::vectorized;
+    using namespace doris;
     // Prepare the string column with two rows
     auto string_col = ColumnString::create();
-    string_col->insert(doris::vectorized::Field::create_field<TYPE_STRING>(
+    string_col->insert(doris::Field::create_field<TYPE_STRING>(
             String("{\"nested\": [{\"a\": 2.5, \"b\": \"123.1\"}]}")));
-    string_col->insert(doris::vectorized::Field::create_field<TYPE_STRING>(
+    string_col->insert(doris::Field::create_field<TYPE_STRING>(
             String("{\"nested\": {\"a\": 2.5, \"b\": \"123.1\"}}")));
     auto string_type = std::make_shared<DataTypeString>();
 
     // Prepare the variant column with the string column as root
-    vectorized::ColumnVariant::Subcolumns dynamic_subcolumns;
+    ColumnVariant::Subcolumns dynamic_subcolumns;
     dynamic_subcolumns.create_root(
-            vectorized::ColumnVariant::Subcolumn(string_col->assume_mutable(), string_type, true));
+            ColumnVariant::Subcolumn(string_col->assume_mutable(), string_type, true));
 
     auto variant_col = ColumnVariant::create(0, std::move(dynamic_subcolumns));
     auto variant_type = std::make_shared<DataTypeVariant>();
 
     // Construct the block
     Block block;
-    block.insert(
-            vectorized::ColumnWithTypeAndName(variant_col->assume_mutable(), variant_type, "v"));
+    block.insert(ColumnWithTypeAndName(variant_col->assume_mutable(), variant_type, "v"));
 
     // The variant column is at index 0
     std::vector<uint32_t> variant_pos = {0};

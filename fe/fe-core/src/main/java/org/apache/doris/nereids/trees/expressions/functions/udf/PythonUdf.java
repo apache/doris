@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.udf;
 
-import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.URI;

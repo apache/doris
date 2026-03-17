@@ -24,12 +24,9 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.InvalidFormatException;
+import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.util.DateUtils;
-import org.apache.doris.thrift.TDateLiteral;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -772,22 +769,6 @@ public class DateLiteral extends LiteralExpr {
 
     public double getDoubleValueAsDateTime() {
         return (year * 10000 + month * 100 + day) * 1000000L + hour * 10000 + minute * 100 + second;
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        if (type.isDatetimeV2() || type.isTimeStampTz()) {
-            this.roundFloor(((ScalarType) type).getScalarScale());
-        }
-        msg.node_type = TExprNodeType.DATE_LITERAL;
-        msg.date_literal = new TDateLiteral(getStringValue());
-        try {
-            checkValueValid();
-        } catch (AnalysisException e) {
-            // we must check before here. when we think we are ready to send thrift msg,
-            // the invalid value is not acceptable. we can't properly deal with it.
-            LOG.warn("meet invalid value when plan to translate " + toString() + " to thrift node");
-        }
     }
 
     private boolean isLeapYear() {

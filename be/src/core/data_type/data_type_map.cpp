@@ -37,7 +37,7 @@
 #include "core/string_buffer.hpp"
 #include "core/string_ref.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 DataTypeMap::DataTypeMap(const DataTypePtr& key_type_, const DataTypePtr& value_type_) {
     key_type = key_type_;
@@ -151,4 +151,4 @@ const char* DataTypeMap::deserialize(const char* buf, MutableColumnPtr* column,
     buf = get_value_type()->deserialize(buf, &nested_values_column, be_exec_version);
     return buf;
 }
-} // namespace doris::vectorized
+} // namespace doris

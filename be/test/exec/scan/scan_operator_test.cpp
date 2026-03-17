@@ -24,7 +24,7 @@
 #include "exec/operator/olap_scan_operator.h"
 #include "runtime/descriptors.h"
 
-namespace doris::vectorized {
+namespace doris {
 class ScanOperatorTest : public testing::Test {
 public:
     void SetUp() override {
@@ -66,7 +66,7 @@ TEST_F(ScanOperatorTest, adaptive_pipeline_task_serial_read_on_limit) {
     TExpr conjunct;
     std::vector<TExpr> conjuncts {conjunct};
     tnode.__set_conjuncts(conjuncts);
-    auto scan_operator = std::make_unique<pipeline::OlapScanOperatorX>(
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(
             obj_pool.get(), tnode, 0, *descs, parallel_pipeline_task_num, TQueryCacheParam {});
 
     TQueryOptions query_options;
@@ -83,7 +83,7 @@ TEST_F(ScanOperatorTest, adaptive_pipeline_task_serial_read_on_limit) {
     tnode.__set_conjuncts(conjuncts);
     // limit 10
     tnode.__set_limit(10);
-    scan_operator = std::make_unique<pipeline::OlapScanOperatorX>(
+    scan_operator = std::make_unique<OlapScanOperatorX>(
             obj_pool.get(), tnode, 0, *descs, parallel_pipeline_task_num, TQueryCacheParam {});
 
     // enable_adaptive_pipeline_task_serial_read_on_limit is true
@@ -109,4 +109,4 @@ TEST_F(ScanOperatorTest, adaptive_pipeline_task_serial_read_on_limit) {
     // Without conjuncts, enable_adaptive_pipeline_task_serial_read_on_limit is false
     ASSERT_EQ(scan_operator->_should_run_serial, false);
 }
-} // namespace doris::vectorized
+} // namespace doris

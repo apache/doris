@@ -47,7 +47,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 // currently only bitmap_or and bitmap_or_count will call this function,
 // other bitmap functions will use default implementation for nulls
@@ -277,4 +277,4 @@ void register_function_bitmap_variadic(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBitmapAndCount>();
     factory.register_function<FunctionBitmapXorCount>();
 }
-} // namespace doris::vectorized
+} // namespace doris

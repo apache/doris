@@ -756,7 +756,7 @@ TEST_F(IKTokenizerTest, TestExceptionHandling) {
     {
         // Create AnalyzeContext
         std::shared_ptr<Configuration> config = std::make_shared<Configuration>();
-        vectorized::Arena arena {};
+        Arena arena {};
         AnalyzeContext context(arena, config);
 
         // Test case 1: Reader throwing length error

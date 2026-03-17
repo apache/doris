@@ -18,7 +18,6 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
@@ -255,7 +254,6 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateDbCache(long catalogId, String dbName) {
-        dbName = ClusterNamespace.getNameFromFullName(dbName);
         ExternalSchemaCache schemaCache = schemaCacheMgr.getCache(catalogId);
         if (schemaCache != null) {
             schemaCache.invalidateDbCache(dbName);
@@ -306,7 +304,7 @@ public class ExternalMetaCacheMgr {
     }
 
     public void addPartitionsCache(long catalogId, HMSExternalTable table, List<String> partitionNames) {
-        String dbName = ClusterNamespace.getNameFromFullName(table.getDbName());
+        String dbName = table.getDbName();
         HiveMetaStoreCache metaCache = hiveMetaStoreCacheMgr.getCache(catalogId);
         if (metaCache != null) {
             List<Type> partitionColumnTypes;
@@ -324,7 +322,7 @@ public class ExternalMetaCacheMgr {
     }
 
     public void dropPartitionsCache(long catalogId, HMSExternalTable table, List<String> partitionNames) {
-        String dbName = ClusterNamespace.getNameFromFullName(table.getDbName());
+        String dbName = table.getDbName();
         HiveMetaStoreCache metaCache = hiveMetaStoreCacheMgr.getCache(catalogId);
         if (metaCache != null) {
             metaCache.dropPartitionsCache(table, partitionNames, true);

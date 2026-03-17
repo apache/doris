@@ -22,7 +22,7 @@
 
 #include <cmath>
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_avoid_begin.h"
 
 SkewedPartitionRebalancer::SkewedPartitionRebalancer(
@@ -276,4 +276,4 @@ void SkewedPartitionRebalancer::_rebalance_partitions(long data_processed) {
     _data_processed_at_last_rebalance = data_processed;
 }
 #include "common/compile_check_avoid_end.h"
-} // namespace doris::vectorized
+} // namespace doris

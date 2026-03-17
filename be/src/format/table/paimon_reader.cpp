@@ -23,7 +23,7 @@
 #include "format/table/deletion_vector_reader.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
                            RuntimeProfile* profile, RuntimeState* state,
@@ -149,4 +149,4 @@ Status PaimonReader::get_next_block_inner(Block* block, size_t* read_rows, bool*
     return Status::OK();
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

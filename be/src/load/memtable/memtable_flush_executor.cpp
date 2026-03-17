@@ -194,18 +194,18 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
                 memtable->resource_ctx()->memory_context()->mem_tracker()->write_tracker());
         SCOPED_CONSUME_MEM_TRACKER(memtable->mem_tracker());
 
-        DEFER_RELEASE_RESERVED();
+        // DEFER_RELEASE_RESERVED();
 
-        auto reserve_size = memtable->get_flush_reserve_memory_size();
-        if (memtable->resource_ctx()->task_controller()->is_enable_reserve_memory() &&
-            reserve_size > 0) {
-            RETURN_IF_ERROR(_try_reserve_memory(memtable->resource_ctx(), reserve_size));
-        }
+        // auto reserve_size = memtable->get_flush_reserve_memory_size();
+        // if (memtable->resource_ctx()->task_controller()->is_enable_reserve_memory() &&
+        //     reserve_size > 0) {
+        //     RETURN_IF_ERROR(_try_reserve_memory(memtable->resource_ctx(), reserve_size));
+        // }
 
-        Defer defer {[&]() {
-            ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->dec_flushing_task();
-        }};
-        std::unique_ptr<vectorized::Block> block;
+        // Defer defer {[&]() {
+        //     ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->dec_flushing_task();
+        // }};
+        std::unique_ptr<Block> block;
         RETURN_IF_ERROR(memtable->to_block(&block));
         RETURN_IF_ERROR(_rowset_writer->flush_memtable(block.get(), segment_id, flush_size));
         memtable->set_flush_success();

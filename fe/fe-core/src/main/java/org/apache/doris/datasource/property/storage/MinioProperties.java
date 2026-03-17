@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
-import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.foundation.property.ConnectorProperty;
 
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;

@@ -45,7 +45,7 @@
 #include "service/http/http_client.h"
 #include "util/threadpool.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 // Base class for AI-based functions
@@ -315,4 +315,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

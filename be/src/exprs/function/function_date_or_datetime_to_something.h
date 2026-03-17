@@ -25,7 +25,7 @@
 #include "exprs/function/date_time_transforms.h"
 #include "exprs/function/function.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <PrimitiveType FromPType, PrimitiveType ToPType, typename Transform>
 struct Transformer {
@@ -165,4 +165,4 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

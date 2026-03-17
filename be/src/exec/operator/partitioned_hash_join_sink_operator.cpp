@@ -33,11 +33,11 @@
 #include "runtime/runtime_profile.h"
 #include "util/pretty_printer.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
-                                               doris::pipeline::LocalSinkStateInfo& info) {
+                                               doris::LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(PipelineXSpillSinkLocalState::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
@@ -115,7 +115,7 @@ size_t PartitionedHashJoinSinkLocalState::revocable_mem_size(RuntimeState* state
     for (auto& block : partitioned_blocks) {
         if (block) {
             auto block_bytes = block->allocated_bytes();
-            if (block_bytes >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+            if (block_bytes >= SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
                 mem_size += block_bytes;
             }
         }
@@ -150,7 +150,7 @@ size_t PartitionedHashJoinSinkLocalState::get_reserve_mem_size(RuntimeState* sta
     size_t size_to_reserve = 0;
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     if (_shared_state->is_spilled) {
-        size_to_reserve = p._partition_count * vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM;
+        size_to_reserve = p._partition_count * SpillStream::MIN_SPILL_WRITE_BATCH_MEM;
     } else {
         if (_shared_state->inner_runtime_state) {
             size_to_reserve = p._inner_sink_operator->get_reserve_mem_size(
@@ -166,8 +166,8 @@ Dependency* PartitionedHashJoinSinkLocalState::finishdependency() {
     return _finish_dependency.get();
 }
 
-Status PartitionedHashJoinSinkLocalState::_execute_spill_unpartitioned_block(
-        RuntimeState* state, vectorized::Block&& build_block) {
+Status PartitionedHashJoinSinkLocalState::_execute_spill_unpartitioned_block(RuntimeState* state,
+                                                                             Block&& build_block) {
     Defer defer1 {[&]() { update_memory_usage(); }};
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     auto& partitioned_blocks = _shared_state->partitioned_build_blocks;
@@ -208,11 +208,9 @@ Status PartitionedHashJoinSinkLocalState::_execute_spill_unpartitioned_block(
             auto* begin = partitions_indexes[partition_idx].data();
             auto* end = begin + partitions_indexes[partition_idx].size();
             auto& partition_block = partitioned_blocks[partition_idx];
-            vectorized::SpillStreamSPtr& spilling_stream =
-                    _shared_state->spilled_streams[partition_idx];
+            SpillStreamSPtr& spilling_stream = _shared_state->spilled_streams[partition_idx];
             if (UNLIKELY(!partition_block)) {
-                partition_block =
-                        vectorized::MutableBlock::create_unique(build_block.clone_empty());
+                partition_block = MutableBlock::create_unique(build_block.clone_empty());
             }
 
             int64_t old_mem = partition_block->allocated_bytes();
@@ -226,8 +224,7 @@ Status PartitionedHashJoinSinkLocalState::_execute_spill_unpartitioned_block(
             if (partition_block->rows() >= reserved_size || is_last_block) {
                 auto block = partition_block->to_block();
                 RETURN_IF_ERROR(spilling_stream->spill_block(state, block, false));
-                partition_block =
-                        vectorized::MutableBlock::create_unique(build_block.clone_empty());
+                partition_block = MutableBlock::create_unique(build_block.clone_empty());
                 COUNTER_UPDATE(_memory_used_counter, -new_mem);
             } else {
                 COUNTER_UPDATE(_memory_used_counter, new_mem - old_mem);
@@ -269,7 +266,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
     }
     const auto& row_desc = p._child->row_desc();
     const auto num_slots = row_desc.num_slots();
-    vectorized::Block build_block;
+    Block build_block;
     int64_t block_old_mem = 0;
     if (inner_sink_state) {
         build_block = inner_sink_state->_build_side_mutable_block.to_block();
@@ -293,7 +290,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
     }
 
     if (build_block.columns() > num_slots) {
-        vectorized::Block::erase_useless_column(&build_block, num_slots);
+        Block::erase_useless_column(&build_block, num_slots);
         COUNTER_UPDATE(_memory_used_counter, build_block.allocated_bytes() - block_old_mem);
     }
 
@@ -367,12 +364,12 @@ Status PartitionedHashJoinSinkLocalState::_execute_spill_partitioned_blocks(Runt
     SCOPED_TIMER(_spill_build_timer);
 
     for (size_t i = 0; i != _shared_state->partitioned_build_blocks.size(); ++i) {
-        vectorized::SpillStreamSPtr& spilling_stream = _shared_state->spilled_streams[i];
+        SpillStreamSPtr& spilling_stream = _shared_state->spilled_streams[i];
         DCHECK(spilling_stream != nullptr);
         auto& mutable_block = _shared_state->partitioned_build_blocks[i];
 
         if (!mutable_block ||
-            mutable_block->allocated_bytes() < vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+            mutable_block->allocated_bytes() < SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
             continue;
         }
 
@@ -419,8 +416,7 @@ Status PartitionedHashJoinSinkLocalState::_finish_spilling() {
     return Status::OK();
 }
 
-Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
-                                                           vectorized::Block* in_block,
+Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state, Block* in_block,
                                                            size_t begin, size_t end) {
     const auto rows = in_block->rows();
     if (!rows) {
@@ -450,8 +446,7 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
         }
 
         if (UNLIKELY(!partitioned_blocks[i])) {
-            partitioned_blocks[i] =
-                    vectorized::MutableBlock::create_unique(in_block->clone_empty());
+            partitioned_blocks[i] = MutableBlock::create_unique(in_block->clone_empty());
         }
         RETURN_IF_ERROR(partitioned_blocks[i]->add_rows(in_block, partition_indexes[i].data(),
                                                         partition_indexes[i].data() + count));
@@ -463,15 +458,15 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
     return Status::OK();
 }
 
-Status PartitionedHashJoinSinkLocalState::_spill_to_disk(
-        uint32_t partition_index, const vectorized::SpillStreamSPtr& spilling_stream) {
+Status PartitionedHashJoinSinkLocalState::_spill_to_disk(uint32_t partition_index,
+                                                         const SpillStreamSPtr& spilling_stream) {
     auto& partitioned_block = _shared_state->partitioned_build_blocks[partition_index];
 
     if (!_state->is_cancelled()) {
         auto block = partitioned_block->to_block();
         int64_t block_mem_usage = block.allocated_bytes();
         Defer defer {[&]() { COUNTER_UPDATE(memory_used_counter(), -block_mem_usage); }};
-        partitioned_block = vectorized::MutableBlock::create_unique(block.clone_empty());
+        partitioned_block = MutableBlock::create_unique(block.clone_empty());
         return spilling_stream->spill_block(state(), block, false);
     } else {
         return _state->cancel_reason();
@@ -502,8 +497,8 @@ Status PartitionedHashJoinSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
     std::vector<TExpr> partition_exprs;
     for (const auto& eq_join_conjunct : eq_join_conjuncts) {
-        vectorized::VExprContextSPtr ctx;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(eq_join_conjunct.right, ctx));
+        VExprContextSPtr ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(eq_join_conjunct.right, ctx));
         _build_exprs.emplace_back(eq_join_conjunct.right);
         partition_exprs.emplace_back(eq_join_conjunct.right);
     }
@@ -601,8 +596,7 @@ static bool is_revocable_mem_high_watermark(RuntimeState* state, size_t revocabl
                    (double)query_mem_limit / 100.0 * revocable_memory_high_watermark_percent;
 }
 
-Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
-                                              bool eos) {
+Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
 
@@ -673,7 +667,7 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
         RETURN_IF_ERROR(local_state._partition_block(state, in_block, 0, rows));
         if (eos) {
             return revoke_memory(state, nullptr);
-        } else if (revocable_mem_size(state) > vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
+        } else if (revocable_mem_size(state) > SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
             return revoke_memory(state, nullptr);
         }
     } else {
@@ -733,4 +727,4 @@ bool PartitionedHashJoinSinkLocalState::is_blockable() const {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

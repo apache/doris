@@ -138,6 +138,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
     public static boolean audit_log_enable_compress = false;
 
+    @ConfField(description = {"启用的数据血缘插件列表，需要填写 LineagePlugin.name() 返回的名称，",
+            "Active lineage plugins, need to fill in the name returned by LineagePlugin.name()"})
+    public static String[] activate_lineage_plugin = {};
+
     @ConfField(description = {"是否使用文件记录日志。当使用 --console 启动 FE 时，全部日志同时写入到标准输出和文件。"
             + "如果关闭这个选项，不再使用文件记录日志。",
             "Whether to use file to record log. When starting FE with --console, "
@@ -3542,15 +3546,28 @@ public class Config extends ConfigBase {
             + "This prevents patterns like {1..100}/{1..100} from triggering too many HEAD requests."
     })
     public static int s3_head_request_max_paths = 100;
-
     @ConfField(mutable = true, description = {
-            "此参数控制是否强制使用 Azure global endpoint。默认值为 false，系统将使用用户指定的 endpoint。"
-            + "如果设置为 true，系统将强制使用 {account}.blob.core.windows.net。",
-            "This parameter controls whether to force the use of the Azure global endpoint. "
-            + "The default is false, meaning the system will use the user-specified endpoint. "
-            + "If set to true, the system will force the use of {account}.blob.core.windows.net."
+            "指定 Azure endpoint 域名后缀白名单（包含 blob 与 dfs），多个值使用逗号分隔。"
+                    + "默认值为 .blob.core.windows.net,.dfs.core.windows.net,"
+                    + ".blob.core.chinacloudapi.cn,.dfs.core.chinacloudapi.cn,"
+                    + ".blob.core.usgovcloudapi.net,.dfs.core.usgovcloudapi.net,"
+                    + ".blob.core.cloudapi.de,.dfs.core.cloudapi.de。",
+            "The host suffix whitelist for Azure endpoints (both blob and dfs), separated by commas. "
+                    + "The default value is .blob.core.windows.net,.dfs.core.windows.net,"
+                    + ".blob.core.chinacloudapi.cn,.dfs.core.chinacloudapi.cn,"
+                    + ".blob.core.usgovcloudapi.net,.dfs.core.usgovcloudapi.net,"
+                    + ".blob.core.cloudapi.de,.dfs.core.cloudapi.de."
     })
-    public static boolean force_azure_blob_global_endpoint = false;
+    public static String[] azure_blob_host_suffixes = {
+            ".blob.core.windows.net",
+            ".dfs.core.windows.net",
+            ".blob.core.chinacloudapi.cn",
+            ".dfs.core.chinacloudapi.cn",
+            ".blob.core.usgovcloudapi.net",
+            ".dfs.core.usgovcloudapi.net",
+            ".blob.core.cloudapi.de",
+            ".dfs.core.cloudapi.de"
+    };
 
     @ConfField(mutable = true, description = {"指定 Jdbc driver url 白名单，举例：jdbc_driver_url_white_list=a,b,c",
             "the white list for jdbc driver url, if it is empty, no white list will be set"
@@ -3602,6 +3619,10 @@ public class Config extends ConfigBase {
     //* audit_event_log_queue_size = qps * query_audit_log_timeout_ms
     @ConfField(mutable = true)
     public static int audit_event_log_queue_size = 250000;
+
+    @ConfField(description = {"血缘事件队列最大长度，超过长度事件会被舍弃",
+            "Max size of lineage event queue， events will be discarded when exceeded"})
+    public static int lineage_event_queue_size = 50000;
 
     @ConfField(mutable = true, description = {
             "streamload 导入使用的转发策略，可选值为 public-private/public/private/direct/random-be/空",
@@ -3922,8 +3943,15 @@ public class Config extends ConfigBase {
             "agent tasks health check interval, default is five minutes, no health check when less than or equal to 0"
     })
     public static long agent_task_health_check_intervals_ms = 5 * 60 * 1000L; // 5 min
-    @ConfField(description = {"是否跳过 catalog 层级的鉴权",
-            "Whether to skip catalog level privilege check"})
+    @ConfField(description = {
+            "是否在 catalog 级权限检查中跳过 FE 内部的 catalog 权限校验。仅对配置了自定义 access controller 的外部 "
+                    + "catalog 的 SHOW/SELECT 生效；内部 catalog、未配置自定义 access controller 的 catalog，"
+                    + "以及 CREATE/LOAD/ALTER 等其他权限仍按默认逻辑校验",
+            "Whether to skip the FE internal catalog privilege check in catalog-level privilege validation. "
+                    + "This only applies to SHOW/SELECT on external catalogs with a custom access controller. "
+                    + "Internal catalogs, catalogs without a custom access controller, and other privileges such "
+                    + "as CREATE/LOAD/ALTER are still validated by the default logic"
+    })
     public static boolean skip_catalog_priv_check = false;
 
     @ConfField(mutable = true, description = {

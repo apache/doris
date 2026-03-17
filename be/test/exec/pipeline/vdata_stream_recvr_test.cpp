@@ -30,8 +30,7 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::pipeline {
-using namespace vectorized;
+namespace doris {
 
 struct MockVDataStreamRecvr : public VDataStreamRecvr {
     MockVDataStreamRecvr(RuntimeState* state, RuntimeProfile::HighWaterMarkCounter* counter,
@@ -619,4 +618,4 @@ TEST_F(DataStreamRecvrTest, transmit_block) {
 
 // ./run-be-ut.sh --run --filter=DataStreamRecvrTest.*
 
-} // namespace doris::pipeline
+} // namespace doris

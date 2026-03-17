@@ -31,7 +31,7 @@
 #include "util/pretty_printer.h"
 #include "util/uid_util.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 HashJoinBuildSinkLocalState::HashJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                          RuntimeState* state)
@@ -87,6 +87,18 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _build_side_merge_block_timer = ADD_TIMER(custom_profile(), "MergeBuildBlockTime");
     _build_table_insert_timer = ADD_TIMER(record_profile, "BuildTableInsertTime");
     _build_expr_call_timer = ADD_TIMER(record_profile, "BuildExprCallTime");
+
+    // ASOF index build counters (only for ASOF join types)
+    if (is_asof_join(p._join_op) && state->enable_profile() && state->profile_level() >= 2) {
+        static constexpr auto ASOF_INDEX_BUILD_TIMER = "AsofIndexBuildTime";
+        _asof_index_total_timer = ADD_TIMER_WITH_LEVEL(custom_profile(), ASOF_INDEX_BUILD_TIMER, 2);
+        _asof_index_expr_timer = ADD_CHILD_TIMER_WITH_LEVEL(custom_profile(), "AsofIndexExprTime",
+                                                            ASOF_INDEX_BUILD_TIMER, 2);
+        _asof_index_sort_timer = ADD_CHILD_TIMER_WITH_LEVEL(custom_profile(), "AsofIndexSortTime",
+                                                            ASOF_INDEX_BUILD_TIMER, 2);
+        _asof_index_group_timer = ADD_CHILD_TIMER_WITH_LEVEL(custom_profile(), "AsofIndexGroupTime",
+                                                             ASOF_INDEX_BUILD_TIMER, 2);
+    }
 
     _runtime_filter_producer_helper = std::make_shared<RuntimeFilterProducerHelper>(
             _should_build_hash_table, p._is_broadcast_join);
@@ -148,7 +160,7 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
         }
         size_to_reserve += _evaluate_mem_usage;
 
-        vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
+        ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
 
         if (build_block_rows > 0) {
             auto block = _build_side_mutable_block.to_block();
@@ -156,25 +168,26 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
             Defer defer([&]() {
                 for (auto i : converted_columns) {
                     auto& data = block.get_by_position(i);
-                    data.column = vectorized::remove_nullable(data.column);
-                    data.type = vectorized::remove_nullable(data.type);
+                    data.column = remove_nullable(data.column);
+                    data.type = remove_nullable(data.type);
                 }
-                _build_side_mutable_block = vectorized::MutableBlock(std::move(block));
+                _build_side_mutable_block = MutableBlock(std::move(block));
             });
-            vectorized::ColumnUInt8::MutablePtr null_map_val;
-            if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
+            ColumnUInt8::MutablePtr null_map_val;
+            if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN ||
+                p._join_op == TJoinOp::ASOF_LEFT_OUTER_JOIN) {
                 converted_columns = _convert_block_to_null(block);
                 // first row is mocked
                 for (int i = 0; i < block.columns(); i++) {
                     auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
-                    assert_cast<vectorized::ColumnNullable*>(column->assume_mutable().get())
+                    assert_cast<ColumnNullable*>(column->assume_mutable().get())
                             ->get_null_map_column()
                             .get_data()
                             .data()[0] = 1;
                 }
             }
 
-            null_map_val = vectorized::ColumnUInt8::create();
+            null_map_val = ColumnUInt8::create();
             null_map_val->get_data().assign(build_block_rows, (uint8_t)0);
 
             // Get the key column that needs to be built
@@ -183,12 +196,12 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
                 throw Exception(st);
             }
 
-            std::visit(vectorized::Overload {[&](std::monostate& arg) {},
-                                             [&](auto&& hash_map_context) {
-                                                 size_to_reserve += hash_map_context.estimated_size(
-                                                         raw_ptrs, (uint32_t)block.rows(), true,
-                                                         true, bucket_size);
-                                             }},
+            std::visit(Overload {[&](std::monostate& arg) {},
+                                 [&](auto&& hash_map_context) {
+                                     size_to_reserve += hash_map_context.estimated_size(
+                                             raw_ptrs, (uint32_t)block.rows(), true, true,
+                                             bucket_size);
+                                 }},
                        _shared_state->hash_table_variant_vector.front()->method_variant);
         }
     }
@@ -286,7 +299,8 @@ void HashJoinBuildSinkLocalState::init_short_circuit_for_probe() {
              (empty_block &&
               (p._join_op == TJoinOp::INNER_JOIN || p._join_op == TJoinOp::LEFT_SEMI_JOIN ||
                p._join_op == TJoinOp::RIGHT_OUTER_JOIN || p._join_op == TJoinOp::RIGHT_SEMI_JOIN ||
-               p._join_op == TJoinOp::RIGHT_ANTI_JOIN))) &&
+               p._join_op == TJoinOp::RIGHT_ANTI_JOIN ||
+               p._join_op == TJoinOp::ASOF_LEFT_INNER_JOIN))) &&
             !p._is_mark_join;
 
     //when build table rows is 0 and not have other_join_conjunct and not _is_mark_join and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
@@ -294,11 +308,184 @@ void HashJoinBuildSinkLocalState::init_short_circuit_for_probe() {
     _shared_state->empty_right_table_need_probe_dispose =
             (empty_block && !p._have_other_join_conjunct && !p._is_mark_join) &&
             (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN ||
-             p._join_op == TJoinOp::LEFT_ANTI_JOIN);
+             p._join_op == TJoinOp::LEFT_ANTI_JOIN || p._join_op == TJoinOp::ASOF_LEFT_OUTER_JOIN);
 }
 
-Status HashJoinBuildSinkLocalState::_do_evaluate(vectorized::Block& block,
-                                                 vectorized::VExprContextSPtrs& exprs,
+Status HashJoinBuildSinkLocalState::build_asof_index(Block& block) {
+    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
+
+    // Only for ASOF JOIN types
+    if (!is_asof_join(p._join_op)) {
+        return Status::OK();
+    }
+
+    SCOPED_TIMER(_asof_index_total_timer);
+
+    DORIS_CHECK(block.rows() != 0);
+    if (block.rows() == 1) {
+        // Empty or only mock row
+        return Status::OK();
+    }
+
+    // Get hash table's first and next arrays to traverse buckets
+    uint32_t bucket_size = 0;
+    const uint32_t* first_array = nullptr;
+    const uint32_t* next_array = nullptr;
+    size_t build_rows = 0;
+
+    std::visit(Overload {[&](std::monostate&) {},
+                         [&](auto&& hash_table_ctx) {
+                             auto* hash_table = hash_table_ctx.hash_table.get();
+                             DORIS_CHECK(hash_table);
+                             bucket_size = hash_table->get_bucket_size();
+                             first_array = hash_table->get_first().data();
+                             next_array = hash_table->get_next().data();
+                             build_rows = hash_table->size();
+                         }},
+               _shared_state->hash_table_variant_vector.front()->method_variant);
+
+    if (bucket_size == 0) {
+        return Status::OK();
+    }
+    DORIS_CHECK(first_array);
+    DORIS_CHECK(next_array);
+
+    // Set inequality direction from opcode (moved from probe open())
+    _shared_state->asof_inequality_is_greater =
+            (p._asof_opcode == TExprOpcode::GE || p._asof_opcode == TExprOpcode::GT);
+    _shared_state->asof_inequality_is_strict =
+            (p._asof_opcode == TExprOpcode::GT || p._asof_opcode == TExprOpcode::LT);
+
+    // Compute build ASOF column by executing build-side expression directly on build block.
+    // Expression is prepared against build child's row_desc, matching the build block layout.
+    DORIS_CHECK(p._asof_build_side_expr);
+    int result_col_idx = -1;
+    {
+        SCOPED_TIMER(_asof_index_expr_timer);
+        RETURN_IF_ERROR(p._asof_build_side_expr->execute(&block, &result_col_idx));
+    }
+    DORIS_CHECK(result_col_idx >= 0 && result_col_idx < static_cast<int>(block.columns()));
+    auto asof_build_col =
+            block.get_by_position(result_col_idx).column->convert_to_full_column_if_const();
+
+    // Handle nullable: extract nested column for value access, keep nullable for null checks
+    const ColumnNullable* nullable_col = nullptr;
+    ColumnPtr build_col_nested = asof_build_col;
+    if (asof_build_col->is_nullable()) {
+        nullable_col = assert_cast<const ColumnNullable*>(asof_build_col.get());
+        build_col_nested = nullable_col->get_nested_column_ptr();
+    }
+
+    // Initialize reverse mapping (all build rows, including NULL ASOF values)
+    _shared_state->asof_build_row_to_bucket.resize(build_rows + 1, 0);
+
+    // Dispatch on ASOF column type to create typed AsofIndexGroups with inline values.
+    // Sub-group by actual key equality within each hash bucket (hash collisions),
+    // extract integer representation of ASOF values, then sort by inline values.
+    asof_column_dispatch(build_col_nested.get(), [&](const auto* typed_col) {
+        using ColType = std::remove_const_t<std::remove_pointer_t<decltype(typed_col)>>;
+
+        if constexpr (std::is_same_v<ColType, IColumn>) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Unsupported ASOF column type for inline optimization");
+        } else {
+            using IntType = typename ColType::value_type::underlying_value;
+            const auto& col_data = typed_col->get_data();
+
+            auto& groups = _shared_state->asof_index_groups
+                                   .emplace<std::vector<AsofIndexGroup<IntType>>>();
+
+            std::visit(
+                    Overload {
+                            [&](std::monostate&) {},
+                            [&](auto&& hash_table_ctx) {
+                                auto* hash_table = hash_table_ctx.hash_table.get();
+                                DORIS_CHECK(hash_table);
+                                const auto* build_keys = hash_table->get_build_keys();
+                                using KeyType = std::remove_const_t<
+                                        std::remove_pointer_t<decltype(build_keys)>>;
+                                uint32_t next_group_id = 0;
+
+                                // Group rows by equality key within each hash bucket,
+                                // then sort each group by ASOF value only (pure integer compare).
+                                // This avoids the previous approach of sorting by (build_key, asof_value)
+                                // which required memcmp per comparison.
+                                //
+                                // For each bucket: walk the chain, find-or-create a group for
+                                // each distinct build_key, insert rows into the group with their
+                                // inline ASOF value. After all buckets are processed, sort each group.
+
+                                // Map from build_key -> group_id, reused across buckets.
+                                // Within a single hash bucket, the number of distinct keys is
+                                // typically very small (hash collisions are rare), so a flat
+                                // scan is efficient.
+                                struct KeyGroupEntry {
+                                    KeyType key;
+                                    uint32_t group_id;
+                                };
+                                std::vector<KeyGroupEntry> bucket_key_groups;
+
+                                {
+                                    SCOPED_TIMER(_asof_index_group_timer);
+                                    for (uint32_t bucket = 0; bucket <= bucket_size; ++bucket) {
+                                        uint32_t row_idx = first_array[bucket];
+                                        if (row_idx == 0) {
+                                            continue;
+                                        }
+
+                                        // For each row in this bucket's chain, find-or-create its group
+                                        bucket_key_groups.clear();
+                                        while (row_idx != 0) {
+                                            DCHECK(row_idx <= build_rows);
+                                            const auto& key = build_keys[row_idx];
+
+                                            // Linear scan to find existing group for this key.
+                                            // Bucket chains are short (avg ~1-2 distinct keys per bucket),
+                                            // so this is faster than a hash map.
+                                            uint32_t group_id = UINT32_MAX;
+                                            for (const auto& entry : bucket_key_groups) {
+                                                if (entry.key == key) {
+                                                    group_id = entry.group_id;
+                                                    break;
+                                                }
+                                            }
+                                            if (group_id == UINT32_MAX) {
+                                                group_id = next_group_id++;
+                                                DCHECK(group_id == groups.size());
+                                                groups.emplace_back();
+                                                bucket_key_groups.push_back({key, group_id});
+                                            }
+
+                                            _shared_state->asof_build_row_to_bucket[row_idx] =
+                                                    group_id;
+                                            if (!(nullable_col &&
+                                                  nullable_col->is_null_at(row_idx))) {
+                                                groups[group_id].add_row(
+                                                        col_data[row_idx].to_date_int_val(),
+                                                        row_idx);
+                                            }
+
+                                            row_idx = next_array[row_idx];
+                                        }
+                                    }
+                                }
+
+                                // Sort each group by ASOF value only (pure integer comparison).
+                                {
+                                    SCOPED_TIMER(_asof_index_sort_timer);
+                                    for (auto& group : groups) {
+                                        group.sort_and_finalize();
+                                    }
+                                }
+                            }},
+                    _shared_state->hash_table_variant_vector.front()->method_variant);
+        }
+    });
+
+    return Status::OK();
+}
+
+Status HashJoinBuildSinkLocalState::_do_evaluate(Block& block, VExprContextSPtrs& exprs,
                                                  RuntimeProfile::Counter& expr_call_timer,
                                                  std::vector<int>& res_col_ids) {
     auto origin_size = block.allocated_bytes();
@@ -320,8 +507,7 @@ Status HashJoinBuildSinkLocalState::_do_evaluate(vectorized::Block& block,
     return Status::OK();
 }
 
-std::vector<uint16_t> HashJoinBuildSinkLocalState::_convert_block_to_null(
-        vectorized::Block& block) {
+std::vector<uint16_t> HashJoinBuildSinkLocalState::_convert_block_to_null(Block& block) {
     std::vector<uint16_t> results;
     for (int i = 0; i < block.columns(); ++i) {
         if (auto& column_type = block.safe_get_by_position(i); !column_type.type->is_nullable()) {
@@ -334,9 +520,10 @@ std::vector<uint16_t> HashJoinBuildSinkLocalState::_convert_block_to_null(
     return results;
 }
 
-Status HashJoinBuildSinkLocalState::_extract_join_column(
-        vectorized::Block& block, vectorized::ColumnUInt8::MutablePtr& null_map,
-        vectorized::ColumnRawPtrs& raw_ptrs, const std::vector<int>& res_col_ids) {
+Status HashJoinBuildSinkLocalState::_extract_join_column(Block& block,
+                                                         ColumnUInt8::MutablePtr& null_map,
+                                                         ColumnRawPtrs& raw_ptrs,
+                                                         const std::vector<int>& res_col_ids) {
     DCHECK(_should_build_hash_table);
     auto& shared_state = *_shared_state;
     for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
@@ -344,16 +531,16 @@ Status HashJoinBuildSinkLocalState::_extract_join_column(
         if (!column->is_nullable() &&
             _parent->cast<HashJoinBuildSinkOperatorX>()._serialize_null_into_key[i]) {
             _key_columns_holder.emplace_back(
-                    vectorized::make_nullable(block.get_by_position(res_col_ids[i]).column));
+                    make_nullable(block.get_by_position(res_col_ids[i]).column));
             raw_ptrs[i] = _key_columns_holder.back().get();
-        } else if (const auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column);
+        } else if (const auto* nullable = check_and_get_column<ColumnNullable>(*column);
                    !_parent->cast<HashJoinBuildSinkOperatorX>()._serialize_null_into_key[i] &&
                    nullable) {
             // update nulllmap and split nested out of ColumnNullable when serialize_null_into_key is false and column is nullable
             const auto& col_nested = nullable->get_nested_column();
             const auto& col_nullmap = nullable->get_null_map_data();
             DCHECK(null_map);
-            vectorized::VectorizedUtils::update_null_map(null_map->get_data(), col_nullmap);
+            VectorizedUtils::update_null_map(null_map->get_data(), col_nullmap);
             raw_ptrs[i] = &col_nested;
         } else {
             raw_ptrs[i] = column;
@@ -362,8 +549,7 @@ Status HashJoinBuildSinkLocalState::_extract_join_column(
     return Status::OK();
 }
 
-Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
-                                                        vectorized::Block& block) {
+Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Block& block) {
     DCHECK(_should_build_hash_table);
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     SCOPED_TIMER(_build_table_timer);
@@ -377,14 +563,15 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
         }
     }
 
-    vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
-    vectorized::ColumnUInt8::MutablePtr null_map_val;
-    if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
+    ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
+    ColumnUInt8::MutablePtr null_map_val;
+    if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN ||
+        p._join_op == TJoinOp::ASOF_LEFT_OUTER_JOIN) {
         _convert_block_to_null(block);
         // first row is mocked
         for (int i = 0; i < block.columns(); i++) {
             auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
-            assert_cast<vectorized::ColumnNullable*>(column->assume_mutable().get())
+            assert_cast<ColumnNullable*>(column->assume_mutable().get())
                     ->get_null_map_column()
                     .get_data()
                     .data()[0] = 1;
@@ -393,7 +580,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
 
     _set_build_side_has_external_nullmap(block, _build_col_ids);
     if (_build_side_has_external_nullmap) {
-        null_map_val = vectorized::ColumnUInt8::create();
+        null_map_val = ColumnUInt8::create();
         null_map_val->get_data().assign((size_t)rows, (uint8_t)0);
     }
 
@@ -403,38 +590,37 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     RETURN_IF_ERROR(_hash_table_init(state, raw_ptrs));
 
     Status st = std::visit(
-            vectorized::Overload {
-                    [&](std::monostate& arg, auto join_op,
-                        auto short_circuit_for_null_in_build_side,
-                        auto with_other_conjuncts) -> Status {
-                        throw Exception(Status::FatalError("FATAL: uninited hash table"));
-                    },
-                    [&](auto&& arg, auto&& join_op, auto short_circuit_for_null_in_build_side,
-                        auto with_other_conjuncts) -> Status {
-                        using HashTableCtxType = std::decay_t<decltype(arg)>;
-                        using JoinOpType = std::decay_t<decltype(join_op)>;
-                        ProcessHashTableBuild<HashTableCtxType> hash_table_build_process(
-                                rows, raw_ptrs, this, state->batch_size(), state);
-                        auto st = hash_table_build_process.template run<
-                                JoinOpType::value, short_circuit_for_null_in_build_side,
-                                with_other_conjuncts>(
-                                arg, null_map_val ? &null_map_val->get_data() : nullptr,
-                                &_shared_state->_has_null_in_build_side);
-                        COUNTER_SET(_memory_used_counter,
-                                    _build_blocks_memory_usage->value() +
-                                            (int64_t)(arg.hash_table->get_byte_size() +
-                                                      arg.serialized_keys_size(true)));
-                        return st;
-                    }},
+            Overload {[&](std::monostate& arg, auto join_op,
+                          auto short_circuit_for_null_in_build_side,
+                          auto with_other_conjuncts) -> Status {
+                          throw Exception(Status::FatalError("FATAL: uninited hash table"));
+                      },
+                      [&](auto&& arg, auto&& join_op, auto short_circuit_for_null_in_build_side,
+                          auto with_other_conjuncts) -> Status {
+                          using HashTableCtxType = std::decay_t<decltype(arg)>;
+                          using JoinOpType = std::decay_t<decltype(join_op)>;
+                          ProcessHashTableBuild<HashTableCtxType> hash_table_build_process(
+                                  rows, raw_ptrs, this, state->batch_size(), state);
+                          auto st = hash_table_build_process.template run<
+                                  JoinOpType::value, short_circuit_for_null_in_build_side,
+                                  with_other_conjuncts>(
+                                  arg, null_map_val ? &null_map_val->get_data() : nullptr,
+                                  &_shared_state->_has_null_in_build_side);
+                          COUNTER_SET(_memory_used_counter,
+                                      _build_blocks_memory_usage->value() +
+                                              (int64_t)(arg.hash_table->get_byte_size() +
+                                                        arg.serialized_keys_size(true)));
+                          return st;
+                      }},
             _shared_state->hash_table_variant_vector.front()->method_variant,
             _shared_state->join_op_variants,
-            vectorized::make_bool_variant(p._short_circuit_for_null_in_build_side),
-            vectorized::make_bool_variant((p._have_other_join_conjunct)));
+            make_bool_variant(p._short_circuit_for_null_in_build_side),
+            make_bool_variant((p._have_other_join_conjunct)));
     return st;
 }
 
 void HashJoinBuildSinkLocalState::_set_build_side_has_external_nullmap(
-        vectorized::Block& block, const std::vector<int>& res_col_ids) {
+        Block& block, const std::vector<int>& res_col_ids) {
     DCHECK(_should_build_hash_table);
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     if (p._short_circuit_for_null_in_build_side) {
@@ -451,9 +637,9 @@ void HashJoinBuildSinkLocalState::_set_build_side_has_external_nullmap(
 }
 
 Status HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state,
-                                                     const vectorized::ColumnRawPtrs& raw_ptrs) {
+                                                     const ColumnRawPtrs& raw_ptrs) {
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
-    std::vector<vectorized::DataTypePtr> data_types;
+    std::vector<DataTypePtr> data_types;
     for (size_t i = 0; i < _build_expr_ctxs.size(); ++i) {
         auto& ctx = _build_expr_ctxs[i];
         auto data_type = ctx->root()->data_type();
@@ -461,10 +647,10 @@ Status HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state,
         /// For 'null safe equal' join,
         /// the build key column maybe be converted to nullable from non-nullable.
         if (p._serialize_null_into_key[i]) {
-            data_types.emplace_back(vectorized::make_nullable(data_type));
+            data_types.emplace_back(make_nullable(data_type));
         } else {
             // in this case, we use nullmap to represent null value
-            data_types.emplace_back(vectorized::remove_nullable(data_type));
+            data_types.emplace_back(remove_nullable(data_type));
         }
     }
     if (_build_expr_ctxs.size() == 1) {
@@ -509,16 +695,16 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
 
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
     for (const auto& eq_join_conjunct : eq_join_conjuncts) {
-        vectorized::VExprContextSPtr build_ctx;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(eq_join_conjunct.right, build_ctx));
+        VExprContextSPtr build_ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(eq_join_conjunct.right, build_ctx));
         {
             // for type check
-            vectorized::VExprContextSPtr probe_ctx;
-            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(eq_join_conjunct.left, probe_ctx));
+            VExprContextSPtr probe_ctx;
+            RETURN_IF_ERROR(VExpr::create_expr_tree(eq_join_conjunct.left, probe_ctx));
             auto build_side_expr_type = build_ctx->root()->data_type();
             auto probe_side_expr_type = probe_ctx->root()->data_type();
-            if (!vectorized::make_nullable(build_side_expr_type)
-                         ->equals(*vectorized::make_nullable(probe_side_expr_type))) {
+            if (!make_nullable(build_side_expr_type)
+                         ->equals(*make_nullable(probe_side_expr_type))) {
                 return Status::InternalError(
                         "build side type {}, not match probe side type {} , node info "
                         "{}",
@@ -554,6 +740,23 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
         }
     }
 
+    // For ASOF JOIN, extract the build-side expression from match_condition field.
+    // match_condition is bound on input tuples (left child output + right child output),
+    // so child(1) references build child's slots directly.
+    if (is_asof_join(_join_op)) {
+        DORIS_CHECK(tnode.hash_join_node.__isset.match_condition);
+        DORIS_CHECK(!_asof_build_side_expr);
+        VExprContextSPtr full_conjunct;
+        RETURN_IF_ERROR(
+                VExpr::create_expr_tree(tnode.hash_join_node.match_condition, full_conjunct));
+        DORIS_CHECK(full_conjunct);
+        DORIS_CHECK(full_conjunct->root());
+        DORIS_CHECK(full_conjunct->root()->get_num_children() == 2);
+        _asof_opcode = full_conjunct->root()->op();
+        auto right_child_expr = full_conjunct->root()->get_child(1);
+        _asof_build_side_expr = std::make_shared<VExprContext>(right_child_expr);
+    }
+
     return Status::OK();
 }
 
@@ -575,12 +778,18 @@ Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
         }
     };
     init_keep_column_flags(row_desc().tuple_descriptors(), _should_keep_column_flags);
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_build_expr_ctxs, state, _child->row_desc()));
-    return vectorized::VExpr::open(_build_expr_ctxs, state);
+    RETURN_IF_ERROR(VExpr::prepare(_build_expr_ctxs, state, _child->row_desc()));
+    // Prepare ASOF build-side expression against build child's row_desc directly.
+    // match_condition is bound on input tuples, so child(1) references build child's slots.
+    if (is_asof_join(_join_op)) {
+        DORIS_CHECK(_asof_build_side_expr);
+        RETURN_IF_ERROR(_asof_build_side_expr->prepare(state, _child->row_desc()));
+        RETURN_IF_ERROR(_asof_build_side_expr->open(state));
+    }
+    return VExpr::open(_build_expr_ctxs, state);
 }
 
-Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
-                                        bool eos) {
+Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -590,15 +799,15 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         // data from probe side.
 
         if (local_state._build_side_mutable_block.empty()) {
-            auto tmp_build_block = vectorized::VectorizedUtils::create_empty_columnswithtypename(
-                    _child->row_desc());
+            auto tmp_build_block =
+                    VectorizedUtils::create_empty_columnswithtypename(_child->row_desc());
             tmp_build_block = *(tmp_build_block.create_same_struct_block(1, false));
             local_state._build_col_ids.resize(_build_expr_ctxs.size());
             RETURN_IF_ERROR(local_state._do_evaluate(tmp_build_block, local_state._build_expr_ctxs,
                                                      *local_state._build_expr_call_timer,
                                                      local_state._build_col_ids));
             local_state._build_side_mutable_block =
-                    vectorized::MutableBlock::build_mutable_block(&tmp_build_block);
+                    MutableBlock::build_mutable_block(&tmp_build_block);
         }
 
         if (!in_block->empty()) {
@@ -625,8 +834,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
     if (local_state._should_build_hash_table && eos) {
         DCHECK(!local_state._build_side_mutable_block.empty());
-        local_state._shared_state->build_block = std::make_shared<vectorized::Block>(
-                local_state._build_side_mutable_block.to_block());
+        local_state._shared_state->build_block =
+                std::make_shared<Block>(local_state._build_side_mutable_block.to_block());
 
         RETURN_IF_ERROR(local_state._runtime_filter_producer_helper->send_filter_size(
                 state, local_state._shared_state->build_block->rows(),
@@ -634,6 +843,8 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
         RETURN_IF_ERROR(
                 local_state.process_build_block(state, (*local_state._shared_state->build_block)));
+        // For ASOF JOIN, build pre-sorted index for O(log K) lookup
+        RETURN_IF_ERROR(local_state.build_asof_index(*local_state._shared_state->build_block));
         local_state.init_short_circuit_for_probe();
     } else if (!local_state._should_build_hash_table) {
         // the instance which is not build hash table, it's should wait the signal of hash table build finished.
@@ -691,4 +902,4 @@ std::string HashJoinBuildSinkOperatorX::get_memory_usage_debug_str(RuntimeState*
                        PrettyPrinter::print_bytes(local_state._build_arena_memory_usage->value()));
 }
 
-} // namespace doris::pipeline
+} // namespace doris

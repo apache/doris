@@ -17,8 +17,8 @@
 
 #include "exprs/function/cast/cast_to_decimal_test.h"
 
-namespace doris::vectorized {
+namespace doris {
 TEST_F(FunctionCastToDecimalTest, test_from_int_to_decimal64) {
     from_int_test_func<Decimal64>();
 }
-} // namespace doris::vectorized
+} // namespace doris

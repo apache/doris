@@ -53,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -151,7 +152,13 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             long selectIndexId = logicalOlapScan.getSelectedIndexId();
             MaterializedIndexMeta meta = logicalOlapScan.getTable().getIndexMetaByIndexId(selectIndexId);
             if (meta.getKeysType() == KeysType.DUP_KEYS || (meta.getKeysType() == KeysType.UNIQUE_KEYS
-                    && logicalOlapScan.getTable().getEnableUniqueKeyMergeOnWrite())) {
+                    && logicalOlapScan.getTable().getEnableUniqueKeyMergeOnWrite())
+                    || (meta.getKeysType() == KeysType.UNIQUE_KEYS
+                        && logicalOlapScan.getTable().isMorTable()
+                        && ConnectContext.get() != null
+                        && ConnectContext.get().getSessionVariable().isReadMorAsDupEnabled(
+                            logicalOlapScan.getTable().getQualifiedDbName(),
+                            logicalOlapScan.getTable().getName()))) {
                 return logicalOlapScan.withPreAggStatus(PreAggStatus.on());
             } else {
                 if (context.empty()) {

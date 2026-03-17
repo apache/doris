@@ -347,7 +347,7 @@ std::string FileCacheFactory::reset_capacity(const std::string& path, int64_t ne
     return "Unknown the cache path " + path;
 }
 
-void FileCacheFactory::get_cache_stats_block(vectorized::Block* block) {
+void FileCacheFactory::get_cache_stats_block(Block* block) {
     // std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
     TBackend be = BackendOptions::get_local_backend();
     int64_t be_id = be.id;

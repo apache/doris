@@ -25,7 +25,7 @@
 #include "core/types.h"
 #include "core/value/time_value.h"
 
-namespace doris::vectorized {
+namespace doris {
 class DataTypeTimeStampTzSerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_TIMESTAMPTZ> {
 public:
     DataTypeTimeStampTzSerDe(const UInt32 scale, int nesting_level = 1)
@@ -72,12 +72,12 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
 
-    std::string to_olap_string(const vectorized::Field& field) const override;
+    std::string to_olap_string(const Field& field) const override;
 
 private:
     const UInt32 _scale = 6;
 };
-} // namespace doris::vectorized
+} // namespace doris

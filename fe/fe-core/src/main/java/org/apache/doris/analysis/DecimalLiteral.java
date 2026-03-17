@@ -22,11 +22,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FormatOptions;
+import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.thrift.TDecimalLiteral;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
@@ -265,13 +262,6 @@ public class DecimalLiteral extends NumericLiteralExpr {
     @Override
     public double getDoubleValue() {
         return value.doubleValue();
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        // TODO(hujie01) deal with loss information
-        msg.node_type = TExprNodeType.DECIMAL_LITERAL;
-        msg.decimal_literal = new TDecimalLiteral(value.toPlainString());
     }
 
     // To be compatible with OLAP, only need 9 digits.

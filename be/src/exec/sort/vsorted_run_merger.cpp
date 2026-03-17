@@ -29,7 +29,7 @@
 #include "runtime/runtime_profile.h"
 #include "util/stopwatch.hpp"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 VSortedRunMerger::VSortedRunMerger(const VExprContextSPtrs& ordering_expr,
@@ -222,4 +222,4 @@ bool VSortedRunMerger::_need_more_data(MergeSortCursor& current) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

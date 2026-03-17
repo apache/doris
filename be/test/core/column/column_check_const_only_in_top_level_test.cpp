@@ -31,7 +31,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class ColumnCheckConstOnlyInTopLevelTest : public ::testing::Test {
 protected:
@@ -308,4 +308,4 @@ TEST_F(ColumnCheckConstOnlyInTopLevelTest, EmptyColumnsNoThrow) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

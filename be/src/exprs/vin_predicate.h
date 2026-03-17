@@ -29,13 +29,11 @@ namespace doris {
 class RowDescriptor;
 class RuntimeState;
 class TExprNode;
-namespace vectorized {
 class Block;
 class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 class VInPredicate MOCK_REMOVE(final) : public VExpr {
     ENABLE_FACTORY_CREATOR(VInPredicate);
 
@@ -72,4 +70,4 @@ private:
     uint32_t _in_list_value_count_threshold = 10;
     bool _is_args_all_constant = false;
 };
-} // namespace doris::vectorized
+} // namespace doris

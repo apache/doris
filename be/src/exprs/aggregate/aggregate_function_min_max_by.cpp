@@ -19,7 +19,7 @@
 
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type, int be_version) {
     switch (type->get_primitive_type()) {
@@ -83,6 +83,6 @@ void register_aggregate_function_max_min_by(AggregateFunctionSimpleFactory& fact
             "max_by", create_aggregate_function_min_max_by<AggregateFunctionMaxByData>);
 }
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"
