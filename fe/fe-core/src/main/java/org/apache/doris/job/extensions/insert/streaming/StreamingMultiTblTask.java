@@ -110,11 +110,6 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         this.status = TaskStatus.RUNNING;
         this.startTimeMs = System.currentTimeMillis();
         this.runningOffset = offsetProvider.getNextOffset(null, sourceProperties);
-        if (this.runningOffset == null) {
-            // snapshot-only mode: all splits completed, task exits immediately
-            log.info("streaming multi task {} offset is null (snapshot-only completed), skip execution", taskId);
-            return;
-        }
         log.info("streaming multi task {} get running offset: {}", taskId, runningOffset.toString());
     }
 
@@ -122,10 +117,6 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     public void run() throws JobException {
         if (getIsCanceled().get()) {
             log.info("streaming task has been canceled, task id is {}", getTaskId());
-            return;
-        }
-        if (this.runningOffset == null) {
-            // offset is null when source has reached end (e.g. snapshot-only mode completed)
             return;
         }
         sendWriteRequest();

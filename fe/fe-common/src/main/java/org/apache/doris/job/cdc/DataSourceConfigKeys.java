@@ -27,7 +27,7 @@ public class DataSourceConfigKeys {
     public static final String SCHEMA = "schema";
     public static final String INCLUDE_TABLES = "include_tables";
     public static final String EXCLUDE_TABLES = "exclude_tables";
-    // initial,earliest,latest,snapshot,{binlog,postion},\d{13}
+    // initial,earliest,latest,snapshot,{binlog,position},\d{13}
     public static final String OFFSET = "offset";
     public static final String OFFSET_INITIAL = "initial";
     public static final String OFFSET_EARLIEST = "earliest";
