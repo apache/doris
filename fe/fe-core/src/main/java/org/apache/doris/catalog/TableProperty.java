@@ -98,6 +98,8 @@ public class TableProperty implements GsonPostProcessable {
 
     private boolean enableSingleReplicaCompaction = false;
 
+    private int verticalCompactionNumColumnsPerGroup = 5;
+
     private boolean storeRowColumn = false;
 
     private boolean skipWriteIndexOnLoad = false;
@@ -164,6 +166,7 @@ public class TableProperty implements GsonPostProcessable {
                 buildTimeSeriesCompactionTimeThresholdSeconds();
                 buildSkipWriteIndexOnLoad();
                 buildEnableSingleReplicaCompaction();
+                buildVerticalCompactionNumColumnsPerGroup();
                 buildDisableAutoCompaction();
                 buildTimeSeriesCompactionEmptyRowsetsThreshold();
                 buildTimeSeriesCompactionLevelThreshold();
@@ -337,6 +340,16 @@ public class TableProperty implements GsonPostProcessable {
 
     public boolean enableSingleReplicaCompaction() {
         return enableSingleReplicaCompaction;
+    }
+
+    public TableProperty buildVerticalCompactionNumColumnsPerGroup() {
+        verticalCompactionNumColumnsPerGroup = Integer.parseInt(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP, "5"));
+        return this;
+    }
+
+    public int verticalCompactionNumColumnsPerGroup() {
+        return verticalCompactionNumColumnsPerGroup;
     }
 
     public TableProperty buildStoreRowColumn() {
@@ -799,6 +812,7 @@ public class TableProperty implements GsonPostProcessable {
         buildTimeSeriesCompactionTimeThresholdSeconds();
         buildDisableAutoCompaction();
         buildEnableSingleReplicaCompaction();
+        buildVerticalCompactionNumColumnsPerGroup();
         buildTimeSeriesCompactionEmptyRowsetsThreshold();
         buildTimeSeriesCompactionLevelThreshold();
         buildTTLSeconds();

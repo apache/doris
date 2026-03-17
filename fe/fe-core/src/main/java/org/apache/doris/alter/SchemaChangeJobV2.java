@@ -327,7 +327,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                                     tbl.rowStorePageSize(),
                                     tbl.variantEnableFlattenNested(),
                                     tbl.storagePageSize(), tbl.getTDEAlgorithm(),
-                                    tbl.storageDictPageSize());
+                                    tbl.storageDictPageSize(),
+                                    tbl.getVerticalCompactionNumColumnsPerGroup());
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
