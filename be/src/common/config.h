@@ -1507,6 +1507,7 @@ DECLARE_String(doris_cgroup_cpu_path);
 DECLARE_mBool(enable_be_proc_monitor);
 DECLARE_mInt32(be_proc_monitor_interval_ms);
 DECLARE_Int32(workload_group_metrics_interval_ms);
+DECLARE_Int32(workload_policy_check_interval_ms);
 
 // This config controls whether the s3 file writer would flush cache asynchronously
 DECLARE_Bool(enable_flush_file_cache_async);
@@ -1566,8 +1567,6 @@ DECLARE_Int64(wait_cancel_release_memory_ms);
 DECLARE_mBool(check_segment_when_build_rowset_meta);
 
 DECLARE_Int32(num_query_ctx_map_partitions);
-
-DECLARE_mBool(force_azure_blob_global_endpoint);
 
 DECLARE_mBool(enable_s3_rate_limiter);
 DECLARE_mInt64(s3_get_bucket_tokens);
