@@ -54,6 +54,7 @@
 #include "faiss/impl/IDSelector.h"
 #include "faiss/impl/io.h"
 #include "io/io_common.h"
+#include "storage/cache/ann_index_page_cache.h"
 #include "storage/cache/page_cache.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_index_files.h"
@@ -260,7 +261,7 @@ public:
  * RandomAccessReader backed by a CLucene IndexInput with block-level caching.
  *
  * Each read_at() request is fulfilled block by block.  Blocks are cached in
- * Doris's global StoragePageCache (INDEX_PAGE type) so that repeated reads
+ * Doris's global AnnIndexDataPageCache so that repeated reads
  * to the same region (very common during IVF search) hit cheap memcpy paths
  * instead of going through the CLucene I/O stack.
  *
@@ -321,12 +322,12 @@ struct CachedRandomAccessReader : faiss::RandomAccessReader {
             const size_t offset_in_block = cur_offset - block_start;
             const size_t can_read = std::min(remaining, _block_size - offset_in_block);
 
-            auto* cache = StoragePageCache::instance();
-            StoragePageCache::CacheKey cache_key(_cache_key_prefix, _file_size,
+            auto* cache = AnnIndexDataPageCache::instance();
+            AnnIndexDataPageCache::CacheKey cache_key(_cache_key_prefix, _file_size,
                                                  static_cast<int64_t>(block_start));
             PageCacheHandle handle;
 
-            if (cache && cache->lookup(cache_key, &handle, segment_v2::DATA_PAGE)) {
+            if (cache && cache->lookup(cache_key, &handle)) {
                 // Cache hit – just memcpy
                 Slice data = handle.data();
                 ::memcpy(dst, data.data + offset_in_block, can_read);
@@ -337,8 +338,8 @@ struct CachedRandomAccessReader : faiss::RandomAccessReader {
                         std::min(_block_size, _file_size > block_start ? _file_size - block_start
                                                                        : static_cast<size_t>(0));
 
-                auto page = std::make_unique<DataPage>(actual_block_size, /*use_cache=*/true,
-                                                       segment_v2::DATA_PAGE);
+                auto page = std::make_unique<DataPage>(actual_block_size,
+                                                       cache->mem_tracker());
 
                 const int64_t fetch_start_ns = MonotonicNanos();
                 {
@@ -350,7 +351,7 @@ struct CachedRandomAccessReader : faiss::RandomAccessReader {
                 ::memcpy(dst, page->data() + offset_in_block, can_read);
 
                 if (cache) {
-                    cache->insert(cache_key, page.get(), &handle, segment_v2::DATA_PAGE);
+                    cache->insert(cache_key, page.get(), &handle);
                     page.release(); // cache owns the page now
                 }
                 ++g_ivf_on_disk_cache_stats.miss_cnt;

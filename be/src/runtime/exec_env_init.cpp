@@ -98,6 +98,7 @@
 #include "service/backend_service.h"
 #include "service/point_query_executor.h"
 #include "storage/cache/page_cache.h"
+#include "storage/cache/ann_index_page_cache.h"
 #include "storage/cache/schema_cache.h"
 #include "storage/id_manager.h"
 #include "storage/index/inverted/inverted_index_cache.h"
@@ -578,6 +579,21 @@ Status ExecEnv::init_mem_env() {
               << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::storage_page_cache_limit;
 
+    // Init ANN index page cache (dedicated cache for IVF on disk)
+    {
+        int64_t ann_cache_limit =
+                ParseUtil::parse_mem_spec(config::ann_index_page_cache_limit,
+                                          MemInfo::mem_limit(), MemInfo::physical_mem(),
+                                          &is_percent);
+        while (!is_percent && ann_cache_limit > MemInfo::mem_limit() / 2) {
+            ann_cache_limit = ann_cache_limit / 2;
+        }
+        _ann_index_page_cache = AnnIndexDataPageCache::create_global_cache(ann_cache_limit);
+        LOG(INFO) << "ANN index page cache memory limit: "
+                  << PrettyPrinter::print(ann_cache_limit, TUnit::BYTES)
+                  << ", origin config value: " << config::ann_index_page_cache_limit;
+    }
+
     // Init row cache
     int64_t row_cache_mem_limit =
             ParseUtil::parse_mem_spec(config::row_cache_mem_limit, MemInfo::mem_limit(),
@@ -881,6 +897,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_tablet_column_object_pool);
 
     // _storage_page_cache must be destoried before _cache_manager
+    SAFE_DELETE(_ann_index_page_cache);
     SAFE_DELETE(_storage_page_cache);
 
     SAFE_DELETE(_small_file_mgr);
