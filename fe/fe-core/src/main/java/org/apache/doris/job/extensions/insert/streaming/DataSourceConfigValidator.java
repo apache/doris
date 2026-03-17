@@ -104,9 +104,9 @@ public class DataSourceConfigValidator {
         }
 
         if (key.equals(DataSourceConfigKeys.OFFSET)
-                && !(value.equalsIgnoreCase(DataSourceConfigKeys.OFFSET_INITIAL)
-                || value.equalsIgnoreCase(DataSourceConfigKeys.OFFSET_LATEST)
-                || value.equalsIgnoreCase(DataSourceConfigKeys.OFFSET_SNAPSHOT))) {
+                && !(value.equals(DataSourceConfigKeys.OFFSET_INITIAL)
+                || value.equals(DataSourceConfigKeys.OFFSET_LATEST)
+                || value.equals(DataSourceConfigKeys.OFFSET_SNAPSHOT))) {
             return false;
         }
         return true;
