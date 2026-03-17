@@ -59,6 +59,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 
 public class PaimonMetadataOps implements ExternalMetadataOps {
@@ -77,6 +78,19 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         this.executionAuthenticator = dorisCatalog.getExecutionAuthenticator();
     }
 
+    private Catalog currentCatalog() {
+        if (dorisCatalog instanceof PaimonExternalCatalog) {
+            return ((PaimonExternalCatalog) dorisCatalog).catalog;
+        }
+        return catalog;
+    }
+
+    private <T> T executeCatalogOperation(String operation, Callable<T> task) throws Exception {
+        if (dorisCatalog instanceof PaimonExternalCatalog) {
+            return ((PaimonExternalCatalog) dorisCatalog).executeWithJdbcCatalogReconnect(operation, task::call);
+        }
+        return task.call();
+    }
 
     @Override
     public boolean createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties)
@@ -108,7 +122,7 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
             }
         }
 
-        catalog.createDatabase(dbName, ifNotExists, properties);
+        currentCatalog().createDatabase(dbName, ifNotExists, properties);
         return false;
     }
 
@@ -155,7 +169,7 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         }
 
         try {
-            catalog.dropDatabase(dbName, ifExists, force);
+            currentCatalog().dropDatabase(dbName, ifExists, force);
         } catch (DatabaseNotExistException e) {
             throw new RuntimeException("database " + dbName + " does not exist!");
         } catch (DatabaseNotEmptyException e) {
@@ -220,7 +234,7 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         StructType structType = new StructType(new ArrayList<>(collect));
         Schema schema = toPaimonSchema(structType, createTableInfo.getPartitionDesc(), createTableInfo.getProperties());
         try {
-            catalog.createTable(new Identifier(createTableInfo.getDbName(), createTableInfo.getTableName()),
+            currentCatalog().createTable(new Identifier(createTableInfo.getDbName(), createTableInfo.getTableName()),
                     schema, createTableInfo.isIfNotExists());
         } catch (TableAlreadyExistException | DatabaseNotExistException e) {
             throw new RuntimeException(e);
@@ -292,7 +306,7 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
             }
         }
         try {
-            catalog.dropTable(Identifier.create(dBName, tableName), ifExists);
+            currentCatalog().dropTable(Identifier.create(dBName, tableName), ifExists);
         } catch (TableNotExistException e) {
             throw new RuntimeException("table " + tableName + " does not exist");
         }
@@ -335,7 +349,8 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
     @Override
     public List<String> listDatabaseNames() {
         try {
-            return executionAuthenticator.execute(() -> new ArrayList<>(catalog.listDatabases()));
+            return executeCatalogOperation("list databases",
+                    () -> executionAuthenticator.execute(() -> new ArrayList<>(currentCatalog().listDatabases())));
         } catch (Exception e) {
             throw new RuntimeException("Failed to list databases names, catalog name: " + dorisCatalog.getName(), e);
         }
@@ -344,15 +359,15 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
     @Override
     public List<String> listTableNames(String db) {
         try {
-            return executionAuthenticator.execute(() -> {
+            return executeCatalogOperation("list tables", () -> executionAuthenticator.execute(() -> {
                 List<String> tableNames = new ArrayList<>();
                 try {
-                    tableNames.addAll(catalog.listTables(db));
+                    tableNames.addAll(currentCatalog().listTables(db));
                 } catch (DatabaseNotExistException e) {
                     LOG.warn("DatabaseNotExistException", e);
                 }
                 return tableNames;
-            });
+            }));
         } catch (Exception e) {
             throw new RuntimeException("Failed to list table names, catalog name: " + dorisCatalog.getName(), e);
         }
@@ -361,14 +376,14 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
     @Override
     public boolean tableExist(String dbName, String tblName) {
         try {
-            return executionAuthenticator.execute(() -> {
+            return executeCatalogOperation("check table existence", () -> executionAuthenticator.execute(() -> {
                 try {
-                    catalog.getTable(Identifier.create(dbName, tblName));
+                    currentCatalog().getTable(Identifier.create(dbName, tblName));
                     return true;
                 } catch (TableNotExistException e) {
                     return false;
                 }
-            });
+            }));
 
         } catch (Exception e) {
             throw new RuntimeException("Failed to check table existence, catalog name: " + dorisCatalog.getName()
@@ -379,21 +394,21 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
     @Override
     public boolean databaseExist(String dbName) {
         try {
-            return executionAuthenticator.execute(() -> {
+            return executeCatalogOperation("check database existence", () -> executionAuthenticator.execute(() -> {
                 try {
-                    catalog.getDatabase(dbName);
+                    currentCatalog().getDatabase(dbName);
                     return true;
                 } catch (DatabaseNotExistException e) {
                     return false;
                 }
-            });
+            }));
         } catch (Exception e) {
             throw new RuntimeException("Failed to check database exist, error message is:" + e.getMessage(), e);
         }
     }
 
     public Catalog getCatalog() {
-        return catalog;
+        return currentCatalog();
     }
 
     @Override

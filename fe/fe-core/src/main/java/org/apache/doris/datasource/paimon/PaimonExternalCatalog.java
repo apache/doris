@@ -34,14 +34,20 @@ import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 
+import java.sql.SQLException;
+import java.sql.SQLNonTransientConnectionException;
+import java.sql.SQLRecoverableException;
+import java.sql.SQLTransientConnectionException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
 // The subclasses of this class are all deprecated, only for meta persistence compatibility.
 public class PaimonExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(PaimonExternalCatalog.class);
+    private static final String SQLSTATE_CONNECTION_EXCEPTION_PREFIX = "08";
     public static final String PAIMON_CATALOG_TYPE = "paimon.catalog.type";
     public static final String PAIMON_FILESYSTEM = "filesystem";
     public static final String PAIMON_HMS = "hms";
@@ -84,6 +90,12 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    protected List<String> listDatabaseNames() {
+        makeSureInitialized();
+        return metadataOps.listDatabaseNames();
+    }
+
+    @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
         return metadataOps.tableExist(dbName, tblName);
@@ -95,9 +107,8 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     }
 
     public List<Partition> getPaimonPartitions(NameMapping nameMapping) {
-        makeSureInitialized();
         try {
-            return executionAuthenticator.execute(() -> {
+            return executeWithJdbcCatalogReconnect("list partitions", () -> executionAuthenticator.execute(() -> {
                 List<Partition> partitions = new ArrayList<>();
                 try {
                     partitions = catalog.listPartitions(Identifier.create(nameMapping.getRemoteDbName(),
@@ -106,7 +117,7 @@ public class PaimonExternalCatalog extends ExternalCatalog {
                     LOG.warn("TableNotExistException", e);
                 }
                 return partitions;
-            });
+            }));
         } catch (Exception e) {
             throw new RuntimeException("Failed to get Paimon table partitions:" + getName() + "."
                     + nameMapping.getRemoteDbName() + "." + nameMapping.getRemoteTblName() + ", because "
@@ -120,7 +131,6 @@ public class PaimonExternalCatalog extends ExternalCatalog {
 
     public org.apache.paimon.table.Table getPaimonTable(NameMapping nameMapping, String branch,
             String queryType) {
-        makeSureInitialized();
         try {
             Identifier identifier;
             if (branch != null && queryType != null) {
@@ -135,12 +145,70 @@ public class PaimonExternalCatalog extends ExternalCatalog {
             } else {
                 identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
             }
-            return executionAuthenticator.execute(() -> catalog.getTable(identifier));
+            return executeWithJdbcCatalogReconnect("get table", () -> executionAuthenticator.execute(
+                    () -> catalog.getTable(identifier)));
         } catch (Exception e) {
             throw new RuntimeException("Failed to get Paimon table:" + getName() + "."
                     + nameMapping.getRemoteDbName() + "." + nameMapping.getRemoteTblName() + "$" + queryType
                     + ", because " + ExceptionUtils.getRootCauseMessage(e), e);
         }
+    }
+
+    <T> T executeWithJdbcCatalogReconnect(String operation, CatalogOperation<T> action) throws Exception {
+        makeSureInitialized();
+        try {
+            return action.run();
+        } catch (Exception e) {
+            if (!shouldReconnectJdbcCatalog(e)) {
+                throw e;
+            }
+            LOG.warn("Reconnect paimon jdbc catalog {} after {} failed with a stale JDBC connection",
+                    getName(), operation, e);
+            reopenJdbcCatalog();
+            return action.run();
+        }
+    }
+
+    private synchronized void reopenJdbcCatalog() {
+        if (!PAIMON_JDBC.equals(catalogType)) {
+            return;
+        }
+        resetToUninitialized(false);
+        makeSureInitialized();
+    }
+
+    private boolean shouldReconnectJdbcCatalog(Throwable throwable) {
+        if (!PAIMON_JDBC.equals(catalogType)) {
+            return false;
+        }
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof SQLRecoverableException
+                    || current instanceof SQLTransientConnectionException
+                    || current instanceof SQLNonTransientConnectionException) {
+                return true;
+            }
+            if (current instanceof SQLException) {
+                String sqlState = ((SQLException) current).getSQLState();
+                if (sqlState != null && sqlState.startsWith(SQLSTATE_CONNECTION_EXCEPTION_PREFIX)) {
+                    return true;
+                }
+            }
+            String message = current.getMessage();
+            if (message != null) {
+                String lowerMessage = message.toLowerCase(Locale.ROOT);
+                if (lowerMessage.contains("broken pipe")
+                        || lowerMessage.contains("communications link failure")
+                        || lowerMessage.contains("connection reset")
+                        || lowerMessage.contains("connection is closed")
+                        || lowerMessage.contains("no operations allowed after connection closed")
+                        || lowerMessage.contains("last packet successfully received from the server")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     protected Catalog createCatalog() {
@@ -185,12 +253,23 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     @Override
     public void onClose() {
         super.onClose();
+        if (metadataOps != null) {
+            metadataOps.close();
+            metadataOps = null;
+        }
         if (null != catalog) {
             try {
                 catalog.close();
             } catch (Exception e) {
                 LOG.warn("Failed to close paimon catalog: {}", getName(), e);
+            } finally {
+                catalog = null;
             }
         }
+    }
+
+    @FunctionalInterface
+    interface CatalogOperation<T> {
+        T run() throws Exception;
     }
 }
