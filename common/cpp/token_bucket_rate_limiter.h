@@ -41,12 +41,12 @@ inline auto metric_func_factory(bvar::Adder<int64_t>& ns_bvar, bvar::Adder<int64
     };
 }
 
-class S3RateLimiter {
+class TokenBucketRateLimiter {
 public:
     static constexpr size_t default_burst_seconds = 1;
 
-    S3RateLimiter(size_t max_speed, size_t max_burst, size_t limit);
-    ~S3RateLimiter();
+    TokenBucketRateLimiter(size_t max_speed, size_t max_burst, size_t limit);
+    ~TokenBucketRateLimiter();
 
     // Use `amount` remain_tokens, sleeps if required or throws exception on limit overflow.
     // Returns duration of sleep in nanoseconds (to distinguish sleeping on different kinds of S3RateLimiters for metrics)
@@ -71,11 +71,11 @@ private:
     long _prev_ns_count {0}; // Previous `add` call time (in nanoseconds).
 };
 
-class S3RateLimiterHolder {
+class TokenBucketRateLimiterHolder {
 public:
-    S3RateLimiterHolder(size_t max_speed, size_t max_burst, size_t limit,
-                        std::function<void(int64_t)> metric_func);
-    ~S3RateLimiterHolder();
+    TokenBucketRateLimiterHolder(size_t max_speed, size_t max_burst, size_t limit,
+                                 std::function<void(int64_t)> metric_func);
+    ~TokenBucketRateLimiterHolder();
 
     int64_t add(size_t amount);
 
@@ -89,9 +89,11 @@ public:
 
 private:
     std::shared_mutex rate_limiter_rw_lock;
-    std::unique_ptr<S3RateLimiter> rate_limiter;
+    std::unique_ptr<TokenBucketRateLimiter> rate_limiter;
     // Record the correspoding sleeping time(unit is ms)
     std::function<void(int64_t)> metric_func;
 };
 
+using S3RateLimiter = TokenBucketRateLimiter;
+using S3RateLimiterHolder = TokenBucketRateLimiterHolder;
 } // namespace doris

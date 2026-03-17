@@ -32,6 +32,9 @@
 #include <vector>
 
 #include "cloud/cloud_cluster_info.h"
+#include "cloud/cloud_meta_mgr.h"
+#include "cloud/cloud_ms_backpressure_handler.h"
+#include "cloud/cloud_ms_rpc_rate_limiters.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_stream_load_executor.h"
 #include "cloud/cloud_tablet_hotspot.h"
@@ -44,7 +47,7 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/multi_version.h"
 #include "common/status.h"
-#include "cpp/s3_rate_limiter.h"
+#include "cpp/token_bucket_rate_limiter.h"
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/pipeline/pipeline_tracing.h"
 #include "exec/pipeline/task_queue.h"
@@ -431,6 +434,21 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
         // Start cluster info background worker for compaction read-write separation
         static_cast<CloudClusterInfo*>(_cluster_info)->start_bg_worker();
+
+        // Initialize host-level MS RPC rate limiters for cloud mode
+        _host_level_ms_rpc_rate_limiters = std::make_unique<cloud::HostLevelMSRpcRateLimiters>();
+        static_cast<CloudStorageEngine*>(_storage_engine.get())
+                ->meta_mgr()
+                .set_host_level_ms_rpc_rate_limiters(_host_level_ms_rpc_rate_limiters.get());
+
+        // Initialize table-level backpressure handling components
+        _table_rpc_qps_registry = std::make_unique<cloud::TableRpcQpsRegistry>();
+        _table_rpc_throttler = std::make_unique<cloud::TableRpcThrottler>();
+        _ms_backpressure_handler = std::make_unique<cloud::MSBackpressureHandler>(
+                _table_rpc_qps_registry.get(), _table_rpc_throttler.get());
+        static_cast<CloudStorageEngine*>(_storage_engine.get())
+                ->meta_mgr()
+                .set_ms_backpressure_handler(_ms_backpressure_handler.get());
     }
 
     _index_policy_mgr = new IndexPolicyMgr();

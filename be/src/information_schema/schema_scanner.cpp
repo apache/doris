@@ -46,6 +46,7 @@
 #include "information_schema/schema_backend_active_tasks.h"
 #include "information_schema/schema_backend_configuration_scanner.h"
 #include "information_schema/schema_backend_kerberos_ticket_cache.h"
+#include "information_schema/schema_backend_ms_rpc_table_throttlers_scanner.h"
 #include "information_schema/schema_catalog_meta_cache_stats_scanner.h"
 #include "information_schema/schema_charsets_scanner.h"
 #include "information_schema/schema_cluster_snapshot_properties_scanner.h"
@@ -261,6 +262,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaColumnDataSizesScanner::create_unique();
     case TSchemaTableType::SCH_FILE_CACHE_INFO:
         return SchemaFileCacheInfoScanner::create_unique();
+    case TSchemaTableType::SCH_BACKEND_MS_RPC_TABLE_THROTTLERS:
+        return SchemaBackendMsRpcTableThrottlersScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

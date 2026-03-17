@@ -120,7 +120,8 @@ Status CloudDeltaWriter::commit_rowset() {
     }
 
     // Handle normal rowset with data
-    return _engine.meta_mgr().commit_rowset(*rowset_meta(), "");
+    return _engine.meta_mgr().commit_rowset(*rowset_meta(), "",
+                                            _rowset_builder->tablet()->table_id());
 }
 
 Status CloudDeltaWriter::_commit_empty_rowset() {
@@ -138,7 +139,8 @@ Status CloudDeltaWriter::_commit_empty_rowset() {
         return Status::OK();
     }
     // write a empty rowset kv to keep version continuous
-    return _engine.meta_mgr().commit_rowset(*rowset_meta(), "");
+    return _engine.meta_mgr().commit_rowset(*rowset_meta(), "",
+                                            _rowset_builder->tablet()->table_id());
 }
 
 Status CloudDeltaWriter::set_txn_related_delete_bitmap() {

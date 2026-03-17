@@ -1055,10 +1055,13 @@ private:
 
         TEST_SYNC_POINT("MetaServiceProxy::call_impl:1");
 
+        std::string req_name = req->GetDescriptor()->name();
         int32_t retry_times = 0;
         uint64_t duration_ms = 0, retry_drift_ms = 0;
         while (true) {
             resp->Clear(); // reset the response message in case it is reused for retry
+            TEST_SYNC_POINT_RETURN_WITH_VOID("MetaServiceProxy::call_impl::inject_max_qps_limit",
+                                             &retry_times, resp->mutable_status(), &req_name);
             (impl_.get()->*method)(ctrl, req, resp, brpc::DoNothing());
             MetaServiceCode code = resp->status().code();
             if (code != MetaServiceCode::KV_TXN_STORE_GET_RETRYABLE &&

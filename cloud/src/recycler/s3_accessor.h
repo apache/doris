@@ -33,7 +33,8 @@ class S3Client;
 } // namespace Aws::S3
 
 namespace doris {
-class S3RateLimiterHolder;
+class TokenBucketRateLimiterHolder;
+using S3RateLimiterHolder = TokenBucketRateLimiterHolder;
 
 enum class S3RateLimitType;
 namespace cloud {
