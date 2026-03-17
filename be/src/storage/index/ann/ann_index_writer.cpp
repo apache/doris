@@ -152,7 +152,7 @@ int64_t AnnIndexColumnWriter::size() const {
 }
 
 Status AnnIndexColumnWriter::finish() {
-    vectorized::Int64 min_train_rows = _vector_index->get_min_train_rows();
+    Int64 min_train_rows = _vector_index->get_min_train_rows();
 
     // Check if we have enough rows to train the index
     // train/add the remaining data

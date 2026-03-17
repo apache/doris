@@ -289,16 +289,16 @@ doris::Status FaissVectorIndex::add(Int64 n, const float* vec) {
     return doris::Status::OK();
 }
 
-vectorized::Int64 FaissVectorIndex::get_min_train_rows() const {
+Int64 FaissVectorIndex::get_min_train_rows() const {
     // For IVF indexes, the minimum number of training points should be at least
     // equal to the number of clusters (nlist). FAISS requires this for k-means clustering.
-    vectorized::Int64 ivf_min = 0;
+    Int64 ivf_min = 0;
     if (_params.index_type == FaissBuildParameter::IndexType::IVF) {
         ivf_min = _params.ivf_nlist;
     }
 
     // Calculate minimum training rows required by the quantizer
-    vectorized::Int64 quantizer_min = 0;
+    Int64 quantizer_min = 0;
     if (_params.quantizer == FaissBuildParameter::Quantizer::PQ) {
         // For PQ, we need to make sure each sub-quantizer has enough training vectors.
         // See code from contrib/faiss/faiss/impl/ProductQuantizer.cpp::65

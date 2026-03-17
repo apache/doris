@@ -76,6 +76,7 @@
 #include "storage/field.h"
 #include "storage/id_manager.h"
 #include "storage/index/ann/ann_index.h"
+#include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/index/index_file_reader.h"

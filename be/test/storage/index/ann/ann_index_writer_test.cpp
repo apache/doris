@@ -53,7 +53,7 @@ public:
                 (override));
     MOCK_METHOD(doris::Status, save, (lucene::store::Directory * dir), (override));
     MOCK_METHOD(doris::Status, load, (lucene::store::Directory * dir), (override));
-    MOCK_METHOD(vectorized::Int64, get_min_train_rows, (), (const, override));
+    MOCK_METHOD(Int64, get_min_train_rows, (), (const, override));
 };
 
 class TestAnnIndexColumnWriter : public AnnIndexColumnWriter {

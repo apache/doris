@@ -98,7 +98,7 @@ public:
      *
      * @return Minimum number of rows required for training
      */
-    virtual vectorized::Int64 get_min_train_rows() const { return 0; }
+    virtual Int64 get_min_train_rows() const { return 0; }
 
     /** Return approximate nearest neighbors of a query vector.
      * The result is stored in the result object.

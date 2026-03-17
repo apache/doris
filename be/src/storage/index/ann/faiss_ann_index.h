@@ -216,7 +216,7 @@ public:
      *
      * @return Minimum number of rows required for training
      */
-    vectorized::Int64 get_min_train_rows() const override;
+    Int64 get_min_train_rows() const override;
 
     /**
      * @brief Sets the build parameters for the index.
