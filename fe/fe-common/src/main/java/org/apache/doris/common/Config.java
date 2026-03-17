@@ -3869,7 +3869,7 @@ public class Config extends ConfigBase {
     })
     public static boolean enable_file_cache_admission_control = false;
 
-    @ConfField(mutable = true, description = {
+    @ConfField(mutable = false, description = {
         "存储准入规则的JSON文件目录",
         "Directory path for storing admission rules JSON files"
     })

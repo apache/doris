@@ -24,6 +24,7 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.FunctionGenTable;
@@ -104,10 +105,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected FileSplitter fileSplitter;
 
-    // The data cache function only works for queries on Hive, Iceberg, Hudi, and Paimon tables.
+    // The data cache function only works for queries on Hive, Iceberg, Hudi(via HMS), and Paimon tables.
     // See: https://doris.incubator.apache.org/docs/dev/lakehouse/data-cache
     private static final Set<String> CACHEABLE_CATALOGS = new HashSet<>(
-            Arrays.asList("hms", "iceberg", "hudi", "paimon")
+            Arrays.asList("hms", "iceberg", "paimon")
     );
 
     /**
@@ -676,11 +677,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected boolean fileCacheAdmissionCheck() throws UserException {
         boolean admissionResultAtTableLevel = true;
         TableIf tableIf = getTargetTable();
-        String database = tableIf.getDatabase().getFullName();
         String table = tableIf.getName();
 
         if (tableIf instanceof ExternalTable) {
             ExternalTable externalTableIf = (ExternalTable) tableIf;
+            String database = tableIf.getDatabase().getFullName();
             String catalog = externalTableIf.getCatalog().getName();
 
             if (CACHEABLE_CATALOGS.contains(externalTableIf.getCatalog().getType())) {
@@ -710,8 +711,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
         } else {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Skip file cache admission control for non-external table: {}.{}",
-                        database, table);
+                DatabaseIf databaseIf = tableIf.getDatabase();
+                String database = databaseIf == null ? "null" : databaseIf.getFullName();
+                String catalog = databaseIf == null || databaseIf.getCatalog() == null
+                        ? "null" : databaseIf.getCatalog().getName();
+                LOG.debug("Skip file cache admission control for non-external table: {}.{}.{}",
+                        catalog, database, table);
             }
         }
 
