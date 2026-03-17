@@ -15,35 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands.info;
+package org.apache.doris.datasource.property;
 
-import org.apache.doris.info.TableNameInfo;
+import org.junit.jupiter.api.Test;
 
-/**
- * WarmUpItem
- */
-public class WarmUpItem {
-    private final TableNameInfo tableNameInfo;
-    private final String partitionName;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.TimeZone;
 
-    public WarmUpItem(TableNameInfo tableNameInfo, String partitionName) {
-        this.tableNameInfo = tableNameInfo;
-        this.partitionName = partitionName;
-    }
-
-    public TableNameInfo getTableNameInfo() {
-        return tableNameInfo;
-    }
-
-    public String getPartitionName() {
-        return partitionName;
-    }
-
-    @Override
-    public String toString() {
-        return "WarmUpItem{"
-            + "tableNameInfo=" + tableNameInfo
-            + ", partitionName='" + partitionName + '\''
-            + '}';
+public class MyTest {
+    @Test
+    public void testOutFileS3PropertiesConverter() throws Exception {
+        System.out.println("testOutFileS3PropertiesConverter");
+        SimpleDateFormat f = new SimpleDateFormat("yy");
+        f.setTimeZone(TimeZone.getDefault());
+        Date date = new Date();
+        System.out.printf(f.format(date));
     }
 }

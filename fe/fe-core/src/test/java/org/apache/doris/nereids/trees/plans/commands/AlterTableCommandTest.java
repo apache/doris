@@ -17,12 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
-import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
