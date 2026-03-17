@@ -62,11 +62,44 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
 
     private final List<Slot> materializeInput;
     private final List<Slot> materializeOutput;
-    // used for BE
+    /**
+     * The following four fields are used by BE to perform the actual lazy fetch.
+     * They are indexed by relation: index i corresponds to relations.get(i).
+     *
+     * Example:
+     *   SQL: SELECT t1.a, t1.b, t2.c, t2.d FROM t1 JOIN t2 ON ... WHERE t1.a > 5
+     *   Assume t1.b and t2.d are lazily materialized (fetched after filtering).
+     *
+     *   materializedSlots (non-lazy, computed eagerly) = [t1.a, t2.c]
+     *   Output slot order = [t1.a(0), t2.c(1), t1.b(2), t2.d(3)]
+     *
+     *   rowIdList         = [row_id_t1, row_id_t2]
+     *                       The row-id slots passed to BE to locate the original rows.
+     *
+     *   relations         = [t1, t2]
+     *
+     *   lazyColumns       = [[Column(b)],          [Column(d)]]
+     *                       For each relation, the Column objects to be lazily fetched.
+     *
+     *   lazyBaseColumnIndices = [[colIdxOf(b) in t1],  [colIdxOf(d) in t2]]
+     *                       For each relation, the physical column index inside the table
+     *                       for each lazy column (used by BE to locate the column on disk).
+     *
+     *   lazySlotLocations = [[2],                  [3]]
+     *                       A two-level array: the outer level is indexed by relation
+     *                       (same as relations / rowIdList), and the inner level lists the
+     *                       output-tuple position for each lazy column of that relation.
+     *                       Two levels are needed because a single relation can have
+     *                       multiple lazy columns.  For example, if both t1.b and t1.e
+     *                       were lazy, the entry for t1 would be [2, 4] (positions of b
+     *                       and e in the output tuple), while t2 remains [3].
+     *                       BE uses each position to know which output slot to fill in
+     *                       after fetching the column value from disk.
+     */
     private final List<Slot> rowIdList;
     private List<List<Column>> lazyColumns = new ArrayList<>();
     private List<List<Integer>> lazySlotLocations = new ArrayList<>();
-    private List<List<Integer>> lazyTableIdxs = new ArrayList<>();
+    private List<List<Integer>> lazyBaseColumnIndices = new ArrayList<>();
 
     private final List<Relation> relations;
 
@@ -101,7 +134,7 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
         this.materializedSlots = ImmutableList.copyOf(materializedSlots);
         this.materializeMap = materializeMap;
         lazySlotLocations = new ArrayList<>();
-        lazyTableIdxs = new ArrayList<>();
+        lazyBaseColumnIndices = new ArrayList<>();
         lazyColumns = new ArrayList<>();
 
         ImmutableList.Builder<Slot> outputBuilder = ImmutableList.builder();
@@ -126,15 +159,19 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
 
             List<Column> lazyColumnForRel = new ArrayList<>();
             lazyColumns.add(lazyColumnForRel);
-            List<Integer> lazyIdxForRel = new ArrayList<>();
-            lazyTableIdxs.add(lazyIdxForRel);
+            List<Integer> lazyBaseColumnIdxForRel = new ArrayList<>();
+            lazyBaseColumnIndices.add(lazyBaseColumnIdxForRel);
 
             List<Integer> lazySlotLocationForRel = new ArrayList<>();
             lazySlotLocations.add(lazySlotLocationForRel);
             for (Slot lazySlot : relationToLazySlotMap.get(rel)) {
-                outputBuilder.add(lazySlot);
-                lazyColumnForRel.add(materializeMap.get(lazySlot).baseSlot.getOriginalColumn().get());
-                lazyIdxForRel.add(relationTable.getBaseColumnIdxByName(lazySlot.getName()));
+                // Set originalColumn on the lazy slot so that createSlotDesc can write
+                // colUniqueId into the thrift SlotDescriptor — BE needs it to resolve
+                // the column during remote fetch.
+                Column originalColumn = materializeMap.get(lazySlot).baseSlot.getOriginalColumn().get();
+                outputBuilder.add(((SlotReference) lazySlot).withColumn(originalColumn));
+                lazyColumnForRel.add(originalColumn);
+                lazyBaseColumnIdxForRel.add(relationTable.getBaseColumnIdxByName(lazySlot.getName()));
                 lazySlotLocationForRel.add(loc);
                 loc++;
             }
@@ -250,8 +287,8 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
         return lazySlotLocations;
     }
 
-    public List<List<Integer>> getlazyTableIdxs() {
-        return lazyTableIdxs;
+    public List<List<Integer>> getLazyBaseColumnIndices() {
+        return lazyBaseColumnIndices;
     }
 
     public List<Slot> getRowIds() {
