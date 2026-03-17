@@ -40,6 +40,12 @@ HADOOP_DEPS_NAME="hadoop-deps"
 
 # ===== Build Profile =====
 if [[ "${DORIS_BUILD_PROFILE}" == "1" ]]; then
+    if ! command -v python3 &>/dev/null; then
+        echo "WARNING: python3 not found, build profiling disabled"
+        DORIS_BUILD_PROFILE=0
+    fi
+fi
+if [[ "${DORIS_BUILD_PROFILE}" == "1" ]]; then
     _BP_LOG="${DORIS_HOME}/.build_profile.jsonl"
     _BP_START=$(date +%s)
     _BP_USER=$(whoami)
