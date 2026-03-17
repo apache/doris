@@ -264,10 +264,8 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external") {
     logger.info("Rollback timestamp result: ${rollbackTimestampResult}")
     qt_after_rollback_to_timestamp """SELECT * FROM test_rollback_timestamp ORDER BY id"""
 
-    String middleCommittedTime = timestampSnapshotList[1][0]
-    LocalDateTime middleDateTime = LocalDateTime.parse(middleCommittedTime, unifiedFormatter)
     String epochMillisSnapshotTime = String.valueOf(
-            middleDateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
+            dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
 
     List<List<Object>> rollbackTimestampEpochResult = sql """
         ALTER TABLE ${catalog_name}.${db_name}.test_rollback_timestamp
