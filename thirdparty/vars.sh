@@ -140,10 +140,11 @@ LZO2_SOURCE=lzo-2.10
 LZO2_MD5SUM="39d3f3f9c55c87b1e5d6888e1420f4b5"
 
 # rapidjson
-RAPIDJSON_DOWNLOAD="https://github.com/Tencent/rapidjson/archive/1a803826f1197b5e30703afe4b9c0e7dd48074f5.zip"
-RAPIDJSON_NAME=rapidjson-1a803826f1197b5e30703afe4b9c0e7dd48074f5.zip
-RAPIDJSON_SOURCE=rapidjson-1a803826f1197b5e30703afe4b9c0e7dd48074f5
-RAPIDJSON_MD5SUM="f2212a77e055a15501477f1e390007ea"
+# Updated to match paimon-cpp version (commit 232389d4f1012dddec4ef84861face2d2ba85709)
+RAPIDJSON_DOWNLOAD="https://github.com/miloyip/rapidjson/archive/232389d4f1012dddec4ef84861face2d2ba85709.tar.gz"
+RAPIDJSON_NAME=rapidjson-232389d4f1012dddec4ef84861face2d2ba85709.tar.gz
+RAPIDJSON_SOURCE=rapidjson-232389d4f1012dddec4ef84861face2d2ba85709
+RAPIDJSON_MD5SUM="577d3495a07b66fcd4a2866c93831bc4"
 
 # curl
 CURL_DOWNLOAD="https://curl.se/download/curl-8.2.1.tar.gz"
@@ -552,6 +553,14 @@ PUGIXML_NAME=pugixml-1.15.tar.gz
 PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
+# paimon-cpp
+# Using git clone since there's no official release yet
+# We'll use a specific commit or tag for reproducibility
+PAIMON_CPP_GIT_URL="https://github.com/alibaba/paimon-cpp.git"
+PAIMON_CPP_GIT_TAG="0a4f4e2e7967fdb0be180711bbe581a18eeeb2dd"
+PAIMON_CPP_NAME=paimon-cpp
+PAIMON_CPP_SOURCE=paimon-cpp
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -634,6 +643,7 @@ export TP_ARCHIVES=(
     'ICU'
     'JINDOFS'
     'PUGIXML'
+    'PAIMON_CPP'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
