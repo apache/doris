@@ -43,10 +43,7 @@ from dbt.adapters.contracts.relation import RelationType
 from dbt.adapters.doris.doris_column_item import DorisColumnItem
 from dbt_common.exceptions import CompilationError
 
-from dbt.adapters.events.logging import AdapterLogger
 
-
-logger = AdapterLogger(__name__)
 
 class Engine(str, Enum):
     olap = "olap"
@@ -141,7 +138,7 @@ class DorisAdapter(SQLAdapter):
             manifest: Manifest,
     ) -> agate.Table:
         if len(schemas) != 1:
-            CompilationError(
+            raise CompilationError(
                 f"Expected only one schema in Doris _get_one_catalog, found " f"{schemas}"
             )
 
