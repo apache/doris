@@ -41,6 +41,8 @@
 #include "olap/rowset/segment_v2/inverted_index/query_v2/bit_set_query/bit_set_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/boolean_query_builder.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/operator.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/collect/doc_set_collector.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/collect/top_k_collector.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/multi_phrase_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/phrase_query/phrase_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/regexp_query/regexp_query.h"
@@ -64,6 +66,11 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+
+// Nested group search is not available in branch-4.0
+static bool is_nested_group_search_supported() {
+    return false;
+}
 
 // Build canonical DSL signature for cache key.
 // Serializes the entire TSearchParam via Thrift binary protocol so that
@@ -379,7 +386,8 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
         InvertedIndexResultBitmap& bitmap_result, bool enable_cache,
         const IndexExecContext* index_exec_ctx,
-        const std::unordered_map<std::string, int>& field_name_to_column_id) const {
+        const std::unordered_map<std::string, int>& field_name_to_column_id,
+        const std::shared_ptr<IndexQueryContext>& index_query_context) const {
     const bool is_nested_query = search_param.root.clause_type == "NESTED";
     if (is_nested_query && !is_nested_group_search_supported()) {
         return Status::NotSupported(
@@ -433,9 +441,14 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         }
     }
 
-    auto context = std::make_shared<IndexQueryContext>();
-    context->collection_statistics = std::make_shared<CollectionStatistics>();
-    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    std::shared_ptr<IndexQueryContext> context;
+    if (index_query_context) {
+        context = index_query_context;
+    } else {
+        context = std::make_shared<IndexQueryContext>();
+        context->collection_statistics = std::make_shared<CollectionStatistics>();
+        context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    }
 
     // NESTED() queries evaluate predicates on the flattened "element space" of a nested group.
     // For VARIANT nested groups, the indexed lucene field (stored_field_name) uses:
@@ -554,7 +567,16 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     query_v2::QueryExecutionContext exec_ctx =
             build_query_execution_context(num_rows, resolver, &null_resolver);
 
-    auto weight = root_query->weight(false);
+    bool enable_scoring = false;
+    bool is_asc = false;
+    size_t top_k = 0;
+    if (index_query_context) {
+        enable_scoring = index_query_context->collection_similarity != nullptr;
+        is_asc = index_query_context->is_asc;
+        top_k = index_query_context->query_limit;
+    }
+
+    auto weight = root_query->weight(enable_scoring);
     if (!weight) {
         LOG(WARNING) << "search: Failed to build query weight";
         bitmap_result = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
@@ -562,35 +584,35 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         return Status::OK();
     }
 
-    auto scorer = weight->scorer(exec_ctx, root_binding_key);
-    if (!scorer) {
-        LOG(WARNING) << "search: Failed to build scorer";
-        bitmap_result = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(),
-                                                  std::make_shared<roaring::Roaring>());
-        return Status::OK();
-    }
-
     std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
-    uint32_t doc = scorer->doc();
-    uint32_t matched_docs = 0;
-    while (doc != query_v2::TERMINATED) {
-        roaring->add(doc);
-        ++matched_docs;
-        doc = scorer->advance();
+    if (enable_scoring && !is_asc && top_k > 0) {
+        bool use_wand = index_query_context->runtime_state != nullptr &&
+                        index_query_context->runtime_state->query_options()
+                                .enable_inverted_index_wand_query;
+        query_v2::collect_multi_segment_top_k(weight, exec_ctx, root_binding_key, top_k, roaring,
+                                              index_query_context->collection_similarity, use_wand);
+    } else {
+        query_v2::collect_multi_segment_doc_set(
+                weight, exec_ctx, root_binding_key, roaring,
+                index_query_context ? index_query_context->collection_similarity : nullptr,
+                enable_scoring);
     }
 
-    VLOG_DEBUG << "search: Query completed, matched " << matched_docs << " documents";
+    VLOG_DEBUG << "search: Query completed, matched " << roaring->cardinality() << " documents";
 
     // Extract NULL bitmap from three-valued logic scorer
     // The scorer correctly computes which documents evaluate to NULL based on query logic
     // For example: TRUE OR NULL = TRUE (not NULL), FALSE OR NULL = NULL
     std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-    if (scorer->has_null_bitmap(exec_ctx.null_resolver)) {
-        const auto* bitmap = scorer->get_null_bitmap(exec_ctx.null_resolver);
-        if (bitmap != nullptr) {
-            *null_bitmap = *bitmap;
-            VLOG_TRACE << "search: Extracted NULL bitmap with " << null_bitmap->cardinality()
-                       << " NULL documents";
+    if (exec_ctx.null_resolver) {
+        auto scorer = weight->scorer(exec_ctx, root_binding_key);
+        if (scorer && scorer->has_null_bitmap(exec_ctx.null_resolver)) {
+            const auto* bitmap = scorer->get_null_bitmap(exec_ctx.null_resolver);
+            if (bitmap != nullptr) {
+                *null_bitmap = *bitmap;
+                VLOG_TRACE << "search: Extracted NULL bitmap with " << null_bitmap->cardinality()
+                           << " NULL documents";
+            }
         }
     }
 

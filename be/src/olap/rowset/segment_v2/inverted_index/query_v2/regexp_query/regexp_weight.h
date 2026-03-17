@@ -46,7 +46,7 @@ private:
 
     std::wstring _field;
     std::string _pattern;
-    bool _enable_scoring = false;
+    [[maybe_unused]] bool _enable_scoring = false;
     bool _nullable = true;
     // Set to 0 to disable limit (ES has no default limit for prefix queries)
     // The limit prevents collecting too many terms, but can cause incorrect results
