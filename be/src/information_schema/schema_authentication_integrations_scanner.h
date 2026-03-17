@@ -15,44 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// DEPRECATED: LakeSoul catalog support has been deprecated and will be removed in a future version.
-// This file is kept for backward compatibility but should not be used in new code.
-
 #pragma once
 
-#include <string>
-#include <unordered_map>
+#include <gen_cpp/FrontendService_types.h>
+
 #include <vector>
 
 #include "common/status.h"
-#include "exec/connector/jni_connector.h"
-#include "format/jni_reader.h"
-#include "storage/olap_scan_common.h"
+#include "information_schema/schema_scanner.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
-class RuntimeProfile;
 class RuntimeState;
-class SlotDescriptor;
-
 class Block;
-} // namespace doris
 
-namespace doris {
-class LakeSoulJniReader : public JniReader {
-    ENABLE_FACTORY_CREATOR(LakeSoulJniReader);
+class SchemaAuthenticationIntegrationsScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaAuthenticationIntegrationsScanner);
 
 public:
-    LakeSoulJniReader(const TLakeSoulFileDesc& lakesoul_params,
-                      const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
-                      RuntimeProfile* profile);
+    SchemaAuthenticationIntegrationsScanner();
+    ~SchemaAuthenticationIntegrationsScanner() override = default;
 
-    ~LakeSoulJniReader() override = default;
+    Status start(RuntimeState* state) override;
+    Status get_next_block_internal(Block* block, bool* eos) override;
 
-    Status init_reader();
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 
 private:
-    const TLakeSoulFileDesc& _lakesoul_params;
+    Status _get_authentication_integrations_block_from_fe();
+
+    int _block_rows_limit = 4096;
+    int _row_idx = 0;
+    int _total_rows = 0;
+    int _rpc_timeout_ms = 3000;
+    std::unique_ptr<Block> _authentication_integrations_block = nullptr;
 };
-#include "common/compile_check_end.h"
+
 } // namespace doris

@@ -2964,6 +2964,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         try {
+            String groupCommitMode = PropertyAnalyzer.analyzeGroupCommitMode(properties, true);
+            olapTable.setGroupCommitMode(groupCommitMode);
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
+
+        try {
             TEncryptionAlgorithm tdeAlgorithm = PropertyAnalyzer.analyzeTDEAlgorithm(properties);
             olapTable.setEncryptionAlgorithm(tdeAlgorithm);
         } catch (Exception e) {
@@ -3719,6 +3726,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         for (Map.Entry<Long, RecyclePartitionParam> pair : recyclePartitionParamMap.entrySet()) {
             olapTable.dropPartitionForTruncate(olapTable.getDatabase().getId(), isforceDrop, pair.getValue());
         }
+
+        // Reset table-level visibleVersion to TABLE_INIT_VERSION so it stays consistent
+        // with the newly created partitions (which also start at PARTITION_INIT_VERSION).
+        olapTable.resetVisibleVersion();
 
         return oldPartitions;
     }

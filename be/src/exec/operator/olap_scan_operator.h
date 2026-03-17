@@ -103,6 +103,7 @@ private:
 
     bool _storage_no_merge() override;
 
+    bool _read_mor_as_dup();
     bool _push_down_topn(const RuntimePredicate& predicate) override {
         if (!predicate.target_is_slot(_parent->node_id())) {
             return false;
@@ -256,10 +257,6 @@ private:
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
-
-    // condition cache filter stats
-    RuntimeProfile::Counter* _condition_cache_hit_segment_counter = nullptr;
-    RuntimeProfile::Counter* _condition_cache_filtered_rows_counter = nullptr;
 
     // timer about tablet reader
     RuntimeProfile::Counter* _tablet_reader_init_timer = nullptr;

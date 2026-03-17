@@ -54,9 +54,14 @@ void MaterializationSharedState::get_block(Block* block) {
 }
 
 Status MaterializationSharedState::merge_multi_response() {
-    std::unordered_map<int64_t, std::pair<Block, int>> block_maps;
-
     for (int i = 0; i < block_order_results.size(); ++i) {
+        // block_maps must be rebuilt for each relation (each i), because a backend that
+        // returned a non-empty block for relation i-1 may return an empty block for
+        // relation i (e.g. it holds rows only from one of the two tables in a UNION ALL).
+        // Keeping block_maps across iterations would leave stale entries from the previous
+        // relation and miss entries for the current one, causing the
+        // "backend_id not found in block_maps" error.
+        std::unordered_map<int64_t, std::pair<Block, int>> block_maps;
         for (auto& [backend_id, rpc_struct] : rpc_struct_map) {
             Block partial_block;
             size_t uncompressed_size = 0;

@@ -764,6 +764,15 @@ public class TableProperty implements GsonPostProcessable {
             Integer.toString(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE)));
     }
 
+    public void setGroupCommitMode(String groupCommitMode) {
+        properties.put(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE, groupCommitMode);
+    }
+
+    public String getGroupCommitMode() {
+        return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE,
+                PropertyAnalyzer.GROUP_COMMIT_MODE_OFF);
+    }
+
     public void setRowStoreColumns(List<String> rowStoreColumns) {
         if (rowStoreColumns != null && !rowStoreColumns.isEmpty()) {
             modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN, "true");

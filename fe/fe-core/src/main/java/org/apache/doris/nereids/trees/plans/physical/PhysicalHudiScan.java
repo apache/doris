@@ -27,6 +27,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -91,26 +92,25 @@ public class PhysicalHudiScan extends PhysicalFileScan {
 
     @Override
     public PhysicalHudiScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalHudiScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, getLogicalProperties(), selectedPartitions, tableSample, tableSnapshot,
-                scanParams, incrementalRelation, operativeSlots);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalHudiScan(relationId, getTable(), qualifier,
+                distributionSpec, groupExpression, getLogicalProperties(), selectedPartitions, tableSample,
+                tableSnapshot, scanParams, incrementalRelation, operativeSlots));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalHudiScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, logicalProperties.get(), selectedPartitions, tableSample, tableSnapshot,
-                scanParams, incrementalRelation, operativeSlots);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalHudiScan(relationId, getTable(), qualifier,
+                distributionSpec, groupExpression, logicalProperties.get(), selectedPartitions, tableSample,
+                tableSnapshot, scanParams, incrementalRelation, operativeSlots));
     }
 
     @Override
     public PhysicalHudiScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalHudiScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics,
-                selectedPartitions, tableSample, tableSnapshot,
-                scanParams, incrementalRelation, operativeSlots);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalHudiScan(relationId, getTable(), qualifier,
+                distributionSpec, groupExpression, getLogicalProperties(), physicalProperties, statistics,
+                selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation, operativeSlots));
     }
 
     @Override

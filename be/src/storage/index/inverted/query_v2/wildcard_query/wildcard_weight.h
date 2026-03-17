@@ -41,7 +41,7 @@ public:
     ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override {
         std::string regex_pattern = wildcard_to_regex(_pattern);
         auto regexp_weight = std::make_shared<RegexpWeight>(
-                _context, std::move(_field), std::move(regex_pattern), _enable_scoring, _nullable);
+                _context, _field, std::move(regex_pattern), _enable_scoring, _nullable);
         return regexp_weight->scorer(ctx, binding_key);
     }
 
