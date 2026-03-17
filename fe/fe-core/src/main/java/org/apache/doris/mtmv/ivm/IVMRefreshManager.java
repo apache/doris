@@ -70,7 +70,7 @@ public class IVMRefreshManager {
 
         IVMPlanAnalysis analysis = planAnalyzer.analyze(context);
         Objects.requireNonNull(analysis, "analysis can not be null");
-        if (analysis.getPattern() == IVMPlanPattern.UNSUPPORTED) {
+        if (analysis.isInvalid()) {
             return IVMRefreshResult.fallback(FallbackReason.PLAN_PATTERN_UNSUPPORTED, analysis.getUnsupportedReason());
         }
 
