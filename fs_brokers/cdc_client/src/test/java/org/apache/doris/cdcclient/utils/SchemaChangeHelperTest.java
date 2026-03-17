@@ -156,6 +156,12 @@ class SchemaChangeHelperTest {
     }
 
     @Test
+    void macaddr8AndXmlTypes_isString() {
+        assertEquals(DorisType.STRING, map("macaddr8", -1, -1));
+        assertEquals(DorisType.STRING, map("xml",      -1, -1));
+    }
+
+    @Test
     void geometricTypes_isString() {
         assertEquals(DorisType.STRING, map("point", -1, -1));
         assertEquals(DorisType.STRING, map("line", -1, -1));

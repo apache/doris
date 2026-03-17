@@ -268,9 +268,11 @@ public class SchemaChangeHelper {
             case "cidr":
             case "inet":
             case "macaddr":
+            case "macaddr8":
             case "varbit":
             case "uuid":
             case "bytea":
+            case "xml":
                 return DorisType.STRING;
             case "json":
             case "jsonb":

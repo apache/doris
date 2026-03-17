@@ -172,8 +172,10 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             case "cidr":
             case "inet":
             case "macaddr":
+            case "macaddr8":
             case "varbit":
             case "uuid":
+            case "xml":
             case "json":
             case "jsonb":
                 return ScalarType.createStringType();
