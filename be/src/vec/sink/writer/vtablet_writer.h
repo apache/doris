@@ -775,5 +775,9 @@ private:
 
     // tablet_id -> <total replicas num, load required replicas num>
     std::unordered_map<int64_t, std::pair<int, int>> _tablet_replica_info;
+
+    // tablet_id -> set of backend_ids that have version gaps
+    // these backends' success should not be counted for majority write
+    std::unordered_map<int64_t, std::unordered_set<int64_t>> _tablet_version_gap_backends;
 };
 } // namespace doris::vectorized
