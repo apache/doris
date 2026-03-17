@@ -118,10 +118,11 @@ cmd_record() {
         return 1
     fi
 
-    # Read state
+    # Read state (only lines matching _BP_* pattern)
     local _BP_START _BP_USER _BP_DIR _BP_COMMIT _BP_BASE_BRANCH _BP_ARGS
     while IFS='=' read -r key value; do
         [[ "$key" == "===FILES===" ]] && break
+        [[ "$key" == _BP_* ]] || continue
         eval "${key}='${value}'"
     done < "${state_file}"
 
@@ -132,7 +133,7 @@ cmd_record() {
     local end_time
     end_time=$(date +%s)
     local load_avg
-    load_avg=$(uptime | grep -oE 'load average[s]?: .*' | sed 's/load average[s]\?: //')
+    load_avg=$(uptime | grep -oE 'load average[s]?: .*' | sed 's/load average[s]\{0,1\}: //')
 
     # Write record via python3 (env vars + stdin for safety)
     echo "${files}" | \
