@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.foundation.format.FormatOptions;
 
 import com.google.common.io.BaseEncoding;
 import com.google.gson.annotations.SerializedName;
@@ -121,8 +120,4 @@ public class VarBinaryLiteral extends LiteralExpr {
         return new String(value, StandardCharsets.ISO_8859_1);
     }
 
-    @Override
-    public String getStringValueInComplexTypeForQuery(FormatOptions options) {
-        return options.getNestedStringWrapper() + getStringValueForQuery(options) + options.getNestedStringWrapper();
-    }
 }

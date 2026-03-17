@@ -443,7 +443,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, cons
         return Status::OK();
     }
 
-    if (pdt == PushDownType::ACCEPTABLE && (_is_key_column(slot->col_name()))) {
+    if (pdt == PushDownType::ACCEPTABLE && _is_key_column(slot->col_name())) {
         output_expr = nullptr;
         return Status::OK();
     } else {
@@ -1052,6 +1052,10 @@ Status ScanLocalState<Derived>::_init_profile() {
 
     _peak_running_scanner =
             _scanner_profile->AddHighWaterMarkCounter("RunningScanner", TUnit::UNIT);
+
+    _condition_cache_hit_counter = ADD_COUNTER(_scanner_profile, "ConditionCacheHit", TUnit::UNIT);
+    _condition_cache_filtered_rows_counter =
+            ADD_COUNTER(_scanner_profile, "ConditionCacheFilteredRows", TUnit::UNIT);
 
     // Rows read from storage.
     // Include the rows read from doris page cache.

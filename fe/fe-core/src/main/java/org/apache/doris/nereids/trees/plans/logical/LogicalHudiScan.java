@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -157,34 +158,38 @@ public class LogicalHudiScan extends LogicalFileScan {
 
     @Override
     public LogicalHudiScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
                 operativeSlots, virtualColumns, groupExpression, Optional.of(getLogicalProperties()),
-                tableAlias, cachedOutputs);
+                tableAlias, cachedOutputs));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
             selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
                 operativeSlots, virtualColumns, groupExpression, logicalProperties,
-                tableAlias, cachedOutputs);
+                tableAlias, cachedOutputs));
     }
 
     public LogicalHudiScan withSelectedPartitions(SelectedPartitions selectedPartitions) {
-        return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
             selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
                 operativeSlots, virtualColumns, groupExpression, Optional.of(getLogicalProperties()),
-                tableAlias, cachedOutputs);
+                tableAlias, cachedOutputs));
     }
 
     @Override
     public LogicalHudiScan withRelationId(RelationId relationId) {
-        return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
             selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
                 operativeSlots, virtualColumns, groupExpression, Optional.empty(),
-                tableAlias, cachedOutputs);
+                tableAlias, cachedOutputs));
     }
 
     @Override
@@ -194,26 +199,29 @@ public class LogicalHudiScan extends LogicalFileScan {
 
     @Override
     public LogicalHudiScan withOperativeSlots(Collection<Slot> operativeSlots) {
-        return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
                 operativeSlots, virtualColumns, groupExpression, Optional.of(getLogicalProperties()),
-                tableAlias, cachedOutputs);
+                tableAlias, cachedOutputs));
     }
 
     @Override
     public LogicalHudiScan withTableAlias(String tableAlias) {
-        return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
                 operativeSlots, virtualColumns, Optional.empty(), Optional.of(getLogicalProperties()),
-                tableAlias, cachedOutputs);
+                tableAlias, cachedOutputs));
     }
 
     @Override
     public LogicalHudiScan withCachedOutput(List<Slot> cachedOutputs) {
-        return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
             selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
                 operativeSlots, virtualColumns, groupExpression, Optional.empty(),
-                tableAlias, Optional.of(cachedOutputs));
+                tableAlias, Optional.of(cachedOutputs)));
     }
 
     /**
@@ -264,9 +272,11 @@ public class LogicalHudiScan extends LogicalFileScan {
                     "Failed to create incremental relation for table: " + table.getFullQualifiers(), e);
             }
         }
-        return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
-            selectedPartitions, tableSample, tableSnapshot, scanParams, newIncrementalRelation,
+        Optional<IncrementalRelation> finalIncrementalRelation = newIncrementalRelation;
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
+            selectedPartitions, tableSample, tableSnapshot, scanParams, finalIncrementalRelation,
                 operativeSlots, virtualColumns, groupExpression, Optional.of(getLogicalProperties()),
-                tableAlias, cachedOutputs);
+                tableAlias, cachedOutputs));
     }
 }

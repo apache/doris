@@ -21,7 +21,6 @@ import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
@@ -92,7 +91,7 @@ public class DataDescription {
             "md5sum",
             "replace_value",
             "now",
-            FunctionSet.HLL_HASH,
+            "hll_hash",
             "substitute");
 
     private static final String DEFAULT_READ_JSON_BY_LINE = "true";

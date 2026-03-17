@@ -23,7 +23,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.foundation.format.FormatOptions;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -106,15 +105,6 @@ public class BoolLiteral extends LiteralExpr {
     @Override
     public String getStringValue() {
         return value ? "1" : "0";
-    }
-
-    @Override
-    public String getStringValueForQuery(FormatOptions options) {
-        if (options.level > 0) {
-            return options.isBoolValueNum() ? getStringValue() : (value ? "true" : "false");
-        } else {
-            return getStringValue();
-        }
     }
 
     @Override

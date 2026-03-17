@@ -20,6 +20,7 @@
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
+#include "core/data_type/data_type_quantilestate.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/cast/cast_to_array.h"
 #include "exprs/function/cast/cast_to_boolean.h"
@@ -58,6 +59,18 @@ WrapperType create_bitmap_wrapper(FunctionContext* context, const DataTypePtr& f
     }
 
     return CastWrapper::create_unsupport_wrapper("Cast to BitMap only support from String type");
+}
+
+WrapperType create_quantile_state_wrapper(FunctionContext* context,
+                                          const DataTypePtr& from_type_untyped,
+                                          const DataTypeQuantileState& to_type) {
+    /// Conversion from String through parsing.
+    if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
+        return cast_from_string_to_generic;
+    }
+
+    return CastWrapper::create_unsupport_wrapper(
+            "Cast to QuantileState only support from String type");
 }
 
 WrapperType create_varbinary_wrapper(const DataTypePtr& from_type_untyped) {
@@ -300,6 +313,9 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
     case PrimitiveType::TYPE_BITMAP:
         return create_bitmap_wrapper(context, from_type,
                                      static_cast<const DataTypeBitMap&>(*to_type));
+    case PrimitiveType::TYPE_QUANTILE_STATE:
+        return create_quantile_state_wrapper(context, from_type,
+                                             static_cast<const DataTypeQuantileState&>(*to_type));
     case PrimitiveType::TYPE_JSONB:
         return create_cast_to_jsonb_wrapper(from_type, static_cast<const DataTypeJsonb&>(*to_type),
                                             context ? context->string_as_jsonb_string() : false);

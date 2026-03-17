@@ -21,7 +21,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.foundation.format.FormatOptions;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -108,13 +107,4 @@ public class CastExpr extends Expr {
         return false;
     }
 
-    @Override
-    public String getStringValueForStreamLoad(FormatOptions options) {
-        return children.get(0).getStringValueForStreamLoad(options);
-    }
-
-    @Override
-    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
-        return children.get(0).getStringValueInComplexTypeForQuery(options);
-    }
 }

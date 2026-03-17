@@ -25,12 +25,15 @@
 #include <set>
 #include <vector>
 
+#include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/query_v2/all_query/all_query.h"
 #include "storage/index/inverted/query_v2/boolean_query/occur.h"
 #include "storage/index/inverted/query_v2/boolean_query/occur_boolean_weight.h"
 #include "storage/index/inverted/query_v2/query.h"
 #include "storage/index/inverted/query_v2/scorer.h"
+#include "storage/index/inverted/query_v2/segment_postings.h"
 #include "storage/index/inverted/query_v2/weight.h"
+#include "storage/index/inverted/similarity/bm25_similarity.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 namespace {

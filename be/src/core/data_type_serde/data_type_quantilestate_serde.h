@@ -67,15 +67,17 @@ public:
     }
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override {
-        return Status::NotSupported("deserialize_one_cell_from_text with type " +
-                                    column.get_name());
+        auto& data_column = assert_cast<ColumnQuantileState&>(column);
+        QuantileState quantile_state(slice);
+        data_column.insert_value(std::move(quantile_state));
+        return Status::OK();
     }
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                uint64_t* num_deserialized,
                                                const FormatOptions& options) const override {
-        return Status::NotSupported("deserialize_column_from_text_vector with type " +
-                                    column.get_name());
+        DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
+        return Status::OK();
     }
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
