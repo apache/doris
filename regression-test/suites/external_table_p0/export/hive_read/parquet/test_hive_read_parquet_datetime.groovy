@@ -96,10 +96,10 @@ suite("test_hive_read_parquet_datetime", "p0,external") {
                 INTO OUTFILE "${uri}"
                 FORMAT AS ${format}
                 PROPERTIES (
-                    "hadoop.username" = "${hdfsUserName}"
+                    "hadoop.username" = "${hdfsUserName}",
+                    "enable_int96_timestamps" = "${enable_int96}"
                 );
             """
-                    // "enable_int96_timestamps" = "${enable_int96}"
             logger.info("outfile success path: " + res[0][3]);
             return res[0][3]
         }
@@ -120,7 +120,7 @@ suite("test_hive_read_parquet_datetime", "p0,external") {
             qt_select_base """ SELECT * FROM ${export_table_name} t ORDER BY id; """
 
             // outfile to hdfs with enable_int96_timestamps=true
-            def outfile_url = outfile_to_HDFS(false)
+            def outfile_url = outfile_to_HDFS(true)
 
             // create hive table
             create_hive_table(hive_table)
