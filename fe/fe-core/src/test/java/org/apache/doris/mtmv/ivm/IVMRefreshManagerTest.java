@@ -18,16 +18,26 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVRelation;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.Sets;
+import mockit.Expectations;
+import mockit.Mock;
 import mockit.Mocked;
+import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 
 public class IVMRefreshManagerTest {
@@ -107,6 +117,7 @@ public class IVMRefreshManagerTest {
 
         Assert.assertFalse(result.isSuccess());
         Assert.assertEquals(FallbackReason.PLAN_PATTERN_UNSUPPORTED, result.getFallbackReason());
+        Assert.assertEquals(1, manager.precheckCallCount);
         Assert.assertEquals(1, manager.buildContextCallCount);
         Assert.assertSame(mtmv, manager.lastMtmv);
         Assert.assertEquals(1, analyzer.callCount);
@@ -130,6 +141,7 @@ public class IVMRefreshManagerTest {
 
         Assert.assertFalse(result.isSuccess());
         Assert.assertEquals(FallbackReason.STREAM_UNSUPPORTED, result.getFallbackReason());
+        Assert.assertEquals(1, manager.precheckCallCount);
         Assert.assertEquals(1, analyzer.callCount);
         Assert.assertEquals(1, checker.callCount);
         Assert.assertEquals(0, planner.callCount);
@@ -151,6 +163,7 @@ public class IVMRefreshManagerTest {
 
         Assert.assertTrue(result.isSuccess());
         Assert.assertNull(result.getFallbackReason());
+        Assert.assertEquals(1, manager.precheckCallCount);
         Assert.assertEquals(1, analyzer.callCount);
         Assert.assertEquals(1, checker.callCount);
         Assert.assertEquals(1, planner.callCount);
@@ -175,6 +188,7 @@ public class IVMRefreshManagerTest {
 
         Assert.assertFalse(result.isSuccess());
         Assert.assertEquals(FallbackReason.INCREMENTAL_EXECUTION_FAILED, result.getFallbackReason());
+        Assert.assertEquals(1, manager.precheckCallCount);
         Assert.assertEquals(1, planner.callCount);
         Assert.assertEquals(0, executor.callCount);
     }
@@ -194,6 +208,7 @@ public class IVMRefreshManagerTest {
 
         Assert.assertFalse(result.isSuccess());
         Assert.assertEquals(FallbackReason.INCREMENTAL_EXECUTION_FAILED, result.getFallbackReason());
+        Assert.assertEquals(1, manager.precheckCallCount);
         Assert.assertEquals(1, planner.callCount);
         Assert.assertEquals(1, executor.callCount);
     }
@@ -212,10 +227,147 @@ public class IVMRefreshManagerTest {
 
         Assert.assertFalse(result.isSuccess());
         Assert.assertEquals(FallbackReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED, result.getFallbackReason());
+        Assert.assertEquals(1, manager.precheckCallCount);
         Assert.assertEquals(0, analyzer.callCount);
         Assert.assertEquals(0, checker.callCount);
         Assert.assertEquals(0, planner.callCount);
         Assert.assertEquals(0, executor.callCount);
+    }
+
+    @Test
+    public void testManagerReturnsBinlogBrokenBeforeNereidsFlow(@Mocked MTMV mtmv) {
+        IVMInfo ivmInfo = new IVMInfo();
+        ivmInfo.setBinlogBroken(true);
+        new Expectations() {
+            {
+                mtmv.getIvmInfo();
+                result = ivmInfo;
+            }
+        };
+
+        TestPlanAnalyzer analyzer = new TestPlanAnalyzer(IVMPlanAnalysis.of(IVMPlanPattern.SCAN_ONLY));
+        TestCapabilityChecker checker = new TestCapabilityChecker(IVMCapabilityResult.ok());
+        TestDeltaPlannerDispatcher planner = new TestDeltaPlannerDispatcher(
+                Collections.singletonList(new DeltaPlanBundle("delta")));
+        TestDeltaExecutor executor = new TestDeltaExecutor();
+        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, analyzer, planner, executor,
+                newContext(mtmv));
+        manager.useSuperPrecheck = true;
+
+        IVMRefreshResult result = manager.ivmRefresh(mtmv);
+
+        Assert.assertFalse(result.isSuccess());
+        Assert.assertEquals(FallbackReason.BINLOG_BROKEN, result.getFallbackReason());
+        Assert.assertEquals(1, manager.precheckCallCount);
+        Assert.assertEquals(0, manager.buildContextCallCount);
+        Assert.assertEquals(0, analyzer.callCount);
+        Assert.assertEquals(0, checker.callCount);
+        Assert.assertEquals(0, planner.callCount);
+        Assert.assertEquals(0, executor.callCount);
+    }
+
+    @Test
+    public void testManagerReturnsStreamUnsupportedWithoutBinding(@Mocked MTMV mtmv,
+            @Mocked MTMVRelation relation, @Mocked OlapTable olapTable) {
+        IVMInfo ivmInfo = new IVMInfo();
+        new Expectations() {
+            {
+                olapTable.getId();
+                result = 1L;
+                olapTable.getName();
+                result = "t1";
+                olapTable.getDBName();
+                result = "db1";
+            }
+        };
+        BaseTableInfo baseTableInfo = new BaseTableInfo(olapTable, 2L);
+        new Expectations() {
+            {
+                mtmv.getIvmInfo();
+                result = ivmInfo;
+                minTimes = 1;
+                mtmv.getRelation();
+                result = relation;
+                relation.getBaseTablesOneLevelAndFromView();
+                result = Sets.newHashSet(baseTableInfo);
+            }
+        };
+
+        TestPlanAnalyzer analyzer = new TestPlanAnalyzer(IVMPlanAnalysis.of(IVMPlanPattern.SCAN_ONLY));
+        TestCapabilityChecker checker = new TestCapabilityChecker(IVMCapabilityResult.ok());
+        TestDeltaPlannerDispatcher planner = new TestDeltaPlannerDispatcher(
+                Collections.singletonList(new DeltaPlanBundle("delta")));
+        TestDeltaExecutor executor = new TestDeltaExecutor();
+        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, analyzer, planner, executor,
+                newContext(mtmv));
+        manager.useSuperPrecheck = true;
+
+        IVMRefreshResult result = manager.ivmRefresh(mtmv);
+
+        Assert.assertFalse(result.isSuccess());
+        Assert.assertEquals(FallbackReason.STREAM_UNSUPPORTED, result.getFallbackReason());
+        Assert.assertEquals(1, manager.precheckCallCount);
+        Assert.assertEquals(0, manager.buildContextCallCount);
+        Assert.assertEquals(0, analyzer.callCount);
+        Assert.assertEquals(0, checker.callCount);
+        Assert.assertEquals(0, planner.callCount);
+        Assert.assertEquals(0, executor.callCount);
+    }
+
+    @Test
+    public void testManagerPassesHealthyIvmBinlogPrecheck(@Mocked MTMV mtmv,
+            @Mocked MTMVRelation relation, @Mocked OlapTable olapTable) {
+        IVMInfo ivmInfo = new IVMInfo();
+        new Expectations() {
+            {
+                olapTable.getId();
+                result = 1L;
+                olapTable.getName();
+                result = "t1";
+                olapTable.getDBName();
+                result = "db1";
+            }
+        };
+        BaseTableInfo baseTableInfo = new BaseTableInfo(olapTable, 2L);
+        ivmInfo.setBaseTableStreams(new HashMap<>());
+        ivmInfo.getBaseTableStreams().put(baseTableInfo, new IVMStreamRef(StreamType.OLAP, null, null));
+        new MockUp<MTMVUtil>() {
+            @Mock
+            public TableIf getTable(BaseTableInfo input) {
+                return olapTable;
+            }
+        };
+        new Expectations() {
+            {
+                mtmv.getIvmInfo();
+                result = ivmInfo;
+                minTimes = 1;
+                mtmv.getRelation();
+                result = relation;
+                relation.getBaseTablesOneLevelAndFromView();
+                result = Sets.newHashSet(baseTableInfo);
+            }
+        };
+
+        TestPlanAnalyzer analyzer = new TestPlanAnalyzer(IVMPlanAnalysis.of(IVMPlanPattern.SCAN_ONLY));
+        TestCapabilityChecker checker = new TestCapabilityChecker(IVMCapabilityResult.ok());
+        TestDeltaPlannerDispatcher planner = new TestDeltaPlannerDispatcher(
+                Collections.singletonList(new DeltaPlanBundle("delta")));
+        TestDeltaExecutor executor = new TestDeltaExecutor();
+        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, analyzer, planner, executor,
+                newContext(mtmv));
+        manager.useSuperPrecheck = true;
+
+        IVMRefreshResult result = manager.ivmRefresh(mtmv);
+
+        Assert.assertTrue(result.isSuccess());
+        Assert.assertNull(result.getFallbackReason());
+        Assert.assertEquals(1, manager.precheckCallCount);
+        Assert.assertEquals(1, manager.buildContextCallCount);
+        Assert.assertEquals(1, analyzer.callCount);
+        Assert.assertEquals(1, checker.callCount);
+        Assert.assertEquals(1, planner.callCount);
+        Assert.assertEquals(1, executor.callCount);
     }
 
     private static IVMRefreshContext newContext(MTMV mtmv) {
@@ -294,7 +446,9 @@ public class IVMRefreshManagerTest {
     private static class TestIVMRefreshManager extends IVMRefreshManager {
         private final IVMRefreshContext context;
         private int buildContextCallCount;
+        private int precheckCallCount;
         private boolean throwOnBuild;
+        private boolean useSuperPrecheck;
         private MTMV lastMtmv;
 
         private TestIVMRefreshManager(IVMCapabilityChecker capabilityChecker, IVMPlanAnalyzer planAnalyzer,
@@ -302,6 +456,15 @@ public class IVMRefreshManagerTest {
                 IVMRefreshContext context) {
             super(capabilityChecker, planAnalyzer, deltaPlannerDispatcher, deltaExecutor);
             this.context = context;
+        }
+
+        @Override
+        IVMRefreshResult precheck(MTMV mtmv) {
+            precheckCallCount++;
+            if (useSuperPrecheck) {
+                return super.precheck(mtmv);
+            }
+            return IVMRefreshResult.success();
         }
 
         @Override
