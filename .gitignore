@@ -17,6 +17,7 @@ nohup.out
 /custom_env.sh
 /custom_env_mac.sh
 /.build_profile.jsonl
+/.build_profile_state.*
 derby.log
 dependency-reduced-pom.xml
 yarn.lock
