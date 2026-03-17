@@ -156,7 +156,9 @@ TEST_F(StreamingAggOperatorTest, test1) {
         EXPECT_TRUE(op->need_more_input_data(state.get()));
     }
 
-    { EXPECT_TRUE(local_state->close(state.get()).ok()); }
+    {
+        EXPECT_TRUE(local_state->close(state.get()).ok());
+    }
 }
 
 TEST_F(StreamingAggOperatorTest, test2) {
@@ -232,7 +234,9 @@ TEST_F(StreamingAggOperatorTest, test2) {
         EXPECT_EQ(block.rows(), 3);
     }
 
-    { EXPECT_TRUE(local_state->close(state.get()).ok()); }
+    {
+        EXPECT_TRUE(local_state->close(state.get()).ok());
+    }
 }
 
 TEST_F(StreamingAggOperatorTest, test3) {
@@ -311,7 +315,9 @@ TEST_F(StreamingAggOperatorTest, test3) {
         EXPECT_EQ(block.rows(), 3);
     }
 
-    { EXPECT_TRUE(local_state->close(state.get()).ok()); }
+    {
+        EXPECT_TRUE(local_state->close(state.get()).ok());
+    }
 }
 
 TEST_F(StreamingAggOperatorTest, test4) {
@@ -402,7 +408,9 @@ TEST_F(StreamingAggOperatorTest, test4) {
         //         << "Expected: " << res_block.dump_data() << ", but got: " << block.dump_data();
     }
 
-    { EXPECT_TRUE(local_state->close(state.get()).ok()); }
+    {
+        EXPECT_TRUE(local_state->close(state.get()).ok());
+    }
 }
 
 } // namespace doris::pipeline
