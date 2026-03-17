@@ -24,6 +24,5 @@ public enum IVMPlanPattern {
     INNER_JOIN,
     AGG_ON_SCAN,
     AGG_ON_INNER_JOIN,
-    UNION_ALL_ROOT,
-    UNSUPPORTED
+    UNION_ALL_ROOT
 }
