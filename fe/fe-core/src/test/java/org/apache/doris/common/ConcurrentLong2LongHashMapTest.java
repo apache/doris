@@ -217,7 +217,7 @@ class ConcurrentLong2LongHashMapTest {
         map.put(1L, 100L);
         map.put(2L, 200L);
         Map<Long, Long> collected = new HashMap<>();
-        map.forEach(collected::put);
+        map.forEach((ConcurrentLong2LongHashMap.LongLongConsumer) collected::put);
         Assertions.assertEquals(2, collected.size());
         Assertions.assertEquals(100L, (long) collected.get(1L));
     }
