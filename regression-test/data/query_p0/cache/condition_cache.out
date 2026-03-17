@@ -67,6 +67,7 @@
 6	Frank	32	Engineering	Team Lead
 
 -- !cast_diff1 --
+Query A	4	2025-01-01T12:00:00.123499
 
 -- !cast_diff2 --
 
