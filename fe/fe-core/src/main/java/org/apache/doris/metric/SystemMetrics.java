@@ -78,9 +78,6 @@ public class SystemMetrics {
     // Time spent running niced guest
     protected long cpuGuestNice = 0;
 
-    // Package-private: allows tests to override the /proc/stat resource path
-    String cpuStatTestFile = "data/stat_normal";
-
     // Previous values for calculating deltas
     protected long prevCpuUser = 0;
     protected long prevCpuNice = 0;
@@ -210,10 +207,7 @@ public class SystemMetrics {
     }
 
     private void updateCpuMetrics() {
-        String procFile = "/proc/stat";
-        if (FeConstants.runningUnitTest) {
-            procFile = getClass().getClassLoader().getResource(cpuStatTestFile).getFile();
-        }
+        String procFile = getCpuStatPath();
 
         try (FileReader fileReader = new FileReader(procFile);
                 BufferedReader br = new BufferedReader(fileReader)) {
@@ -264,6 +258,9 @@ public class SystemMetrics {
                         cpuSteal = 0;
                         cpuGuest = 0;
                         cpuGuestNice = 0;
+                    } else {
+                        LOG.warn("unexpected /proc/stat cpu line format, parts.length={}: {}", parts.length, line);
+                        cpuLineFound = false;
                     }
                 } else if (line.startsWith("ctxt ")) {
                     ctxt = parseSingleLongFromLine(line);
@@ -342,7 +339,18 @@ public class SystemMetrics {
 
     private long parseSingleLongFromLine(String line) {
         String[] parts = WHITESPACE.split(line);
-        return parts.length >= 2 ? Long.parseLong(parts[1]) : 0;
+        if (parts.length >= 2) {
+            try {
+                return Long.parseLong(parts[1]);
+            } catch (NumberFormatException e) {
+                LOG.warn("failed to parse long from line: {}", line);
+            }
+        }
+        return 0;
+    }
+
+    protected String getCpuStatPath() {
+        return "/proc/stat";
     }
 
 }

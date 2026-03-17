@@ -350,13 +350,21 @@ public class MetricsTest {
 
     @Test
     public void testCpuPercentageCalculation() {
-        SystemMetrics metrics = new SystemMetrics();
+        SystemMetrics metrics = new SystemMetrics() {
+            private boolean secondCall = false;
+
+            @Override
+            protected String getCpuStatPath() {
+                if (secondCall) {
+                    return getClass().getClassLoader().getResource("data/stat_normal_second").getFile();
+                }
+                secondCall = true;
+                return getClass().getClassLoader().getResource("data/stat_normal").getFile();
+            }
+        };
 
         // First update establishes the baseline (reads stat_normal)
         metrics.update();
-
-        // Switch to second snapshot to simulate CPU activity between two samples
-        metrics.cpuStatTestFile = "data/stat_normal_second";
 
         // Second update computes percentages based on delta from first snapshot
         metrics.update();
