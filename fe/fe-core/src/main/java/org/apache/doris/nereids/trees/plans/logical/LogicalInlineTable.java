@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -84,9 +85,10 @@ public class LogicalInlineTable extends LogicalLeaf implements InlineTable, Bloc
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalInlineTable(
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalInlineTable(
                 constantExprsList, groupExpression, Optional.of(getLogicalProperties())
-        );
+        ));
     }
 
     @Override
@@ -95,7 +97,8 @@ public class LogicalInlineTable extends LogicalLeaf implements InlineTable, Bloc
         if (!children.isEmpty()) {
             throw new AnalysisException("children should not be empty");
         }
-        return new LogicalInlineTable(constantExprsList, groupExpression, logicalProperties);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalInlineTable(constantExprsList, groupExpression, logicalProperties));
     }
 
     @Override

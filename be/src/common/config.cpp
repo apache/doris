@@ -1420,6 +1420,7 @@ DEFINE_mBool(enable_be_proc_monitor, "false");
 DEFINE_mInt32(be_proc_monitor_interval_ms, "10000");
 
 DEFINE_Int32(workload_group_metrics_interval_ms, "5000");
+DEFINE_Int32(workload_policy_check_interval_ms, "500");
 
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
@@ -1653,7 +1654,7 @@ DEFINE_mBool(enable_mow_verbose_log, "false");
 DEFINE_mInt32(tablet_sched_delay_time_ms, "5000");
 DEFINE_mInt32(load_trigger_compaction_version_percent, "66");
 DEFINE_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
-DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
+DEFINE_mBool(enable_compaction_pause_on_high_memory, "false");
 
 DEFINE_mBool(enable_quorum_success_write, "true");
 DEFINE_mDouble(quorum_success_max_wait_multiplier, "0.2");
