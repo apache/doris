@@ -19,7 +19,6 @@ package org.apache.doris.nereids.load;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
@@ -72,6 +71,8 @@ import java.util.TreeSet;
  */
 public class NereidsLoadScanProvider {
     private static final Logger LOG = LogManager.getLogger(NereidsLoadScanProvider.class);
+    private static final String HLL_HASH = "hll_hash";
+    private static final String HLL_FROM_BASE64 = "hll_from_base64";
     private NereidsFileGroupInfo fileGroupInfo;
     private Set<String> partialUpdateInputColumns;
 
@@ -314,17 +315,17 @@ public class NereidsLoadScanProvider {
                 // check hll_hash
                 if (column.getDataType() == PrimitiveType.HLL) {
                     if (!(expression instanceof UnboundFunction)) {
-                        throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
-                                + columnName + "=" + FunctionSet.HLL_HASH + "(xxx)");
+                        throw new AnalysisException("HLL column must use " + HLL_HASH + " function, like "
+                                + columnName + "=" + HLL_HASH + "(xxx)");
                     }
                     UnboundFunction function = (UnboundFunction) expression;
                     String functionName = function.getName();
-                    if (!functionName.equalsIgnoreCase(FunctionSet.HLL_HASH)
+                    if (!functionName.equalsIgnoreCase(HLL_HASH)
                             && !functionName.equalsIgnoreCase("hll_empty")
-                            && !functionName.equalsIgnoreCase(FunctionSet.HLL_FROM_BASE64)) {
-                        throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
-                                + columnName + "=" + FunctionSet.HLL_HASH + "(xxx) or "
-                                + columnName + "=" + FunctionSet.HLL_FROM_BASE64 + "(xxx) or "
+                            && !functionName.equalsIgnoreCase(HLL_FROM_BASE64)) {
+                        throw new AnalysisException("HLL column must use " + HLL_HASH + " function, like "
+                                + columnName + "=" + HLL_HASH + "(xxx) or "
+                                + columnName + "=" + HLL_FROM_BASE64 + "(xxx) or "
                                 + columnName + "=hll_empty()");
                     }
                 }
