@@ -37,32 +37,75 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * This class enumerate all subgraph of HyperGraph. CSG means connected subgraph
- * and CMP means complement subgraph.
- * More details are in Paper: Dynamic Programming Strikes Back and Build Query Optimizer.
+ * HyperGraph Join Reorder Enumerator.
+ * <p>
+ * This class implements a join reordering algorithm based on HyperGraph, inspired by the papers:
+ * <ul>
+ *   <li>"Dynamic Programming Strikes Back"</li>
+ *   <li>"Build Query Optimizer"</li>
+ * </ul>
+ * The core idea is to model tables and join relationships in a query as a hypergraph, then enumerate all
+ * possible join orders by recursively generating all connected subgraphs (CSG) and their complements (CMP),
+ * and recording/pruning them using a DP table (receiver).
+ * <br>
+ * Key concepts:
+ * <ul>
+ *   <li><b>CSG (Connected SubGraph):</b> A connected subgraph in the hypergraph, representing a set of tables
+ *   that can be joined together.</li>
+ *   <li><b>CMP (Complement SubGraph):</b> The complement of a CSG, representing the remaining tables that can
+ *   be joined with the current CSG.</li>
+ *   <li><b>EdgeCalculator:</b> Caches the relationship between subgraphs and edges to improve enumeration
+ *   efficiency.</li>
+ *   <li><b>NeighborhoodCalculator:</b> Calculates the neighborhood nodes of a subgraph for expansion.</li>
+ *   <li><b>receiver:</b> The DP table, responsible for recording enumerated subgraphs and their join plans.</li>
+ * </ul>
+ * <br>
+ * Main workflow:
+ * <ol>
+ *   <li>Initialize the receiver, EdgeCalculator, and NeighborhoodCalculator.</li>
+ *   <li>For each node, recursively enumerate all connected subgraphs (CSG), and for each CSG, enumerate all
+ *   possible CMPs.</li>
+ *   <li>Record and prune using the receiver to avoid redundant or invalid enumerations.</li>
+ *   <li>All feasible join plans are finally stored in the receiver.</li>
+ * </ol>
+ * This implementation supports trace debugging and can output detailed enumeration steps.
  */
 public class SubgraphEnumerator {
     public static final Logger LOG = LogManager.getLogger(SubgraphEnumerator.class);
-    // trace enumerate
+    // Whether to enable trace for detailed enumeration steps
     private final boolean enableTrace = ConnectContext.get().getSessionVariable().enableDpHypTrace;
+    // Trace information collector
     private final StringBuilder traceBuilder = new StringBuilder();
-    // The receiver receives the csg and cmp and record them, named DPTable in paper
+    // DP table, records all enumerated CSG/CMP and their join plans
     private AbstractReceiver receiver;
-    // The enumerated hyperGraph
+    // The HyperGraph being enumerated
     private HyperGraph hyperGraph;
-    // These caches are used to avoid repetitive computation
+    // Edge relationship cache to avoid redundant computation
     private EdgeCalculator edgeCalculator;
+    // Neighborhood node calculator
     private NeighborhoodCalculator neighborhoodCalculator;
 
+    /**
+     * Constructor.
+     *
+     * @param receiver   DP table to record join plans
+     * @param hyperGraph The query's hypergraph
+     */
     public SubgraphEnumerator(AbstractReceiver receiver, HyperGraph hyperGraph) {
         this.receiver = receiver;
         this.hyperGraph = hyperGraph;
     }
 
     /**
-     * Entry function of enumerating hyperGraph
+     * Main entry for hypergraph enumeration.
+     * <p>
+     * 1. Initializes the DP table (receiver), edge cache (edgeCalculator), and neighborhood calculator
+     *    (neighborhoodCalculator).
+     * 2. For each node, recursively enumerates all connected subgraphs (CSG), and for each CSG, enumerates all
+     *    possible CMPs.
+     * 3. Records all feasible join plans in the receiver.
      *
-     * @return whether the hyperGraph is enumerated successfully
+     * @return true if enumeration succeeds, false otherwise
      */
     public boolean enumerate() {
         if (enableTrace) {
@@ -108,8 +151,14 @@ public class SubgraphEnumerator {
         return true;
     }
 
-    // The general purpose of EnumerateCsgRec is to extend a given set csg, which
-    // induces a connected subgraph of G to a larger set with the same property.
+    /**
+     * Recursively expands the current connected subgraph (CSG), enumerating all larger connected subgraphs
+     * containing the current CSG.
+     *
+     * @param csg            The current connected subgraph as a bitmap
+     * @param forbiddenNodes The set of nodes that cannot be expanded (bitmap)
+     * @return true if successful, false otherwise
+     */
     private boolean enumerateCsgRec(long csg, long forbiddenNodes) {
         long neighborhood = neighborhoodCalculator.calcNeighborhood(csg, forbiddenNodes, edgeCalculator);
         LongBitmapSubsetIterator subsetIterator = LongBitmap.getSubsetIterator(neighborhood);
@@ -138,6 +187,15 @@ public class SubgraphEnumerator {
         return true;
     }
 
+    /**
+     * Recursively expands the current complement subgraph (CMP), enumerating all larger complements containing
+     * the current CMP.
+     *
+     * @param csg            The current CSG
+     * @param cmp            The current CMP
+     * @param forbiddenNodes The set of nodes that cannot be expanded
+     * @return true if successful, false otherwise
+     */
     private boolean enumerateCmpRec(long csg, long cmp, long forbiddenNodes) {
         long neighborhood = neighborhoodCalculator.calcNeighborhood(cmp, forbiddenNodes, edgeCalculator);
         LongBitmapSubsetIterator subsetIterator = new LongBitmapSubsetIterator(neighborhood);
@@ -174,9 +232,13 @@ public class SubgraphEnumerator {
         return true;
     }
 
-    // EmitCsg takes as an argument a non-empty, proper subset csg of HyperGraph , which
-    // induces a connected subgraph. It is then responsible to generate the seeds for
-    // all cmp such that (csg, cmp) becomes a csg-cmp-pair.
+    /**
+     * For a given connected subgraph (CSG), enumerate all possible complements (CMP) and generate all feasible
+     * csg-cmp pairs.
+     *
+     * @param csg The current connected subgraph
+     * @return true if successful, false otherwise
+     */
     private boolean emitCsg(long csg) {
         long forbiddenNodes = LongBitmap.newBitmapBetween(0, LongBitmap.nextSetBit(csg, 0));
         forbiddenNodes = LongBitmap.or(forbiddenNodes, csg);
@@ -219,16 +281,22 @@ public class SubgraphEnumerator {
         return true;
     }
 
+    /**
+     * Neighborhood node calculator.
+     * <p>
+     * Used to calculate the neighborhood node set of a given subgraph (i.e., nodes that can be used to expand
+     * the subgraph). Only the minimal set of nodes needed to expand all subgraphs is selected, to avoid redundant
+     * expansion.
+     */
     static class NeighborhoodCalculator {
-        // This function is used to calculate neighborhoods of given subgraph.
-        // Though a direct way is to add all nodes u that satisfies:
-        //              <u, v> \in E && v \in subgraph && v \intersect X = empty
-        // We don't used it because they can cause some repeated subgraph when
-        // expand csg and cmp. In fact, we just need a seed node that can be expanded
-        // to all subgraph. That is any one node of hyper nodes. In fact, the neighborhoods
-        // is the minimum set that we choose one node from above v.
-        // NOTE: subgraph must be in edgeCalculator, that means edgeCalculator.initSubgraph(subgraph) is called before
-        // or unionSubGraphs(subgraph1, subgraph2) is called before, and subgraph == LongBitmap.or(subgraph1, subgraph2)
+        /**
+         * Calculate the neighborhood nodes for a given subgraph.
+         *
+         * @param subgraph       The current subgraph
+         * @param forbiddenNodes Nodes that cannot be expanded
+         * @param edgeCalculator Edge cache
+         * @return Neighborhood node set (bitmap)
+         */
         public long calcNeighborhood(long subgraph, long forbiddenNodes, EdgeCalculator edgeCalculator) {
             long neighborhoods = LongBitmap.newBitmap();
             for (Edge edge : edgeCalculator.foundSimpleEdgesContain(subgraph)) {
@@ -251,18 +319,19 @@ public class SubgraphEnumerator {
     }
 
     /**
-     * 1. store all edges in hyper graph
-     * 2. store all connected sub-graph and its connecting edge
-     * note:
-     * connected sub-graph contains one hyper node or multiple hyper nodes with edges connecting them
-     * connecting edge is the connect point of sub-graph to its complement graph, connect point means
-     * one end of the connecting edge is inside the sub-graph or overlap with the sub-graph nodes,
-     * other end of the connecting edge has no intersection with the sub-graph nodes
-     * more:
-     * we use @edges to store all edges in whole hyper graph
-     * we use @containSimpleEdges and @containComplexEdges to store all sub-graph connecting edges, with one end
-     * completely inside the sub-graph, then use overlapEdges to store all sub-graph connecting edges, with one end
-     * overlap with the sub-graph nodes
+     * Edge relationship cache and calculator.
+     * <p>
+     * 1. Caches all edges in the hypergraph.
+     * 2. Caches, for each subgraph, the edges it contains (split into simple/complex), and the edges connecting
+     *    to its complement.
+     * 3. Supports efficient merging of subgraphs, finding connecting edges, and determining edge-subgraph
+     *    relationships.
+     * <ul>
+     *   <li><b>containSimpleEdges/containComplexEdges:</b> Edges where one endpoint is fully contained in the
+     *   subgraph.</li>
+     *   <li><b>overlapEdges:</b> Edges where one endpoint partially overlaps with the subgraph.</li>
+     * </ul>
+     * These caches greatly improve join enumeration efficiency.
      */
     static class EdgeCalculator {
         // all edges are unchanged during enumerate phase
@@ -290,7 +359,11 @@ public class SubgraphEnumerator {
             this.edges = edges;
         }
 
-        // for given subgraph, we find its connecting edges by checking all edges
+        /**
+         * Initialize the edge cache for a subgraph.
+         *
+         * @param subgraph Subgraph node set
+         */
         public void initSubgraph(long subgraph) {
             BitSet simpleContains = new BitSet();
             BitSet complexContains = new BitSet();
@@ -319,9 +392,12 @@ public class SubgraphEnumerator {
         }
 
         /**
-         * the function is used when enumerate subset of neighbors
-         * so the two input subgraph may not be connected, the later call receiver's contains method will
-         * check if the two subgraph is connected
+         * Merge the edge caches of two subgraphs.
+         * <p>
+         * Used to quickly merge edge information when expanding subgraphs.
+         *
+         * @param subgraph1 Subgraph 1
+         * @param subgraph2 Subgraph 2
          */
         public void unionSubGraphs(long subgraph1, long subgraph2) {
             // When union two sub graphs, we only need to check overlap edges.
@@ -366,11 +442,13 @@ public class SubgraphEnumerator {
         }
 
         /**
-         * try to connect csg and cmp, both csg and cmp are connected themselves
-         * if join edge exists between csg and cmp, we can connect csg and cmp and use the join edges as join conjuncts
-         * the candidate join edge must be one end contained by csg and the other contained by cmp
-         * this function only return join edges to connect csg and cmp. If they are not connected, return empty list
-         * TODO: need deal with cross product
+         * Find join edges that connect csg and cmp.
+         * <p>
+         * Only returns join edges that can connect csg and cmp.
+         *
+         * @param csg Connected subgraph
+         * @param cmp Complement subgraph
+         * @return List of connecting edges, or empty if not connected
          */
         public List<Edge> connectCsgCmp(long csg, long cmp) {
             Preconditions.checkArgument(
@@ -388,6 +466,12 @@ public class SubgraphEnumerator {
             return foundEdges;
         }
 
+        /**
+         * Get all edges (simple + complex) contained in a subgraph.
+         *
+         * @param subgraph Subgraph
+         * @return List of edges
+         */
         public List<Edge> foundEdgesContain(long subgraph) {
             BitSet edgeMap = containSimpleEdges.get(subgraph);
             Preconditions.checkState(edgeMap != null);
@@ -395,6 +479,12 @@ public class SubgraphEnumerator {
             return edgeMap.stream().mapToObj(edges::get).collect(Collectors.toList());
         }
 
+        /**
+         * Get all simple edges contained in a subgraph.
+         *
+         * @param subgraph Subgraph
+         * @return List of edges
+         */
         public List<Edge> foundSimpleEdgesContain(long subgraph) {
             if (!containSimpleEdges.containsKey(subgraph)) {
                 return Collections.emptyList();
@@ -403,6 +493,12 @@ public class SubgraphEnumerator {
             return edgeMap.stream().mapToObj(edges::get).collect(Collectors.toList());
         }
 
+        /**
+         * Get all complex edges contained in a subgraph.
+         *
+         * @param subgraph Subgraph
+         * @return List of edges
+         */
         public List<Edge> foundComplexEdgesContain(long subgraph) {
             if (!containComplexEdges.containsKey(subgraph)) {
                 return Collections.emptyList();
@@ -411,6 +507,13 @@ public class SubgraphEnumerator {
             return edgeMap.stream().mapToObj(edges::get).collect(Collectors.toList());
         }
 
+        /**
+         * Determine if an edge has one endpoint fully contained in the subgraph.
+         *
+         * @param subgraph Subgraph
+         * @param edge     Edge
+         * @return true if contained, false otherwise
+         */
         private boolean isContainEdge(long subgraph, Edge edge) {
             // one side of the edge completely inside the subgraph, and other side completely outside the subgraph
             return (LongBitmap.isSubset(edge.getLeftExtendedNodes(), subgraph)
@@ -419,6 +522,13 @@ public class SubgraphEnumerator {
                     && !LongBitmap.isOverlap(edge.getLeftExtendedNodes(), subgraph));
         }
 
+        /**
+         * Determine if an edge partially overlaps with the subgraph.
+         *
+         * @param subgraph Subgraph
+         * @param edge     Edge
+         * @return true if overlaps, false otherwise
+         */
         private boolean isOverlapEdge(long subgraph, Edge edge) {
             // one side of the edge overlap subgraph but not inside it, and other side completely outside the subgraph
             return (LongBitmap.isOverlap(edge.getLeftExtendedNodes(), subgraph)
@@ -429,6 +539,13 @@ public class SubgraphEnumerator {
                     && !LongBitmap.isOverlap(edge.getLeftExtendedNodes(), subgraph));
         }
 
+        /**
+         * Remove edges that are no longer contained by the subgraph.
+         *
+         * @param subgraph Subgraph
+         * @param edgeMap  Edge set
+         * @return Filtered edge set
+         */
         private BitSet removeInvalidEdges(long subgraph, BitSet edgeMap) {
             for (int index : edgeMap.stream().toArray()) {
                 Edge edge = edges.get(index);
