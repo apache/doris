@@ -3243,8 +3243,8 @@ public class Config extends ConfigBase {
     public static boolean enable_abort_txn_by_checking_coordinator_be = true;
 
     @ConfField(mutable = true, description = {
-            "是否在 schema change 过程中，检测冲突事物并 abort 它",
-            "SHould abort txn by checking conflick txn in schema change"})
+            "是否在 schema change / cloud upgrade 过程中，检测冲突事务并 abort 它",
+            "Whether to abort conflict transactions during schema change / cloud upgrade checks"})
     public static boolean enable_abort_txn_by_checking_conflict_txn = true;
 
     @ConfField(mutable = true, description = {
