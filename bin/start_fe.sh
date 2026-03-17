@@ -376,13 +376,18 @@ if [[ -d "${DORIS_HOME}/plugins/java_extensions" ]]; then
     done
 fi
 
-hadoop_user_token_env=$(grep HADOOP_USER_TOKEN $DORIS_HOME/conf/fe.conf || true)
+
+hadoop_user_name_env=$(grep HADOOP_USER_NAME $DORIS_HOME/conf/fe.conf || true)
 if [ ! -z $hadoop_user_name_env ]; then
    eval 'export "$hadoop_user_name_env"'
 fi
-bee_source_env=$(grep BEE_SOURCE $DORIS_HOME/conf/fe.conf || true)
+hadoop_user_token_env=$(grep HADOOP_USER_TOKEN $DORIS_HOME/conf/fe.conf || true)
 if [ ! -z $hadoop_user_token_env ]; then
    eval 'export "$hadoop_user_token_env"'
+fi
+bee_source_env=$(grep BEE_SOURCE $DORIS_HOME/conf/fe.conf || true)
+if [ ! -z $bee_source_env ]; then
+   eval 'export "$bee_source_env"'
 fi
 bee_user_env=$(grep BEE_USER $DORIS_HOME/conf/fe.conf || true)
 if [ ! -z $bee_user_env ]; then
