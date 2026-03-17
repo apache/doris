@@ -1801,21 +1801,19 @@ void CloudTablet::clear_unused_visible_pending_rowsets() {
     int64_t current_time = std::chrono::duration_cast<std::chrono::seconds>(
                                    std::chrono::system_clock::now().time_since_epoch())
                                    .count();
-    {
-        std::unique_lock<std::mutex> wlock(_visible_pending_rs_lock);
-        for (auto it = _visible_pending_rs_map.begin(); it != _visible_pending_rs_map.end();) {
-            if (int64_t version = it->first, expiration_time = it->second.expiration_time;
-                version <= cur_max_version || expiration_time < current_time) {
-                it = _visible_pending_rs_map.erase(it);
-            } else {
-                ++it;
-            }
-        }
 
-        while (!_visible_pending_rs_map.empty() &&
-               _visible_pending_rs_map.size() > max_version_count) {
-            _visible_pending_rs_map.erase(--_visible_pending_rs_map.end());
+    std::unique_lock<std::mutex> wlock(_visible_pending_rs_lock);
+    for (auto it = _visible_pending_rs_map.begin(); it != _visible_pending_rs_map.end();) {
+        if (int64_t version = it->first, expiration_time = it->second.expiration_time;
+            version <= cur_max_version || expiration_time < current_time) {
+            it = _visible_pending_rs_map.erase(it);
+        } else {
+            ++it;
         }
+    }
+
+    while (!_visible_pending_rs_map.empty() && _visible_pending_rs_map.size() > max_version_count) {
+        _visible_pending_rs_map.erase(--_visible_pending_rs_map.end());
     }
 }
 

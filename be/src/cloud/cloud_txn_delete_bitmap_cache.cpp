@@ -133,7 +133,7 @@ CloudTxnDeleteBitmapCache::get_rowset_and_delete_bitmap(TTransactionId transacti
     if (!val) {
         return ResultError(Status::InternalError<false>(""));
     }
-
+    Defer defer {[this, handle] { release(handle); }};
     return std::make_pair(rowset, val->delete_bitmap);
 }
 

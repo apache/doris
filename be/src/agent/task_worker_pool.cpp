@@ -2413,7 +2413,11 @@ void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
 
     // Process each tablet involved in this transaction on this BE
     for (int64_t tablet_id : make_visible_req.tablet_ids) {
-        auto tablet_result = tablet_mgr.get_tablet(tablet_id, false, false, nullptr, true, false);
+        auto tablet_result =
+                tablet_mgr.get_tablet(tablet_id, /* warmup_data */ false,
+                                      /* sync_delete_bitmap */ false,
+                                      /* sync_stats */ nullptr, /* force_use_only_cached */ true,
+                                      /* cache_on_miss */ false);
         if (!tablet_result.has_value()) {
             continue;
         }

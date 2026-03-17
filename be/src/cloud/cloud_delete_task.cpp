@@ -103,6 +103,10 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
     }
 
     st = engine.meta_mgr().commit_rowset(*rowset->rowset_meta(), "");
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to commit rowset, status=" << st.to_string();
+        return st;
+    }
 
     // Update tablet stats
     tablet->fetch_add_approximate_num_rowsets(1);
@@ -117,7 +121,9 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
                 request.transaction_id, tablet->tablet_id(), delete_bitmap, rowset_ids, rowset,
                 request.timeout, nullptr);
     } else {
-        engine.meta_mgr().cache_committed_rowset(rowset->rowset_meta(), context.txn_expiration);
+        if (config::enable_cloud_make_rs_visible_on_be) {
+            engine.meta_mgr().cache_committed_rowset(rowset->rowset_meta(), context.txn_expiration);
+        }
     }
 
     return st;

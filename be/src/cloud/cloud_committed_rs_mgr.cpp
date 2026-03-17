@@ -25,7 +25,7 @@
 #include "util/thread.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 CloudCommittedRSMgr::CloudCommittedRSMgr() : _stop_latch(1) {}
 
 CloudCommittedRSMgr::~CloudCommittedRSMgr() {
@@ -101,12 +101,20 @@ void CloudCommittedRSMgr::remove_expired_committed_rowsets() {
         }
 
         auto key = iter->second;
-        _committed_rs_map.erase(key);
-        _empty_rowset_markers.erase(key);
-        LOG(INFO) << "clean expired pending cloud rowset, txn_id=" << key.txn_id
-                  << ", tablet_id=" << key.tablet_id << ", expiration_time=" << expiration_time;
-
         _expiration_map.erase(iter);
+
+        auto it_rs = _committed_rs_map.find(key);
+        if (it_rs != _committed_rs_map.end() && it_rs->second.expiration_time == expiration_time) {
+            _committed_rs_map.erase(it_rs);
+            LOG(INFO) << "clean expired pending cloud rowset, txn_id=" << key.txn_id
+                      << ", tablet_id=" << key.tablet_id << ", expiration_time=" << expiration_time;
+        }
+        auto it_empty = _empty_rowset_markers.find(key);
+        if (it_empty != _empty_rowset_markers.end() && it_empty->second == expiration_time) {
+            _empty_rowset_markers.erase(it_empty);
+            LOG(INFO) << "clean expired empty rowset marker, txn_id=" << key.txn_id
+                      << ", tablet_id=" << key.tablet_id << ", expiration_time=" << expiration_time;
+        }
     }
 }
 
@@ -130,5 +138,5 @@ void CloudCommittedRSMgr::_clean_thread_callback() {
     } while (!_stop_latch.wait_for(
             std::chrono::seconds(config::remove_expired_tablet_txn_info_interval_seconds)));
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris
