@@ -1261,6 +1261,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
+    public boolean isSourceFullyConsumed() {
+        return offsetProvider != null && offsetProvider.hasReachedEnd();
+    }
+
     /**
      * 1. Clean offset info in ms (s3 tvf)
      * 2. Clean chunk info in meta table (jdbc)

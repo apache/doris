@@ -388,8 +388,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                                 BinlogSplit binlogSplit = new BinlogSplit();
                                 binlogSplit.setFinishedSplits(finishedSplits);
                                 currentOffset.setSplits(Collections.singletonList(binlogSplit));
+                            } else {
+                                // snapshot-only mode: all splits finished, restore from finishedSplits
+                                // so snapshotSplit() works correctly and hasReachedEnd() can detect completion
+                                currentOffset.setSplits(new ArrayList<>(finishedSplits));
                             }
-                            // snapshot-only: leave splits empty, hasReachedEnd() will return true
                         }
                     }
                 }
