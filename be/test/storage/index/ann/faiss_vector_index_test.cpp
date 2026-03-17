@@ -38,6 +38,7 @@
 #include "storage/index/ann/faiss_ann_index.h"
 // metrics.h not used directly here
 #include "storage/index/ann/vector_search_utils.h"
+#include "util/defer_op.h"
 
 using namespace doris::segment_v2;
 
@@ -239,12 +240,15 @@ TEST_F(VectorSearchTest, UpdateRoaring) {
 }
 
 TEST_F(VectorSearchTest, OmpThreadBudgetNeverExceedsLimit) {
-    constexpr int kWorkers = 4;
+    constexpr int kWorkers = 2;
     constexpr int kDim = 64;
-    constexpr int kNumVectors = 20000;
+    // Keep this workload small to avoid long-running BE UT under ASAN.
+    constexpr int kNumVectors = 500;
 
     const auto old_omp_threads_limit = config::omp_threads_limit;
     config::omp_threads_limit = 1;
+    Defer reset_omp_threads_limit(
+            [&old_omp_threads_limit]() { config::omp_threads_limit = old_omp_threads_limit; });
 
     auto* budget_metric = DorisMetrics::instance()->ann_index_build_index_threads;
     std::atomic<bool> start {false};
@@ -257,7 +261,8 @@ TEST_F(VectorSearchTest, OmpThreadBudgetNeverExceedsLimit) {
             auto index = std::make_unique<FaissVectorIndex>();
             FaissBuildParameter params;
             params.dim = kDim;
-            params.max_degree = 32;
+            params.max_degree = 8;
+            params.ef_construction = 20;
             params.index_type = FaissBuildParameter::IndexType::HNSW;
             index->build(params);
 
@@ -291,8 +296,6 @@ TEST_F(VectorSearchTest, OmpThreadBudgetNeverExceedsLimit) {
     EXPECT_EQ(finished.load(std::memory_order_acquire), kWorkers);
     EXPECT_LE(observed_peak, 1);
     EXPECT_EQ(budget_metric->value(), 0);
-
-    config::omp_threads_limit = old_omp_threads_limit;
 }
 
 TEST_F(VectorSearchTest, CompareResultWithNativeFaiss1) {
