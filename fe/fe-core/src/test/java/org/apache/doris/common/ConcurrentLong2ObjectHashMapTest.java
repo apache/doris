@@ -215,7 +215,7 @@ class ConcurrentLong2ObjectHashMapTest {
         map.put(1L, "one");
         map.put(2L, "two");
         Map<Long, String> collected = new HashMap<>();
-        map.forEach(collected::put);
+        map.forEach((ConcurrentLong2ObjectHashMap.LongObjConsumer<String>) collected::put);
         Assertions.assertEquals(2, collected.size());
         Assertions.assertEquals("one", collected.get(1L));
     }
@@ -234,7 +234,7 @@ class ConcurrentLong2ObjectHashMapTest {
         ConcurrentLong2ObjectHashMap<Long> map = new ConcurrentLong2ObjectHashMap<>();
         int count = 100_000;
         for (long i = 0; i < count; i++) {
-            map.put(i, i * 2);
+            map.put(i, Long.valueOf(i * 2));
         }
         Assertions.assertEquals(count, map.size());
         for (long i = 0; i < count; i++) {
