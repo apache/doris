@@ -97,8 +97,8 @@
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/point_query_executor.h"
-#include "storage/cache/page_cache.h"
 #include "storage/cache/ann_index_page_cache.h"
+#include "storage/cache/page_cache.h"
 #include "storage/cache/schema_cache.h"
 #include "storage/id_manager.h"
 #include "storage/index/inverted/inverted_index_cache.h"
@@ -582,9 +582,8 @@ Status ExecEnv::init_mem_env() {
     // Init ANN index page cache (dedicated cache for IVF on disk)
     {
         int64_t ann_cache_limit =
-                ParseUtil::parse_mem_spec(config::ann_index_page_cache_limit,
-                                          MemInfo::mem_limit(), MemInfo::physical_mem(),
-                                          &is_percent);
+                ParseUtil::parse_mem_spec(config::ann_index_page_cache_limit, MemInfo::mem_limit(),
+                                          MemInfo::physical_mem(), &is_percent);
         while (!is_percent && ann_cache_limit > MemInfo::mem_limit() / 2) {
             ann_cache_limit = ann_cache_limit / 2;
         }

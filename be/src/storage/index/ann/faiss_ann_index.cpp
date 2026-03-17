@@ -324,7 +324,7 @@ struct CachedRandomAccessReader : faiss::RandomAccessReader {
 
             auto* cache = AnnIndexDataPageCache::instance();
             AnnIndexDataPageCache::CacheKey cache_key(_cache_key_prefix, _file_size,
-                                                 static_cast<int64_t>(block_start));
+                                                      static_cast<int64_t>(block_start));
             PageCacheHandle handle;
 
             if (cache && cache->lookup(cache_key, &handle)) {
@@ -338,8 +338,7 @@ struct CachedRandomAccessReader : faiss::RandomAccessReader {
                         std::min(_block_size, _file_size > block_start ? _file_size - block_start
                                                                        : static_cast<size_t>(0));
 
-                auto page = std::make_unique<DataPage>(actual_block_size,
-                                                       cache->mem_tracker());
+                auto page = std::make_unique<DataPage>(actual_block_size, cache->mem_tracker());
 
                 const int64_t fetch_start_ns = MonotonicNanos();
                 {

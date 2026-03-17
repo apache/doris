@@ -27,7 +27,7 @@ namespace doris {
 AnnIndexDataPageCache* AnnIndexDataPageCache::_s_instance = nullptr;
 
 AnnIndexDataPageCache* AnnIndexDataPageCache::create_global_cache(size_t capacity,
-                                                                   uint32_t num_shards) {
+                                                                  uint32_t num_shards) {
     DCHECK(_s_instance == nullptr);
     _s_instance = new AnnIndexDataPageCache(capacity, num_shards);
     return _s_instance;
@@ -51,8 +51,7 @@ bool AnnIndexDataPageCache::lookup(const CacheKey& key, PageCacheHandle* handle)
     return true;
 }
 
-void AnnIndexDataPageCache::insert(const CacheKey& key, DataPage* page,
-                                    PageCacheHandle* handle) {
+void AnnIndexDataPageCache::insert(const CacheKey& key, DataPage* page, PageCacheHandle* handle) {
     CachePriority priority = CachePriority::NORMAL;
     auto* lru_handle = _cache->insert(key.encode(), page, page->capacity(), 0, priority);
     DCHECK(lru_handle != nullptr);
