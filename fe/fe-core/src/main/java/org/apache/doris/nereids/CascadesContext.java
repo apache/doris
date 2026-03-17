@@ -90,6 +90,8 @@ public class CascadesContext implements ScheduleContext {
 
     // in analyze/rewrite stage, the plan will storage in this field
     private Plan plan;
+    // the initial rewrite root for the current cascades context
+    private final Plan rewriteRootPlan;
     private Optional<RootRewriteJobContext> currentRootRewriteJobContext;
     // in optimize stage, the plan will storage in the memo
     private Memo memo;
@@ -148,6 +150,7 @@ public class CascadesContext implements ScheduleContext {
         this.currentTree = Objects.requireNonNull(currentTree, "currentTree should not null");
         this.statementContext = Objects.requireNonNull(statementContext, "statementContext should not null");
         this.plan = Objects.requireNonNull(plan, "plan should not null");
+        this.rewriteRootPlan = plan;
         this.memo = memo;
         this.cteContext = Objects.requireNonNull(cteContext, "cteContext should not null");
         this.ruleSet = new RuleSet();
@@ -365,6 +368,10 @@ public class CascadesContext implements ScheduleContext {
 
     public Plan getRewritePlan() {
         return plan;
+    }
+
+    public Plan getRewriteRootPlan() {
+        return rewriteRootPlan;
     }
 
     public void setRewritePlan(Plan plan) {
