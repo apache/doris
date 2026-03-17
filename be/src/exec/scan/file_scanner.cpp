@@ -375,6 +375,9 @@ void FileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
 Status FileScanner::_open_impl(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(Scanner::_open_impl(state));
+    if (_local_state) {
+        _condition_cache_digest = _local_state->get_condition_cache_digest();
+    }
     RETURN_IF_ERROR(_split_source->get_next(&_first_scan_range, &_current_range));
     if (_first_scan_range) {
         RETURN_IF_ERROR(_init_expr_ctxes());
@@ -424,6 +427,7 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
     do {
         RETURN_IF_CANCELLED(state);
         if (_cur_reader == nullptr || _cur_reader_eof) {
+            _finalize_reader_condition_cache();
             // The file may not exist because the file list is got from meta cache,
             // And the file may already be removed from storage.
             // Just ignore not found files.
@@ -439,6 +443,7 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
             } else if (!st) {
                 return st;
             }
+            _init_reader_condition_cache();
         }
 
         if (_scanner_eof) {
@@ -478,6 +483,7 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
                 }
                 // Apply _pre_conjunct_ctxs to filter src block.
                 RETURN_IF_ERROR(_pre_filter_src_block());
+
                 // Convert src block to output block (dest block), string to dest data type and apply filters.
                 RETURN_IF_ERROR(_convert_to_output_block(block));
                 // Truncate char columns or varchar columns if size is smaller than file columns
@@ -1739,10 +1745,92 @@ Status FileScanner::_init_expr_ctxes() {
     return Status::OK();
 }
 
+bool FileScanner::_should_enable_condition_cache() {
+    return _condition_cache_digest != 0 && !_is_load &&
+           (!_conjuncts.empty() || !_push_down_conjuncts.empty());
+}
+
+void FileScanner::_init_reader_condition_cache() {
+    _condition_cache = nullptr;
+    _condition_cache_ctx = nullptr;
+
+    if (!_should_enable_condition_cache() || !_cur_reader) {
+        return;
+    }
+
+    // Disable condition cache when delete operations exist (e.g. Iceberg position/equality
+    // deletes, Hive ACID deletes). Cached granule results may become stale if delete files
+    // change between queries while the data file's cache key remains the same.
+    if (_cur_reader->has_delete_operations()) {
+        return;
+    }
+
+    auto* cache = segment_v2::ConditionCache::instance();
+    _condition_cache_key = segment_v2::ConditionCache::ExternalCacheKey(
+            _current_range.path,
+            _current_range.__isset.modification_time ? _current_range.modification_time : 0,
+            _current_range.__isset.file_size ? _current_range.file_size : -1,
+            _condition_cache_digest,
+            _current_range.__isset.start_offset ? _current_range.start_offset : 0,
+            _current_range.__isset.size ? _current_range.size : -1);
+
+    segment_v2::ConditionCacheHandle handle;
+    auto condition_cache_hit = cache->lookup(_condition_cache_key, &handle);
+    if (condition_cache_hit) {
+        _condition_cache = handle.get_filter_result();
+        _condition_cache_hit_count++;
+    } else {
+        // Allocate cache pre-sized to total number of granules.
+        // We add +1 as a safety margin: when a file is split across multiple scanners
+        // and the first row of this scanner's range is not aligned to a granule boundary,
+        // the data may span one more granule than ceil(total_rows / GRANULE_SIZE).
+        // The extra element costs only 1 bit and never affects correctness (an extra
+        // false-granule beyond the actual data range won't overlap any real row range).
+        int64_t total_rows = _cur_reader->get_total_rows();
+        if (total_rows > 0) {
+            size_t num_granules = (total_rows + ConditionCacheContext::GRANULE_SIZE - 1) /
+                                  ConditionCacheContext::GRANULE_SIZE;
+            _condition_cache = std::make_shared<std::vector<bool>>(num_granules + 1, false);
+        }
+    }
+
+    if (_condition_cache) {
+        // Create context to pass to readers (native readers use it; non-native readers ignore it)
+        _condition_cache_ctx = std::make_shared<ConditionCacheContext>();
+        _condition_cache_ctx->is_hit = condition_cache_hit;
+        _condition_cache_ctx->filter_result = _condition_cache;
+        _cur_reader->set_condition_cache_context(_condition_cache_ctx);
+    }
+}
+
+void FileScanner::_finalize_reader_condition_cache() {
+    if (!_should_enable_condition_cache() || !_condition_cache_ctx ||
+        _condition_cache_ctx->is_hit) {
+        _condition_cache = nullptr;
+        _condition_cache_ctx = nullptr;
+        return;
+    }
+    // Only store the cache if the reader was fully consumed. If the scan was
+    // truncated early (e.g. by LIMIT), the cache is incomplete — unread granules
+    // would remain false and cause surviving rows to be incorrectly skipped on HIT.
+    if (!_cur_reader_eof) {
+        _condition_cache = nullptr;
+        _condition_cache_ctx = nullptr;
+        return;
+    }
+
+    auto* cache = segment_v2::ConditionCache::instance();
+    cache->insert(_condition_cache_key, std::move(_condition_cache));
+    _condition_cache = nullptr;
+    _condition_cache_ctx = nullptr;
+}
+
 Status FileScanner::close(RuntimeState* state) {
     if (!_try_close()) {
         return Status::OK();
     }
+
+    _finalize_reader_condition_cache();
 
     if (_cur_reader) {
         RETURN_IF_ERROR(_cur_reader->close());
@@ -1828,6 +1916,11 @@ void FileScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(_file_read_bytes_counter, _file_reader_stats->read_bytes);
     COUNTER_UPDATE(_file_read_calls_counter, _file_reader_stats->read_calls);
     COUNTER_UPDATE(_file_read_time_counter, _file_reader_stats->read_time_ns);
+    COUNTER_UPDATE(local_state->_condition_cache_hit_counter, _condition_cache_hit_count);
+    if (_io_ctx) {
+        COUNTER_UPDATE(local_state->_condition_cache_filtered_rows_counter,
+                       _io_ctx->condition_cache_filtered_rows);
+    }
 
     DorisMetrics::instance()->query_scan_bytes->increment(_file_reader_stats->read_bytes);
     DorisMetrics::instance()->query_scan_rows->increment(_file_reader_stats->read_rows);
