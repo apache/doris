@@ -17,7 +17,6 @@
 
 package org.apache.doris.common;
 
-import it.unimi.dsi.fastutil.HashCommon;
 import it.unimi.dsi.fastutil.longs.AbstractLong2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectFunction;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
@@ -82,8 +81,18 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
         }
     }
 
+    /** Murmur3 64-bit finalizer for segment selection. */
+    private static long mix(long x) {
+        x ^= x >>> 33;
+        x *= 0xff51afd7ed558ccdL;
+        x ^= x >>> 33;
+        x *= 0xc4ceb9fe1a85ec53L;
+        x ^= x >>> 33;
+        return x;
+    }
+
     private Segment<V> segmentFor(long key) {
-        return segments[(int) (HashCommon.mix(key) >>> (64 - segmentBits)) & segmentMask];
+        return segments[(int) (mix(key) >>> (64 - segmentBits)) & segmentMask];
     }
 
     // ---- Read operations (read-lock) ----
@@ -99,12 +108,12 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
         }
     }
 
-    @Override
     public V getOrDefault(long key, V defaultValue) {
         Segment<V> seg = segmentFor(key);
         seg.lock.readLock().lock();
         try {
-            return seg.map.getOrDefault(key, defaultValue);
+            V val = seg.map.get(key);
+            return (val != null || seg.map.containsKey(key)) ? val : defaultValue;
         } finally {
             seg.lock.readLock().unlock();
         }
@@ -190,37 +199,47 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
         }
     }
 
-    @Override
     public V putIfAbsent(long key, V value) {
         Objects.requireNonNull(value, "Null values are not permitted");
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
-            return seg.map.putIfAbsent(key, value);
+            V existing = seg.map.get(key);
+            if (existing != null || seg.map.containsKey(key)) {
+                return existing;
+            }
+            seg.map.put(key, value);
+            return null;
         } finally {
             seg.lock.writeLock().unlock();
         }
     }
 
-    @Override
     public boolean replace(long key, V oldValue, V newValue) {
         Objects.requireNonNull(newValue, "Null values are not permitted");
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
-            return seg.map.replace(key, oldValue, newValue);
+            V curValue = seg.map.get(key);
+            if (!Objects.equals(curValue, oldValue) || (curValue == null && !seg.map.containsKey(key))) {
+                return false;
+            }
+            seg.map.put(key, newValue);
+            return true;
         } finally {
             seg.lock.writeLock().unlock();
         }
     }
 
-    @Override
     public V replace(long key, V value) {
         Objects.requireNonNull(value, "Null values are not permitted");
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
         try {
-            return seg.map.replace(key, value);
+            if (seg.map.containsKey(key)) {
+                return seg.map.put(key, value);
+            }
+            return null;
         } finally {
             seg.lock.writeLock().unlock();
         }
@@ -236,7 +255,7 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
         seg.lock.writeLock().lock();
         try {
             V curValue = seg.map.get(k);
-            if (!java.util.Objects.equals(curValue, value) || (curValue == null && !seg.map.containsKey(k))) {
+            if (!Objects.equals(curValue, value) || (curValue == null && !seg.map.containsKey(k))) {
                 return false;
             }
             seg.map.remove(k);
@@ -269,7 +288,6 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
     // Override ALL compound methods from both Long2ObjectMap and Map interfaces
     // to ensure the check-then-act is atomic within a segment's write lock.
 
-    @Override
     public V computeIfAbsent(long key, LongFunction<? extends V> mappingFunction) {
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
@@ -288,7 +306,6 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
         }
     }
 
-    @Override
     public V computeIfAbsent(long key, Long2ObjectFunction<? extends V> mappingFunction) {
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
@@ -312,7 +329,6 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
         return computeIfAbsent(key.longValue(), (long k) -> mappingFunction.apply(k));
     }
 
-    @Override
     public V computeIfPresent(long key, BiFunction<? super Long, ? super V, ? extends V> remappingFunction) {
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
@@ -333,7 +349,6 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
         }
     }
 
-    @Override
     public V compute(long key, BiFunction<? super Long, ? super V, ? extends V> remappingFunction) {
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
@@ -351,7 +366,6 @@ public class ConcurrentLong2ObjectHashMap<V> extends AbstractLong2ObjectMap<V> {
         }
     }
 
-    @Override
     public V merge(long key, V value, BiFunction<? super V, ? super V, ? extends V> remappingFunction) {
         Segment<V> seg = segmentFor(key);
         seg.lock.writeLock().lock();
