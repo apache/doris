@@ -149,12 +149,6 @@ suite("test_regr_r2") {
     qt_sql_double_5 "select regr_r2(y, x) from test_regr_r2_double where id = 3"
     qt_sql_double_6 "select regr_r2(y, x) from test_regr_r2_double where id = 5"
 
-    // exception
-    test {
-        sql """select regr_r2(1, cast([1, 2, 3] as array<int>));"""
-        exception "must be numeric, boolean or string type"
-    }
-
     // String type inputs (compile-time cast only, no table needed)
     qt_sql_string_1 "select regr_r2('5', '3')"
     qt_sql_string_2 "select regr_r2(1, '3')"
@@ -165,4 +159,14 @@ suite("test_regr_r2") {
     // NULL literal inputs
     qt_sql_null_1 "select regr_r2(NULL, 1)"
     qt_sql_null_2 "select regr_r2(1, NULL)"
+
+    // Exception inputs
+    test {
+        sql """select regr_r2(cast([1, 2, 3] as array<int>), 1);"""
+        exception "regr_r2(y, x): y must be numeric, boolean or string type"
+    }
+    test {
+        sql """select regr_r2(1, cast([1, 2, 3] as array<int>));"""
+        exception "regr_r2(y, x): x must be numeric, boolean or string type"
+    }
 }

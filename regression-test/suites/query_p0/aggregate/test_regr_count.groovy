@@ -151,12 +151,6 @@ suite("test_regr_count") {
     // All rows invalid (no valid x/y pairs): verify 0
     qt_sql_double_6 "select regr_count(y, x) from test_regr_count_double where id = 4"
 
-    // exception
-    test {
-        sql """select regr_count(1, cast([1, 2, 3] as array<int>));"""
-        exception "must be numeric, boolean or string type"
-    }
-
     // String type inputs (compile-time cast only, no table needed)
     qt_sql_string_1 "select regr_count('5', '3')"
     qt_sql_string_2 "select regr_count(1, '3')"
@@ -167,4 +161,14 @@ suite("test_regr_count") {
     // NULL literal inputs
     qt_sql_null_1 "select regr_count(NULL, 1)"
     qt_sql_null_2 "select regr_count(1, NULL)"
+
+    // Exception inputs
+    test {
+        sql """select regr_count(cast([1, 2, 3] as array<int>), 1);"""
+        exception "regr_count(y, x): y must be numeric, boolean or string type"
+    }
+    test {
+        sql """select regr_count(1, cast([1, 2, 3] as array<int>));"""
+        exception "regr_count(y, x): x must be numeric, boolean or string type"
+    }
 }

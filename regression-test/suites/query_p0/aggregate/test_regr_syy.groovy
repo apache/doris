@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_regr_sxy") {
-    sql """ DROP TABLE IF EXISTS test_regr_sxy """
+suite("test_regr_syy") {
+    sql """ DROP TABLE IF EXISTS test_regr_syy """
     sql """ SET enable_nereids_planner=true """
     sql """ SET enable_fallback_to_original_planner=false """
 
     sql """
-        CREATE TABLE test_regr_sxy (
+        CREATE TABLE test_regr_syy (
             id INT,
             x  DOUBLE,
             y  DOUBLE
@@ -34,11 +34,12 @@ suite("test_regr_sxy") {
     """
 
     // Empty table: verify NULL
-    qt_empty "SELECT regr_sxy(y, x) FROM test_regr_sxy"
+    qt_empty "SELECT regr_syy(y, x) FROM test_regr_syy"
 
+    // Base dataset
     sql """
-        INSERT INTO test_regr_sxy VALUES
-            -- id=1: one row, sxy should be 0
+        INSERT INTO test_regr_syy VALUES
+            -- id=1: one row, syy should be 0
             (1, 10, 20),
 
             -- id=2: multiple rows
@@ -52,58 +53,62 @@ suite("test_regr_sxy") {
             (3, 2, 5),
             (3, 3, 7),
 
-            -- id=4: all rows contain NULL, sxy should be NULL
+            -- id=4: all rows contain NULL, syy should be NULL
             (4, NULL, 1),
             (4, 2, NULL),
 
-            -- id=5: constant x
-            (5, 5, 1),
-            (5, 5, 2),
-            (5, 5, 3)
+            -- id=5: constant y
+            (5, 1, 5),
+            (5, 2, 5),
+            (5, 3, 5)
     """
 
-    // SXY(x,y) = sum(x*y) - sum(x)*sum(y)/n
-    qt_sxy_ref """
+    // SYY(y) = sum(y*y) - sum(y)*sum(y)/n
+    qt_syy_ref """
         SELECT
             id,
-            regr_sxy(y, x) AS sxy,
-            sum(x*y) - sum(x)*sum(y)/count(*) AS ref
-        FROM test_regr_sxy
+            regr_syy(y, x) AS syy,
+            sum(y*y) - sum(y)*sum(y)/count(*) AS ref
+        FROM test_regr_syy
         WHERE x IS NOT NULL AND y IS NOT NULL
         GROUP BY id
         ORDER BY id
     """
 
     // Single row
-    qt_single_row "SELECT regr_sxy(y, x) FROM test_regr_sxy WHERE id = 1"
+    qt_single_row "SELECT regr_syy(y, x) FROM test_regr_syy WHERE id = 1"
 
     // All rows invalid (no valid x/y pairs): verify NULL
-    qt_all_filtered "SELECT regr_sxy(y, x) FROM test_regr_sxy WHERE id = 4"
+    qt_all_filtered "SELECT regr_syy(y, x) FROM test_regr_syy WHERE id = 4"
 
     // Mix non_nullable
-    qt_non_nullable_y "SELECT regr_sxy(non_nullable(y), x) FROM test_regr_sxy WHERE id = 2"
-    qt_non_nullable_x "SELECT regr_sxy(y, non_nullable(x)) FROM test_regr_sxy WHERE id = 2"
-    qt_non_nullable_xy "SELECT regr_sxy(non_nullable(y), non_nullable(x)) FROM test_regr_sxy WHERE id = 2"
+    qt_non_nullable_y "SELECT regr_syy(non_nullable(y), x) FROM test_regr_syy WHERE id = 2"
+    qt_non_nullable_x "SELECT regr_syy(y, non_nullable(x)) FROM test_regr_syy WHERE id = 2"
+    qt_non_nullable_xy "SELECT regr_syy(non_nullable(y), non_nullable(x)) FROM test_regr_syy WHERE id = 2"
 
     // Literal
-    qt_literal_1 "SELECT regr_sxy(1, 2)"
-    qt_literal_2 "SELECT regr_sxy(10, x) FROM test_regr_sxy WHERE id = 2"
-    qt_literal_3 "SELECT regr_sxy(y, 3) FROM test_regr_sxy WHERE id = 2"
-
-    // exception
-    test {
-        sql "select regr_sxy(1, CAST([1, 2, 3] AS ARRAY<INT>))"
-        exception "must be numeric, boolean or string type"
-    }
+    qt_literal_1 "SELECT regr_syy(1, 2)"
+    qt_literal_2 "SELECT regr_syy(10, x) FROM test_regr_syy WHERE id = 2"
+    qt_literal_3 "SELECT regr_syy(y, 3) FROM test_regr_syy WHERE id = 2"
 
     // String type inputs (compile-time cast only, no table needed)
-    qt_sql_string_1 "select regr_sxy('5', '3')"
-    qt_sql_string_2 "select regr_sxy(1, '3')"
+    qt_sql_string_1 "select regr_syy('5', '3')"
+    qt_sql_string_2 "select regr_syy(1, '3')"
 
     // Boolean type inputs
-    qt_sql_bool_1 "select regr_sxy(true, false)"
+    qt_sql_bool_1 "select regr_syy(true, false)"
 
     // NULL literal inputs
-    qt_sql_null_1 "select regr_sxy(NULL, 1)"
-    qt_sql_null_2 "select regr_sxy(1, NULL)"
+    qt_sql_null_1 "select regr_syy(NULL, 1)"
+    qt_sql_null_2 "select regr_syy(1, NULL)"
+
+    // Exception inputs
+    test {
+        sql "select regr_syy(CAST([1, 2, 3] AS ARRAY<INT>), 1)"
+        exception "regr_syy(y, x): y must be numeric, boolean or string type"
+    }
+    test {
+        sql "select regr_syy(1, CAST([1, 2, 3] AS ARRAY<INT>))"
+        exception "regr_syy(y, x): x must be numeric, boolean or string type"
+    }
 }
