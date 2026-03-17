@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -162,9 +163,9 @@ public class PhysicalNestedLoopJoin<
     @Override
     public PhysicalNestedLoopJoin<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        PhysicalNestedLoopJoin newJoin = new PhysicalNestedLoopJoin<>(joinType,
+        PhysicalNestedLoopJoin newJoin = AbstractPlan.copyWithSameId(this, () -> new PhysicalNestedLoopJoin<>(joinType,
                 hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, markJoinSlotReference, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statistics, children.get(0), children.get(1));
+                getLogicalProperties(), physicalProperties, statistics, children.get(0), children.get(1)));
         if (groupExpression.isPresent()) {
             newJoin.setMutableState(MutableState.KEY_GROUP, groupExpression.get().getOwnerGroup().getGroupId().asInt());
         }
@@ -174,26 +175,26 @@ public class PhysicalNestedLoopJoin<
     @Override
     public PhysicalNestedLoopJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withGroupExpression(
             Optional<GroupExpression> groupExpression) {
-        return new PhysicalNestedLoopJoin<>(joinType,
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalNestedLoopJoin<>(joinType,
                 hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, markJoinSlotReference,
-                groupExpression, getLogicalProperties(), null, null, left(), right());
+                groupExpression, getLogicalProperties(), null, null, left(), right()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new PhysicalNestedLoopJoin<>(joinType,
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalNestedLoopJoin<>(joinType,
                 hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, markJoinSlotReference, groupExpression,
-                logicalProperties.get(), null, null, children.get(0), children.get(1));
+                logicalProperties.get(), null, null, children.get(0), children.get(1)));
     }
 
     @Override
     public PhysicalNestedLoopJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalNestedLoopJoin<>(joinType,
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalNestedLoopJoin<>(joinType,
                 hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts, markJoinSlotReference, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, left(), right());
+                getLogicalProperties(), physicalProperties, statistics, left(), right()));
     }
 
     public void addBitmapRuntimeFilterCondition(Expression expr) {

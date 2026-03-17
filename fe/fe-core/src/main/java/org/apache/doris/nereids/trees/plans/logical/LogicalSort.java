@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
@@ -131,27 +132,32 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     @Override
     public LogicalSort<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalSort<>(orderKeys, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalSort<>(orderKeys, children.get(0)));
     }
 
     @Override
     public LogicalSort<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalSort<>(orderKeys, groupExpression, Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalSort<>(orderKeys, groupExpression, Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public LogicalSort<Plan> withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalSort<>(orderKeys, groupExpression, logicalProperties, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalSort<>(orderKeys, groupExpression, logicalProperties, children.get(0)));
     }
 
     public LogicalSort<Plan> withOrderKeys(List<OrderKey> orderKeys) {
-        return new LogicalSort<>(orderKeys, Optional.empty(),
-                Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalSort<>(orderKeys, Optional.empty(),
+                Optional.of(getLogicalProperties()), child()));
     }
 
     public LogicalSort<Plan> withOrderKeysAndChild(List<OrderKey> orderKeys, Plan child) {
-        return new LogicalSort<>(orderKeys, child);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalSort<>(orderKeys, child));
     }
 }
