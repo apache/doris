@@ -17,32 +17,49 @@
 
 package org.apache.doris.mtmv.ivm;
 
+import com.google.common.base.Preconditions;
+
 import java.util.Objects;
+import java.util.Optional;
 
 /** Result of IVM plan analysis. */
-public class IVMPlanAnalysis {
-    private final IVMPlanPattern pattern;
-    private final String unsupportedReason;
+public final class IVMPlanAnalysis {
+    private final boolean valid;
+    private final Optional<IVMPlanPattern> pattern;
+    private final Optional<String> invalidReason;
 
-    public IVMPlanAnalysis(IVMPlanPattern pattern, String unsupportedReason) {
-        this.pattern = Objects.requireNonNull(pattern, "pattern can not be null");
-        this.unsupportedReason = unsupportedReason;
+    private IVMPlanAnalysis(boolean valid, Optional<IVMPlanPattern> pattern, Optional<String> invalidReason) {
+        this.valid = valid;
+        this.pattern = pattern;
+        this.invalidReason = invalidReason;
     }
 
     public static IVMPlanAnalysis of(IVMPlanPattern pattern) {
-        return new IVMPlanAnalysis(pattern, null);
+        return new IVMPlanAnalysis(true,
+                Optional.of(Objects.requireNonNull(pattern, "pattern can not be null")),
+                Optional.empty());
     }
 
     public static IVMPlanAnalysis unsupported(String unsupportedReason) {
-        return new IVMPlanAnalysis(IVMPlanPattern.UNSUPPORTED,
-                Objects.requireNonNull(unsupportedReason, "unsupportedReason can not be null"));
+        return new IVMPlanAnalysis(false, Optional.empty(),
+                Optional.of(Objects.requireNonNull(unsupportedReason, "unsupportedReason can not be null")));
+    }
+
+    public boolean isValid() {
+        return valid;
+    }
+
+    public boolean isInvalid() {
+        return !valid;
     }
 
     public IVMPlanPattern getPattern() {
-        return pattern;
+        Preconditions.checkArgument(valid, "pattern only exists on valid IVM plan analysis");
+        return pattern.get();
     }
 
     public String getUnsupportedReason() {
-        return unsupportedReason;
+        Preconditions.checkArgument(!valid, "unsupported reason only exists on invalid IVM plan analysis");
+        return invalidReason.get();
     }
 }

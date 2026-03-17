@@ -60,6 +60,22 @@ public class IVMRefreshManagerTest {
     }
 
     @Test
+    public void testPlanAnalysisFactories() {
+        IVMPlanAnalysis valid = IVMPlanAnalysis.of(IVMPlanPattern.SCAN_ONLY);
+        IVMPlanAnalysis invalid = IVMPlanAnalysis.unsupported("unsupported");
+
+        Assert.assertTrue(valid.isValid());
+        Assert.assertFalse(valid.isInvalid());
+        Assert.assertEquals(IVMPlanPattern.SCAN_ONLY, valid.getPattern());
+        Assert.assertThrows(IllegalArgumentException.class, valid::getUnsupportedReason);
+
+        Assert.assertFalse(invalid.isValid());
+        Assert.assertTrue(invalid.isInvalid());
+        Assert.assertEquals("unsupported", invalid.getUnsupportedReason());
+        Assert.assertThrows(IllegalArgumentException.class, invalid::getPattern);
+    }
+
+    @Test
     public void testManagerRejectsNulls() {
         IVMPlanAnalyzer analyzer = context -> IVMPlanAnalysis.of(IVMPlanPattern.SCAN_ONLY);
         IVMCapabilityChecker checker = (context, analysis) -> IVMCapabilityResult.ok();
